@@ -28,7 +28,7 @@ jCodeMunch MCP indexes a local codebase once, then lets MCP-compatible agents (C
 > Cost scales with tokens. Latency often scales with “how much junk the model must read”.  
 > jCodeMunch reduces both by turning *search* into *navigation*.
 
-![Token benchmark](docs/benchmark.png)
+![Token benchmark](benchmark.png)
 
 ---
 
