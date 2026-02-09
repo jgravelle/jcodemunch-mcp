@@ -1,9 +1,9 @@
-# github-codemunch-mcp — Architecture & Parser Design
+# jcodemunch-mcp — Architecture & Parser Design
 
 ## 1. Project Directory Structure
 
 ```
-github-codemunch-mcp/
+jcodemunch-mcp/
 ├── pyproject.toml              # Package config, deps, entry point
 ├── .gitignore                  # Python gitignore
 ├── README.md                   # User-facing documentation
@@ -14,7 +14,7 @@ github-codemunch-mcp/
 ├── PROMPT.md                   # Session prompt for builders
 │
 ├── src/
-│   └── github_codemunch_mcp/
+│   └── jcodemunch_mcp/
 │       ├── __init__.py                 # Package init, __version__
 │       ├── server.py                   # MCP server: tool registration + dispatch
 │       │
@@ -571,7 +571,7 @@ This is O(1) — no re-parsing, no scanning, just a seek + read.
 
 ## 6. Comparison: docs-mcp → codemunch-mcp
 
-This table maps every component from github-docs-mcp to its counterpart in github-codemunch-mcp. Use this to understand the architectural parallels.
+This table maps every component from github-docs-mcp to its counterpart in jcodemunch-mcp. Use this to understand the architectural parallels.
 
 | docs-mcp | codemunch-mcp | Notes |
 |----------|---------------|-------|
@@ -631,3 +631,4 @@ This table maps every component from github-docs-mcp to its counterpart in githu
 - Different index schemas (symbols vs sections)
 - Avoids naming collisions if same repo is indexed by both
 - Clean separation of concerns
+

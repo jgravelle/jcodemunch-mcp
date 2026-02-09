@@ -1,5 +1,5 @@
 [project]
-name = "github-codemunch-mcp"
+name = "jcodemunch-mcp"
 version = "0.1.0"
 description = "Token-efficient MCP server for GitHub source code exploration via tree-sitter AST parsing"
 readme = "README.md"
@@ -13,14 +13,14 @@ dependencies = [
 ]
 
 [project.scripts]
-github-codemunch-mcp = "github_codemunch_mcp.server:main"
+jcodemunch-mcp = "jcodemunch_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/github_codemunch_mcp"]
+packages = ["src/jcodemunch_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

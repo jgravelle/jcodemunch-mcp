@@ -1,10 +1,10 @@
-# github-codemunch-mcp
+# jcodemunch-mcp
 
 Token-efficient MCP server for GitHub source code exploration via tree-sitter AST parsing.
 
 ## Overview
 
-**github-codemunch-mcp** pre-indexes repository source code using tree-sitter AST parsing, extracting a structured catalog of every symbol (function, class, method, constant, type). Each symbol stores only its **signature + one-line summary**, with the ability to retrieve full source on demand.
+**jcodemunch-mcp** pre-indexes repository source code using tree-sitter AST parsing, extracting a structured catalog of every symbol (function, class, method, constant, type). Each symbol stores only its **signature + one-line summary**, with the ability to retrieve full source on demand.
 
 ### Token Savings
 
@@ -19,7 +19,7 @@ Token-efficient MCP server for GitHub source code exploration via tree-sitter AS
 ### Installation
 
 ```bash
-pip install github-codemunch-mcp
+pip install jcodemunch-mcp
 ```
 
 ### Configure MCP
@@ -30,7 +30,7 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "github-codemunch": {
-      "command": "github-codemunch-mcp",
+      "command": "jcodemunch-mcp",
       "env": {
         "GITHUB_TOKEN": "your_github_token",
         "ANTHROPIC_API_KEY": "your_anthropic_key"
@@ -94,3 +94,4 @@ Add to your `claude_desktop_config.json`:
 ## License
 
 MIT
+

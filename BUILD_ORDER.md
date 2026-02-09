@@ -1,4 +1,4 @@
-# github-codemunch-mcp — Build Order
+# jcodemunch-mcp — Build Order
 
 Step-by-step implementation guide. 6 phases, 20 steps. Each phase has a test checkpoint.
 
@@ -11,17 +11,17 @@ Step-by-step implementation guide. 6 phases, 20 steps. Each phase has a test che
 ### Step 1: Project Scaffold
 **Create files**:
 - `pyproject.toml` (already exists — verify deps)
-- `src/github_codemunch_mcp/__init__.py` — package init with `__version__ = "0.1.0"`
-- `src/github_codemunch_mcp/parser/__init__.py`
-- `src/github_codemunch_mcp/storage/__init__.py`
-- `src/github_codemunch_mcp/summarizer/__init__.py`
-- `src/github_codemunch_mcp/tools/__init__.py`
+- `src/jcodemunch_mcp/__init__.py` — package init with `__version__ = "0.1.0"`
+- `src/jcodemunch_mcp/parser/__init__.py`
+- `src/jcodemunch_mcp/storage/__init__.py`
+- `src/jcodemunch_mcp/summarizer/__init__.py`
+- `src/jcodemunch_mcp/tools/__init__.py`
 - `tests/__init__.py`
 
 **Verify**: `pip install -e .` succeeds.
 
 ### Step 2: Symbol Dataclass
-**File**: `src/github_codemunch_mcp/parser/symbols.py`
+**File**: `src/jcodemunch_mcp/parser/symbols.py`
 
 Implement:
 - `Symbol` dataclass (see SPEC.md Section 3.1)
@@ -31,7 +31,7 @@ Implement:
 **Verify**: Import succeeds, can create Symbol instances.
 
 ### Step 3: Language Registry
-**File**: `src/github_codemunch_mcp/parser/languages.py`
+**File**: `src/jcodemunch_mcp/parser/languages.py`
 
 Implement:
 - `LanguageSpec` dataclass (see ARCHITECTURE.md Section 2.2)
@@ -42,7 +42,7 @@ Implement:
 **Verify**: Can import `LANGUAGE_REGISTRY["python"]` and all fields are populated.
 
 ### Step 4: Generic Extractor (Python First)
-**File**: `src/github_codemunch_mcp/parser/extractor.py`
+**File**: `src/jcodemunch_mcp/parser/extractor.py`
 
 Implement:
 - `parse_file(content: str, filename: str, language: str) -> list[Symbol]`
@@ -55,7 +55,7 @@ Implement:
 **Verify**: Parse a Python file and get correct Symbol list.
 
 ### Step 5: Symbol Hierarchy
-**File**: `src/github_codemunch_mcp/parser/hierarchy.py`
+**File**: `src/jcodemunch_mcp/parser/hierarchy.py`
 
 Implement:
 - `SymbolNode` dataclass (symbol + children)
@@ -99,7 +99,7 @@ def test_parse_python():
 **Goal**: Can save/load indexes and generate summaries. No GitHub integration yet — uses local data.
 
 ### Step 6: CodeIndex and IndexStore
-**File**: `src/github_codemunch_mcp/storage/index_store.py`
+**File**: `src/jcodemunch_mcp/storage/index_store.py`
 
 Implement:
 - `CodeIndex` dataclass (see SPEC.md Section 3.2)
@@ -116,7 +116,7 @@ Implement:
 **Dependencies**: Step 2 (Symbol)
 
 ### Step 7: Summarizer
-**File**: `src/github_codemunch_mcp/summarizer/batch_summarize.py`
+**File**: `src/jcodemunch_mcp/summarizer/batch_summarize.py`
 
 Implement:
 - `extract_summary_from_docstring(docstring: str) -> str` — Tier 1
@@ -166,13 +166,13 @@ def test_simple_summarize():
 **Goal**: Can index a real GitHub repository end-to-end.
 
 ### Step 8: GitHub URL Parsing
-**File**: `src/github_codemunch_mcp/tools/index_repo.py`
+**File**: `src/jcodemunch_mcp/tools/index_repo.py`
 
 Implement:
 - `parse_github_url(url: str) -> tuple[str, str]` — extract owner/repo (identical to docs-mcp)
 
 ### Step 9: File Discovery via Git Trees API
-**File**: `src/github_codemunch_mcp/tools/index_repo.py`
+**File**: `src/jcodemunch_mcp/tools/index_repo.py`
 
 Implement:
 - `fetch_repo_tree(owner, repo, token) -> list[dict]` — calls `GET /repos/{owner}/{repo}/git/trees/HEAD?recursive=1`
@@ -187,7 +187,7 @@ Implement:
 **Dependencies**: Step 3 (LANGUAGE_EXTENSIONS)
 
 ### Step 10: Content Fetching
-**File**: `src/github_codemunch_mcp/tools/index_repo.py`
+**File**: `src/jcodemunch_mcp/tools/index_repo.py`
 
 Implement:
 - `fetch_file_content(owner, repo, path, token) -> str` — raw content via GitHub API
@@ -195,7 +195,7 @@ Implement:
 - Concurrency: use `asyncio.Semaphore(10)` to limit concurrent requests
 
 ### Step 11: Index Tool Orchestration
-**File**: `src/github_codemunch_mcp/tools/index_repo.py`
+**File**: `src/jcodemunch_mcp/tools/index_repo.py`
 
 Implement:
 - `index_repo(url, use_ai_summaries, github_token, storage_path) -> dict`
@@ -240,12 +240,12 @@ def test_file_discovery():
 **Goal**: All 6 remaining tools work against a saved index.
 
 ### Step 12: list_repos Tool
-**File**: `src/github_codemunch_mcp/tools/list_repos.py`
+**File**: `src/jcodemunch_mcp/tools/list_repos.py`
 
 Implement `list_repos(storage_path)` → dict. Thin wrapper around `IndexStore.list_repos()`.
 
 ### Step 13: get_file_tree Tool
-**File**: `src/github_codemunch_mcp/tools/get_file_tree.py`
+**File**: `src/jcodemunch_mcp/tools/get_file_tree.py`
 
 Implement `get_file_tree(repo, path_prefix, storage_path)` → dict.
 - Load index
@@ -254,7 +254,7 @@ Implement `get_file_tree(repo, path_prefix, storage_path)` → dict.
 - Filter by path_prefix if provided
 
 ### Step 14: get_file_outline Tool
-**File**: `src/github_codemunch_mcp/tools/get_file_outline.py`
+**File**: `src/jcodemunch_mcp/tools/get_file_outline.py`
 
 **Dependencies**: Step 5 (hierarchy), Step 6 (storage)
 
@@ -265,14 +265,14 @@ Implement `get_file_outline(repo, file_path, storage_path)` → dict.
 - Return signatures + summaries (no source code)
 
 ### Step 15: get_symbol and get_symbols Tools
-**File**: `src/github_codemunch_mcp/tools/get_symbol.py`
+**File**: `src/jcodemunch_mcp/tools/get_symbol.py`
 
 Implement:
 - `get_symbol(repo, symbol_id, storage_path)` → dict — loads full source via byte-offset read
 - `get_symbols(repo, symbol_ids, storage_path)` → dict — batch retrieval
 
 ### Step 16: search_symbols Tool
-**File**: `src/github_codemunch_mcp/tools/search_symbols.py`
+**File**: `src/jcodemunch_mcp/tools/search_symbols.py`
 
 Implement `search_symbols(repo, query, kind, file_pattern, max_results, storage_path)` → dict.
 - Load index
@@ -305,10 +305,10 @@ def test_get_symbol_source(tmp_path):
 **Goal**: MCP server runs and handles all 7 tools. All 6 languages are supported.
 
 ### Step 17: MCP Server
-**File**: `src/github_codemunch_mcp/server.py`
+**File**: `src/jcodemunch_mcp/server.py`
 
 Implement:
-- Create `Server("github-codemunch-mcp")`
+- Create `Server("jcodemunch-mcp")`
 - `@server.list_tools()` — return all 7 Tool definitions with input schemas (from SPEC.md Section 2)
 - `@server.call_tool()` — dispatch to tool functions
 - `run_server()` async function
@@ -317,7 +317,7 @@ Implement:
 **Pattern**: Follow docs-mcp `server.py` exactly. Same structure, different tool names and schemas.
 
 ### Step 18: Add Remaining Language Specs
-**File**: `src/github_codemunch_mcp/parser/languages.py`
+**File**: `src/jcodemunch_mcp/parser/languages.py`
 
 Add to `LANGUAGE_REGISTRY`:
 - `JAVASCRIPT_SPEC` (see ARCHITECTURE.md Section 2.3)
@@ -455,3 +455,4 @@ Step 1 (scaffold)
 | 4 | 12-16 | All query tools work | test_tools.py (queries) passes |
 | 5 | 17-19 | MCP server runs, all languages | test_languages.py, test_server.py pass |
 | 6 | 20 | Docs complete, all tests pass | Full test suite passes |
+

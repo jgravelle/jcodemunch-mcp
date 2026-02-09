@@ -3,7 +3,7 @@
 import pytest
 import json
 
-from github_codemunch_mcp.server import server, list_tools, call_tool
+from jcodemunch_mcp.server import server, list_tools, call_tool
 
 
 @pytest.mark.asyncio
@@ -50,3 +50,4 @@ async def test_search_symbols_tool_schema():
     # kind should have enum
     assert "enum" in props["kind"]
     assert set(props["kind"]["enum"]) == {"function", "class", "method", "constant", "type"}
+

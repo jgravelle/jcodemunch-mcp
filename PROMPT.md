@@ -1,12 +1,12 @@
-# Build Prompt for github-codemunch-mcp
+# Build Prompt for jcodemunch-mcp
 
-Copy everything below the line into a new Claude Code session opened in `C:\ai\github-codemunch-mcp\`.
+Copy everything below the line into a new Claude Code session opened in `C:\ai\jcodemunch-mcp\`.
 
 ---
 
 ## Prompt
 
-You are building **github-codemunch-mcp**, a token-efficient MCP server that indexes GitHub repository source code using tree-sitter AST parsing. When an AI assistant needs to understand a codebase, this server provides structured access to symbols (functions, classes, methods, constants, types) with 97%+ token savings over dumping raw files.
+You are building **jcodemunch-mcp**, a token-efficient MCP server that indexes GitHub repository source code using tree-sitter AST parsing. When an AI assistant needs to understand a codebase, this server provides structured access to symbols (functions, classes, methods, constants, types) with 97%+ token savings over dumping raw files.
 
 ### Project Context
 
@@ -77,3 +77,4 @@ Follow `BUILD_ORDER.md` exactly. Build in phase order (1 through 6). After each 
 - `pathspec>=0.12.0` — .gitignore matching
 
 Start by reading all four spec documents, then begin Phase 1, Step 1.
+

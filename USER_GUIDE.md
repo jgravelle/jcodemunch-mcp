@@ -1,18 +1,18 @@
-# github-codemunch-mcp User Guide
+# jcodemunch-mcp User Guide
 
 ## Installation
 
 ### From PyPI
 
 ```bash
-pip install github-codemunch-mcp
+pip install jcodemunch-mcp
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/github-codemunch-mcp.git
-cd github-codemunch-mcp
+git clone https://github.com/yourusername/jcodemunch-mcp.git
+cd jcodemunch-mcp
 pip install -e .
 ```
 
@@ -26,7 +26,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "github-codemunch": {
-      "command": "github-codemunch-mcp",
+      "command": "jcodemunch-mcp",
       "env": {
         "GITHUB_TOKEN": "ghp_xxxxxxxx",
         "ANTHROPIC_API_KEY": "sk-ant-xxxxxxxx"
@@ -44,7 +44,7 @@ Add to `.vscode/settings.json`:
 {
   "mcp.servers": {
     "github-codemunch": {
-      "command": "github-codemunch-mcp",
+      "command": "jcodemunch-mcp",
       "env": {
         "GITHUB_TOKEN": "ghp_xxxxxxxx"
       }
@@ -281,3 +281,4 @@ Each repository gets:
 3. **Batch retrieval** - Use `get_symbols` for related symbols
 4. **Filter by kind** - Search for just `class` or `function`
 5. **Re-index periodically** - Code changes; re-index to stay current
+

@@ -1,8 +1,8 @@
 """Tests for summarizer module."""
 
 import pytest
-from github_codemunch_mcp.parser import Symbol
-from github_codemunch_mcp.summarizer import (
+from jcodemunch_mcp.parser import Symbol
+from jcodemunch_mcp.summarizer import (
     extract_summary_from_docstring,
     signature_fallback,
     summarize_symbols_simple,
@@ -105,3 +105,4 @@ def test_simple_summarize_fallback_to_signature():
     
     result = summarize_symbols_simple(symbols)
     assert "def foo" in result[0].summary
+

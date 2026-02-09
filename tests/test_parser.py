@@ -1,7 +1,7 @@
 """Tests for the parser module (Phase 1)."""
 
 import pytest
-from github_codemunch_mcp.parser import parse_file, Symbol
+from jcodemunch_mcp.parser import parse_file, Symbol
 
 
 PYTHON_SOURCE = '''
@@ -51,7 +51,7 @@ def test_parse_python():
 
 def test_symbol_id_format():
     """Test symbol ID generation."""
-    from github_codemunch_mcp.parser import make_symbol_id
+    from jcodemunch_mcp.parser import make_symbol_id
     
     assert make_symbol_id("src/main.py", "MyClass.method") == "src-main-py::MyClass.method"
     assert make_symbol_id("test.py", "standalone") == "test-py::standalone"
@@ -75,3 +75,4 @@ def test_symbol_byte_offsets():
         # Line numbers should be positive
         assert sym.line > 0
         assert sym.end_line >= sym.line
+

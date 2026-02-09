@@ -1,4 +1,4 @@
-# github-codemunch-mcp — Technical Specification
+# jcodemunch-mcp — Technical Specification
 
 > Token-efficient MCP server for GitHub source code exploration via tree-sitter AST parsing.
 
@@ -8,7 +8,7 @@
 When an AI assistant needs to understand a GitHub repository's source code, the naive approach dumps entire files into context. A 10,000-line codebase consumes ~40,000 tokens just to read. Most of those tokens are function bodies the assistant never needs.
 
 ### Solution
-**github-codemunch-mcp** pre-indexes repository source code using tree-sitter AST parsing, extracting a structured catalog of every symbol (function, class, method, constant, type). Each symbol stores only its **signature + one-line summary**, with the ability to retrieve full source on demand.
+**jcodemunch-mcp** pre-indexes repository source code using tree-sitter AST parsing, extracting a structured catalog of every symbol (function, class, method, constant, type). Each symbol stores only its **signature + one-line summary**, with the ability to retrieve full source on demand.
 
 ### Token Savings
 | Scenario | Raw dump | codemunch | Savings |
@@ -21,7 +21,7 @@ When an AI assistant needs to understand a GitHub repository's source code, the 
 **Target: 97%+ average token savings across typical code exploration workflows.**
 
 ### Relationship to github-docs-mcp
-This is a sibling project. `github-docs-mcp` indexes **documentation** (Markdown files) using section-based parsing. `github-codemunch-mcp` indexes **source code** using AST-based parsing. They share architectural patterns but have completely independent codebases and storage.
+This is a sibling project. `github-docs-mcp` indexes **documentation** (Markdown files) using section-based parsing. `jcodemunch-mcp` indexes **source code** using AST-based parsing. They share architectural patterns but have completely independent codebases and storage.
 
 | Concept | docs-mcp | codemunch-mcp |
 |---------|----------|---------------|
@@ -744,3 +744,4 @@ For tool responses, target these token budgets:
 | `get_symbols` | <5,000 | Multiple symbols, batched |
 
 These represent typical cases. Actual sizes vary with repo/file/symbol size.
+

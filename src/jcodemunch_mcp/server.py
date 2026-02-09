@@ -1,4 +1,4 @@
-"""MCP server for github-codemunch-mcp."""
+"""MCP server for jcodemunch-mcp."""
 
 import asyncio
 import json
@@ -9,6 +9,7 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent
 
 from .tools.index_repo import index_repo
+from .tools.index_folder import index_folder
 from .tools.list_repos import list_repos
 from .tools.get_file_tree import get_file_tree
 from .tools.get_file_outline import get_file_outline
@@ -17,7 +18,7 @@ from .tools.search_symbols import search_symbols
 
 
 # Create server
-server = Server("github-codemunch-mcp")
+server = Server("jcodemunch-mcp")
 
 
 @server.list_tools()
@@ -41,6 +42,25 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["url"]
+            }
+        ),
+        Tool(
+            name="index_folder",
+            description="Index a local folder containing source code. Walks directory, parses ASTs, extracts symbols, and saves to local storage. Works with any folder containing supported language files.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to local folder (absolute or relative, supports ~ for home directory)"
+                    },
+                    "use_ai_summaries": {
+                        "type": "boolean",
+                        "description": "Use AI to generate symbol summaries (requires ANTHROPIC_API_KEY). When false, uses docstrings or signature fallback.",
+                        "default": True
+                    }
+                },
+                "required": ["path"]
             }
         ),
         Tool(
@@ -169,6 +189,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if name == "index_repo":
             result = await index_repo(
                 url=arguments["url"],
+                use_ai_summaries=arguments.get("use_ai_summaries", True),
+                storage_path=storage_path
+            )
+        elif name == "index_folder":
+            result = index_folder(
+                path=arguments["path"],
                 use_ai_summaries=arguments.get("use_ai_summaries", True),
                 storage_path=storage_path
             )

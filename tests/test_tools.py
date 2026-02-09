@@ -1,7 +1,7 @@
 """Tests for tools module."""
 
 import pytest
-from github_codemunch_mcp.tools.index_repo import (
+from jcodemunch_mcp.tools.index_repo import (
     parse_github_url,
     discover_source_files,
     should_skip_file,
@@ -72,3 +72,4 @@ def test_discover_source_files_prioritizes_src():
     # Most files should be from src/
     src_count = sum(1 for f in files if f.startswith("src/"))
     assert src_count > 50  # Majority should be src/
+

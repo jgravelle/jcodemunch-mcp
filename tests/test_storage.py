@@ -4,8 +4,8 @@ import pytest
 import json
 from pathlib import Path
 
-from github_codemunch_mcp.storage import IndexStore, CodeIndex
-from github_codemunch_mcp.parser import Symbol
+from jcodemunch_mcp.storage import IndexStore, CodeIndex
+from jcodemunch_mcp.parser import Symbol
 
 
 def test_save_and_load_index(tmp_path):
@@ -169,3 +169,4 @@ def test_codeindex_search():
     
     results = index.search("login", kind="function")
     assert len(results) > 0
+

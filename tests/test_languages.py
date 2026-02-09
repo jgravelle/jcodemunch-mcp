@@ -1,7 +1,7 @@
 """Tests for language-specific parsing."""
 
 import pytest
-from github_codemunch_mcp.parser import parse_file
+from jcodemunch_mcp.parser import parse_file
 
 
 JAVASCRIPT_SOURCE = '''
@@ -180,3 +180,4 @@ def test_parse_java():
     add = next((s for s in symbols if s.name == "add"), None)
     assert add is not None
     assert add.kind == "method"
+
