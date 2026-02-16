@@ -7,9 +7,9 @@ open entire files → skim thousands of irrelevant lines → repeat.
 
 | Task                   | Traditional approach | With jCodeMunch |
 | ---------------------- | -------------------- | --------------- |
-| Find a function        | ~40k tokens          | ~200 tokens     |
-| Understand module API  | ~15k tokens          | ~800 tokens     |
-| Explore repo structure | ~200k tokens         | ~2k tokens      |
+| Find a function        | ~40,000 tokens       | ~200 tokens     |
+| Understand module API  | ~15,000 tokens       | ~800 tokens     |
+| Explore repo structure | ~200,000 tokens      | ~2k tokens      |
 
 Index once. Query cheaply forever.
 Precision context beats brute-force context.
