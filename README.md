@@ -10,6 +10,8 @@
 
 jCodeMunch indexes a codebase once using tree-sitter AST parsing, then lets MCP-compatible agents (Claude Desktop, VS Code, etc.) **discover and retrieve code by symbol** instead of brute-reading files. Every symbol stores its signature + one-line summary, with full source retrievable on demand via O(1) byte-offset seeking.
 
+> **Part of the Munch Trio** — see [The Munch Trio](#the-munch-trio) below for the full ecosystem including documentation indexing and unified orchestration.
+
 ---
 
 ## Proof first: Token savings in the wild
@@ -69,17 +71,31 @@ IDs are stable across re-indexing when file path, qualified name, and kind are u
 
 ---
 
-## Quickstart
+## Installation
+
+### Prerequisites
+
+- **Python 3.10+**
+- **pip** (or any Python package manager)
 
 ### Install
 
 ```bash
-pip install jcodemunch-mcp
+pip install git+https://github.com/jgravelle/jcodemunch-mcp.git
 ```
 
-### Configure MCP
+Verify:
 
-Add to your `claude_desktop_config.json`:
+```bash
+jcodemunch-mcp --help 2>&1 | head -1   # should not error
+```
+
+### Configure MCP Client
+
+#### Claude Code / Claude Desktop (claude_desktop_config.json)
+
+**macOS/Linux** — `~/.config/claude/claude_desktop_config.json`
+**Windows** — `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -87,15 +103,25 @@ Add to your `claude_desktop_config.json`:
     "jcodemunch": {
       "command": "jcodemunch-mcp",
       "env": {
-        "GITHUB_TOKEN": "your_github_token",
-        "ANTHROPIC_API_KEY": "your_anthropic_key"
+        "GITHUB_TOKEN": "ghp_...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }
 }
 ```
 
-Both env vars are optional. `GITHUB_TOKEN` enables private repos + higher rate limits. `ANTHROPIC_API_KEY` enables AI-generated summaries.
+Both env vars are optional:
+- **GITHUB_TOKEN** — enables private repos + higher GitHub API rate limits
+- **ANTHROPIC_API_KEY** — enables AI-generated symbol summaries (falls back to docstrings/signatures without it)
+
+#### Other MCP clients
+
+Any MCP client that supports stdio transport can use jcodemunch-mcp. Point it at the `jcodemunch-mcp` command with the environment variables above.
+
+### Verify
+
+Once configured, ask your MCP client to list tools. You should see 11 tools.
 
 ### Usage
 
@@ -189,10 +215,29 @@ See [SECURITY.md](SECURITY.md) for full details.
 
 ## Troubleshooting
 
-- **Rate limits:** Set `GITHUB_TOKEN` for higher GitHub API limits
-- **Large repos:** First 500 files indexed (priority: `src/`, `lib/`, `pkg/`)
-- **Encoding issues:** Invalid UTF-8 handled gracefully with replacement characters
-- **Stale index:** Use `invalidate_cache` to force a clean re-index
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Rate limits on GitHub API | No token configured | Set `GITHUB_TOKEN` for higher limits |
+| Large repos only partially indexed | Default 500-file limit | Priority given to `src/`, `lib/`, `pkg/` |
+| Encoding issues | Invalid UTF-8 in source files | Handled gracefully with replacement characters |
+| Stale index | Source code changed since indexing | Use `invalidate_cache` to force clean re-index |
+| `jcodemunch-mcp` command not found | Package not installed or not on PATH | Re-run `pip install` and check `which jcodemunch-mcp` |
+
+---
+
+## The Munch Trio
+
+jCodeMunch is part of a three-package ecosystem for giving AI agents structured access to both code and documentation:
+
+| Package | Purpose | Repo |
+|---------|---------|------|
+| **jcodemunch-mcp** (this repo) | Token-efficient code symbol indexing via tree-sitter AST parsing | 11 tools |
+| [jdocmunch-mcp](https://github.com/jgravelle/jdocmunch-mcp) | Token-efficient documentation section indexing | 8 tools |
+| [jcontextmunch-mcp](https://github.com/jgravelle/jcontextmunch-mcp) | Unified orchestration — hybrid search, context assembly, cross-references | 9 tools |
+
+**Using all three?** You only need to configure [jcontextmunch-mcp](https://github.com/jgravelle/jcontextmunch-mcp) in your MCP client — it spawns jcodemunch-mcp and jdocmunch-mcp as subprocesses automatically. See the [jcontextmunch-mcp installation guide](https://github.com/jgravelle/jcontextmunch-mcp#full-installation-guide) for details.
+
+---
 
 ## Documentation
 
