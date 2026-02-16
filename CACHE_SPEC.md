@@ -13,11 +13,18 @@
         └── test_main.py
 ```
 
+---
+
 ## Cache Keys
 
 Each repository is identified by `{owner}-{name}`:
-- GitHub repos: owner and repo name from the URL (e.g., `pydantic-monty`)
-- Local folders: `local-{folder_name}` (e.g., `local-myproject`)
+
+* **GitHub repositories**: owner and repository name from the URL
+  Example: `pydantic-monty`
+* **Local folders**: `local-{folder_name}`
+  Example: `local-myproject`
+
+---
 
 ## Index Schema
 
@@ -39,63 +46,87 @@ Each repository is identified by `{owner}-{name}`:
 }
 ```
 
+---
+
 ## Index Versioning
 
-- `index_version` is stored in every index JSON.
-- Current version: **2** (defined in `INDEX_VERSION` constant).
-- On load, if `stored_version > INDEX_VERSION`, the index is rejected (returns None).
-- Older versions (v1) are loaded with missing fields defaulting to empty values.
-- Bump `INDEX_VERSION` when making breaking schema changes.
+* `index_version` is stored in every index JSON.
+* The current version is defined by the `INDEX_VERSION` constant.
+* If a stored index has a **newer** version than the running software, the index is rejected.
+* Older versions are loaded with missing optional fields populated using defaults.
+* Increment `INDEX_VERSION` only for **breaking schema changes**.
+
+---
 
 ## File Hash Change Detection
 
-Each indexed file's SHA-256 hash is stored in `file_hashes`.
+Each indexed file stores a SHA-256 content hash in `file_hashes`.
 
-On re-index with `incremental=True`:
-1. Read current file contents and compute hashes.
-2. Compare against stored `file_hashes`.
-3. Classify files as: **changed** (hash differs), **new** (not in old index), **deleted** (in old index but not on disk).
+During incremental indexing:
+
+1. Compute hashes for current files.
+2. Compare with stored hashes.
+3. Classify files as:
+
+   * **Changed** — hash differs
+   * **New** — not present in prior index
+   * **Deleted** — present previously but missing now
+
+---
 
 ## Incremental Indexing
 
-When `incremental=True` and an existing index is found:
+When `incremental=True` and a prior index exists:
 
-1. **Detect changes** via `IndexStore.detect_changes()`.
-2. **Re-parse only** changed and new files.
-3. **Remove symbols** for deleted and changed files from existing index.
-4. **Merge** new symbols into the remaining symbol list.
-5. **Update** file hashes, source files list, and languages.
-6. **Save atomically** via temp file + rename.
+1. Detect file changes via `IndexStore.detect_changes()`.
+2. Re-parse only changed and new files.
+3. Remove symbols belonging to changed or deleted files.
+4. Merge newly extracted symbols into the index.
+5. Update file hashes, source file lists, and language counts.
+6. Save the updated index atomically.
 
-If no existing index exists, falls back to full index.
+If no prior index exists, a full index is created automatically.
+
+---
 
 ## Git Branch Switching
 
-For git repositories (local folders):
-- `git_head` stores the HEAD commit hash at index time.
-- On re-index, if HEAD changed, a full reindex is triggered (or diff-based if incremental).
-- `_get_git_head()` runs `git rev-parse HEAD` with a 5-second timeout.
+For Git-based repositories:
+
+* `git_head` records the repository HEAD commit at index time.
+* On re-index, a changed HEAD indicates potential file changes.
+* A full or incremental re-index is triggered depending on configuration.
+* Commit detection uses `git rev-parse HEAD` with a bounded execution timeout.
+
+---
 
 ## Invalidation
 
 ### Manual Invalidation
-- **`invalidate_cache(repo)`** MCP tool: deletes index JSON and raw content directory.
-- **`delete_index(owner, name)`** on IndexStore: same effect programmatically.
+
+* `invalidate_cache(repo)` MCP tool deletes the index JSON and cached file directory.
+* `IndexStore.delete_index(owner, name)` performs the same operation programmatically.
 
 ### Automatic Invalidation
-- Re-indexing the same repo overwrites the existing index.
-- Index version mismatch causes the old index to be ignored.
+
+* Re-indexing overwrites existing indexes.
+* Index-version mismatches cause the stored index to be ignored automatically.
+
+---
 
 ## Atomic Writes
 
-Index JSON is written via a two-step process:
-1. Write to `{owner}-{name}.json.tmp`
-2. Rename (replace) to `{owner}-{name}.json`
+Indexes are written using a safe two-step process:
 
-This prevents corrupted index files from partial writes or crashes.
+1. Write to `{owner}-{name}.json.tmp`
+2. Rename to `{owner}-{name}.json`
+
+This prevents corrupted indexes caused by partial writes or process interruptions.
+
+---
 
 ## Hash Strategy
 
-- **File hashes:** SHA-256 of UTF-8 encoded file content string.
-- **Symbol content hashes:** SHA-256 of raw symbol source bytes (stored per-symbol for drift detection).
-- All hashes are hex-encoded strings.
+* **File hashes**: SHA-256 of UTF-8 encoded file content
+* **Symbol hashes**: SHA-256 of raw symbol source bytes (used for drift detection)
+* All hashes are stored as hexadecimal strings
