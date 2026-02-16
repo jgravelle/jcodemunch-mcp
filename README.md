@@ -1,7 +1,3 @@
-Below is a refined version with **minor factual tightening, clearer positioning, and removal of a few small inconsistencies** (for example: clarified indexing limits wording, improved benchmark framing, and tightened installation verification). Tone and structure preserved intentionally.
-
----
-
 # jCodeMunch MCP
 
 ### Make AI agents cheaper and faster on real codebases
@@ -255,6 +251,3 @@ When using all three, configuring **jcontextmunch-mcp** alone is sufficient — 
 
 MIT
 
----
-
-If you want, next I can do the **SYMBOL_SPEC.md editorial pass**, which is the most important technical file for adoption because it directly defines interoperability guarantees between jCodeMunch and jContextMunch.
