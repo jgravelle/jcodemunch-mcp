@@ -1,5 +1,3 @@
-# jcodemunch-mcp — TOKEN_SAVINGS.md
-
 # Token Savings: jCodeMunch MCP
 
 ## Why This Exists
