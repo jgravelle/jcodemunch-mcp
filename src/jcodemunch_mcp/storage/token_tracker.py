@@ -17,9 +17,9 @@ _SAVINGS_FILE = "_savings.json"
 _BYTES_PER_TOKEN = 4  # ~4 bytes per token (rough but consistent)
 
 # Input token pricing ($ per token). Update as models reprice.
-_PRICING = {
-    "claude_opus": 15.00 / 1_000_000,   # Claude Opus — $15/1M input tokens
-    "gpt4o":        2.50 / 1_000_000,   # GPT-4o      — $2.50/1M input tokens
+PRICING = {
+    "claude_opus":  5.00 / 1_000_000,   # Claude Opus 4.6 — $5.00 / 1M input tokens
+    "gpt5_latest":  1.75 / 1_000_000,   # GPT-5.2 (latest flagship GPT) — $1.75 / 1M input tokens
 }
 
 
@@ -66,18 +66,18 @@ def cost_avoided(tokens_saved: int, total_tokens_saved: int) -> dict:
     """Return cost avoided estimates for this call and the running total.
 
     Returns a dict ready to be merged into a _meta envelope:
-        cost_avoided:       {claude_opus: float, gpt4o: float}
-        total_cost_avoided: {claude_opus: float, gpt4o: float}
+        cost_avoided:       {claude_opus: float, gpt5_latest: float}
+        total_cost_avoided: {claude_opus: float, gpt5_latest: float}
 
     Values are in USD, rounded to 4 decimal places.
     """
     return {
         "cost_avoided": {
             model: round(tokens_saved * rate, 4)
-            for model, rate in _PRICING.items()
+            for model, rate in PRICING.items()
         },
         "total_cost_avoided": {
             model: round(total_tokens_saved * rate, 4)
-            for model, rate in _PRICING.items()
+            for model, rate in PRICING.items()
         },
     }
