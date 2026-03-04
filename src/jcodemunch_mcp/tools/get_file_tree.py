@@ -5,36 +5,31 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
+from ._utils import resolve_repo
 
 
 def get_file_tree(
     repo: str,
     path_prefix: str = "",
+    include_summaries: bool = False,
     storage_path: Optional[str] = None
 ) -> dict:
     """Get repository file tree, optionally filtered by path prefix.
-    
+
     Args:
         repo: Repository identifier (owner/repo or just repo name)
         path_prefix: Optional path prefix to filter
         storage_path: Custom storage path
-    
+
     Returns:
         Dict with hierarchical tree structure
     """
     start = time.perf_counter()
 
-    # Parse repo identifier
-    if "/" in repo:
-        owner, name = repo.split("/", 1)
-    else:
-        # Try to find by name only
-        store = IndexStore(base_path=storage_path)
-        repos = store.list_repos()
-        matching = [r for r in repos if r["repo"].endswith(f"/{repo}")]
-        if not matching:
-            return {"error": f"Repository not found: {repo}"}
-        owner, name = matching[0]["repo"].split("/", 1)
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
     
     # Load index
     store = IndexStore(base_path=storage_path)
@@ -54,7 +49,7 @@ def get_file_tree(
         }
     
     # Build tree structure
-    tree = _build_tree(files, index, path_prefix)
+    tree = _build_tree(files, index, path_prefix, include_summaries)
 
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -69,7 +64,7 @@ def get_file_tree(
     }
 
 
-def _build_tree(files: list[str], index, path_prefix: str) -> list[dict]:
+def _build_tree(files: list[str], index, path_prefix: str, include_summaries: bool = False) -> list[dict]:
     """Build nested tree from flat file list."""
     # Group files by directory
     root = {}
@@ -95,12 +90,15 @@ def _build_tree(files: list[str], index, path_prefix: str) -> list[dict]:
                 from ..parser import LANGUAGE_EXTENSIONS
                 lang = LANGUAGE_EXTENSIONS.get(ext, "")
                 
-                current[part] = {
+                node = {
                     "path": file_path,
                     "type": "file",
                     "language": lang,
                     "symbol_count": symbol_count
                 }
+                if include_summaries:
+                    node["summary"] = index.file_summaries.get(file_path, "")
+                current[part] = node
             else:
                 # Directory node
                 if part not in current:

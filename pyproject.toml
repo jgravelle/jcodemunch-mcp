@@ -8,12 +8,13 @@ dependencies = [
     "mcp>=1.0.0,<1.10.0",
     "httpx>=0.27.0",
     "anthropic>=0.40.0",
-    "tree-sitter-language-pack>=0.7.0",
+    "tree-sitter-language-pack>=0.7.0,<1.0.0",
     "pathspec>=0.12.0",
 ]
 
 [project.optional-dependencies]
 gemini = ["google-generativeai>=0.8.0"]
+test = ["pytest", "pytest-asyncio", "pytest-cov"]
 
 [project.scripts]
 jcodemunch-mcp = "jcodemunch_mcp.server:main"

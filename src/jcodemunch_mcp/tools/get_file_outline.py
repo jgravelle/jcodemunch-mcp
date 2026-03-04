@@ -6,6 +6,7 @@ from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..parser import build_symbol_tree
+from ._utils import resolve_repo
 
 
 def get_file_outline(
@@ -14,27 +15,21 @@ def get_file_outline(
     storage_path: Optional[str] = None
 ) -> dict:
     """Get symbols in a file with hierarchical structure.
-    
+
     Args:
         repo: Repository identifier (owner/repo or just repo name)
         file_path: Path to file within repository
         storage_path: Custom storage path
-    
+
     Returns:
         Dict with symbols outline
     """
     start = time.perf_counter()
 
-    # Parse repo identifier
-    if "/" in repo:
-        owner, name = repo.split("/", 1)
-    else:
-        store = IndexStore(base_path=storage_path)
-        repos = store.list_repos()
-        matching = [r for r in repos if r["repo"].endswith(f"/{repo}")]
-        if not matching:
-            return {"error": f"Repository not found: {repo}"}
-        owner, name = matching[0]["repo"].split("/", 1)
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
     
     # Load index
     store = IndexStore(base_path=storage_path)

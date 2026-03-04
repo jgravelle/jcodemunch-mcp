@@ -6,6 +6,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
+from ._utils import resolve_repo
 
 
 def _make_meta(timing_ms: float, **kwargs) -> dict:
@@ -13,20 +14,6 @@ def _make_meta(timing_ms: float, **kwargs) -> dict:
     meta = {"timing_ms": round(timing_ms, 1)}
     meta.update(kwargs)
     return meta
-
-
-def _parse_repo(repo: str, storage_path: Optional[str] = None) -> tuple:
-    """Parse repo identifier and return (owner, name) or (None, error_dict)."""
-    if "/" in repo:
-        owner, name = repo.split("/", 1)
-        return owner, name
-    store = IndexStore(base_path=storage_path)
-    repos = store.list_repos()
-    matching = [r for r in repos if r["repo"].endswith(f"/{repo}")]
-    if not matching:
-        return None, {"error": f"Repository not found: {repo}"}
-    owner, name = matching[0]["repo"].split("/", 1)
-    return owner, name
 
 
 def get_symbol(
@@ -49,11 +36,12 @@ def get_symbol(
         Dict with symbol details, source code, and _meta envelope.
     """
     start = time.perf_counter()
+    context_lines = max(0, min(context_lines, 50))
 
-    result = _parse_repo(repo, storage_path)
-    if result[0] is None:
-        return result[1]
-    owner, name = result
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
 
     store = IndexStore(base_path=storage_path)
     index = store.load_index(owner, name)
@@ -149,10 +137,10 @@ def get_symbols(
     """
     start = time.perf_counter()
 
-    result = _parse_repo(repo, storage_path)
-    if result[0] is None:
-        return result[1]
-    owner, name = result
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
 
     store = IndexStore(base_path=storage_path)
     index = store.load_index(owner, name)

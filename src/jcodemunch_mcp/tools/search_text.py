@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
+from ._utils import resolve_repo
 
 
 def search_text(
@@ -29,17 +30,12 @@ def search_text(
         Dict with matching lines grouped by file, plus _meta envelope.
     """
     start = time.perf_counter()
+    max_results = max(1, min(max_results, 100))
 
-    # Parse repo identifier
-    if "/" in repo:
-        owner, name = repo.split("/", 1)
-    else:
-        store = IndexStore(base_path=storage_path)
-        repos = store.list_repos()
-        matching = [r for r in repos if r["repo"].endswith(f"/{repo}")]
-        if not matching:
-            return {"error": f"Repository not found: {repo}"}
-        owner, name = matching[0]["repo"].split("/", 1)
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
 
     store = IndexStore(base_path=storage_path)
     index = store.load_index(owner, name)

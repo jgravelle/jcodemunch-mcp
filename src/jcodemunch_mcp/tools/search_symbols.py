@@ -5,6 +5,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore, CodeIndex, record_savings, estimate_savings, cost_avoided
+from ._utils import resolve_repo
 
 
 def search_symbols(
@@ -31,17 +32,12 @@ def search_symbols(
         Dict with search results and _meta envelope.
     """
     start = time.perf_counter()
+    max_results = max(1, min(max_results, 100))
 
-    # Parse repo identifier
-    if "/" in repo:
-        owner, name = repo.split("/", 1)
-    else:
-        store = IndexStore(base_path=storage_path)
-        repos = store.list_repos()
-        matching = [r for r in repos if r["repo"].endswith(f"/{repo}")]
-        if not matching:
-            return {"error": f"Repository not found: {repo}"}
-        owner, name = matching[0]["repo"].split("/", 1)
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
 
     # Load index
     store = IndexStore(base_path=storage_path)
