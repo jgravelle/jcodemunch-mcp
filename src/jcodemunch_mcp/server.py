@@ -43,6 +43,11 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Use AI to generate symbol summaries (requires ANTHROPIC_API_KEY or GOOGLE_API_KEY). Anthropic takes priority if both are set. When false, uses docstrings or signature fallback.",
                         "default": True
+                    },
+                    "incremental": {
+                        "type": "boolean",
+                        "description": "When true and an existing index exists, only re-index changed files.",
+                        "default": False
                     }
                 },
                 "required": ["url"]
@@ -72,6 +77,11 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Whether to follow symlinks. Default false for security.",
                         "default": False
+                    },
+                    "incremental": {
+                        "type": "boolean",
+                        "description": "When true and an existing index exists, only re-index changed files.",
+                        "default": False
                     }
                 },
                 "required": ["path"]
@@ -99,6 +109,11 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Optional path prefix to filter (e.g., 'src/utils')",
                         "default": ""
+                    },
+                    "include_summaries": {
+                        "type": "boolean",
+                        "description": "Include per-file summaries in the tree output",
+                        "default": False
                     }
                 },
                 "required": ["repo"]
@@ -274,7 +289,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await index_repo(
                 url=arguments["url"],
                 use_ai_summaries=arguments.get("use_ai_summaries", True),
-                storage_path=storage_path
+                storage_path=storage_path,
+                incremental=arguments.get("incremental", False),
             )
         elif name == "index_folder":
             result = index_folder(
@@ -283,6 +299,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 storage_path=storage_path,
                 extra_ignore_patterns=arguments.get("extra_ignore_patterns"),
                 follow_symlinks=arguments.get("follow_symlinks", False),
+                incremental=arguments.get("incremental", False),
             )
         elif name == "list_repos":
             result = list_repos(storage_path=storage_path)
@@ -290,6 +307,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = get_file_tree(
                 repo=arguments["repo"],
                 path_prefix=arguments.get("path_prefix", ""),
+                include_summaries=arguments.get("include_summaries", False),
                 storage_path=storage_path
             )
         elif name == "get_file_outline":

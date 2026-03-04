@@ -178,6 +178,7 @@ def index_folder(
     storage_path: Optional[str] = None,
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
+    incremental: bool = False,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -187,6 +188,7 @@ def index_folder(
         storage_path: Custom storage path (default: ~/.code-index/).
         extra_ignore_patterns: Additional gitignore-style patterns to exclude.
         follow_symlinks: Whether to follow symlinks (default False for safety).
+        incremental: When True and an existing index exists, only re-index changed files.
 
     Returns:
         Dict with indexing results.
@@ -214,38 +216,106 @@ def index_folder(
         if not source_files:
             return {"success": False, "error": "No source files found"}
 
-        # Read and parse files
-        all_symbols = []
-        languages = {}
-        raw_files = {}
-        parsed_files = []
+        # Create repo identifier from folder path
+        repo_name = folder_path.name
+        owner = "local"
+        store = IndexStore(base_path=storage_path)
 
+        # Read all files to build current_files map
+        current_files: dict[str, str] = {}
         for file_path in source_files:
-            # Re-validate path before reading (defense in depth)
             if not validate_path(folder_path, file_path):
                 continue
-
             try:
                 content = file_path.read_text(encoding="utf-8", errors="replace")
             except Exception as e:
                 warnings.append(f"Failed to read {file_path}: {e}")
                 continue
-
-            # Get relative path for storage
             try:
                 rel_path = file_path.relative_to(folder_path).as_posix()
             except ValueError:
-                warnings.append(f"Could not get relative path for {file_path}")
                 continue
-
-            # Determine language from extension
             ext = file_path.suffix
-            language = LANGUAGE_EXTENSIONS.get(ext)
+            if ext not in LANGUAGE_EXTENSIONS:
+                continue
+            current_files[rel_path] = content
 
+        # Incremental path: detect changes and only re-parse affected files
+        if incremental and store.load_index(owner, repo_name) is not None:
+            changed, new, deleted = store.detect_changes(owner, repo_name, current_files)
+
+            if not changed and not new and not deleted:
+                return {
+                    "success": True,
+                    "message": "No changes detected",
+                    "repo": f"{owner}/{repo_name}",
+                    "folder_path": str(folder_path),
+                    "changed": 0, "new": 0, "deleted": 0,
+                }
+
+            # Parse only changed + new files
+            files_to_parse = set(changed) | set(new)
+            new_symbols = []
+            languages: dict[str, int] = {}
+            raw_files_subset: dict[str, str] = {}
+
+            for rel_path in files_to_parse:
+                content = current_files[rel_path]
+                ext = os.path.splitext(rel_path)[1]
+                language = LANGUAGE_EXTENSIONS.get(ext)
+                if not language:
+                    continue
+                try:
+                    symbols = parse_file(content, rel_path, language)
+                    if symbols:
+                        new_symbols.extend(symbols)
+                        raw_files_subset[rel_path] = content
+                except Exception as e:
+                    warnings.append(f"Failed to parse {rel_path}: {e}")
+
+            new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries)
+
+            # Compute updated language counts from all current files
+            for rel_path in current_files:
+                ext = os.path.splitext(rel_path)[1]
+                lang = LANGUAGE_EXTENSIONS.get(ext)
+                if lang:
+                    languages[lang] = languages.get(lang, 0) + 1
+
+            from ..storage.index_store import _get_git_head
+            git_head = _get_git_head(folder_path) or ""
+
+            updated = store.incremental_save(
+                owner=owner, name=repo_name,
+                changed_files=changed, new_files=new, deleted_files=deleted,
+                new_symbols=new_symbols, raw_files=raw_files_subset,
+                languages=languages, git_head=git_head,
+            )
+
+            result = {
+                "success": True,
+                "repo": f"{owner}/{repo_name}",
+                "folder_path": str(folder_path),
+                "incremental": True,
+                "changed": len(changed), "new": len(new), "deleted": len(deleted),
+                "symbol_count": len(updated.symbols) if updated else 0,
+                "indexed_at": updated.indexed_at if updated else "",
+            }
+            if warnings:
+                result["warnings"] = warnings
+            return result
+
+        # Full index path
+        all_symbols = []
+        languages = {}
+        raw_files = {}
+        parsed_files = []
+
+        for rel_path, content in current_files.items():
+            ext = os.path.splitext(rel_path)[1]
+            language = LANGUAGE_EXTENSIONS.get(ext)
             if not language:
                 continue
-
-            # Parse file
             try:
                 symbols = parse_file(content, rel_path, language)
                 if symbols:
@@ -263,13 +333,7 @@ def index_folder(
         # Generate summaries
         all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
 
-        # Create repo identifier from folder path
-        # Use folder name as repo name, parent as "owner"
-        repo_name = folder_path.name
-        owner = "local"
-
         # Save index
-        store = IndexStore(base_path=storage_path)
         store.save_index(
             owner=owner,
             name=repo_name,

@@ -203,7 +203,8 @@ async def index_repo(
     url: str,
     use_ai_summaries: bool = True,
     github_token: Optional[str] = None,
-    storage_path: Optional[str] = None
+    storage_path: Optional[str] = None,
+    incremental: bool = False,
 ) -> dict:
     """Index a GitHub repository.
     
@@ -250,7 +251,7 @@ async def index_repo(
         
         # Fetch all file contents concurrently
         semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
-        
+
         async def fetch_with_limit(path: str) -> tuple[str, str]:
             async with semaphore:
                 try:
@@ -258,28 +259,88 @@ async def index_repo(
                     return path, content
                 except Exception:
                     return path, ""
-        
+
         tasks = [fetch_with_limit(path) for path in source_files]
         file_contents = await asyncio.gather(*tasks)
-        
-        # Parse each file
+
+        # Build current_files map from fetched content
+        current_files: dict[str, str] = {}
+        for path, content in file_contents:
+            if content:
+                current_files[path] = content
+
+        store = IndexStore(base_path=storage_path)
+
+        # Incremental path
+        if incremental and store.load_index(owner, repo) is not None:
+            changed, new, deleted = store.detect_changes(owner, repo, current_files)
+
+            if not changed and not new and not deleted:
+                return {
+                    "success": True,
+                    "message": "No changes detected",
+                    "repo": f"{owner}/{repo}",
+                    "changed": 0, "new": 0, "deleted": 0,
+                }
+
+            files_to_parse = set(changed) | set(new)
+            new_symbols = []
+            languages: dict[str, int] = {}
+            raw_files_subset: dict[str, str] = {}
+
+            for path in files_to_parse:
+                content = current_files[path]
+                _, ext = os.path.splitext(path)
+                language = LANGUAGE_EXTENSIONS.get(ext)
+                if not language:
+                    continue
+                try:
+                    symbols = parse_file(content, path, language)
+                    if symbols:
+                        new_symbols.extend(symbols)
+                        raw_files_subset[path] = content
+                except Exception:
+                    warnings.append(f"Failed to parse {path}")
+
+            new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries)
+
+            # Compute language counts from all current files
+            for path in current_files:
+                _, ext = os.path.splitext(path)
+                lang = LANGUAGE_EXTENSIONS.get(ext)
+                if lang:
+                    languages[lang] = languages.get(lang, 0) + 1
+
+            updated = store.incremental_save(
+                owner=owner, name=repo,
+                changed_files=changed, new_files=new, deleted_files=deleted,
+                new_symbols=new_symbols, raw_files=raw_files_subset,
+                languages=languages,
+            )
+
+            result = {
+                "success": True,
+                "repo": f"{owner}/{repo}",
+                "incremental": True,
+                "changed": len(changed), "new": len(new), "deleted": len(deleted),
+                "symbol_count": len(updated.symbols) if updated else 0,
+                "indexed_at": updated.indexed_at if updated else "",
+            }
+            if warnings:
+                result["warnings"] = warnings
+            return result
+
+        # Full index path
         all_symbols = []
         languages = {}
         raw_files = {}
         parsed_files = []
-        
-        for path, content in file_contents:
-            if not content:
-                continue
-            
-            # Determine language from extension
+
+        for path, content in current_files.items():
             _, ext = os.path.splitext(path)
             language = LANGUAGE_EXTENSIONS.get(ext)
-            
             if not language:
                 continue
-            
-            # Parse file
             try:
                 symbols = parse_file(content, path, language)
                 if symbols:
@@ -290,15 +351,14 @@ async def index_repo(
             except Exception:
                 warnings.append(f"Failed to parse {path}")
                 continue
-        
+
         if not all_symbols:
             return {"success": False, "error": "No symbols extracted"}
-        
+
         # Generate summaries
         all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
-        
+
         # Save index
-        store = IndexStore(base_path=storage_path)
         store.save_index(
             owner=owner,
             name=repo,
@@ -307,7 +367,7 @@ async def index_repo(
             raw_files=raw_files,
             languages=languages
         )
-        
+
         result = {
             "success": True,
             "repo": f"{owner}/{repo}",
@@ -317,13 +377,13 @@ async def index_repo(
             "languages": languages,
             "files": parsed_files[:20],  # Limit files in response
         }
-        
+
         if warnings:
             result["warnings"] = warnings
-        
+
         if len(source_files) >= 500:
             result["warnings"] = warnings + ["Repository has many files; indexed first 500"]
-        
+
         return result
     
     except Exception as e:
