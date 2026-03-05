@@ -109,10 +109,12 @@ def _extract_symbol(
     
     # Dart: function_signature/method_signature have their body as a next sibling
     end_byte = node.end_byte
+    end_line_num = node.end_point[0] + 1
     if node.type in ("function_signature", "method_signature"):
         next_sib = node.next_named_sibling
         if next_sib and next_sib.type == "function_body":
             end_byte = next_sib.end_byte
+            end_line_num = next_sib.end_point[0] + 1
 
     # Compute content hash
     symbol_bytes = source_bytes[node.start_byte:end_byte]
@@ -131,7 +133,7 @@ def _extract_symbol(
         decorators=decorators,
         parent=parent_symbol.id if parent_symbol else None,
         line=node.start_point[0] + 1,
-        end_line=node.end_point[0] + 1,
+        end_line=end_line_num,
         byte_offset=node.start_byte,
         byte_length=end_byte - node.start_byte,
         content_hash=c_hash,
