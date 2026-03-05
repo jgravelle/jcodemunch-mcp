@@ -1,10 +1,13 @@
 """Index local folder tool - walk, parse, summarize, save."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 import pathspec
+
+logger = logging.getLogger(__name__)
 
 from ..parser import parse_file, LANGUAGE_EXTENSIONS
 from ..security import (
@@ -61,7 +64,7 @@ def discover_local_files(
     max_size: int = DEFAULT_MAX_FILE_SIZE,
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
-) -> tuple[list[Path], list[str]]:
+) -> tuple[list[Path], list[str], dict[str, int]]:
     """Discover source files in a local folder with security filtering.
 
     Args:
@@ -77,6 +80,20 @@ def discover_local_files(
     files = []
     warnings = []
     root = folder_path.resolve()
+
+    skip_counts: dict[str, int] = {
+        "symlink": 0,
+        "symlink_escape": 0,
+        "path_traversal": 0,
+        "skip_pattern": 0,
+        "gitignore": 0,
+        "extra_ignore": 0,
+        "secret": 0,
+        "wrong_extension": 0,
+        "too_large": 0,
+        "unreadable": 0,
+        "binary": 0,
+    }
 
     # Load .gitignore
     gitignore_spec = _load_gitignore(root)
@@ -96,13 +113,17 @@ def discover_local_files(
 
         # Symlink protection
         if not follow_symlinks and file_path.is_symlink():
+            skip_counts["symlink"] += 1
+            logger.debug("SKIP symlink: %s", file_path)
             continue
         if file_path.is_symlink() and is_symlink_escape(root, file_path):
+            skip_counts["symlink_escape"] += 1
             warnings.append(f"Skipped symlink escape: {file_path}")
             continue
 
         # Path traversal check
         if not validate_path(root, file_path):
+            skip_counts["path_traversal"] += 1
             warnings.append(f"Skipped path traversal: {file_path}")
             continue
 
@@ -110,43 +131,66 @@ def discover_local_files(
         try:
             rel_path = file_path.relative_to(root).as_posix()
         except ValueError:
+            skip_counts["path_traversal"] += 1
+            logger.debug("SKIP relative_to_failed: %s", file_path)
             continue
 
         # Skip patterns
         if should_skip_file(rel_path):
+            skip_counts["skip_pattern"] += 1
+            logger.debug("SKIP skip_pattern: %s", rel_path)
             continue
 
         # .gitignore matching
         if gitignore_spec and gitignore_spec.match_file(rel_path):
+            skip_counts["gitignore"] += 1
+            logger.debug("SKIP gitignore: %s", rel_path)
             continue
 
         # Extra ignore patterns
         if extra_spec and extra_spec.match_file(rel_path):
+            skip_counts["extra_ignore"] += 1
+            logger.debug("SKIP extra_ignore: %s", rel_path)
             continue
 
         # Secret detection
         if is_secret_file(rel_path):
+            skip_counts["secret"] += 1
             warnings.append(f"Skipped secret file: {rel_path}")
             continue
 
         # Extension filter
         ext = file_path.suffix
         if ext not in LANGUAGE_EXTENSIONS:
+            skip_counts["wrong_extension"] += 1
+            logger.debug("SKIP wrong_extension: %s", rel_path)
             continue
 
         # Size limit
         try:
             if file_path.stat().st_size > max_size:
+                skip_counts["too_large"] += 1
+                logger.debug("SKIP too_large: %s", rel_path)
                 continue
         except OSError:
+            skip_counts["unreadable"] += 1
+            logger.debug("SKIP unreadable (stat failed): %s", rel_path)
             continue
 
         # Binary detection (content sniff for files with source extensions)
         if is_binary_file(file_path):
+            skip_counts["binary"] += 1
             warnings.append(f"Skipped binary file: {rel_path}")
             continue
 
+        logger.debug("ACCEPT: %s", rel_path)
         files.append(file_path)
+
+    logger.info(
+        "Discovery complete — accepted: %d, skipped by reason: %s",
+        len(files),
+        skip_counts,
+    )
 
     # File count limit with prioritization
     if len(files) > max_files:
@@ -169,7 +213,7 @@ def discover_local_files(
         files.sort(key=priority_key)
         files = files[:max_files]
 
-    return files, warnings
+    return files, warnings, skip_counts
 
 
 def index_folder(
@@ -206,12 +250,13 @@ def index_folder(
 
     try:
         # Discover source files (with security filtering)
-        source_files, discover_warnings = discover_local_files(
+        source_files, discover_warnings, skip_counts = discover_local_files(
             folder_path,
             extra_ignore_patterns=extra_ignore_patterns,
             follow_symlinks=follow_symlinks,
         )
         warnings.extend(discover_warnings)
+        logger.info("Discovery skip counts: %s", skip_counts)
 
         if not source_files:
             return {"success": False, "error": "No source files found"}
@@ -259,6 +304,7 @@ def index_folder(
             languages: dict[str, int] = {}
             raw_files_subset: dict[str, str] = {}
 
+            incremental_no_symbols: list[str] = []
             for rel_path in files_to_parse:
                 content = current_files[rel_path]
                 ext = os.path.splitext(rel_path)[1]
@@ -270,8 +316,18 @@ def index_folder(
                     if symbols:
                         new_symbols.extend(symbols)
                         raw_files_subset[rel_path] = content
+                    else:
+                        incremental_no_symbols.append(rel_path)
+                        logger.debug("NO SYMBOLS (incremental): %s", rel_path)
                 except Exception as e:
                     warnings.append(f"Failed to parse {rel_path}: {e}")
+                    logger.debug("PARSE ERROR (incremental): %s — %s", rel_path, e)
+
+            logger.info(
+                "Incremental parsing — with symbols: %d, no symbols: %d",
+                len(new_symbols),
+                len(incremental_no_symbols),
+            )
 
             new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries)
 
@@ -311,6 +367,7 @@ def index_folder(
         raw_files = {}
         parsed_files = []
 
+        no_symbols_files: list[str] = []
         for rel_path, content in current_files.items():
             ext = os.path.splitext(rel_path)[1]
             language = LANGUAGE_EXTENSIONS.get(ext)
@@ -323,9 +380,19 @@ def index_folder(
                     languages[language] = languages.get(language, 0) + 1
                     raw_files[rel_path] = content
                     parsed_files.append(rel_path)
+                else:
+                    no_symbols_files.append(rel_path)
+                    logger.debug("NO SYMBOLS: %s", rel_path)
             except Exception as e:
                 warnings.append(f"Failed to parse {rel_path}: {e}")
+                logger.debug("PARSE ERROR: %s — %s", rel_path, e)
                 continue
+
+        logger.info(
+            "Parsing complete — with symbols: %d, no symbols: %d",
+            len(parsed_files),
+            len(no_symbols_files),
+        )
 
         if not all_symbols:
             return {"success": False, "error": "No symbols extracted from files"}
@@ -352,6 +419,9 @@ def index_folder(
             "symbol_count": len(all_symbols),
             "languages": languages,
             "files": parsed_files[:20],  # Limit files in response
+            "discovery_skip_counts": skip_counts,
+            "no_symbols_count": len(no_symbols_files),
+            "no_symbols_files": no_symbols_files[:50],  # Show up to 50 for inspection
         }
 
         if warnings:

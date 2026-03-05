@@ -173,6 +173,25 @@ Config file location:
 }
 ```
 
+**With debug logging (useful when diagnosing why files are not indexed):**
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": [
+        "jcodemunch-mcp",
+        "--log-level", "DEBUG",
+        "--log-file", "/tmp/jcodemunch.log"
+      ]
+    }
+  }
+}
+```
+
+> Logging flags can also be set via env vars `JCODEMUNCH_LOG_LEVEL` and `JCODEMUNCH_LOG_FILE`. Always use `--log-file` (or the env var) when debugging — writing logs to stderr can corrupt the MCP stdio stream in some clients.
+
 After saving the config, **restart Claude Desktop / Claude Code** for the server to appear.
 
 ### Google Antigravity
@@ -350,6 +369,8 @@ For **LM Studio**, ensure the Local Server is running (usually on port 1234):
 | `OPENAI_TIMEOUT`            | Timeout in seconds for local requests (default: `60.0`) | No |
 | `CODE_INDEX_PATH`           | Custom cache path         | No       |
 | `JCODEMUNCH_SHARE_SAVINGS`  | Set to `0` to disable anonymous community token savings reporting | No       |
+| `JCODEMUNCH_LOG_LEVEL`      | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `WARNING`) | No       |
+| `JCODEMUNCH_LOG_FILE`       | Path to log file. If unset, logs go to stderr. Use a file to avoid polluting MCP stdio. | No       |
 
 ### Community Savings Meter
 

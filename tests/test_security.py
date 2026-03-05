@@ -232,7 +232,7 @@ class TestDiscoverLocalFilesSecure:
         (tmp_path / ".env").write_text("SECRET=foo\n")
         (tmp_path / "config.pem").write_text("-----BEGIN CERTIFICATE-----\n")
 
-        files, warnings = discover_local_files(tmp_path)
+        files, warnings, _ = discover_local_files(tmp_path)
         rel_paths = [f.name for f in files]
         assert "main.py" in rel_paths
         assert ".env" not in rel_paths
@@ -247,7 +247,7 @@ class TestDiscoverLocalFilesSecure:
         binary = tmp_path / "bad.py"
         binary.write_bytes(b"import os\x00\nprint('hi')")
 
-        files, warnings = discover_local_files(tmp_path)
+        files, warnings, _ = discover_local_files(tmp_path)
         names = [f.name for f in files]
         assert "good.py" in names
         assert "bad.py" not in names
@@ -260,7 +260,7 @@ class TestDiscoverLocalFilesSecure:
         (tmp_path / "kept.py").write_text("x = 1\n")
         (tmp_path / "ignored.py").write_text("y = 2\n")
 
-        files, _ = discover_local_files(tmp_path)
+        files, _, __ = discover_local_files(tmp_path)
         names = [f.name for f in files]
         assert "kept.py" in names
         assert "ignored.py" not in names
@@ -272,7 +272,7 @@ class TestDiscoverLocalFilesSecure:
         (tmp_path / "main.py").write_text("x = 1\n")
         (tmp_path / "temp.py").write_text("y = 2\n")
 
-        files, _ = discover_local_files(tmp_path, extra_ignore_patterns=["temp.py"])
+        files, _, __ = discover_local_files(tmp_path, extra_ignore_patterns=["temp.py"])
         names = [f.name for f in files]
         assert "main.py" in names
         assert "temp.py" not in names
@@ -287,7 +287,7 @@ class TestDiscoverLocalFilesSecure:
         link = tmp_path / "link.py"
         link.symlink_to(real)
 
-        files, _ = discover_local_files(tmp_path, follow_symlinks=False)
+        files, _, __ = discover_local_files(tmp_path, follow_symlinks=False)
         names = [f.name for f in files]
         assert "real.py" in names
         assert "link.py" not in names

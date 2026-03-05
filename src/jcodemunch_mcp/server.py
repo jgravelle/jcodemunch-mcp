@@ -3,7 +3,9 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
+from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server import Server
@@ -55,7 +57,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="index_folder",
-            description="Index a local folder containing source code. Walks directory, parses ASTs, extracts symbols, and saves to local storage. Works with any folder containing supported language files.",
+            description="Index a local folder containing source code. Walks directory, parses ASTs, extracts symbols, and saves to local storage. Works with any folder containing supported language files. The response includes 'discovery_skip_counts' (per-reason counts of files excluded during discovery), 'no_symbols_count' and 'no_symbols_files' (files that were discovered but contained no extractable symbols). Use these fields to diagnose why files may be missing from the index.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -385,7 +387,34 @@ def main(argv: Optional[list[str]] = None):
         prog="jcodemunch-mcp",
         description="Run the jCodeMunch MCP stdio server.",
     )
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--log-level",
+        default=os.environ.get("JCODEMUNCH_LOG_LEVEL", "WARNING"),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level (also via JCODEMUNCH_LOG_LEVEL env var)",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=os.environ.get("JCODEMUNCH_LOG_FILE"),
+        help="Log file path (also via JCODEMUNCH_LOG_FILE env var). Defaults to stderr.",
+    )
+    args = parser.parse_args(argv)
+
+    log_level = getattr(logging, args.log_level)
+    handlers: list[logging.Handler] = []
+    if args.log_file:
+        log_path = Path(args.log_file).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_path))
+    else:
+        handlers.append(logging.StreamHandler())
+
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        handlers=handlers,
+    )
+
     asyncio.run(run_server())
 
 
