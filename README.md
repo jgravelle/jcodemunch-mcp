@@ -194,12 +194,12 @@ After saving the config, **restart Claude Desktop / Claude Code** for the server
 
 Environment variables are optional:
 
-| Variable            | Purpose                                      |
-| ------------------- | -------------------------------------------- |
-| `GITHUB_TOKEN`      | Higher GitHub API limits / private access    |
+| Variable             | Purpose                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `GITHUB_TOKEN`       | Higher GitHub API limits / private access                |
 | `ANTHROPIC_API_KEY`  | AI-generated summaries via Claude Haiku (takes priority) |
-| `ANTHROPIC_BASE_URL` | Third-party Anthropic-compatible endpoints (e.g. z.ai) |
-| `GOOGLE_API_KEY`     | AI-generated summaries via Gemini Flash      |
+| `ANTHROPIC_BASE_URL` | Third-party Anthropic-compatible endpoints (e.g. z.ai)   |
+| `GOOGLE_API_KEY`     | AI-generated summaries via Gemini Flash                  |
 
 ---
 
