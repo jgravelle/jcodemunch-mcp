@@ -260,7 +260,7 @@ class TestDiscoverLocalFilesSecure:
         (tmp_path / "kept.py").write_text("x = 1\n")
         (tmp_path / "ignored.py").write_text("y = 2\n")
 
-        files, _, __ = discover_local_files(tmp_path)
+        files, *_ = discover_local_files(tmp_path)
         names = [f.name for f in files]
         assert "kept.py" in names
         assert "ignored.py" not in names
@@ -272,7 +272,7 @@ class TestDiscoverLocalFilesSecure:
         (tmp_path / "main.py").write_text("x = 1\n")
         (tmp_path / "temp.py").write_text("y = 2\n")
 
-        files, _, __ = discover_local_files(tmp_path, extra_ignore_patterns=["temp.py"])
+        files, *_ = discover_local_files(tmp_path, extra_ignore_patterns=["temp.py"])
         names = [f.name for f in files]
         assert "main.py" in names
         assert "temp.py" not in names
@@ -287,7 +287,7 @@ class TestDiscoverLocalFilesSecure:
         link = tmp_path / "link.py"
         link.symlink_to(real)
 
-        files, _, __ = discover_local_files(tmp_path, follow_symlinks=False)
+        files, *_ = discover_local_files(tmp_path, follow_symlinks=False)
         names = [f.name for f in files]
         assert "real.py" in names
         assert "link.py" not in names
