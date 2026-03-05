@@ -56,7 +56,7 @@ When a secret file is detected, a warning is included in the indexing response. 
 
 * **Default maximum:** 500 KB per file (configurable via `max_file_size`).
 * Files exceeding the limit are skipped during discovery.
-* A configurable **file count limit** (default: 500 files) prevents runaway indexing of extremely large repositories.
+* A configurable **file count limit** (default: 500 files) prevents runaway indexing of extremely large repositories. Can be overridden using the `JCODEMUNCH_MAX_INDEX_FILES` environment variable.
 
 ---
 

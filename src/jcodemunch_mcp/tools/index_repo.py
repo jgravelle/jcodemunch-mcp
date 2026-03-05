@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..parser import parse_file, LANGUAGE_EXTENSIONS
-from ..security import is_secret_file, is_binary_extension
+from ..security import is_secret_file, is_binary_extension, get_max_index_files
 from ..storage import IndexStore
 from ..summarizer import summarize_symbols
 
@@ -86,9 +86,9 @@ def should_skip_file(path: str) -> bool:
 def discover_source_files(
     tree_entries: list[dict],
     gitignore_content: Optional[str] = None,
-    max_files: int = 500,
+    max_files: Optional[int] = None,
     max_size: int = 500 * 1024  # 500KB
-) -> list[str]:
+) -> tuple[list[str], bool]:
     """Discover source files from tree entries.
     
     Applies filtering pipeline:
@@ -100,6 +100,8 @@ def discover_source_files(
     6. File count limit
     """
     import pathspec
+
+    max_files = get_max_index_files(max_files)
     
     # Parse gitignore if provided
     gitignore_spec = None
@@ -149,8 +151,10 @@ def discover_source_files(
         
         files.append(path)
     
+    truncated = len(files) > max_files
+
     # File count limit with prioritization
-    if len(files) > max_files:
+    if truncated:
         # Prioritize: src/, lib/, pkg/, cmd/, internal/ first
         priority_dirs = ["src/", "lib/", "pkg/", "cmd/", "internal/"]
         
@@ -165,7 +169,7 @@ def discover_source_files(
         files.sort(key=priority_key)
         files = files[:max_files]
     
-    return files
+    return files, truncated
 
 
 async def fetch_file_content(
@@ -228,6 +232,7 @@ async def index_repo(
         github_token = os.environ.get("GITHUB_TOKEN")
     
     warnings = []
+    max_files = get_max_index_files()
     
     try:
         # Fetch tree
@@ -244,7 +249,11 @@ async def index_repo(
         gitignore_content = await fetch_gitignore(owner, repo, github_token)
         
         # Discover source files
-        source_files = discover_source_files(tree_entries, gitignore_content)
+        source_files, truncated = discover_source_files(
+            tree_entries,
+            gitignore_content,
+            max_files=max_files,
+        )
         
         if not source_files:
             return {"success": False, "error": "No source files found"}
@@ -381,8 +390,8 @@ async def index_repo(
         if warnings:
             result["warnings"] = warnings
 
-        if len(source_files) >= 500:
-            result["warnings"] = warnings + ["Repository has many files; indexed first 500"]
+        if truncated:
+            result["warnings"] = warnings + [f"Repository has many files; indexed first {max_files}"]
 
         return result
     

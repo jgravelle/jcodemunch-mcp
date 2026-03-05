@@ -374,6 +374,7 @@ For **LM Studio**, ensure the Local Server is running (usually on port 1234):
 | `OPENAI_MODEL`              | Model name for local LLMs (default: `qwen3-coder`) | No |
 | `OPENAI_TIMEOUT`            | Timeout in seconds for local requests (default: `60.0`) | No |
 | `CODE_INDEX_PATH`           | Custom cache path         | No       |
+| `JCODEMUNCH_MAX_INDEX_FILES`| Maximum files to index per repo/folder (default: `500`) | No |
 | `JCODEMUNCH_SHARE_SAVINGS`  | Set to `0` to disable anonymous community token savings reporting | No       |
 | `JCODEMUNCH_LOG_LEVEL`      | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `WARNING`) | No       |
 | `JCODEMUNCH_LOG_FILE`       | Path to log file. If unset, logs go to stderr. Use a file to avoid polluting MCP stdio. | No       |

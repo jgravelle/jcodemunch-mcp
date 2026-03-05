@@ -4,6 +4,7 @@ import os
 import sys
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 
 from jcodemunch_mcp.security import (
     validate_path,
@@ -16,6 +17,9 @@ from jcodemunch_mcp.security import (
     should_exclude_file,
     SECRET_PATTERNS,
     BINARY_EXTENSIONS,
+    DEFAULT_MAX_INDEX_FILES,
+    MAX_INDEX_FILES_ENV_VAR,
+    get_max_index_files,
 )
 
 
@@ -221,6 +225,24 @@ class TestCompositeFilter:
         assert should_exclude_file(f, tmp_path, check_secrets=False) is None
 
 
+class TestMaxIndexFilesConfig:
+    def test_defaults_when_env_is_unset(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_max_index_files() == DEFAULT_MAX_INDEX_FILES
+
+    def test_reads_env_override(self):
+        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "1234"}, clear=True):
+            assert get_max_index_files() == 1234
+
+    def test_invalid_env_falls_back_to_default(self):
+        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "invalid"}, clear=True):
+            assert get_max_index_files() == DEFAULT_MAX_INDEX_FILES
+
+    def test_non_positive_explicit_value_is_rejected(self):
+        with pytest.raises(ValueError, match="positive integer"):
+            get_max_index_files(0)
+
+
 # --- Integration: discover_local_files with security ---
 
 class TestDiscoverLocalFilesSecure:
@@ -277,6 +299,31 @@ class TestDiscoverLocalFilesSecure:
         assert "main.py" in names
         assert "temp.py" not in names
 
+    def test_respects_env_file_limit(self, tmp_path):
+        """Environment override controls local folder file discovery limit."""
+        from jcodemunch_mcp.tools.index_folder import discover_local_files
+
+        for i in range(10):
+            (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
+
+        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
+            files, *_ = discover_local_files(tmp_path)
+
+        assert len(files) == 3
+
+    def test_exact_env_file_limit_does_not_report_truncation(self, tmp_path):
+        """Exact file-count matches should not be treated as truncation."""
+        from jcodemunch_mcp.tools.index_folder import discover_local_files
+
+        for i in range(3):
+            (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
+
+        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
+            files, _, skip_counts = discover_local_files(tmp_path)
+
+        assert len(files) == 3
+        assert skip_counts["file_limit"] == 0
+
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlinks unreliable on Windows")
     def test_symlinks_skipped_by_default(self, tmp_path):
         """Symlinks are skipped when follow_symlinks=False."""
@@ -308,11 +355,12 @@ class TestIndexRepoSecretFilter:
             {"path": "src/utils.py", "type": "blob", "size": 500},
         ]
 
-        files = discover_source_files(tree_entries)
+        files, truncated = discover_source_files(tree_entries)
         assert "src/main.py" in files
         assert "src/utils.py" in files
         assert ".env" not in files
         assert "certs/server.pem" not in files
+        assert truncated is False
 
 
 # --- Encoding safety in index_store ---

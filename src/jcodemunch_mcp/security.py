@@ -206,6 +206,38 @@ def safe_decode(data: bytes, encoding: str = "utf-8") -> str:
 # --- Composite Filters ---
 
 DEFAULT_MAX_FILE_SIZE = 500 * 1024  # 500KB
+DEFAULT_MAX_INDEX_FILES = 500
+MAX_INDEX_FILES_ENV_VAR = "JCODEMUNCH_MAX_INDEX_FILES"
+
+
+def get_max_index_files(max_files: Optional[int] = None) -> int:
+    """Resolve the maximum indexed file count from arg or environment.
+
+    Args:
+        max_files: Explicit override. Must be a positive integer when provided.
+
+    Returns:
+        Positive file-count limit. Falls back to the default if the environment
+        variable is unset or invalid.
+    """
+    if max_files is not None:
+        if max_files <= 0:
+            raise ValueError("max_files must be a positive integer")
+        return max_files
+
+    value = os.environ.get(MAX_INDEX_FILES_ENV_VAR)
+    if value is None:
+        return DEFAULT_MAX_INDEX_FILES
+
+    try:
+        parsed = int(value)
+    except ValueError:
+        return DEFAULT_MAX_INDEX_FILES
+
+    if parsed <= 0:
+        return DEFAULT_MAX_INDEX_FILES
+
+    return parsed
 
 
 def should_exclude_file(

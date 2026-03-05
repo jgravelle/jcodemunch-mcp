@@ -17,6 +17,7 @@ from ..security import (
     is_binary_file,
     should_exclude_file,
     DEFAULT_MAX_FILE_SIZE,
+    get_max_index_files,
 )
 from ..storage import IndexStore
 from ..summarizer import summarize_symbols
@@ -60,7 +61,7 @@ def _load_gitignore(folder_path: Path) -> Optional[pathspec.PathSpec]:
 
 def discover_local_files(
     folder_path: Path,
-    max_files: int = 500,
+    max_files: Optional[int] = None,
     max_size: int = DEFAULT_MAX_FILE_SIZE,
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
@@ -77,6 +78,7 @@ def discover_local_files(
     Returns:
         Tuple of (list of Path objects for source files, list of warning strings).
     """
+    max_files = get_max_index_files(max_files)
     files = []
     warnings = []
     root = folder_path.resolve()
@@ -93,6 +95,7 @@ def discover_local_files(
         "too_large": 0,
         "unreadable": 0,
         "binary": 0,
+        "file_limit": 0,
     }
 
     # Load .gitignore
@@ -194,6 +197,7 @@ def discover_local_files(
 
     # File count limit with prioritization
     if len(files) > max_files:
+        skip_counts["file_limit"] = len(files) - max_files
         # Prioritize: src/, lib/, pkg/, cmd/, internal/ first
         priority_dirs = ["src/", "lib/", "pkg/", "cmd/", "internal/"]
 
@@ -247,11 +251,13 @@ def index_folder(
         return {"success": False, "error": f"Path is not a directory: {path}"}
 
     warnings = []
+    max_files = get_max_index_files()
 
     try:
         # Discover source files (with security filtering)
         source_files, discover_warnings, skip_counts = discover_local_files(
             folder_path,
+            max_files=max_files,
             extra_ignore_patterns=extra_ignore_patterns,
             follow_symlinks=follow_symlinks,
         )
@@ -430,8 +436,8 @@ def index_folder(
         if warnings:
             result["warnings"] = warnings
 
-        if len(source_files) >= 500:
-            result["note"] = "Folder has many files; indexed first 500"
+        if skip_counts.get("file_limit", 0) > 0:
+            result["note"] = f"Folder has many files; indexed first {max_files}"
 
         return result
 
