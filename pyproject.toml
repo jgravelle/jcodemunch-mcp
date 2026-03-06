@@ -1,6 +1,6 @@
 [project]
 name = "jcodemunch-mcp"
-version = "0.2.16"
+version = "0.2.17"
 description = "Token-efficient MCP server for source code exploration via tree-sitter AST parsing"
 readme = "README.md"
 requires-python = ">=3.10"
