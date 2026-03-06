@@ -10,7 +10,7 @@ import httpx
 
 from collections import defaultdict
 
-from ..parser import parse_file, LANGUAGE_EXTENSIONS
+from ..parser import parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
 from ..security import is_secret_file, is_binary_extension, get_max_index_files
 from ..storage import IndexStore
 from ..summarizer import summarize_symbols, generate_file_summaries
@@ -136,7 +136,7 @@ def discover_source_files(
         
         # Extension filter
         _, ext = os.path.splitext(path)
-        if ext not in LANGUAGE_EXTENSIONS:
+        if get_language_for_path(path) is None:
             continue
 
         # Skip list
@@ -311,7 +311,7 @@ async def index_repo(
                 # Track file hashes for changed/new files even when symbol extraction yields none.
                 raw_files_subset[path] = content
                 _, ext = os.path.splitext(path)
-                language = LANGUAGE_EXTENSIONS.get(ext)
+                language = get_language_for_path(path)
                 if not language:
                     continue
                 try:
@@ -357,7 +357,7 @@ async def index_repo(
 
         for path, content in current_files.items():
             _, ext = os.path.splitext(path)
-            language = LANGUAGE_EXTENSIONS.get(ext)
+            language = get_language_for_path(path)
             if not language:
                 continue
             try:

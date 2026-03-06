@@ -1,5 +1,6 @@
 """Generic AST symbol extractor using tree-sitter."""
 
+import re
 from typing import Optional
 from tree_sitter_language_pack import get_parser
 
@@ -27,6 +28,8 @@ def parse_file(content: str, filename: str, language: str) -> list[Symbol]:
         symbols = _parse_cpp_symbols(source_bytes, filename)
     elif language == "elixir":
         symbols = _parse_elixir_symbols(source_bytes, filename)
+    elif language == "blade":
+        symbols = _parse_blade_symbols(source_bytes, filename)
     else:
         spec = LANGUAGE_REGISTRY[language]
         symbols = _parse_with_spec(source_bytes, filename, language, spec)
@@ -1239,3 +1242,102 @@ def _disambiguate_overloads(symbols: list[Symbol]) -> list[Symbol]:
             sym.id = f"{sym.id}~{ordinals[sym.id]}"
         result.append(sym)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Blade template parser (regex-based; no tree-sitter grammar available)
+# ---------------------------------------------------------------------------
+
+# Directives that define named "symbols" in a Blade template
+_BLADE_SYMBOL_PATTERNS: list[tuple[str, str, str]] = [
+    # (kind, directive_regex, capture_group_name)
+    # @extends('layouts.app')  → type  "layouts.app"
+    ("type",     r"@extends\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @section('content')      → method "content"
+    ("method",   r"@section\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @component('alert')      → class  "alert"
+    ("class",    r"@component\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @include('partials.nav') → function "partials.nav"
+    ("function", r"@include(?:If|When|Unless|First)?\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @push('scripts')         → constant "scripts"
+    ("constant", r"@push\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @stack('scripts')        → constant "scripts" (declaration side)
+    ("constant", r"@stack\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @slot('title')           → method "title"
+    ("method",   r"@slot\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @yield('content')        → method "content"
+    ("method",   r"@yield\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+    # @livewire('counter')     → class "counter"
+    ("class",    r"@livewire\s*\(\s*['\"](?P<name>[^'\"]+)['\"]", "name"),
+]
+
+# Compiled once at module load
+_BLADE_COMPILED: list[tuple[str, re.Pattern, str]] = [
+    (kind, re.compile(pattern, re.IGNORECASE), group)
+    for kind, pattern, group in _BLADE_SYMBOL_PATTERNS
+]
+
+
+def _parse_blade_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract Blade template symbols using regex.
+
+    Since tree-sitter has no Blade grammar, we scan for directives that
+    define meaningful structural elements: @extends, @section, @component,
+    @include*, @push, @stack, @slot, @yield, @livewire.
+    """
+    content = source_bytes.decode("utf-8", errors="replace")
+    lines = content.splitlines()
+
+    # Build a byte-offset → line-number lookup (1-indexed)
+    line_start_offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        line_start_offsets.append(offset)
+        offset += len(line.encode("utf-8")) + 1  # +1 for \n
+
+    def byte_to_line(byte_pos: int) -> int:
+        lo, hi = 0, len(line_start_offsets) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if line_start_offsets[mid] <= byte_pos:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo + 1  # 1-indexed
+
+    symbols: list[Symbol] = []
+    seen: set[tuple[str, str]] = set()  # (kind, name) dedup per file
+
+    for kind, pattern, group in _BLADE_COMPILED:
+        for m in pattern.finditer(content):
+            name = m.group(group)
+            key = (kind, name)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            line_no = byte_to_line(m.start())
+            directive_text = m.group(0)
+            qualified_name = name
+
+            sym_bytes = directive_text.encode("utf-8")
+            symbols.append(Symbol(
+                id=make_symbol_id(filename, qualified_name, kind),
+                file=filename,
+                name=name,
+                qualified_name=qualified_name,
+                kind=kind,
+                language="blade",
+                signature=directive_text,
+                docstring="",
+                parent=None,
+                line=line_no,
+                end_line=line_no,
+                byte_offset=m.start(),
+                byte_length=len(sym_bytes),
+                content_hash=compute_content_hash(sym_bytes),
+            ))
+
+    # Sort by line number for stable output
+    symbols.sort(key=lambda s: s.line)
+    return symbols

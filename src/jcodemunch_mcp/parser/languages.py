@@ -78,6 +78,7 @@ LANGUAGE_EXTENSIONS = {
     ".pl": "perl",
     ".pm": "perl",
     ".t": "perl",
+    ".blade.php": "blade",
 }
 
 
@@ -542,6 +543,25 @@ RUBY_SPEC = LanguageSpec(
 )
 
 
+# Blade (Laravel) specification
+# NOTE: No tree-sitter grammar is available for Blade templates.
+# Symbol extraction is performed by _parse_blade_symbols() in extractor.py
+# via regex scanning for Blade directives (@section, @component, @extends, etc.).
+# The fields below are intentionally empty.
+BLADE_SPEC = LanguageSpec(
+    ts_language="blade",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
 # Language registry
 LANGUAGE_REGISTRY = {
     "python": PYTHON_SPEC,
@@ -559,6 +579,7 @@ LANGUAGE_REGISTRY = {
     "elixir": ELIXIR_SPEC,
     "ruby": RUBY_SPEC,
     "perl": PERL_SPEC,
+    "blade": BLADE_SPEC,
 }
 
 logger = logging.getLogger(__name__)
@@ -589,3 +610,28 @@ def _apply_extra_extensions() -> None:
 
 
 _apply_extra_extensions()
+
+
+def get_language_for_path(path: str) -> "Optional[str]":
+    """Return the language name for a file path, handling compound extensions.
+
+    Checks compound suffixes (e.g. ``.blade.php``) before falling back to the
+    last extension (e.g. ``.php``).  This ensures Blade templates are not
+    mis-classified as plain PHP.
+
+    Args:
+        path: File path or name (e.g. ``resources/views/home.blade.php``).
+
+    Returns:
+        Language name string, or ``None`` if the extension is not recognised.
+    """
+    import os as _os
+    lower = path.lower()
+    base = _os.path.basename(lower)
+    first_dot = base.find(".")
+    if first_dot != -1:
+        compound = base[first_dot:]  # e.g. ".blade.php"
+        if compound in LANGUAGE_EXTENSIONS:
+            return LANGUAGE_EXTENSIONS[compound]
+    _, ext = _os.path.splitext(lower)
+    return LANGUAGE_EXTENSIONS.get(ext)

@@ -12,7 +12,7 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-from ..parser import parse_file, LANGUAGE_EXTENSIONS
+from ..parser import parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
 from ..summarizer import generate_file_summaries
 from ..security import (
     validate_path,
@@ -173,7 +173,7 @@ def discover_local_files(
 
         # Extension filter
         ext = file_path.suffix
-        if ext not in LANGUAGE_EXTENSIONS:
+        if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(file_path)) is None:
             skip_counts["wrong_extension"] += 1
             logger.debug("SKIP wrong_extension: %s", rel_path)
             continue
@@ -296,7 +296,7 @@ def index_folder(
             except ValueError:
                 continue
             ext = file_path.suffix
-            if ext not in LANGUAGE_EXTENSIONS:
+            if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(file_path)) is None:
                 continue
             current_files[rel_path] = content
 
@@ -324,7 +324,7 @@ def index_folder(
                 # Track file hashes for changed/new files even when symbol extraction yields none.
                 raw_files_subset[rel_path] = content
                 ext = os.path.splitext(rel_path)[1]
-                language = LANGUAGE_EXTENSIONS.get(ext)
+                language = get_language_for_path(rel_path)
                 if not language:
                     continue
                 try:
@@ -388,7 +388,7 @@ def index_folder(
         no_symbols_files: list[str] = []
         for rel_path, content in current_files.items():
             ext = os.path.splitext(rel_path)[1]
-            language = LANGUAGE_EXTENSIONS.get(ext)
+            language = get_language_for_path(rel_path)
             if not language:
                 continue
             try:

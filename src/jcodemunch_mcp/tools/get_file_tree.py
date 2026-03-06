@@ -110,8 +110,8 @@ def _build_tree(files: list[str], index, path_prefix: str, include_summaries: bo
                 lang = file_languages.get(file_path, "")
                 if not lang:
                     _, ext = os.path.splitext(file_path)
-                    from ..parser import LANGUAGE_EXTENSIONS
-                    lang = LANGUAGE_EXTENSIONS.get(ext, "")
+                    from ..parser import LANGUAGE_EXTENSIONS, get_language_for_path
+                    lang = get_language_for_path(file_path) or ""
                 
                 node = {
                     "path": file_path,
