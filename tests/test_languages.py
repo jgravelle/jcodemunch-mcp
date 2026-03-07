@@ -1514,3 +1514,94 @@ def test_parse_ejs_no_scriptlets():
     assert len(symbols) == 1
     assert symbols[0].kind == "template"
     assert symbols[0].name == "static"
+
+
+# ---------------------------------------------------------------------------
+# Verse (UEFN)
+# ---------------------------------------------------------------------------
+
+_VERSE_SOURCE = """\
+# Module import path: /Fortnite.com/UI
+UI<public> := module:
+
+    # Base UI element
+    widget<public><abstract> := class<concrete>():
+        # Get the widget's visibility
+        GetVisibility<public>()<transacts>:widget_visibility = external {}
+
+        var Opacity<public>:float = external {}
+
+    # Extension method
+    (W:widget).SetVisible<public>(Visible:logic)<transacts>:void = external {}
+
+    EWidgetColor<public> := enum:
+        Red
+        Green
+        Blue
+"""
+
+
+def test_parse_verse():
+    """Test Verse (UEFN) language parsing."""
+    symbols = parse_file(_VERSE_SOURCE, "Fortnite.digest.verse", "verse")
+
+    # Module container
+    ui = next((s for s in symbols if s.name == "UI"), None)
+    assert ui is not None
+    assert ui.kind == "class"
+    assert "UI" in ui.signature
+    assert "module" in ui.signature
+    assert ui.language == "verse"
+
+    # Nested class
+    widget = next((s for s in symbols if s.name == "widget"), None)
+    assert widget is not None
+    assert widget.kind == "class"
+    assert widget.parent is not None  # parented to UI module
+
+    # Method inside class
+    get_vis = next((s for s in symbols if s.name == "GetVisibility"), None)
+    assert get_vis is not None
+    assert get_vis.kind == "method"
+    assert "GetVisibility" in get_vis.signature
+    assert "<transacts>" in get_vis.signature
+    assert "widget_visibility" in get_vis.signature
+    assert get_vis.docstring == "Get the widget's visibility"
+
+    # Variable declaration
+    opacity = next((s for s in symbols if s.name == "Opacity"), None)
+    assert opacity is not None
+    assert opacity.kind == "constant"
+    assert "float" in opacity.signature
+
+    # Extension method
+    set_visible = next((s for s in symbols if s.name == "SetVisible"), None)
+    assert set_visible is not None
+    assert set_visible.kind == "method"
+    assert "SetVisible" in set_visible.qualified_name
+
+    # Enum type
+    color = next((s for s in symbols if s.name == "EWidgetColor"), None)
+    assert color is not None
+    assert color.kind == "type"
+    assert "enum" in color.signature
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("Fortnite.digest.verse") == "verse"
+
+
+def test_parse_verse_utf8_byte_offsets():
+    """Byte offsets must be byte positions, not char positions (smart quotes are 3 bytes each)."""
+    # U+2019 RIGHT SINGLE QUOTATION MARK = 3 bytes in UTF-8
+    source = "# Widget\u2019s tooltip\nMyClass<public> := class<concrete>():\n    Init<public>():void = external {}\n"
+    source_bytes = source.encode("utf-8")
+    symbols = parse_file(source, "test.verse", "verse")
+
+    cls = next((s for s in symbols if s.name == "MyClass"), None)
+    assert cls is not None
+    # byte_offset must be a valid byte position in the encoded source
+    assert cls.byte_offset >= 0
+    assert cls.byte_offset + cls.byte_length <= len(source_bytes)
+    # Content at the byte range should start with the declaration
+    chunk = source_bytes[cls.byte_offset:cls.byte_offset + 7]
+    assert chunk == b"MyClass"
