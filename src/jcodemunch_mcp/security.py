@@ -306,4 +306,5 @@ SKIP_PATTERNS = [
     ".min.js", ".min.ts", ".bundle.js",
     "package-lock.json", "yarn.lock", "go.sum",
     "generated/", "proto/",
+    "*.xcodeproj/", "*.xcworkspace/", "DerivedData/", ".build/",
 ]

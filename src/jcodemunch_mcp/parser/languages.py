@@ -461,21 +461,27 @@ SWIFT_SPEC = LanguageSpec(
         "function_declaration": "function",
         "class_declaration": "class",    # covers class, struct, enum, extension
         "protocol_declaration": "type",
+        "typealias_declaration": "type",
         "init_declaration": "method",
+        "deinit_declaration": "method",
+        "property_declaration": "constant",
     },
     name_fields={
         "function_declaration": "name",  # simple_identifier child
         "class_declaration": "name",     # type_identifier child
         "protocol_declaration": "name",  # type_identifier child
+        "typealias_declaration": "name", # user_type child
         "init_declaration": "name",      # "init" keyword token
+        "deinit_declaration": "name",    # "deinit" keyword token
+        "property_declaration": "name",  # pattern child
     },
     param_fields={},  # Swift params are unnamed children; signature captured via source range
     return_type_fields={},  # return type shares field "name" with function identifier
     docstring_strategy="preceding_comment",  # /// and /* */ doc comments
     decorator_node_type=None,
     container_node_types=["class_declaration", "protocol_declaration"],
-    constant_patterns=["property_declaration"],  # let/var at file scope
-    type_patterns=["protocol_declaration"],
+    constant_patterns=[],  # property_declaration handled via symbol_node_types
+    type_patterns=["protocol_declaration", "typealias_declaration"],
 )
 
 
