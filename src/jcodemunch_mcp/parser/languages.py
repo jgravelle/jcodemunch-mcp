@@ -641,6 +641,31 @@ GDSCRIPT_SPEC = LanguageSpec(
 )
 
 
+# Kotlin specification
+# NOTE: The fwcd/tree-sitter-kotlin grammar uses positional children throughout —
+# there are no named fields for name, parameters, return type, or body.
+# Name and body extraction are handled by Kotlin-specific paths in extractor.py.
+# Annotations live inside a 'modifiers' child node rather than as preceding siblings.
+KOTLIN_SPEC = LanguageSpec(
+    ts_language="kotlin",
+    symbol_node_types={
+        "function_declaration": "function",
+        "class_declaration": "class",    # covers class, abstract class, data class, sealed class, interface, value class, fun interface
+        "object_declaration": "class",   # singleton objects, data objects
+        "companion_object": "class",     # companion objects (anonymous → "Companion", named → their name)
+        "type_alias": "type",
+    },
+    name_fields={},        # handled by _extract_name Kotlin path (positional children)
+    param_fields={},       # signature built from source range up to function_body
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type="annotation",   # used by _extract_decorators Kotlin path
+    container_node_types=["class_declaration", "object_declaration", "companion_object"],
+    constant_patterns=["property_declaration"],
+    type_patterns=["type_alias"],
+)
+
+
 # Blade (Laravel) specification
 # NOTE: No tree-sitter grammar is available for Blade templates.
 # Symbol extraction is performed by _parse_blade_symbols() in extractor.py
@@ -657,29 +682,6 @@ BLADE_SPEC = LanguageSpec(
     container_node_types=[],
     constant_patterns=[],
     type_patterns=[],
-)
-
-
-# Kotlin specification
-# NOTE: Kotlin's tree-sitter grammar exposes no named field accessors for names,
-# parameters, or bodies. All extraction is handled via special-cases in extractor.py
-# that walk children by node type (simple_identifier / type_identifier / function_body).
-KOTLIN_SPEC = LanguageSpec(
-    ts_language="kotlin",
-    symbol_node_types={
-        "class_declaration": "class",     # class, interface, enum class, data class
-        "object_declaration": "class",    # object declarations (singletons)
-        "function_declaration": "function",
-        "type_alias": "type",
-    },
-    name_fields={},     # Names extracted via special-case in extractor.py
-    param_fields={},    # Parameters captured via source range in _build_signature
-    return_type_fields={},
-    docstring_strategy="preceding_comment",
-    decorator_node_type=None,  # Annotations live inside modifiers node; captured in signature
-    container_node_types=["class_declaration", "object_declaration"],
-    constant_patterns=["property_declaration"],
-    type_patterns=["type_alias", "class_declaration"],
 )
 
 

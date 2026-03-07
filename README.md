@@ -1,3 +1,19 @@
+> **This is a fork of [jgravelle/jcodemunch-mcp](https://github.com/jgravelle/jcodemunch-mcp)** with enhanced Kotlin 2.x language support.
+>
+> ### What this fork adds
+>
+> **Enhanced Kotlin 2.x support** — a more complete implementation than upstream:
+> - `companion object` indexed as a named symbol (anonymous companions → `"Companion"`)
+> - `companion object` and `object declaration` members extracted as static-scope constants
+> - Annotation extraction from Kotlin `modifiers` nodes (`@JvmInline`, `@Serializable`, etc.)
+> - `multiline_comment` (`/** KDoc */`) recognized as docstring source
+> - Full function signature capture up to `function_body` via positional-child traversal
+> - Comprehensive test suite: 59 tests covering abstract/sealed/data/enum/annotation/value classes,
+>   object declarations, companion objects, sealed hierarchies, interfaces, extension functions,
+>   nested/inner classes, type aliases, constants, enum classes with methods, Kotlin 2.x features
+>   (guard conditions, multi-dollar interpolation, context parameters, `@JvmInline`, `data object`,
+>   `fun interface`), and Android ViewModel real-world patterns.
+
 ## Cut code-reading token costs by up to **99%**
 
 Most AI agents explore repositories the expensive way:

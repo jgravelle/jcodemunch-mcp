@@ -190,8 +190,16 @@ def _walk_tree(
         if var_func:
             symbols.append(var_func)
 
-    # Check for constant patterns (top-level assignments with UPPER_CASE names)
-    if node.type in spec.constant_patterns and parent_symbol is None:
+    # Check for constant patterns (top-level assignments with UPPER_CASE names).
+    # For Kotlin, also extract property_declaration inside companion_object and object_declaration
+    # since those members are effectively static/top-level from a usage perspective.
+    _in_kotlin_static_scope = (
+        language == "kotlin"
+        and node.parent is not None
+        and node.parent.parent is not None
+        and node.parent.parent.type in ("companion_object", "object_declaration")
+    )
+    if node.type in spec.constant_patterns and (parent_symbol is None or _in_kotlin_static_scope):
         const_symbol = _extract_constant(node, spec, source_bytes, filename, language)
         if const_symbol:
             symbols.append(const_symbol)
@@ -328,25 +336,32 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
                     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
         return None
 
-    # Dart: type_alias name is the first type_identifier child
-    if node.type == "type_alias" and spec.ts_language == "dart":
+    # Dart/Kotlin: type_alias name is the first type_identifier child
+    if node.type == "type_alias" and spec.ts_language in ("dart", "kotlin"):
         for child in node.children:
             if child.type == "type_identifier":
                 return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
         return None
 
-    # Kotlin: no named fields; walk children by type to find name
+    # Kotlin: grammar uses positional children, not named fields
     if spec.ts_language == "kotlin":
-        if node.type in ("class_declaration", "object_declaration", "type_alias"):
-            for child in node.children:
-                if child.type == "type_identifier":
-                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
-            return None
         if node.type == "function_declaration":
             for child in node.children:
                 if child.type == "simple_identifier":
                     return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
             return None
+        if node.type in ("class_declaration", "object_declaration"):
+            for child in node.children:
+                if child.type == "type_identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
+            return None
+        if node.type == "companion_object":
+            # Named companion object: `companion object Foo { ... }` has a type_identifier child
+            for child in node.children:
+                if child.type == "type_identifier":
+                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
+            # Anonymous companion object: Kotlin/JVM default name is "Companion"
+            return "Companion"
 
     # Gleam: type_definition and type_alias names live inside a type_name child
     if spec.ts_language == "gleam" and node.type in ("type_definition", "type_alias"):
@@ -466,6 +481,13 @@ def _build_signature(node, spec: LanguageSpec, source_bytes: bytes) -> str:
         if body:
             # Signature is from start of node to start of body
             end_byte = body.start_byte
+        elif spec.ts_language == "kotlin":
+            # Kotlin: function_body and class_body are positional, not named fields
+            end_byte = node.end_byte
+            for child in node.children:
+                if child.type in ("function_body", "class_body", "enum_class_body"):
+                    end_byte = child.start_byte
+                    break
         else:
             end_byte = node.end_byte
     
@@ -621,7 +643,7 @@ def _extract_preceding_comments(node, source_bytes: bytes) -> str:
     prev = node.prev_named_sibling
     while prev and prev.type in ("annotation", "marker_annotation"):
         prev = prev.prev_named_sibling
-    while prev and prev.type in ("comment", "line_comment", "block_comment", "documentation_comment", "pod"):
+    while prev and prev.type in ("comment", "line_comment", "block_comment", "multiline_comment", "documentation_comment", "pod"):
         comment_text = source_bytes[prev.start_byte:prev.end_byte].decode("utf-8")
         comments.insert(0, comment_text)
         prev = prev.prev_named_sibling
@@ -680,6 +702,15 @@ def _extract_decorators(node, spec: LanguageSpec, source_bytes: bytes) -> list[s
         return []
 
     decorators = []
+
+    if spec.ts_language == "kotlin":
+        # Kotlin: annotations live inside the 'modifiers' child, not as siblings or direct children
+        for child in node.children:
+            if child.type == "modifiers":
+                for mod_child in child.children:
+                    if mod_child.type == "annotation":
+                        decorators.append(source_bytes[mod_child.start_byte:mod_child.end_byte].decode("utf-8").strip())
+        return decorators
 
     if spec.decorator_from_children:
         # C#: attribute_list nodes are direct children of the declaration
@@ -879,6 +910,44 @@ def _extract_constant(
                                     byte_length=node.end_byte - node.start_byte,
                                     content_hash=c_hash,
                                 )
+
+    # Kotlin: const val MAX_RETRY = 3  or  val GlobalFormatter = ...
+    # Structure: property_declaration > [modifiers(const)?] binding_pattern_kind(val|var) variable_declaration(simple_identifier)
+    if node.type == "property_declaration" and language == "kotlin":
+        # Find the variable name via variable_declaration > simple_identifier
+        name = None
+        is_const = False
+        for child in node.children:
+            if child.type == "modifiers":
+                for mod in child.children:
+                    if mod.type == "property_modifier" and source_bytes[mod.start_byte:mod.end_byte] == b"const":
+                        is_const = True
+            if child.type == "variable_declaration":
+                for sub in child.children:
+                    if sub.type == "simple_identifier":
+                        name = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8")
+                        break
+        if not name:
+            return None
+        # Index const val always; index plain val/var only if UPPER_CASE (module-level convention)
+        if not is_const and not (name.isupper() or (len(name) > 1 and name[0].isupper() and "_" in name)):
+            return None
+        sig = source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip()
+        c_hash = compute_content_hash(source_bytes[node.start_byte:node.end_byte])
+        return Symbol(
+            id=make_symbol_id(filename, name, "constant"),
+            file=filename,
+            name=name,
+            qualified_name=name,
+            kind="constant",
+            language=language,
+            signature=sig[:120],
+            line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            byte_offset=node.start_byte,
+            byte_length=node.end_byte - node.start_byte,
+            content_hash=c_hash,
+        )
 
     # Swift: let MAX_SPEED = 100  (property_declaration with let binding)
     if node.type == "property_declaration":
