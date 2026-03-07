@@ -22,10 +22,18 @@ from .tools.search_symbols import search_symbols
 from .tools.invalidate_cache import invalidate_cache
 from .tools.search_text import search_text
 from .tools.get_repo_outline import get_repo_outline
+from .storage.token_tracker import get_savings_report
 
 
 # Create server
 server = Server("jcodemunch-mcp")
+
+
+class _HelpFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter,
+):
+    """Argparse formatter showing defaults while preserving epilog line breaks."""
 
 
 @server.list_tools()
@@ -384,11 +392,77 @@ async def run_server():
         )
 
 
+def _format_token_stats_text(report: dict[str, Any]) -> str:
+    """Format savings report for humans (non-JSON)."""
+    windows = report.get("equivalent_context_windows", {})
+    costs = report.get("total_cost_avoided", {})
+    lines = [
+        "jCodeMunch Token Savings",
+        "------------------------",
+        f"Total tokens saved: {report.get('total_tokens_saved', 0):,}",
+        f"Approx raw bytes avoided: {report.get('approx_raw_bytes_avoided', 0):,}",
+        f"Cost avoided (Claude Opus): ${costs.get('claude_opus', 0):.4f}",
+        f"Cost avoided (GPT-5 latest): ${costs.get('gpt5_latest', 0):.4f}",
+        f"Equivalent 32k windows: {windows.get('32k', 0)}",
+        f"Equivalent 128k windows: {windows.get('128k', 0)}",
+        f"Equivalent 1m windows: {windows.get('1m', 0)}",
+    ]
+    if "telemetry_enabled" in report:
+        telemetry = "enabled" if report.get("telemetry_enabled") else "disabled"
+        lines.append(f"Telemetry: {telemetry}")
+    if "anon_id_present" in report:
+        anon = "yes" if report.get("anon_id_present") else "no"
+        lines.append(f"Anon ID present: {anon}")
+    if report.get("savings_file"):
+        lines.append(f"Savings file: {report.get('savings_file')}")
+
+    return "\n".join(lines)
+
+
+def _token_stats_summary(report: dict[str, Any]) -> dict[str, Any]:
+    """Return a smaller, user-focused token stats summary."""
+    return {
+        "total_tokens_saved": report.get("total_tokens_saved", 0),
+        "approx_raw_bytes_avoided": report.get("approx_raw_bytes_avoided", 0),
+        "total_cost_avoided": report.get("total_cost_avoided", {}),
+        "equivalent_context_windows": report.get("equivalent_context_windows", {}),
+    }
+
+
+def _token_stats_fields_explainer() -> str:
+    """Help epilog explaining what token-stat fields are based on."""
+    return (
+        "token-stats fields:\n"
+        "jCodeMunch Token Savings\n"
+        "------------------------\n"
+        "Cost avoided (Claude Opus): Estimated savings using Claude Opus input pricing (total_tokens_saved × $15 / 1M).\n"
+        "Cost avoided (GPT-5 latest): Estimated savings using GPT-5 latest input pricing (total_tokens_saved × $10 / 1M).\n"
+        "Equivalent 32k windows: How many 32,000-token context windows the saved tokens equal.\n"
+        "Equivalent 128k windows: How many 128,000-token context windows the saved tokens equal.\n"
+        "Equivalent 1m windows: How many 1,000,000-token context windows the saved tokens equal.\n"
+        "Anon ID present: Whether _savings.json has an anonymous install ID for optional community meter sharing.\n"
+    )
+
+
+def _print_token_stats(output: str) -> None:
+    """Print token stats text, preferring Rich when available."""
+    import importlib.util
+
+    if importlib.util.find_spec("rich") is not None:
+        from rich.console import Console
+
+        Console().print(output)
+    else:
+        print(output)
+
+
 def main(argv: Optional[list[str]] = None):
     """Main entry point."""
     parser = argparse.ArgumentParser(
         prog="jcodemunch-mcp",
         description="Run the jCodeMunch MCP stdio server.",
+        formatter_class=_HelpFormatter,
+        epilog=_token_stats_fields_explainer(),
     )
     parser.add_argument(
         "-V",
@@ -407,7 +481,32 @@ def main(argv: Optional[list[str]] = None):
         default=os.environ.get("JCODEMUNCH_LOG_FILE"),
         help="Log file path (also via JCODEMUNCH_LOG_FILE env var). Defaults to stderr.",
     )
+    parser.add_argument(
+        "--token-stats",
+        action="store_true",
+        help="Print a concise token-savings summary and exit.",
+    )
+    parser.add_argument(
+        "--token-stats-all",
+        action="store_true",
+        help="Print the full token-savings report (includes telemetry/savings-file metadata) and exit.",
+    )
+    parser.add_argument(
+        "--output-format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format used by --token-stats and --token-stats-all.",
+    )
     args = parser.parse_args(argv)
+
+    if args.token_stats or args.token_stats_all:
+        full_report = get_savings_report(os.environ.get("CODE_INDEX_PATH"))
+        report = full_report if args.token_stats_all else _token_stats_summary(full_report)
+        if args.output_format == "json":
+            print(json.dumps(report, indent=2))
+        else:
+            _print_token_stats(_format_token_stats_text(report))
+        return
 
     log_level = getattr(logging, args.log_level)
     handlers: list[logging.Handler] = []

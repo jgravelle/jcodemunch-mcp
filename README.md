@@ -139,6 +139,85 @@ Verify:
 jcodemunch-mcp --help
 ```
 
+Quick token-insight report from local savings data:
+
+```bash
+jcodemunch-mcp --token-stats
+```
+
+Show the same summary in JSON:
+
+```bash
+jcodemunch-mcp --token-stats --output-format json
+```
+
+Need the full report (includes pricing map, telemetry flags, and savings file path)?
+
+```bash
+jcodemunch-mcp --token-stats-all
+```
+
+Full report in JSON:
+
+```bash
+jcodemunch-mcp --token-stats-all --output-format json
+```
+
+Example full JSON output (`--token-stats-all --output-format json`):
+
+```json
+{
+  "total_tokens_saved": 12345,
+  "approx_raw_bytes_avoided": 49380,
+  "pricing_usd_per_token": {
+    "claude_opus": 0.000015,
+    "gpt5_latest": 0.00001
+  },
+  "total_cost_avoided": {
+    "claude_opus": 0.1852,
+    "gpt5_latest": 0.1235
+  },
+  "equivalent_context_windows": {
+    "32k": 0.39,
+    "128k": 0.1,
+    "1m": 0.0123
+  },
+  "telemetry_enabled": true,
+  "anon_id_present": true,
+  "savings_file": "/home/user/.code-index/_savings.json"
+}
+```
+Text output uses Rich styling when available and falls back to plain terminal text automatically.
+
+Prefer a non-JSON, terminal-friendly summary? (`--output-format` defaults to `text`)
+
+```bash
+jcodemunch-mcp --token-stats
+```
+
+For the full text report (includes telemetry + savings file):
+
+```bash
+jcodemunch-mcp --token-stats-all
+```
+
+Example full text output:
+
+```text
+jCodeMunch Token Savings
+------------------------
+Total tokens saved: 12,345
+Approx raw bytes avoided: 49,380
+Cost avoided (Claude Opus): $0.1852
+Cost avoided (GPT-5 latest): $0.1235
+Equivalent 32k windows: 0.39
+Equivalent 128k windows: 0.1
+Equivalent 1m windows: 0.0123
+Telemetry: enabled
+Anon ID present: yes
+Savings file: /home/user/.code-index/_savings.json
+```
+
 ---
 
 ## Configure MCP Client
