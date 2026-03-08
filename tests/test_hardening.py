@@ -724,7 +724,7 @@ class TestIndexVersioning:
         )
 
         assert index.index_version == INDEX_VERSION
-        assert index.index_version == 3
+        assert index.index_version == 4
 
     def test_load_preserves_version(self, tmp_path):
         store = IndexStore(base_path=str(tmp_path))
@@ -887,3 +887,22 @@ class TestNewTools:
             storage_path=storage,
         )
         assert result["success"] is False
+
+    def test_invalidate_cache_rejects_ambiguous_bare_name(self, tmp_path):
+        from jcodemunch_mcp.tools.invalidate_cache import invalidate_cache
+
+        storage = str(tmp_path / "store")
+        store = IndexStore(base_path=storage)
+        for repo_name in ["shared-aaa11111", "shared-bbb22222"]:
+            store.save_index(
+                owner="local",
+                name=repo_name,
+                source_files=["main.py"],
+                symbols=[],
+                raw_files={"main.py": "print('x')\n"},
+                languages={"python": 1},
+                display_name="shared",
+            )
+
+        result = invalidate_cache(repo="shared", storage_path=storage)
+        assert result["error"].startswith("Ambiguous repository name: shared")

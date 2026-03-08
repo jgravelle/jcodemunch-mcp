@@ -13,7 +13,7 @@ from typing import Optional
 from ..parser.symbols import Symbol
 
 # Bump this when the index schema changes in an incompatible way.
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 
 
 def _file_hash(content: str) -> str:
@@ -50,14 +50,24 @@ class CodeIndex:
     file_hashes: dict[str, str] = field(default_factory=dict)  # file_path -> sha256
     git_head: str = ""           # HEAD commit hash at index time (for git repos)
     file_summaries: dict[str, str] = field(default_factory=dict)  # file_path -> summary
+    source_root: str = ""        # Absolute source root for local indexes, empty for remote
+    file_languages: dict[str, str] = field(default_factory=dict)  # file_path -> language
+    display_name: str = ""       # User-facing name (for local hashed repo IDs)
 
     def __post_init__(self) -> None:
-        # Build O(1) lookup dict once at load time
+        if not self.display_name:
+            self.display_name = self.name
+        # Build O(1) lookup structures once at load time.
         self._symbol_index: dict[str, dict] = {s["id"]: s for s in self.symbols if "id" in s}
+        self._source_file_set: set[str] = set(self.source_files)
 
     def get_symbol(self, symbol_id: str) -> Optional[dict]:
         """Find a symbol by ID (O(1))."""
         return self._symbol_index.get(symbol_id)
+
+    def has_source_file(self, file_path: str) -> bool:
+        """Check whether a file is present in the index."""
+        return not self.source_files or file_path in self._source_file_set
 
     def search(self, query: str, kind: Optional[str] = None, file_pattern: Optional[str] = None) -> list[dict]:
         """Search symbols with weighted scoring."""
@@ -197,6 +207,69 @@ class IndexStore:
         except (OSError, ValueError):
             return None
 
+    def _write_cached_text(self, path: Path, content: str) -> None:
+        """Write cached text without newline translation."""
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+
+    def _read_cached_text(self, path: Path) -> Optional[str]:
+        """Read cached text without newline normalization."""
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    def _repo_metadata_from_data(self, data: dict, owner: str, name: str) -> tuple[str, str, str]:
+        """Normalize repo/owner/name fields from stored JSON."""
+        repo_id = data.get("repo", f"{owner}/{name}")
+        if "/" in repo_id:
+            repo_owner, repo_name = repo_id.split("/", 1)
+        else:
+            repo_owner, repo_name = owner, name
+        return repo_id, data.get("owner", repo_owner), data.get("name", repo_name)
+
+    def _file_languages_from_symbols(self, symbols: list[dict]) -> dict[str, str]:
+        """Compute file -> language using symbol metadata."""
+        file_languages: dict[str, str] = {}
+        for sym in symbols:
+            file_path = sym.get("file")
+            language = sym.get("language")
+            if file_path and language and file_path not in file_languages:
+                file_languages[file_path] = language
+        return file_languages
+
+    def _file_languages_for_paths(
+        self,
+        paths: list[str],
+        symbols: list[dict],
+        existing: Optional[dict[str, str]] = None,
+    ) -> dict[str, str]:
+        """Fill file -> language for the given paths using symbols then extension fallback."""
+        from ..parser.languages import get_language_for_path
+
+        symbol_languages = self._file_languages_from_symbols(symbols)
+        file_languages = dict(existing or {})
+
+        for file_path in paths:
+            language = (
+                symbol_languages.get(file_path)
+                or file_languages.get(file_path)
+                or get_language_for_path(file_path)
+                or ""
+            )
+            if language:
+                file_languages[file_path] = language
+
+        return {file_path: file_languages[file_path] for file_path in paths if file_path in file_languages}
+
+    def _languages_from_file_languages(self, file_languages: dict[str, str]) -> dict[str, int]:
+        """Compute language -> file count from stored file language metadata."""
+        counts: dict[str, int] = {}
+        for language in file_languages.values():
+            counts[language] = counts.get(language, 0) + 1
+        return counts
+
     def save_index(
         self,
         owner: str,
@@ -204,12 +277,24 @@ class IndexStore:
         source_files: list[str],
         symbols: list[Symbol],
         raw_files: dict[str, str],
-        languages: dict[str, int],
+        languages: Optional[dict[str, int]] = None,
         file_hashes: Optional[dict[str, str]] = None,
         git_head: str = "",
         file_summaries: Optional[dict[str, str]] = None,
+        source_root: str = "",
+        file_languages: Optional[dict[str, str]] = None,
+        display_name: str = "",
     ) -> "CodeIndex":
         """Save index and raw files to storage."""
+        normalized_source_files = sorted(dict.fromkeys(source_files or list(raw_files.keys())))
+        serialized_symbols = [self._symbol_to_dict(s) for s in symbols]
+        merged_file_languages = self._file_languages_for_paths(
+            normalized_source_files,
+            serialized_symbols,
+            existing=file_languages,
+        )
+        resolved_languages = languages or self._languages_from_file_languages(merged_file_languages)
+
         # Compute file hashes if not provided
         if file_hashes is None:
             file_hashes = {fp: _file_hash(content) for fp, content in raw_files.items()}
@@ -220,13 +305,16 @@ class IndexStore:
             owner=owner,
             name=name,
             indexed_at=datetime.now().isoformat(),
-            source_files=source_files,
-            languages=languages,
-            symbols=[self._symbol_to_dict(s) for s in symbols],
+            source_files=normalized_source_files,
+            languages=resolved_languages,
+            symbols=serialized_symbols,
             index_version=INDEX_VERSION,
             file_hashes=file_hashes,
             git_head=git_head,
             file_summaries=file_summaries or {},
+            source_root=source_root,
+            file_languages=merged_file_languages,
+            display_name=display_name or name,
         )
 
         # Save index JSON atomically: write to temp then rename
@@ -245,8 +333,7 @@ class IndexStore:
             if not file_dest:
                 raise ValueError(f"Unsafe file path in raw_files: {file_path}")
             file_dest.parent.mkdir(parents=True, exist_ok=True)
-            with open(file_dest, "w", encoding="utf-8") as f:
-                f.write(content)
+            self._write_cached_text(file_dest, content)
 
         return index
 
@@ -265,18 +352,33 @@ class IndexStore:
         if stored_version > INDEX_VERSION:
             return None  # Future version we can't read
 
+        repo_id, stored_owner, stored_name = self._repo_metadata_from_data(data, owner, name)
+        source_files = data.get("source_files", [])
+        symbols = data.get("symbols", [])
+        file_languages = self._file_languages_for_paths(
+            source_files,
+            symbols,
+            existing=data.get("file_languages"),
+        )
+        languages = self._languages_from_file_languages(file_languages)
+        if not languages:
+            languages = data.get("languages", {})
+
         return CodeIndex(
-            repo=data["repo"],
-            owner=data["owner"],
-            name=data["name"],
+            repo=repo_id,
+            owner=stored_owner,
+            name=stored_name,
             indexed_at=data["indexed_at"],
-            source_files=data["source_files"],
-            languages=data["languages"],
-            symbols=data["symbols"],
+            source_files=source_files,
+            languages=languages,
+            symbols=symbols,
             index_version=stored_version,
             file_hashes=data.get("file_hashes", {}),
             git_head=data.get("git_head", ""),
             file_summaries=data.get("file_summaries", {}),
+            source_root=data.get("source_root", ""),
+            file_languages=file_languages,
+            display_name=data.get("display_name", stored_name),
         )
 
     def get_symbol_content(self, owner: str, name: str, symbol_id: str, _index: Optional["CodeIndex"] = None) -> Optional[str]:
@@ -305,6 +407,24 @@ class IndexStore:
             source_bytes = f.read(symbol["byte_length"])
 
         return source_bytes.decode("utf-8", errors="replace")
+
+    def get_file_content(
+        self,
+        owner: str,
+        name: str,
+        file_path: str,
+        _index: Optional["CodeIndex"] = None,
+    ) -> Optional[str]:
+        """Read a cached file's full content."""
+        index = _index or self.load_index(owner, name)
+        if not index or not index.has_source_file(file_path):
+            return None
+
+        content_path = self._safe_content_path(self._content_dir(owner, name), file_path)
+        if not content_path or not content_path.exists():
+            return None
+
+        return self._read_cached_text(content_path)
 
     def detect_changes(
         self,
@@ -341,9 +461,10 @@ class IndexStore:
         deleted_files: list[str],
         new_symbols: list[Symbol],
         raw_files: dict[str, str],
-        languages: dict[str, int],
+        languages: Optional[dict[str, int]] = None,
         git_head: str = "",
         file_summaries: Optional[dict[str, str]] = None,
+        file_languages: Optional[dict[str, str]] = None,
     ) -> Optional[CodeIndex]:
         """Incrementally update an existing index.
 
@@ -359,8 +480,22 @@ class IndexStore:
         kept_symbols = [s for s in index.symbols if s.get("file") not in files_to_remove]
 
         # Add new symbols
-        all_symbols_dicts = kept_symbols + [self._symbol_to_dict(s) for s in new_symbols]
-        recomputed_languages = self._languages_from_symbols(all_symbols_dicts)
+        new_symbol_dicts = [self._symbol_to_dict(s) for s in new_symbols]
+        all_symbols_dicts = kept_symbols + new_symbol_dicts
+
+        changed_or_new_files = sorted(set(changed_files) | set(new_files))
+        merged_file_languages = dict(index.file_languages)
+        for file_path in deleted_files:
+            merged_file_languages.pop(file_path, None)
+        merged_file_languages.update(
+            self._file_languages_for_paths(
+                changed_or_new_files,
+                new_symbol_dicts,
+                existing={**index.file_languages, **(file_languages or {})},
+            )
+        )
+
+        recomputed_languages = self._languages_from_file_languages(merged_file_languages)
         if not recomputed_languages and languages:
             recomputed_languages = languages
 
@@ -384,22 +519,28 @@ class IndexStore:
         merged_summaries = dict(index.file_summaries)
         for f in deleted_files:
             merged_summaries.pop(f, None)
+        for f in changed_or_new_files:
+            merged_summaries.pop(f, None)
         if file_summaries:
             merged_summaries.update(file_summaries)
 
         # Build updated index
+        updated_source_files = sorted(old_files)
         updated = CodeIndex(
             repo=f"{owner}/{name}",
             owner=owner,
             name=name,
             indexed_at=datetime.now().isoformat(),
-            source_files=sorted(old_files),
+            source_files=updated_source_files,
             languages=recomputed_languages,
             symbols=all_symbols_dicts,
             index_version=INDEX_VERSION,
             file_hashes=file_hashes,
             git_head=git_head,
             file_summaries=merged_summaries,
+            source_root=index.source_root,
+            file_languages={fp: merged_file_languages[fp] for fp in updated_source_files if fp in merged_file_languages},
+            display_name=index.display_name,
         )
 
         # Save atomically
@@ -427,25 +568,13 @@ class IndexStore:
             if not dest:
                 raise ValueError(f"Unsafe file path in raw_files: {fp}")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            with open(dest, "w", encoding="utf-8") as f:
-                f.write(content)
+            self._write_cached_text(dest, content)
 
         return updated
 
     def _languages_from_symbols(self, symbols: list[dict]) -> dict[str, int]:
         """Compute language->file_count from serialized symbols."""
-        file_languages: dict[str, str] = {}
-        for sym in symbols:
-            file_path = sym.get("file")
-            language = sym.get("language")
-            if not file_path or not language:
-                continue
-            file_languages.setdefault(file_path, language)
-
-        counts: dict[str, int] = {}
-        for language in file_languages.values():
-            counts[language] = counts.get(language, 0) + 1
-        return counts
+        return self._languages_from_file_languages(self._file_languages_from_symbols(symbols))
 
     def list_repos(self) -> list[dict]:
         """List all indexed repositories."""
@@ -456,17 +585,26 @@ class IndexStore:
                 with open(index_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                repos.append({
+                repo_id = data.get("repo")
+                if not repo_id:
+                    continue
+                repo_entry = {
                     "repo": data["repo"],
                     "indexed_at": data["indexed_at"],
-                    "symbol_count": len(data["symbols"]),
-                    "file_count": len(data["source_files"]),
-                    "languages": data["languages"],
+                    "symbol_count": len(data.get("symbols", [])),
+                    "file_count": len(data.get("source_files", [])),
+                    "languages": data.get("languages", {}),
                     "index_version": data.get("index_version", 1),
-                })
+                }
+                if data.get("display_name"):
+                    repo_entry["display_name"] = data["display_name"]
+                if data.get("source_root"):
+                    repo_entry["source_root"] = data["source_root"]
+                repos.append(repo_entry)
             except Exception:
                 continue
 
+        repos.sort(key=lambda repo: repo["repo"])
         return repos
 
     def delete_index(self, owner: str, name: str) -> bool:
@@ -522,4 +660,7 @@ class IndexStore:
             "file_hashes": index.file_hashes,
             "git_head": index.git_head,
             "file_summaries": index.file_summaries,
+            "source_root": index.source_root,
+            "file_languages": index.file_languages,
+            "display_name": index.display_name,
         }

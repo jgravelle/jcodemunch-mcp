@@ -2,6 +2,7 @@
 
 import os
 import time
+from collections import Counter
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
@@ -84,12 +85,7 @@ def _build_tree(files: list[str], index, path_prefix: str, include_summaries: bo
     """Build nested tree from flat file list."""
     # Group files by directory
     root = {}
-    file_languages: dict[str, str] = {}
-    for sym in index.symbols:
-        file_path = sym.get("file")
-        language = sym.get("language")
-        if file_path and language and file_path not in file_languages:
-            file_languages[file_path] = language
+    symbol_counts = Counter(sym.get("file") for sym in index.symbols if sym.get("file"))
     
     for file_path in files:
         # Remove prefix for relative path
@@ -103,21 +99,11 @@ def _build_tree(files: list[str], index, path_prefix: str, include_summaries: bo
             
             if is_last:
                 # File node
-                # Count symbols for this file
-                symbol_count = sum(1 for s in index.symbols if s.get("file") == file_path)
-                
-                # Get language
-                lang = file_languages.get(file_path, "")
-                if not lang:
-                    _, ext = os.path.splitext(file_path)
-                    from ..parser import LANGUAGE_EXTENSIONS
-                    lang = LANGUAGE_EXTENSIONS.get(ext, "")
-                
                 node = {
                     "path": file_path,
                     "type": "file",
-                    "language": lang,
-                    "symbol_count": symbol_count
+                    "language": index.file_languages.get(file_path, ""),
+                    "symbol_count": symbol_counts.get(file_path, 0),
                 }
                 if include_summaries:
                     node["summary"] = index.file_summaries.get(file_path, "")

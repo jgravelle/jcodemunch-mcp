@@ -3,12 +3,11 @@
 import asyncio
 import hashlib
 import os
+from collections import defaultdict
 from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
-
-from collections import defaultdict
 
 from ..parser import parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
 from ..security import is_secret_file, is_binary_extension, get_max_index_files, SKIP_PATTERNS
@@ -168,6 +167,39 @@ def discover_source_files(
     return files, truncated
 
 
+def _file_languages_for_paths(
+    file_paths: list[str],
+    symbols_by_file: dict[str, list],
+) -> dict[str, str]:
+    """Resolve file languages using parsed symbols first, then extension fallback."""
+    file_languages: dict[str, str] = {}
+    for file_path in file_paths:
+        file_symbols = symbols_by_file.get(file_path, [])
+        language = file_symbols[0].language if file_symbols else ""
+        if not language:
+            language = get_language_for_path(file_path) or ""
+        if language:
+            file_languages[file_path] = language
+    return file_languages
+
+
+def _language_counts(file_languages: dict[str, str]) -> dict[str, int]:
+    """Count files by language."""
+    counts: dict[str, int] = {}
+    for language in file_languages.values():
+        counts[language] = counts.get(language, 0) + 1
+    return counts
+
+
+def _complete_file_summaries(
+    file_paths: list[str],
+    symbols_by_file: dict[str, list],
+) -> dict[str, str]:
+    """Generate file summaries and include empty entries for no-symbol files."""
+    generated = generate_file_summaries(dict(symbols_by_file))
+    return {file_path: generated.get(file_path, "") for file_path in file_paths}
+
+
 async def fetch_file_content(
     owner: str,
     repo: str,
@@ -277,7 +309,8 @@ async def index_repo(
         store = IndexStore(base_path=storage_path)
 
         # Incremental path
-        if incremental and store.load_index(owner, repo) is not None:
+        existing_index = store.load_index(owner, repo)
+        if incremental and existing_index is not None:
             changed, new, deleted = store.detect_changes(owner, repo, current_files)
 
             if not changed and not new and not deleted:
@@ -291,19 +324,22 @@ async def index_repo(
             files_to_parse = set(changed) | set(new)
             new_symbols = []
             raw_files_subset: dict[str, str] = {}
+            incremental_no_symbols: list[str] = []
 
             for path in files_to_parse:
                 content = current_files[path]
                 # Track file hashes for changed/new files even when symbol extraction yields none.
                 raw_files_subset[path] = content
-                _, ext = os.path.splitext(path)
                 language = get_language_for_path(path)
                 if not language:
+                    incremental_no_symbols.append(path)
                     continue
                 try:
                     symbols = parse_file(content, path, language)
                     if symbols:
                         new_symbols.extend(symbols)
+                    else:
+                        incremental_no_symbols.append(path)
                 except Exception:
                     warnings.append(f"Failed to parse {path}")
 
@@ -313,14 +349,16 @@ async def index_repo(
             incr_symbols_map = defaultdict(list)
             for s in new_symbols:
                 incr_symbols_map[s.file].append(s)
-            incr_file_summaries = generate_file_summaries(dict(incr_symbols_map))
+            incr_file_summaries = _complete_file_summaries(sorted(files_to_parse), incr_symbols_map)
+            incr_file_languages = _file_languages_for_paths(sorted(files_to_parse), incr_symbols_map)
 
             updated = store.incremental_save(
                 owner=owner, name=repo,
                 changed_files=changed, new_files=new, deleted_files=deleted,
-                new_symbols=new_symbols, raw_files=raw_files_subset,
-                languages={},
+                new_symbols=new_symbols,
+                raw_files=raw_files_subset,
                 file_summaries=incr_file_summaries,
+                file_languages=incr_file_languages,
             )
 
             result = {
@@ -330,6 +368,8 @@ async def index_repo(
                 "changed": len(changed), "new": len(new), "deleted": len(deleted),
                 "symbol_count": len(updated.symbols) if updated else 0,
                 "indexed_at": updated.indexed_at if updated else "",
+                "no_symbols_count": len(incremental_no_symbols),
+                "no_symbols_files": incremental_no_symbols[:50],
             }
             if warnings:
                 result["warnings"] = warnings
@@ -337,39 +377,37 @@ async def index_repo(
 
         # Full index path
         all_symbols = []
-        languages = {}
-        raw_files = {}
-        parsed_files = []
+        symbols_by_file: dict[str, list] = defaultdict(list)
+        source_file_list = sorted(current_files)
+        no_symbols_files: list[str] = []
 
         for path, content in current_files.items():
-            _, ext = os.path.splitext(path)
             language = get_language_for_path(path)
             if not language:
+                no_symbols_files.append(path)
                 continue
             try:
                 symbols = parse_file(content, path, language)
                 if symbols:
                     all_symbols.extend(symbols)
-                    file_language = symbols[0].language or language
-                    languages[file_language] = languages.get(file_language, 0) + 1
-                    raw_files[path] = content
-                    parsed_files.append(path)
+                    symbols_by_file[path].extend(symbols)
+                else:
+                    no_symbols_files.append(path)
             except Exception:
                 warnings.append(f"Failed to parse {path}")
                 continue
 
-        if not all_symbols:
-            return {"success": False, "error": "No symbols extracted"}
-
         # Generate summaries
-        all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
+        if all_symbols:
+            all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
 
         # Generate file-level summaries (single-pass grouping)
         file_symbols_map = defaultdict(list)
         for s in all_symbols:
             file_symbols_map[s.file].append(s)
-        file_summaries = generate_file_summaries(dict(file_symbols_map))
-
+        file_languages = _file_languages_for_paths(source_file_list, file_symbols_map)
+        languages = _language_counts(file_languages)
+        file_summaries = _complete_file_summaries(source_file_list, file_symbols_map)
 
         # Save index
         # Track hashes for all discovered source files so incremental change detection
@@ -378,26 +416,31 @@ async def index_repo(
             fp: hashlib.sha256(content.encode("utf-8")).hexdigest()
             for fp, content in current_files.items()
         }
-        store.save_index(
+        index = store.save_index(
             owner=owner,
             name=repo,
-            source_files=parsed_files,
+            source_files=source_file_list,
             symbols=all_symbols,
-            raw_files=raw_files,
+            raw_files=current_files,
             languages=languages,
             file_hashes=file_hashes,
             file_summaries=file_summaries,
+            source_root="",
+            file_languages=file_languages,
+            display_name=repo,
         )
 
         result = {
             "success": True,
-            "repo": f"{owner}/{repo}",
-            "indexed_at": store.load_index(owner, repo).indexed_at,
-            "file_count": len(parsed_files),
+            "repo": index.repo,
+            "indexed_at": index.indexed_at,
+            "file_count": len(source_file_list),
             "symbol_count": len(all_symbols),
             "file_summary_count": sum(1 for v in file_summaries.values() if v),
             "languages": languages,
-            "files": parsed_files[:20],  # Limit files in response
+            "files": source_file_list[:20],  # Limit files in response
+            "no_symbols_count": len(no_symbols_files),
+            "no_symbols_files": no_symbols_files[:50],
         }
 
         if warnings:

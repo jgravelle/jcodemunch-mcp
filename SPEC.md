@@ -15,7 +15,7 @@
 
 ---
 
-## MCP Tools (11)
+## MCP Tools (12)
 
 ### Indexing Tools
 
@@ -58,7 +58,7 @@ Deletes both the index JSON and raw content directory.
 
 #### `list_repos` — List indexed repositories
 
-No input required. Returns all indexed repositories with symbol counts, file counts, languages, and index version.
+No input required. Returns all indexed repositories with symbol counts, file counts, languages, index version, and optional `display_name` / `source_root` metadata when present.
 
 #### `get_file_tree` — Get file structure
 
@@ -81,6 +81,19 @@ Returns a nested directory tree with per-file language and symbol count annotati
 ```
 
 Returns a hierarchical symbol tree (classes contain methods) with signatures and summaries. Source code is not included; use `get_symbol` for that.
+
+#### `get_file_content` — Get cached file content
+
+```json
+{
+  "repo": "owner/repo",
+  "file_path": "src/main.py",
+  "start_line": 10,
+  "end_line": 30
+}
+```
+
+Returns raw cached file content. Optional `start_line` / `end_line` are 1-based inclusive and clamped to the file bounds.
 
 #### `get_repo_outline` — High-level repository overview
 
@@ -146,11 +159,12 @@ Weighted scoring search across name, signature, summary, keywords, and docstring
   "repo": "owner/repo",
   "query": "TODO",
   "file_pattern": "*.py",
-  "max_results": 20
+  "max_results": 20,
+  "context_lines": 2
 }
 ```
 
-Case-insensitive substring search across indexed file contents. Returns matching lines with file, line number, and surrounding context. Use when symbol search misses (string literals, comments, config values).
+Case-insensitive substring search across indexed file contents. Returns grouped matches shaped like `[{file, matches:[{line, text, before, after}]}]`, where `before` and `after` are lists of surrounding lines. Use when symbol search misses (string literals, comments, config values).
 
 ---
 
@@ -189,12 +203,15 @@ class CodeIndex:
     owner: str
     name: str
     indexed_at: str                  # ISO timestamp
-    index_version: int               # Schema version (current: 2)
+    index_version: int               # Schema version (current: 4)
     source_files: list[str]
     languages: dict[str, int]        # language → file count
     symbols: list[dict]              # Serialized symbols (no source)
     file_hashes: dict[str, str]      # file_path → SHA-256 (for incremental)
     git_head: str                    # HEAD commit hash (for git repos, empty if unavailable)
+    source_root: str                 # Absolute path for local indexes, empty for remote
+    file_languages: dict[str, str]   # file_path → language
+    display_name: str                # User-facing name for hashed local repo ids
 ```
 
 ---
@@ -218,7 +235,7 @@ Recursive directory walk with the full security pipeline.
 4. **Secret detection** — `.env`, `*.pem`, `*.key`, `*.p12`, credentials files excluded
 5. **Binary detection** — extension-based + null-byte content sniffing
 6. **Size limit** — 500 KB per file (configurable)
-7. **File count limit** — 500 files max, prioritized: `src/` → `lib/` → `pkg/` → `cmd/` → `internal/` → remainder
+7. **File count limit** — 10,000 files max by default (overridable via `JCODEMUNCH_MAX_INDEX_FILES`), prioritized: `src/` → `lib/` → `pkg/` → `cmd/` → `internal/` → remainder
 
 ---
 
@@ -243,7 +260,7 @@ All tools return a `_meta` object with timing, context, and token savings:
 - **`tokens_saved`**: Tokens saved by this specific call (raw file bytes vs response bytes, divided by 4)
 - **`total_tokens_saved`**: Cumulative tokens saved across all tool calls, persisted to `~/.code-index/_savings.json`
 
-Present on: `get_file_outline`, `get_symbol`, `get_symbols`, `get_repo_outline`, `search_symbols`.
+Present on: `get_file_outline`, `get_file_content`, `get_symbol`, `get_symbols`, `get_repo_outline`, `search_symbols`, `search_text`.
 
 ---
 

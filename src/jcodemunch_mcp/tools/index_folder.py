@@ -1,13 +1,13 @@
 """Index local folder tool - walk, parse, summarize, save."""
 
+import hashlib
 import logging
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
 import pathspec
-
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ from ..security import (
     SKIP_PATTERNS,
 )
 from ..storage import IndexStore
-from ..storage.index_store import _file_hash
+from ..storage.index_store import _file_hash, _get_git_head
 from ..summarizer import summarize_symbols
 
 
@@ -53,6 +53,45 @@ def _load_gitignore(folder_path: Path) -> Optional[pathspec.PathSpec]:
         except Exception:
             pass
     return None
+
+
+def _local_repo_name(folder_path: Path) -> str:
+    """Stable local repo id derived from basename + resolved path hash."""
+    digest = hashlib.sha1(str(folder_path).encode("utf-8")).hexdigest()[:8]
+    return f"{folder_path.name}-{digest}"
+
+
+def _file_languages_for_paths(
+    file_paths: list[str],
+    symbols_by_file: dict[str, list],
+) -> dict[str, str]:
+    """Resolve file languages using parsed symbols first, then extension fallback."""
+    file_languages: dict[str, str] = {}
+    for file_path in file_paths:
+        file_symbols = symbols_by_file.get(file_path, [])
+        language = file_symbols[0].language if file_symbols else ""
+        if not language:
+            language = get_language_for_path(file_path) or ""
+        if language:
+            file_languages[file_path] = language
+    return file_languages
+
+
+def _language_counts(file_languages: dict[str, str]) -> dict[str, int]:
+    """Count files by language."""
+    counts: dict[str, int] = {}
+    for language in file_languages.values():
+        counts[language] = counts.get(language, 0) + 1
+    return counts
+
+
+def _complete_file_summaries(
+    file_paths: list[str],
+    symbols_by_file: dict[str, list],
+) -> dict[str, str]:
+    """Generate file summaries and include empty entries for no-symbol files."""
+    generated = generate_file_summaries(dict(symbols_by_file))
+    return {file_path: generated.get(file_path, "") for file_path in file_paths}
 
 
 def discover_local_files(
@@ -264,9 +303,10 @@ def index_folder(
             return {"success": False, "error": "No source files found"}
 
         # Create repo identifier from folder path
-        repo_name = folder_path.name
+        repo_name = _local_repo_name(folder_path)
         owner = "local"
         store = IndexStore(base_path=storage_path)
+        existing_index = store.load_index(owner, repo_name)
 
         # Read all files to build current_files map
         current_files: dict[str, str] = {}
@@ -274,7 +314,8 @@ def index_folder(
             if not validate_path(folder_path, file_path):
                 continue
             try:
-                content = file_path.read_text(encoding="utf-8", errors="replace")
+                with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                    content = f.read()
             except Exception as e:
                 warnings.append(f"Failed to read {file_path}: {e}")
                 continue
@@ -288,7 +329,7 @@ def index_folder(
             current_files[rel_path] = content
 
         # Incremental path: detect changes and only re-parse affected files
-        if incremental and store.load_index(owner, repo_name) is not None:
+        if incremental and existing_index is not None:
             changed, new, deleted = store.detect_changes(owner, repo_name, current_files)
 
             if not changed and not new and not deleted:
@@ -310,9 +351,9 @@ def index_folder(
                 content = current_files[rel_path]
                 # Track file hashes for changed/new files even when symbol extraction yields none.
                 raw_files_subset[rel_path] = content
-                ext = os.path.splitext(rel_path)[1]
                 language = get_language_for_path(rel_path)
                 if not language:
+                    incremental_no_symbols.append(rel_path)
                     continue
                 try:
                     symbols = parse_file(content, rel_path, language)
@@ -337,17 +378,19 @@ def index_folder(
             incr_symbols_map = defaultdict(list)
             for s in new_symbols:
                 incr_symbols_map[s.file].append(s)
-            incr_file_summaries = generate_file_summaries(dict(incr_symbols_map))
+            incr_file_summaries = _complete_file_summaries(sorted(files_to_parse), incr_symbols_map)
+            incr_file_languages = _file_languages_for_paths(sorted(files_to_parse), incr_symbols_map)
 
-            from ..storage.index_store import _get_git_head
             git_head = _get_git_head(folder_path) or ""
 
             updated = store.incremental_save(
                 owner=owner, name=repo_name,
                 changed_files=changed, new_files=new, deleted_files=deleted,
-                new_symbols=new_symbols, raw_files=raw_files_subset,
-                languages={}, git_head=git_head,
+                new_symbols=new_symbols,
+                raw_files=raw_files_subset,
+                git_head=git_head,
                 file_summaries=incr_file_summaries,
+                file_languages=incr_file_languages,
             )
 
             result = {
@@ -368,24 +411,20 @@ def index_folder(
 
         # Full index path
         all_symbols = []
-        languages = {}
-        raw_files = {}
-        parsed_files = []
+        symbols_by_file: dict[str, list] = defaultdict(list)
+        source_file_list = sorted(current_files)
 
         no_symbols_files: list[str] = []
         for rel_path, content in current_files.items():
-            ext = os.path.splitext(rel_path)[1]
             language = get_language_for_path(rel_path)
             if not language:
+                no_symbols_files.append(rel_path)
                 continue
             try:
                 symbols = parse_file(content, rel_path, language)
                 if symbols:
                     all_symbols.extend(symbols)
-                    file_language = symbols[0].language or language
-                    languages[file_language] = languages.get(file_language, 0) + 1
-                    raw_files[rel_path] = content
-                    parsed_files.append(rel_path)
+                    symbols_by_file[rel_path].extend(symbols)
                 else:
                     no_symbols_files.append(rel_path)
                     logger.debug("NO SYMBOLS: %s", rel_path)
@@ -396,22 +435,21 @@ def index_folder(
 
         logger.info(
             "Parsing complete — with symbols: %d, no symbols: %d",
-            len(parsed_files),
+            len(symbols_by_file),
             len(no_symbols_files),
         )
 
-        if not all_symbols:
-            return {"success": False, "error": "No symbols extracted from files"}
-
         # Generate summaries
-        all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
+        if all_symbols:
+            all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
 
         # Generate file-level summaries (single-pass grouping)
         file_symbols_map = defaultdict(list)
         for s in all_symbols:
             file_symbols_map[s.file].append(s)
-        file_summaries = generate_file_summaries(dict(file_symbols_map))
-
+        file_languages = _file_languages_for_paths(source_file_list, file_symbols_map)
+        languages = _language_counts(file_languages)
+        file_summaries = _complete_file_summaries(source_file_list, file_symbols_map)
 
         # Save index
         # Track hashes for all discovered source files so incremental change detection
@@ -420,27 +458,31 @@ def index_folder(
             fp: _file_hash(content)
             for fp, content in current_files.items()
         }
-        store.save_index(
+        index = store.save_index(
             owner=owner,
             name=repo_name,
-            source_files=parsed_files,
+            source_files=source_file_list,
             symbols=all_symbols,
-            raw_files=raw_files,
+            raw_files=current_files,
             languages=languages,
             file_hashes=file_hashes,
             file_summaries=file_summaries,
+            git_head=_get_git_head(folder_path) or "",
+            source_root=str(folder_path),
+            file_languages=file_languages,
+            display_name=folder_path.name,
         )
 
         result = {
             "success": True,
-            "repo": f"{owner}/{repo_name}",
+            "repo": index.repo,
             "folder_path": str(folder_path),
-            "indexed_at": store.load_index(owner, repo_name).indexed_at,
-            "file_count": len(parsed_files),
+            "indexed_at": index.indexed_at,
+            "file_count": len(source_file_list),
             "symbol_count": len(all_symbols),
             "file_summary_count": sum(1 for v in file_summaries.values() if v),
             "languages": languages,
-            "files": parsed_files[:20],  # Limit files in response
+            "files": source_file_list[:20],  # Limit files in response
             "discovery_skip_counts": skip_counts,
             "no_symbols_count": len(no_symbols_files),
             "no_symbols_files": no_symbols_files[:50],  # Show up to 50 for inspection
