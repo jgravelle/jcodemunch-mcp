@@ -34,6 +34,29 @@ class TestResolveRepo:
         with pytest.raises(ValueError, match="Repository not found: nonexistent"):
             resolve_repo("nonexistent", storage_path=str(tmp_path))
 
+    def test_ambiguous_display_name_raises(self, tmp_path):
+        index_a = {
+            "repo": "local/shared-aaa11111",
+            "indexed_at": "2024-01-01T00:00:00",
+            "symbols": [],
+            "source_files": [],
+            "languages": {},
+            "display_name": "shared",
+        }
+        index_b = {
+            "repo": "local/shared-bbb22222",
+            "indexed_at": "2024-01-01T00:00:00",
+            "symbols": [],
+            "source_files": [],
+            "languages": {},
+            "display_name": "shared",
+        }
+        (tmp_path / "local-shared-aaa11111.json").write_text(json.dumps(index_a))
+        (tmp_path / "local-shared-bbb22222.json").write_text(json.dumps(index_b))
+
+        with pytest.raises(ValueError, match="Ambiguous repository name: shared"):
+            resolve_repo("shared", storage_path=str(tmp_path))
+
 
 class TestInputValidation:
     """Tests for input clamping in tool functions."""

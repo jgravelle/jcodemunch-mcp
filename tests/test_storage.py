@@ -100,6 +100,26 @@ def test_list_repos(tmp_path):
     assert len(repos) == 2
 
 
+def test_list_repos_includes_optional_metadata(tmp_path):
+    """display_name and source_root should surface when present."""
+    store = IndexStore(base_path=str(tmp_path))
+
+    store.save_index(
+        owner="local",
+        name="demo-deadbeef",
+        source_files=["main.py"],
+        symbols=[],
+        raw_files={"main.py": "print('x')\n"},
+        languages={"python": 1},
+        display_name="demo",
+        source_root="/tmp/demo",
+    )
+
+    repos = store.list_repos()
+    assert repos[0]["display_name"] == "demo"
+    assert repos[0]["source_root"] == "/tmp/demo"
+
+
 def test_delete_index(tmp_path):
     """Test deleting an index."""
     store = IndexStore(base_path=str(tmp_path))
@@ -229,6 +249,61 @@ def test_save_index_sanitizes_special_chars_in_name(tmp_path):
     assert index is not None
     # The on-disk file should use the sanitized name (spaces/parens → hyphens, collapsed)
     assert (tmp_path / "local-my-project-v2.json").exists()
+
+
+def test_load_index_backfills_new_metadata_for_legacy_indexes(tmp_path):
+    """Older indexes without file_languages/source_root should still load cleanly."""
+    store = IndexStore(base_path=str(tmp_path))
+    content_dir = tmp_path / "legacy-demo"
+    (content_dir / "src").mkdir(parents=True)
+    (content_dir / "include").mkdir(parents=True)
+    (content_dir / "src" / "main.py").write_text("def run():\n    pass\n", encoding="utf-8")
+    (content_dir / "include" / "no_symbols.h").write_text("/* no symbols */\n", encoding="utf-8")
+
+    legacy_index = {
+        "repo": "legacy/demo",
+        "owner": "legacy",
+        "name": "demo",
+        "indexed_at": "2025-01-01T00:00:00",
+        "source_files": ["src/main.py", "include/no_symbols.h"],
+        "languages": {"python": 1},
+        "symbols": [{
+            "id": "src-main-py::run#function",
+            "file": "src/main.py",
+            "name": "run",
+            "qualified_name": "run",
+            "kind": "function",
+            "language": "python",
+            "signature": "def run():",
+            "docstring": "",
+            "summary": "",
+            "decorators": [],
+            "keywords": [],
+            "parent": "",
+            "line": 1,
+            "end_line": 2,
+            "byte_offset": 0,
+            "byte_length": 19,
+            "content_hash": "",
+        }],
+        "index_version": 3,
+        "file_hashes": {
+            "src/main.py": "a",
+            "include/no_symbols.h": "b",
+        },
+        "git_head": "",
+    }
+    (tmp_path / "legacy-demo.json").write_text(json.dumps(legacy_index), encoding="utf-8")
+
+    loaded = store.load_index("legacy", "demo")
+    assert loaded is not None
+    assert loaded.source_root == ""
+    assert loaded.display_name == "demo"
+    assert loaded.file_languages == {
+        "src/main.py": "python",
+        "include/no_symbols.h": "cpp",
+    }
+    assert loaded.languages == {"python": 1, "cpp": 1}
 
 
 def test_codeindex_get_symbol():

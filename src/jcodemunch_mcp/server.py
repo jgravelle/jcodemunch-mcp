@@ -17,6 +17,7 @@ from .tools.index_folder import index_folder
 from .tools.list_repos import list_repos
 from .tools.get_file_tree import get_file_tree
 from .tools.get_file_outline import get_file_outline
+from .tools.get_file_content import get_file_content
 from .tools.get_symbol import get_symbol, get_symbols
 from .tools.search_symbols import search_symbols
 from .tools.invalidate_cache import invalidate_cache
@@ -50,7 +51,7 @@ async def list_tools() -> list[Tool]:
                     "incremental": {
                         "type": "boolean",
                         "description": "When true and an existing index exists, only re-index changed files.",
-                        "default": False
+                        "default": True
                     }
                 },
                 "required": ["url"]
@@ -84,7 +85,7 @@ async def list_tools() -> list[Tool]:
                     "incremental": {
                         "type": "boolean",
                         "description": "When true and an existing index exists, only re-index changed files.",
-                        "default": False
+                        "default": True
                     }
                 },
                 "required": ["path"]
@@ -166,6 +167,32 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["repo", "symbol_id"]
+            }
+        ),
+        Tool(
+            name="get_file_content",
+            description="Get cached source for a file, optionally sliced to a line range.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file within the repository (e.g., 'src/main.py')"
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Optional 1-based start line (inclusive)"
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Optional 1-based end line (inclusive)"
+                    }
+                },
+                "required": ["repo", "file_path"]
             }
         ),
         Tool(
@@ -260,6 +287,11 @@ async def list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Maximum number of matching lines to return",
                         "default": 20
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Number of surrounding lines to include before/after each match",
+                        "default": 0
                     }
                 },
                 "required": ["repo", "query"]
@@ -293,7 +325,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 url=arguments["url"],
                 use_ai_summaries=arguments.get("use_ai_summaries", True),
                 storage_path=storage_path,
-                incremental=arguments.get("incremental", False),
+                incremental=arguments.get("incremental", True),
             )
         elif name == "index_folder":
             result = index_folder(
@@ -302,7 +334,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 storage_path=storage_path,
                 extra_ignore_patterns=arguments.get("extra_ignore_patterns"),
                 follow_symlinks=arguments.get("follow_symlinks", False),
-                incremental=arguments.get("incremental", False),
+                incremental=arguments.get("incremental", True),
             )
         elif name == "list_repos":
             result = list_repos(storage_path=storage_path)
@@ -317,6 +349,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = get_file_outline(
                 repo=arguments["repo"],
                 file_path=arguments["file_path"],
+                storage_path=storage_path
+            )
+        elif name == "get_file_content":
+            result = get_file_content(
+                repo=arguments["repo"],
+                file_path=arguments["file_path"],
+                start_line=arguments.get("start_line"),
+                end_line=arguments.get("end_line"),
                 storage_path=storage_path
             )
         elif name == "get_symbol":
@@ -354,6 +394,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 query=arguments["query"],
                 file_pattern=arguments.get("file_pattern"),
                 max_results=arguments.get("max_results", 20),
+                context_lines=arguments.get("context_lines", 0),
                 storage_path=storage_path
             )
         elif name == "get_repo_outline":
