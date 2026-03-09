@@ -426,7 +426,7 @@ class TestDiscoverLocalFilesSecure:
         for i in range(10):
             (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
 
-        with patch.dict(os.environ, {MAX_FOLDER_FILES_ENV_VAR: "3"}, clear=False):
+        with patch.dict(os.environ, {MAX_FOLDER_FILES_ENV_VAR: "3", MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
             files, *_ = discover_local_files(tmp_path)
 
         assert len(files) == 3
@@ -438,7 +438,7 @@ class TestDiscoverLocalFilesSecure:
         for i in range(3):
             (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
 
-        with patch.dict(os.environ, {MAX_FOLDER_FILES_ENV_VAR: "3"}, clear=False):
+        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
             files, _, skip_counts = discover_local_files(tmp_path)
 
         assert len(files) == 3
