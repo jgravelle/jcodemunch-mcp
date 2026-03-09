@@ -25,6 +25,7 @@ class Symbol:
     byte_offset: int = 0           # Start byte in raw file
     byte_length: int = 0           # Byte length of full source
     content_hash: str = ""         # SHA-256 of symbol source bytes (for drift detection)
+    ecosystem_context: str = ""    # Optional context from ecosystem (e.g., dbt model metadata)
 
 
 

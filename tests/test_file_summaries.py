@@ -73,6 +73,76 @@ def test_generate_file_summaries_empty_fallback():
     assert result["c.py"] == ""
 
 
+# --- Context provider integration tests ---
+
+def test_generate_with_context_providers():
+    """Context providers produce enriched summaries."""
+    from jcodemunch_mcp.parser.context.base import ContextProvider, FileContext
+    from pathlib import Path
+
+    class _MockProvider(ContextProvider):
+        @property
+        def name(self):
+            return "mock"
+
+        def detect(self, fp):
+            return True
+
+        def load(self, fp):
+            pass
+
+        def get_file_context(self, file_path):
+            if Path(file_path).stem == "enriched":
+                return FileContext(description="Business context here", tags=["daily"])
+            return None
+
+        def stats(self):
+            return {}
+
+    provider = _MockProvider()
+    symbols = {"enriched.py": [_make_symbol("func", "function", file="enriched.py")]}
+    result = generate_file_summaries(symbols, context_providers=[provider])
+    assert "Business context here" in result["enriched.py"]
+    assert "func" in result["enriched.py"]
+
+
+def test_generate_context_only_no_symbols():
+    """Provider context for files with no symbols."""
+    from jcodemunch_mcp.parser.context.base import ContextProvider, FileContext
+    from pathlib import Path
+
+    class _MockProvider(ContextProvider):
+        @property
+        def name(self):
+            return "mock"
+
+        def detect(self, fp):
+            return True
+
+        def load(self, fp):
+            pass
+
+        def get_file_context(self, file_path):
+            if Path(file_path).stem == "ctx_only":
+                return FileContext(description="Only from provider", tags=["nightly"])
+            return None
+
+        def stats(self):
+            return {}
+
+    provider = _MockProvider()
+    symbols = {"ctx_only.sql": []}
+    result = generate_file_summaries(symbols, context_providers=[provider])
+    assert "Only from provider" in result["ctx_only.sql"]
+
+
+def test_backward_compat_dbt_project_kwarg():
+    """Old dbt_project= kwarg doesn't crash."""
+    symbols = {"a.py": [_make_symbol("foo", "function", file="a.py")]}
+    result = generate_file_summaries(symbols, dbt_project=None)
+    assert "foo" in result["a.py"]
+
+
 # --- Storage round-trip tests ---
 
 def test_storage_roundtrip_file_summaries():

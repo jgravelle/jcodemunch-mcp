@@ -216,6 +216,8 @@ search_symbols: { "repo": "myproject", "query": "main" }
 
 Local folder indexes use stable hashed repo ids under the hood. `list_repos` shows the exact stored id, and bare display-name lookup works when it is unique.
 
+**Context enrichment:** When indexing local folders, jCodeMunch auto-detects ecosystem tools like dbt and enriches the index with business metadata — model descriptions, tags, and column documentation flow into AI summaries, file summaries, and search keywords. No configuration required. See CONTEXT_PROVIDERS.md for details and how to add support for other tools.
+
 ### Find and Read a Function
 
 ```

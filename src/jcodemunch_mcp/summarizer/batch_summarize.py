@@ -139,14 +139,25 @@ class BatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
-        
+
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
-        
+
         lines.extend([
             "",
             "Output format: NUMBER. SUMMARY",
@@ -154,18 +165,18 @@ class BatchSummarizer:
             "",
             "Summaries:",
         ])
-        
+
         return "\n".join(lines)
-    
+
     def _parse_response(self, text: str, expected_count: int) -> list[str]:
         """Parse numbered summaries from response."""
         summaries = [""] * expected_count
-        
+
         for line in text.split("\n"):
             line = line.strip()
             if not line:
                 continue
-            
+
             # Look for "N. summary" format
             if "." in line:
                 parts = line.split(".", 1)
@@ -176,7 +187,7 @@ class BatchSummarizer:
                         summaries[num - 1] = summary
                 except ValueError:
                     continue
-        
+
         return summaries
 
 
@@ -252,11 +263,22 @@ class GeminiBatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
 
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
 
@@ -389,11 +411,22 @@ class OpenAIBatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
 
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
 
