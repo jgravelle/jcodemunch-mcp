@@ -45,7 +45,7 @@ def get_filtered_files(path: str) -> Generator[str, None, None]:
         dirnames[:] = [dir for dir in dirnames if not SKIP_DIRS_REGEX.match(dir)]
         dpath = Path(dirpath)
         for file in filenames:
-            if not SKIP_FILES_REGEX.match(f):
+            if not SKIP_FILES_REGEX.match(file):
                 yield dpath / file
 
 
