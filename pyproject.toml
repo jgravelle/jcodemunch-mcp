@@ -14,7 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40.0"]
 gemini = ["google-generativeai>=0.8.0"]
-all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0"]
+dbt = ["pyyaml>=6.0"]
+all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "pyyaml>=6.0"]
 test = ["pytest", "pytest-asyncio", "pytest-cov"]
 
 [project.scripts]

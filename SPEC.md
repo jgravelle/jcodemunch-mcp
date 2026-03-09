@@ -40,7 +40,7 @@ Fetches source via `git/trees?recursive=1` (single API call), filters through th
 }
 ```
 
-Walks the local directory with full security controls: path traversal prevention, symlink escape protection, secret detection, binary filtering, and `.gitignore` respect.
+Walks the local directory with full security controls: path traversal prevention, symlink escape protection, secret detection, binary filtering, and `.gitignore` respect. Auto-detects ecosystem tools (dbt, etc.) and enriches symbols with business context via context providers. Returns `context_enrichment` stats when providers are active.
 
 #### `invalidate_cache` — Delete index for a repository
 
@@ -192,6 +192,7 @@ class Symbol:
     end_line: int = 0        # End line (1-indexed)
     byte_offset: int = 0     # Start byte in raw file
     byte_length: int = 0     # Byte length of source
+    ecosystem_context: str = ""  # Business context from ecosystem providers (e.g., dbt model metadata)
 ```
 
 ### CodeIndex

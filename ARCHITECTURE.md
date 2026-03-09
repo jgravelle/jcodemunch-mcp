@@ -21,7 +21,11 @@ jcodemunch-mcp/
 │   │   ├── symbols.py               # Symbol dataclass, ID generation, hashing
 │   │   ├── extractor.py             # tree-sitter AST walking + symbol extraction
 │   │   ├── languages.py             # LanguageSpec registry
-│   │   └── hierarchy.py             # SymbolNode tree building for file outlines
+│   │   ├── hierarchy.py             # SymbolNode tree building for file outlines
+│   │   └── context/                 # Ecosystem context providers
+│   │       ├── __init__.py          # Provider registry + auto-import
+│   │       ├── base.py              # ContextProvider ABC, FileContext, discover/enrich
+│   │       └── dbt.py               # dbt project detection + metadata loading
 │   │
 │   ├── storage/
 │   │   ├── __init__.py
@@ -30,7 +34,8 @@ jcodemunch-mcp/
 │   │
 │   ├── summarizer/
 │   │   ├── __init__.py
-│   │   └── batch_summarize.py       # Docstring → AI → signature fallback
+│   │   ├── batch_summarize.py       # Docstring → AI → signature fallback
+│   │   └── file_summarize.py        # Per-file summaries from symbols + context providers
 │   │
 │   └── tools/
 │       ├── __init__.py
@@ -54,7 +59,9 @@ jcodemunch-mcp/
 │   ├── test_tools.py
 │   ├── test_server.py
 │   ├── test_security.py
-│   └── test_hardening.py
+│   ├── test_hardening.py
+│   ├── test_context_providers.py
+│   └── test_dbt_provider.py
 │
 ├── benchmarks/
 │   └── run_benchmarks.py
@@ -82,6 +89,9 @@ Symbol extraction (functions, classes, methods, constants, types)
     │
     ▼
 Post-processing (overload disambiguation, content hashing)
+    │
+    ▼
+Context enrichment (auto-detected providers inject ecosystem metadata)
     │
     ▼
 Summarization (docstring → AI batch → signature fallback)
@@ -214,3 +224,4 @@ Filters (kind, language, file_pattern) are applied before scoring. Results scori
 | `google-generativeai>=0.8.0`       | AI summarization via Gemini Flash (optional, `pip install jcodemunch-mcp[gemini]`) |
 | `tree-sitter-language-pack>=0.7.0` | Precompiled grammars          |
 | `pathspec>=0.12.0`                 | `.gitignore` pattern matching |
+| `pyyaml>=6.0`                      | dbt context provider — schema.yml parsing (optional, `pip install jcodemunch-mcp[dbt]`) |

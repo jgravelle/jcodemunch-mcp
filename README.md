@@ -99,11 +99,12 @@ They need structured retrieval.
 
 ## How it works
 
-1. **Discovery** — GitHub API or local directory walk  
-2. **Security filtering** — traversal protection, secret exclusion, binary detection  
-3. **Parsing** — tree-sitter AST extraction  
-4. **Storage** — JSON index + raw files stored locally (`~/.code-index/`)  
-5. **Retrieval** — O(1) byte-offset seeking via stable symbol IDs  
+1. **Discovery** — GitHub API or local directory walk
+2. **Security filtering** — traversal protection, secret exclusion, binary detection
+3. **Parsing** — tree-sitter AST extraction
+4. **Context enrichment** — auto-detected ecosystem providers (dbt, etc.) inject business metadata
+5. **Storage** — JSON index + raw files stored locally (`~/.code-index/`)
+6. **Retrieval** — O(1) byte-offset seeking via stable symbol IDs  
 
 ### Stable Symbol IDs
 
@@ -368,6 +369,34 @@ See LANGUAGE_SUPPORT.md for full semantics.
 
 ---
 
+## Context Providers
+
+When indexing local folders, jCodeMunch automatically detects ecosystem tools and enriches the index with **business context** — descriptions, tags, and metadata from project configuration files.
+
+| Provider | Detects           | Enriches With                                        |
+| -------- | ----------------- | ---------------------------------------------------- |
+| dbt      | `dbt_project.yml` | Model descriptions, tags, column names/descriptions  |
+
+Context enrichment is **automatic** — no configuration needed. When a provider detects its tool, it injects metadata into AI summarization prompts, file summaries, and search keywords.
+
+Example: a dbt model with a `schema.yml` description produces file summaries like:
+
+```
+This table summarizes account ledger. Tags: nightly, agg, intraday. 70 properties
+```
+
+Instead of the default:
+
+```
+Contains 2 functions: source, renamed
+```
+
+The provider system is extensible — adding support for Terraform, OpenAPI, Django, or any other tool requires implementing a single `ContextProvider` class.
+
+See CONTEXT_PROVIDERS.md for the full architecture, dbt details, and guide to writing new providers.
+
+---
+
 ## Security
 
 Built-in protections:
@@ -465,6 +494,7 @@ To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env.
 - SPEC.md
 - SECURITY.md
 - LANGUAGE_SUPPORT.md
+- CONTEXT_PROVIDERS.md
 
 ---
 
