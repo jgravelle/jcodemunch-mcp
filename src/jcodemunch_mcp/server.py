@@ -266,6 +266,11 @@ async def list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Maximum number of results to return",
                         "default": 10
+                    },
+                    "debug": {
+                        "type": "boolean",
+                        "description": "When true, each result includes a score_breakdown showing per-field scoring contributions (name_exact, name_contains, name_word_overlap, signature_phrase, signature_word_overlap, summary_phrase, summary_word_overlap, keywords, docstring_word_overlap). Also adds candidates_scored to _meta.",
+                        "default": False
                     }
                 },
                 "required": ["repo", "query"]
@@ -496,6 +501,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     file_pattern=arguments.get("file_pattern"),
                     language=arguments.get("language"),
                     max_results=arguments.get("max_results", 10),
+                    debug=arguments.get("debug", False),
                     storage_path=storage_path,
                 )
             )
