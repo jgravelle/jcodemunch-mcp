@@ -1,4 +1,4 @@
-# jCodeMunch CLI
+# jCodeMunch CLI - AN UNSUPPORTED ADD-ON
 
 ## Why MCP is the right interface
 
