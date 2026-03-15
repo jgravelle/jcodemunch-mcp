@@ -20,6 +20,11 @@ from jcodemunch_mcp.security import (
     DEFAULT_MAX_INDEX_FILES,
     MAX_INDEX_FILES_ENV_VAR,
     get_max_index_files,
+    DEFAULT_MAX_FOLDER_FILES,
+    MAX_FOLDER_FILES_ENV_VAR,
+    get_max_folder_files,
+    EXTRA_IGNORE_PATTERNS_ENV_VAR,
+    get_extra_ignore_patterns,
 )
 
 
@@ -119,6 +124,31 @@ class TestSecretDetection:
     def test_case_insensitive(self):
         assert is_secret_file(".ENV") is True
         assert is_secret_file("Server.PEM") is True
+
+    @pytest.mark.parametrize("path", [
+        "docs/secrets-handling.md",
+        "docs/internal/secrets-management.md",
+        "guides/secrets-guide.rst",
+        "how-to-manage-secrets.txt",
+        "security/secret-rotation.adoc",
+        "notebooks/secrets-demo.ipynb",
+        "docs/secrets.html",
+    ])
+    def test_doc_files_about_secrets_not_flagged(self, path):
+        """Documentation files containing 'secret' in the name must not be excluded."""
+        assert is_secret_file(path) is False
+
+    @pytest.mark.parametrize("path", [
+        "config/secrets.yaml",
+        "config/secrets.json",
+        "src/secrets.py",
+        ".secrets",
+        "app.secrets",
+        "my-app-secrets",
+    ])
+    def test_non_doc_secret_files_still_flagged(self, path):
+        """Non-doc files with 'secret' in the name must still be caught."""
+        assert is_secret_file(path) is True
 
 
 # --- Binary Detection (S-05) ---
@@ -243,6 +273,96 @@ class TestMaxIndexFilesConfig:
             get_max_index_files(0)
 
 
+class TestMaxFolderFilesConfig:
+    def test_default_is_lower_than_repo_default(self):
+        assert DEFAULT_MAX_FOLDER_FILES < DEFAULT_MAX_INDEX_FILES
+
+    def test_defaults_when_env_is_unset(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_max_folder_files() == DEFAULT_MAX_FOLDER_FILES
+
+    def test_folder_specific_env_var_takes_priority(self):
+        env = {MAX_FOLDER_FILES_ENV_VAR: "500", MAX_INDEX_FILES_ENV_VAR: "9999"}
+        with patch.dict(os.environ, env, clear=True):
+            assert get_max_folder_files() == 500
+
+    def test_falls_back_to_legacy_env_var(self):
+        env = {MAX_INDEX_FILES_ENV_VAR: "1234"}
+        with patch.dict(os.environ, env, clear=True):
+            assert get_max_folder_files() == 1234
+
+    def test_invalid_folder_env_falls_back_to_legacy(self):
+        env = {MAX_FOLDER_FILES_ENV_VAR: "bad", MAX_INDEX_FILES_ENV_VAR: "999"}
+        with patch.dict(os.environ, env, clear=True):
+            assert get_max_folder_files() == 999
+
+    def test_both_invalid_returns_default(self):
+        env = {MAX_FOLDER_FILES_ENV_VAR: "bad", MAX_INDEX_FILES_ENV_VAR: "also_bad"}
+        with patch.dict(os.environ, env, clear=True):
+            assert get_max_folder_files() == DEFAULT_MAX_FOLDER_FILES
+
+    def test_explicit_override_respected(self):
+        assert get_max_folder_files(42) == 42
+
+    def test_non_positive_explicit_value_is_rejected(self):
+        with pytest.raises(ValueError, match="positive integer"):
+            get_max_folder_files(0)
+
+
+# --- Extra Ignore Patterns (JCODEMUNCH_EXTRA_IGNORE_PATTERNS) ---
+
+class TestGetExtraIgnorePatterns:
+    def test_no_env_no_call_returns_empty(self):
+        with patch.dict(os.environ, {}, clear=True):
+            assert get_extra_ignore_patterns() == []
+
+    def test_call_patterns_only(self):
+        with patch.dict(os.environ, {}, clear=True):
+            result = get_extra_ignore_patterns(["*.log", "tmp/"])
+            assert result == ["*.log", "tmp/"]
+
+    def test_env_comma_separated(self):
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: "**/scrapes/**, **/images/**"}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns()
+            assert "**/scrapes/**" in result
+            assert "**/images/**" in result
+
+    def test_env_json_array(self):
+        import json
+        patterns = ["**/scrapes/**", "*.png"]
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: json.dumps(patterns)}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns()
+            assert result == patterns
+
+    def test_env_and_call_are_merged(self):
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: "global/"}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns(["local/"])
+            assert "global/" in result
+            assert "local/" in result
+
+    def test_env_patterns_come_first(self):
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: "first/"}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns(["second/"])
+            assert result.index("first/") < result.index("second/")
+
+    def test_empty_env_string_returns_call_only(self):
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: ""}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns(["only/"])
+            assert result == ["only/"]
+
+    def test_invalid_json_falls_back_to_comma_split(self):
+        env = {EXTRA_IGNORE_PATTERNS_ENV_VAR: "a/, b/"}
+        with patch.dict(os.environ, env, clear=True):
+            result = get_extra_ignore_patterns()
+            assert "a/" in result
+            assert "b/" in result
+
+
 # --- Integration: discover_local_files with security ---
 
 class TestDiscoverLocalFilesSecure:
@@ -306,7 +426,7 @@ class TestDiscoverLocalFilesSecure:
         for i in range(10):
             (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
 
-        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
+        with patch.dict(os.environ, {MAX_FOLDER_FILES_ENV_VAR: "3", MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
             files, *_ = discover_local_files(tmp_path)
 
         assert len(files) == 3
@@ -318,7 +438,7 @@ class TestDiscoverLocalFilesSecure:
         for i in range(3):
             (tmp_path / f"file{i}.py").write_text(f"x = {i}\n")
 
-        with patch.dict(os.environ, {MAX_INDEX_FILES_ENV_VAR: "3"}, clear=False):
+        with patch.dict(os.environ, {MAX_FOLDER_FILES_ENV_VAR: "3"}, clear=False):
             files, _, skip_counts = discover_local_files(tmp_path)
 
         assert len(files) == 3
@@ -355,7 +475,7 @@ class TestIndexRepoSecretFilter:
             {"path": "src/utils.py", "type": "blob", "size": 500},
         ]
 
-        files, truncated = discover_source_files(tree_entries)
+        files, _, truncated = discover_source_files(tree_entries)
         assert "src/main.py" in files
         assert "src/utils.py" in files
         assert ".env" not in files

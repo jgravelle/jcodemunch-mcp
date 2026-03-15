@@ -81,6 +81,69 @@ LANGUAGE_EXTENSIONS = {
     ".gd": "gdscript",
     ".blade.php": "blade",
     ".al": "al",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".gleam": "gleam",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".nix": "nix",
+    ".vue": "vue",
+    ".ejs": "ejs",
+    ".verse": "verse",
+    ".lua": "lua",
+    ".luau": "luau",
+    ".erl": "erlang",
+    ".hrl": "erlang",
+    ".f90": "fortran",
+    ".f95": "fortran",
+    ".f03": "fortran",
+    ".f08": "fortran",
+    ".f": "fortran",
+    ".for": "fortran",
+    ".fpp": "fortran",
+    ".sql": "sql",
+    # Scala
+    ".scala": "scala",
+    ".sc": "scala",
+    # Haskell
+    ".hs": "haskell",
+    ".lhs": "haskell",
+    # Julia
+    ".jl": "julia",
+    # R
+    ".r": "r",
+    # CSS
+    ".css": "css",
+    # TOML
+    ".toml": "toml",
+    # Groovy
+    ".groovy": "groovy",
+    ".gradle": "groovy",
+    # Objective-C
+    ".m": "objc",
+    ".mm": "objc",
+    # Protobuf
+    ".proto": "proto",
+    # HCL / Terraform
+    ".tf": "hcl",
+    ".hcl": "hcl",
+    ".tfvars": "hcl",
+    # GraphQL
+    ".graphql": "graphql",
+    ".gql": "graphql",
+    # AutoHotkey v2
+    ".ahk": "autohotkey",
+    ".ahk2": "autohotkey",
+    # XML / XUL
+    ".xml": "xml",
+    ".xul": "xml",
+    # OpenAPI / Swagger (compound extensions; basenames handled in get_language_for_path)
+    ".openapi.yaml": "openapi",
+    ".openapi.yml": "openapi",
+    ".openapi.json": "openapi",
+    ".swagger.yaml": "openapi",
+    ".swagger.yml": "openapi",
+    ".swagger.json": "openapi",
 }
 
 
@@ -382,6 +445,11 @@ CSHARP_SPEC = LanguageSpec(
         "delegate_declaration": "type",
         "method_declaration": "method",
         "constructor_declaration": "method",
+        "property_declaration": "constant",
+        "field_declaration": "constant",
+        "event_field_declaration": "constant",
+        "event_declaration": "constant",
+        "destructor_declaration": "method",
     },
     name_fields={
         "class_declaration": "name",
@@ -392,6 +460,9 @@ CSHARP_SPEC = LanguageSpec(
         "delegate_declaration": "name",
         "method_declaration": "name",
         "constructor_declaration": "name",
+        "property_declaration": "name",
+        "event_declaration": "name",
+        "destructor_declaration": "name",
     },
     param_fields={
         "method_declaration": "parameters",
@@ -453,21 +524,27 @@ SWIFT_SPEC = LanguageSpec(
         "function_declaration": "function",
         "class_declaration": "class",    # covers class, struct, enum, extension
         "protocol_declaration": "type",
+        "typealias_declaration": "type",
         "init_declaration": "method",
+        "deinit_declaration": "method",
+        "property_declaration": "constant",
     },
     name_fields={
         "function_declaration": "name",  # simple_identifier child
         "class_declaration": "name",     # type_identifier child
         "protocol_declaration": "name",  # type_identifier child
+        "typealias_declaration": "name", # user_type child
         "init_declaration": "name",      # "init" keyword token
+        "deinit_declaration": "name",    # "deinit" keyword token
+        "property_declaration": "name",  # pattern child
     },
     param_fields={},  # Swift params are unnamed children; signature captured via source range
     return_type_fields={},  # return type shares field "name" with function identifier
     docstring_strategy="preceding_comment",  # /// and /* */ doc comments
     decorator_node_type=None,
     container_node_types=["class_declaration", "protocol_declaration"],
-    constant_patterns=["property_declaration"],  # let/var at file scope
-    type_patterns=["protocol_declaration"],
+    constant_patterns=[],  # property_declaration handled via symbol_node_types
+    type_patterns=["protocol_declaration", "typealias_declaration"],
 )
 
 
@@ -642,6 +719,528 @@ BLADE_SPEC = LanguageSpec(
 # The fields below are intentionally empty.
 AL_SPEC = LanguageSpec(
     ts_language="al",
+# Kotlin specification
+# NOTE: Kotlin's tree-sitter grammar exposes no named field accessors for names,
+# parameters, or bodies. All extraction is handled via special-cases in extractor.py
+# that walk children by node type (simple_identifier / type_identifier / function_body).
+KOTLIN_SPEC = LanguageSpec(
+    ts_language="kotlin",
+    symbol_node_types={
+        "class_declaration": "class",     # class, interface, enum class, data class
+        "object_declaration": "class",    # object declarations (singletons)
+        "function_declaration": "function",
+        "type_alias": "type",
+    },
+    name_fields={},     # Names extracted via special-case in extractor.py
+    param_fields={},    # Parameters captured via source range in _build_signature
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,  # Annotations live inside modifiers node; captured in signature
+    container_node_types=["class_declaration", "object_declaration"],
+    constant_patterns=["property_declaration"],
+    type_patterns=["type_alias", "class_declaration"],
+)
+
+
+# Gleam specification
+GLEAM_SPEC = LanguageSpec(
+    ts_language="gleam",
+    symbol_node_types={
+        "function": "function",
+        "type_definition": "type",
+        "type_alias": "type",
+        "constant": "constant",
+    },
+    name_fields={
+        "function": "name",    # identifier field
+        "constant": "name",    # identifier field
+        # type_definition and type_alias: name via type_name child, special-cased in extractor.py
+    },
+    param_fields={
+        "function": "parameters",
+    },
+    return_type_fields={
+        "function": "return_type",
+    },
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=["constant"],
+    type_patterns=["type_definition", "type_alias"],
+)
+
+
+# Bash specification
+BASH_SPEC = LanguageSpec(
+    ts_language="bash",
+    symbol_node_types={
+        "function_definition": "function",
+    },
+    name_fields={
+        "function_definition": "name",
+    },
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=["declaration_command"],  # readonly / declare -r
+    type_patterns=[],
+)
+
+
+# Nix specification
+# NOTE: Nix is an expression language; all constructs are `binding` nodes inside
+# binding_set children of let_expression or attrset_expression. Custom extraction
+# is performed in extractor.py via _parse_nix_symbols(). Fields below are empty.
+NIX_SPEC = LanguageSpec(
+    ts_language="nix",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# EJS (Embedded JavaScript Templates) specification
+# NOTE: No tree-sitter grammar exists for EJS. Extraction is handled by
+# _parse_ejs_symbols() in extractor.py via regex, which pulls JS function
+# definitions from <% %> scriptlet blocks and emits a synthetic "template"
+# symbol per file to ensure the file is always stored for text search.
+EJS_SPEC = LanguageSpec(
+    ts_language="ejs",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Vue SFC specification
+# NOTE: Vue Single-File Components are parsed by _parse_vue_symbols() in
+# extractor.py, which extracts the <script>/<script setup> block and re-parses
+# it as JavaScript or TypeScript (detected from the lang="ts" attribute).
+VUE_SPEC = LanguageSpec(
+    ts_language="vue",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Verse (UEFN) specification
+# NOTE: No tree-sitter grammar exists for Epic's Verse language.
+# Symbol extraction is performed by _parse_verse_symbols() in extractor.py
+# using regex-based parsing (same approach as Blade).
+#
+# Primary use case: token-efficient lookup of UEFN API digest files.
+# The three standard Verse digest files total ~800KB / ~200k tokens:
+#   Fortnite.digest.verse    587KB  3,608 symbols  ~147k tokens
+#   Verse.digest.verse       125KB    622 symbols   ~31k tokens
+#   UnrealEngine.digest.verse 91KB    326 symbols   ~23k tokens
+#
+# With jcodemunch indexing, a single symbol lookup costs ~94 tokens
+# instead of loading the full file (~147k tokens) — a 99.9% reduction.
+# A search returning 10 signature matches costs ~130 tokens.
+#
+# The LanguageSpec fields below are intentionally empty — all extraction
+# logic lives in _parse_verse_symbols() which handles containers, methods,
+# extension methods, variables, constants, docstrings, and decorators.
+VERSE_SPEC = LanguageSpec(
+    ts_language="verse",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Fortran specification
+# NOTE: Fortran's tree-sitter grammar uses a translation_unit root with
+# function/subroutine/module/program top-level nodes.  function_statement
+# and subroutine_statement expose named 'name' and 'parameters' fields.
+# Module-contained procedures live inside internal_procedures nodes.
+# All extraction logic is in _parse_fortran_symbols() in extractor.py.
+FORTRAN_SPEC = LanguageSpec(
+    ts_language="fortran",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Erlang specification
+# NOTE: Erlang's tree-sitter grammar represents all top-level constructs as
+# distinct node types (fun_decl, type_alias, opaque, record_decl, pp_define).
+# Multi-clause functions produce one fun_decl per clause; deduplication by
+# (name, arity) is handled in _parse_erlang_symbols() in extractor.py.
+# Named fields are not used (the grammar doesn't expose them uniformly), so
+# all fields below are intentionally empty — extraction logic lives in
+# _parse_erlang_symbols().
+ERLANG_SPEC = LanguageSpec(
+    ts_language="erlang",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Lua specification
+# NOTE: Lua uses a single `function_declaration` node type for all named
+# functions — local, module.method (dot_index_expression), and OOP methods
+# (method_index_expression). Custom extraction is performed by
+# _parse_lua_symbols() in extractor.py, which handles name resolution and
+# method vs. function classification. Fields below are intentionally empty.
+LUA_SPEC = LanguageSpec(
+    ts_language="lua",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Luau specification (Roblox)
+# NOTE: Luau is Roblox's typed superset of Lua. The tree-sitter-luau grammar
+# uses the same ``function_declaration`` node type as Lua, with the same
+# ``name``, ``parameters``, and ``body`` fields, plus Luau-specific constructs:
+# - ``type_definition`` for ``type Foo = ...`` and ``export type Foo = ...``
+# - Typed parameters (``param: Type``) inside ``parameter`` children
+# - Return type annotations after the closing ``)``
+# Custom extraction is performed by _parse_luau_symbols() in extractor.py.
+LUAU_SPEC = LanguageSpec(
+    ts_language="luau",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# SQL specification
+# NOTE: The derekstride/tree-sitter-sql grammar has no named field accessors.
+# Names live in positional children (object_reference → identifier, or direct
+# identifier). CREATE PROCEDURE and CREATE TRIGGER produce ERROR nodes and are
+# not supported by this grammar. All extraction logic is in _parse_sql_symbols()
+# in extractor.py.
+SQL_SPEC = LanguageSpec(
+    ts_language="sql",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Scala specification
+SCALA_SPEC = LanguageSpec(
+    ts_language="scala",
+    symbol_node_types={
+        "class_definition": "class",
+        "object_definition": "class",
+        "trait_definition": "type",
+        "enum_definition": "type",
+        "function_definition": "function",
+    },
+    name_fields={
+        "class_definition": "name",
+        "object_definition": "name",
+        "trait_definition": "name",
+        "enum_definition": "name",
+        "function_definition": "name",
+    },
+    param_fields={
+        "function_definition": "parameters",
+    },
+    return_type_fields={
+        "function_definition": "return_type",
+    },
+    docstring_strategy="preceding_comment",
+    decorator_node_type="annotation",
+    container_node_types=["class_definition", "object_definition", "trait_definition"],
+    constant_patterns=["val_definition", "var_definition"],
+    type_patterns=["trait_definition", "enum_definition"],
+)
+
+
+# Haskell specification
+# NOTE: Haskell's tree-sitter grammar represents declarations as complex nested
+# nodes without standard named fields. Full extraction is deferred to a future
+# custom parser. Files are indexed for text search; symbol extraction is minimal.
+HASKELL_SPEC = LanguageSpec(
+    ts_language="haskell",
+    symbol_node_types={
+        "function": "function",
+        "data_type": "type",
+        "type_synon": "type",
+        "newtype": "type",
+        "class": "type",
+    },
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=["data_type", "type_synon", "newtype"],
+)
+
+
+# Julia specification
+# NOTE: Julia's tree-sitter grammar nests function names inside signature nodes
+# rather than exposing them as direct named fields. Custom extraction is handled
+# by _parse_julia_symbols() in extractor.py. Fields below are intentionally empty.
+JULIA_SPEC = LanguageSpec(
+    ts_language="julia",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# R specification
+# NOTE: R functions are values assigned to names (e.g. foo <- function(x) {...}).
+# The generic extractor cannot handle this pattern. Files are indexed for text
+# search; a custom extractor will be added in a future pass.
+R_SPEC = LanguageSpec(
+    ts_language="r",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# CSS specification
+# NOTE: CSS rule sets use selectors as names. Symbol extraction is deferred to
+# a future custom parser. Files are indexed for text search.
+CSS_SPEC = LanguageSpec(
+    ts_language="css",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# TOML specification
+# NOTE: TOML tables are the closest analogue to symbols. Custom extraction
+# deferred. Files are indexed for text search.
+TOML_SPEC = LanguageSpec(
+    ts_language="toml",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Groovy specification
+# NOTE: tree-sitter-groovy uses a low-level grammar (command/unit/block/func nodes)
+# rather than Java-style named declarations. Custom extraction is in extractor.py.
+GROOVY_SPEC = LanguageSpec(
+    ts_language="groovy",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Objective-C specification
+# NOTE: ObjC class interface/implementation and method declarations use
+# non-standard selector-based naming. Custom extraction is in extractor.py.
+OBJC_SPEC = LanguageSpec(
+    ts_language="objc",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Protocol Buffers specification
+# NOTE: Custom extraction in extractor.py handles message/service/rpc/enum
+# name resolution from child nodes.
+PROTO_SPEC = LanguageSpec(
+    ts_language="proto",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# HCL / Terraform specification
+# NOTE: HCL blocks (resource, data, module, variable, output, locals) are
+# extracted as symbols by _parse_hcl_symbols() in extractor.py.
+HCL_SPEC = LanguageSpec(
+    ts_language="hcl",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# GraphQL specification
+# NOTE: GraphQL type/query/mutation/fragment definitions are extracted by
+# _parse_graphql_symbols() in extractor.py.
+GRAPHQL_SPEC = LanguageSpec(
+    ts_language="graphql",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# AutoHotkey v2 specification
+# NOTE: AutoHotkey is not available in tree-sitter-language-pack and has no
+# published standalone tree-sitter Python binding.  Symbol extraction is
+# handled entirely by _parse_autohotkey_symbols() in extractor.py using
+# regex line-scanning with brace-depth tracking.  Fields below are
+# intentionally empty; ts_language is a placeholder never used.
+AHK_SPEC = LanguageSpec(
+    ts_language="autohotkey",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# XML / XUL specification
+# NOTE: XML and XUL (Mozilla's XML User Interface Language) share the same
+# tree-sitter-xml grammar. XUL is a strict XML superset — same node types,
+# same attributes. Custom extraction is performed by _parse_xml_symbols()
+# in extractor.py, which extracts:
+#   - Document root element (e.g. <window>, <page>) → type symbol
+#   - Elements with id attributes (e.g. <textbox id="search">) → constant symbols
+#   - <script src="..."> references → function symbols
+# Fields below are intentionally empty — all extraction logic lives in
+# _parse_xml_symbols().
+XML_SPEC = LanguageSpec(
+    ts_language="xml",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# OpenAPI / Swagger specification
+# NOTE: Parsed by _parse_openapi_symbols() in extractor.py using yaml/json.
+# File detection uses compound extensions (.openapi.yaml, .swagger.json, …)
+# plus well-known basenames (openapi.yaml, swagger.json) handled in
+# get_language_for_path(). ts_language is unused — extraction is dict-based.
+OPENAPI_SPEC = LanguageSpec(
+    ts_language="yaml",
     symbol_node_types={},
     name_fields={},
     param_fields={},
@@ -675,9 +1274,41 @@ LANGUAGE_REGISTRY = {
     "gdscript": GDSCRIPT_SPEC,
     "blade": BLADE_SPEC,
     "al": AL_SPEC,
+    "kotlin": KOTLIN_SPEC,
+    "gleam": GLEAM_SPEC,
+    "bash": BASH_SPEC,
+    "nix": NIX_SPEC,
+    "vue": VUE_SPEC,
+    "ejs": EJS_SPEC,
+    "verse": VERSE_SPEC,
+    "lua": LUA_SPEC,
+    "luau": LUAU_SPEC,
+    "erlang": ERLANG_SPEC,
+    "fortran": FORTRAN_SPEC,
+    "sql": SQL_SPEC,
+    "scala": SCALA_SPEC,
+    "haskell": HASKELL_SPEC,
+    "julia": JULIA_SPEC,
+    "r": R_SPEC,
+    "css": CSS_SPEC,
+    "toml": TOML_SPEC,
+    "groovy": GROOVY_SPEC,
+    "objc": OBJC_SPEC,
+    "proto": PROTO_SPEC,
+    "hcl": HCL_SPEC,
+    "graphql": GRAPHQL_SPEC,
+    "autohotkey": AHK_SPEC,
+    "xml": XML_SPEC,
+    "openapi": OPENAPI_SPEC,
 }
 
 logger = logging.getLogger(__name__)
+
+# Well-known OpenAPI/Swagger basenames (no compound extension, just the filename)
+_OPENAPI_BASENAMES = frozenset({
+    "openapi.yaml", "openapi.yml", "openapi.json",
+    "swagger.yaml", "swagger.yml", "swagger.json",
+})
 
 
 def _apply_extra_extensions() -> None:
@@ -710,17 +1341,23 @@ _apply_extra_extensions()
 def get_language_for_path(path: str) -> "Optional[str]":
     """Return the language name for a file path, handling compound extensions.
 
-    Checks compound suffixes (e.g. ``.blade.php``) before falling back to the
-    last extension (e.g. ``.php``).  This ensures Blade templates are not
-    mis-classified as plain PHP.
+    Check order:
+    1. Well-known OpenAPI/Swagger basenames (openapi.yaml, swagger.json, …).
+    2. Compound suffixes (e.g. ``.blade.php``, ``.openapi.yaml``).
+    3. Last extension (e.g. ``.php``).
     """
     import os as _os
     lower = path.lower()
     base = _os.path.basename(lower)
+    # 1. Basename match for OpenAPI sentinel files
+    if base in _OPENAPI_BASENAMES:
+        return "openapi"
+    # 2. Compound extension (e.g. ".blade.php", ".openapi.yaml")
     first_dot = base.find(".")
     if first_dot != -1:
-        compound = base[first_dot:]  # e.g. ".blade.php"
+        compound = base[first_dot:]
         if compound in LANGUAGE_EXTENSIONS:
             return LANGUAGE_EXTENSIONS[compound]
+    # 3. Simple extension
     _, ext = _os.path.splitext(lower)
     return LANGUAGE_EXTENSIONS.get(ext)

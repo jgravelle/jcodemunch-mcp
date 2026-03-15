@@ -3,8 +3,16 @@
 ## Installation
 
 ```bash
-pip install git+https://github.com/jgravelle/jcodemunch-mcp.git
+pip install jcodemunch-mcp
 ```
+
+Verify:
+
+```bash
+jcodemunch-mcp --help
+```
+
+> **Recommended:** use [`uvx`](https://github.com/astral-sh/uv) instead of `pip install` when configuring MCP clients. `uvx` runs the package on demand without requiring it to be on your system PATH.
 
 Or from source:
 
@@ -18,7 +26,63 @@ pip install -e .
 
 ## Configuration
 
+### Claude Code
+
+The fastest way to add jCodeMunch to Claude Code is a single command:
+
+```bash
+claude mcp add jcodemunch uvx jcodemunch-mcp
+```
+
+This registers the server at user scope (`~/.claude.json`) so it is available in every project. To limit it to a single project, pass `--scope project`:
+
+```bash
+claude mcp add --scope project jcodemunch uvx jcodemunch-mcp
+```
+
+To include optional environment variables at the same time:
+
+```bash
+claude mcp add jcodemunch uvx jcodemunch-mcp \
+  -e GITHUB_TOKEN=ghp_... \
+  -e ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Restart Claude Code after running the command.
+
+**Manual config** — if you prefer to edit the config file directly:
+
+| Scope   | Path |
+| ------- | ---- |
+| User (global) | `~/.claude.json` |
+| Project | `.claude/settings.json` (in the project root) |
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+Environment variables are optional — see the list in the Claude Desktop section below.
+
 ### Claude Desktop
+
+Config file location:
+
+| OS      | Path |
+| ------- | ---- |
+| macOS   | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux   | `~/.config/claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 
 Add to your `claude_desktop_config.json`:
 
@@ -26,22 +90,47 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "jcodemunch": {
-      "command": "jcodemunch-mcp",
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
       "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxx",
-        "ANTHROPIC_API_KEY": "sk-ant-xxxxxxxx"
+        "GITHUB_TOKEN": "ghp_...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }
 }
 ```
 
-Both environment variables are optional:
+Environment variables are optional:
 
 * `GITHUB_TOKEN` enables private repositories and higher GitHub API rate limits.
 * `ANTHROPIC_API_KEY` enables AI-generated summaries via Claude Haiku.
+* `ANTHROPIC_MODEL` overrides the Claude model (default: `claude-haiku-4-5-20251001`).
 * `GOOGLE_API_KEY` enables AI-generated summaries via Gemini Flash (used if `ANTHROPIC_API_KEY` is not set).
+* `GOOGLE_MODEL` overrides the Gemini model (default: `gemini-2.5-flash-lite`).
 * If neither key is set, summaries fall back to docstrings or signatures.
+* `JCODEMUNCH_CONTEXT_PROVIDERS=0` disables context providers (dbt metadata enrichment, etc.) during indexing.
+
+Restart Claude Desktop after saving the config.
+
+### Cursor
+
+Open **Cursor Settings** (`Ctrl+Shift+J`) → **Tools & MCP** → **+ New MCP Server** to open `mcp.json`, then add:
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"]
+    }
+  }
+}
+```
+
+Save and check **Tools & MCP** — it will confirm whether the server started successfully. You may need to restart Cursor.
+
+> **WSL users:** Configure separately for Windows and your Linux distro, and switch between them via the Tools & MCP panel as needed.
 
 ### VS Code
 
@@ -51,9 +140,10 @@ Add to `.vscode/settings.json`:
 {
   "mcp.servers": {
     "jcodemunch": {
-      "command": "jcodemunch-mcp",
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
       "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxx"
+        "GITHUB_TOKEN": "ghp_..."
       }
     }
   }
@@ -96,19 +186,16 @@ if (total > 0) output += ` │ ${total.toLocaleString()} tkns saved · $${cost} 
 {
   "mcpServers": {
     "jcodemunch": {
-      "command": "jcodemunch-mcp",
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
       "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxx",
-        "ANTHROPIC_API_KEY": "sk-ant-xxxxxxxx"
+        "GITHUB_TOKEN": "ghp_...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }
 }
 ```
-
----
-
-## Workflows
 
 ### Explore a New Repository
 
@@ -123,9 +210,14 @@ get_file_outline: { "repo": "fastapi/fastapi", "file_path": "fastapi/main.py" }
 
 ```
 index_folder: { "path": "/home/user/myproject" }
-get_repo_outline: { "repo": "local-myproject" }
-search_symbols: { "repo": "local-myproject", "query": "main" }
+list_repos: {}
+get_repo_outline: { "repo": "myproject" }
+search_symbols: { "repo": "myproject", "query": "main" }
 ```
+
+Local folder indexes use stable hashed repo ids under the hood. `list_repos` shows the exact stored id, and bare display-name lookup works when it is unique.
+
+**Context enrichment:** When indexing local folders, jCodeMunch auto-detects ecosystem tools like dbt and enriches the index with business metadata — model descriptions, tags, and column documentation flow into AI summaries, file summaries, and search keywords. No configuration required. See CONTEXT_PROVIDERS.md for details and how to add support for other tools.
 
 ### Find and Read a Function
 
@@ -162,10 +254,21 @@ The response `_meta.content_verified` will be `true` if the source matches the s
 ### Search for Non-Symbol Content
 
 ```
-search_text: { "repo": "owner/repo", "query": "TODO", "file_pattern": "*.py" }
+search_text: { "repo": "owner/repo", "query": "TODO", "file_pattern": "*.py", "context_lines": 1 }
 ```
 
-Use `search_text` for string literals, comments, configuration values, or anything that is not a symbol name.
+Use `search_text` for string literals, comments, configuration values, or anything that is not a symbol name. Results are grouped by file and include optional `before` / `after` context lines for each match.
+
+### Read a File Slice
+
+```
+get_file_content: {
+  "repo": "owner/repo",
+  "file_path": "src/main.py",
+  "start_line": 20,
+  "end_line": 40
+}
+```
 
 ### Force Re-index
 
@@ -185,10 +288,11 @@ index_repo: { "url": "owner/repo" }
 | `list_repos`       | List all indexed repositories | —                                                                  |
 | `get_file_tree`    | Browse file structure         | `repo`, `path_prefix`                                              |
 | `get_file_outline` | Symbols in a file             | `repo`, `file_path`                                                |
+| `get_file_content` | Cached file content           | `repo`, `file_path`, `start_line`, `end_line`                      |
 | `get_symbol`       | Full source of one symbol     | `repo`, `symbol_id`, `verify`, `context_lines`                     |
 | `get_symbols`      | Batch retrieve symbols        | `repo`, `symbol_ids`                                               |
 | `search_symbols`   | Search symbols                | `repo`, `query`, `kind`, `language`, `file_pattern`, `max_results` |
-| `search_text`      | Full-text search              | `repo`, `query`, `file_pattern`, `max_results`                     |
+| `search_text`      | Full-text search              | `repo`, `query`, `file_pattern`, `max_results`, `context_lines`    |
 | `get_repo_outline` | High-level overview           | `repo`                                                             |
 | `invalidate_cache` | Delete cached index           | `repo`                                                             |
 
@@ -211,7 +315,7 @@ src/utils.py::authenticate#function
 config.py::MAX_RETRIES#constant
 ```
 
-IDs are returned by `get_file_outline`, `search_symbols`, and `search_text`. Pass them to `get_symbol` or `get_symbols` to retrieve source code.
+IDs are returned by `get_file_outline` and `search_symbols`. Pass them to `get_symbol` or `get_symbols` to retrieve source code. `search_text` returns file-and-line matches, not symbol IDs.
 
 ---
 
@@ -227,7 +331,8 @@ To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env:
 {
   "mcpServers": {
     "jcodemunch": {
-      "command": "jcodemunch-mcp",
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
       "env": {
         "JCODEMUNCH_SHARE_SAVINGS": "0"
       }
@@ -238,13 +343,36 @@ To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env:
 
 ---
 
+## Local LLM Tuning Tips
+
+AI summaries can be generated by a local LLM via any OpenAI-compatible server (e.g. [LM Studio](https://lmstudio.ai)). Set `OPENAI_API_BASE` and `OPENAI_MODEL` in your MCP server env to point at it.
+
+**Recommended model:** [Qwen3-8B](https://lmstudio.ai/models/qwen/qwen3-8b) — fast, fits in 12 GB VRAM, and produces quality one-line summaries. In benchmarks it was ~5× faster than Devstral 24B with comparable summary quality.
+
+**Critical for Qwen3:** Set the LM Studio **system prompt** to `/no_think` (and leave the "Enable thinking" toggle ON). Without this, the model wastes GPU time on chain-of-thought reasoning and leaks artifacts into summaries. Disabling thinking via the checkbox instead produces summaries that are too terse.
+
+```json
+"env": {
+  "OPENAI_API_BASE": "http://127.0.0.1:1234/v1",
+  "OPENAI_MODEL": "qwen/qwen3-8b",
+  "OPENAI_API_KEY": "local-llm"
+}
+```
+
+**Performance tuning:**
+- `OPENAI_CONCURRENCY` — number of parallel batch requests to the LLM server (default: `1`). Higher values keep the GPU saturated.
+- `OPENAI_BATCH_SIZE` — symbols packed per request (default: `10`).
+- `OPENAI_MAX_TOKENS` — max output tokens per batch response (default: `500`).
+
+---
+
 ## Troubleshooting
 
 **"Repository not found"**
 Check the URL format (`owner/repo` or full GitHub URL). For private repositories, set `GITHUB_TOKEN`.
 
 **"No source files found"**
-The repository may not contain supported language files (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`), or files may be excluded by skip patterns.
+The repository may not contain supported language files (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.xml`, `.xul`), or files may be excluded by skip patterns.
 
 **Rate limiting**
 Set `GITHUB_TOKEN` to increase GitHub API limits (5,000 requests/hour vs 60 unauthenticated).

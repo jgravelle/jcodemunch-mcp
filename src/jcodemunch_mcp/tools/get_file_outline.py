@@ -37,16 +37,46 @@ def get_file_outline(
     
     if not index:
         return {"error": f"Repository not indexed: {owner}/{name}"}
-    
-    # Filter symbols to this file
-    file_symbols = [s for s in index.symbols if s.get("file") == file_path]
-    
-    if not file_symbols:
+
+    if not index.has_source_file(file_path):
         return {
             "repo": f"{owner}/{name}",
             "file": file_path,
             "language": "",
+            "file_summary": "",
             "symbols": []
+        }
+    
+    # Filter symbols to this file
+    file_symbols = [s for s in index.symbols if s.get("file") == file_path]
+    language = index.file_languages.get(file_path, "")
+    file_summary = index.file_summaries.get(file_path, "")
+
+    # Token savings: raw file size vs outline response size
+    raw_bytes = 0
+    try:
+        raw_file = store._content_dir(owner, name) / file_path
+        raw_bytes = os.path.getsize(raw_file)
+    except OSError:
+        pass
+    
+    if not file_symbols:
+        elapsed = (time.perf_counter() - start) * 1000
+        tokens_saved = estimate_savings(raw_bytes, 0)
+        total_saved = record_savings(tokens_saved)
+        return {
+            "repo": f"{owner}/{name}",
+            "file": file_path,
+            "language": language,
+            "file_summary": file_summary,
+            "symbols": [],
+            "_meta": {
+                "timing_ms": round(elapsed, 1),
+                "symbol_count": 0,
+                "tokens_saved": tokens_saved,
+                "total_tokens_saved": total_saved,
+                **cost_avoided(tokens_saved, total_saved),
+            },
         }
     
     # Build symbol tree
@@ -56,24 +86,11 @@ def get_file_outline(
     
     # Convert to output format
     symbols_output = [_node_to_dict(n) for n in tree]
-    
-    # Get language
-    language = file_symbols[0].get("language", "")
-    
-    elapsed = (time.perf_counter() - start) * 1000
 
-    # Token savings: raw file size vs outline response size
-    raw_bytes = 0
-    try:
-        raw_file = store._content_dir(owner, name) / file_path
-        raw_bytes = os.path.getsize(raw_file)
-    except OSError:
-        pass
+    elapsed = (time.perf_counter() - start) * 1000
     response_bytes = sum(s.get("byte_length", 0) for s in file_symbols)
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved)
-
-    file_summary = index.file_summaries.get(file_path, "")
 
     return {
         "repo": f"{owner}/{name}",

@@ -54,8 +54,8 @@ def get_symbol(
     if not symbol:
         return {"error": f"Symbol not found: {symbol_id}"}
 
-    # Get source via byte-offset read
-    source = store.get_symbol_content(owner, name, symbol_id)
+    # Get source via byte-offset read (pass index to avoid a second load_index call)
+    source = store.get_symbol_content(owner, name, symbol_id, _index=index)
 
     # Add context lines if requested
     context_before = ""
@@ -150,6 +150,9 @@ def get_symbols(
 
     symbols = []
     errors = []
+    seen_files: set = set()
+    raw_bytes = 0
+    response_bytes = 0
 
     for symbol_id in symbol_ids:
         symbol = index.get_symbol(symbol_id)
@@ -158,7 +161,7 @@ def get_symbols(
             errors.append({"id": symbol_id, "error": f"Symbol not found: {symbol_id}"})
             continue
 
-        source = store.get_symbol_content(owner, name, symbol_id)
+        source = store.get_symbol_content(owner, name, symbol_id, _index=index)
 
         symbols.append({
             "id": symbol["id"],
@@ -174,14 +177,7 @@ def get_symbols(
             "source": source or ""
         })
 
-    # Token savings: unique file sizes vs sum of symbol byte_lengths
-    raw_bytes = 0
-    seen_files: set = set()
-    response_bytes = 0
-    for symbol_id in symbol_ids:
-        symbol = index.get_symbol(symbol_id)
-        if not symbol:
-            continue
+        # Accumulate savings in the same loop (no second pass needed)
         f = symbol["file"]
         if f not in seen_files:
             seen_files.add(f)
@@ -190,6 +186,7 @@ def get_symbols(
             except OSError:
                 pass
         response_bytes += symbol.get("byte_length", 0)
+
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved)
 

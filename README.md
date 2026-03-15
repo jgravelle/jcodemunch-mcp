@@ -1,3 +1,6 @@
+## FREE FOR PERSONAL USE
+**Use it to make money, and Uncle J. gets a taste. Fair enough?** [details](#commercial-licenses)
+
 ## Cut code-reading token costs by up to **99%**
 
 Most AI agents explore repositories the expensive way:
@@ -24,8 +27,24 @@ Precision context beats brute-force context.
 ![MCP](https://img.shields.io/badge/MCP-compatible-purple)
 ![Local-first](https://img.shields.io/badge/local--first-yes-brightgreen)
 ![Polyglot](https://img.shields.io/badge/parsing-tree--sitter-9cf)
+![jMRI](https://img.shields.io/badge/jMRI-Full-blueviolet)
 [![PyPI version](https://img.shields.io/pypi/v/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
+
+> ## Commercial licenses
+> jCodeMunch-MCP is **free for non-commercial use**.  Tip jar: (https://gravelle.gumroad.com/coffee)
+> 
+> **Commercial use requires a paid license.**
+>
+> **jCodeMunch-only licenses**
+> - [Builder](https://gravelle.gumroad.com/l/jCodeMunchMCP_builder) — 1 developer
+> - [Studio](https://gravelle.gumroad.com/l/jCodeMunchMCP_studio) — up to 5 developers
+> - [Platform](https://gravelle.gumroad.com/l/jCodeMunchMCP_platform) — org-wide internal deployment
+>
+> **Want both code and docs retrieval?**
+> - [Munch Duo Builder Bundle](https://gravelle.gumroad.com/l/MunchDuoBuilderBundle)
+> - [Munch Duo Studio Bundle](https://gravelle.gumroad.com/l/MunchDuoStudioBundle)
+> - [Munch Duo Platform Bundle](https://gravelle.gumroad.com/l/MunchDuoPlatformBundle)
 
 **Stop dumping files into context windows. Start retrieving exactly what the agent needs.**
 
@@ -84,11 +103,14 @@ They need structured retrieval.
 
 ## How it works
 
-1. **Discovery** — GitHub API or local directory walk  
-2. **Security filtering** — traversal protection, secret exclusion, binary detection  
-3. **Parsing** — tree-sitter AST extraction  
-4. **Storage** — JSON index + raw files stored locally (`~/.code-index/`)  
-5. **Retrieval** — O(1) byte-offset seeking via stable symbol IDs  
+jCodeMunch implements **[jMRI-Full](https://dev.to/jgravelle/your-ai-agent-is-dumpster-diving-through-your-code-326f)** — the open specification for structured retrieval MCP servers. jMRI-Full covers the full stack: discover, search, retrieve, and metadata operations with batch retrieval, hash-based drift detection, byte-offset addressing, and a complete `_meta` envelope on every call.
+
+1. **Discovery** — GitHub API or local directory walk
+2. **Security filtering** — traversal protection, secret exclusion, binary detection
+3. **Parsing** — tree-sitter AST extraction
+4. **Context enrichment** — auto-detected ecosystem providers (dbt, etc.) inject business metadata
+5. **Storage** — JSON index + raw files stored locally (`~/.code-index/`)
+6. **Retrieval** — O(1) byte-offset seeking via stable symbol IDs
 
 ### Stable Symbol IDs
 
@@ -133,7 +155,49 @@ jcodemunch-mcp --help
 > - **macOS:** `/Users/<username>/.local/bin/jcodemunch-mcp`
 > - **Windows:** `C:\\Users\\<username>\\AppData\\Roaming\\Python\\Python3xx\\Scripts\\jcodemunch-mcp.exe`
 
-### Claude Desktop / Claude Code
+### Claude Code
+
+The fastest way to add jCodeMunch to Claude Code is a single command:
+
+```bash
+claude mcp add jcodemunch uvx jcodemunch-mcp
+```
+
+This registers the server at user scope (`~/.claude.json`) so it is available in every project. To add it to a specific project only, pass `--scope project`:
+
+```bash
+claude mcp add --scope project jcodemunch uvx jcodemunch-mcp
+```
+
+To include optional environment variables (e.g. `GITHUB_TOKEN` or `ANTHROPIC_API_KEY`):
+
+```bash
+claude mcp add jcodemunch uvx jcodemunch-mcp \
+  -e GITHUB_TOKEN=ghp_... \
+  -e ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Restart Claude Code after adding the server.
+
+**Manual config** — if you prefer to edit the config file directly, the relevant files are:
+
+| Scope   | Path |
+| ------- | ---- |
+| User (global) | `~/.claude.json` |
+| Project | `.claude/settings.json` (in the project root) |
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"]
+    }
+  }
+}
+```
+
+### Claude Desktop
 
 Config file location:
 
@@ -192,7 +256,7 @@ Config file location:
 
 > Logging flags can also be set via env vars `JCODEMUNCH_LOG_LEVEL` and `JCODEMUNCH_LOG_FILE`. Always use `--log-file` (or the env var) when debugging — writing logs to stderr can corrupt the MCP stdio stream in some clients.
 
-After saving the config, **restart Claude Desktop / Claude Code** for the server to appear.
+After saving the config, **restart Claude Desktop** for the server to appear.
 
 ### Google Antigravity
 
@@ -222,6 +286,37 @@ Environment variables are optional:
 
 ---
 
+## Step 3: Tell Claude to actually use it
+
+> **This step is not optional.**
+>
+> Installing the MCP server makes the tools *available* — but Claude will not use them automatically. Without instructions, Claude defaults to its built-in file tools (read, grep, etc.) and never touches jCodeMunch. This is the single most common reason users install the server and see no difference.
+
+Create a `CLAUDE.md` file that instructs Claude to use jCodeMunch for all code lookups.
+
+### Global (applies to every project)
+
+Create or edit `~/.claude/CLAUDE.md`:
+
+```markdown
+Use jcodemunch-mcp for all code lookups. Never read full files when MCP is available.
+
+1. Call `list_repos` first — if the project is not indexed, call `index_folder` with the current directory.
+2. Use `search_symbols` / `get_symbol` to find and retrieve code by symbol name.
+3. Use `get_repo_outline` or `get_file_outline` to explore structure.
+4. Fall back to direct file reads only when editing or when MCP is unavailable.
+```
+
+### Project-level only
+
+Create `CLAUDE.md` in your project root with the same content. Claude Code merges project-level and global instructions automatically.
+
+### Verify it's working
+
+Ask Claude: *"What repos do you have indexed?"* — it should call `list_repos`. If it responds without calling any tool, re-check that `CLAUDE.md` exists and that the MCP server appears in `/mcp` (Claude Code) or the server list in Claude Desktop.
+
+---
+
 ## Usage Examples
 
 ```
@@ -230,14 +325,17 @@ index_repo:   { "url": "owner/repo" }
 
 get_repo_outline: { "repo": "owner/repo" }
 get_file_outline: { "repo": "owner/repo", "file_path": "src/main.py" }
+get_file_content: { "repo": "owner/repo", "file_path": "src/main.py", "start_line": 10, "end_line": 25 }
 search_symbols:   { "repo": "owner/repo", "query": "authenticate" }
 get_symbol:       { "repo": "owner/repo", "symbol_id": "src/main.py::MyClass.login#method" }
-search_text:      { "repo": "owner/repo", "query": "TODO" }
+search_text:      { "repo": "owner/repo", "query": "TODO", "context_lines": 1 }
 ```
+
+Local folder indexes are stored with stable hashed repo ids. Use `list_repos` to inspect the exact id, or the bare display name when it is unique.
 
 ---
 
-## Tools (11)
+## Tools (12)
 
 | Tool               | Purpose                     |
 | ------------------ | --------------------------- |
@@ -246,10 +344,11 @@ search_text:      { "repo": "owner/repo", "query": "TODO" }
 | `list_repos`       | List indexed repositories   |
 | `get_file_tree`    | Repository file structure   |
 | `get_file_outline` | Symbol hierarchy for a file |
+| `get_file_content` | Retrieve cached file content |
 | `get_symbol`       | Retrieve full symbol source |
 | `get_symbols`      | Batch retrieve symbols      |
 | `search_symbols`   | Search symbols with filters |
-| `search_text`      | Full-text search            |
+| `search_text`      | Full-text search with context |
 | `get_repo_outline` | High-level repo overview    |
 | `invalidate_cache` | Remove cached index         |
 
@@ -271,6 +370,7 @@ Every tool response includes a `_meta` envelope with timing, token savings, and 
 
 ## Recent Updates
 
+**v1.4.1** — CLI interface (`cli/cli.py`) for terminal/pipeline use; "Tell Claude to use it" setup section in README
 **v0.2.10** — Pin `mcp<1.10.0` to prevent Windows `win32api` DLL crash on startup
 **v0.2.9** — Community savings meter: anonymous token savings shared to a live global counter at j.gravelle.us (opt-out via `JCODEMUNCH_SHARE_SAVINGS=0`); updated model pricing (Opus $25/1M, GPT-5 $10/1M)
 **v0.2.8** — Estimated cost avoided added to every `_meta` response (`cost_avoided`, `total_cost_avoided`)
@@ -299,10 +399,46 @@ Every tool response includes a `_meta` envelope with timing, token savings, and 
 | C++        | `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.h`* | function, class, method, type, constant |
 | Elixir     | `.ex`, `.exs` | class (module/impl), type (protocol/@type/@callback), method, function |
 | Ruby       | `.rb`, `.rake` | class, type (module), method, function |
+| SQL        | `.sql`         | function (CREATE FUNCTION, CTE, dbt macro/test/materialization), type (CREATE TABLE/VIEW/SCHEMA/INDEX, dbt snapshot) |
+| XML/XUL    | `.xml`, `.xul` | type (root element), constant (id attributes), function (script refs) |
 
 \* `.h` is parsed as C++ first, then falls back to C when no C++ symbols are extracted.
 
 See LANGUAGE_SUPPORT.md for full semantics.
+
+---
+
+## Context Providers
+
+When indexing local folders, jCodeMunch automatically detects ecosystem tools and enriches the index with **business context** — descriptions, tags, and metadata from project configuration files.
+
+| Provider | Detects           | Enriches With                                        |
+| -------- | ----------------- | ---------------------------------------------------- |
+| dbt      | `dbt_project.yml` | Model descriptions, tags, column names/descriptions  |
+
+Context enrichment is **automatic** — no configuration needed. When a provider detects its tool, it injects metadata into AI summarization prompts, file summaries, and search keywords.
+
+Example: a dbt model with a `schema.yml` description produces file summaries like:
+
+```
+This table summarizes account ledger. Tags: nightly, agg, intraday. 70 properties
+```
+
+Instead of the default:
+
+```
+Contains 2 functions: source, renamed
+```
+
+The provider system is extensible — adding support for Terraform, OpenAPI, Django, or any other tool requires implementing a single `ContextProvider` class.
+
+See CONTEXT_PROVIDERS.md for the full architecture, dbt details, and guide to writing new providers.
+
+---
+
+## Contributing
+
+PRs welcome! All contributors must sign the [Contributor License Agreement](https://cla-assistant.io/jgravelle/jcodemunch-mcp) before their PR can be merged — CLA Assistant will prompt you automatically. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ---
 
@@ -372,13 +508,19 @@ For **LM Studio**, ensure the Local Server is running (usually on port 1234):
 | `GITHUB_TOKEN`              | GitHub API auth           | No       |
 | `ANTHROPIC_API_KEY`         | Symbol summaries via Claude Haiku (takes priority) | No       |
 | `ANTHROPIC_BASE_URL`        | Third-party Anthropic-compatible endpoints (e.g. z.ai) | No       |
+| `ANTHROPIC_MODEL`           | Model name for Claude summaries (default: `claude-haiku-4-5-20251001`) | No       |
 | `GOOGLE_API_KEY`            | Symbol summaries via Gemini Flash | No       |
+| `GOOGLE_MODEL`              | Model name for Gemini summaries (default: `gemini-2.5-flash-lite`) | No       |
 | `OPENAI_API_BASE`           | Base URL for local LLMs (e.g. `http://localhost:11434/v1`) | No |
 | `OPENAI_API_KEY`            | API key for local LLMs (default: `local-llm`) | No |
 | `OPENAI_MODEL`              | Model name for local LLMs (default: `qwen3-coder`) | No |
 | `OPENAI_TIMEOUT`            | Timeout in seconds for local requests (default: `60.0`) | No |
+| `OPENAI_BATCH_SIZE`         | Symbols per summarization request (default: `10`) | No |
+| `OPENAI_CONCURRENCY`        | Max parallel batch requests (default: `1`) | No |
+| `OPENAI_MAX_TOKENS`         | Max output tokens per batch response (default: `500`) | No |
 | `CODE_INDEX_PATH`           | Custom cache path         | No       |
-| `JCODEMUNCH_MAX_INDEX_FILES`| Maximum files to index per repo/folder (default: `500`) | No |
+| `JCODEMUNCH_MAX_INDEX_FILES`| Maximum files to index per repo/folder (default: `10000`) | No |
+| `JCODEMUNCH_CONTEXT_PROVIDERS` | Set to `0` to disable context providers (dbt, etc.) during indexing | No |
 | `JCODEMUNCH_SHARE_SAVINGS`  | Set to `0` to disable anonymous community token savings reporting | No       |
 | `JCODEMUNCH_LOG_LEVEL`      | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` (default: `WARNING`) | No       |
 | `JCODEMUNCH_LOG_FILE`       | Path to log file. If unset, logs go to stderr. Use a file to avoid polluting MCP stdio. | No       |
@@ -398,6 +540,7 @@ To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env.
 - SPEC.md
 - SECURITY.md
 - LANGUAGE_SUPPORT.md
+- CONTEXT_PROVIDERS.md
 
 ---
 

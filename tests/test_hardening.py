@@ -485,6 +485,38 @@ int only_c(void) { int v[] = (int[]){1,2,3}; return v[0]; }
         fmt = _by_name(symbols, "format_name")
         assert fmt.kind == "function"
 
+    # -- XML / XUL -------------------------------------------------------
+
+    def test_xml_root_element(self):
+        content, fname = _fixture("xml", "sample.xml")
+        symbols = parse_file(content, fname, "xml")
+        root = _by_name(symbols, "config")
+        assert root.kind == "type"
+
+    def test_xml_id_elements(self):
+        content, fname = _fixture("xml", "sample.xml")
+        symbols = parse_file(content, fname, "xml")
+        db = _by_name(symbols, "db-primary")
+        assert db.kind == "constant"
+
+    def test_xml_script_refs(self):
+        content, fname = _fixture("xml", "sample.xml")
+        symbols = parse_file(content, fname, "xml")
+        script = _by_name(symbols, "validator.js")
+        assert script.kind == "function"
+
+    def test_xul_window_root(self):
+        content, fname = _fixture("xml", "sample.xul")
+        symbols = parse_file(content, fname, "xml")
+        window = _by_name(symbols, "window")
+        assert window.kind == "type"
+
+    def test_xul_element_kind(self):
+        content, fname = _fixture("xml", "sample.xul")
+        symbols = parse_file(content, fname, "xml")
+        btn = _by_name(symbols, "search-button")
+        assert btn.kind == "constant"
+
 
 # ===========================================================================
 # 2. Overload Disambiguation
@@ -573,6 +605,7 @@ class TestDeterminism:
         ("cpp", "sample.cpp"),
         ("elixir", "sample.ex"),
         ("ruby", "sample.rb"),
+        ("xml", "sample.xml"),
     ])
     def test_deterministic_ids_and_hashes(self, language, filename):
         content, fname = _fixture(language, filename)
@@ -724,7 +757,7 @@ class TestIndexVersioning:
         )
 
         assert index.index_version == INDEX_VERSION
-        assert index.index_version == 3
+        assert index.index_version == 4
 
     def test_load_preserves_version(self, tmp_path):
         store = IndexStore(base_path=str(tmp_path))
@@ -887,3 +920,22 @@ class TestNewTools:
             storage_path=storage,
         )
         assert result["success"] is False
+
+    def test_invalidate_cache_rejects_ambiguous_bare_name(self, tmp_path):
+        from jcodemunch_mcp.tools.invalidate_cache import invalidate_cache
+
+        storage = str(tmp_path / "store")
+        store = IndexStore(base_path=storage)
+        for repo_name in ["shared-aaa11111", "shared-bbb22222"]:
+            store.save_index(
+                owner="local",
+                name=repo_name,
+                source_files=["main.py"],
+                symbols=[],
+                raw_files={"main.py": "print('x')\n"},
+                languages={"python": 1},
+                display_name="shared",
+            )
+
+        result = invalidate_cache(repo="shared", storage_path=storage)
+        assert result["error"].startswith("Ambiguous repository name: shared")

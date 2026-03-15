@@ -13,7 +13,7 @@ def test_main_help_exits_without_starting_server(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "jcodemunch-mcp" in out
-    assert "Run the jCodeMunch MCP stdio server" in out
+    assert "Run the jCodeMunch MCP server" in out
 
 
 def test_main_version_exits_with_version(capsys):

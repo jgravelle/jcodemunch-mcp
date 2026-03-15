@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- Main application window -->
+<window id="main-window" title="My Application"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <!-- Search controls -->
+  <textbox id="search-input" placeholder="Search..."/>
+  <button id="search-button" label="Search"/>
+  <!-- Options menu -->
+  <menulist id="options-menu">
+    <menupopup>
+      <menuitem label="Option 1"/>
+      <menuitem label="Option 2"/>
+    </menupopup>
+  </menulist>
+  <script type="application/javascript" src="chrome://app/content/main.js"/>
+  <script type="application/javascript" src="utils.js"/>
+</window>

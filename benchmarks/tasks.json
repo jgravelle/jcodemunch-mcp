@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "description": "Public task corpus for the jcodemunch-mcp token-efficiency benchmark. Tasks are tool-agnostic: any code retrieval tool can be evaluated against the same queries and repos.",
+  "tokenizer": "cl100k_base",
+  "repos": [
+    {
+      "id": "expressjs/express",
+      "description": "Express.js — Node.js web framework (~200 source files)"
+    },
+    {
+      "id": "fastapi/fastapi",
+      "description": "FastAPI — Python async web framework (~150 source files)"
+    },
+    {
+      "id": "gin-gonic/gin",
+      "description": "Gin — Go HTTP web framework (~80 source files)"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "router-route-handler",
+      "query": "router route handler",
+      "description": "Find the core function or method responsible for registering and dispatching route handlers.",
+      "rationale": "The most common agent entry point when exploring a web framework codebase."
+    },
+    {
+      "id": "middleware",
+      "query": "middleware",
+      "description": "Find middleware registration, chaining, or execution logic.",
+      "rationale": "Middleware is a cross-cutting concern that spans multiple files in every web framework."
+    },
+    {
+      "id": "error-exception",
+      "query": "error exception",
+      "description": "Find error handling, exception types, or error propagation logic.",
+      "rationale": "Error handling is typically spread across several layers; tests retrieval across abstraction levels."
+    },
+    {
+      "id": "request-response",
+      "query": "request response",
+      "description": "Find the request/response object definitions or wrappers.",
+      "rationale": "Core types referenced throughout the codebase; high symbol density."
+    },
+    {
+      "id": "context-bind",
+      "query": "context bind",
+      "description": "Find context object creation, parameter binding, or request context propagation.",
+      "rationale": "Tests retrieval of framework-specific patterns that differ significantly across languages."
+    }
+  ],
+  "methodology": {
+    "baseline": "Concatenate all indexed source files and count tokens. This is the minimum token cost for an agent that reads every file before acting.",
+    "jmunch_workflow": "call search_symbols (max_results=5), then get_symbol for the top 3 hits. Total = search response tokens + 3 × symbol source tokens.",
+    "reduction_formula": "(1 - jmunch_tokens / baseline_tokens) * 100",
+    "note": "The baseline is a lower bound — real agents often read files multiple times, so actual savings in production workflows are typically higher."
+  }
+}

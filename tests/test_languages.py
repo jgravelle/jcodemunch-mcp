@@ -606,6 +606,16 @@ namespace SampleApp
 
     /// <summary>An immutable person record.</summary>
     public record Person(string Name, int Age);
+
+    public class ComplexEntity
+    {
+        public Guid Id { get; set; }
+        public readonly string Username = "admin";
+        public const int MAX_AGE = 120;
+        public int MultiA = 1, MultiB = 2;
+        public event EventHandler OnLogin;
+        ~ComplexEntity() { }
+    }
 }
 '''
 
@@ -661,6 +671,35 @@ def test_parse_csharp():
     record = next((s for s in symbols if s.name == "Person"), None)
     assert record is not None
     assert record.kind == "class"
+
+    # Properties, Fields, Constants, Events, Destructors
+    prop = next((s for s in symbols if s.name == "Id"), None)
+    assert prop is not None
+    assert prop.kind == "constant"
+    
+    field = next((s for s in symbols if s.name == "Username"), None)
+    assert field is not None
+    assert field.kind == "constant"
+    
+    multi_field = next((s for s in symbols if s.name == "MultiA"), None)
+    assert multi_field is not None
+    assert multi_field.kind == "constant"
+    # Note: jcodemunch implements a 1:1 mapping between AST nodes and symbols. 
+    # Therefore, a single field_declaration node with multiple variable_declarators 
+    # will only be indexed under the name of the first declarator (MultiA).
+    assert not any(s.name == "MultiB" for s in symbols)
+    
+    const = next((s for s in symbols if s.name == "MAX_AGE"), None)
+    assert const is not None
+    assert const.kind == "constant"
+    
+    evt = next((s for s in symbols if s.name == "OnLogin"), None)
+    assert evt is not None
+    assert evt.kind == "constant"
+    
+    dtor = next((s for s in symbols if s.name == "ComplexEntity" and s.kind == "method"), None)
+    assert dtor is not None
+    assert dtor.kind == "method"
 
 
 SWIFT_SOURCE = '''
@@ -1176,3 +1215,884 @@ def test_parse_perl():
     kingdom = next((s for s in symbols if s.name == "KINGDOM"), None)
     assert kingdom is not None
     assert kingdom.kind == "constant"
+
+
+KOTLIN_SOURCE = '''
+package com.example
+
+// A simple greeter
+fun greet(name: String): String = "Hello, $name"
+
+/**
+ * A minimal calculator.
+ */
+class Calculator {
+    // Add two numbers
+    fun add(a: Int, b: Int): Int = a + b
+
+    private fun reset(): Unit {}
+}
+
+interface Clickable {
+    fun onClick()
+}
+
+object AppConfig {
+    fun getInstance(): AppConfig = this
+}
+
+typealias StringList = List<String>
+
+enum class Direction { NORTH, SOUTH, EAST, WEST }
+
+data class Point(val x: Int, val y: Int)
+'''
+
+
+def test_parse_kotlin():
+    """Test Kotlin parsing."""
+    symbols = parse_file(KOTLIN_SOURCE, "Main.kt", "kotlin")
+
+    # Top-level function
+    func = next((s for s in symbols if s.name == "greet"), None)
+    assert func is not None
+    assert func.kind == "function"
+    assert "greet" in func.signature
+    # Note: comment before fun after package decl is absorbed into package_header by the Kotlin grammar
+
+    # Class
+    cls = next((s for s in symbols if s.name == "Calculator"), None)
+    assert cls is not None
+    assert cls.kind == "class"
+    assert "Calculator" in cls.signature
+
+    # Method inside class
+    add = next((s for s in symbols if s.name == "add"), None)
+    assert add is not None
+    assert add.kind == "method"
+    assert add.qualified_name == "Calculator.add"
+    assert "Add two numbers" in add.docstring
+
+    # Interface
+    iface = next((s for s in symbols if s.name == "Clickable"), None)
+    assert iface is not None
+    assert iface.kind == "class"
+    assert "interface" in iface.signature
+
+    # Object declaration
+    obj = next((s for s in symbols if s.name == "AppConfig"), None)
+    assert obj is not None
+    assert obj.kind == "class"
+    assert "object" in obj.signature
+
+    # Type alias
+    alias = next((s for s in symbols if s.name == "StringList"), None)
+    assert alias is not None
+    assert alias.kind == "type"
+    assert "typealias" in alias.signature
+
+    # Enum class
+    enum = next((s for s in symbols if s.name == "Direction"), None)
+    assert enum is not None
+    assert enum.kind == "class"
+    assert "enum" in enum.signature
+
+    # Data class
+    point = next((s for s in symbols if s.name == "Point"), None)
+    assert point is not None
+    assert point.kind == "class"
+    assert "data" in point.signature
+
+    # .kts extension also maps to kotlin
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("build.gradle.kts") == "kotlin"
+    assert get_language_for_path("Main.kt") == "kotlin"
+
+
+GLEAM_SOURCE = '''
+pub type Color {
+  Red
+  Green
+  Blue
+}
+
+pub type Alias = String
+
+pub const max_size: Int = 100
+
+// Greet a user
+pub fn greet(name: String) -> String {
+  "Hello, " <> name
+}
+
+fn helper(x: Int) -> Int {
+  x + 1
+}
+'''
+
+BASH_SOURCE = '''#!/bin/bash
+# Deploy the app
+function deploy() {
+  echo "Deploying $1"
+}
+
+# Build everything
+build() {
+  make all
+}
+
+readonly VERSION="1.0"
+'''
+
+NIX_SOURCE = '''
+let
+  # Greet someone
+  greet = name: "Hello, ${name}";
+  # Add two numbers
+  add = x: y: x + y;
+  version = "1.0";
+in { inherit greet; }
+'''
+
+
+def test_parse_gleam():
+    """Test Gleam parsing."""
+    symbols = parse_file(GLEAM_SOURCE, "app.gleam", "gleam")
+
+    typ = next((s for s in symbols if s.name == "Color"), None)
+    assert typ is not None
+    assert typ.kind == "type"
+    assert "Color" in typ.signature
+
+    alias = next((s for s in symbols if s.name == "Alias"), None)
+    assert alias is not None
+    assert alias.kind == "type"
+    assert "typealias" in alias.signature.lower() or "Alias" in alias.signature
+
+    const = next((s for s in symbols if s.name == "max_size"), None)
+    assert const is not None
+    assert const.kind == "constant"
+
+    fn = next((s for s in symbols if s.name == "greet"), None)
+    assert fn is not None
+    assert fn.kind == "function"
+    assert "String" in fn.signature
+    assert "Greet a user" in fn.docstring
+
+    priv = next((s for s in symbols if s.name == "helper"), None)
+    assert priv is not None
+    assert priv.kind == "function"
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("app.gleam") == "gleam"
+
+
+def test_parse_bash():
+    """Test Bash parsing."""
+    symbols = parse_file(BASH_SOURCE, "script.sh", "bash")
+
+    deploy = next((s for s in symbols if s.name == "deploy"), None)
+    assert deploy is not None
+    assert deploy.kind == "function"
+    assert "Deploy the app" in deploy.docstring
+
+    build = next((s for s in symbols if s.name == "build"), None)
+    assert build is not None
+    assert build.kind == "function"
+    assert "Build everything" in build.docstring
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("script.sh") == "bash"
+    assert get_language_for_path("script.bash") == "bash"
+
+
+def test_parse_nix():
+    """Test Nix parsing."""
+    symbols = parse_file(NIX_SOURCE, "default.nix", "nix")
+
+    greet = next((s for s in symbols if s.name == "greet"), None)
+    assert greet is not None
+    assert greet.kind == "function"
+    assert "Greet someone" in greet.docstring
+
+    add = next((s for s in symbols if s.name == "add"), None)
+    assert add is not None
+    assert add.kind == "function"
+    assert "Add two numbers" in add.docstring
+
+    version = next((s for s in symbols if s.name == "version"), None)
+    assert version is not None
+    assert version.kind == "constant"
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("default.nix") == "nix"
+
+
+VUE_JS_SOURCE = '''<template>
+  <div>{{ message }}</div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+
+// Greet a user
+function greet(name) {
+  return `Hello, ${name}`
+}
+
+class MyComponent {
+  mounted() {}
+}
+</script>
+'''
+
+VUE_TS_SOURCE = '''<template><div /></template>
+<script setup lang="ts">
+import { ref } from 'vue'
+
+interface User { name: string }
+
+// Get the user name
+function getName(user: User): string {
+  return user.name
+}
+</script>
+'''
+
+
+def test_parse_vue_js():
+    """Test Vue SFC parsing with JavaScript script block."""
+    symbols = parse_file(VUE_JS_SOURCE, "App.vue", "vue")
+
+    fn = next((s for s in symbols if s.name == "greet"), None)
+    assert fn is not None
+    assert fn.kind == "function"
+    assert fn.language == "vue"
+    assert "Greet a user" in fn.docstring
+    assert fn.line == 9  # correct line in .vue file
+
+    cls = next((s for s in symbols if s.name == "MyComponent"), None)
+    assert cls is not None
+    assert cls.kind == "class"
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("App.vue") == "vue"
+
+
+def test_parse_vue_ts():
+    """Test Vue SFC parsing with TypeScript script block (lang="ts")."""
+    symbols = parse_file(VUE_TS_SOURCE, "User.vue", "vue")
+
+    iface = next((s for s in symbols if s.name == "User" and s.kind == "type"), None)
+    assert iface is not None
+    assert iface.language == "vue"
+
+    fn = next((s for s in symbols if s.name == "getName"), None)
+    assert fn is not None
+    assert fn.kind == "function"
+    assert "string" in fn.signature
+    assert "Get the user name" in fn.docstring
+
+
+def test_parse_vue_no_script():
+    """Test Vue SFC with no script block returns empty symbol list."""
+    source = "<template><div>hello</div></template>"
+    symbols = parse_file(source, "Static.vue", "vue")
+    assert symbols == []
+
+
+EJS_SOURCE = '''<!DOCTYPE html>
+<html>
+<head><title><%= title %></title></head>
+<body>
+  <%- include('partials/header', { user: user }) %>
+
+  <% function formatDate(date) { %>
+    <span><%= date.toLocaleDateString() %></span>
+  <% } %>
+
+  <%- include('partials/footer') %>
+</body>
+</html>
+'''
+
+
+def test_parse_ejs():
+    """Test EJS template parsing."""
+    symbols = parse_file(EJS_SOURCE, "views/index.ejs", "ejs")
+
+    # Synthetic template symbol always present
+    tmpl = next((s for s in symbols if s.kind == "template"), None)
+    assert tmpl is not None
+    assert tmpl.name == "index"
+    assert tmpl.language == "ejs"
+
+    # JS function inside scriptlet block
+    fn = next((s for s in symbols if s.name == "formatDate"), None)
+    assert fn is not None
+    assert fn.kind == "function"
+    assert "formatDate(date)" in fn.signature
+
+    # Include references
+    header = next((s for s in symbols if s.name == "partials/header"), None)
+    assert header is not None
+    assert header.kind == "import"
+
+    footer = next((s for s in symbols if s.name == "partials/footer"), None)
+    assert footer is not None
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("views/index.ejs") == "ejs"
+
+
+def test_parse_ejs_no_scriptlets():
+    """EJS file with no scriptlets still produces the template symbol."""
+    source = "<html><body><h1>Hello</h1></body></html>"
+    symbols = parse_file(source, "static.ejs", "ejs")
+    assert len(symbols) == 1
+    assert symbols[0].kind == "template"
+    assert symbols[0].name == "static"
+
+
+# ---------------------------------------------------------------------------
+# Verse (UEFN)
+# ---------------------------------------------------------------------------
+
+_VERSE_SOURCE = """\
+# Module import path: /Fortnite.com/UI
+UI<public> := module:
+
+    # Base UI element
+    widget<public><abstract> := class<concrete>():
+        # Get the widget's visibility
+        GetVisibility<public>()<transacts>:widget_visibility = external {}
+
+        var Opacity<public>:float = external {}
+
+    # Extension method
+    (W:widget).SetVisible<public>(Visible:logic)<transacts>:void = external {}
+
+    EWidgetColor<public> := enum:
+        Red
+        Green
+        Blue
+"""
+
+
+def test_parse_verse():
+    """Test Verse (UEFN) language parsing."""
+    symbols = parse_file(_VERSE_SOURCE, "Fortnite.digest.verse", "verse")
+
+    # Module container
+    ui = next((s for s in symbols if s.name == "UI"), None)
+    assert ui is not None
+    assert ui.kind == "class"
+    assert "UI" in ui.signature
+    assert "module" in ui.signature
+    assert ui.language == "verse"
+
+    # Nested class
+    widget = next((s for s in symbols if s.name == "widget"), None)
+    assert widget is not None
+    assert widget.kind == "class"
+    assert widget.parent is not None  # parented to UI module
+
+    # Method inside class
+    get_vis = next((s for s in symbols if s.name == "GetVisibility"), None)
+    assert get_vis is not None
+    assert get_vis.kind == "method"
+    assert "GetVisibility" in get_vis.signature
+    assert "<transacts>" in get_vis.signature
+    assert "widget_visibility" in get_vis.signature
+    assert get_vis.docstring == "Get the widget's visibility"
+
+    # Variable declaration
+    opacity = next((s for s in symbols if s.name == "Opacity"), None)
+    assert opacity is not None
+    assert opacity.kind == "constant"
+    assert "float" in opacity.signature
+
+    # Extension method
+    set_visible = next((s for s in symbols if s.name == "SetVisible"), None)
+    assert set_visible is not None
+    assert set_visible.kind == "method"
+    assert "SetVisible" in set_visible.qualified_name
+
+    # Enum type
+    color = next((s for s in symbols if s.name == "EWidgetColor"), None)
+    assert color is not None
+    assert color.kind == "type"
+    assert "enum" in color.signature
+
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("Fortnite.digest.verse") == "verse"
+
+
+def test_parse_verse_utf8_byte_offsets():
+    """Byte offsets must be byte positions, not char positions (smart quotes are 3 bytes each)."""
+    # U+2019 RIGHT SINGLE QUOTATION MARK = 3 bytes in UTF-8
+    source = "# Widget\u2019s tooltip\nMyClass<public> := class<concrete>():\n    Init<public>():void = external {}\n"
+    source_bytes = source.encode("utf-8")
+    symbols = parse_file(source, "test.verse", "verse")
+
+    cls = next((s for s in symbols if s.name == "MyClass"), None)
+    assert cls is not None
+    # byte_offset must be a valid byte position in the encoded source
+    assert cls.byte_offset >= 0
+    assert cls.byte_offset + cls.byte_length <= len(source_bytes)
+    # Content at the byte range should start with the declaration
+    chunk = source_bytes[cls.byte_offset:cls.byte_offset + 7]
+    assert chunk == b"MyClass"
+
+
+ERLANG_SOURCE = '''
+-module(math_utils).
+-export([add/2, factorial/1]).
+
+-type number_pair() :: {integer(), integer()}.
+-record(point, {x = 0 :: integer(), y = 0 :: integer()}).
+-define(MAX_ITER, 1000).
+
+%% Adds two integers together.
+add(A, B) ->
+    A + B.
+
+%% Computes the factorial of N.
+factorial(0) -> 1;
+factorial(N) when N > 0 -> N * factorial(N - 1).
+
+-spec add(integer(), integer()) -> integer().
+'''
+
+
+def test_parse_erlang_functions():
+    """Functions are extracted with correct name, arity-qualified_name, and signature."""
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    add = next((s for s in symbols if s.name == "add"), None)
+    assert add is not None
+    assert add.kind == "function"
+    assert add.qualified_name == "add/2"
+    assert "add" in add.signature
+    assert add.language == "erlang"
+    assert "Adds two integers" in add.docstring
+
+
+def test_parse_erlang_multiclauses_merged():
+    """Multi-clause functions produce exactly one symbol spanning all clauses."""
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    fac_syms = [s for s in symbols if s.name == "factorial"]
+    assert len(fac_syms) == 1, "multi-clause function should produce exactly one symbol"
+    fac = fac_syms[0]
+    assert fac.kind == "function"
+    assert fac.qualified_name == "factorial/1"
+    # end_line must span past the first clause
+    assert fac.end_line > fac.line
+    assert "Computes the factorial" in fac.docstring
+
+
+def test_parse_erlang_type():
+    """type_alias declarations are extracted as 'type' symbols."""
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    typ = next((s for s in symbols if s.name == "number_pair"), None)
+    assert typ is not None
+    assert typ.kind == "type"
+    assert "number_pair" in typ.signature
+
+
+def test_parse_erlang_record():
+    """-record declarations are extracted as 'type' symbols."""
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    rec = next((s for s in symbols if s.name == "point"), None)
+    assert rec is not None
+    assert rec.kind == "type"
+    assert "record" in rec.signature.lower()
+
+
+def test_parse_erlang_define():
+    """-define macros are extracted as 'constant' symbols."""
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    macro = next((s for s in symbols if s.name == "MAX_ITER"), None)
+    assert macro is not None
+    assert macro.kind == "constant"
+
+
+def test_parse_erlang_byte_offsets():
+    """Byte offsets must be valid positions within the encoded source."""
+    source_bytes = ERLANG_SOURCE.encode("utf-8")
+    symbols = parse_file(ERLANG_SOURCE, "math_utils.erl", "erlang")
+
+    for sym in symbols:
+        assert sym.byte_offset >= 0
+        assert sym.byte_offset + sym.byte_length <= len(source_bytes)
+
+
+def test_erlang_extension_mapping():
+    """Both .erl and .hrl map to the 'erlang' language."""
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("math_utils.erl") == "erlang"
+    assert get_language_for_path("include/defs.hrl") == "erlang"
+
+
+FORTRAN_SOURCE = '''
+! Computes the sum of two integers.
+function add(a, b) result(res)
+  integer, intent(in) :: a, b
+  integer :: res
+  res = a + b
+end function add
+
+! Greets the user.
+subroutine greet(name)
+  character(len=*), intent(in) :: name
+  print *, "Hello, " // name
+end subroutine greet
+
+module math_utils
+  implicit none
+  integer, parameter :: MAX_SIZE = 100
+  type :: Point
+    real :: x
+    real :: y
+  end type Point
+contains
+  ! Multiplies two reals.
+  function multiply(a, b) result(res)
+    real, intent(in) :: a, b
+    real :: res
+    res = a * b
+  end function multiply
+end module math_utils
+'''
+
+
+def test_parse_fortran_function():
+    """Top-level functions are extracted with docstrings."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    add = next((s for s in symbols if s.name == "add"), None)
+    assert add is not None
+    assert add.kind == "function"
+    assert "add" in add.signature
+    assert add.parent is None
+    assert "Computes the sum" in add.docstring
+    assert add.language == "fortran"
+
+
+def test_parse_fortran_subroutine():
+    """Top-level subroutines are extracted as function-kind symbols."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    greet = next((s for s in symbols if s.name == "greet"), None)
+    assert greet is not None
+    assert greet.kind == "function"
+    assert "subroutine" in greet.signature
+    assert "Greets the user" in greet.docstring
+
+
+def test_parse_fortran_module():
+    """Modules are extracted as class-kind symbols."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    mod = next((s for s in symbols if s.name == "math_utils"), None)
+    assert mod is not None
+    assert mod.kind == "class"
+    assert "module" in mod.signature
+    assert mod.parent is None
+
+
+def test_parse_fortran_module_method():
+    """Procedures inside a module are extracted as methods with the module as parent."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    mul = next((s for s in symbols if s.name == "multiply"), None)
+    assert mul is not None
+    assert mul.kind == "method"
+    assert mul.parent == "math_utils"
+    assert mul.qualified_name == "math_utils::multiply"
+    assert "Multiplies two reals" in mul.docstring
+
+
+def test_parse_fortran_derived_type():
+    """Derived type definitions inside modules are extracted as type symbols."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    pt = next((s for s in symbols if s.name == "Point"), None)
+    assert pt is not None
+    assert pt.kind == "type"
+    assert pt.parent == "math_utils"
+    assert "Point" in pt.signature
+
+
+def test_parse_fortran_parameter_constant():
+    """Parameter constants inside modules are extracted as constant symbols."""
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    const = next((s for s in symbols if s.name == "MAX_SIZE"), None)
+    assert const is not None
+    assert const.kind == "constant"
+    assert const.parent == "math_utils"
+    assert const.qualified_name == "math_utils::MAX_SIZE"
+
+
+def test_parse_fortran_byte_offsets():
+    """Byte offsets must be valid positions within the encoded source."""
+    source_bytes = FORTRAN_SOURCE.encode("utf-8")
+    symbols = parse_file(FORTRAN_SOURCE, "math.f90", "fortran")
+
+    for sym in symbols:
+        assert sym.byte_offset >= 0
+        assert sym.byte_offset + sym.byte_length <= len(source_bytes)
+
+
+def test_fortran_extension_mapping():
+    """Common Fortran file extensions map to the 'fortran' language."""
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    for ext in (".f90", ".f95", ".f03", ".f08", ".f", ".for", ".fpp"):
+        assert get_language_for_path(f"code{ext}") == "fortran", ext
+
+
+# ---------------------------------------------------------------------------
+# Vue SFC
+# ---------------------------------------------------------------------------
+
+VUE_COMPOSITION_SOURCE = """\
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+
+// Current count
+const count = ref(0)
+const doubled = computed(() => count.value * 2)
+const props = defineProps<{ title: string; max?: number }>()
+const emit = defineEmits(['update'])
+
+function increment() {
+  count.value++
+  emit('update', count.value)
+}
+
+function reset() {
+  count.value = 0
+}
+</script>
+<template><div>{{ count }}</div></template>
+"""
+
+VUE_OPTIONS_SOURCE = """\
+<script>
+export default {
+  props: { items: Array, loading: Boolean },
+  data() { return { selected: null } },
+  computed: {
+    count() { return this.items.length },
+    hasItems() { return this.count > 0 }
+  },
+  methods: {
+    select(item) { this.selected = item },
+    clear() { this.selected = null }
+  }
+}
+</script>
+<template><div/></template>
+"""
+
+
+def test_vue_composition_component_symbol():
+    """Component name extracted from filename as class symbol."""
+    syms = parse_file(VUE_COMPOSITION_SOURCE, "Counter.vue", "vue")
+    comp = [s for s in syms if s.kind == "class" and s.name == "Counter"]
+    assert len(comp) == 1
+    assert comp[0].line == 1
+
+
+def test_vue_composition_ref_captured():
+    """ref() declarations captured as constants."""
+    syms = parse_file(VUE_COMPOSITION_SOURCE, "Counter.vue", "vue")
+    names = [s.name for s in syms if s.kind == "constant"]
+    assert "count" in names
+    assert "doubled" in names
+
+
+def test_vue_composition_define_macros():
+    """defineProps and defineEmits captured as constants."""
+    syms = parse_file(VUE_COMPOSITION_SOURCE, "Counter.vue", "vue")
+    names = [s.name for s in syms if s.kind == "constant"]
+    assert "props" in names
+    assert "emit" in names
+
+
+def test_vue_composition_functions():
+    """Function declarations captured with correct line numbers."""
+    syms = parse_file(VUE_COMPOSITION_SOURCE, "Counter.vue", "vue")
+    funcs = {s.name: s for s in syms if s.kind == "function"}
+    assert "increment" in funcs
+    assert "reset" in funcs
+    assert funcs["increment"].line > 1
+
+
+def test_vue_composition_parent_relationship():
+    """All symbols have the component as parent."""
+    syms = parse_file(VUE_COMPOSITION_SOURCE, "Counter.vue", "vue")
+    comp = next(s for s in syms if s.kind == "class")
+    children = [s for s in syms if s.parent == comp.id]
+    assert len(children) >= 4
+
+
+def test_vue_options_methods():
+    """Options API methods extracted as method symbols."""
+    syms = parse_file(VUE_OPTIONS_SOURCE, "MyList.vue", "vue")
+    methods = {s.name for s in syms if s.kind == "method"}
+    assert "select" in methods
+    assert "clear" in methods
+
+
+def test_vue_options_computed():
+    """Options API computed properties extracted as method symbols."""
+    syms = parse_file(VUE_OPTIONS_SOURCE, "MyList.vue", "vue")
+    computed = {s.name for s in syms if s.kind == "method"}
+    assert "count" in computed
+    assert "hasItems" in computed
+
+
+def test_vue_options_props():
+    """Options API props captured as constant."""
+    syms = parse_file(VUE_OPTIONS_SOURCE, "MyList.vue", "vue")
+    props = [s for s in syms if s.name == "props" and s.kind == "constant"]
+    assert len(props) == 1
+
+
+def test_vue_extension_mapping():
+    """.vue extension maps to vue language."""
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("src/components/Counter.vue") == "vue"
+
+
+XML_SOURCE = '''\
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configuration for the sample application -->
+<config id="app-config" version="2.0">
+  <!-- Database connection settings -->
+  <database id="db-primary" type="postgresql">
+    <host>localhost</host>
+    <port>5432</port>
+  </database>
+  <!-- Cache layer -->
+  <cache id="redis-cache" driver="redis">
+    <ttl>3600</ttl>
+  </cache>
+  <script type="text/javascript" src="config/validator.js"/>
+  <script type="text/javascript" src="lib/helpers.js"/>
+</config>
+'''
+
+XUL_SOURCE = '''\
+<?xml version="1.0"?>
+<!-- Main application window -->
+<window id="main-window" title="My Application"
+        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+  <!-- Search controls -->
+  <textbox id="search-input" placeholder="Search..."/>
+  <button id="search-button" label="Search"/>
+  <!-- Options menu -->
+  <menulist id="options-menu">
+    <menupopup>
+      <menuitem label="Option 1"/>
+      <menuitem label="Option 2"/>
+    </menupopup>
+  </menulist>
+  <script type="application/javascript" src="chrome://app/content/main.js"/>
+  <script type="application/javascript" src="utils.js"/>
+</window>
+'''
+
+
+def test_parse_xml():
+    """Test XML parsing."""
+    symbols = parse_file(XML_SOURCE, "sample.xml", "xml")
+
+    # Root element → type
+    root = next((s for s in symbols if s.name == "config" and s.kind == "type"), None)
+    assert root is not None
+    assert "config" in root.signature
+
+    # Root also has id attribute → constant
+    root_id = next((s for s in symbols if s.name == "app-config" and s.kind == "constant"), None)
+    assert root_id is not None
+
+    # Elements with id attributes → constants
+    db = next((s for s in symbols if s.name == "db-primary"), None)
+    assert db is not None
+    assert db.kind == "constant"
+    assert "Database connection" in db.docstring
+
+    cache = next((s for s in symbols if s.name == "redis-cache"), None)
+    assert cache is not None
+    assert cache.kind == "constant"
+    assert "Cache layer" in cache.docstring
+
+    # Script references → functions
+    validator = next((s for s in symbols if s.name == "validator.js"), None)
+    assert validator is not None
+    assert validator.kind == "function"
+    assert validator.qualified_name == "config/validator.js"
+
+    helpers = next((s for s in symbols if s.name == "helpers.js"), None)
+    assert helpers is not None
+    assert helpers.kind == "function"
+
+    # All symbols should be xml language
+    assert all(s.language == "xml" for s in symbols)
+
+
+def test_parse_xul():
+    """Test XUL parsing (parsed as XML)."""
+    symbols = parse_file(XUL_SOURCE, "app.xul", "xml")
+
+    # Root window → type
+    window = next((s for s in symbols if s.name == "window" and s.kind == "type"), None)
+    assert window is not None
+    assert "window" in window.signature
+    assert "Main application window" in window.docstring
+
+    # UI elements with ids → constants
+    search_input = next((s for s in symbols if s.name == "search-input"), None)
+    assert search_input is not None
+    assert search_input.kind == "constant"
+    assert "Search controls" in search_input.docstring
+
+    search_btn = next((s for s in symbols if s.name == "search-button"), None)
+    assert search_btn is not None
+    assert search_btn.kind == "constant"
+
+    options_menu = next((s for s in symbols if s.name == "options-menu"), None)
+    assert options_menu is not None
+    assert options_menu.kind == "constant"
+
+    # Script references → functions
+    main_js = next((s for s in symbols if s.name == "main.js"), None)
+    assert main_js is not None
+    assert main_js.kind == "function"
+    assert main_js.qualified_name == "chrome://app/content/main.js"
+
+    utils_js = next((s for s in symbols if s.name == "utils.js"), None)
+    assert utils_js is not None
+    assert utils_js.kind == "function"
+
+    # Window root has id → also produces a constant
+    main_window_id = next((s for s in symbols if s.name == "main-window" and s.kind == "constant"), None)
+    assert main_window_id is not None
+
+    # All xml language
+    assert all(s.language == "xml" for s in symbols)
+
+
+def test_xml_extension_mapping():
+    """.xml and .xul extensions map to xml language."""
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    assert get_language_for_path("config/settings.xml") == "xml"
+    assert get_language_for_path("ui/main.xul") == "xml"
+    assert get_language_for_path("data/UPPER.XML") == "xml"

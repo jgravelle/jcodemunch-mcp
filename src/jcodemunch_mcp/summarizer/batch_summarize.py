@@ -1,6 +1,7 @@
 """Three-tier summarization: docstring > AI (Haiku or Gemini) > signature fallback."""
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Optional
 
@@ -63,6 +64,7 @@ class BatchSummarizer:
             from anthropic import Anthropic
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             if api_key:
+                self.model = os.environ.get("ANTHROPIC_MODEL", self.model)
                 base_url = os.environ.get("ANTHROPIC_BASE_URL")
                 kwargs = {"api_key": api_key}
                 if base_url:
@@ -137,14 +139,25 @@ class BatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
-        
+
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
-        
+
         lines.extend([
             "",
             "Output format: NUMBER. SUMMARY",
@@ -152,18 +165,18 @@ class BatchSummarizer:
             "",
             "Summaries:",
         ])
-        
+
         return "\n".join(lines)
-    
+
     def _parse_response(self, text: str, expected_count: int) -> list[str]:
         """Parse numbered summaries from response."""
         summaries = [""] * expected_count
-        
+
         for line in text.split("\n"):
             line = line.strip()
             if not line:
                 continue
-            
+
             # Look for "N. summary" format
             if "." in line:
                 parts = line.split(".", 1)
@@ -174,7 +187,7 @@ class BatchSummarizer:
                         summaries[num - 1] = summary
                 except ValueError:
                     continue
-        
+
         return summaries
 
 
@@ -182,7 +195,7 @@ class BatchSummarizer:
 class GeminiBatchSummarizer:
     """AI-based batch summarization using Google Gemini Flash (Tier 2)."""
 
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-2.5-flash-lite"
     max_tokens_per_batch: int = 500
 
     def __post_init__(self):
@@ -195,6 +208,7 @@ class GeminiBatchSummarizer:
             import google.generativeai as genai
             api_key = os.environ.get("GOOGLE_API_KEY")
             if api_key:
+                self.model = os.environ.get("GOOGLE_MODEL", self.model)
                 genai.configure(api_key=api_key)
                 self.client = genai.GenerativeModel(self.model)
         except ImportError:
@@ -249,11 +263,22 @@ class GeminiBatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
 
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
 
@@ -305,6 +330,9 @@ class OpenAIBatchSummarizer:
             # Strip trailing slash if present
             self.api_base = self.api_base.rstrip("/")
             self.model = os.environ.get("OPENAI_MODEL", self.model)
+            self.max_tokens_per_batch = int(
+                os.environ.get("OPENAI_MAX_TOKENS", str(self.max_tokens_per_batch))
+            )
             self._init_client()
 
     def _init_client(self):
@@ -332,14 +360,19 @@ class OpenAIBatchSummarizer:
                     sym.summary = signature_fallback(sym)
             return symbols
 
+        batch_size = int(os.environ.get("OPENAI_BATCH_SIZE", str(batch_size)))
         to_summarize = [s for s in symbols if not s.summary and not s.docstring]
 
         if not to_summarize:
             return symbols
 
-        for i in range(0, len(to_summarize), batch_size):
-            batch = to_summarize[i:i + batch_size]
-            self._summarize_one_batch(batch)
+        max_workers = int(os.environ.get("OPENAI_CONCURRENCY", "1"))
+        batches = [to_summarize[i:i + batch_size] for i in range(0, len(to_summarize), batch_size)]
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self._summarize_one_batch, batch): batch for batch in batches}
+            for future in as_completed(futures):
+                future.result()
 
         return symbols
 
@@ -378,11 +411,22 @@ class OpenAIBatchSummarizer:
         """Build summarization prompt for a batch."""
         lines = [
             "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how.",
+            "Focus on what it does, not how. Use business context when available.",
             "",
-            "Input:",
         ]
 
+        # Inject ecosystem context if any symbol has it
+        context_lines = set()
+        for sym in symbols:
+            if sym.ecosystem_context:
+                context_lines.add(sym.ecosystem_context)
+        if context_lines:
+            lines.append("Context:")
+            for ctx in context_lines:
+                lines.append(ctx)
+            lines.append("")
+
+        lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
 

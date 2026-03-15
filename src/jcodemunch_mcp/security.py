@@ -81,10 +81,30 @@ SECRET_PATTERNS = [
 ]
 
 
+# Doc extensions that are safe from the broad *secret* glob. A file like
+# "secrets-handling.md" is documentation about secrets, never a credential file.
+# More specific patterns (*.key, *.pem, credentials.json, etc.) still apply to
+# all extensions regardless of this set.
+_SECRET_GLOB_SAFE_EXTENSIONS: frozenset[str] = frozenset({
+    ".md", ".markdown", ".mdx",
+    ".rst",
+    ".txt",
+    ".adoc", ".asciidoc", ".asc",
+    ".html", ".htm",
+    ".ipynb",
+})
+
+# Patterns that should NOT be applied to doc extensions (too broad for prose files).
+_SECRET_DOC_EXEMPT_PATTERNS: frozenset[str] = frozenset({"*secret*"})
+
+
 def is_secret_file(file_path: str) -> bool:
     """Check if a file path matches known secret file patterns.
 
-    Uses filename/extension matching, not content inspection.
+    Uses filename/extension matching, not content inspection. The broad
+    ``*secret*`` glob is not applied to known documentation extensions
+    (.md, .rst, .txt, .adoc, .html, .ipynb, etc.) to avoid false positives
+    on files like ``docs/secrets-handling.md``.
 
     Args:
         file_path: Relative file path (forward slashes).
@@ -96,8 +116,11 @@ def is_secret_file(file_path: str) -> bool:
 
     name = os.path.basename(file_path).lower()
     path_lower = file_path.lower()
+    _, ext = os.path.splitext(name)
 
     for pattern in SECRET_PATTERNS:
+        if pattern in _SECRET_DOC_EXEMPT_PATTERNS and ext in _SECRET_GLOB_SAFE_EXTENSIONS:
+            continue
         if fnmatch.fnmatch(name, pattern):
             return True
         # Also check full path for patterns like .env.*
@@ -107,6 +130,34 @@ def is_secret_file(file_path: str) -> bool:
 
 
 # --- Binary File Detection ---
+
+# Shared skip patterns used by both index_folder and index_repo.
+# Keep a single source of truth here.
+SKIP_PATTERNS: frozenset[str] = frozenset({
+    "node_modules/", "vendor/", "venv/", ".venv/", "__pycache__/",
+    "dist/", "build/", ".git/", ".tox/", ".mypy_cache/",
+    "target/",
+    ".gradle/",
+    "test_data/", "testdata/", "fixtures/", "snapshots/",
+    "migrations/",
+    ".min.js", ".min.ts", ".bundle.js",
+    "package-lock.json", "yarn.lock", "go.sum",
+    "generated/", "proto/",
+    "*.xcodeproj/", "*.xcworkspace/", "DerivedData/", ".build/",
+})
+
+SKIP_DIRECTORIES = [
+    "node_modules", "vendor", "venv", ".venv", "__pycache__",
+    "dist", "build", ".git", ".tox", ".mypy_cache", "target",
+    ".gradle", "test_data", "testdata", "fixtures", "snapshots",
+    "migrations", "generated", "proto", r"[^/]*\.xcodeproj",
+    r"[^/]*\.xcworkspace", "DerivedData", ".build"
+]
+
+SKIP_FILES = [
+    ".min.js", ".min.ts", ".bundle.js", 
+    "package-lock.json", "yarn.lock", "go.sum"
+]
 
 BINARY_EXTENSIONS = frozenset([
     # Executables
@@ -203,11 +254,53 @@ def safe_decode(data: bytes, encoding: str = "utf-8") -> str:
     return data.decode(encoding, errors="replace")
 
 
+# --- Extra Ignore Patterns ---
+
+EXTRA_IGNORE_PATTERNS_ENV_VAR = "JCODEMUNCH_EXTRA_IGNORE_PATTERNS"
+
+
+def get_extra_ignore_patterns(call_patterns: Optional[list] = None) -> list:
+    """Return merged extra ignore patterns from env var and per-call list.
+
+    Reads ``JCODEMUNCH_EXTRA_IGNORE_PATTERNS`` (comma-separated string or
+    JSON array), then appends any per-call ``extra_ignore_patterns``.
+
+    Args:
+        call_patterns: Patterns supplied by the caller (per-call override).
+
+    Returns:
+        Combined list of gitignore-style pattern strings. Empty list if none.
+    """
+    import json as _json
+
+    env_val = os.environ.get(EXTRA_IGNORE_PATTERNS_ENV_VAR, "").strip()
+    env_patterns: list = []
+    if env_val:
+        try:
+            parsed = _json.loads(env_val)
+            if isinstance(parsed, list):
+                env_patterns = [str(p) for p in parsed if p]
+        except (_json.JSONDecodeError, ValueError):
+            env_patterns = [p.strip() for p in env_val.split(",") if p.strip()]
+
+    combined = env_patterns[:]
+    if call_patterns:
+        combined.extend(call_patterns)
+    return combined
+
+
 # --- Composite Filters ---
 
 DEFAULT_MAX_FILE_SIZE = 500 * 1024  # 500KB
 DEFAULT_MAX_INDEX_FILES = 10_000
 MAX_INDEX_FILES_ENV_VAR = "JCODEMUNCH_MAX_INDEX_FILES"
+
+# Local folders are indexed synchronously inside an MCP tool call, so the
+# default cap is intentionally lower to stay within client timeouts.
+# Users can raise it via JCODEMUNCH_MAX_FOLDER_FILES (or the legacy
+# JCODEMUNCH_MAX_INDEX_FILES, which is honoured as a fallback).
+DEFAULT_MAX_FOLDER_FILES = 2_000
+MAX_FOLDER_FILES_ENV_VAR = "JCODEMUNCH_MAX_FOLDER_FILES"
 
 
 def get_max_index_files(max_files: Optional[int] = None) -> int:
@@ -238,6 +331,40 @@ def get_max_index_files(max_files: Optional[int] = None) -> int:
         return DEFAULT_MAX_INDEX_FILES
 
     return parsed
+
+
+def get_max_folder_files(max_files: Optional[int] = None) -> int:
+    """Resolve the maximum indexed file count for local folder indexing.
+
+    Checks JCODEMUNCH_MAX_FOLDER_FILES first, then falls back to
+    JCODEMUNCH_MAX_INDEX_FILES for backward compatibility.  The default
+    (2,000) is intentionally lower than the GitHub repo default (10,000)
+    because local indexing runs synchronously inside an MCP tool call and
+    must complete within the client's timeout window.
+
+    Args:
+        max_files: Explicit override. Must be a positive integer when provided.
+
+    Returns:
+        Positive file-count limit.
+    """
+    if max_files is not None:
+        if max_files <= 0:
+            raise ValueError("max_files must be a positive integer")
+        return max_files
+
+    # Check folder-specific env var first, then legacy shared var.
+    for env_var in (MAX_FOLDER_FILES_ENV_VAR, MAX_INDEX_FILES_ENV_VAR):
+        value = os.environ.get(env_var)
+        if value is not None:
+            try:
+                parsed = int(value)
+            except ValueError:
+                continue
+            if parsed > 0:
+                return parsed
+
+    return DEFAULT_MAX_FOLDER_FILES
 
 
 def should_exclude_file(

@@ -3,6 +3,7 @@
 import os
 import time
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
@@ -65,7 +66,22 @@ def get_repo_outline(
 
     elapsed = (time.perf_counter() - start) * 1000
 
-    return {
+    # Staleness warning
+    staleness_warning = None
+    try:
+        staleness_days = int(os.environ.get("JCODEMUNCH_STALENESS_DAYS", "7"))
+        indexed_dt = datetime.fromisoformat(index.indexed_at)
+        if indexed_dt.tzinfo is None:
+            indexed_dt = indexed_dt.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - indexed_dt).days
+        if age_days >= staleness_days:
+            staleness_warning = (
+                f"Index is {age_days} days old. Run index_folder or index_repo to refresh."
+            )
+    except Exception:
+        pass
+
+    result = {
         "repo": f"{owner}/{name}",
         "indexed_at": index.indexed_at,
         "file_count": len(index.source_files),
@@ -80,3 +96,6 @@ def get_repo_outline(
             **cost_avoided(tokens_saved, total_saved),
         },
     }
+    if staleness_warning:
+        result["staleness_warning"] = staleness_warning
+    return result

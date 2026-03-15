@@ -68,13 +68,62 @@ def test_unknown_language_returns_empty():
 def test_symbol_byte_offsets():
     """Test that byte offsets are correct."""
     symbols = parse_file(PYTHON_SOURCE, "test.py", "python")
-    
+
     for sym in symbols:
         # Byte offset should be non-negative
         assert sym.byte_offset >= 0
         assert sym.byte_length > 0
-        
+
         # Line numbers should be positive
         assert sym.line > 0
         assert sym.end_line >= sym.line
+
+
+LUA_SOURCE = """\
+--- Initialise the addon
+-- @param name string
+local function init(name)
+    return {name = name}
+end
+
+function MyAddon.OnLoad(self)
+    print("loaded")
+end
+
+--- Handle combat log event
+function MyAddon:OnCombatLogEvent(event, ...)
+    self:process(event)
+end
+"""
+
+
+def test_lua_local_function():
+    symbols = parse_file(LUA_SOURCE, "addon.lua", "lua")
+    names = {s.qualified_name for s in symbols}
+    assert "init" in names
+    sym = next(s for s in symbols if s.qualified_name == "init")
+    assert sym.kind == "function"
+    assert sym.parent is None
+    assert "Initialise the addon" in sym.docstring
+
+
+def test_lua_dot_method():
+    symbols = parse_file(LUA_SOURCE, "addon.lua", "lua")
+    sym = next(s for s in symbols if s.qualified_name == "MyAddon.OnLoad")
+    assert sym.kind == "method"
+    assert sym.parent == "MyAddon"
+    assert sym.name == "OnLoad"
+
+
+def test_lua_colon_method():
+    symbols = parse_file(LUA_SOURCE, "addon.lua", "lua")
+    sym = next(s for s in symbols if s.qualified_name == "MyAddon:OnCombatLogEvent")
+    assert sym.kind == "method"
+    assert sym.parent == "MyAddon"
+    assert "Handle combat log event" in sym.docstring
+
+
+def test_lua_extension_registered():
+    from jcodemunch_mcp.parser.languages import LANGUAGE_EXTENSIONS
+    assert LANGUAGE_EXTENSIONS.get(".lua") == "lua"
 

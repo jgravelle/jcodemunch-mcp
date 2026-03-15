@@ -13,7 +13,7 @@ class Symbol:
     name: str                       # Symbol name (e.g., "login")
     qualified_name: str             # Fully qualified (e.g., "MyClass.login")
     kind: str                       # "function" | "class" | "method" | "constant" | "type"
-    language: str                   # "python" | "javascript" | "typescript" | "go" | "rust" | "java" | "c" | "cpp"
+    language: str                   # "python" | "javascript" | "typescript" | "go" | "rust" | "java" | "c" | "cpp" | "xml"
     signature: str                  # Full signature line(s)
     docstring: str = ""             # Extracted docstring (language-specific)
     summary: str = ""               # One-line summary
@@ -25,15 +25,8 @@ class Symbol:
     byte_offset: int = 0           # Start byte in raw file
     byte_length: int = 0           # Byte length of full source
     content_hash: str = ""         # SHA-256 of symbol source bytes (for drift detection)
+    ecosystem_context: str = ""    # Optional context from ecosystem (e.g., dbt model metadata)
 
-
-def slugify(text: str) -> str:
-    """Convert file path to slug format.
-
-    Replace / with - and . with - for use in symbol IDs.
-    Example: src/main.py -> src-main-py
-    """
-    return text.replace("/", "-").replace(".", "-")
 
 
 def make_symbol_id(file_path: str, qualified_name: str, kind: str = "") -> str:

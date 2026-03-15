@@ -1,6 +1,8 @@
 """Full-text search across indexed file contents."""
 
+import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -13,6 +15,8 @@ def search_text(
     query: str,
     file_pattern: Optional[str] = None,
     max_results: int = 20,
+    context_lines: int = 0,
+    is_regex: bool = False,
     storage_path: Optional[str] = None,
 ) -> dict:
     """Search for text across all indexed files in a repository.
@@ -22,9 +26,12 @@ def search_text(
 
     Args:
         repo: Repository identifier (owner/repo or just repo name).
-        query: Text to search for (case-insensitive substring match).
+        query: Text to search for. Case-insensitive substring by default;
+               set is_regex=True for full regex (e.g. 'estimateToken|tokenEstimat').
         file_pattern: Optional glob pattern to filter files.
         max_results: Maximum number of matching lines to return.
+        context_lines: Lines of context before/after each match (like grep -C).
+        is_regex: When True, treat query as a Python regex (re.search, IGNORECASE).
         storage_path: Custom storage path.
 
     Returns:
@@ -32,6 +39,13 @@ def search_text(
     """
     start = time.perf_counter()
     max_results = max(1, min(max_results, 100))
+    context_lines = max(0, min(context_lines, 10))
+
+    if is_regex:
+        try:
+            pattern = re.compile(query, re.IGNORECASE)
+        except re.error as e:
+            return {"error": f"Invalid regex: {e}"}
 
     try:
         owner, name = resolve_repo(repo, storage_path)
@@ -51,57 +65,72 @@ def search_text(
         files = [f for f in files if fnmatch.fnmatch(f, file_pattern) or fnmatch.fnmatch(f, f"*/{file_pattern}")]
 
     content_dir = store._content_dir(owner, name)
-    query_lower = query.lower()
-    matches = []
+    query_lower = query.lower() if not is_regex else None
+    results = []
+    result_count = 0
     files_searched = 0
+    truncated = False
+    raw_bytes = 0
 
     for file_path in files:
-        full_path = content_dir / file_path
-        if not full_path.exists():
+        full_path = store._safe_content_path(content_dir, file_path)
+        if not full_path:
             continue
-
         try:
-            content = full_path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+            with open(full_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                content = f.read()
+        except OSError:
             continue
 
         files_searched += 1
+        try:
+            raw_bytes += os.path.getsize(full_path)
+        except OSError:
+            pass
         lines = content.split("\n")
-        for line_num, line in enumerate(lines, 1):
-            if query_lower in line.lower():
-                matches.append({
-                    "file": file_path,
-                    "line": line_num,
+        file_matches = []
+        for line_index, line in enumerate(lines):
+            hit = pattern.search(line) if is_regex else (query_lower in line.lower())
+            if hit:
+                match = {
+                    "line": line_index + 1,
                     "text": line.rstrip()[:200],  # Truncate long lines
-                })
-                if len(matches) >= max_results:
+                }
+                if context_lines > 0:
+                    before_start = max(0, line_index - context_lines)
+                    after_end = min(len(lines), line_index + context_lines + 1)
+                    match["before"] = [value.rstrip()[:200] for value in lines[before_start:line_index]]
+                    match["after"] = [value.rstrip()[:200] for value in lines[line_index + 1:after_end]]
+                file_matches.append(match)
+                result_count += 1
+                if result_count >= max_results:
+                    truncated = True
                     break
 
-        if len(matches) >= max_results:
+        if file_matches:
+            results.append({"file": file_path, "matches": file_matches})
+
+        if truncated:
             break
 
     elapsed = (time.perf_counter() - start) * 1000
 
-    # Token savings: raw bytes of searched files vs matched lines returned
-    raw_bytes = 0
-    for file_path in files[:files_searched]:
-        try:
-            raw_bytes += os.path.getsize(content_dir / file_path)
-        except OSError:
-            pass
-    response_bytes = sum(len(m["text"].encode()) for m in matches)
+    # Token savings: raw bytes of searched files vs grouped match response
+    response_bytes = len(json.dumps(results, ensure_ascii=False).encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved)
 
     return {
         "repo": f"{owner}/{name}",
         "query": query,
-        "result_count": len(matches),
-        "results": matches,
+        "is_regex": is_regex,
+        "context_lines": context_lines,
+        "result_count": result_count,
+        "results": results,
         "_meta": {
             "timing_ms": round(elapsed, 1),
             "files_searched": files_searched,
-            "truncated": len(matches) >= max_results,
+            "truncated": truncated,
             "tokens_saved": tokens_saved,
             "total_tokens_saved": total_saved,
             **cost_avoided(tokens_saved, total_saved),

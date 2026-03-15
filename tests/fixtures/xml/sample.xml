@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Configuration for the sample application -->
+<config id="app-config" version="2.0">
+  <!-- Database connection settings -->
+  <database id="db-primary" type="postgresql">
+    <host>localhost</host>
+    <port>5432</port>
+  </database>
+  <!-- Cache layer -->
+  <cache id="redis-cache" driver="redis">
+    <ttl>3600</ttl>
+  </cache>
+  <script type="text/javascript" src="config/validator.js"/>
+  <script type="text/javascript" src="lib/helpers.js"/>
+</config>
