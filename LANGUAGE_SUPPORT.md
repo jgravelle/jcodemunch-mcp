@@ -41,6 +41,7 @@
 | Vue               | `.vue`                                          | custom `<script>` extraction  | function, class, method, type, constant (from `<script>` block)                           | varies         | varies                        | Script block re-parsed as JavaScript or TypeScript (detected from `lang="ts"`)             |
 | Blade (Laravel)   | `.blade.php`                                    | regex-based                   | type (section, component, extends, stack, push, slot)                                      | —              | —                             | No tree-sitter grammar; regex scanning of `@directive` syntax                               |
 | EJS               | `.ejs`                                          | regex-based                   | function, template                                                                         | —              | —                             | JS extracted from `<% %>` blocks; synthetic template symbol ensures file is always indexed  |
+| Assembly          | `.asm`, `.s`, `.S`, `.inc`, `.65816`, `.z80`, `.spc`, `.6502` | regex-based           | function (label/macro/proc), class (section), constant (define/equ), type (struct)         | —              | `;` preceding comments        | Multi-dialect: WLA-DX, NASM, GAS, CA65; local `_`-prefixed labels excluded                 |
 | AutoHotkey v2     | `.ahk`, `.ahk2`                                 | regex-based                   | function, class, method (including `static`)                                               | —              | `;` preceding comments        | No tree-sitter grammar available; same-line `{` or `=>` required for declaration detection  |
 | XML/XUL           | `.xml`, `.xul`                                   | tree-sitter-xml               | type (root element), constant (id attributes), function (script refs)                      | —              | `<!-- -->` preceding comments | XUL is parsed as XML; root, id-attributed elements, and `<script src>` refs are extracted   |
 
@@ -163,6 +164,6 @@ JCODEMUNCH_EXTRA_EXTENSIONS=".cgi:perl,.psgi:perl,.mjs:javascript"
 - Comma-separated `.ext:lang` pairs
 - Overrides built-in mappings on collision
 - Unknown languages and malformed entries are skipped with a warning
-- Valid language names: `python`, `javascript`, `typescript`, `tsx`, `go`, `rust`, `java`, `php`, `dart`, `csharp`, `c`, `cpp`, `swift`, `elixir`, `ruby`, `perl`, `gdscript`, `blade`, `kotlin`, `gleam`, `bash`, `nix`, `vue`, `ejs`, `verse`, `lua`, `erlang`, `fortran`, `sql`, `scala`, `haskell`, `julia`, `r`, `css`, `toml`, `groovy`, `objc`, `proto`, `hcl`, `graphql`, `autohotkey`, `xml`
+- Valid language names: `python`, `javascript`, `typescript`, `tsx`, `go`, `rust`, `java`, `php`, `dart`, `csharp`, `c`, `cpp`, `swift`, `elixir`, `ruby`, `perl`, `gdscript`, `blade`, `kotlin`, `gleam`, `bash`, `nix`, `vue`, `ejs`, `verse`, `lua`, `erlang`, `fortran`, `sql`, `scala`, `haskell`, `julia`, `r`, `css`, `toml`, `groovy`, `objc`, `proto`, `hcl`, `graphql`, `autohotkey`, `asm`, `xml`
 
 Set via `.mcp.json` `env` block or any environment mechanism supported by your MCP client.

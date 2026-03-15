@@ -42,6 +42,9 @@ _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
 # C/C++/ObjC: #include <foo>  or  #include "foo"
 _C_INCLUDE = re.compile(r"""^#include\s+[<"]([^>"]+)[>"]""", re.MULTILINE)
 
+# Assembly: .include "foo" / .incbin "foo" / %include "foo"
+_ASM_INCLUDE = re.compile(r"""^\s*[.%]include\s+["']([^"']+)["']""", re.MULTILINE | re.IGNORECASE)
+
 # Ruby: require 'foo' / require_relative 'bar'
 _RUBY_REQUIRE = re.compile(r"""(?:require|require_relative)\s+['"]([^'"]+)['"]""", re.MULTILINE)
 
@@ -200,6 +203,10 @@ def _extract_c_imports(content: str) -> list[dict]:
     return [{"specifier": m.group(1), "names": []} for m in _C_INCLUDE.finditer(content)]
 
 
+def _extract_asm_imports(content: str) -> list[dict]:
+    return [{"specifier": m.group(1), "names": []} for m in _ASM_INCLUDE.finditer(content)]
+
+
 def _extract_ruby_imports(content: str) -> list[dict]:
     return [{"specifier": m.group(1), "names": []} for m in _RUBY_REQUIRE.finditer(content)]
 
@@ -300,6 +307,7 @@ _LANGUAGE_EXTRACTORS = {
     "scala": _extract_scala_imports,
     "haskell": _extract_haskell_imports,
     "sql": _extract_sql_dbt_imports,
+    "asm": _extract_asm_imports,
 }
 
 

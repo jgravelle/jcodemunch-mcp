@@ -130,6 +130,15 @@ LANGUAGE_EXTENSIONS = {
     # GraphQL
     ".graphql": "graphql",
     ".gql": "graphql",
+    # Assembly (multi-dialect: WLA-DX, NASM, GAS, CA65, MASM, etc.)
+    ".asm": "asm",
+    ".s": "asm",
+    ".S": "asm",
+    ".inc": "asm",
+    ".65816": "asm",
+    ".z80": "asm",
+    ".spc": "asm",
+    ".6502": "asm",
     # AutoHotkey v2
     ".ahk": "autohotkey",
     ".ahk2": "autohotkey",
@@ -1182,6 +1191,28 @@ GRAPHQL_SPEC = LanguageSpec(
 )
 
 
+# Assembly language specification
+# NOTE: No tree-sitter grammar covers the breadth of assembler dialects used
+# in retro and embedded development (WLA-DX, NASM, GAS, CA65, etc.).  Symbol
+# extraction is handled entirely by _parse_asm_symbols() in extractor.py using
+# regex line-scanning.  Supports labels, sections, macros, constants (.define,
+# .def, .set, .equ, %define, equ), structs, enums, and procedures across
+# multiple assembler syntaxes.  Fields below are intentionally empty;
+# ts_language is a placeholder never used.
+ASM_SPEC = LanguageSpec(
+    ts_language="asm",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
 # AutoHotkey v2 specification
 # NOTE: AutoHotkey is not available in tree-sitter-language-pack and has no
 # published standalone tree-sitter Python binding.  Symbol extraction is
@@ -1289,6 +1320,7 @@ LANGUAGE_REGISTRY = {
     "hcl": HCL_SPEC,
     "graphql": GRAPHQL_SPEC,
     "autohotkey": AHK_SPEC,
+    "asm": ASM_SPEC,
     "xml": XML_SPEC,
     "openapi": OPENAPI_SPEC,
 }

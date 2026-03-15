@@ -62,6 +62,8 @@ def parse_file(content: str, filename: str, language: str) -> list[Symbol]:
         symbols = _parse_groovy_symbols(source_bytes, filename)
     elif language == "autohotkey":
         symbols = _parse_autohotkey_symbols(source_bytes, filename)
+    elif language == "asm":
+        symbols = _parse_asm_symbols(source_bytes, filename)
     elif language == "xml":
         symbols = _parse_xml_symbols(source_bytes, filename)
     elif language == "openapi":
@@ -4739,5 +4741,404 @@ def _parse_openapi_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             content_hash=compute_content_hash(signature.encode("utf-8")),
         )
         symbols.append(sym)
+
+    return symbols
+
+
+def _parse_asm_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from assembly source files using regex line-scanning.
+
+    No tree-sitter grammar covers the breadth of assembler dialects used in
+    retro and embedded development, so this extractor uses regex patterns to
+    support multiple assembler syntaxes in a single pass:
+
+    - **WLA-DX** (65816/Z80/6502/SPC700): ``.section``, ``.macro``/``.endm``,
+      ``.define``/``.def``, ``.struct``/``.endst``, ``.enum``/``.ende``,
+      ``.ramsection``, ``.proc``/``.endproc``
+    - **NASM/YASM**: ``section``, ``%define``, ``%macro``/``%endmacro``,
+      ``equ``, ``struc``/``endstruc``
+    - **GAS (GNU Assembler)**: ``.text``/``.data``/``.bss``, ``.set``/``.equ``,
+      ``.macro``/``.endm``, ``.type``
+    - **CA65 (cc65)**: ``.segment``, ``.proc``/``.endproc``,
+      ``.macro``/``.endmacro``, ``.define``
+
+    Symbol mapping:
+      - Labels (``name:``) -> **function** (local ``_``-prefixed labels excluded)
+      - Sections (``.section``, ``section``, ``.segment``) -> **class**
+      - Macros (``.macro``, ``%macro``) -> **function**
+      - Constants (``.define``, ``.def``, ``.set``, ``.equ``, ``%define``, ``equ``) -> **constant**
+      - Structs (``.struct``, ``struc``) -> **type**
+      - Procedures (``.proc``) -> **function**
+      - Named enum members inside ``.enum``/``.ende`` -> **constant**
+
+    Preceding ``;``-style comments are captured as docstrings.
+    """
+    import re
+
+    source = source_bytes.decode("utf-8", errors="replace")
+    lines = source.splitlines()
+    symbols: list[Symbol] = []
+
+    # --- Regex patterns ---
+
+    # Labels: "name:" at column 0 (no leading whitespace = global label)
+    # Excludes anonymous labels (+, -, ++, etc.) and _prefixed local labels
+    LABEL_RE = re.compile(
+        r'^([A-Za-z][A-Za-z0-9_.]*)\s*:',
+    )
+
+    # Sections: .section "name" [type], .ramsection "name" [...]
+    SECTION_RE = re.compile(
+        r'^\s*\.(?:section|ramsection)\s+"([^"]+)"',
+        re.IGNORECASE,
+    )
+    # NASM-style: section .text / section .data / section .bss
+    NASM_SECTION_RE = re.compile(
+        r'^\s*section\s+(\.\w+)',
+        re.IGNORECASE,
+    )
+    # CA65-style: .segment "CODE"
+    CA65_SEGMENT_RE = re.compile(
+        r'^\s*\.segment\s+"([^"]+)"',
+        re.IGNORECASE,
+    )
+
+    # Macros: .macro NAME, %macro NAME [nargs]
+    MACRO_START_RE = re.compile(
+        r'^\s*[.%](?:macro|macrocall)\s+([A-Za-z_]\w*)',
+        re.IGNORECASE,
+    )
+    MACRO_END_RE = re.compile(
+        r'^\s*[.%](?:endm|endmacro)\b',
+        re.IGNORECASE,
+    )
+
+    # Constants: .define NAME value, .def NAME value
+    WLADX_DEFINE_RE = re.compile(
+        r'^\s*\.(?:define|def)\s+([A-Za-z_][A-Za-z0-9_.]*)\s+(.*)',
+        re.IGNORECASE,
+    )
+    # GAS style: .set NAME, value / .equ NAME, value
+    GAS_CONST_RE = re.compile(
+        r'^\s*\.(?:set|equ)\s+([A-Za-z_]\w*)\s*,\s*(.*)',
+        re.IGNORECASE,
+    )
+    # NASM style: %define NAME value
+    NASM_DEFINE_RE = re.compile(
+        r'^\s*%define\s+([A-Za-z_]\w*)\s*(.*)',
+        re.IGNORECASE,
+    )
+    # EQU constant: NAME equ VALUE or NAME = VALUE (may be indented)
+    EQU_RE = re.compile(
+        r'^\s*([A-Za-z_][A-Za-z0-9_.]*)\s+(?:equ|EQU|=)\s+(.*)',
+    )
+
+    # Structs: .struct NAME, .STRUCT NAME, struc NAME (NASM)
+    STRUCT_START_RE = re.compile(
+        r'^\s*\.?(?:struct|struc)\s+([A-Za-z_]\w*)',
+        re.IGNORECASE,
+    )
+    STRUCT_END_RE = re.compile(
+        r'^\s*\.?(?:endst|endstruc|ends)\b',
+        re.IGNORECASE,
+    )
+
+    # Enums: .enum [value] [export] (WLA-DX)
+    ENUM_START_RE = re.compile(
+        r'^\s*\.enum\b',
+        re.IGNORECASE,
+    )
+    ENUM_END_RE = re.compile(
+        r'^\s*\.ende\b',
+        re.IGNORECASE,
+    )
+    # Enum member: NAME db/dw/ds/dsb/dsw (WLA-DX enum body syntax)
+    ENUM_MEMBER_RE = re.compile(
+        r'^([A-Za-z_][A-Za-z0-9_.]*)\s+(?:db|dw|dl|ds|dsb|dsw)\b',
+    )
+
+    # Procedures: .proc NAME (CA65 / WLA-DX)
+    PROC_RE = re.compile(
+        r'^\s*\.proc\s+([A-Za-z_]\w*)',
+        re.IGNORECASE,
+    )
+
+    # Comment line (for docstring extraction): ; or @ prefixed
+    COMMENT_RE = re.compile(r'^\s*[;@]\s?(.*)')
+
+    # --- State tracking ---
+    current_section: Optional[str] = None
+    current_section_id: Optional[str] = None
+    in_struct = False
+    in_enum = False
+    in_macro = False
+    in_block_comment = False
+    pending_comments: list[str] = []
+
+    def _flush_docstring() -> str:
+        """Collect pending comment lines into a docstring and clear."""
+        if not pending_comments:
+            return ""
+        doc = "\n".join(pending_comments)
+        pending_comments.clear()
+        return doc
+
+    def _make_qualified(name: str) -> str:
+        """Qualify a symbol name with the current section."""
+        if current_section:
+            return f"{current_section}::{name}"
+        return name
+
+    for line_no, raw_line in enumerate(lines, start=1):
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        # --- C-style block comment tracking (/* ... */) ---
+        if in_block_comment:
+            if "*/" in stripped:
+                in_block_comment = False
+            continue
+        if stripped.startswith("/*"):
+            if "*/" not in stripped[2:]:
+                in_block_comment = True
+            continue
+
+        # Blank lines reset pending comment accumulation
+        if not stripped:
+            pending_comments.clear()
+            continue
+
+        # --- Collect comments for docstrings ---
+        cm = COMMENT_RE.match(line)
+        if cm and not in_struct and not in_enum:
+            pending_comments.append(cm.group(1).rstrip())
+            continue
+
+        # --- Struct end ---
+        if in_struct and STRUCT_END_RE.match(line):
+            in_struct = False
+            pending_comments.clear()
+            continue
+
+        # --- Struct start ---
+        sm = STRUCT_START_RE.match(line)
+        if sm and not in_struct and not in_macro:
+            struct_name = sm.group(1)
+            docstring = _flush_docstring()
+            sym = Symbol(
+                id=make_symbol_id(filename, struct_name, "type"),
+                file=filename,
+                name=struct_name,
+                qualified_name=struct_name,
+                kind="type",
+                language="asm",
+                signature=f".struct {struct_name}",
+                docstring=docstring,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            in_struct = True
+            continue
+
+        # Inside a struct body — skip field definitions
+        if in_struct:
+            pending_comments.clear()
+            continue
+
+        # --- Enum end ---
+        if in_enum and ENUM_END_RE.match(line):
+            in_enum = False
+            pending_comments.clear()
+            continue
+
+        # --- Enum start ---
+        if ENUM_START_RE.match(line) and not in_enum and not in_macro:
+            in_enum = True
+            pending_comments.clear()
+            continue
+
+        # --- Enum members ---
+        if in_enum:
+            em_match = ENUM_MEMBER_RE.match(line.strip())
+            if em_match:
+                member_name = em_match.group(1)
+                docstring = _flush_docstring()
+                sym = Symbol(
+                    id=make_symbol_id(filename, member_name, "constant"),
+                    file=filename,
+                    name=member_name,
+                    qualified_name=member_name,
+                    kind="constant",
+                    language="asm",
+                    signature=member_name,
+                    docstring=docstring,
+                    line=line_no,
+                    end_line=line_no,
+                )
+                symbols.append(sym)
+            pending_comments.clear()
+            continue
+
+        # --- Macro end ---
+        if in_macro and MACRO_END_RE.match(line):
+            in_macro = False
+            pending_comments.clear()
+            continue
+
+        # Inside a macro body — skip template content
+        if in_macro:
+            pending_comments.clear()
+            continue
+
+        # --- Macro start ---
+        mm = MACRO_START_RE.match(line)
+        if mm:
+            macro_name = mm.group(1)
+            docstring = _flush_docstring()
+            sym = Symbol(
+                id=make_symbol_id(filename, macro_name, "function"),
+                file=filename,
+                name=macro_name,
+                qualified_name=macro_name,
+                kind="function",
+                language="asm",
+                signature=f".macro {macro_name}",
+                docstring=docstring,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            in_macro = True
+            continue
+
+        # --- Section / segment ---
+        sec = SECTION_RE.match(line)
+        if not sec:
+            sec = NASM_SECTION_RE.match(line)
+        if not sec:
+            sec = CA65_SEGMENT_RE.match(line)
+        if sec:
+            section_name = sec.group(1)
+            docstring = _flush_docstring()
+            current_section = section_name
+            current_section_id = make_symbol_id(filename, section_name, "class")
+            sym = Symbol(
+                id=current_section_id,
+                file=filename,
+                name=section_name,
+                qualified_name=section_name,
+                kind="class",
+                language="asm",
+                signature=line.strip(),
+                docstring=docstring,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            continue
+
+        # --- Section end (.ends) resets section context ---
+        if re.match(r'^\s*\.ends\b', line, re.IGNORECASE):
+            current_section = None
+            current_section_id = None
+            pending_comments.clear()
+            continue
+
+        # --- Procedure (.proc NAME) ---
+        pm = PROC_RE.match(line)
+        if pm:
+            proc_name = pm.group(1)
+            docstring = _flush_docstring()
+            qualified = _make_qualified(proc_name)
+            sym = Symbol(
+                id=make_symbol_id(filename, qualified, "function"),
+                file=filename,
+                name=proc_name,
+                qualified_name=qualified,
+                kind="function",
+                language="asm",
+                signature=f".proc {proc_name}",
+                docstring=docstring,
+                parent=current_section_id,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            continue
+
+        # --- Constants ---
+        const_match = WLADX_DEFINE_RE.match(line)
+        if not const_match:
+            const_match = GAS_CONST_RE.match(line)
+        if not const_match:
+            const_match = NASM_DEFINE_RE.match(line)
+        if const_match:
+            const_name = const_match.group(1)
+            const_value = const_match.group(2).split(";")[0].strip()
+            docstring = _flush_docstring()
+            sym = Symbol(
+                id=make_symbol_id(filename, const_name, "constant"),
+                file=filename,
+                name=const_name,
+                qualified_name=const_name,
+                kind="constant",
+                language="asm",
+                signature=f"{const_name} = {const_value}" if const_value else const_name,
+                docstring=docstring,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            continue
+
+        equ_match = EQU_RE.match(line)
+        if equ_match:
+            const_name = equ_match.group(1)
+            const_value = equ_match.group(2).split(";")[0].strip()
+            docstring = _flush_docstring()
+            sym = Symbol(
+                id=make_symbol_id(filename, const_name, "constant"),
+                file=filename,
+                name=const_name,
+                qualified_name=const_name,
+                kind="constant",
+                language="asm",
+                signature=f"{const_name} = {const_value}" if const_value else const_name,
+                docstring=docstring,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            continue
+
+        # --- Labels (name:) ---
+        lm = LABEL_RE.match(line)
+        if lm:
+            label_name = lm.group(1)
+            # Skip local labels (_prefixed in WLA-DX — scoped to section)
+            if label_name.startswith("_"):
+                pending_comments.clear()
+                continue
+            docstring = _flush_docstring()
+            qualified = _make_qualified(label_name)
+            sym = Symbol(
+                id=make_symbol_id(filename, qualified, "function"),
+                file=filename,
+                name=label_name,
+                qualified_name=qualified,
+                kind="function",
+                language="asm",
+                signature=f"{label_name}:",
+                docstring=docstring,
+                parent=current_section_id,
+                line=line_no,
+                end_line=line_no,
+            )
+            symbols.append(sym)
+            continue
+
+        # Non-matching line — clear pending comments
+        pending_comments.clear()
 
     return symbols
