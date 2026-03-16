@@ -122,6 +122,7 @@ def test_anthropic_summarizer_base_url():
         with patch.dict("os.environ", {
             "ANTHROPIC_API_KEY": "sk-test-key",
             "ANTHROPIC_BASE_URL": "https://proxy.example.com/v1",
+            "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1",
         }, clear=True):
             from jcodemunch_mcp.summarizer.batch_summarize import BatchSummarizer
             summarizer = BatchSummarizer()
@@ -257,13 +258,13 @@ def test_openai_summarizer_with_mock_client():
 def test_openai_summarizer_timeout_config():
     """OpenAIBatchSummarizer configures custom timeouts via OPENAI_TIMEOUT."""
     # Test valid float parsing
-    with patch.dict("os.environ", {"OPENAI_API_BASE": "http://test", "OPENAI_TIMEOUT": "120.5"}, clear=True):
+    with patch.dict("os.environ", {"OPENAI_API_BASE": "http://test", "OPENAI_TIMEOUT": "120.5", "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1"}, clear=True):
         summarizer = OpenAIBatchSummarizer()
         assert summarizer.client is not None
         assert summarizer.client.timeout.read == 120.5
 
     # Test invalid string fallback
-    with patch.dict("os.environ", {"OPENAI_API_BASE": "http://test", "OPENAI_TIMEOUT": "invalid"}, clear=True):
+    with patch.dict("os.environ", {"OPENAI_API_BASE": "http://test", "OPENAI_TIMEOUT": "invalid", "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1"}, clear=True):
         summarizer = OpenAIBatchSummarizer()
         assert summarizer.client is not None
         assert summarizer.client.timeout.read == 60.0

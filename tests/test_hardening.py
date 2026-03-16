@@ -867,6 +867,45 @@ class TestNewTools:
         )
         assert result["result_count"] == 0
 
+    def test_search_text_redos_nested_quantifier_rejected(self, tmp_path):
+        from jcodemunch_mcp.tools.search_text import search_text
+
+        storage = self._seed_index(tmp_path)
+        result = search_text(
+            repo="tools/demo",
+            query="(a+)+b",
+            is_regex=True,
+            storage_path=storage,
+        )
+        assert "error" in result
+        assert "nested quantifier" in result["error"].lower()
+
+    def test_search_text_redos_long_regex_rejected(self, tmp_path):
+        from jcodemunch_mcp.tools.search_text import search_text
+
+        storage = self._seed_index(tmp_path)
+        result = search_text(
+            repo="tools/demo",
+            query="a" * 201,
+            is_regex=True,
+            storage_path=storage,
+        )
+        assert "error" in result
+        assert "too long" in result["error"].lower()
+
+    def test_search_text_safe_regex_allowed(self, tmp_path):
+        from jcodemunch_mcp.tools.search_text import search_text
+
+        storage = self._seed_index(tmp_path)
+        result = search_text(
+            repo="tools/demo",
+            query="greet|add",
+            is_regex=True,
+            storage_path=storage,
+        )
+        assert "error" not in result
+        assert result["result_count"] >= 1
+
     def test_get_repo_outline_structure(self, tmp_path):
         from jcodemunch_mcp.tools.get_repo_outline import get_repo_outline
 

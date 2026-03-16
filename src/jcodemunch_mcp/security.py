@@ -131,33 +131,43 @@ def is_secret_file(file_path: str) -> bool:
 
 # --- Binary File Detection ---
 
-# Shared skip patterns used by both index_folder and index_repo.
-# Keep a single source of truth here.
-SKIP_PATTERNS: frozenset[str] = frozenset({
-    "node_modules/", "vendor/", "venv/", ".venv/", "__pycache__/",
-    "dist/", "build/", ".git/", ".tox/", ".mypy_cache/",
-    "target/",
-    ".gradle/",
-    "test_data/", "testdata/", "fixtures/", "snapshots/",
-    "migrations/",
-    ".min.js", ".min.ts", ".bundle.js",
-    "package-lock.json", "yarn.lock", "go.sum",
-    "generated/", "proto/",
-    "*.xcodeproj/", "*.xcworkspace/", "DerivedData/", ".build/",
-})
+# --- Skip Rules (single source of truth) ---
+#
+# All three exported collections (SKIP_PATTERNS, SKIP_DIRECTORIES, SKIP_FILES)
+# are derived from these canonical lists. Add new entries here — never edit
+# the derived exports directly.
 
-SKIP_DIRECTORIES = [
+_SKIP_DIRECTORY_NAMES: list[str] = [
     "node_modules", "vendor", "venv", ".venv", "__pycache__",
     "dist", "build", ".git", ".tox", ".mypy_cache", "target",
     ".gradle", "test_data", "testdata", "fixtures", "snapshots",
-    "migrations", "generated", "proto", r"[^/]*\.xcodeproj",
-    r"[^/]*\.xcworkspace", "DerivedData", ".build"
+    "migrations", "generated", "proto", "DerivedData", ".build",
 ]
 
-SKIP_FILES = [
-    ".min.js", ".min.ts", ".bundle.js", 
-    "package-lock.json", "yarn.lock", "go.sum"
+# Glob-style patterns — matched by regex in index_folder, by suffix in index_repo.
+_SKIP_DIRECTORY_GLOBS: list[str] = [
+    "*.xcodeproj", "*.xcworkspace",
 ]
+
+_SKIP_FILE_PATTERNS: list[str] = [
+    ".min.js", ".min.ts", ".bundle.js",
+    "package-lock.json", "yarn.lock", "go.sum",
+]
+
+# Derived exports — index_repo uses SKIP_PATTERNS (path substring matching),
+# index_folder uses SKIP_DIRECTORIES + SKIP_FILES (regex matching on os.walk names).
+
+SKIP_PATTERNS: frozenset[str] = frozenset(
+    [d + "/" for d in _SKIP_DIRECTORY_NAMES]
+    + [g + "/" for g in _SKIP_DIRECTORY_GLOBS]
+    + _SKIP_FILE_PATTERNS
+)
+
+SKIP_DIRECTORIES: list[str] = _SKIP_DIRECTORY_NAMES + [
+    r"[^/]*\." + g.split("*.")[-1] for g in _SKIP_DIRECTORY_GLOBS
+]
+
+SKIP_FILES: list[str] = list(_SKIP_FILE_PATTERNS)
 
 BINARY_EXTENSIONS = frozenset([
     # Executables

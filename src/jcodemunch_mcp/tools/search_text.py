@@ -9,6 +9,15 @@ from typing import Optional
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import resolve_repo
 
+# Detect nested quantifiers that cause catastrophic backtracking in Python's re engine.
+# Matches patterns like (a+)+, (a*)+, (a+)*, (?:a+){2,}, etc.
+_NESTED_QUANTIFIER_RE = re.compile(
+    r'[+*]\s*\)'    # quantifier before closing group
+    r'\s*[+*{]'     # quantifier after closing group
+)
+
+_MAX_REGEX_LEN = 200
+
 
 def search_text(
     repo: str,
@@ -42,6 +51,10 @@ def search_text(
     context_lines = max(0, min(context_lines, 10))
 
     if is_regex:
+        if len(query) > _MAX_REGEX_LEN:
+            return {"error": f"Regex too long ({len(query)} chars, max {_MAX_REGEX_LEN})"}
+        if _NESTED_QUANTIFIER_RE.search(query):
+            return {"error": "Regex rejected: nested quantifiers can cause catastrophic backtracking"}
         try:
             pattern = re.compile(query, re.IGNORECASE)
         except re.error as e:

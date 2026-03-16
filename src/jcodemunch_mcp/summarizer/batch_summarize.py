@@ -1,41 +1,56 @@
 """Three-tier summarization: docstring > AI (Haiku or Gemini) > signature fallback."""
 
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 from ..parser.symbols import Symbol
+
+logger = logging.getLogger(__name__)
+
+_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def _is_localhost_url(url: str) -> bool:
+    """Return True if url points to a loopback address."""
+    try:
+        parsed = urlparse(url)
+        return parsed.hostname in _LOCALHOST_HOSTS
+    except Exception:
+        return False
 
 
 def extract_summary_from_docstring(docstring: str) -> str:
     """Extract first sentence from docstring (Tier 1).
-    
+
     Takes the first line and truncates at first period.
     Costs zero tokens.
     """
     if not docstring:
         return ""
-    
+
     # Take first line, strip whitespace
     first_line = docstring.strip().split("\n")[0].strip()
-    
+
     # Truncate at first period if present
     if "." in first_line:
         first_line = first_line[:first_line.index(".") + 1]
-    
+
     return first_line[:120]
 
 
 def signature_fallback(symbol: Symbol) -> str:
     """Generate summary from signature when all else fails (Tier 3).
-    
+
     Always produces something, even without API keys.
     """
     kind = symbol.kind
     name = symbol.name
     sig = symbol.signature
-    
+
     if kind == "class":
         return f"Class {name}"
     elif kind == "constant":
@@ -48,93 +63,39 @@ def signature_fallback(symbol: Symbol) -> str:
 
 
 @dataclass
-class BatchSummarizer:
-    """AI-based batch summarization using Claude Haiku (Tier 2)."""
-    
-    model: str = "claude-haiku-4-5-20251001"
+class BaseSummarizer:
+    """Base class for AI batch summarizers with shared prompt/parse logic."""
+
+    model: str = ""
     max_tokens_per_batch: int = 500
-    
-    def __post_init__(self):
-        self.client = None
-        self._init_client()
-    
-    def _init_client(self):
-        """Initialize Anthropic client if API key is available."""
-        try:
-            from anthropic import Anthropic
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if api_key:
-                self.model = os.environ.get("ANTHROPIC_MODEL", self.model)
-                base_url = os.environ.get("ANTHROPIC_BASE_URL")
-                kwargs = {"api_key": api_key}
-                if base_url:
-                    kwargs["base_url"] = base_url
-                self.client = Anthropic(**kwargs)
-        except ImportError:
-            if os.environ.get("ANTHROPIC_API_KEY"):
-                import warnings
-                warnings.warn(
-                    "ANTHROPIC_API_KEY is set but the 'anthropic' package is not installed. "
-                    "Install it with: pip install jcodemunch-mcp[anthropic]",
-                    stacklevel=2,
-                )
-            self.client = None
 
     def summarize_batch(self, symbols: list[Symbol], batch_size: int = 10) -> list[Symbol]:
         """Summarize a batch of symbols using AI.
-        
+
         Only processes symbols that don't already have summaries.
         Returns updated symbols.
         """
         if not self.client:
-            # Fall back to signature fallback for all
             for sym in symbols:
                 if not sym.summary:
                     sym.summary = signature_fallback(sym)
             return symbols
-        
-        # Filter symbols needing summarization
+
         to_summarize = [s for s in symbols if not s.summary and not s.docstring]
-        
+
         if not to_summarize:
             return symbols
-        
-        # Process in batches
+
         for i in range(0, len(to_summarize), batch_size):
             batch = to_summarize[i:i + batch_size]
             self._summarize_one_batch(batch)
-        
+
         return symbols
-    
+
     def _summarize_one_batch(self, batch: list[Symbol]):
-        """Summarize one batch of symbols."""
-        # Build prompt
-        prompt = self._build_prompt(batch)
-        
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=self.max_tokens_per_batch,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            # Parse response
-            summaries = self._parse_response(response.content[0].text, len(batch))
-            
-            # Update symbols
-            for sym, summary in zip(batch, summaries):
-                if summary:
-                    sym.summary = summary
-                else:
-                    sym.summary = signature_fallback(sym)
-        
-        except Exception:
-            # On any error, fall back to signature
-            for sym in batch:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
-    
+        """Summarize one batch of symbols. Override in subclasses."""
+        raise NotImplementedError
+
     def _build_prompt(self, symbols: list[Symbol]) -> str:
         """Build summarization prompt for a batch."""
         lines = [
@@ -177,14 +138,14 @@ class BatchSummarizer:
             if not line:
                 continue
 
-            # Look for "N. summary" format
             if "." in line:
                 parts = line.split(".", 1)
                 try:
                     num = int(parts[0].strip())
                     if 1 <= num <= expected_count:
                         summary = parts[1].strip()
-                        summaries[num - 1] = summary
+                        if summary:
+                            summaries[num - 1] = summary
                 except ValueError:
                     continue
 
@@ -192,11 +153,77 @@ class BatchSummarizer:
 
 
 @dataclass
-class GeminiBatchSummarizer:
+class BatchSummarizer(BaseSummarizer):
+    """AI-based batch summarization using Claude Haiku (Tier 2)."""
+
+    model: str = "claude-haiku-4-5-20251001"
+
+    def __post_init__(self):
+        self.client = None
+        self._init_client()
+
+    def _init_client(self):
+        """Initialize Anthropic client if API key is available."""
+        try:
+            from anthropic import Anthropic
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            if api_key:
+                self.model = os.environ.get("ANTHROPIC_MODEL", self.model)
+                base_url = os.environ.get("ANTHROPIC_BASE_URL")
+                kwargs = {"api_key": api_key}
+                if base_url:
+                    allow_remote = os.environ.get("JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER", "0") == "1"
+                    if _is_localhost_url(base_url) or allow_remote:
+                        kwargs["base_url"] = base_url
+                    else:
+                        logger.warning(
+                            "ANTHROPIC_BASE_URL points to non-localhost URL (%s). "
+                            "Ignoring for security. Set JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER=1 to allow.",
+                            urlparse(base_url).hostname,
+                        )
+                self.client = Anthropic(**kwargs)
+        except ImportError:
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                import warnings
+                warnings.warn(
+                    "ANTHROPIC_API_KEY is set but the 'anthropic' package is not installed. "
+                    "Install it with: pip install jcodemunch-mcp[anthropic]",
+                    stacklevel=2,
+                )
+            self.client = None
+
+    def _summarize_one_batch(self, batch: list[Symbol]):
+        """Summarize one batch of symbols."""
+        prompt = self._build_prompt(batch)
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens_per_batch,
+                temperature=0.0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            summaries = self._parse_response(response.content[0].text, len(batch))
+
+            for sym, summary in zip(batch, summaries):
+                if summary:
+                    sym.summary = summary
+                else:
+                    sym.summary = signature_fallback(sym)
+
+        except Exception as e:
+            logger.warning("AI summarization failed, falling back to signature: %s", e)
+            for sym in batch:
+                if not sym.summary:
+                    sym.summary = signature_fallback(sym)
+
+
+@dataclass
+class GeminiBatchSummarizer(BaseSummarizer):
     """AI-based batch summarization using Google Gemini Flash (Tier 2)."""
 
     model: str = "gemini-2.5-flash-lite"
-    max_tokens_per_batch: int = 500
 
     def __post_init__(self):
         self.client = None
@@ -221,25 +248,6 @@ class GeminiBatchSummarizer:
                 )
             self.client = None
 
-    def summarize_batch(self, symbols: list[Symbol], batch_size: int = 10) -> list[Symbol]:
-        """Summarize a batch of symbols using Gemini."""
-        if not self.client:
-            for sym in symbols:
-                if not sym.summary:
-                    sym.summary = signature_fallback(sym)
-            return symbols
-
-        to_summarize = [s for s in symbols if not s.summary and not s.docstring]
-
-        if not to_summarize:
-            return symbols
-
-        for i in range(0, len(to_summarize), batch_size):
-            batch = to_summarize[i:i + batch_size]
-            self._summarize_one_batch(batch)
-
-        return symbols
-
     def _summarize_one_batch(self, batch: list[Symbol]):
         """Summarize one batch of symbols."""
         prompt = self._build_prompt(batch)
@@ -254,74 +262,21 @@ class GeminiBatchSummarizer:
                 else:
                     sym.summary = signature_fallback(sym)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("AI summarization failed, falling back to signature: %s", e)
             for sym in batch:
                 if not sym.summary:
                     sym.summary = signature_fallback(sym)
 
-    def _build_prompt(self, symbols: list[Symbol]) -> str:
-        """Build summarization prompt for a batch."""
-        lines = [
-            "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how. Use business context when available.",
-            "",
-        ]
-
-        # Inject ecosystem context if any symbol has it
-        context_lines = set()
-        for sym in symbols:
-            if sym.ecosystem_context:
-                context_lines.add(sym.ecosystem_context)
-        if context_lines:
-            lines.append("Context:")
-            for ctx in context_lines:
-                lines.append(ctx)
-            lines.append("")
-
-        lines.append("Input:")
-        for i, sym in enumerate(symbols, 1):
-            lines.append(f"{i}. {sym.kind}: {sym.signature}")
-
-        lines.extend([
-            "",
-            "Output format: NUMBER. SUMMARY",
-            "Example: 1. Authenticates users with username and password.",
-            "",
-            "Summaries:",
-        ])
-
-        return "\n".join(lines)
-
-    def _parse_response(self, text: str, expected_count: int) -> list[str]:
-        """Parse numbered summaries from response."""
-        summaries = [""] * expected_count
-
-        for line in text.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-
-            if "." in line:
-                parts = line.split(".", 1)
-                try:
-                    num = int(parts[0].strip())
-                    if 1 <= num <= expected_count:
-                        summaries[num - 1] = parts[1].strip()
-                except ValueError:
-                    continue
-
-        return summaries
-
 
 @dataclass
-class OpenAIBatchSummarizer:
+class OpenAIBatchSummarizer(BaseSummarizer):
     """AI-based batch summarization using OpenAI-compatible endpoints (Tier 2).
-    
+
     Ideal for local LLMs like Ollama (http://localhost:11434/v1) or LM Studio.
     """
 
     model: str = "qwen3-coder"
-    max_tokens_per_batch: int = 500
 
     def __post_init__(self):
         self.client = None
@@ -329,6 +284,16 @@ class OpenAIBatchSummarizer:
         if self.api_base:
             # Strip trailing slash if present
             self.api_base = self.api_base.rstrip("/")
+            # Security: restrict to localhost unless explicitly overridden
+            allow_remote = os.environ.get("JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER", "0") == "1"
+            if not _is_localhost_url(self.api_base) and not allow_remote:
+                logger.warning(
+                    "OPENAI_API_BASE points to non-localhost URL (%s). "
+                    "Ignoring for security. Set JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER=1 to allow.",
+                    urlparse(self.api_base).hostname,
+                )
+                self.api_base = None
+                return
             self.model = os.environ.get("OPENAI_MODEL", self.model)
             self.max_tokens_per_batch = int(
                 os.environ.get("OPENAI_MAX_TOKENS", str(self.max_tokens_per_batch))
@@ -339,13 +304,13 @@ class OpenAIBatchSummarizer:
         """Initialize HTTP client for OpenAI requests."""
         try:
             import httpx
-            
+
             timeout_str = os.environ.get("OPENAI_TIMEOUT", "60.0")
             try:
                 timeout = float(timeout_str)
             except ValueError:
                 timeout = 60.0
-                
+
             api_key = os.environ.get("OPENAI_API_KEY", "local-llm")
             headers = {"Authorization": f"Bearer {api_key}"}
             self.client = httpx.Client(timeout=timeout, headers=headers)
@@ -387,12 +352,11 @@ class OpenAIBatchSummarizer:
                 "max_tokens": self.max_tokens_per_batch,
                 "temperature": 0.0,
             }
-            
+
             response = self.client.post(f"{self.api_base}/chat/completions", json=payload)
             response.raise_for_status()
-            
+
             data = response.json()
-            # Extract content from the first choice
             text = data["choices"][0]["message"]["content"]
             summaries = self._parse_response(text, len(batch))
 
@@ -402,66 +366,14 @@ class OpenAIBatchSummarizer:
                 else:
                     sym.summary = signature_fallback(sym)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("AI summarization failed, falling back to signature: %s", e)
             for sym in batch:
                 if not sym.summary:
                     sym.summary = signature_fallback(sym)
 
-    def _build_prompt(self, symbols: list[Symbol]) -> str:
-        """Build summarization prompt for a batch."""
-        lines = [
-            "Summarize each code symbol in ONE short sentence (max 15 words).",
-            "Focus on what it does, not how. Use business context when available.",
-            "",
-        ]
 
-        # Inject ecosystem context if any symbol has it
-        context_lines = set()
-        for sym in symbols:
-            if sym.ecosystem_context:
-                context_lines.add(sym.ecosystem_context)
-        if context_lines:
-            lines.append("Context:")
-            for ctx in context_lines:
-                lines.append(ctx)
-            lines.append("")
-
-        lines.append("Input:")
-        for i, sym in enumerate(symbols, 1):
-            lines.append(f"{i}. {sym.kind}: {sym.signature}")
-
-        lines.extend([
-            "",
-            "Output format: NUMBER. SUMMARY",
-            "Example: 1. Authenticates users with username and password.",
-            "",
-            "Summaries:",
-        ])
-
-        return "\n".join(lines)
-
-    def _parse_response(self, text: str, expected_count: int) -> list[str]:
-        """Parse numbered summaries from response."""
-        summaries = [""] * expected_count
-
-        for line in text.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-
-            if "." in line:
-                parts = line.split(".", 1)
-                try:
-                    num = int(parts[0].strip())
-                    if 1 <= num <= expected_count:
-                        summaries[num - 1] = parts[1].strip()
-                except ValueError:
-                    continue
-
-        return summaries
-
-
-def _create_summarizer() -> Optional[BatchSummarizer]:
+def _create_summarizer() -> Optional[BaseSummarizer]:
     """Return the appropriate summarizer based on available API keys.
 
     Priority: Anthropic > Google Gemini > OpenAI/Local.
@@ -476,7 +388,7 @@ def _create_summarizer() -> Optional[BatchSummarizer]:
         s = GeminiBatchSummarizer()
         if s.client:
             return s
-            
+
     if os.environ.get("OPENAI_API_BASE"):
         s = OpenAIBatchSummarizer()
         if s.client:
@@ -487,21 +399,21 @@ def _create_summarizer() -> Optional[BatchSummarizer]:
 
 def summarize_symbols_simple(symbols: list[Symbol]) -> list[Symbol]:
     """Tier 1 + Tier 3: Docstring extraction + signature fallback.
-    
+
     No AI required. Fast and deterministic.
     """
     for sym in symbols:
         if sym.summary:
             continue
-        
+
         # Try docstring
         if sym.docstring:
             sym.summary = extract_summary_from_docstring(sym.docstring)
-        
+
         # Fall back to signature
         if not sym.summary:
             sym.summary = signature_fallback(sym)
-    
+
     return symbols
 
 

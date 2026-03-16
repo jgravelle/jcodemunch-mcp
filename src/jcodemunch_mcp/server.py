@@ -100,7 +100,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "follow_symlinks": {
                         "type": "boolean",
-                        "description": "Whether to follow symlinks. Default false for security.",
+                        "description": "Whether to include symlinked files in indexing. Symlinked directories are never followed (prevents infinite loops from circular symlinks). Default false for security.",
                         "default": False
                     },
                     "incremental": {
@@ -628,10 +628,16 @@ async def run_stdio_server():
 async def run_sse_server(host: str, port: int):
     """Run the MCP server with SSE transport (persistent HTTP mode)."""
     import sys
-    import uvicorn
-    from starlette.applications import Starlette
-    from starlette.requests import Request
-    from starlette.routing import Mount, Route
+    try:
+        import uvicorn
+        from starlette.applications import Starlette
+        from starlette.requests import Request
+        from starlette.routing import Mount, Route
+    except ImportError as e:
+        raise ImportError(
+            f"SSE transport requires additional packages: {e}. "
+            'Install them with: pip install "jcodemunch-mcp[http]"'
+        ) from e
     from mcp.server.sse import SseServerTransport
 
     sse_transport = SseServerTransport("/messages/")
@@ -667,11 +673,17 @@ async def run_sse_server(host: str, port: int):
 async def run_streamable_http_server(host: str, port: int):
     """Run the MCP server with streamable-http transport (persistent HTTP mode)."""
     import sys
-    import anyio
-    import uvicorn
-    from starlette.applications import Starlette
-    from starlette.requests import Request
-    from starlette.routing import Route
+    try:
+        import anyio
+        import uvicorn
+        from starlette.applications import Starlette
+        from starlette.requests import Request
+        from starlette.routing import Route
+    except ImportError as e:
+        raise ImportError(
+            f"Streamable-http transport requires additional packages: {e}. "
+            'Install them with: pip install "jcodemunch-mcp[http]"'
+        ) from e
     from mcp.server.streamable_http import StreamableHTTPServerTransport
 
     async def handle_mcp(request: Request):

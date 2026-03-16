@@ -48,8 +48,9 @@ def search_symbols(
     if not index:
         return {"error": f"Repository not indexed: {owner}/{name}"}
 
-    # Search
-    results = index.search(query, kind=kind, file_pattern=file_pattern)
+    # Search — use bounded heap when no post-search language filter is needed
+    search_limit = 0 if language else max_results
+    results = index.search(query, kind=kind, file_pattern=file_pattern, limit=search_limit)
 
     # Apply language filter (post-search since CodeIndex.search doesn't support it)
     if language:

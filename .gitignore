@@ -55,6 +55,7 @@ dmypy.json
 
 # Local working notes (may contain sensitive info)
 prompt.md
+todo.md
 
 CLAUDE.md
 .vbw-planning

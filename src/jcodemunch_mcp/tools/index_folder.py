@@ -166,7 +166,9 @@ def discover_local_files(
         max_files: Maximum number of files to index.
         max_size: Maximum file size in bytes.
         extra_ignore_patterns: Additional gitignore-style patterns to exclude.
-        follow_symlinks: Whether to follow symlinks (default False for safety).
+        follow_symlinks: Whether to include symlinked files in indexing.
+            Symlinked directories are never followed to prevent infinite
+            loops from circular symlinks. Default False for safety.
 
     Returns:
         Tuple of (list of Path objects for source files, list of warning strings).
@@ -320,7 +322,8 @@ def index_folder(
         use_ai_summaries: Whether to use AI for symbol summaries.
         storage_path: Custom storage path (default: ~/.code-index/).
         extra_ignore_patterns: Additional gitignore-style patterns to exclude.
-        follow_symlinks: Whether to follow symlinks (default False for safety).
+        follow_symlinks: Whether to include symlinked files. Symlinked directories
+            are never followed (prevents infinite loops). Default False.
         context_providers: Whether to run context providers (default True).
             Set to False or set JCODEMUNCH_CONTEXT_PROVIDERS=0 to disable.
         incremental: When True and an existing index exists, only re-index changed files.
@@ -380,8 +383,11 @@ def index_folder(
                 "CODE_INDEX_PATH directory) to remove the stale index."
             )
 
-        # Read all files to build current_files map
-        current_files: dict[str, str] = {}
+        # Streaming hash pass — resolve rel_paths and compute hashes without
+        # keeping all file contents in memory (P2-5: avoids 200MB-1GB allocation
+        # for large projects).
+        file_hashes: dict[str, str] = {}
+        rel_path_map: dict[str, Path] = {}  # rel_path -> absolute Path
         for file_path in source_files:
             if not validate_path(folder_path, file_path):
                 continue
@@ -398,11 +404,25 @@ def index_folder(
             ext = file_path.suffix
             if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(file_path)) is None:
                 continue
-            current_files[rel_path] = content
+            file_hashes[rel_path] = _file_hash(content)
+            rel_path_map[rel_path] = file_path
+            # content is discarded here — not accumulated
+
+        def _read_file(rel_path: str) -> str | None:
+            """Re-read a file by its rel_path. Returns content or None on error."""
+            abs_path = rel_path_map[rel_path]
+            try:
+                with open(abs_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                    return f.read()
+            except Exception as e:
+                warnings.append(f"Failed to read {abs_path}: {e}")
+                return None
 
         # Incremental path: detect changes and only re-parse affected files
         if incremental and existing_index is not None:
-            changed, new, deleted = store.detect_changes(owner, repo_name, current_files)
+            changed, new, deleted = store.detect_changes_from_hashes(
+                owner, repo_name, file_hashes
+            )
 
             if not changed and not new and not deleted:
                 return {
@@ -414,16 +434,19 @@ def index_folder(
                     "duration_seconds": round(time.monotonic() - t0, 2),
                 }
 
-            # Parse only changed + new files
+            # Parse only changed + new files — only these need content in memory
             files_to_parse = set(changed) | set(new)
             new_symbols = []
             raw_files_subset: dict[str, str] = {}
+            subset_hashes: dict[str, str] = {}
 
             incremental_no_symbols: list[str] = []
             for rel_path in files_to_parse:
-                content = current_files[rel_path]
-                # Track file hashes for changed/new files even when symbol extraction yields none.
+                content = _read_file(rel_path)
+                if content is None:
+                    continue
                 raw_files_subset[rel_path] = content
+                subset_hashes[rel_path] = file_hashes[rel_path]
                 language = get_language_for_path(rel_path)
                 if not language:
                     incremental_no_symbols.append(rel_path)
@@ -461,7 +484,9 @@ def index_folder(
             # Build import graph for changed/new files
             incr_file_imports: dict[str, list[dict]] = {}
             for rel_path in files_to_parse:
-                content = current_files[rel_path]
+                content = raw_files_subset.get(rel_path)
+                if content is None:
+                    continue
                 language = get_language_for_path(rel_path)
                 if language:
                     imps = extract_imports(content, rel_path, language)
@@ -483,6 +508,7 @@ def index_folder(
                 file_languages=incr_file_languages,
                 imports=incr_file_imports,
                 context_metadata=incr_context_metadata,
+                file_hashes=subset_hashes,
             )
 
             result = {
@@ -502,16 +528,31 @@ def index_folder(
                 result["warnings"] = warnings
             return result
 
-        # Full index path
+        # Full index path — stream through files one at a time to avoid
+        # loading all contents into memory simultaneously.
         all_symbols = []
         symbols_by_file: dict[str, list] = defaultdict(list)
-        source_file_list = sorted(current_files)
+        source_file_list = sorted(file_hashes)
+        file_imports: dict[str, list[dict]] = {}
+        content_dir = store._content_dir(owner, repo_name)
+        content_dir.mkdir(parents=True, exist_ok=True)
 
         no_symbols_files: list[str] = []
-        for rel_path, content in current_files.items():
+        for rel_path in source_file_list:
+            content = _read_file(rel_path)
+            if content is None:
+                continue
+
+            # Write raw content to cache immediately, then process
+            file_dest = store._safe_content_path(content_dir, rel_path)
+            if file_dest:
+                file_dest.parent.mkdir(parents=True, exist_ok=True)
+                store._write_cached_text(file_dest, content)
+
             language = get_language_for_path(rel_path)
             if not language:
                 no_symbols_files.append(rel_path)
+                # content eligible for GC after this iteration
                 continue
             try:
                 symbols = parse_file(content, rel_path, language)
@@ -524,7 +565,12 @@ def index_folder(
             except Exception as e:
                 warnings.append(f"Failed to parse {rel_path}: {e}")
                 logger.debug("PARSE ERROR: %s — %s", rel_path, e)
-                continue
+
+            # Extract imports while content is in scope
+            imps = extract_imports(content, rel_path, language)
+            if imps:
+                file_imports[rel_path] = imps
+            # content is discarded at end of iteration
 
         logger.info(
             "Parsing complete — with symbols: %d, no symbols: %d",
@@ -548,31 +594,17 @@ def index_folder(
         languages = _language_counts(file_languages)
         file_summaries = _complete_file_summaries(source_file_list, file_symbols_map, context_providers=active_providers)
 
-        # Build import graph
-        file_imports: dict[str, list[dict]] = {}
-        for rel_path, content in current_files.items():
-            language = get_language_for_path(rel_path)
-            if language:
-                imps = extract_imports(content, rel_path, language)
-                if imps:
-                    file_imports[rel_path] = imps
-
         # Collect structured metadata from providers
         full_context_metadata = collect_metadata(active_providers) if active_providers else None
 
-        # Save index
-        # Track hashes for all discovered source files so incremental change detection
-        # does not repeatedly report no-symbol files as "new".
-        file_hashes = {
-            fp: _file_hash(content)
-            for fp, content in current_files.items()
-        }
+        # Save index — raw files already written to content dir above,
+        # pass empty dict to skip duplicate writes.
         index = store.save_index(
             owner=owner,
             name=repo_name,
             source_files=source_file_list,
             symbols=all_symbols,
-            raw_files=current_files,
+            raw_files={},
             languages=languages,
             file_hashes=file_hashes,
             file_summaries=file_summaries,

@@ -1,12 +1,15 @@
 """Index storage with save/load, byte-offset content retrieval, and incremental indexing."""
 
+import functools
 import hashlib
 import json
 import logging
 import os
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
+from filelock import FileLock
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -17,6 +20,23 @@ logger = logging.getLogger(__name__)
 
 # Bump this when the index schema changes in an incompatible way.
 INDEX_VERSION = 4
+
+
+@functools.lru_cache(maxsize=16)
+def _load_index_json_cached(index_path: str, mtime_ns: int) -> Optional[dict]:
+    """Cache parsed JSON keyed on (path, mtime). mtime_ns ensures
+    automatic invalidation when the file changes on disk."""
+    try:
+        with open(index_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        logger.debug("Failed to load index JSON: %s", index_path, exc_info=True)
+        return None
+
+
+def _invalidate_index_cache() -> None:
+    """Clear the index JSON cache after writes."""
+    _load_index_json_cached.cache_clear()
 
 
 def _file_hash(content: str) -> str:
@@ -36,7 +56,7 @@ def _get_git_head(repo_path: Path) -> Optional[str]:
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
-        pass
+        logger.debug("Failed to get git HEAD for %s", repo_path, exc_info=True)
     return None
 
 
@@ -76,27 +96,48 @@ class CodeIndex:
         """Check whether a file is present in the index."""
         return not self.source_files or file_path in self._source_file_set
 
-    def search(self, query: str, kind: Optional[str] = None, file_pattern: Optional[str] = None) -> list[dict]:
-        """Search symbols with weighted scoring."""
+    def search(self, query: str, kind: Optional[str] = None, file_pattern: Optional[str] = None, limit: int = 0) -> list[dict]:
+        """Search symbols with weighted scoring.
+
+        Args:
+            limit: When > 0, use a bounded heap to cap memory at ~limit items.
+                   Results may slightly exceed limit to preserve ties at the boundary.
+                   When 0, return all matches (legacy behavior).
+        """
+        import heapq
+
         query_lower = query.lower()
         query_words = set(query_lower.split())
 
-        scored = []
-        for sym in self.symbols:
-            # Apply filters
-            if kind and sym.get("kind") != kind:
-                continue
-            if file_pattern and not self._match_pattern(sym.get("file", ""), file_pattern):
-                continue
-
-            # Score symbol
-            score = self._score_symbol(sym, query_lower, query_words)
-            if score > 0:
-                scored.append((score, sym))
-
-        # Sort by score descending
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [sym for _, sym in scored]
+        if limit > 0:
+            # Bounded heap: keep only the top `limit` scores using a min-heap
+            heap: list[tuple[int, int, dict]] = []  # (score, counter, sym)
+            counter = 0
+            for sym in self.symbols:
+                if kind and sym.get("kind") != kind:
+                    continue
+                if file_pattern and not self._match_pattern(sym.get("file", ""), file_pattern):
+                    continue
+                score = self._score_symbol(sym, query_lower, query_words)
+                if score > 0:
+                    counter += 1
+                    if len(heap) < limit:
+                        heapq.heappush(heap, (score, counter, sym))
+                    elif score > heap[0][0]:
+                        heapq.heapreplace(heap, (score, counter, sym))
+            return [sym for _, _, sym in sorted(heap, key=lambda x: x[0], reverse=True)]
+        else:
+            scored = []
+            for sym in self.symbols:
+                if kind and sym.get("kind") != kind:
+                    continue
+                if file_pattern and not self._match_pattern(sym.get("file", ""), file_pattern):
+                    continue
+                score = self._score_symbol(sym, query_lower, query_words)
+                if score > 0:
+                    scored.append((score, sym))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return [sym for _, sym in scored]
 
     def _match_pattern(self, file_path: str, pattern: str) -> bool:
         """Match file path against glob pattern."""
@@ -194,6 +235,39 @@ class IndexStore:
     def _index_path(self, owner: str, name: str) -> Path:
         """Path to index JSON file."""
         return self.base_path / f"{self._repo_slug(owner, name)}.json"
+
+    def _lock_path(self, owner: str, name: str) -> Path:
+        """Path to per-repo advisory lock file."""
+        return self.base_path / f"{self._repo_slug(owner, name)}.json.lock"
+
+    def _meta_path(self, owner: str, name: str) -> Path:
+        """Path to lightweight metadata sidecar for list_repos."""
+        return self.base_path / f"{self._repo_slug(owner, name)}.meta.json"
+
+    def _write_meta_sidecar(self, index: "CodeIndex") -> None:
+        """Write a small metadata sidecar alongside the full index."""
+        meta = {
+            "repo": index.repo,
+            "indexed_at": index.indexed_at,
+            "symbol_count": len(index.symbols),
+            "file_count": len(index.source_files),
+            "languages": index.languages,
+            "index_version": index.index_version,
+            "git_head": index.git_head,
+            "display_name": index.display_name,
+            "source_root": index.source_root,
+        }
+        meta_path = self._meta_path(index.owner, index.name)
+        try:
+            fd, tmp_name = tempfile.mkstemp(dir=meta_path.parent, suffix=".meta.tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(meta, f)
+                Path(tmp_name).replace(meta_path)
+            except Exception:
+                Path(tmp_name).unlink(missing_ok=True)
+        except Exception:
+            logger.debug("Failed to write meta sidecar", exc_info=True)
 
     def _content_dir(self, owner: str, name: str) -> Path:
         """Path to raw content directory."""
@@ -330,24 +404,31 @@ class IndexStore:
             file_blob_shas=file_blob_shas or {},
         )
 
-        # Save index JSON atomically: write to temp then rename
+        # Lock, write index + raw files atomically
         index_path = self._index_path(owner, name)
-        tmp_path = index_path.with_suffix(".json.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(self._index_to_dict(index), f, indent=2)
-        tmp_path.replace(index_path)
+        with FileLock(str(self._lock_path(owner, name))):
+            fd, tmp_name = tempfile.mkstemp(dir=index_path.parent, suffix=".json.tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self._index_to_dict(index), f, indent=2)
+                Path(tmp_name).replace(index_path)
+            except Exception:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
 
-        # Save raw files
-        content_dir = self._content_dir(owner, name)
-        content_dir.mkdir(parents=True, exist_ok=True)
+            # Save raw files
+            content_dir = self._content_dir(owner, name)
+            content_dir.mkdir(parents=True, exist_ok=True)
 
-        for file_path, content in raw_files.items():
-            file_dest = self._safe_content_path(content_dir, file_path)
-            if not file_dest:
-                raise ValueError(f"Unsafe file path in raw_files: {file_path}")
-            file_dest.parent.mkdir(parents=True, exist_ok=True)
-            self._write_cached_text(file_dest, content)
+            for file_path, content in raw_files.items():
+                file_dest = self._safe_content_path(content_dir, file_path)
+                if not file_dest:
+                    raise ValueError(f"Unsafe file path in raw_files: {file_path}")
+                file_dest.parent.mkdir(parents=True, exist_ok=True)
+                self._write_cached_text(file_dest, content)
 
+        self._write_meta_sidecar(index)
+        _invalidate_index_cache()
         return index
 
     def has_index(self, owner: str, name: str) -> bool:
@@ -355,14 +436,21 @@ class IndexStore:
         return self._index_path(owner, name).exists()
 
     def load_index(self, owner: str, name: str) -> Optional[CodeIndex]:
-        """Load index from storage. Rejects incompatible versions."""
+        """Load index from storage. Rejects incompatible versions.
+
+        Uses a process-level LRU cache keyed on (path, mtime_ns) so
+        repeated tool calls in the same session skip disk I/O and JSON
+        deserialization. The cache auto-invalidates when the file changes.
+        """
         index_path = self._index_path(owner, name)
 
         if not index_path.exists():
             return None
 
-        with open(index_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        mtime_ns = index_path.stat().st_mtime_ns
+        data = _load_index_json_cached(str(index_path), mtime_ns)
+        if data is None:
+            return None
 
         # Version check
         stored_version = data.get("index_version", 1)
@@ -457,12 +545,24 @@ class IndexStore:
         current_files: dict[str, str],
     ) -> tuple[list[str], list[str], list[str]]:
         """Detect changed, new, and deleted files by comparing hashes."""
+        current_hashes = {fp: _file_hash(content) for fp, content in current_files.items()}
+        return self.detect_changes_from_hashes(owner, name, current_hashes)
+
+    def detect_changes_from_hashes(
+        self,
+        owner: str,
+        name: str,
+        current_hashes: dict[str, str],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Detect changed, new, and deleted files from precomputed hashes.
+
+        Like detect_changes() but avoids requiring full file contents in memory.
+        """
         index = self.load_index(owner, name)
         if not index:
-            return [], list(current_files.keys()), []
+            return [], list(current_hashes.keys()), []
 
         old_hashes = index.file_hashes
-        current_hashes = {fp: _file_hash(content) for fp, content in current_files.items()}
 
         old_set = set(old_hashes.keys())
         new_set = set(current_hashes.keys())
@@ -492,173 +592,224 @@ class IndexStore:
         imports: Optional[dict[str, list[dict]]] = None,
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
+        file_hashes: Optional[dict[str, str]] = None,
     ) -> Optional[CodeIndex]:
         """Incrementally update an existing index.
 
         Removes symbols for deleted/changed files, adds new symbols,
-        updates raw content, and saves atomically.
+        updates raw content, and saves atomically. Uses a per-repo file
+        lock to prevent concurrent read-modify-write races.
         """
-        index = self.load_index(owner, name)
-        if not index:
-            return None
+        with FileLock(str(self._lock_path(owner, name))):
+            index = self.load_index(owner, name)
+            if not index:
+                return None
 
-        # Remove symbols for deleted and changed files
-        files_to_remove = set(deleted_files) | set(changed_files)
-        kept_symbols = [s for s in index.symbols if s.get("file") not in files_to_remove]
+            # Remove symbols for deleted and changed files
+            files_to_remove = set(deleted_files) | set(changed_files)
+            kept_symbols = [s for s in index.symbols if s.get("file") not in files_to_remove]
 
-        # Add new symbols
-        new_symbol_dicts = [self._symbol_to_dict(s) for s in new_symbols]
-        all_symbols_dicts = kept_symbols + new_symbol_dicts
+            # Add new symbols
+            new_symbol_dicts = [self._symbol_to_dict(s) for s in new_symbols]
+            all_symbols_dicts = kept_symbols + new_symbol_dicts
 
-        changed_or_new_files = sorted(set(changed_files) | set(new_files))
-        merged_file_languages = dict(index.file_languages)
-        for file_path in deleted_files:
-            merged_file_languages.pop(file_path, None)
-        merged_file_languages.update(
-            self._file_languages_for_paths(
-                changed_or_new_files,
-                new_symbol_dicts,
-                existing={**index.file_languages, **(file_languages or {})},
+            changed_or_new_files = sorted(set(changed_files) | set(new_files))
+            merged_file_languages = dict(index.file_languages)
+            for file_path in deleted_files:
+                merged_file_languages.pop(file_path, None)
+            merged_file_languages.update(
+                self._file_languages_for_paths(
+                    changed_or_new_files,
+                    new_symbol_dicts,
+                    existing={**index.file_languages, **(file_languages or {})},
+                )
             )
-        )
 
-        recomputed_languages = self._languages_from_file_languages(merged_file_languages)
-        if not recomputed_languages and languages:
-            recomputed_languages = languages
+            recomputed_languages = self._languages_from_file_languages(merged_file_languages)
+            if not recomputed_languages and languages:
+                recomputed_languages = languages
 
-        # Update source files list
-        old_files = set(index.source_files)
-        for f in deleted_files:
-            old_files.discard(f)
-        for f in new_files:
-            old_files.add(f)
-        for f in changed_files:
-            old_files.add(f)
+            # Update source files list
+            old_files = set(index.source_files)
+            for f in deleted_files:
+                old_files.discard(f)
+            for f in new_files:
+                old_files.add(f)
+            for f in changed_files:
+                old_files.add(f)
 
-        # Update file hashes
-        file_hashes = dict(index.file_hashes)
-        for f in deleted_files:
-            file_hashes.pop(f, None)
-        for fp, content in raw_files.items():
-            file_hashes[fp] = _file_hash(content)
+            # Update file hashes — prefer precomputed hashes to avoid
+            # recomputing from raw_files content
+            merged_hashes = dict(index.file_hashes)
+            for f in deleted_files:
+                merged_hashes.pop(f, None)
+            if file_hashes:
+                merged_hashes.update(file_hashes)
+            else:
+                for fp, content in raw_files.items():
+                    merged_hashes[fp] = _file_hash(content)
 
-        # Merge file summaries: keep old, remove deleted, update changed/new
-        merged_summaries = dict(index.file_summaries)
-        for f in deleted_files:
-            merged_summaries.pop(f, None)
-        for f in changed_or_new_files:
-            merged_summaries.pop(f, None)
-        if file_summaries:
-            merged_summaries.update(file_summaries)
+            # Merge file summaries: keep old, remove deleted, update changed/new
+            merged_summaries = dict(index.file_summaries)
+            for f in deleted_files:
+                merged_summaries.pop(f, None)
+            for f in changed_or_new_files:
+                merged_summaries.pop(f, None)
+            if file_summaries:
+                merged_summaries.update(file_summaries)
 
-        # Merge import graph: keep existing, remove deleted, update changed/new
-        # index.imports is None for pre-v1.3.0 indexes; use {} as base if so
-        merged_imports = dict(index.imports) if index.imports is not None else {}
-        for f in deleted_files:
-            merged_imports.pop(f, None)
-        for f in changed_files:
-            merged_imports.pop(f, None)
-        if imports:
-            merged_imports.update(imports)
+            # Merge import graph: keep existing, remove deleted, update changed/new
+            # index.imports is None for pre-v1.3.0 indexes; use {} as base if so
+            merged_imports = dict(index.imports) if index.imports is not None else {}
+            for f in deleted_files:
+                merged_imports.pop(f, None)
+            for f in changed_files:
+                merged_imports.pop(f, None)
+            if imports:
+                merged_imports.update(imports)
 
-        # Merge blob SHAs: keep old, remove deleted, update changed/new
-        merged_blob_shas = dict(index.file_blob_shas)
-        for f in deleted_files:
-            merged_blob_shas.pop(f, None)
-        if file_blob_shas:
-            merged_blob_shas.update(file_blob_shas)
+            # Merge blob SHAs: keep old, remove deleted, update changed/new
+            merged_blob_shas = dict(index.file_blob_shas)
+            for f in deleted_files:
+                merged_blob_shas.pop(f, None)
+            if file_blob_shas:
+                merged_blob_shas.update(file_blob_shas)
 
-        # Build updated index
-        updated_source_files = sorted(old_files)
-        updated = CodeIndex(
-            repo=f"{owner}/{name}",
-            owner=owner,
-            name=name,
-            indexed_at=datetime.now().isoformat(),
-            source_files=updated_source_files,
-            languages=recomputed_languages,
-            symbols=all_symbols_dicts,
-            index_version=INDEX_VERSION,
-            file_hashes=file_hashes,
-            git_head=git_head,
-            file_summaries=merged_summaries,
-            source_root=index.source_root,
-            file_languages={fp: merged_file_languages[fp] for fp in updated_source_files if fp in merged_file_languages},
-            display_name=index.display_name,
-            imports=merged_imports,
-            context_metadata=context_metadata if context_metadata else index.context_metadata,
-            file_blob_shas=merged_blob_shas,
-        )
+            # Build updated index
+            updated_source_files = sorted(old_files)
+            updated = CodeIndex(
+                repo=f"{owner}/{name}",
+                owner=owner,
+                name=name,
+                indexed_at=datetime.now().isoformat(),
+                source_files=updated_source_files,
+                languages=recomputed_languages,
+                symbols=all_symbols_dicts,
+                index_version=INDEX_VERSION,
+                file_hashes=merged_hashes,
+                git_head=git_head,
+                file_summaries=merged_summaries,
+                source_root=index.source_root,
+                file_languages={fp: merged_file_languages[fp] for fp in updated_source_files if fp in merged_file_languages},
+                display_name=index.display_name,
+                imports=merged_imports,
+                context_metadata=context_metadata if context_metadata else index.context_metadata,
+                file_blob_shas=merged_blob_shas,
+            )
 
-        # Save atomically
-        index_path = self._index_path(owner, name)
-        tmp_path = index_path.with_suffix(".json.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(self._index_to_dict(updated), f, indent=2)
-        tmp_path.replace(index_path)
+            # Save atomically: unpredictable temp file prevents symlink attacks
+            index_path = self._index_path(owner, name)
+            fd, tmp_name = tempfile.mkstemp(dir=index_path.parent, suffix=".json.tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self._index_to_dict(updated), f, indent=2)
+                Path(tmp_name).replace(index_path)
+            except Exception:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
 
-        # Update raw files
-        content_dir = self._content_dir(owner, name)
-        content_dir.mkdir(parents=True, exist_ok=True)
+            # Update raw files
+            content_dir = self._content_dir(owner, name)
+            content_dir.mkdir(parents=True, exist_ok=True)
 
-        # Remove deleted files from content dir
-        for fp in deleted_files:
-            dead = self._safe_content_path(content_dir, fp)
-            if not dead:
-                continue
-            if dead.exists():
-                dead.unlink()
+            # Remove deleted files from content dir
+            for fp in deleted_files:
+                dead = self._safe_content_path(content_dir, fp)
+                if not dead:
+                    continue
+                if dead.exists():
+                    dead.unlink()
 
-        # Write changed + new files
-        for fp, content in raw_files.items():
-            dest = self._safe_content_path(content_dir, fp)
-            if not dest:
-                raise ValueError(f"Unsafe file path in raw_files: {fp}")
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            self._write_cached_text(dest, content)
+            # Write changed + new files
+            for fp, content in raw_files.items():
+                dest = self._safe_content_path(content_dir, fp)
+                if not dest:
+                    raise ValueError(f"Unsafe file path in raw_files: {fp}")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                self._write_cached_text(dest, content)
 
+        self._write_meta_sidecar(updated)
+        _invalidate_index_cache()
         return updated
 
     def _languages_from_symbols(self, symbols: list[dict]) -> dict[str, int]:
         """Compute language->file_count from serialized symbols."""
         return self._languages_from_file_languages(self._file_languages_from_symbols(symbols))
 
-    def list_repos(self) -> list[dict]:
-        """List all indexed repositories."""
-        repos = []
+    def _repo_entry_from_data(self, data: dict) -> Optional[dict]:
+        """Build a repo listing entry from index or sidecar data."""
+        repo_id = data.get("repo")
+        if not repo_id:
+            return None
+        # Sidecar has symbol_count/file_count directly; full index has lists
+        symbol_count = data.get("symbol_count")
+        if symbol_count is None:
+            symbol_count = len(data.get("symbols", []))
+        file_count = data.get("file_count")
+        if file_count is None:
+            file_count = len(data.get("source_files", []))
+        repo_entry = {
+            "repo": repo_id,
+            "indexed_at": data.get("indexed_at", ""),
+            "symbol_count": symbol_count,
+            "file_count": file_count,
+            "languages": data.get("languages", {}),
+            "index_version": data.get("index_version", 1),
+        }
+        if data.get("git_head"):
+            repo_entry["git_head"] = data["git_head"]
+        if data.get("display_name"):
+            repo_entry["display_name"] = data["display_name"]
+        if data.get("source_root"):
+            repo_entry["source_root"] = data["source_root"]
+        return repo_entry
 
+    def list_repos(self) -> list[dict]:
+        """List all indexed repositories.
+
+        Reads lightweight .meta.json sidecars when available, falling back
+        to full index JSON for older indexes that lack a sidecar.
+        """
+        repos = []
+        seen_slugs: set[str] = set()
+
+        # Pass 1: read lightweight sidecars
+        for meta_file in self.base_path.glob("*.meta.json"):
+            try:
+                slug = meta_file.name.removesuffix(".meta.json")
+                seen_slugs.add(slug)
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                entry = self._repo_entry_from_data(data)
+                if entry:
+                    repos.append(entry)
+            except Exception:
+                logger.debug("Skipping corrupted meta sidecar: %s", meta_file, exc_info=True)
+                continue
+
+        # Pass 2: fall back to full JSON for indexes without sidecars
         for index_file in self.base_path.glob("*.json"):
+            slug = index_file.name.removesuffix(".json")
+            if slug in seen_slugs or slug.endswith(".meta"):
+                continue
             try:
                 with open(index_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-
-                repo_id = data.get("repo")
-                if not repo_id:
-                    continue
-                repo_entry = {
-                    "repo": data["repo"],
-                    "indexed_at": data["indexed_at"],
-                    "symbol_count": len(data.get("symbols", [])),
-                    "file_count": len(data.get("source_files", [])),
-                    "languages": data.get("languages", {}),
-                    "index_version": data.get("index_version", 1),
-                }
-                if data.get("git_head"):
-                    repo_entry["git_head"] = data["git_head"]
-                if data.get("display_name"):
-                    repo_entry["display_name"] = data["display_name"]
-                if data.get("source_root"):
-                    repo_entry["source_root"] = data["source_root"]
-                repos.append(repo_entry)
+                entry = self._repo_entry_from_data(data)
+                if entry:
+                    repos.append(entry)
             except Exception:
+                logger.debug("Skipping corrupted index file: %s", index_file, exc_info=True)
                 continue
 
         repos.sort(key=lambda repo: repo["repo"])
         return repos
 
     def delete_index(self, owner: str, name: str) -> bool:
-        """Delete an index and its raw files."""
+        """Delete an index, its sidecar, and its raw files."""
         index_path = self._index_path(owner, name)
+        meta_path = self._meta_path(owner, name)
+        lock_path = self._lock_path(owner, name)
         content_dir = self._content_dir(owner, name)
 
         deleted = False
@@ -666,6 +817,9 @@ class IndexStore:
         if index_path.exists():
             index_path.unlink()
             deleted = True
+
+        meta_path.unlink(missing_ok=True)
+        lock_path.unlink(missing_ok=True)
 
         if content_dir.exists():
             shutil.rmtree(content_dir)
