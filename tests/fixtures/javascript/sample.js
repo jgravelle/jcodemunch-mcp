@@ -13,8 +13,9 @@ function authenticate(token) {
     return token.length > 0;
 }
 
-export const listUsers = query({
-    handler: async (ctx) => { return ctx.db.query('users').collect(); }
-});
+export const defaultHeaders = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
 
 const API_VERSION = "v2";

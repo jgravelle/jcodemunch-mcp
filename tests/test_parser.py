@@ -131,45 +131,43 @@ def test_lua_extension_registered():
 TS_CONST_SOURCE = """\
 const MAX_TIMEOUT: number = 5000;
 
-export const createUser = mutation({
-    args: { name: v.string() },
-    handler: async (ctx, args) => { return ctx.db.insert('users', args); }
+export const defaultConfig = Object.freeze({
+    timeout: 5000,
+    retries: 3,
 });
 
-export const getUser = query({
-    args: { id: v.id('users') },
-    handler: async (ctx, args) => { return ctx.db.get(args.id); }
-});
+const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
 
-const API_BASE_URL = "https://api.example.com";
+export const allowedOrigins = ["http://localhost:3000", "https://example.com"];
 
 const greet = (name: string) => `Hello ${name}`;
 """
 
 
-def test_typescript_const_exports():
-    """Exported const assignments in TS should be indexed as constants."""
-    symbols = parse_file(TS_CONST_SOURCE, "routes.ts", "typescript")
+def test_typescript_const_declarations():
+    """Top-level const declarations in TS should be indexed as constants."""
+    symbols = parse_file(TS_CONST_SOURCE, "config.ts", "typescript")
     names = {s.name for s in symbols}
     assert "MAX_TIMEOUT" in names
-    assert "createUser" in names
-    assert "getUser" in names
-    assert "API_BASE_URL" in names
+    assert "defaultConfig" in names
+    assert "emailRegex" in names
+    assert "allowedOrigins" in names
     # Arrow function should be extracted as a function, not a constant
     const_names = {s.name for s in symbols if s.kind == "constant"}
     assert "greet" not in const_names
     # Verify kind
     for s in symbols:
-        if s.name in ("createUser", "getUser", "API_BASE_URL", "MAX_TIMEOUT"):
+        if s.name in ("defaultConfig", "emailRegex", "allowedOrigins", "MAX_TIMEOUT"):
             assert s.kind == "constant"
 
 
 JS_CONST_SOURCE = """\
 const MAX_TIMEOUT = 5000;
 
-export const listUsers = query({
-    handler: async (ctx) => { return ctx.db.query('users').collect(); }
-});
+export const defaultHeaders = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
 
 const API_VERSION = "v2";
 
@@ -177,17 +175,17 @@ const handler = function() { return 42; };
 """
 
 
-def test_javascript_const_exports():
-    """Exported const assignments in JS should be indexed as constants."""
-    symbols = parse_file(JS_CONST_SOURCE, "routes.js", "javascript")
+def test_javascript_const_declarations():
+    """Top-level const declarations in JS should be indexed as constants."""
+    symbols = parse_file(JS_CONST_SOURCE, "config.js", "javascript")
     names = {s.name for s in symbols}
     assert "MAX_TIMEOUT" in names
-    assert "listUsers" in names
+    assert "defaultHeaders" in names
     assert "API_VERSION" in names
     # function expression should be extracted as function, not constant
     const_names = {s.name for s in symbols if s.kind == "constant"}
     assert "handler" not in const_names
     for s in symbols:
-        if s.name in ("listUsers", "API_VERSION", "MAX_TIMEOUT"):
+        if s.name in ("defaultHeaders", "API_VERSION", "MAX_TIMEOUT"):
             assert s.kind == "constant"
 
