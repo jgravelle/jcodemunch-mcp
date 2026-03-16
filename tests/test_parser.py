@@ -152,13 +152,14 @@ def test_typescript_const_declarations():
     assert "defaultConfig" in names
     assert "emailRegex" in names
     assert "allowedOrigins" in names
-    # Arrow function should be extracted as a function, not a constant
-    const_names = {s.name for s in symbols if s.kind == "constant"}
-    assert "greet" not in const_names
-    # Verify kind
+    # Verify non-function consts are kind=constant
     for s in symbols:
         if s.name in ("defaultConfig", "emailRegex", "allowedOrigins", "MAX_TIMEOUT"):
             assert s.kind == "constant"
+    # Arrow function const is indexed as a function (not a constant)
+    assert "greet" in names
+    greet_sym = next(s for s in symbols if s.name == "greet")
+    assert greet_sym.kind == "function"
 
 
 JS_CONST_SOURCE = """\
@@ -182,10 +183,11 @@ def test_javascript_const_declarations():
     assert "MAX_TIMEOUT" in names
     assert "defaultHeaders" in names
     assert "API_VERSION" in names
-    # function expression should be extracted as function, not constant
-    const_names = {s.name for s in symbols if s.kind == "constant"}
-    assert "handler" not in const_names
     for s in symbols:
         if s.name in ("defaultHeaders", "API_VERSION", "MAX_TIMEOUT"):
             assert s.kind == "constant"
+    # Function expression const is indexed as a function (not a constant)
+    assert "handler" in names
+    handler_sym = next(s for s in symbols if s.name == "handler")
+    assert handler_sym.kind == "function"
 
