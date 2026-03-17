@@ -80,6 +80,7 @@ LANGUAGE_EXTENSIONS = {
     ".t": "perl",
     ".gd": "gdscript",
     ".blade.php": "blade",
+    ".al": "al",
     ".kt": "kotlin",
     ".kts": "kotlin",
     ".gleam": "gleam",
@@ -720,6 +721,25 @@ BLADE_SPEC = LanguageSpec(
 )
 
 
+# AL (Business Central) specification
+# NOTE: No tree-sitter grammar is available for AL.
+# Symbol extraction is performed by _parse_al_symbols() in extractor.py
+# via regex scanning for object declarations, procedures, triggers, and fields.
+# The fields below are intentionally empty.
+AL_SPEC = LanguageSpec(
+    ts_language="al",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
 # Kotlin specification
 # NOTE: Kotlin's tree-sitter grammar exposes no named field accessors for names,
 # parameters, or bodies. All extraction is handled via special-cases in extractor.py
@@ -1296,6 +1316,7 @@ LANGUAGE_REGISTRY = {
     "perl": PERL_SPEC,
     "gdscript": GDSCRIPT_SPEC,
     "blade": BLADE_SPEC,
+    "al": AL_SPEC,
     "kotlin": KOTLIN_SPEC,
     "gleam": GLEAM_SPEC,
     "bash": BASH_SPEC,

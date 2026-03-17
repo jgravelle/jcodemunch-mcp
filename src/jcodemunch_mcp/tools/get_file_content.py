@@ -58,7 +58,7 @@ def get_file_content(
         pass
     response_bytes = len(selected_content.encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="get_file_content")
     elapsed = (time.perf_counter() - start) * 1000
 
     return {

@@ -1,5 +1,6 @@
 """Get high-level repository outline."""
 
+import json
 import os
 import time
 from collections import Counter
@@ -61,8 +62,18 @@ def get_repo_outline(
             raw_bytes += os.path.getsize(content_dir / f)
         except OSError:
             pass
-    tokens_saved = estimate_savings(raw_bytes, 0)
-    total_saved = record_savings(tokens_saved)
+    payload_content = {
+        "repo": f"{owner}/{name}",
+        "indexed_at": index.indexed_at,
+        "file_count": len(index.source_files),
+        "symbol_count": len(index.symbols),
+        "languages": index.languages,
+        "directories": dict(dir_file_counts.most_common()),
+        "symbol_kinds": dict(kind_counts.most_common()),
+    }
+    response_bytes = len(json.dumps(payload_content).encode("utf-8"))
+    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    total_saved = record_savings(tokens_saved, tool_name="get_repo_outline")
 
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -82,13 +93,7 @@ def get_repo_outline(
         pass
 
     result = {
-        "repo": f"{owner}/{name}",
-        "indexed_at": index.indexed_at,
-        "file_count": len(index.source_files),
-        "symbol_count": len(index.symbols),
-        "languages": index.languages,
-        "directories": dict(dir_file_counts.most_common()),
-        "symbol_kinds": dict(kind_counts.most_common()),
+        **payload_content,
         "_meta": {
             "timing_ms": round(elapsed, 1),
             "tokens_saved": tokens_saved,

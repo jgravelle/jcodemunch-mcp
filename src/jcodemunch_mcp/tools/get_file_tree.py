@@ -65,7 +65,7 @@ def get_file_tree(
             pass
     response_bytes = len(str(tree).encode())
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="get_file_tree")
 
     return {
         "repo": f"{owner}/{name}",

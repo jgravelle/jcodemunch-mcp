@@ -131,7 +131,7 @@ def search_text(
     # Token savings: raw bytes of searched files vs grouped match response
     response_bytes = len(json.dumps(results, ensure_ascii=False).encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="search_text")
 
     return {
         "repo": f"{owner}/{name}",

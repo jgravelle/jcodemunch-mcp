@@ -1,5 +1,6 @@
 """Get file outline - symbols in a specific file."""
 
+import json
 import os
 import time
 from typing import Optional
@@ -63,7 +64,7 @@ def get_file_outline(
     if not file_symbols:
         elapsed = (time.perf_counter() - start) * 1000
         tokens_saved = estimate_savings(raw_bytes, 0)
-        total_saved = record_savings(tokens_saved)
+        total_saved = record_savings(tokens_saved, tool_name="get_file_outline")
         return {
             "repo": f"{owner}/{name}",
             "file": file_path,
@@ -88,9 +89,9 @@ def get_file_outline(
     symbols_output = [_node_to_dict(n) for n in tree]
 
     elapsed = (time.perf_counter() - start) * 1000
-    response_bytes = sum(s.get("byte_length", 0) for s in file_symbols)
+    response_bytes = len(json.dumps(symbols_output).encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="get_file_outline")
 
     return {
         "repo": f"{owner}/{name}",

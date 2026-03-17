@@ -7,6 +7,8 @@ from typing import Optional
 from ..storage import IndexStore, CodeIndex, record_savings, estimate_savings, cost_avoided
 from ._utils import resolve_repo
 
+BYTES_PER_TOKEN = 4
+
 
 def search_symbols(
     repo: str,
@@ -15,6 +17,8 @@ def search_symbols(
     file_pattern: Optional[str] = None,
     language: Optional[str] = None,
     max_results: int = 10,
+    token_budget: Optional[int] = None,
+    detail_level: str = "standard",
     debug: bool = False,
     storage_path: Optional[str] = None
 ) -> dict:
@@ -26,13 +30,21 @@ def search_symbols(
         kind: Optional filter by symbol kind.
         file_pattern: Optional glob pattern to filter files.
         language: Optional filter by language (e.g., "python", "javascript").
-        max_results: Maximum results to return.
+        max_results: Maximum results to return (ignored when token_budget is set).
+        token_budget: Maximum tokens to consume. Results are greedily packed by
+            score until the budget is exhausted. Overrides max_results.
+        detail_level: Controls result verbosity. "compact" returns id/name/kind/file/line
+            only (~15 tokens each, ideal for discovery). "standard" returns signatures
+            and summaries (default). "full" inlines source code, docstring, and end_line.
         debug: When True, include per-field score breakdown in each result.
         storage_path: Custom storage path.
 
     Returns:
         Dict with search results and _meta envelope.
     """
+    if detail_level not in ("compact", "standard", "full"):
+        return {"error": f"Invalid detail_level '{detail_level}'. Must be 'compact', 'standard', or 'full'."}
+
     start = time.perf_counter()
     max_results = max(1, min(max_results, 100))
 
@@ -48,8 +60,8 @@ def search_symbols(
     if not index:
         return {"error": f"Repository not indexed: {owner}/{name}"}
 
-    # Search — use bounded heap when no post-search language filter is needed
-    search_limit = 0 if language else max_results
+    # Search — use bounded heap when no post-search filtering/packing is needed
+    search_limit = 0 if (language or token_budget is not None) else max_results
     results = index.search(query, kind=kind, file_pattern=file_pattern, limit=search_limit)
 
     # Apply language filter (post-search since CodeIndex.search doesn't support it)
@@ -61,22 +73,57 @@ def search_symbols(
     query_words = set(query_lower.split())
 
     candidates_scored = len(results)
+    candidates = results if token_budget is not None else results[:max_results]
     scored_results = []
-    for sym in results[:max_results]:
+    for sym in candidates:
         score = _calculate_score(sym, query_lower, query_words)
-        entry = {
-            "id": sym["id"],
-            "kind": sym["kind"],
-            "name": sym["name"],
-            "file": sym["file"],
-            "line": sym["line"],
-            "signature": sym["signature"],
-            "summary": sym.get("summary", ""),
-            "score": score
-        }
+        if detail_level == "compact":
+            entry = {
+                "id": sym["id"],
+                "name": sym["name"],
+                "kind": sym["kind"],
+                "file": sym["file"],
+                "line": sym["line"],
+                "byte_length": sym.get("byte_length", 0),
+                "score": score,
+            }
+        else:
+            entry = {
+                "id": sym["id"],
+                "kind": sym["kind"],
+                "name": sym["name"],
+                "file": sym["file"],
+                "line": sym["line"],
+                "signature": sym["signature"],
+                "summary": sym.get("summary", ""),
+                "byte_length": sym.get("byte_length", 0),
+                "score": score,
+            }
         if debug:
             entry["score_breakdown"] = _score_breakdown(sym, query_lower, query_words)
         scored_results.append(entry)
+
+    # Token budget: sort by score, greedily pack until budget exhausted
+    if token_budget is not None:
+        scored_results.sort(key=lambda x: x["score"], reverse=True)
+        budget_bytes = token_budget * BYTES_PER_TOKEN
+        packed, used_bytes = [], 0
+        for entry in scored_results:
+            b = entry["byte_length"]
+            if used_bytes + b <= budget_bytes:
+                packed.append(entry)
+                used_bytes += b
+        scored_results = packed
+
+    # Full detail: inline source, docstring, end_line for each result
+    if detail_level == "full":
+        for entry in scored_results:
+            sym = index.get_symbol(entry["id"])
+            if sym:
+                source = store.get_symbol_content(owner, name, entry["id"], _index=index)
+                entry["end_line"] = sym.get("end_line", entry["line"])
+                entry["docstring"] = sym.get("docstring", "")
+                entry["source"] = source or ""
 
     # Token savings: files containing matches vs symbol byte_lengths of results
     raw_bytes = 0
@@ -93,7 +140,7 @@ def search_symbols(
                 pass
         response_bytes += sym.get("byte_length", 0)
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="search_symbols")
 
     elapsed = (time.perf_counter() - start) * 1000
 
@@ -105,6 +152,11 @@ def search_symbols(
         "total_tokens_saved": total_saved,
         **cost_avoided(tokens_saved, total_saved),
     }
+    if token_budget is not None:
+        used = sum(e["byte_length"] for e in scored_results)
+        meta["token_budget"] = token_budget
+        meta["tokens_used"] = used // BYTES_PER_TOKEN
+        meta["tokens_remaining"] = max(0, token_budget - used // BYTES_PER_TOKEN)
     if debug:
         meta["candidates_scored"] = candidates_scored
 

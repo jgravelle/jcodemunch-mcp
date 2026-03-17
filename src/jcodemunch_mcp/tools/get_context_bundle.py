@@ -126,7 +126,7 @@ def get_context_bundle(
     except OSError:
         pass
     tokens_saved = estimate_savings(raw_bytes, symbol.get("byte_length", 0))
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="get_context_bundle")
 
     elapsed = (time.perf_counter() - start) * 1000
 

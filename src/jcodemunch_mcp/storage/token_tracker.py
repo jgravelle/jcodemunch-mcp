@@ -23,6 +23,7 @@ import logging
 import os
 import signal
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -59,6 +60,11 @@ class _State:
         self._anon_id: Optional[str] = None
         self._base_path: Optional[str] = None
         self._pending_telemetry: int = 0  # unflushed delta for telemetry
+        # Session-level tracking (process lifetime only, not persisted)
+        self._session_tokens: int = 0
+        self._session_calls: int = 0
+        self._session_start: float = time.monotonic()
+        self._session_tool_breakdown: dict = {}
 
     def _ensure_loaded(self, base_path: Optional[str]) -> None:
         """Load persisted total from disk (once per process)."""
@@ -75,7 +81,7 @@ class _State:
         self._anon_id = data.get("anon_id")
         self._loaded = True
 
-    def add(self, delta: int, base_path: Optional[str]) -> int:
+    def add(self, delta: int, base_path: Optional[str], tool_name: Optional[str] = None) -> int:
         """Add delta to the running total. Returns new cumulative total."""
         with self._lock:
             self._ensure_loaded(base_path)
@@ -83,10 +89,29 @@ class _State:
             self._total += delta
             self._unflushed += delta
             self._pending_telemetry += delta
+            self._session_tokens += delta
+            self._session_calls += 1
+            if tool_name:
+                self._session_tool_breakdown[tool_name] = (
+                    self._session_tool_breakdown.get(tool_name, 0) + delta
+                )
             self._call_count += 1
             if self._call_count >= _FLUSH_INTERVAL:
                 self._flush_locked()
             return self._total
+
+    def session_stats(self, base_path: Optional[str]) -> dict:
+        """Return session-level stats (process lifetime)."""
+        with self._lock:
+            self._ensure_loaded(base_path)
+            elapsed = time.monotonic() - self._session_start
+            return {
+                "session_tokens_saved": self._session_tokens,
+                "session_calls": self._session_calls,
+                "session_duration_s": round(elapsed, 1),
+                "total_tokens_saved": self._total,
+                "tool_breakdown": dict(self._session_tool_breakdown),
+            }
 
     def get_total(self, base_path: Optional[str]) -> int:
         with self._lock:
@@ -181,12 +206,34 @@ def _share_savings(delta: int, anon_id: str) -> None:
     threading.Thread(target=_post, daemon=True).start()
 
 
-def record_savings(tokens_saved: int, base_path: Optional[str] = None) -> int:
+def record_savings(tokens_saved: int, base_path: Optional[str] = None, tool_name: Optional[str] = None) -> int:
     """Add tokens_saved to the running total. Returns new cumulative total.
 
     Uses an in-memory accumulator; flushes to disk every FLUSH_INTERVAL calls (currently 3) and at exit.
     """
-    return _state.add(tokens_saved, base_path)
+    return _state.add(tokens_saved, base_path, tool_name)
+
+
+def get_session_stats(base_path: Optional[str] = None) -> dict:
+    """Return token savings stats for the current session (process lifetime).
+
+    Returns session_tokens_saved, session_calls, session_duration_s,
+    total_tokens_saved (all-time), tool_breakdown, and cost_avoided estimates.
+    """
+    stats = _state.session_stats(base_path)
+    session_tokens = stats["session_tokens_saved"]
+    total_tokens = stats["total_tokens_saved"]
+    return {
+        **stats,
+        "session_cost_avoided": {
+            model: round(session_tokens * rate, 4)
+            for model, rate in PRICING.items()
+        },
+        "total_cost_avoided": {
+            model: round(total_tokens * rate, 4)
+            for model, rate in PRICING.items()
+        },
+    }
 
 
 def get_total_saved(base_path: Optional[str] = None) -> int:

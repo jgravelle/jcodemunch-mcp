@@ -151,7 +151,7 @@ def search_columns(
     raw_bytes = total_columns * 50
     response_bytes = sum(len(r["column"]) + len(r["description"]) + len(r["model"]) + 20 for r in results)
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
-    total_saved = record_savings(tokens_saved)
+    total_saved = record_savings(tokens_saved, tool_name="search_columns")
 
     elapsed = (time.perf_counter() - start) * 1000
 
