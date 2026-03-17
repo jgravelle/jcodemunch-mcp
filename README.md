@@ -339,16 +339,19 @@ pip install "jcodemunch-mcp[watch]"
 uvx --with "jcodemunch-mcp[watch]" jcodemunch-mcp watch /path/to/repo
 ```
 
-### Watch a single directory
+### Usage
+
+The `watch` command accepts **one or more directory paths** as positional arguments. Each directory gets its own watcher and is re-indexed independently when files change.
 
 ```bash
+# Single directory
 jcodemunch-mcp watch /path/to/monorepo
-```
 
-### Watch multiple directories (e.g., repo + worktrees)
-
-```bash
-jcodemunch-mcp watch /path/to/repo ~/.claude-worktrees/repo/worktree1 ~/.claude-worktrees/repo/worktree2
+# Multiple directories — useful when working with Claude Code worktrees,
+# where each worktree is a separate filesystem copy that needs its own index
+jcodemunch-mcp watch /path/to/repo \
+  ~/.claude-worktrees/repo/worktree1 \
+  ~/.claude-worktrees/repo/worktree2
 ```
 
 ### CLI options
