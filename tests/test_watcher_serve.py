@@ -443,3 +443,68 @@ def test_watcher_log_permission_error_is_warning_not_crash(tmp_path):
     output = mock_stderr.getvalue()
     # Should have warned about the log file
     assert "WARNING" in output or "PermissionError" in output or "could not open" in output
+
+
+# ---------------------------------------------------------------------------
+# Bug: sys.exit(1) kills entire embedded server
+# ---------------------------------------------------------------------------
+
+class TestNoValidDirsEmbedded:
+    """watch_folders must not sys.exit(1) when embedded — it should raise instead."""
+
+    def test_no_sys_exit_on_no_valid_dirs_embedded(self, tmp_path):
+        """When stop_event is provided and no dirs are valid, NO sys.exit occurs."""
+        import pathlib
+
+        async def run():
+            stop = asyncio.Event()
+
+            with patch("jcodemunch_mcp.watcher._watch_single") as mock_ws:
+                async def hang(**kw):
+                    await asyncio.Event().wait()
+                mock_ws.side_effect = hang
+
+                with patch.object(pathlib.Path, "is_dir", return_value=False):
+                    # This should raise, not sys.exit
+                    with pytest.raises(Exception) as exc_info:
+                        await watch_folders(
+                            paths=["/nonexistent/path"],
+                            storage_path=str(tmp_path / "storage"),
+                            stop_event=stop,
+                            quiet=True,
+                        )
+                    # Must NOT be a bare SystemExit
+                    if isinstance(exc_info.value, SystemExit):
+                        pytest.fail(
+                            f"sys.exit({exc_info.value.code}) was called instead of raising "
+                            f"a proper exception. When embedded, watch_folders must not exit the process."
+                        )
+
+        asyncio.run(run())
+
+    def test_embedded_invalid_path_caught_by_wrapper(self, tmp_path):
+        """_run_server_with_watcher catches WatcherError and continues without crashing."""
+        from jcodemunch_mcp.server import _run_server_with_watcher
+        from jcodemunch_mcp.watcher import WatcherError
+
+        async def fake_server():
+            await asyncio.sleep(0.01)
+
+        async def run():
+            with patch("jcodemunch_mcp.server.watch_folders") as mock_wf:
+                # Simulate what happens when no dirs are valid
+                async def raise_on_invalid(**kw):
+                    raise WatcherError("No valid directories to watch")
+
+                mock_wf.side_effect = raise_on_invalid
+                # Should NOT raise uncaught — wrapper should handle it and server continues
+                await _run_server_with_watcher(
+                    fake_server, (),
+                    dict(paths=["/nonexistent"], debounce_ms=2000,
+                         use_ai_summaries=False, storage_path=str(tmp_path / "storage"),
+                         extra_ignore_patterns=None, follow_symlinks=False,
+                         idle_timeout_minutes=None),
+                    None,
+                )
+
+        asyncio.run(run())  # Should complete without raising

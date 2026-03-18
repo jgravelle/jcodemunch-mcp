@@ -40,9 +40,10 @@ from .parser.symbols import VALID_KINDS
 
 
 try:
-    from .watcher import watch_folders
+    from .watcher import watch_folders, WatcherError
 except ImportError:
     watch_folders = None  # type: ignore[assignment, misc]
+    WatcherError = type("WatcherError", (Exception,), {})  # type: ignore[assignment, misc]
 
 
 logger = logging.getLogger(__name__)
@@ -892,28 +893,39 @@ async def _run_server_with_watcher(
             logger.info("Watcher log: %s", log_path)
 
     stop_event = asyncio.Event()
-    watcher_task = asyncio.create_task(
-        watch_folders(
-            **watcher_kwargs,
-            stop_event=stop_event,
-            quiet=True,
-            log_file=log_path,
-        ),
-        name="embedded-watcher",
-    )
-
+    watcher_task: Optional[asyncio.Task] = None
     try:
-        await server_coro_func(*server_args)
-    finally:
-        stop_event.set()
+        watcher_task = asyncio.create_task(
+            watch_folders(
+                **watcher_kwargs,
+                stop_event=stop_event,
+                quiet=True,
+                log_file=log_path,
+            ),
+            name="embedded-watcher",
+        )
+    except WatcherError as exc:
+        logger.warning("Watcher could not start: %s", exc)
+        watcher_task = None
+
+    if watcher_task is not None:
         try:
-            await asyncio.wait_for(watcher_task, timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            watcher_task.cancel()
+            await server_coro_func(*server_args)
+        finally:
+            stop_event.set()
             try:
-                await watcher_task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(watcher_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                watcher_task.cancel()
+                try:
+                    await watcher_task
+                except asyncio.CancelledError:
+                    pass
+            except WatcherError as exc:
+                # Config error in watcher (e.g., no valid dirs) — log and continue
+                logger.warning("Watcher could not start: %s", exc)
+    else:
+        await server_coro_func(*server_args)
 
 
 async def run_stdio_server():

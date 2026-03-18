@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 # Default debounce in milliseconds
 DEFAULT_DEBOUNCE_MS = 2000
 
+
+class WatcherError(Exception):
+    """Base exception for watcher errors that should not kill the embedding process."""
+
+    pass
+
+
 # Platform-specific: fcntl for Unix (advisory locking)
 try:
     import fcntl
@@ -370,7 +377,10 @@ async def watch_folders(
 
     if not resolved:
         _watcher_output("ERROR: no valid directories to watch", quiet=quiet, log_file_handle=None)
-        sys.exit(1)
+        if stop_event is not None:
+            # Embedded mode: raise exception instead of killing the server process
+            raise WatcherError("No valid directories to watch")
+        sys.exit(1)  # Standalone mode: exit is acceptable
 
     # --- Acquire locks ---
     locked_folders: list[str] = []
