@@ -160,7 +160,15 @@ def collect_metadata(providers: list[ContextProvider]) -> dict:
         try:
             provider_meta = provider.get_metadata()
             if provider_meta:
-                metadata.update(provider_meta)
+                for key, value in provider_meta.items():
+                    if key in metadata:
+                        logger.warning(
+                            "Metadata key '%s' from provider '%s' overwrites "
+                            "existing key (previous value dropped)",
+                            key,
+                            provider.name,
+                        )
+                    metadata[key] = value
         except Exception as e:
             logger.warning("Metadata collection from '%s' failed: %s", provider.name, e)
     return metadata
