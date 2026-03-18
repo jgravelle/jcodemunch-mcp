@@ -68,6 +68,20 @@ def _parse_watcher_flag(value: Optional[str]) -> bool:
     return value.lower() not in ("0", "no", "false")
 
 
+def _get_watcher_enabled(args) -> bool:
+    """Determine if the watcher should be enabled for the serve subcommand.
+
+    Precedence: --watcher CLI flag > JCODEMUNCH_WATCH env var > disabled.
+    """
+    flag = getattr(args, "watcher", None)
+    if flag is not None:
+        return _parse_watcher_flag(flag)
+    env_val = os.environ.get("JCODEMUNCH_WATCH", "")
+    if env_val:
+        return _parse_watcher_flag(env_val)
+    return False
+
+
 # Create server
 server = Server("jcodemunch-mcp")
 
@@ -858,6 +872,7 @@ async def _run_server_with_watcher(
             "Install with: pip install 'jcodemunch-mcp[watch]'"
         )
 
+    import sys
     import tempfile
 
     # Resolve log file path
@@ -867,38 +882,38 @@ async def _run_server_with_watcher(
             f"jcw_{os.getpid()}.log",
         )
 
-    log_fh = None
     if log_path:
-        log_fh = open(log_path, "w", encoding="utf-8")
-        logger.info("Watcher log: %s", log_path)
+        try:
+            open(log_path, "w", encoding="utf-8").close()
+        except (PermissionError, OSError) as exc:
+            print(f"WARNING: could not open watcher log {log_path!r}: {exc}", file=sys.stderr)
+            log_path = None
+        else:
+            logger.info("Watcher log: %s", log_path)
 
     stop_event = asyncio.Event()
-    try:
-        watcher_task = asyncio.create_task(
-            watch_folders(
-                **watcher_kwargs,
-                stop_event=stop_event,
-                quiet=True,
-                log_file=log_path,
-            ),
-            name="embedded-watcher",
-        )
+    watcher_task = asyncio.create_task(
+        watch_folders(
+            **watcher_kwargs,
+            stop_event=stop_event,
+            quiet=True,
+            log_file=log_path,
+        ),
+        name="embedded-watcher",
+    )
 
-        try:
-            await server_coro_func(*server_args)
-        finally:
-            stop_event.set()
-            try:
-                await asyncio.wait_for(watcher_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                watcher_task.cancel()
-                try:
-                    await watcher_task
-                except asyncio.CancelledError:
-                    pass
+    try:
+        await server_coro_func(*server_args)
     finally:
-        if log_fh:
-            log_fh.close()
+        stop_event.set()
+        try:
+            await asyncio.wait_for(watcher_task, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except asyncio.CancelledError:
+                pass
 
 
 async def run_stdio_server():
@@ -1322,7 +1337,7 @@ def main(argv: Optional[list[str]] = None):
         )
     else:
         # serve (default)
-        watcher_enabled = _parse_watcher_flag(getattr(args, "watcher", None))
+        watcher_enabled = _get_watcher_enabled(args)
 
         if watcher_enabled:
             try:
