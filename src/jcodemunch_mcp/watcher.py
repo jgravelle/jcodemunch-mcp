@@ -384,7 +384,7 @@ async def watch_folders(
         _watcher_output("All folders already have active watchers.", quiet=quiet, log_file_handle=None)
         return
 
-    print(f"jcodemunch-mcp watcher: monitoring {len(resolved)} folder(s)", file=sys.stderr)
+    _watcher_output(f"jcodemunch-mcp watcher: monitoring {len(resolved)} folder(s)", quiet=quiet, log_file_handle=None)
 
     # --- Log file setup ---
     log_fh: Optional[IO] = None
@@ -486,11 +486,16 @@ async def watch_folders(
         # Release locks
         for folder in locked_folders:
             _release_lock(folder, storage_path)
+        # Clean up logger handlers added by this call
+        _wl = logging.getLogger("jcodemunch_mcp.watcher")
+        for h in _wl.handlers[:]:
+            if isinstance(h, (logging.FileHandler, logging.NullHandler)):
+                h.close()
+                _wl.removeHandler(h)
         _watcher_output("Done.", quiet=quiet, log_file_handle=log_fh)
-
-    # Close log file handle
-    if log_fh:
-        log_fh.close()
+        # Close log file handle
+        if log_fh:
+            log_fh.close()
 
 
 # ---------------------------------------------------------------------------

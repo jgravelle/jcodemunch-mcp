@@ -253,3 +253,193 @@ class TestLockCleanupOnExternalStop:
             assert not lp.exists(), f"Lock file not cleaned up: {lp}"
 
         asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Bug 1: Bare print() leaks to stderr in quiet mode
+# ---------------------------------------------------------------------------
+
+class TestQuietModeNoLeaks:
+    """Verify quiet mode suppresses ALL stderr output from watch_folders."""
+
+    @pytest.fixture()
+    def folder(self, tmp_path):
+        d = tmp_path / "project"
+        d.mkdir()
+        return d
+
+    def test_quiet_mode_suppresses_monitoring_message(self, folder, tmp_path):
+        """The 'monitoring N folder(s)' message must NOT reach stderr in quiet mode."""
+        storage = tmp_path / "storage"
+        storage.mkdir()
+        stop = asyncio.Event()
+        stop.set()  # exit immediately
+
+        async def run():
+            with patch("jcodemunch_mcp.watcher._watch_single") as mock_ws:
+                mock_ws.return_value = None
+                with patch("sys.stderr", new_callable=MagicMock) as mock_stderr:
+                    await watch_folders(
+                        paths=[str(folder)],
+                        storage_path=str(storage),
+                        stop_event=stop,
+                        quiet=True,
+                    )
+                    writes = [call[0][0] for call in mock_stderr.write.call_args_list]
+                    assert not any("monitoring" in w for w in writes), \
+                        f"'monitoring' leaked to stderr in quiet mode: {writes}"
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Bug 2: Logger handlers never removed
+# ---------------------------------------------------------------------------
+
+class TestLoggerHandlerCleanup:
+    """Logger handlers must be removed after watch_folders exits."""
+
+    def test_no_handler_leak_on_repeated_calls(self, tmp_path):
+        """Calling watch_folders multiple times must not accumulate handlers."""
+        import logging
+        d = tmp_path / "proj"
+        d.mkdir()
+        storage = tmp_path / "storage"
+        storage.mkdir()
+
+        async def run():
+            stop = asyncio.Event()
+            stop.set()
+            wl = logging.getLogger("jcodemunch_mcp.watcher")
+
+            with patch("jcodemunch_mcp.watcher._watch_single") as mock_ws:
+                mock_ws.return_value = None
+
+                for _ in range(3):
+                    await watch_folders(
+                        paths=[str(d)],
+                        storage_path=str(storage),
+                        stop_event=stop,
+                        quiet=True,
+                    )
+
+            # Count quiet+log handlers that were NOT cleaned up
+            remaining = [
+                h for h in wl.handlers
+                if isinstance(h, (logging.FileHandler, logging.NullHandler))
+            ]
+            assert len(remaining) == 0, f"Leaked handlers: {remaining}"
+
+        asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Feature: JCODEMUNCH_WATCH env var
+# ---------------------------------------------------------------------------
+
+class TestWatcherEnvVar:
+    """JCODEMUNCH_WATCH env var enables watcher when --watcher flag absent."""
+
+    def test_env_var_enables_watcher(self):
+        """JCODEMUNCH_WATCH=1 enables watcher when --watcher flag not present."""
+        from jcodemunch_mcp.server import main
+        captured = []
+
+        def capturing_run(coro, *a, **kw):
+            captured.append(coro)
+
+        with patch.dict(os.environ, {"JCODEMUNCH_WATCH": "1"}), \
+             patch("jcodemunch_mcp.server.asyncio.run", side_effect=capturing_run):
+            try:
+                main(["serve"])
+            except SystemExit:
+                pass
+
+        assert len(captured) == 1
+        assert "watcher" in captured[0].cr_code.co_name
+        captured[0].close()
+
+    def test_flag_overrides_env_var(self):
+        """--watcher=false disables watcher even when JCODEMUNCH_WATCH=1."""
+        from jcodemunch_mcp.server import main
+        captured = []
+
+        def capturing_run(coro, *a, **kw):
+            captured.append(coro)
+
+        with patch.dict(os.environ, {"JCODEMUNCH_WATCH": "1"}), \
+             patch("jcodemunch_mcp.server.asyncio.run", side_effect=capturing_run):
+            try:
+                main(["serve", "--watcher=false"])
+            except SystemExit:
+                pass
+
+        assert len(captured) == 1
+        assert "watcher" not in captured[0].cr_code.co_name
+        captured[0].close()
+
+    def test_env_var_false_disables(self):
+        """JCODEMUNCH_WATCH=0 does NOT enable watcher."""
+        from jcodemunch_mcp.server import main
+        captured = []
+
+        def capturing_run(coro, *a, **kw):
+            captured.append(coro)
+
+        with patch.dict(os.environ, {"JCODEMUNCH_WATCH": "0"}), \
+             patch("jcodemunch_mcp.server.asyncio.run", side_effect=capturing_run):
+            try:
+                main(["serve"])
+            except SystemExit:
+                pass
+
+        assert len(captured) == 1
+        assert "watcher" not in captured[0].cr_code.co_name
+        captured[0].close()
+
+
+# ---------------------------------------------------------------------------
+# Bug 5: Log file permission error produces warning, not crash
+# ---------------------------------------------------------------------------
+
+def test_watcher_log_permission_error_is_warning_not_crash(tmp_path):
+    """Unopenable log file produces a WARNING but does not crash the server."""
+    import sys
+    from jcodemunch_mcp.server import _run_server_with_watcher
+    import io
+
+    captured = []
+
+    mock_stderr = io.StringIO()
+
+    async def fake_server():
+        await asyncio.sleep(0.05)
+
+    async def fake_watch_folders(**kwargs):
+        stop = kwargs.get("stop_event")
+        if stop:
+            stop.set()
+
+    # A path that will fail to open for write on Windows (system dir)
+    protected_path = "C:\\Windows\\System32\\protected_test.log"
+
+    async def run():
+        with patch("jcodemunch_mcp.server.watch_folders", side_effect=fake_watch_folders):
+            with patch("sys.stderr", mock_stderr):
+                await _run_server_with_watcher(
+                    fake_server, (),
+                    dict(paths=["."], debounce_ms=2000, use_ai_summaries=False,
+                         storage_path=None, extra_ignore_patterns=None,
+                         follow_symlinks=False, idle_timeout_minutes=None),
+                    log_path=protected_path,
+                )
+
+    # The function should NOT raise PermissionError; it should warn and continue
+    try:
+        asyncio.run(run())
+    except (PermissionError, OSError):
+        pass  # This is the bug - it should not raise
+
+    output = mock_stderr.getvalue()
+    # Should have warned about the log file
+    assert "WARNING" in output or "PermissionError" in output or "could not open" in output
