@@ -903,6 +903,8 @@ async def _run_server_with_watcher(
 
     try:
         await server_coro_func(*server_args)
+    except asyncio.CancelledError:
+        pass  # Clean shutdown via Ctrl+C
     finally:
         stop_event.set()
         try:
@@ -1365,18 +1367,21 @@ def main(argv: Optional[list[str]] = None):
 
             log_path = getattr(args, "watcher_log", None)
 
-            if args.transport == "sse":
-                asyncio.run(_run_server_with_watcher(
-                    run_sse_server, (args.host, args.port), watcher_kwargs, log_path,
-                ))
-            elif args.transport == "streamable-http":
-                asyncio.run(_run_server_with_watcher(
-                    run_streamable_http_server, (args.host, args.port), watcher_kwargs, log_path,
-                ))
-            else:
-                asyncio.run(_run_server_with_watcher(
-                    run_stdio_server, (), watcher_kwargs, log_path,
-                ))
+            try:
+                if args.transport == "sse":
+                    asyncio.run(_run_server_with_watcher(
+                        run_sse_server, (args.host, args.port), watcher_kwargs, log_path,
+                    ))
+                elif args.transport == "streamable-http":
+                    asyncio.run(_run_server_with_watcher(
+                        run_streamable_http_server, (args.host, args.port), watcher_kwargs, log_path,
+                    ))
+                else:
+                    asyncio.run(_run_server_with_watcher(
+                        run_stdio_server, (), watcher_kwargs, log_path,
+                    ))
+            except KeyboardInterrupt:
+                pass
         else:
             if args.transport == "sse":
                 asyncio.run(run_sse_server(args.host, args.port))
