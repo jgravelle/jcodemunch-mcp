@@ -116,7 +116,6 @@ class TestReadManifest:
 # ---------------------------------------------------------------------------
 # Git worktree parsing tests
 # ---------------------------------------------------------------------------
-
 PORCELAIN_OUTPUT = textwrap.dedent("""\
     worktree /home/user/project
     HEAD abc123
@@ -124,7 +123,7 @@ PORCELAIN_OUTPUT = textwrap.dedent("""\
 
     worktree /home/user/.claude-worktrees/project/dreamy-fox
     HEAD def456
-    branch refs/heads/claude/dreamy-fox
+    branch refs/heads/agent/dreamy-fox
 
     worktree /home/user/.claude/worktrees/feature-auth
     HEAD 789abc
@@ -136,10 +135,10 @@ PORCELAIN_OUTPUT = textwrap.dedent("""\
 
     worktree /home/user/.claude-worktrees/project/old-session
     HEAD bbb222
-    branch refs/heads/claude/old-session
+    branch refs/heads/agent/old-session
     prunable gitdir file points to non-existent location
 
-""")
+    """)
 
 
 class TestParseGitWorktrees:
@@ -154,7 +153,7 @@ class TestParseGitWorktrees:
 
     def test_filters_by_branch(self):
         result = self._run_with_output(PORCELAIN_OUTPUT)
-        # Should include claude/* and worktree-* but not main or feature/manual
+        # Should include agent/* and worktree-* but not main or feature/manual
         assert "/home/user/.claude-worktrees/project/dreamy-fox" in result
         assert "/home/user/.claude/worktrees/feature-auth" in result
         assert "/home/user/.claude/worktrees/manual-branch" not in result

@@ -890,7 +890,7 @@ async def _run_server_with_watcher(
             print(f"WARNING: could not open watcher log {log_path!r}: {exc}", file=sys.stderr)
             log_path = None
         else:
-            logger.info("Watcher log: %s", log_path)
+            pass
 
     stop_event = asyncio.Event()
     watcher_task = asyncio.create_task(

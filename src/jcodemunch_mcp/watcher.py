@@ -160,14 +160,14 @@ def _acquire_lock(folder_path: str, storage_path: Optional[str]) -> bool:
         data = json.loads(lock_fp.read_text(encoding="utf-8"))
         pid = data.get("pid")
         if pid is None:
-            print(f"Removing stale lock for {folder_path} (no pid key)", file=sys.stderr)
+            logger.info("Removing stale lock for %s (no pid key)", folder_path)
         elif _is_pid_alive(pid):
-            print(f"Watcher already running for {folder_path} (PID {pid})", file=sys.stderr)
+            logger.info("Watcher already running for %s (PID %s)", folder_path, pid)
             return False
         else:
-            print(f"Removing stale lock for {folder_path} (PID {pid} is dead)", file=sys.stderr)
+            logger.info("Removing stale lock for %s (PID %s is dead)", folder_path, pid)
     except (json.JSONDecodeError, OSError):
-        print(f"Removing corrupted lock for {folder_path}", file=sys.stderr)
+        logger.info("Removing corrupted lock for %s", folder_path)
 
     # Step 3: Clean up stale lock and retry
     try:
@@ -197,7 +197,7 @@ def _acquire_lock(folder_path: str, storage_path: Optional[str]) -> bool:
 
     # Step 4: Still can't create - either another process won the race, or
     # the OS is holding the file locked (Windows). Give up gracefully.
-    print(f"WARNING: could not acquire lock for {folder_path}", file=sys.stderr)
+    logger.warning("Could not acquire lock for %s", folder_path)
     return False
 
 
@@ -235,10 +235,7 @@ async def _idle_timeout_watchdog(
             break
         idle_seconds = idle_minutes * 60
         if time.monotonic() - get_last_reindex() > idle_seconds:
-            print(
-                f"No re-indexing activity for {idle_minutes} minute(s) — shutting down.",
-                file=sys.stderr,
-            )
+            logger.info("No re-indexing activity for %s minute(s) — shutting down.", idle_minutes)
             stop_event.set()
             break
 
@@ -394,25 +391,31 @@ async def watch_folders(
         _watcher_output("All folders already have active watchers.", quiet=quiet, log_file_handle=None)
         return
 
-    _watcher_output(f"jcodemunch-mcp watcher: monitoring {len(resolved)} folder(s)", quiet=quiet, log_file_handle=None)
-
     # --- Log file setup ---
-    log_fh: Optional[IO] = None
+    _this_handlers: list[logging.Handler] = []
     if log_file:
         _log_path = log_file
         if _log_path == "auto":
             _log_path = os.path.join(tempfile.gettempdir(), f"jcw_{os.getpid()}.log")
-        log_fh = open(_log_path, "w", encoding="utf-8")
-        # Add file handler to watcher module logger
         _watcher_logger = logging.getLogger("jcodemunch_mcp.watcher")
         _fh = logging.FileHandler(_log_path, encoding="utf-8")
         _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         _watcher_logger.addHandler(_fh)
+        _this_handlers.append(_fh)
         _watcher_logger.propagate = False
+        # Use FileHandler's stream for _watcher_output (no separate open)
+        _watcher_output_stream: Optional[IO] = _fh.stream
     elif quiet:
         _watcher_logger = logging.getLogger("jcodemunch_mcp.watcher")
-        _watcher_logger.addHandler(logging.NullHandler())
+        _nh = logging.NullHandler()
+        _watcher_logger.addHandler(_nh)
+        _this_handlers.append(_nh)
         _watcher_logger.propagate = False
+        _watcher_output_stream: Optional[IO] = None
+    else:
+        _watcher_output_stream: Optional[IO] = None
+
+    _watcher_output(f"jcodemunch-mcp watcher: monitoring {len(resolved)} folder(s)", quiet=quiet, log_file_handle=_watcher_output_stream)
 
     # Handle graceful shutdown
     _external_stop = stop_event is not None
@@ -452,7 +455,7 @@ async def watch_folders(
                 follow_symlinks=follow_symlinks,
                 on_reindex=update_reindex_time,
                 quiet=quiet,
-                log_file_handle=log_fh,
+                log_file_handle=_watcher_output_stream,
             ),
             name=f"watch:{folder}",
         )
@@ -484,7 +487,7 @@ async def watch_folders(
 
     # Clean up
     try:
-        _watcher_output("\nShutting down watchers...", quiet=quiet, log_file_handle=log_fh)
+        _watcher_output("\nShutting down watchers...", quiet=quiet, log_file_handle=_watcher_output_stream)
         for t in tasks:
             t.cancel()
         done_waiter.cancel()
@@ -498,25 +501,21 @@ async def watch_folders(
         # Release locks
         for folder in locked_folders:
             _release_lock(folder, storage_path)
-        # Clean up logger handlers added by this call
+        # Clean up only handlers THIS invocation added
         _wl = logging.getLogger("jcodemunch_mcp.watcher")
-        for h in _wl.handlers[:]:
-            if isinstance(h, (logging.FileHandler, logging.NullHandler)):
-                h.close()
-                _wl.removeHandler(h)
+        for h in _this_handlers:
+            h.close()
+            _wl.removeHandler(h)
         _wl.propagate = True
-        _watcher_output("Done.", quiet=quiet, log_file_handle=log_fh)
-        # Close log file handle
-        if log_fh:
-            log_fh.close()
+        _watcher_output("Done.", quiet=quiet, log_file_handle=_watcher_output_stream if log_file else None)
 
 
 # ---------------------------------------------------------------------------
-# watch-claude helpers
+# worktree helpers
 # ---------------------------------------------------------------------------
 
-# Branch patterns that indicate a Claude Code-created worktree
-_CLAUDE_BRANCH_RE = re.compile(r"^refs/heads/(claude/|worktree-)")
+# Branch patterns that indicate an agent-created worktree
+_WORKTREE_BRANCH_RE = re.compile(r"^refs/heads/(agent/|worktree-)")
 
 
 def _local_repo_id(folder_path: str) -> str:
@@ -527,9 +526,9 @@ def _local_repo_id(folder_path: str) -> str:
 
 
 def parse_git_worktrees(repo_path: str) -> set[str]:
-    """Run ``git worktree list --porcelain`` and return paths of Claude-created worktrees.
+    """Run ``git worktree list --porcelain`` and return paths of agent-created worktrees.
 
-    Filters to worktrees whose branch matches ``claude/*`` or ``worktree-*``.
+    Filters to worktrees whose branch matches ``agent/*`` or ``worktree-*``.
     Skips the first entry (the main working copy) and prunable entries.
     """
     try:
@@ -555,7 +554,7 @@ def parse_git_worktrees(repo_path: str) -> set[str]:
         if line.startswith("worktree "):
             # Flush previous entry
             if current_path and not is_first:
-                if current_branch and _CLAUDE_BRANCH_RE.match(current_branch) and not is_prunable:
+                if current_branch and _WORKTREE_BRANCH_RE.match(current_branch) and not is_prunable:
                     worktrees.add(current_path)
             current_path = line[len("worktree "):]
             current_branch = None
@@ -568,7 +567,7 @@ def parse_git_worktrees(repo_path: str) -> set[str]:
         elif line == "":
             # Blank line separates entries; flush
             if current_path and not is_first:
-                if current_branch and _CLAUDE_BRANCH_RE.match(current_branch) and not is_prunable:
+                if current_branch and _WORKTREE_BRANCH_RE.match(current_branch) and not is_prunable:
                     worktrees.add(current_path)
             # The very first entry was already processed when we hit the second "worktree" line,
             # but handle the edge case of only one entry
@@ -577,14 +576,14 @@ def parse_git_worktrees(repo_path: str) -> set[str]:
             is_prunable = False
 
     # Flush last entry (no trailing blank line in some git versions)
-    if current_path and current_branch and _CLAUDE_BRANCH_RE.match(current_branch) and not is_prunable:
+    if current_path and current_branch and _WORKTREE_BRANCH_RE.match(current_branch) and not is_prunable:
         worktrees.add(current_path)
 
     return worktrees
 
 
 # ---------------------------------------------------------------------------
-# watch-claude main
+# watch-worktrees main
 # ---------------------------------------------------------------------------
 
 
@@ -597,7 +596,7 @@ async def watch_claude_worktrees(
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
 ) -> None:
-    """Watch Claude Code worktrees via JSONL manifest and/or git repo polling."""
+    """Watch agent worktrees via JSONL manifest and/or git repo polling."""
     manifest_path = DEFAULT_MANIFEST_PATH
     use_manifest = manifest_path.is_file() or not repos
     use_repos = bool(repos)
@@ -605,7 +604,7 @@ async def watch_claude_worktrees(
     if not use_manifest and not use_repos:
         print(
             "ERROR: no manifest file found and no --repos specified.\n"
-            "Either install Claude Code hooks (see docs) or pass --repos.",
+            "Either install agent hooks (see docs) or pass --repos.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -615,15 +614,20 @@ async def watch_claude_worktrees(
         modes.append(f"manifest ({manifest_path})")
     if use_repos:
         modes.append(f"repos ({len(repos)} repo(s), poll every {poll_interval}s)")
-    print(f"jcodemunch-mcp watch-claude: {' + '.join(modes)}", file=sys.stderr)
+    print(f"jcodemunch-mcp watch-worktrees: {' + '.join(modes)}", file=sys.stderr)
 
     # Handle graceful shutdown
     stop_event = asyncio.Event()
     if sys.platform == "win32":
-        signal.signal(signal.SIGINT, lambda s, f: stop_event.set())
-        signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
+        loop = asyncio.get_running_loop()
+
+        def _handle_signal(sig, frame):
+            loop.call_soon_threadsafe(stop_event.set)
+
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
     else:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop_event.set)
 
@@ -796,7 +800,7 @@ async def watch_claude_worktrees(
     )
 
     # Clean up
-    print("\nShutting down watch-claude...", file=sys.stderr)
+    print("\nShutting down watch-worktrees...", file=sys.stderr)
     for t in management_tasks:
         t.cancel()
     for t in active.values():
