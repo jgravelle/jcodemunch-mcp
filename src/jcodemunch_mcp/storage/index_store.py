@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from filelock import FileLock
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from ..parser.symbols import Symbol
 
@@ -80,6 +80,7 @@ class CodeIndex:
     imports: Optional[dict[str, list[dict]]] = None  # file_path -> [{specifier, names}]; None = not indexed yet (pre-v1.3.0)
     context_metadata: dict = field(default_factory=dict)  # Provider metadata (e.g., dbt_columns)
     file_blob_shas: dict[str, str] = field(default_factory=dict)  # file_path -> GitHub blob SHA (remote repos only)
+    file_mtimes: dict[str, float] = field(default_factory=dict)  # file_path -> os.stat().st_mtime_ns
 
     def __post_init__(self) -> None:
         if not self.display_name:
@@ -403,6 +404,7 @@ class IndexStore:
         imports: Optional[dict[str, list[dict]]] = None,
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
+        file_mtimes: Optional[dict[str, float]] = None,
     ) -> "CodeIndex":
         """Save index and raw files to storage."""
         normalized_source_files = sorted(dict.fromkeys(source_files or list(raw_files.keys())))
@@ -437,6 +439,7 @@ class IndexStore:
             imports=imports if imports is not None else {},
             context_metadata=context_metadata or {},
             file_blob_shas=file_blob_shas or {},
+            file_mtimes=file_mtimes or {},
         )
 
         # Lock, write index + raw files atomically
@@ -542,6 +545,7 @@ class IndexStore:
             imports=data["imports"] if "imports" in data else None,
             context_metadata=data.get("context_metadata", {}),
             file_blob_shas=data.get("file_blob_shas", {}),
+            file_mtimes=data.get("file_mtimes", {}),
         )
 
     def get_symbol_content(self, owner: str, name: str, symbol_id: str, _index: Optional["CodeIndex"] = None) -> Optional[str]:
@@ -627,6 +631,78 @@ class IndexStore:
 
         return changed_files, new_files, deleted_files
 
+    def detect_changes_with_mtimes(
+        self,
+        owner: str,
+        name: str,
+        current_mtimes: dict[str, float],
+        hash_fn: Callable[[str], str],
+    ) -> tuple[list[str], list[str], list[str], dict[str, str], dict[str, float]]:
+        """Fast-path change detection using mtimes, falling back to hash on mismatch.
+
+        For files whose mtime hasn't changed, no hash is computed (O(1) stat check).
+        When mtime differs, hash_fn is called to compute SHA-256 and compare against
+        the stored hash.
+
+        Args:
+            owner: Repository owner.
+            name: Repository name.
+            current_mtimes: rel_path -> st_mtime_ns for all current files.
+            hash_fn: Callable that takes a rel_path and returns its SHA-256 hash.
+
+        Returns:
+            Tuple of (changed_files, new_files, deleted_files,
+                      hashes_for_changed_and_new, updated_mtimes).
+            The hashes dict contains entries only for files that were actually hashed
+            (changed + new). The mtimes dict is a complete set for all current files
+            (unchanged files keep their current mtime).
+        """
+        index = self.load_index(owner, name)
+        if not index:
+            # No existing index — all files are new, hash them all.
+            hashes: dict[str, str] = {}
+            for fp in current_mtimes:
+                hashes[fp] = hash_fn(fp)
+            return [], list(current_mtimes.keys()), [], hashes, dict(current_mtimes)
+
+        old_hashes = index.file_hashes
+        old_mtimes = index.file_mtimes
+
+        old_set = set(old_hashes.keys())
+        new_set = set(current_mtimes.keys())
+
+        new_files = sorted(new_set - old_set)
+        deleted_files = sorted(old_set - new_set)
+
+        changed_files: list[str] = []
+        computed_hashes: dict[str, str] = {}
+        updated_mtimes: dict[str, float] = {}
+
+        # Check files present in both old and new indexes.
+        for fp in sorted(old_set & new_set):
+            cur_mtime = current_mtimes[fp]
+            old_mtime = old_mtimes.get(fp)
+
+            if old_mtime is not None and cur_mtime == old_mtime:
+                # mtime unchanged — skip hash, file is unchanged.
+                updated_mtimes[fp] = cur_mtime
+                continue
+
+            # mtime differs (or no stored mtime) — compute hash to verify.
+            h = hash_fn(fp)
+            if h != old_hashes[fp]:
+                changed_files.append(fp)
+                computed_hashes[fp] = h
+            # Update mtime regardless (covers touched-but-unchanged case).
+            updated_mtimes[fp] = cur_mtime
+
+        # Hash all new files.
+        for fp in new_files:
+            computed_hashes[fp] = hash_fn(fp)
+            updated_mtimes[fp] = current_mtimes[fp]
+
+        return changed_files, new_files, deleted_files, computed_hashes, updated_mtimes
+
     def incremental_save(
         self,
         owner: str,
@@ -644,6 +720,7 @@ class IndexStore:
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
         file_hashes: Optional[dict[str, str]] = None,
+        file_mtimes: Optional[dict[str, float]] = None,
     ) -> Optional[CodeIndex]:
         """Incrementally update an existing index.
 
@@ -726,6 +803,13 @@ class IndexStore:
             if file_blob_shas:
                 merged_blob_shas.update(file_blob_shas)
 
+            # Merge file mtimes: keep old, remove deleted, update changed/new
+            merged_mtimes = dict(index.file_mtimes)
+            for f in deleted_files:
+                merged_mtimes.pop(f, None)
+            if file_mtimes:
+                merged_mtimes.update(file_mtimes)
+
             # Build updated index
             updated_source_files = sorted(old_files)
             updated = CodeIndex(
@@ -746,6 +830,7 @@ class IndexStore:
                 imports=merged_imports,
                 context_metadata=context_metadata if context_metadata else index.context_metadata,
                 file_blob_shas=merged_blob_shas,
+                file_mtimes=merged_mtimes,
             )
 
             # Save atomically: unpredictable temp file prevents symlink attacks
@@ -927,4 +1012,5 @@ class IndexStore:
             **({} if index.imports is None else {"imports": index.imports}),
             **({"context_metadata": index.context_metadata} if index.context_metadata else {}),
             **({"file_blob_shas": index.file_blob_shas} if index.file_blob_shas else {}),
+            **({"file_mtimes": index.file_mtimes} if index.file_mtimes else {}),
         }

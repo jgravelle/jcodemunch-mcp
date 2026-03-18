@@ -15,9 +15,8 @@ import pathspec
 logger = logging.getLogger(__name__)
 
 from ..parser import parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
-from ..parser.context import discover_providers, enrich_symbols, collect_metadata, ContextProvider
+from ..parser.context import discover_providers, enrich_symbols, collect_metadata
 from ..parser.imports import extract_imports
-from ..summarizer import generate_file_summaries
 from ..security import (
     validate_path,
     is_symlink_escape,
@@ -104,52 +103,13 @@ def _local_repo_name(folder_path: Path) -> str:
     return f"{folder_path.name}-{digest}"
 
 
-def _file_languages_for_paths(
-    file_paths: list[str],
-    symbols_by_file: dict[str, list],
-) -> dict[str, str]:
-    """Resolve file languages using parsed symbols first, then extension fallback."""
-    file_languages: dict[str, str] = {}
-    for file_path in file_paths:
-        file_symbols = symbols_by_file.get(file_path, [])
-        language = file_symbols[0].language if file_symbols else ""
-        if not language:
-            language = get_language_for_path(file_path) or ""
-        if language:
-            file_languages[file_path] = language
-    return file_languages
-
-
-def _language_counts(file_languages: dict[str, str]) -> dict[str, int]:
-    """Count files by language."""
-    counts: dict[str, int] = {}
-    for language in file_languages.values():
-        counts[language] = counts.get(language, 0) + 1
-    return counts
-
-
-def _complete_file_summaries(
-    file_paths: list[str],
-    symbols_by_file: dict[str, list],
-    context_providers: Optional[list[ContextProvider]] = None,
-) -> dict[str, str]:
-    """Generate file summaries and include empty entries for no-symbol files."""
-    providers = context_providers or []
-    generated = generate_file_summaries(dict(symbols_by_file), context_providers=providers)
-
-    # For files with no symbols but with provider metadata, generate context-only summary
-    if providers:
-        for file_path in file_paths:
-            if file_path not in generated or not generated.get(file_path):
-                for provider in providers:
-                    ctx = provider.get_file_context(file_path)
-                    if ctx is not None:
-                        summary = ctx.file_summary()
-                        if summary:
-                            generated[file_path] = summary
-                            break
-
-    return {file_path: generated.get(file_path, "") for file_path in file_paths}
+from ._indexing_pipeline import (
+    file_languages_for_paths as _file_languages_for_paths,
+    language_counts as _language_counts,
+    complete_file_summaries as _complete_file_summaries,
+    parse_and_prepare_incremental,
+    parse_and_prepare_full,
+)
 
 
 def discover_local_files(
@@ -383,19 +343,13 @@ def index_folder(
                 "CODE_INDEX_PATH directory) to remove the stale index."
             )
 
-        # Streaming hash pass — resolve rel_paths and compute hashes without
-        # keeping all file contents in memory (P2-5: avoids 200MB-1GB allocation
-        # for large projects).
-        file_hashes: dict[str, str] = {}
+        # Discovery pass — resolve rel_paths and collect mtimes without
+        # reading file contents (P2-5: avoids 200MB-1GB allocation
+        # for large projects). Content is read on-demand later.
+        file_mtimes: dict[str, float] = {}
         rel_path_map: dict[str, Path] = {}  # rel_path -> absolute Path
         for file_path in source_files:
             if not validate_path(folder_path, file_path):
-                continue
-            try:
-                with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
-                    content = f.read()
-            except Exception as e:
-                warnings.append(f"Failed to read {file_path}: {e}")
                 continue
             try:
                 rel_path = file_path.relative_to(folder_path).as_posix()
@@ -404,9 +358,12 @@ def index_folder(
             ext = file_path.suffix
             if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(file_path)) is None:
                 continue
-            file_hashes[rel_path] = _file_hash(content)
+            try:
+                file_mtimes[rel_path] = os.stat(file_path).st_mtime_ns
+            except OSError as e:
+                warnings.append(f"Failed to stat {file_path}: {e}")
+                continue
             rel_path_map[rel_path] = file_path
-            # content is discarded here — not accumulated
 
         def _read_file(rel_path: str) -> str | None:
             """Re-read a file by its rel_path. Returns content or None on error."""
@@ -418,10 +375,18 @@ def index_folder(
                 warnings.append(f"Failed to read {abs_path}: {e}")
                 return None
 
-        # Incremental path: detect changes and only re-parse affected files
+        def _hash_file(rel_path: str) -> str:
+            """Read and hash a single file on demand."""
+            abs_path = rel_path_map[rel_path]
+            with open(abs_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                return _file_hash(f.read())
+
+        # Incremental path: detect changes using mtime fast-path
         if incremental and existing_index is not None:
-            changed, new, deleted = store.detect_changes_from_hashes(
-                owner, repo_name, file_hashes
+            changed, new, deleted, computed_hashes, updated_mtimes = (
+                store.detect_changes_with_mtimes(
+                    owner, repo_name, file_mtimes, _hash_file
+                )
             )
 
             if not changed and not new and not deleted:
@@ -434,68 +399,29 @@ def index_folder(
                     "duration_seconds": round(time.monotonic() - t0, 2),
                 }
 
-            # Parse only changed + new files — only these need content in memory
+            # Read changed + new files into memory
             files_to_parse = set(changed) | set(new)
-            new_symbols = []
             raw_files_subset: dict[str, str] = {}
             subset_hashes: dict[str, str] = {}
-
-            incremental_no_symbols: list[str] = []
             for rel_path in files_to_parse:
                 content = _read_file(rel_path)
                 if content is None:
                     continue
                 raw_files_subset[rel_path] = content
-                subset_hashes[rel_path] = file_hashes[rel_path]
-                language = get_language_for_path(rel_path)
-                if not language:
-                    incremental_no_symbols.append(rel_path)
-                    continue
-                try:
-                    symbols = parse_file(content, rel_path, language)
-                    if symbols:
-                        new_symbols.extend(symbols)
-                    else:
-                        incremental_no_symbols.append(rel_path)
-                        logger.debug("NO SYMBOLS (incremental): %s", rel_path)
-                except Exception as e:
-                    warnings.append(f"Failed to parse {rel_path}: {e}")
-                    logger.debug("PARSE ERROR (incremental): %s — %s", rel_path, e)
+                subset_hashes[rel_path] = computed_hashes.get(rel_path, _file_hash(content))
 
-            logger.info(
-                "Incremental parsing — with symbols: %d, no symbols: %d",
-                len(new_symbols),
-                len(incremental_no_symbols),
+            # Shared pipeline: parse, enrich, summarize, extract metadata
+            new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
+                parse_and_prepare_incremental(
+                    files_to_parse=files_to_parse,
+                    file_contents=raw_files_subset,
+                    active_providers=active_providers,
+                    use_ai_summaries=use_ai_summaries,
+                    warnings=warnings,
+                )
             )
 
-            # Enrich with context providers before summarization
-            if active_providers:
-                enrich_symbols(new_symbols, active_providers)
-
-            new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries)
-
-            # Generate file summaries for changed/new files
-            incr_symbols_map = defaultdict(list)
-            for s in new_symbols:
-                incr_symbols_map[s.file].append(s)
-            incr_file_summaries = _complete_file_summaries(sorted(files_to_parse), incr_symbols_map, context_providers=active_providers)
-            incr_file_languages = _file_languages_for_paths(sorted(files_to_parse), incr_symbols_map)
-
-            # Build import graph for changed/new files
-            incr_file_imports: dict[str, list[dict]] = {}
-            for rel_path in files_to_parse:
-                content = raw_files_subset.get(rel_path)
-                if content is None:
-                    continue
-                language = get_language_for_path(rel_path)
-                if language:
-                    imps = extract_imports(content, rel_path, language)
-                    if imps:
-                        incr_file_imports[rel_path] = imps
-
             git_head = _get_git_head(folder_path) or ""
-
-            # Collect structured metadata from providers (always full refresh)
             incr_context_metadata = collect_metadata(active_providers) if active_providers else None
 
             updated = store.incremental_save(
@@ -509,6 +435,7 @@ def index_folder(
                 imports=incr_file_imports,
                 context_metadata=incr_context_metadata,
                 file_hashes=subset_hashes,
+                file_mtimes=updated_mtimes,
             )
 
             result = {
@@ -530,9 +457,11 @@ def index_folder(
 
         # Full index path — stream through files one at a time to avoid
         # loading all contents into memory simultaneously.
+        # Compute hashes and collect mtimes during the per-file loop.
+        file_hashes: dict[str, str] = {}
         all_symbols = []
         symbols_by_file: dict[str, list] = defaultdict(list)
-        source_file_list = sorted(file_hashes)
+        source_file_list = sorted(file_mtimes)
         file_imports: dict[str, list[dict]] = {}
         content_dir = store._content_dir(owner, repo_name)
         content_dir.mkdir(parents=True, exist_ok=True)
@@ -542,6 +471,9 @@ def index_folder(
             content = _read_file(rel_path)
             if content is None:
                 continue
+
+            # Compute hash while content is in memory
+            file_hashes[rel_path] = _file_hash(content)
 
             # Write raw content to cache immediately, then process
             file_dest = store._safe_content_path(content_dir, rel_path)
@@ -586,7 +518,7 @@ def index_folder(
         if all_symbols:
             all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
 
-        # Generate file-level summaries (single-pass grouping)
+        # Generate file-level summaries (single-pass grouping) using shared helpers
         file_symbols_map = defaultdict(list)
         for s in all_symbols:
             file_symbols_map[s.file].append(s)
@@ -614,6 +546,7 @@ def index_folder(
             display_name=folder_path.name,
             imports=file_imports,
             context_metadata=full_context_metadata,
+            file_mtimes=file_mtimes,
         )
 
         result = {

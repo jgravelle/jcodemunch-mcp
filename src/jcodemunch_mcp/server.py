@@ -15,6 +15,7 @@ from mcp.types import Tool, TextContent, Resource
 from . import __version__
 from .tools.index_repo import index_repo
 from .tools.index_folder import index_folder
+from .tools.index_file import index_file
 from .tools.list_repos import list_repos
 from .tools.get_file_tree import get_file_tree
 from .tools.get_file_outline import get_file_outline
@@ -107,6 +108,30 @@ async def list_tools() -> list[Tool]:
                     "incremental": {
                         "type": "boolean",
                         "description": "When true and an existing index exists, only re-index changed files.",
+                        "default": True
+                    }
+                },
+                "required": ["path"]
+            }
+        ),
+        Tool(
+            name="index_file",
+            description="Index a single file within an existing index. Faster than index_folder for surgical updates after editing a file. The file must be within an already-indexed folder's source_root. Can also add new files not yet in the index.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the file to index"
+                    },
+                    "use_ai_summaries": {
+                        "type": "boolean",
+                        "description": "Use AI to generate symbol summaries",
+                        "default": True
+                    },
+                    "context_providers": {
+                        "type": "boolean",
+                        "description": "Whether to run context providers",
                         "default": True
                     }
                 },
@@ -455,6 +480,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     extra_ignore_patterns=arguments.get("extra_ignore_patterns"),
                     follow_symlinks=arguments.get("follow_symlinks", False),
                     incremental=arguments.get("incremental", True),
+                )
+            )
+        elif name == "index_file":
+            _ai = arguments.get("use_ai_summaries", _default_use_ai_summaries())
+            result = await asyncio.to_thread(
+                functools.partial(
+                    index_file,
+                    path=arguments["path"],
+                    use_ai_summaries=_ai,
+                    storage_path=storage_path,
+                    context_providers=arguments.get("context_providers", True),
                 )
             )
         elif name == "list_repos":

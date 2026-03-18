@@ -5,7 +5,6 @@ import hashlib
 import logging
 import os
 import time
-from collections import defaultdict
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -13,11 +12,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-from ..parser import parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
-from ..parser.imports import extract_imports
+from ..parser import get_language_for_path
 from ..security import is_secret_file, is_binary_extension, get_max_index_files, get_extra_ignore_patterns, SKIP_PATTERNS
 from ..storage import IndexStore
-from ..summarizer import summarize_symbols, generate_file_summaries
+from ._indexing_pipeline import (
+    file_languages_for_paths as _file_languages_for_paths,
+    language_counts as _language_counts,
+    complete_file_summaries as _complete_file_summaries,
+    parse_and_prepare_incremental,
+    parse_and_prepare_full,
+)
 
 
 def parse_github_url(url: str) -> tuple[str, str]:
@@ -217,39 +221,6 @@ def discover_source_files(
         blob_shas = {p: blob_shas[p] for p in files}
 
     return files, blob_shas, truncated
-
-
-def _file_languages_for_paths(
-    file_paths: list[str],
-    symbols_by_file: dict[str, list],
-) -> dict[str, str]:
-    """Resolve file languages using parsed symbols first, then extension fallback."""
-    file_languages: dict[str, str] = {}
-    for file_path in file_paths:
-        file_symbols = symbols_by_file.get(file_path, [])
-        language = file_symbols[0].language if file_symbols else ""
-        if not language:
-            language = get_language_for_path(file_path) or ""
-        if language:
-            file_languages[file_path] = language
-    return file_languages
-
-
-def _language_counts(file_languages: dict[str, str]) -> dict[str, int]:
-    """Count files by language."""
-    counts: dict[str, int] = {}
-    for language in file_languages.values():
-        counts[language] = counts.get(language, 0) + 1
-    return counts
-
-
-def _complete_file_summaries(
-    file_paths: list[str],
-    symbols_by_file: dict[str, list],
-) -> dict[str, str]:
-    """Generate file summaries and include empty entries for no-symbol files."""
-    generated = generate_file_summaries(dict(symbols_by_file))
-    return {file_path: generated.get(file_path, "") for file_path in file_paths}
 
 
 async def fetch_file_content(
@@ -452,45 +423,17 @@ async def index_repo(
                 }
 
             files_to_parse = set(changed) | set(new)
-            new_symbols = []
-            raw_files_subset: dict[str, str] = {}
-            incremental_no_symbols: list[str] = []
+            raw_files_subset = {p: current_files[p] for p in files_to_parse if p in current_files}
 
-            for path in files_to_parse:
-                content = current_files[path]
-                # Track file hashes for changed/new files even when symbol extraction yields none.
-                raw_files_subset[path] = content
-                language = get_language_for_path(path)
-                if not language:
-                    incremental_no_symbols.append(path)
-                    continue
-                try:
-                    symbols = parse_file(content, path, language)
-                    if symbols:
-                        new_symbols.extend(symbols)
-                    else:
-                        incremental_no_symbols.append(path)
-                except Exception:
-                    warnings.append(f"Failed to parse {path}")
-
-            new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries)
-
-            # Generate file summaries for changed/new files
-            incr_symbols_map = defaultdict(list)
-            for s in new_symbols:
-                incr_symbols_map[s.file].append(s)
-            incr_file_summaries = _complete_file_summaries(sorted(files_to_parse), incr_symbols_map)
-            incr_file_languages = _file_languages_for_paths(sorted(files_to_parse), incr_symbols_map)
-
-            # Build import graph for changed/new files
-            incr_file_imports: dict[str, list[dict]] = {}
-            for path in files_to_parse:
-                content = current_files[path]
-                language = get_language_for_path(path)
-                if language:
-                    imps = extract_imports(content, path, language)
-                    if imps:
-                        incr_file_imports[path] = imps
+            # Shared pipeline: parse, enrich, summarize, extract metadata
+            new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
+                parse_and_prepare_incremental(
+                    files_to_parse=files_to_parse,
+                    file_contents=raw_files_subset,
+                    use_ai_summaries=use_ai_summaries,
+                    warnings=warnings,
+                )
+            )
 
             # Only record blob SHAs for files we successfully fetched
             # (failed fetches keep their old SHA so they're retried next run)
@@ -524,52 +467,16 @@ async def index_repo(
 
         # Full index path
         logger.info("index_repo full — parsing %d files", len(current_files))
-        all_symbols = []
-        symbols_by_file: dict[str, list] = defaultdict(list)
-        source_file_list = sorted(current_files)
-        no_symbols_files: list[str] = []
 
-        for path, content in current_files.items():
-            language = get_language_for_path(path)
-            if not language:
-                no_symbols_files.append(path)
-                continue
-            try:
-                symbols = parse_file(content, path, language)
-                if symbols:
-                    all_symbols.extend(symbols)
-                    symbols_by_file[path].extend(symbols)
-                else:
-                    no_symbols_files.append(path)
-            except Exception:
-                warnings.append(f"Failed to parse {path}")
-                continue
-
-        logger.info(
-            "index_repo parsing complete — with symbols: %d, no symbols: %d",
-            len(symbols_by_file), len(no_symbols_files),
+        # Shared pipeline: parse all files, enrich, summarize, extract metadata
+        all_symbols, file_summaries, languages, file_languages, file_imports, no_symbols_files = (
+            parse_and_prepare_full(
+                file_contents=current_files,
+                use_ai_summaries=use_ai_summaries,
+                warnings=warnings,
+            )
         )
-
-        # Generate summaries
-        if all_symbols:
-            all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries)
-
-        # Generate file-level summaries (single-pass grouping)
-        file_symbols_map = defaultdict(list)
-        for s in all_symbols:
-            file_symbols_map[s.file].append(s)
-        file_languages = _file_languages_for_paths(source_file_list, file_symbols_map)
-        languages = _language_counts(file_languages)
-        file_summaries = _complete_file_summaries(source_file_list, file_symbols_map)
-
-        # Build import graph
-        file_imports: dict[str, list[dict]] = {}
-        for path, content in current_files.items():
-            language = get_language_for_path(path)
-            if language:
-                imps = extract_imports(content, path, language)
-                if imps:
-                    file_imports[path] = imps
+        source_file_list = sorted(current_files)
 
         # Save index
         # Track hashes for all discovered source files so incremental change detection
