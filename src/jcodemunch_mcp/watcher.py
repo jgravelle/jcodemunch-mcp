@@ -9,10 +9,11 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, IO, Optional
 
 from .hook_event import DEFAULT_MANIFEST_PATH, read_manifest
 from .tools.index_folder import index_folder
@@ -31,6 +32,14 @@ except ImportError:
 
 # Module-level lock file descriptors (Unix flock)
 _lock_fds: dict[str, int] = {}
+
+
+def _watcher_output(msg: str, *, quiet: bool, log_file_handle: Optional[IO] = None) -> None:
+    """Route watcher output to stderr, a log file, or nowhere."""
+    if log_file_handle is not None:
+        print(msg, file=log_file_handle, flush=True)
+    elif not quiet:
+        print(msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -239,12 +248,14 @@ async def _watch_single(
     extra_ignore_patterns: Optional[list[str]],
     follow_symlinks: bool,
     on_reindex: Optional[Callable[[], None]] = None,
+    quiet: bool = False,
+    log_file_handle: Optional[IO] = None,
 ) -> None:
     """Watch a single folder and re-index on changes."""
-    print(f"Watching {folder_path} (debounce={debounce_ms}ms)", file=sys.stderr)
+    _watcher_output(f"Watching {folder_path} (debounce={debounce_ms}ms)", quiet=quiet, log_file_handle=log_file_handle)
 
     # Do an initial incremental index to ensure the index is current
-    print(f"  Initial index for {folder_path}...", file=sys.stderr)
+    _watcher_output(f"  Initial index for {folder_path}...", quiet=quiet, log_file_handle=log_file_handle)
     result = await asyncio.to_thread(
         index_folder,
         path=folder_path,
@@ -256,12 +267,12 @@ async def _watch_single(
     )
     if result.get("success"):
         msg = result.get("message", f"{result.get('symbol_count', '?')} symbols")
-        print(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", file=sys.stderr)
+        _watcher_output(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", quiet=quiet, log_file_handle=log_file_handle)
         # Count initial index as activity (only if it actually did work)
         if on_reindex is not None and result.get("message") != "No changes detected":
             on_reindex()
     else:
-        print(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", file=sys.stderr)
+        _watcher_output(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", quiet=quiet, log_file_handle=log_file_handle)
 
     try:
         from watchfiles import awatch, Change
@@ -294,10 +305,10 @@ async def _watch_single(
         n_modified = sum(1 for c, _ in relevant if c == Change.modified)
         n_deleted = sum(1 for c, _ in relevant if c == Change.deleted)
 
-        print(
+        _watcher_output(
             f"  Changes detected in {folder_path}: "
             f"+{n_added} ~{n_modified} -{n_deleted}",
-            file=sys.stderr,
+            quiet=quiet, log_file_handle=log_file_handle,
         )
 
         try:
@@ -313,27 +324,27 @@ async def _watch_single(
             if result.get("success"):
                 duration = result.get("duration_seconds", "?")
                 if result.get("message") == "No changes detected":
-                    print(f"  Re-indexed {folder_path}: no indexable changes ({duration}s)", file=sys.stderr)
+                    _watcher_output(f"  Re-indexed {folder_path}: no indexable changes ({duration}s)", quiet=quiet, log_file_handle=log_file_handle)
                 else:
                     changed = result.get("changed", 0)
                     new = result.get("new", 0)
                     deleted = result.get("deleted", 0)
-                    print(
+                    _watcher_output(
                         f"  Re-indexed {folder_path}: "
                         f"changed={changed} new={new} deleted={deleted} ({duration}s)",
-                        file=sys.stderr,
+                        quiet=quiet, log_file_handle=log_file_handle,
                     )
                     # Report re-index activity (only if it actually did work)
                     if on_reindex is not None:
                         on_reindex()
             else:
-                print(
+                _watcher_output(
                     f"  WARNING: re-index failed for {folder_path}: {result.get('error')}",
-                    file=sys.stderr,
+                    quiet=quiet, log_file_handle=log_file_handle,
                 )
         except Exception as e:
             logger.exception("Re-index error for %s: %s", folder_path, e)
-            print(f"  ERROR: re-index failed for {folder_path}: {e}", file=sys.stderr)
+            _watcher_output(f"  ERROR: re-index failed for {folder_path}: {e}", quiet=quiet, log_file_handle=log_file_handle)
 
 
 async def watch_folders(
@@ -344,18 +355,21 @@ async def watch_folders(
     extra_ignore_patterns: Optional[list[str]] = None,
     follow_symlinks: bool = False,
     idle_timeout_minutes: Optional[int] = None,
+    stop_event: Optional[asyncio.Event] = None,
+    quiet: bool = False,
+    log_file: Optional[str] = None,
 ) -> None:
     """Watch multiple folders concurrently."""
     resolved = []
     for p in paths:
         folder = Path(p).expanduser().resolve()
         if not folder.is_dir():
-            print(f"WARNING: skipping {p} — not a directory", file=sys.stderr)
+            _watcher_output(f"WARNING: skipping {p} — not a directory", quiet=quiet, log_file_handle=None)
             continue
         resolved.append(str(folder))
 
     if not resolved:
-        print("ERROR: no valid directories to watch", file=sys.stderr)
+        _watcher_output("ERROR: no valid directories to watch", quiet=quiet, log_file_handle=None)
         sys.exit(1)
 
     # --- Acquire locks ---
@@ -367,26 +381,46 @@ async def watch_folders(
             resolved.remove(folder)
 
     if not resolved:
-        print("All folders already have active watchers.", file=sys.stderr)
+        _watcher_output("All folders already have active watchers.", quiet=quiet, log_file_handle=None)
         return
 
     print(f"jcodemunch-mcp watcher: monitoring {len(resolved)} folder(s)", file=sys.stderr)
 
-    # Handle graceful shutdown
-    stop_event = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    if sys.platform == "win32":
-        # Windows: signal handlers run synchronously outside the event loop.
-        # Using call_soon_threadsafe ensures stop_event.set() is scheduled
-        # safely on the event loop thread rather than called directly.
-        def _handle_signal(sig, frame):
-            loop.call_soon_threadsafe(stop_event.set)
+    # --- Log file setup ---
+    log_fh: Optional[IO] = None
+    if log_file:
+        _log_path = log_file
+        if _log_path == "auto":
+            _log_path = os.path.join(tempfile.gettempdir(), f"jcw_{os.getpid()}.log")
+        log_fh = open(_log_path, "w", encoding="utf-8")
+        # Add file handler to watcher module logger
+        _watcher_logger = logging.getLogger("jcodemunch_mcp.watcher")
+        _fh = logging.FileHandler(_log_path, encoding="utf-8")
+        _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        _watcher_logger.addHandler(_fh)
+    elif quiet:
+        _watcher_logger = logging.getLogger("jcodemunch_mcp.watcher")
+        _watcher_logger.addHandler(logging.NullHandler())
 
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
-    else:
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop_event.set)
+    # Handle graceful shutdown
+    _external_stop = stop_event is not None
+    if stop_event is None:
+        stop_event = asyncio.Event()
+
+    if not _external_stop:
+        loop = asyncio.get_running_loop()
+        if sys.platform == "win32":
+            # Windows: signal handlers run synchronously outside the event loop.
+            # Using call_soon_threadsafe ensures stop_event.set() is scheduled
+            # safely on the event loop thread rather than called directly.
+            def _handle_signal(sig, frame):
+                loop.call_soon_threadsafe(stop_event.set)
+
+            signal.signal(signal.SIGINT, _handle_signal)
+            signal.signal(signal.SIGTERM, _handle_signal)
+        else:
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop_event.set)
 
     # Idle timeout tracking
     last_reindex_time = time.monotonic()
@@ -405,6 +439,8 @@ async def watch_folders(
                 extra_ignore_patterns=extra_ignore_patterns,
                 follow_symlinks=follow_symlinks,
                 on_reindex=update_reindex_time,
+                quiet=quiet,
+                log_file_handle=log_fh,
             ),
             name=f"watch:{folder}",
         )
@@ -435,22 +471,26 @@ async def watch_folders(
     )
 
     # Clean up
-    print("\nShutting down watchers...", file=sys.stderr)
-    for t in tasks:
-        t.cancel()
-    done_waiter.cancel()
-    stop_waiter.cancel()
-    # Gather all tasks including the waiter tasks to ensure they're fully cleaned up
-    # before returning. This prevents Python 3.14+ "coroutine never awaited" warnings.
-    await asyncio.gather(
-        *tasks, done_waiter, stop_waiter, return_exceptions=True
-    )
+    try:
+        _watcher_output("\nShutting down watchers...", quiet=quiet, log_file_handle=log_fh)
+        for t in tasks:
+            t.cancel()
+        done_waiter.cancel()
+        stop_waiter.cancel()
+        # Gather all tasks including the waiter tasks to ensure they're fully cleaned up
+        # before returning. This prevents Python 3.14+ "coroutine never awaited" warnings.
+        await asyncio.gather(
+            *tasks, done_waiter, stop_waiter, return_exceptions=True
+        )
+    finally:
+        # Release locks
+        for folder in locked_folders:
+            _release_lock(folder, storage_path)
+        _watcher_output("Done.", quiet=quiet, log_file_handle=log_fh)
 
-    # Release locks
-    for folder in locked_folders:
-        _release_lock(folder, storage_path)
-
-    print("Done.", file=sys.stderr)
+    # Close log file handle
+    if log_fh:
+        log_fh.close()
 
 
 # ---------------------------------------------------------------------------
