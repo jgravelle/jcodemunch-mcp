@@ -744,7 +744,7 @@ class IndexStore:
                 file_languages={fp: merged_file_languages[fp] for fp in updated_source_files if fp in merged_file_languages},
                 display_name=index.display_name,
                 imports=merged_imports,
-                context_metadata=context_metadata if context_metadata else index.context_metadata,
+                context_metadata=context_metadata if context_metadata is not None else index.context_metadata,
                 file_blob_shas=merged_blob_shas,
             )
 

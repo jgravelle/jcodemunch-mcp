@@ -1,46 +1,88 @@
-# User Guide
+<div align="left" style="float:right; width: 320px; margin: 0 0 1rem 1rem; border: 1px solid #999; padding: 0.75rem; border-radius: 8px; background: #f8f8f8;">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#what-jcodemunch-actually-does">What jCodeMunch actually does</a></li>
+    <li><a href="#1-quick-start">1. Quick Start</a></li>
+    <li><a href="#2-add-jcodemunch-to-your-mcp-client">2. Add jCodeMunch to your MCP client</a></li>
+    <li><a href="#3-the-step-people-skip-then-blame-the-software-for">3. Tell your agent to use jCodeMunch</a></li>
+    <li><a href="#4-your-first-useful-workflows">4. Your first useful workflows</a></li>
+    <li><a href="#5-core-mental-model">5. Core mental model</a></li>
+    <li><a href="#6-tool-reference">6. Tool reference</a></li>
+    <li><a href="#7-how-search-works">7. How search works</a></li>
+    <li><a href="#8-token-savings-what-it-means-and-what-it-does-not-mean">8. Token savings</a></li>
+    <li><a href="#9-live-token-savings-counter">9. Live token savings counter</a></li>
+    <li><a href="#10-community-savings-meter">10. Community savings meter</a></li>
+    <li><a href="#11-local-llm-tuning-for-summaries">11. Local LLM tuning</a></li>
+    <li><a href="#12-storage-and-indexing">12. Storage and indexing</a></li>
+    <li><a href="#13-troubleshooting">13. Troubleshooting</a></li>
+    <li><a href="#14-best-practices">14. Best practices</a></li>
+    <li><a href="#15-best-practices-for-prompting-the-agent">15. Prompting the agent</a></li>
+    <li><a href="#16-final-advice">16. Final advice</a></li>
+  </ul>
+</div>
 
-## Installation
+# jCodeMunch User Guide
+
+## What jCodeMunch actually does
+
+jCodeMunch helps AI agents explore codebases **without reading the whole damn file every time**.
+
+Most agents inspect repos the expensive way:
+
+1. open a large file  
+2. skim hundreds or thousands of lines  
+3. extract one useful function  
+4. repeat somewhere else  
+5. quietly set your token budget on fire
+
+jCodeMunch replaces that with **structured retrieval**.
+
+It indexes a repository once, extracts symbols with tree-sitter, stores metadata plus byte offsets into the original source, and lets your MCP-compatible agent retrieve **only the code it actually needs**. That is why token savings can be dramatic in retrieval-heavy workflows. :contentReference[oaicite:2]{index=2}
+
+If you only remember one thing from this guide, make it this:
+
+> **jCodeMunch is not magic because it is installed.  
+> It is powerful because your agent uses it instead of brute-reading files.**
+
+---
+
+# 1. Quick Start
+
+## Install
 
 ```bash
 pip install jcodemunch-mcp
-```
+````
 
-Verify:
+Verify the install:
 
 ```bash
 jcodemunch-mcp --help
 ```
 
-> **Recommended:** use [`uvx`](https://github.com/astral-sh/uv) instead of `pip install` when configuring MCP clients. `uvx` runs the package on demand without requiring it to be on your system PATH.
+### Recommended: use `uvx` in MCP clients
 
-Or from source:
-
-```bash
-git clone https://github.com/jgravelle/jcodemunch-mcp.git
-cd jcodemunch-mcp
-pip install -e .
-```
+For MCP client configuration, `uvx` is usually the better choice because it runs the package on demand and avoids PATH headaches.
 
 ---
 
-## Configuration
+# 2. Add jCodeMunch to your MCP client
 
-### Claude Code
+## Claude Code
 
-The fastest way to add jCodeMunch to Claude Code is a single command:
+Fastest setup:
 
 ```bash
 claude mcp add jcodemunch uvx jcodemunch-mcp
 ```
 
-This registers the server at user scope (`~/.claude.json`) so it is available in every project. To limit it to a single project, pass `--scope project`:
+Project-only install:
 
 ```bash
 claude mcp add --scope project jcodemunch uvx jcodemunch-mcp
 ```
 
-To include optional environment variables at the same time:
+With optional environment variables:
 
 ```bash
 claude mcp add jcodemunch uvx jcodemunch-mcp \
@@ -48,14 +90,14 @@ claude mcp add jcodemunch uvx jcodemunch-mcp \
   -e ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Restart Claude Code after running the command.
+Restart Claude Code afterward.
 
-**Manual config** — if you prefer to edit the config file directly:
+### Manual Claude Code config
 
-| Scope   | Path |
-| ------- | ---- |
-| User (global) | `~/.claude.json` |
-| Project | `.claude/settings.json` (in the project root) |
+| Scope   | Path                    |
+| ------- | ----------------------- |
+| User    | `~/.claude.json`        |
+| Project | `.claude/settings.json` |
 
 ```json
 {
@@ -72,50 +114,19 @@ Restart Claude Code after running the command.
 }
 ```
 
-Environment variables are optional — see the list in the Claude Desktop section below.
+---
 
-### Claude Desktop
+## Claude Desktop
 
 Config file location:
 
-| OS      | Path |
-| ------- | ---- |
+| OS      | Path                                                              |
+| ------- | ----------------------------------------------------------------- |
 | macOS   | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Linux   | `~/.config/claude/claude_desktop_config.json` |
-| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux   | `~/.config/claude/claude_desktop_config.json`                     |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json`                     |
 
-Add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "jcodemunch": {
-      "command": "uvx",
-      "args": ["jcodemunch-mcp"],
-      "env": {
-        "GITHUB_TOKEN": "ghp_...",
-        "ANTHROPIC_API_KEY": "sk-ant-..."
-      }
-    }
-  }
-}
-```
-
-Environment variables are optional:
-
-* `GITHUB_TOKEN` enables private repositories and higher GitHub API rate limits.
-* `ANTHROPIC_API_KEY` enables AI-generated summaries via Claude Haiku.
-* `ANTHROPIC_MODEL` overrides the Claude model (default: `claude-haiku-4-5-20251001`).
-* `GOOGLE_API_KEY` enables AI-generated summaries via Gemini Flash (used if `ANTHROPIC_API_KEY` is not set).
-* `GOOGLE_MODEL` overrides the Gemini model (default: `gemini-2.5-flash-lite`).
-* If neither key is set, summaries fall back to docstrings or signatures.
-* `JCODEMUNCH_CONTEXT_PROVIDERS=0` disables context providers (dbt metadata enrichment, etc.) during indexing.
-
-Restart Claude Desktop after saving the config.
-
-### Cursor
-
-Open **Cursor Settings** (`Ctrl+Shift+J`) → **Tools & MCP** → **+ New MCP Server** to open `mcp.json`, then add:
+Minimal config:
 
 ```json
 {
@@ -128,11 +139,86 @@ Open **Cursor Settings** (`Ctrl+Shift+J`) → **Tools & MCP** → **+ New MCP Se
 }
 ```
 
-Save and check **Tools & MCP** — it will confirm whether the server started successfully. You may need to restart Cursor.
+With optional GitHub auth and AI summaries:
 
-> **WSL users:** Configure separately for Windows and your Linux distro, and switch between them via the Tools & MCP panel as needed.
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"],
+      "env": {
+        "GITHUB_TOKEN": "ghp_...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
 
-### VS Code
+### Optional environment variables
+
+* `GITHUB_TOKEN`
+  Enables private repos and higher GitHub API limits.
+
+* `ANTHROPIC_API_KEY`
+  Enables AI-generated summaries via Claude.
+
+* `ANTHROPIC_MODEL`
+  Overrides the default Anthropic model.
+
+* `GOOGLE_API_KEY`
+  Enables AI-generated summaries via Gemini if Anthropic is not configured.
+
+* `GOOGLE_MODEL`
+  Overrides the default Gemini model.
+
+* `JCODEMUNCH_CONTEXT_PROVIDERS=0`
+  Disables context-provider enrichment during indexing.
+
+Restart Claude Desktop after saving.
+
+### Debug logging
+
+If you need to troubleshoot indexing or server startup, use a log file instead of stderr:
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": [
+        "jcodemunch-mcp",
+        "--log-level", "DEBUG",
+        "--log-file", "/tmp/jcodemunch.log"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## Cursor
+
+Open **Settings → Tools & MCP → New MCP Server**, then add:
+
+```json
+{
+  "mcpServers": {
+    "jcodemunch": {
+      "command": "uvx",
+      "args": ["jcodemunch-mcp"]
+    }
+  }
+}
+```
+
+Save and confirm the server starts successfully.
+
+---
+
+## VS Code
 
 Add to `.vscode/settings.json`:
 
@@ -150,37 +236,15 @@ Add to `.vscode/settings.json`:
 }
 ```
 
-### Claude Code Status Line
-
-If you use Claude Code, you can display a live token savings counter in the status bar:
-
-```
-Claude Sonnet 4.6 | my-project | ░░░░░░░░░░ 0% | 1,280,837 tkns saved · $6.40 saved on Opus
-```
-
-Ask Claude Code to set it up:
-
-> "Add jcodemunch token savings to my status line"
-
-Claude Code will add a segment that reads `~/.code-index/_savings.json` and calculates cost avoided at the Claude Opus rate ($25.00 / 1M tokens). The counter updates automatically after every jcodemunch tool call — no restart required.
-
-To add it manually, read `~/.code-index/_savings.json` and extract `total_tokens_saved`:
-
-```js
-// Node.js snippet for a statusline hook
-const f = path.join(os.homedir(), '.code-index', '_savings.json');
-const total = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f)).total_tokens_saved ?? 0 : 0;
-const cost  = (total * 25.00 / 1_000_000).toFixed(2);
-if (total > 0) output += ` │ ${total.toLocaleString()} tkns saved · $${cost} saved on Opus`;
-```
-
 ---
 
-### Google Antigravity
+## Google Antigravity
 
-1. Open the Agent pane → click the `⋯` menu → **MCP Servers** → **Manage MCP Servers**
-2. Click **View raw config** to open `mcp_config.json`
-3. Add the entry below, save, then restart the MCP server from the Manage MCPs pane
+1. Open the Agent pane
+2. Click the `⋯` menu
+3. Choose **MCP Servers** → **Manage MCP Servers**
+4. Open **View raw config**
+5. Add:
 
 ```json
 {
@@ -197,38 +261,92 @@ if (total > 0) output += ` │ ${total.toLocaleString()} tkns saved · $${cost} 
 }
 ```
 
-### Explore a New Repository
+Restart the MCP server afterward.
 
+---
+
+# 3. The step people skip, then blame the software for
+
+## Tell your agent to use jCodeMunch
+
+Installing the server makes the tools available.
+
+It does **not** guarantee your agent will stop opening giant files like a confused tourist with a flashlight.
+
+Give it an instruction like this:
+
+```markdown
+Use jcodemunch-mcp for code lookup whenever available. Prefer symbol search, outlines, and targeted retrieval over reading full files.
 ```
+
+That one sentence can be the difference between:
+
+* “this is incredible”
+  and
+* “I installed it and saw no change”
+
+---
+
+# 4. Your first useful workflows
+
+## Explore a GitHub repository
+
+```json
 index_repo: { "url": "fastapi/fastapi" }
 get_repo_outline: { "repo": "fastapi/fastapi" }
 get_file_tree: { "repo": "fastapi/fastapi", "path_prefix": "fastapi" }
 get_file_outline: { "repo": "fastapi/fastapi", "file_path": "fastapi/main.py" }
 ```
 
-### Explore a Local Project
+Use this when:
 
-```
+* you are new to a repo
+* you want the lay of the land before reading code
+* you want to avoid blind file spelunking
+
+---
+
+## Explore a local project
+
+```json
 index_folder: { "path": "/home/user/myproject" }
 list_repos: {}
 get_repo_outline: { "repo": "myproject" }
 search_symbols: { "repo": "myproject", "query": "main" }
 ```
 
-Local folder indexes use stable hashed repo ids under the hood. `list_repos` shows the exact stored id, and bare display-name lookup works when it is unique.
+Use this when:
 
-**Context enrichment:** When indexing local folders, jCodeMunch auto-detects ecosystem tools like dbt and enriches the index with business metadata — model descriptions, tags, and column documentation flow into AI summaries, file summaries, and search keywords. No configuration required. See CONTEXT_PROVIDERS.md for details and how to add support for other tools.
+* you want fast local indexing
+* you are working on private code
+* you want repeat retrieval without re-scanning the repo every time
 
-### Find and Read a Function
+### Local-folder enrichment
 
-```
+When indexing local folders, jCodeMunch can detect ecosystem tools and enrich the index with domain-specific metadata. The current built-in example is dbt support, which can fold model descriptions, tags, and column metadata into summaries and search keywords. ([GitHub][2])
+
+---
+
+## Find and read a function
+
+```json
 search_symbols: { "repo": "owner/repo", "query": "authenticate", "kind": "function" }
 get_symbol: { "repo": "owner/repo", "symbol_id": "src/auth.py::authenticate#function" }
 ```
 
-### Understand a Class
+This is one of the core jCodeMunch loops:
 
-```
+1. search
+2. identify the symbol
+3. fetch only that symbol
+
+That is where a lot of the token savings come from.
+
+---
+
+## Understand a class without reading the entire file
+
+```json
 get_file_outline: { "repo": "owner/repo", "file_path": "src/auth.py" }
 get_symbols: {
   "repo": "owner/repo",
@@ -239,29 +357,34 @@ get_symbols: {
 }
 ```
 
-### Verify Source Hasn't Changed
+Use `get_file_outline` first to see the API surface, then retrieve only the methods you care about.
 
-```
-get_symbol: {
+---
+
+## Search for text that is not a symbol
+
+```json
+search_text: {
   "repo": "owner/repo",
-  "symbol_id": "src/main.py::process#function",
-  "verify": true
+  "query": "TODO",
+  "file_pattern": "*.py",
+  "context_lines": 1
 }
 ```
 
-The response `_meta.content_verified` will be `true` if the source matches the stored hash and `false` if it has drifted.
+Use this for:
 
-### Search for Non-Symbol Content
+* string literals
+* comments
+* configuration values
+* weird text fragments
+* anything that is not likely to appear as a symbol name
 
-```
-search_text: { "repo": "owner/repo", "query": "TODO", "file_pattern": "*.py", "context_lines": 1 }
-```
+---
 
-Use `search_text` for string literals, comments, configuration values, or anything that is not a symbol name. Results are grouped by file and include optional `before` / `after` context lines for each match.
+## Read only part of a file
 
-### Read a File Slice
-
-```
+```json
 get_file_content: {
   "repo": "owner/repo",
   "file_path": "src/main.py",
@@ -379,15 +502,38 @@ suggest_queries: { "repo": "owner/repo" }
 Great first call when exploring unfamiliar code. Suggests useful search queries, entry points, and index statistics.
 
 ### Force Re-index
+This is useful when the thing you need is line-oriented rather than symbol-oriented.
 
+---
+
+## Verify source has not drifted
+
+```json
+get_symbol: {
+  "repo": "owner/repo",
+  "symbol_id": "src/main.py::process#function",
+  "verify": true
+}
 ```
+
+Check `_meta.content_verified` in the response.
+
+This tells you whether the retrieved source still matches the indexed version.
+
+---
+
+## Force a re-index
+
+```json
 invalidate_cache: { "repo": "owner/repo" }
 index_repo: { "url": "owner/repo" }
 ```
 
----
+Use this when:
 
-## Tool Reference
+* the index is stale
+* the repo changed substantially
+* you want a clean reset
 
 | Tool                  | Purpose                          | Key Parameters                                                     |
 | --------------------- | -------------------------------- | ------------------------------------------------------------------ |
@@ -417,34 +563,137 @@ index_repo: { "url": "owner/repo" }
 
 ---
 
-## Symbol IDs
+# 5. Core mental model
 
-Symbol IDs follow the format:
+## What jCodeMunch stores
 
-```
+Each symbol is indexed with structured metadata such as:
+
+* signature
+* kind
+* qualified name
+* one-line summary
+* byte offsets into the original file
+
+That lets jCodeMunch fetch the exact source later by byte offset rather than opening and re-parsing the entire file on every request. ([GitHub][1])
+
+## Stable symbol IDs
+
+Symbol IDs look like this:
+
+```text
 {file_path}::{qualified_name}#{kind}
 ```
 
 Examples:
 
-```
+```text
 src/main.py::UserService#class
 src/main.py::UserService.login#method
 src/utils.py::authenticate#function
 config.py::MAX_RETRIES#constant
 ```
 
-IDs are returned by `get_file_outline` and `search_symbols`. Pass them to `get_symbol` or `get_symbols` to retrieve source code. `search_text` returns file-and-line matches, not symbol IDs.
+These IDs stay stable across re-indexing as long as path, qualified name, and kind stay the same. ([GitHub][1])
 
 ---
 
-## Community Savings Meter
+# 6. Tool reference
 
-jCodeMunch contributes an anonymous token savings delta to a live global counter at [j.gravelle.us](https://j.gravelle.us) with each tool call. Only two values are ever sent: the tokens saved (a number) and a random anonymous install ID. No code, paths, repo names, or anything identifying is transmitted. Network failures are silent and never affect tool performance.
+| Tool               | What it does              | Key parameters                                                     |
+| ------------------ | ------------------------- | ------------------------------------------------------------------ |
+| `index_repo`       | Index a GitHub repository | `url`, `use_ai_summaries`                                          |
+| `index_folder`     | Index a local folder      | `path`, `extra_ignore_patterns`, `follow_symlinks`                 |
+| `list_repos`       | List indexed repos        | —                                                                  |
+| `get_file_tree`    | Browse file structure     | `repo`, `path_prefix`                                              |
+| `get_file_outline` | Show symbols in a file    | `repo`, `file_path`                                                |
+| `get_file_content` | Read cached file content  | `repo`, `file_path`, `start_line`, `end_line`                      |
+| `get_symbol`       | Retrieve one symbol       | `repo`, `symbol_id`, `verify`, `context_lines`                     |
+| `get_symbols`      | Retrieve multiple symbols | `repo`, `symbol_ids`                                               |
+| `search_symbols`   | Search the symbol index   | `repo`, `query`, `kind`, `language`, `file_pattern`, `max_results` |
+| `search_text`      | Full-text search          | `repo`, `query`, `file_pattern`, `max_results`, `context_lines`    |
+| `get_repo_outline` | High-level repo overview  | `repo`                                                             |
+| `invalidate_cache` | Remove cached index       | `repo`                                                             |
 
-The anonymous install ID is generated once and stored locally in `~/.code-index/_savings.json`.
+---
 
-To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env:
+# 7. How search works
+
+`search_symbols` is not a naive grep dressed up in a fake mustache.
+
+The search logic uses weighted scoring across things like:
+
+* exact name match
+* name substring match
+* word overlap
+* signature terms
+* summary terms
+* docstring and keyword matches
+
+Filters like `kind`, `language`, and `file_pattern` narrow the field before scoring. Zero-score results are discarded. ([GitHub][3])
+
+Practical takeaway:
+
+* use a precise query when you know the symbol name
+* add `kind` when you know whether you want a function, class, method, etc.
+* use `file_pattern` or `language` when a repo is large or polyglot
+
+---
+
+# 8. Token savings: what it means and what it does not mean
+
+jCodeMunch can produce very large token savings because it changes the workflow from:
+
+> read everything to find something
+
+to:
+
+> find something, then read only that
+
+Typical task categories in the project’s own token-savings material show very large reductions for repo exploration, finding specific functions, and reading targeted implementations. ([GitHub][4])
+
+But keep the mental model honest:
+
+* savings happen when the agent actually uses targeted retrieval
+* savings are strongest in retrieval-heavy workflows
+* installing the MCP is not the same as changing agent behavior
+
+That is why onboarding and prompting matter.
+
+---
+
+# 9. Live token savings counter
+
+If you use Claude Code, you can surface a running savings counter in the status line.
+
+Example:
+
+```text
+Claude Sonnet 4.6 | my-project | ░░░░░░░░░░ 0% | 1,280,837 tkns saved · $6.40 saved on Opus
+```
+
+The data comes from:
+
+```text
+~/.code-index/_savings.json
+```
+
+It tracks cumulative token savings and can be used to estimate avoided cost at a given model rate.
+
+---
+
+# 10. Community savings meter
+
+By default, jCodeMunch can contribute an anonymous savings delta to a global counter.
+
+Only two values are sent:
+
+* token savings delta
+* a random anonymous install ID
+
+No code, repo names, file paths, or identifying project data are transmitted, according to the guide. 
+
+To disable it:
 
 ```json
 {
@@ -462,13 +711,9 @@ To disable, set `JCODEMUNCH_SHARE_SAVINGS=0` in your MCP server env:
 
 ---
 
-## Local LLM Tuning Tips
+# 11. Local LLM tuning for summaries
 
-AI summaries can be generated by a local LLM via any OpenAI-compatible server (e.g. [LM Studio](https://lmstudio.ai)). Set `OPENAI_API_BASE` and `OPENAI_MODEL` in your MCP server env to point at it.
-
-**Recommended model:** [Qwen3-8B](https://lmstudio.ai/models/qwen/qwen3-8b) — fast, fits in 12 GB VRAM, and produces quality one-line summaries. In benchmarks it was ~5× faster than Devstral 24B with comparable summary quality.
-
-**Critical for Qwen3:** Set the LM Studio **system prompt** to `/no_think` (and leave the "Enable thinking" toggle ON). Without this, the model wastes GPU time on chain-of-thought reasoning and leaks artifacts into summaries. Disabling thinking via the checkbox instead produces summaries that are too terse.
+You can generate summaries with a local OpenAI-compatible server such as LM Studio by setting:
 
 ```json
 "env": {
@@ -478,53 +723,120 @@ AI summaries can be generated by a local LLM via any OpenAI-compatible server (e
 }
 ```
 
-**Performance tuning:**
-- `OPENAI_CONCURRENCY` — number of parallel batch requests to the LLM server (default: `1`). Higher values keep the GPU saturated.
-- `OPENAI_BATCH_SIZE` — symbols packed per request (default: `10`).
-- `OPENAI_MAX_TOKENS` — max output tokens per batch response (default: `500`).
+Useful tuning knobs:
+
+* `OPENAI_CONCURRENCY`
+* `OPENAI_BATCH_SIZE`
+* `OPENAI_MAX_TOKENS`
+
+If you document this section, I would keep it framed as optional power-user tuning, not required setup.
 
 ---
 
-## Troubleshooting
+# 12. Storage and indexing
 
-**"Repository not found"**
-Check the URL format (`owner/repo` or full GitHub URL). For private repositories, set `GITHUB_TOKEN`.
+By default, indexes live under:
 
-**"No source files found"**
-The repository may not contain supported language files (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.xml`, `.xul`), or files may be excluded by skip patterns.
-
-**Rate limiting**
-Set `GITHUB_TOKEN` to increase GitHub API limits (5,000 requests/hour vs 60 unauthenticated).
-
-**AI summaries not working**
-Set `ANTHROPIC_API_KEY` (Claude Haiku) or `GOOGLE_API_KEY` (Gemini Flash). Anthropic takes priority if both are set. Without either, summaries fall back to docstrings or signatures.
-
-**Stale index**
-Use `invalidate_cache` followed by `index_repo` or `index_folder` to force a clean re-index.
-
-**Encoding issues**
-Files with invalid UTF-8 are handled safely using replacement characters.
-
----
-
-## Storage
-
-Indexes are stored at `~/.code-index/` (override with the `CODE_INDEX_PATH` environment variable):
-
-```
+```text
 ~/.code-index/
-├── owner-repo.json       # Index metadata + symbols
-└── owner-repo/           # Raw source files
+```
+
+Typical layout:
+
+```text
+~/.code-index/
+├── owner-repo.json
+└── owner-repo/
     └── src/main.py
 ```
 
+The JSON index stores metadata, hashes, and symbol records. Raw files are stored separately for precise later retrieval. ([GitHub][3])
+
 ---
 
-## Tips
+# 13. Troubleshooting
 
-1. Start with `get_repo_outline` to quickly understand the repository structure.
-2. Use `get_file_outline` before reading source to understand the API surface first.
-3. Narrow searches using `kind`, `language`, and `file_pattern`.
-4. Batch-retrieve related symbols with `get_symbols` instead of repeated `get_symbol` calls.
-5. Use `search_text` when symbol search does not locate the needed content.
-6. Use `verify: true` on `get_symbol` to detect source drift since indexing.
+## “Repository not found”
+
+Use `owner/repo` or a full GitHub URL. For private repos, set `GITHUB_TOKEN`.
+
+## “No source files found”
+
+The repo may not contain supported source files, or everything useful may have been excluded by skip patterns.
+
+## Rate limiting
+
+Set `GITHUB_TOKEN` to increase GitHub API limits.
+
+## AI summaries are missing
+
+Set `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`. Without either, summaries fall back to docstrings or signatures.
+
+## The index seems stale
+
+Use `invalidate_cache` followed by a fresh `index_repo` or `index_folder`.
+
+## The client cannot find the executable
+
+Use `uvx`, or configure the absolute path to `jcodemunch-mcp`.
+
+## Debug logs broke my MCP client
+
+Do not log to stderr during stdio MCP sessions. Use `--log-file` or `JCODEMUNCH_LOG_FILE` instead. ([GitHub][1])
+
+---
+
+# 14. Best practices
+
+1. Start with `get_repo_outline` when entering an unfamiliar repo.
+2. Use `get_file_outline` before pulling source.
+3. Use `search_symbols` before `get_file_content` whenever possible.
+4. Use `get_symbols` for related items instead of making repeated single-symbol calls.
+5. Use `search_text` for comments, strings, and non-symbol content.
+6. Use `verify: true` when freshness matters.
+7. Re-index when the codebase changes materially.
+8. Tell your agent to prefer jCodeMunch, or it may fall back to old brute-force habits.
+
+---
+
+# 15. Best practices for prompting the agent
+
+Good:
+
+* “Use jcodemunch to locate the authentication flow.”
+* “Start with the repo outline, then find the class responsible for retries.”
+* “Use symbol search instead of reading full files.”
+* “Retrieve only the exact methods related to billing.”
+* “Verify the symbol before quoting the implementation.”
+
+Bad:
+
+* “Read the whole repo and tell me what it does.”
+* “Open every likely file.”
+* “Search manually through source until you find it.”
+
+You are trying to teach the model to **navigate**, not rummage.
+
+---
+
+# 16. Final advice
+
+jCodeMunch works best when you treat it like a precision instrument, not a lucky rabbit’s foot.
+
+Index the repo.
+Ask for outlines.
+Search by symbol.
+Retrieve narrowly.
+Batch related symbols.
+Re-index when needed.
+And most importantly, make your agent use the tools on purpose.
+
+That is where the speed comes from.
+That is where the accuracy comes from.
+And that is where the ugly token bill finally starts to shrink.
+
+
+[1]: https://github.com/jgravelle/jcodemunch-mcp "GitHub - jgravelle/jcodemunch-mcp: The leading, most token-efficient MCP server for GitHub source code exploration via tree-sitter AST parsing · GitHub"
+[2]: https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/CHANGELOG.md "raw.githubusercontent.com"
+[3]: https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/ARCHITECTURE.md "raw.githubusercontent.com"
+[4]: https://raw.githubusercontent.com/jgravelle/jcodemunch-mcp/main/TOKEN_SAVINGS.md "raw.githubusercontent.com"

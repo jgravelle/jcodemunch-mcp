@@ -53,14 +53,17 @@ class DbtModelMetadata:
 
 
 def _resolve_description(raw_desc: str, doc_blocks: dict[str, str]) -> str:
-    """Resolve {{ doc('name') }} references to actual text."""
+    """Resolve {{ doc('name') }} references to actual text.
+
+    Substitutes all occurrences inline, preserving any surrounding text.
+    """
     if not raw_desc:
         return ""
-    doc_ref = _DOC_REF_RE.search(raw_desc)
-    if doc_ref:
-        key = doc_ref.group(1)
-        return doc_blocks.get(key, "")
-    return raw_desc
+
+    def _replace(match: re.Match) -> str:
+        return doc_blocks.get(match.group(1), "")
+
+    return _DOC_REF_RE.sub(_replace, raw_desc)
 
 
 def _parse_doc_blocks(docs_dirs: list[Path]) -> dict[str, str]:
@@ -118,13 +121,15 @@ def _parse_yml_files(
                     model.get("description", ""), doc_blocks
                 )
 
-                # Extract tags from config
+                # Extract tags from top-level and config (both are valid in dbt)
+                tags = model.get("tags", [])
+                if not isinstance(tags, list):
+                    tags = []
                 config = model.get("config", {})
-                tags = []
                 if isinstance(config, dict):
-                    tags = config.get("tags", [])
-                    if not isinstance(tags, list):
-                        tags = []
+                    config_tags = config.get("tags", [])
+                    if isinstance(config_tags, list):
+                        tags = list(dict.fromkeys(tags + config_tags))
 
                 # Parse columns
                 columns: dict[str, str] = {}
@@ -149,7 +154,7 @@ def _parse_yml_files(
 
 
 def _detect_dbt_project(folder_path: Path) -> Optional[Path]:
-    """Find dbt_project.yml in the folder tree (max 2 levels deep)."""
+    """Find dbt_project.yml in the folder root or immediate child directories."""
     candidate = folder_path / "dbt_project.yml"
     if candidate.is_file():
         return candidate

@@ -73,6 +73,8 @@ class BaseSummarizer:
         """Summarize a batch of symbols using AI.
 
         Only processes symbols that don't already have summaries.
+        Uses concurrent requests for throughput (configurable via
+        JCODEMUNCH_SUMMARIZER_CONCURRENCY, default 4).
         Returns updated symbols.
         """
         if not self.client:
@@ -86,9 +88,17 @@ class BaseSummarizer:
         if not to_summarize:
             return symbols
 
-        for i in range(0, len(to_summarize), batch_size):
-            batch = to_summarize[i:i + batch_size]
-            self._summarize_one_batch(batch)
+        max_workers = int(os.environ.get("JCODEMUNCH_SUMMARIZER_CONCURRENCY", "4"))
+        batches = [to_summarize[i:i + batch_size] for i in range(0, len(to_summarize), batch_size)]
+
+        if max_workers <= 1 or len(batches) <= 1:
+            for batch in batches:
+                self._summarize_one_batch(batch)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(self._summarize_one_batch, batch): batch for batch in batches}
+                for future in as_completed(futures):
+                    future.result()
 
         return symbols
 

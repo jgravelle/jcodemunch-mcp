@@ -333,12 +333,55 @@ def extract_imports(content: str, file_path: str, language: str) -> list[dict]:
         return []
 
 
+_JS_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue", ".mjs", ".cjs", ".svelte")
+_PY_EXTENSIONS = (".py",)
+_RUBY_EXTENSIONS = (".rb",)
+_ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
+
+# Cache for SQL stem lookups — avoids O(n) scans when resolve_specifier is
+# called repeatedly with the same source_files set (common in tight loops).
+_sql_stem_cache: tuple[int, dict[str, str]] = (0, {})
+
+
+def _get_sql_stems(source_files: set[str]) -> dict[str, str]:
+    """Return a lowered-stem -> file_path dict for .sql files, cached by set identity."""
+    global _sql_stem_cache
+    sf_id = id(source_files)
+    if _sql_stem_cache[0] == sf_id:
+        return _sql_stem_cache[1]
+    stems: dict[str, str] = {}
+    for sf in source_files:
+        if sf.endswith(".sql"):
+            stem = posixpath.splitext(posixpath.basename(sf))[0].lower()
+            if stem not in stems:  # first match wins
+                stems[stem] = sf
+    _sql_stem_cache = (sf_id, stems)
+    return stems
+
+
+def _candidates(base: str) -> list[str]:
+    """Generate path candidates with and without extension."""
+    cands = [base]
+    _, ext = posixpath.splitext(base)
+    if not ext:
+        for e in _ALL_EXTENSIONS:
+            cands.append(base + e)
+        # index file
+        for e in _JS_EXTENSIONS:
+            cands.append(posixpath.join(base, "index" + e))
+        cands.append(posixpath.join(base, "__init__.py"))
+    return cands
+
+
 def resolve_specifier(specifier: str, importer_path: str, source_files: set[str]) -> Optional[str]:
     """Attempt to resolve an import specifier to a concrete file in the index.
 
     Only resolves relative imports (starting with '.' or '..') and tries
     several common extension permutations.  Absolute/package imports are
     returned as-is if they exactly match a source file, otherwise None.
+
+    For bare names (no path separators or dots), falls back to SQL stem
+    matching to support dbt ref() specifiers like 'dim_client'.
 
     Args:
         specifier: Raw import specifier (e.g. '../intake/IntakeService').
@@ -348,24 +391,6 @@ def resolve_specifier(specifier: str, importer_path: str, source_files: set[str]
     Returns:
         The matching source file path, or None if unresolvable.
     """
-    _JS_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue", ".mjs", ".cjs", ".svelte")
-    _PY_EXTENSIONS = (".py",)
-    _RUBY_EXTENSIONS = (".rb",)
-    _ALL_EXTENSIONS = _JS_EXTENSIONS + _PY_EXTENSIONS + _RUBY_EXTENSIONS + (".go",)
-
-    def _candidates(base: str) -> list[str]:
-        """Generate path candidates with and without extension."""
-        cands = [base]
-        _, ext = posixpath.splitext(base)
-        if not ext:
-            for e in _ALL_EXTENSIONS:
-                cands.append(base + e)
-            # index file
-            for e in _JS_EXTENSIONS:
-                cands.append(posixpath.join(base, "index" + e))
-            cands.append(posixpath.join(base, "__init__.py"))
-        return cands
-
     # Relative import
     if specifier.startswith("."):
         importer_dir = posixpath.dirname(importer_path)
@@ -381,13 +406,9 @@ def resolve_specifier(specifier: str, importer_path: str, source_files: set[str]
             return c
 
     # Stem matching fallback: bare names like dbt ref('dim_client')
-    # resolve to any .sql file whose stem matches.
-    spec_lower = specifier.lower()
-    if not posixpath.sep in specifier and "/" not in specifier and "." not in specifier:
-        for sf in source_files:
-            if sf.endswith(".sql"):
-                stem = posixpath.splitext(posixpath.basename(sf))[0].lower()
-                if stem == spec_lower:
-                    return sf
+    # resolve to any .sql file whose stem matches.  Uses a cached stem
+    # dict to avoid O(n) scans on repeated calls with the same source_files.
+    if "/" not in specifier and "." not in specifier:
+        return _get_sql_stems(source_files).get(specifier.lower())
 
     return None
