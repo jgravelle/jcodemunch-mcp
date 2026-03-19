@@ -108,6 +108,26 @@ Tool-layer savings (isolated from fixed overhead): **15–25%**
 
 ---
 
+## Real-world A/B test: dead code detection task (2026-03-18)
+
+50-iteration test by @Mharbulous comparing JCodeMunch vs native tools on the same Vue 3 + Firebase codebase. Designed to isolate pure tool-layer cost with no subagent overhead. Full report: [ab-test-dead-code-2026-03-18.md](ab-test-dead-code-2026-03-18.md)
+
+| Metric | Native | JCodeMunch | Delta |
+|--------|--------|------------|-------|
+| Success rate | 96% | 92% | −4 pp |
+| Mean cost/iteration | $0.4474 | $0.3560 | −20.0% |
+| Mean total tokens | 449,356 | 289,275 | −36% |
+| Mean duration (s) | 129 | 117 | −9% |
+| File-level F1 (dead files) | 95.8% | 95.7% | equivalent |
+| File-level F1 (alive files) | 100.0% | 69.6% | gap |
+| Export-level F1 | 93.3% | 64.1% | gap |
+
+**Confirmed tool-layer savings: 20%** (statistically significant, Wilcoxon p=0.0074). Dead file detection is equivalent. Accuracy gaps identified on alive-file classification and export-level analysis; three root causes found and addressed (see report).
+
+Raw data: https://gist.github.com/Mharbulous/bb097396fa92ef1d34d03a72b56b2c61
+
+---
+
 ## Grand Summary
 
 | | Tokens |
