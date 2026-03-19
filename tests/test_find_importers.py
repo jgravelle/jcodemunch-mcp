@@ -61,6 +61,29 @@ class TestExtractImportsJS:
         result = extract_imports(content, "math.js", "javascript")
         assert result == []
 
+    def test_dynamic_import(self):
+        """Vue Router lazy routes use import() — must be detected as an edge."""
+        content = (
+            "const routes = [\n"
+            "  { path: '/lists', component: () => import('../../features/lists/views/Lists.vue') },\n"
+            "  { path: '/cast',  component: () => import('../../features/cast/views/Cast.vue') },\n"
+            "];\n"
+        )
+        result = extract_imports(content, "src/router/routes/featureRoutes.js", "javascript")
+        specifiers = [r["specifier"] for r in result]
+        assert "../../features/lists/views/Lists.vue" in specifiers
+        assert "../../features/cast/views/Cast.vue" in specifiers
+
+    def test_dynamic_import_not_double_counted(self):
+        """A specifier that appears as both static and dynamic import should appear once."""
+        content = (
+            "import Foo from './Foo';\n"
+            "const lazy = () => import('./Foo');\n"
+        )
+        result = extract_imports(content, "src/app.js", "javascript")
+        matching = [r for r in result if r["specifier"] == "./Foo"]
+        assert len(matching) == 1
+
 
 class TestExtractImportsPython:
     """Test Python import extraction."""

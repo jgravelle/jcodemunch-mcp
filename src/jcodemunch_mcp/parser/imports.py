@@ -21,6 +21,8 @@ _JS_SIDE_EFFECT = re.compile(r"""(?:^|\n)\s*import\s+['"]([^'"]+)['"]""", re.MUL
 _JS_REQUIRE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE)
 # JS/TS: export { A } from 'specifier'  (re-export without full import parse)
 _JS_REEXPORT = re.compile(r"""(?:^|\n)\s*export\s+\{[^}]*\}\s+from\s+['"]([^'"]+)['"]""", re.MULTILINE)
+# JS/TS: import('specifier') — dynamic import (Vue Router lazy routes, code splitting)
+_JS_DYNAMIC_IMPORT = re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE)
 
 # Python: from .module import A, B  /  import os
 _PY_FROM = re.compile(
@@ -116,6 +118,9 @@ def _extract_js_imports(content: str) -> list[dict]:
         # Only add if not already captured by _JS_IMPORT_FROM
         if m.group(1) not in seen:
             add(m.group(1), [])
+
+    for m in _JS_DYNAMIC_IMPORT.finditer(content):
+        add(m.group(1), [])
 
     return edges
 
