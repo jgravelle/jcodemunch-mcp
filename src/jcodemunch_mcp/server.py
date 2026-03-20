@@ -688,18 +688,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     storage_path = os.environ.get("CODE_INDEX_PATH")
     logger.info("tool_call: %s args=%s", name, {k: v for k, v in arguments.items() if k != "content"})
 
-    # Coerce stringified booleans/integers/numbers before routing
-    tool_def = await server._get_cached_tool_definition(name)
-    if tool_def and tool_def.inputSchema:
-        arguments = _coerce_arguments(arguments, tool_def.inputSchema)
-        try:
-            jsonschema.validate(instance=arguments, schema=tool_def.inputSchema)
-        except jsonschema.ValidationError as e:
-            return [TextContent(type="text", text=json.dumps(
-                {"error": f"Input validation error: {e.message}"}, indent=2
-            ))]
-
-    try:
+    try:   # main handler try starts here, before coerce
+        # Coerce stringified booleans/integers/numbers before routing
+        schema = (await _ensure_tool_schemas()).get(name)
+        if schema:
+            arguments = _coerce_arguments(arguments, schema)
+            try:
+                jsonschema.validate(instance=arguments, schema=schema)
+            except jsonschema.ValidationError as e:
+                return [TextContent(type="text", text=json.dumps(
+                    {"error": f"Input validation error: {e.message}"}, indent=2
+                ))]
         if name == "index_repo":
             result = await index_repo(
                 url=arguments["url"],
