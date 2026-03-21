@@ -42,7 +42,6 @@ Index once. Query cheaply. Keep moving.
 ![jMRI](https://img.shields.io/badge/jMRI-Full-blueviolet)
 [![PyPI version](https://img.shields.io/pypi/v/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
-[![MCP Badge](https://lobehub.com/badge/mcp/jcodemunch-mcp)](https://lobehub.com/mcp/jcodemunch-mcp)
 
 > ## Commercial licenses
 >
