@@ -217,12 +217,7 @@ class IndexStore:
         if not self.base_path.exists():
             return
         for db_file in self.base_path.glob("*.db"):
-            slug = db_file.stem  # e.g. "local-myrepo-abc123"
-            # Extract owner and name from the slug: first segment = owner, rest = name
-            parts = slug.split("-", 1)
-            if len(parts) == 2:
-                owner, name = parts
-                self._sqlite.checkpoint_and_close(owner, name)
+            self._sqlite.checkpoint_db(db_file)
 
     def _safe_repo_component(self, value: str, field_name: str) -> str:
         """Validate and sanitize owner/name components used in on-disk cache paths.

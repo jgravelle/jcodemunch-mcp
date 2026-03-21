@@ -137,7 +137,14 @@ class SQLiteIndexStore:
 
     def checkpoint_and_close(self, owner: str, name: str) -> None:
         """Compact WAL file on graceful shutdown. Call from server shutdown hook."""
-        db_path = self._db_path(owner, name)
+        self.checkpoint_db(self._db_path(owner, name))
+
+    def checkpoint_db(self, db_path: Path) -> None:
+        """Checkpoint and close a WAL database by path.
+
+        Unlike checkpoint_and_close(), this does not require owner/name
+        parsing — useful when iterating *.db files directly.
+        """
         if not db_path.exists():
             return
         conn = self._connect(db_path)

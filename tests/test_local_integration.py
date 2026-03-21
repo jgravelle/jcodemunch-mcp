@@ -350,6 +350,67 @@ def test_checkpoint_compacts_wal(tmp_path):
     )
 
 
+def test_checkpoint_db_by_path(tmp_path):
+    """checkpoint_db works with a db_path directly — no owner/name parsing."""
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    _full_save(store, n_files=5)
+
+    db_path = store._db_path("local", "test-abc123")
+    wal_path = Path(str(db_path) + "-wal")
+
+    # Force WAL content
+    if not wal_path.exists() or wal_path.stat().st_size == 0:
+        store.incremental_save(
+            owner="local",
+            name="test-abc123",
+            changed_files=["file_0.py"],
+            new_files=[],
+            deleted_files=[],
+            new_symbols=[_sym("extra", "file_0.py")],
+            raw_files={"file_0.py": "def extra(): pass"},
+            file_hashes={"file_0.py": "hextra"},
+        )
+
+    store.checkpoint_db(db_path)
+
+    wal_size_after = wal_path.stat().st_size if wal_path.exists() else 0
+    assert wal_size_after == 0, (
+        f"WAL should be 0 bytes after checkpoint_db, got {wal_size_after}"
+    )
+
+
+def test_index_store_close_checkpoints_all(tmp_path):
+    """IndexStore.close() checkpoints all *.db files without slug parsing."""
+    from jcodemunch_mcp.storage import IndexStore
+
+    idx = IndexStore(base_path=str(tmp_path))
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    _full_save(store, n_files=5)
+
+    db_path = store._db_path("local", "test-abc123")
+    wal_path = Path(str(db_path) + "-wal")
+
+    # Force WAL content
+    if not wal_path.exists() or wal_path.stat().st_size == 0:
+        store.incremental_save(
+            owner="local",
+            name="test-abc123",
+            changed_files=["file_0.py"],
+            new_files=[],
+            deleted_files=[],
+            new_symbols=[_sym("extra", "file_0.py")],
+            raw_files={"file_0.py": "def extra(): pass"},
+            file_hashes={"file_0.py": "hextra"},
+        )
+
+    idx.close()
+
+    wal_size_after = wal_path.stat().st_size if wal_path.exists() else 0
+    assert wal_size_after == 0, (
+        f"WAL should be 0 bytes after IndexStore.close(), got {wal_size_after}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 6. JSON migration safety
 # ---------------------------------------------------------------------------
