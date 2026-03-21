@@ -211,7 +211,7 @@ class SQLiteIndexStore:
         imports: Optional[dict[str, list[dict]]] = None,
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
-        file_mtimes: Optional[dict[str, float]] = None,
+        file_mtimes: Optional[dict[str, int]] = None,
     ) -> "CodeIndex":
         """Save a full index to SQLite. Replaces all existing data."""
         _ensure_index_store_deps()
@@ -361,7 +361,7 @@ class SQLiteIndexStore:
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
         file_hashes: Optional[dict[str, str]] = None,
-        file_mtimes: Optional[dict[str, float]] = None,
+        file_mtimes: Optional[dict[str, int]] = None,
     ) -> Optional["CodeIndex"]:
         """Incrementally update an existing index (delta write)."""
         db_path = self._db_path(owner, name)
@@ -451,6 +451,20 @@ class SQLiteIndexStore:
                 ("languages", json.dumps(computed_langs)),
             )
 
+            # Update mtime for files whose mtime changed but content didn't
+            # (not in changed_or_new, not deleted — mtime-only drift e.g. `touch file.py`)
+            # Without this, the mtime fast-path would never apply for these files on
+            # subsequent cycles: old mtime stays in DB → perpetual re-hash.
+            if file_mtimes:
+                changed_or_new_set = set(changed_or_new)
+                deleted_set = set(deleted_files)
+                mtime_only = [
+                    (mt, fp) for fp, mt in file_mtimes.items()
+                    if fp not in changed_or_new_set and fp not in deleted_set
+                ]
+                if mtime_only:
+                    conn.executemany("UPDATE files SET mtime_ns = ? WHERE path = ?", mtime_only)
+
             # Fetch final state BEFORE commit — same transaction, no second round-trip
             all_symbol_rows = conn.execute("SELECT * FROM symbols").fetchall()
             all_file_rows = conn.execute("SELECT * FROM files").fetchall()
@@ -481,9 +495,9 @@ class SQLiteIndexStore:
         self,
         owner: str,
         name: str,
-        current_mtimes: dict[str, float],
+        current_mtimes: dict[str, int],
         hash_fn: Callable[[str], str],
-    ) -> tuple[list[str], list[str], list[str], dict[str, str], dict[str, float]]:
+    ) -> tuple[list[str], list[str], list[str], dict[str, str], dict[str, int]]:
         """Fast-path change detection using mtimes, falling back to hash.
 
         Note: Files stored with an empty/NULL hash in the DB are excluded from
@@ -517,7 +531,7 @@ class SQLiteIndexStore:
 
         changed_files: list[str] = []
         computed_hashes: dict[str, str] = {}
-        updated_mtimes: dict[str, float] = {}
+        updated_mtimes: dict[str, int] = {}
 
         # Check files present in both old and new indexes.
         for fp in sorted(old_set & new_set):
@@ -847,7 +861,7 @@ class SQLiteIndexStore:
             "source_root": index.source_root,
             "display_name": index.display_name,
             "languages": json.dumps(index.languages),
-            "context_metadata": json.dumps(index.context_metadata) if index.context_metadata else "{}",
+            "context_metadata": json.dumps(index.context_metadata or {}),
         }
         conn.executemany(
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",

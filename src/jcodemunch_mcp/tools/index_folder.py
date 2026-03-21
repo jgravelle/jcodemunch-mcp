@@ -373,7 +373,7 @@ def index_folder(
         # Discovery pass — resolve rel_paths and collect mtimes without
         # reading file contents (P2-5: avoids 200MB-1GB allocation
         # for large projects). Content is read on-demand later.
-        file_mtimes: dict[str, float] = {}
+        file_mtimes: dict[str, int] = {}
         rel_path_map: dict[str, Path] = {}  # rel_path -> absolute Path
         for file_path in source_files:
             if not validate_path(folder_path, file_path):

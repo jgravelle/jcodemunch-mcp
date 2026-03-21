@@ -80,7 +80,7 @@ class CodeIndex:
     imports: Optional[dict[str, list[dict]]] = None  # file_path -> [{specifier, names}]; None = not indexed yet (pre-v1.3.0)
     context_metadata: dict = field(default_factory=dict)  # Provider metadata (e.g., dbt_columns)
     file_blob_shas: dict[str, str] = field(default_factory=dict)  # file_path -> GitHub blob SHA (remote repos only)
-    file_mtimes: dict[str, float] = field(default_factory=dict)  # file_path -> os.stat().st_mtime_ns
+    file_mtimes: dict[str, int] = field(default_factory=dict)  # file_path -> os.stat().st_mtime_ns
 
     def __post_init__(self) -> None:
         if not self.display_name:
@@ -421,7 +421,7 @@ class IndexStore:
         imports: Optional[dict[str, list[dict]]] = None,
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
-        file_mtimes: Optional[dict[str, float]] = None,
+        file_mtimes: Optional[dict[str, int]] = None,
     ) -> "CodeIndex":
         """Save index via SQLite backend."""
         # Validate owner/name for path separators (before any slug computation)
@@ -520,9 +520,9 @@ class IndexStore:
         self,
         owner: str,
         name: str,
-        current_mtimes: dict[str, float],
+        current_mtimes: dict[str, int],
         hash_fn: Callable[[str], str],
-    ) -> tuple[list[str], list[str], list[str], dict[str, str], dict[str, float]]:
+    ) -> tuple[list[str], list[str], list[str], dict[str, str], dict[str, int]]:
         """Fast-path change detection using mtimes, falling back to hash on mismatch.
 
         Delegates to the SQLite backend for a single-row lookup.
@@ -556,7 +556,7 @@ class IndexStore:
         context_metadata: Optional[dict] = None,
         file_blob_shas: Optional[dict[str, str]] = None,
         file_hashes: Optional[dict[str, str]] = None,
-        file_mtimes: Optional[dict[str, float]] = None,
+        file_mtimes: Optional[dict[str, int]] = None,
     ) -> Optional[CodeIndex]:
         """Incrementally update via SQLite backend."""
         # Compute file_languages for changed/new files using existing logic.
