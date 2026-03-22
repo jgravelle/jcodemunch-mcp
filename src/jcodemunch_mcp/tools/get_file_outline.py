@@ -10,44 +10,24 @@ from ..parser import build_symbol_tree
 from ._utils import resolve_repo
 
 
-def get_file_outline(
-    repo: str,
+def _get_file_outline_single(
     file_path: str,
-    storage_path: Optional[str] = None
+    index,
+    owner: str,
+    name: str,
+    store: IndexStore,
+    start: float,
 ) -> dict:
-    """Get symbols in a file with hierarchical structure.
-
-    Args:
-        repo: Repository identifier (owner/repo or just repo name)
-        file_path: Path to file within repository
-        storage_path: Custom storage path
-
-    Returns:
-        Dict with symbols outline
-    """
-    start = time.perf_counter()
-
-    try:
-        owner, name = resolve_repo(repo, storage_path)
-    except ValueError as e:
-        return {"error": str(e)}
-    
-    # Load index
-    store = IndexStore(base_path=storage_path)
-    index = store.load_index(owner, name)
-    
-    if not index:
-        return {"error": f"Repository not indexed: {owner}/{name}"}
-
+    """Core logic for a single file_path query. Returns the original flat shape."""
     if not index.has_source_file(file_path):
         return {
             "repo": f"{owner}/{name}",
             "file": file_path,
             "language": "",
             "file_summary": "",
-            "symbols": []
+            "symbols": [],
         }
-    
+
     # Filter symbols to this file
     file_symbols = [s for s in index.symbols if s.get("file") == file_path]
     language = index.file_languages.get(file_path, "")
@@ -60,7 +40,7 @@ def get_file_outline(
         raw_bytes = os.path.getsize(raw_file)
     except OSError:
         pass
-    
+
     if not file_symbols:
         elapsed = (time.perf_counter() - start) * 1000
         tokens_saved = estimate_savings(raw_bytes, 0)
@@ -78,13 +58,14 @@ def get_file_outline(
                 "total_tokens_saved": total_saved,
                 **cost_avoided(tokens_saved, total_saved),
             },
+            "_tip": "Tip: use file_paths=[...] to query multiple files in one call.",
         }
-    
+
     # Build symbol tree
     from ..parser import Symbol
     symbol_objects = [_dict_to_symbol(s) for s in file_symbols]
     tree = build_symbol_tree(symbol_objects)
-    
+
     # Convert to output format
     symbols_output = [_node_to_dict(n) for n in tree]
 
@@ -106,7 +87,82 @@ def get_file_outline(
             "total_tokens_saved": total_saved,
             **cost_avoided(tokens_saved, total_saved),
         },
+        "_tip": "Tip: use file_paths=[...] to query multiple files in one call.",
     }
+
+
+def _get_file_outline_batch(
+    file_paths: list[str],
+    index,
+    owner: str,
+    name: str,
+    store: IndexStore,
+    start: float,
+) -> dict:
+    """Batch logic: loop over file_paths, return grouped results array."""
+    results = []
+
+    for file_path in file_paths:
+        result = _get_file_outline_single(file_path, index, owner, name, store, start)
+        # Strip _tip from batch results to keep them clean
+        result.pop("_tip", None)
+        results.append(result)
+
+    elapsed = (time.perf_counter() - start) * 1000
+    return {
+        "repo": f"{owner}/{name}",
+        "results": results,
+        "_meta": {"timing_ms": round(elapsed, 1)},
+    }
+
+
+def get_file_outline(
+    repo: str,
+    file_path: Optional[str] = None,
+    storage_path: Optional[str] = None,
+    file_paths: Optional[list[str]] = None,
+) -> dict:
+    """Get symbols in a file with hierarchical structure.
+
+    Supports two modes:
+    - Singular: pass ``file_path`` to get the original flat response shape.
+    - Batch: pass ``file_paths`` (list) to query multiple files at once,
+      returning a grouped ``results`` array.
+
+    Args:
+        repo: Repository identifier (owner/repo or just repo name)
+        file_path: Path to file within repository (singular mode)
+        storage_path: Custom storage path
+        file_paths: List of file paths (batch mode)
+
+    Returns:
+        Singular mode: dict with file, language, file_summary, symbols, _meta.
+        Batch mode: dict with ``results`` array (one entry per input file_path).
+
+    Raises:
+        ValueError: if neither or both of file_path and file_paths are provided.
+    """
+    if (file_path is None and file_paths is None) or (file_path is not None and file_paths is not None):
+        raise ValueError("Provide exactly one of 'file_path' or 'file_paths', not both and not neither.")
+
+    start = time.perf_counter()
+
+    try:
+        owner, name = resolve_repo(repo, storage_path)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    # Load index ONCE for both modes
+    store = IndexStore(base_path=storage_path)
+    index = store.load_index(owner, name)
+
+    if not index:
+        return {"error": f"Repository not indexed: {owner}/{name}"}
+
+    if file_paths is not None:
+        return _get_file_outline_batch(file_paths, index, owner, name, store, start)
+    else:
+        return _get_file_outline_single(file_path, index, owner, name, store, start)
 
 
 def _dict_to_symbol(d: dict) -> "Symbol":
@@ -143,8 +199,8 @@ def _node_to_dict(node) -> dict:
         "summary": node.symbol.summary,
         "line": node.symbol.line,
     }
-    
+
     if node.children:
         result["children"] = [_node_to_dict(c) for c in node.children]
-    
+
     return result

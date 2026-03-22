@@ -277,9 +277,14 @@ async def list_tools() -> list[Tool]:
                     "file_path": {
                         "type": "string",
                         "description": "Path to the file within the repository (e.g., 'src/main.py')"
+                    },
+                    "file_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of file paths to query in batch mode. Returns a grouped results array."
                     }
                 },
-                "required": ["repo", "file_path"]
+                "required": ["repo"]
             }
         ),
         Tool(
@@ -752,7 +757,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 functools.partial(
                     get_file_outline,
                     repo=arguments["repo"],
-                    file_path=arguments.get("file_path") or arguments["file"],
+                    file_path=arguments.get("file_path") or arguments.get("file"),
+                    file_paths=arguments.get("file_paths"),
                     storage_path=storage_path,
                 )
             )
