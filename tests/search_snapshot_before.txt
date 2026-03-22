@@ -1,0 +1,70 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.3, pytest-9.0.2, pluggy-1.6.0 -- C:\Devopment\WPy64-31430\python\python.exe
+cachedir: .pytest_cache
+rootdir: D:\1.Development\5.AG\Jjcodemunch\jcodemunch-mcp
+configfile: pyproject.toml
+plugins: anyio-4.12.1, asyncio-1.3.0, mock-3.15.1, timeout-2.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 3 items
+
+tests/test_search_perf.py::test_search_results_stable PASSED
+tests/test_search_perf.py::test_warm_search_faster_than_cold 
+  Cold: 72.7ms  Warm: 44.4ms  Delta: 28.3ms
+PASSED
+tests/test_search_perf.py::test_search_result_snapshot 
+  'editor' top-1:
+    1. tests/test_search_perf.py::QUERIES#constant
+
+  'search_symbols' top-6:
+    1. tests/test_server.py::test_search_symbols_tool_schema#function
+    2. tests/test_cleanup.py::TestInputValidation.test_search_symbols_clamps_max_results#method
+    3. tests/test_search_perf.py::QUERIES#constant
+    4. src/jcodemunch_mcp/tools/search_symbols.py::search_symbols#function
+    5. benchmarks/harness/run_benchmark.py::measure_jmunch#function
+    6. src/jcodemunch_mcp/tools/get_symbol.py::get_symbol#function
+
+  'save' top-10:
+    1. tests/test_sqlite_store.py::test_incremental_save#function
+    2. tests/test_local_integration.py::_full_save#function
+    3. tests/test_sqlite_store.py::test_save_and_load_index#function
+    4. tests/test_hardening.py::TestIncrementalReindex.test_incremental_save_replaces_symbols#method
+    5. tests/test_tools.py::TestHasIndex.test_returns_true_after_save#method
+    6. tests/test_sqlite_store.py::test_load_index_cache_invalidated_on_save#function
+    7. tests/test_hardening.py::TestIncrementalReindex.test_incremental_save_removes_deleted_file_symbols#method
+    8. tests/test_storage.py::test_save_and_load_index#function
+    9. tests/test_storage.py::test_incremental_save_recomputes_languages_from_merged_symbols#function
+    10. tests/test_local_integration.py::test_save_index_cleans_up_zombie_json#function
+
+  'symbol' top-10:
+    1. src/jcodemunch_mcp/parser/symbols.py::Symbol#class
+    2. src/jcodemunch_mcp/storage/index_store.py::IndexStore._symbol_to_dict#method
+    3. src/jcodemunch_mcp/storage/sqlite_store.py::SQLiteIndexStore._symbol_to_row#method
+    4. src/jcodemunch_mcp/storage/index_store.py::CodeIndex.get_symbol#method
+    5. tests/test_get_context_bundle.py::_make_symbol#function
+    6. src/jcodemunch_mcp/tools/get_file_outline.py::_dict_to_symbol#function
+    7. src/jcodemunch_mcp/parser/hierarchy.py::SymbolNode#class
+    8. src/jcodemunch_mcp/parser/hierarchy.py::build_symbol_tree#function
+    9. tests/test_sqlite_store.py::_make_symbol#function
+    10. tests/test_parser.py::test_symbol_id_format#function
+
+  'tokenize' top-5:
+    1. src/jcodemunch_mcp/tools/search_symbols.py::_tokenize#function
+    2. src/jcodemunch_mcp/tools/get_related_symbols.py::_tokenize_name#function
+    3. tests/test_search_perf.py::QUERIES#constant
+    4. benchmarks/harness/run_benchmark.py::TOKENIZER#constant
+    5. benchmarks/harness/run_benchmark.py::render_markdown#function
+
+  'CodeIndex' top-10:
+    1. src/jcodemunch_mcp/storage/index_store.py::CodeIndex#class
+    2. src/jcodemunch_mcp/storage/index_store.py::IndexStore._index_to_dict#method
+    3. src/jcodemunch_mcp/storage/sqlite_store.py::SQLiteIndexStore.load_index#method
+    4. src/jcodemunch_mcp/storage/sqlite_store.py::_cache_put#function
+    5. src/jcodemunch_mcp/storage/sqlite_store.py::_cache_get#function
+    6. tests/test_search_columns.py::_make_index#function
+    7. src/jcodemunch_mcp/storage/index_store.py::IndexStore.load_index#method
+    8. tests/test_search_perf.py::QUERIES#constant
+    9. src/jcodemunch_mcp/storage/sqlite_store.py::SQLiteIndexStore._build_index_from_rows#method
+    10. src/jcodemunch_mcp/storage/sqlite_store.py::SQLiteIndexStore._write_meta#method
+PASSED
+
+============================== 3 passed in 1.26s ==============================
