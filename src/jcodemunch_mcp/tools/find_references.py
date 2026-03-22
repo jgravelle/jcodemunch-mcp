@@ -8,6 +8,30 @@ from ..storage import IndexStore
 from ._utils import resolve_repo
 
 
+def _build_import_name_index(index) -> dict[str, list[tuple[str, dict]]]:
+    """Build inverted index: lowered_name -> [(src_file, imp), ...].
+
+    Indexes both named imports and specifier stems so lookups are O(1).
+    Built once per CodeIndex, cached on index._import_name_index.
+    """
+    inv: dict[str, list[tuple[str, dict]]] = {}
+    for src_file, file_imports in index.imports.items():
+        for imp in file_imports:
+            for n in imp.get("names", []):
+                inv.setdefault(n.lower(), []).append((src_file, imp))
+            spec_stem = posixpath.splitext(posixpath.basename(imp["specifier"]))[0].lower()
+            if spec_stem:
+                inv.setdefault(spec_stem, []).append((src_file, imp))
+    return inv
+
+
+def _get_import_index(index) -> dict[str, list[tuple[str, dict]]]:
+    """Return the cached import name index, building it on first call."""
+    if index._import_name_index is None:
+        index._import_name_index = _build_import_name_index(index)
+    return index._import_name_index
+
+
 def _find_references_single(
     identifier: str,
     index,
@@ -27,28 +51,31 @@ def _find_references_single(
         }
 
     ident_lower = identifier.lower()
-    results = []
+    inv = _get_import_index(index)
+    entries = inv.get(ident_lower, [])
 
-    for src_file, file_imports in index.imports.items():
-        matches = []
-        for imp in file_imports:
-            # Match against named imports
-            named_match = any(n.lower() == ident_lower for n in imp.get("names", []))
-            # Match against specifier stem (e.g. 'IntakeService' in './IntakeService.js')
-            spec = imp["specifier"]
-            spec_stem = posixpath.splitext(posixpath.basename(spec))[0].lower()
-            stem_match = spec_stem == ident_lower
+    # Group by file, dedup, and classify match type
+    file_matches: dict[str, list[dict]] = {}
+    seen: set[tuple[str, str]] = set()  # (src_file, specifier) dedup
+    for src_file, imp in entries:
+        spec = imp["specifier"]
+        key = (src_file, spec)
+        if key in seen:
+            continue
+        seen.add(key)
 
-            if named_match or stem_match:
-                matches.append({
-                    "specifier": spec,
-                    "names": imp.get("names", []),
-                    "match_type": "named" if named_match else "specifier_stem",
-                })
+        named_match = any(n.lower() == ident_lower for n in imp.get("names", []))
+        spec_stem = posixpath.splitext(posixpath.basename(spec))[0].lower()
+        stem_match = spec_stem == ident_lower
 
-        if matches:
-            results.append({"file": src_file, "matches": matches})
+        if named_match or stem_match:
+            file_matches.setdefault(src_file, []).append({
+                "specifier": spec,
+                "names": imp.get("names", []),
+                "match_type": "named" if named_match else "specifier_stem",
+            })
 
+    results = [{"file": f, "matches": m} for f, m in file_matches.items()]
     results.sort(key=lambda r: r["file"])
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -89,24 +116,24 @@ def _find_references_batch(
             "_meta": {"timing_ms": round((time.perf_counter() - start) * 1000, 1)},
         }
 
-    # Pre-compute lowercased query identifiers for Bug C fix
+    inv = _get_import_index(index)
+
+    # Pre-compute lowercased query identifiers
     query_stems = {ident.lower() for ident in identifiers}
 
-    # Build reverse map: identifier_lower -> dict of file -> entry (deduped per file, Bug B fix)
-    # Only populate spec_stem when it matches a query identifier (Bug C fix)
-    # First-match-wins on match_type: batch path is flat (no per-import matches array like
-    # the single path), so we can't expose both match types meaningfully; "named" takes
-    # priority since it represents a more specific import name match.
+    # Build reverse map: identifier_lower -> dict of file -> entry (deduped per file)
+    # First-match-wins on match_type: "named" takes priority since it represents
+    # a more specific import name match.
     ident_map: dict[str, dict[str, dict]] = {}
-    for src_file, file_imports in index.imports.items():
-        for imp in file_imports:
-            for name_or_stem in imp.get("names", []):
-                key = name_or_stem.lower()
-                if src_file not in ident_map.get(key, {}):
-                    ident_map.setdefault(key, {})[src_file] = {"file": src_file, "specifier": imp["specifier"], "match_type": "named"}
-            spec_stem = posixpath.splitext(posixpath.basename(imp["specifier"]))[0].lower()
-            if spec_stem in query_stems and src_file not in ident_map.get(spec_stem, {}):
-                ident_map.setdefault(spec_stem, {})[src_file] = {"file": src_file, "specifier": imp["specifier"], "match_type": "specifier_stem"}
+    for ident_lower in query_stems:
+        entries = inv.get(ident_lower, [])
+        for src_file, imp in entries:
+            if src_file not in ident_map.get(ident_lower, {}):
+                named_match = any(n.lower() == ident_lower for n in imp.get("names", []))
+                match_type = "named" if named_match else "specifier_stem"
+                ident_map.setdefault(ident_lower, {})[src_file] = {
+                    "file": src_file, "specifier": imp["specifier"], "match_type": match_type,
+                }
 
     results = []
     for identifier in identifiers:

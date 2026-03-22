@@ -367,6 +367,212 @@ def test_load_index_cache_cleared_on_delete(tmp_path):
     assert idx2 is None
 
 
+def test_cache_key_uses_safe_name_after_save(tmp_path):
+    """save_index pre-warms cache with safe_name so load_index hits it.
+
+    Regression: save_index cached with raw name ("my project (v2)") but
+    load_index looked up with safe_name ("my-project-v2"), causing permanent
+    cache misses (~110ms per tool call instead of <0.1ms).
+    """
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    raw_name = "my project (v2)"
+
+    store.save_index(
+        owner="local", name=raw_name,
+        source_files=["a.py"], symbols=[_make_symbol("f")],
+        raw_files={"a.py": "x"},
+    )
+
+    idx1 = store.load_index("local", raw_name)
+    assert idx1 is not None
+
+    idx2 = store.load_index("local", raw_name)
+    assert idx2 is idx1, "Cache miss: load_index did not find the pre-warmed entry from save_index"
+
+
+def test_cache_key_uses_safe_name_after_incremental_save(tmp_path):
+    """incremental_save pre-warms cache with safe_name so load_index hits it.
+
+    Regression: same mismatch as test_cache_key_uses_safe_name_after_save but
+    for the incremental (file-watcher) code path.
+    """
+    import time
+
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    raw_name = "my project (v2)"
+
+    store.save_index(
+        owner="local", name=raw_name,
+        source_files=["a.py"], symbols=[_make_symbol("f")],
+        raw_files={"a.py": "x"},
+    )
+
+    time.sleep(0.01)  # ensure mtime changes
+    store.incremental_save(
+        owner="local", name=raw_name,
+        changed_files=[], new_files=["b.py"], deleted_files=[],
+        new_symbols=[_make_symbol("g", file="b.py")],
+        raw_files={"b.py": "y"},
+    )
+
+    idx1 = store.load_index("local", raw_name)
+    assert idx1 is not None
+    assert len(idx1.symbols) == 2
+
+    idx2 = store.load_index("local", raw_name)
+    assert idx2 is idx1, "Cache miss: load_index did not find the pre-warmed entry from incremental_save"
+
+
+def test_cache_evict_uses_safe_name_on_delete(tmp_path):
+    """delete_index evicts cache using safe_name so stale entries don't persist.
+
+    Regression: delete_index evicted with raw name but cache was stored with
+    safe_name, leaving a stale entry that could be served after deletion.
+    """
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    raw_name = "my project (v2)"
+
+    store.save_index(
+        owner="local", name=raw_name,
+        source_files=["a.py"], symbols=[_make_symbol("f")],
+        raw_files={"a.py": "x"},
+    )
+
+    idx1 = store.load_index("local", raw_name)
+    assert idx1 is not None
+
+    store.delete_index("local", raw_name)
+    idx2 = store.load_index("local", raw_name)
+    assert idx2 is None, "Stale cache entry survived delete_index"
+
+
+def _make_symbol_with_hash(name, file="main.py", content_hash=""):
+    """Helper to create a test symbol with content_hash."""
+    return Symbol(
+        id=f"{file}::{name}#function", file=file, name=name,
+        qualified_name=name, kind="function", language="python",
+        signature=f"def {name}()", line=1, end_line=3,
+        byte_offset=0, byte_length=20, content_hash=content_hash,
+    )
+
+
+def test_incremental_save_carries_forward_token_bags(tmp_path):
+    """incremental_save preserves _tokens on unchanged symbols.
+
+    After a search populates _tokens on symbol dicts, an incremental_save
+    that doesn't change those symbols should carry the token bags forward
+    to the new CodeIndex, avoiding re-tokenization on the next search.
+    Requires content_hash on both sides to verify content identity.
+    """
+    import time
+
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    sym_a = _make_symbol_with_hash("func_a", file="a.py", content_hash="hash_a")
+    sym_b = _make_symbol_with_hash("func_b", file="b.py", content_hash="hash_b")
+
+    store.save_index(
+        owner="local", name="token-carry",
+        source_files=["a.py", "b.py"],
+        symbols=[sym_a, sym_b],
+        raw_files={"a.py": "x", "b.py": "y"},
+    )
+
+    # Load and simulate token caching (as search_symbols would do)
+    idx1 = store.load_index("local", "token-carry")
+    for s in idx1.symbols:
+        s["_tokens"] = ["fake", "tokens", s["name"]]
+
+    # Incremental save — adds c.py but doesn't change a.py or b.py
+    time.sleep(0.01)
+    sym_c = _make_symbol_with_hash("func_c", file="c.py", content_hash="hash_c")
+    store.incremental_save(
+        owner="local", name="token-carry",
+        changed_files=[], new_files=["c.py"], deleted_files=[],
+        new_symbols=[sym_c],
+        raw_files={"c.py": "z"},
+    )
+
+    idx2 = store.load_index("local", "token-carry")
+    assert len(idx2.symbols) == 3
+
+    # Unchanged symbols should have _tokens carried forward
+    carried = {s["name"]: s.get("_tokens") for s in idx2.symbols}
+    assert carried["func_a"] == ["fake", "tokens", "func_a"], "func_a tokens not carried"
+    assert carried["func_b"] == ["fake", "tokens", "func_b"], "func_b tokens not carried"
+    # New symbol should NOT have _tokens (no carryforward source)
+    assert carried["func_c"] is None, "func_c should not have carried tokens"
+
+
+def test_no_carryforward_without_content_hash(tmp_path):
+    """Tokens are NOT carried forward when content_hash is missing."""
+    import time
+
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    # No content_hash — carryforward should be skipped
+    sym_a = _make_symbol("func_a", file="a.py")
+
+    store.save_index(
+        owner="local", name="no-hash",
+        source_files=["a.py"], symbols=[sym_a],
+        raw_files={"a.py": "x"},
+    )
+
+    idx1 = store.load_index("local", "no-hash")
+    idx1.symbols[0]["_tokens"] = ["should", "not", "carry"]
+
+    time.sleep(0.01)
+    store.incremental_save(
+        owner="local", name="no-hash",
+        changed_files=[], new_files=[], deleted_files=[],
+        new_symbols=[], raw_files={},
+    )
+
+    idx2 = store.load_index("local", "no-hash")
+    assert idx2.symbols[0].get("_tokens") is None, \
+        "Tokens carried forward without content_hash — unsafe"
+
+
+def test_token_carryforward_skips_changed_symbols(tmp_path):
+    """Tokens are NOT carried forward when content_hash changes."""
+    import time
+
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    sym_a = Symbol(
+        id="a.py::func_a#function", file="a.py", name="func_a",
+        qualified_name="func_a", kind="function", language="python",
+        signature="def func_a()", line=1, end_line=3,
+        byte_offset=0, byte_length=20, content_hash="hash_v1",
+    )
+
+    store.save_index(
+        owner="local", name="token-change",
+        source_files=["a.py"], symbols=[sym_a],
+        raw_files={"a.py": "x"},
+    )
+
+    idx1 = store.load_index("local", "token-change")
+    idx1.symbols[0]["_tokens"] = ["old", "stale", "tokens"]
+
+    # Incremental save with same symbol id but different content_hash
+    time.sleep(0.01)
+    sym_a_v2 = Symbol(
+        id="a.py::func_a#function", file="a.py", name="func_a",
+        qualified_name="func_a", kind="function", language="python",
+        signature="def func_a(x)", line=1, end_line=5,
+        byte_offset=0, byte_length=30, content_hash="hash_v2",
+    )
+    store.incremental_save(
+        owner="local", name="token-change",
+        changed_files=["a.py"], new_files=[], deleted_files=[],
+        new_symbols=[sym_a_v2],
+        raw_files={"a.py": "x_modified"},
+    )
+
+    idx2 = store.load_index("local", "token-change")
+    assert idx2.symbols[0].get("_tokens") is None, \
+        "Stale tokens carried forward despite content_hash change"
+
+
 def test_v4_to_v5_migration(tmp_path):
     """Opening a v4 database auto-migrates to v5 with promoted columns."""
     import json as _json

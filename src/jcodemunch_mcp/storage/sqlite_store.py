@@ -440,7 +440,9 @@ class SQLiteIndexStore:
             self._write_cached_text(file_dest, content)
 
         # Pre-warm cache so the next load_index() is instant
-        _cache_put(owner, name, db_path.stat().st_mtime_ns, index)
+        # Use safe_name to match the key used by load_index's _cache_get
+        safe_name = self._safe_repo_component(name, "name")
+        _cache_put(owner, safe_name, db_path.stat().st_mtime_ns, index)
         return index
 
     def load_index(self, owner: str, name: str) -> Optional["CodeIndex"]:
@@ -515,6 +517,16 @@ class SQLiteIndexStore:
         db_path = self._db_path(owner, name)
         if not db_path.exists():
             return None
+
+        # Grab old CodeIndex from cache BEFORE DB write changes mtime.
+        # Used below to carry forward cached _tokens for unchanged symbols.
+        safe_name = self._safe_repo_component(name, "name")
+        old_index = None
+        try:
+            old_mtime = db_path.stat().st_mtime_ns
+            old_index = _cache_get(owner, safe_name, old_mtime)
+        except OSError:
+            pass
 
         conn = self._connect(db_path)
         try:
@@ -640,8 +652,35 @@ class SQLiteIndexStore:
 
         # Build CodeIndex from already-fetched rows (no second round-trip)
         index = self._build_index_from_rows(meta, all_symbol_rows, all_file_rows, owner, name)
+
+        # Carry forward cached BM25 token bags from unchanged symbols.
+        # Matched by symbol id; content_hash must match on both sides to
+        # guarantee the symbol text is identical. If either hash is missing,
+        # we can't verify — skip to avoid stale tokens.
+        if old_index is not None:
+            old_sym_map = {}
+            for sym in old_index.symbols:
+                tokens = sym.get("_tokens")
+                ch = sym.get("content_hash")
+                if tokens is not None and ch:
+                    old_sym_map[sym["id"]] = (ch, sym)
+            if old_sym_map:
+                for sym in index.symbols:
+                    old = old_sym_map.get(sym["id"])
+                    if old is None:
+                        continue
+                    old_hash, old_sym = old
+                    new_hash = sym.get("content_hash")
+                    if new_hash and new_hash == old_hash:
+                        sym["_tokens"] = old_sym["_tokens"]
+                        # Also carry forward pre-computed TF and dl if present
+                        if "_tf" in old_sym:
+                            sym["_tf"] = old_sym["_tf"]
+                        if "_dl" in old_sym:
+                            sym["_dl"] = old_sym["_dl"]
+
         # Pre-warm cache so the next load_index() is instant
-        _cache_put(owner, name, db_path.stat().st_mtime_ns, index)
+        _cache_put(owner, safe_name, db_path.stat().st_mtime_ns, index)
         return index
 
     def detect_changes_with_mtimes(
@@ -793,7 +832,8 @@ class SQLiteIndexStore:
 
     def delete_index(self, owner: str, name: str) -> bool:
         """Delete a repo's .db, .db-wal, .db-shm, and content dir."""
-        _cache_evict(owner, name)
+        safe_name = self._safe_repo_component(name, "name")
+        _cache_evict(owner, safe_name)
         db_path = self._db_path(owner, name)
         deleted = False
 
@@ -980,18 +1020,33 @@ class SQLiteIndexStore:
         from .index_store import CodeIndex
 
         symbols = [self._row_to_symbol_dict(r) for r in symbol_rows]
-        source_files = sorted(r["path"] for r in file_rows)
-        file_hashes = {r["path"]: r["hash"] for r in file_rows if r["hash"]}
-        file_mtimes = {r["path"]: r["mtime_ns"] for r in file_rows if r["mtime_ns"] is not None}
-        file_languages = {r["path"]: r["language"] for r in file_rows if r["language"]}
-        file_summaries = {r["path"]: r["summary"] for r in file_rows if r["summary"]}
-        file_blob_shas = {r["path"]: r["blob_sha"] for r in file_rows if r["blob_sha"]}
+
+        # Single pass over file_rows to build all file-level dicts
+        source_files_unsorted: list[str] = []
+        file_hashes: dict[str, str] = {}
+        file_mtimes: dict[str, int] = {}
+        file_languages: dict[str, str] = {}
+        file_summaries: dict[str, str] = {}
+        file_blob_shas: dict[str, str] = {}
         imports: Optional[dict[str, list[dict]]] = {}
         for r in file_rows:
+            p = r["path"]
+            source_files_unsorted.append(p)
+            if r["hash"]:
+                file_hashes[p] = r["hash"]
+            if r["mtime_ns"] is not None:
+                file_mtimes[p] = r["mtime_ns"]
+            if r["language"]:
+                file_languages[p] = r["language"]
+            if r["summary"]:
+                file_summaries[p] = r["summary"]
+            if r["blob_sha"]:
+                file_blob_shas[p] = r["blob_sha"]
             if r["imports"]:
                 parsed = json.loads(r["imports"])
                 if parsed:
-                    imports[r["path"]] = parsed
+                    imports[p] = parsed
+        source_files = sorted(source_files_unsorted)
         if not imports:
             # v3 format had no imports field — preserve None for backward compatibility
             index_version = int(meta.get("index_version", "0"))

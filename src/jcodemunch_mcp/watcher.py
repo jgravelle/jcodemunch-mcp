@@ -316,6 +316,12 @@ async def _watch_single(
         )
 
         try:
+            # Map watchfiles Change enum to string labels for index_folder
+            _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
+            watcher_changes = [
+                (_change_map[ct], p) for ct, p in relevant
+            ]
+
             result = await asyncio.to_thread(
                 index_folder,
                 path=folder_path,
@@ -324,6 +330,7 @@ async def _watch_single(
                 extra_ignore_patterns=extra_ignore_patterns,
                 follow_symlinks=follow_symlinks,
                 incremental=True,
+                changed_paths=watcher_changes,
             )
             if result.get("success"):
                 duration = result.get("duration_seconds", "?")

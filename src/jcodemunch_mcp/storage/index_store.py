@@ -88,9 +88,30 @@ class CodeIndex:
         # Build O(1) lookup structures once at load time.
         self._symbol_index: dict[str, dict] = {s["id"]: s for s in self.symbols if "id" in s}
         self._source_file_set: set[str] = set(self.source_files)
+        # Lazy BM25 cache — populated on first search, invalidated by new CodeIndex
+        self._bm25_cache: dict = {}
+        # Lazy import-name inverted index — populated on first find_references call
+        self._import_name_index: Optional[dict[str, list[tuple[str, dict]]]] = None
+
+    # Keys added by BM25 caching — must not leak into API responses
+    _INTERNAL_KEYS = {"_tokens", "_tf", "_dl"}
 
     def get_symbol(self, symbol_id: str) -> Optional[dict]:
-        """Find a symbol by ID (O(1))."""
+        """Find a symbol by ID (O(1)).
+
+        Returns a shallow copy with internal BM25 cache keys stripped
+        so callers never see _tokens/_tf/_dl in API responses.
+        """
+        sym = self._symbol_index.get(symbol_id)
+        if sym is None:
+            return None
+        if sym.keys() & self._INTERNAL_KEYS:
+            return {k: v for k, v in sym.items() if k not in self._INTERNAL_KEYS}
+        return sym
+
+    def _get_symbol_raw(self, symbol_id: str) -> Optional[dict]:
+        """Internal symbol lookup — returns the live dict with BM25 cache keys intact.
+        Only for use by search/scoring code that needs _tokens/_tf/_dl."""
         return self._symbol_index.get(symbol_id)
 
     def has_source_file(self, file_path: str) -> bool:

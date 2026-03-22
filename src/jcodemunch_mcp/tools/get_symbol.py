@@ -57,14 +57,17 @@ def get_symbol(
     # Get source via byte-offset read (pass index to avoid a second load_index call)
     source = store.get_symbol_content(owner, name, symbol_id, _index=index)
 
+    # Compute content path once (used for context lines and token savings)
+    content_dir = store._content_dir(owner, name)
+    file_full_path = content_dir / symbol["file"]
+
     # Add context lines if requested
     context_before = ""
     context_after = ""
     if context_lines > 0 and source:
-        file_path = store._content_dir(owner, name) / symbol["file"]
-        if file_path.exists():
+        if file_full_path.exists():
             try:
-                all_lines = file_path.read_text(encoding="utf-8", errors="replace").split("\n")
+                all_lines = file_full_path.read_text(encoding="utf-8", errors="replace").split("\n")
                 start_line = symbol["line"] - 1  # 0-indexed
                 end_line = symbol["end_line"]     # exclusive
                 before_start = max(0, start_line - context_lines)
@@ -85,8 +88,7 @@ def get_symbol(
     # Token savings: raw file size vs symbol byte length
     raw_bytes = 0
     try:
-        raw_file = store._content_dir(owner, name) / symbol["file"]
-        raw_bytes = os.path.getsize(raw_file)
+        raw_bytes = os.path.getsize(file_full_path)
     except OSError:
         pass
     tokens_saved = estimate_savings(raw_bytes, symbol.get("byte_length", 0))

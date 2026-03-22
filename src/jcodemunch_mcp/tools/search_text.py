@@ -1,6 +1,6 @@
 """Full-text search across indexed file contents."""
 
-import json
+import fnmatch as _fnmatch
 import os
 import re
 import time
@@ -50,6 +50,10 @@ def search_text(
     max_results = max(1, min(max_results, 100))
     context_lines = max(0, min(context_lines, 10))
 
+    # For regex mode, compile the user pattern. For substring mode, use
+    # Python's optimized `in` operator (faster than re.search per line).
+    pattern = None
+    query_lower = None
     if is_regex:
         if len(query) > _MAX_REGEX_LEN:
             return {"error": f"Regex too long ({len(query)} chars, max {_MAX_REGEX_LEN})"}
@@ -59,6 +63,8 @@ def search_text(
             pattern = re.compile(query, re.IGNORECASE)
         except re.error as e:
             return {"error": f"Invalid regex: {e}"}
+    else:
+        query_lower = query.lower()
 
     try:
         owner, name = resolve_repo(repo, storage_path)
@@ -71,19 +77,21 @@ def search_text(
     if not index:
         return {"error": f"Repository not indexed: {owner}/{name}"}
 
-    # Filter files
-    import fnmatch
+    # Pre-compile file pattern into a single regex (avoids double fnmatch per file)
     files = index.source_files
     if file_pattern:
-        files = [f for f in files if fnmatch.fnmatch(f, file_pattern) or fnmatch.fnmatch(f, f"*/{file_pattern}")]
+        pat_re = re.compile(
+            _fnmatch.translate(file_pattern) + "|" + _fnmatch.translate(f"*/{file_pattern}")
+        )
+        files = [f for f in files if pat_re.match(f)]
 
     content_dir = store._content_dir(owner, name)
-    query_lower = query.lower() if not is_regex else None
     results = []
     result_count = 0
     files_searched = 0
     truncated = False
     raw_bytes = 0
+    response_bytes = 0
 
     for file_path in files:
         full_path = store._safe_content_path(content_dir, file_path)
@@ -99,25 +107,32 @@ def search_text(
         lines = content.split("\n")
         file_matches = []
         for line_index, line in enumerate(lines):
-            hit = pattern.search(line) if is_regex else (query_lower in line.lower())
-            if hit:
-                match = {
-                    "line": line_index + 1,
-                    "text": line.rstrip()[:200],  # Truncate long lines
-                }
-                if context_lines > 0:
-                    before_start = max(0, line_index - context_lines)
-                    after_end = min(len(lines), line_index + context_lines + 1)
-                    match["before"] = [value.rstrip()[:200] for value in lines[before_start:line_index]]
-                    match["after"] = [value.rstrip()[:200] for value in lines[line_index + 1:after_end]]
-                file_matches.append(match)
-                result_count += 1
-                if result_count >= max_results:
-                    truncated = True
-                    break
+            hit = pattern.search(line) if pattern else (query_lower in line.lower())
+            if not hit:
+                continue
+            text = line.rstrip()[:200]
+            match = {
+                "line": line_index + 1,
+                "text": text,
+            }
+            response_bytes += len(text) + 20  # key overhead estimate
+            if context_lines > 0:
+                before_start = max(0, line_index - context_lines)
+                after_end = min(len(lines), line_index + context_lines + 1)
+                before = [v.rstrip()[:200] for v in lines[before_start:line_index]]
+                after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
+                match["before"] = before
+                match["after"] = after
+                response_bytes += sum(len(v) for v in before) + sum(len(v) for v in after)
+            file_matches.append(match)
+            result_count += 1
+            if result_count >= max_results:
+                truncated = True
+                break
 
         if file_matches:
             results.append({"file": file_path, "matches": file_matches})
+            response_bytes += len(file_path) + 20
             try:
                 raw_bytes += os.path.getsize(full_path)
             except OSError:
@@ -128,8 +143,6 @@ def search_text(
 
     elapsed = (time.perf_counter() - start) * 1000
 
-    # Token savings: raw bytes of searched files vs grouped match response
-    response_bytes = len(json.dumps(results, ensure_ascii=False).encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved, tool_name="search_text")
 

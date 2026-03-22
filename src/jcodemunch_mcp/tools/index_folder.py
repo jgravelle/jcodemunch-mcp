@@ -307,6 +307,7 @@ def index_folder(
     follow_symlinks: bool = False,
     incremental: bool = True,
     context_providers: bool = True,
+    changed_paths: Optional[list[tuple[str, str]]] = None,
 ) -> dict:
     """Index a local folder containing source code.
 
@@ -320,6 +321,10 @@ def index_folder(
         context_providers: Whether to run context providers (default True).
             Set to False or set JCODEMUNCH_CONTEXT_PROVIDERS=0 to disable.
         incremental: When True and an existing index exists, only re-index changed files.
+        changed_paths: Optional pre-known change set from the watcher, as a list of
+            (change_type, absolute_path) tuples where change_type is one of
+            "added", "modified", "deleted".  When provided with incremental=True
+            and an existing index, skips full directory discovery (~3s → ~50ms).
 
     Returns:
         Dict with indexing results.
@@ -365,6 +370,175 @@ def index_folder(
 
     try:
         t0 = time.monotonic()
+
+        # ── Fast path: watcher-driven incremental reindex ──
+        # When the watcher provides the exact change set, skip full directory
+        # discovery (~3s on Windows) and only process the affected files.
+        if changed_paths and incremental:
+            repo_name = _local_repo_name(folder_path)
+            owner = "local"
+            store = IndexStore(base_path=storage_path)
+            existing_index = store.load_index(owner, repo_name)
+
+            if existing_index is not None:
+                # Skip discover_providers on the watcher fast path — provider
+                # detection walks the tree (~500ms) and providers don't change
+                # between file edits.  The initial index_folder call (without
+                # changed_paths) already ran provider detection.
+                active_providers = []
+
+                # Classify watcher events into changed/new/deleted rel_paths
+                changed_files: list[str] = []
+                new_files: list[str] = []
+                deleted_files: list[str] = []
+                rel_path_map_fast: dict[str, Path] = {}
+
+                for change_type, abs_path_str in changed_paths:
+                    abs_path = Path(abs_path_str)
+                    try:
+                        rel_path = abs_path.relative_to(folder_path).as_posix()
+                    except ValueError:
+                        continue
+                    # Skip non-source files
+                    ext = abs_path.suffix
+                    if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(abs_path)) is None:
+                        continue
+
+                    if change_type == "deleted":
+                        if existing_index.has_source_file(rel_path):
+                            deleted_files.append(rel_path)
+                    elif change_type == "added":
+                        if not existing_index.has_source_file(rel_path):
+                            new_files.append(rel_path)
+                            rel_path_map_fast[rel_path] = abs_path
+                        else:
+                            # File exists in index but watcher says "added" (e.g. recreated)
+                            changed_files.append(rel_path)
+                            rel_path_map_fast[rel_path] = abs_path
+                    else:  # modified
+                        changed_files.append(rel_path)
+                        rel_path_map_fast[rel_path] = abs_path
+
+                if not changed_files and not new_files and not deleted_files:
+                    return {
+                        "success": True,
+                        "message": "No changes detected",
+                        "repo": f"{owner}/{repo_name}",
+                        "folder_path": str(folder_path),
+                        "changed": 0, "new": 0, "deleted": 0,
+                        "duration_seconds": round(time.monotonic() - t0, 2),
+                    }
+
+                # Read and hash only the changed/new files.
+                # For "modified" files, compare hash against stored hash —
+                # if content is identical (e.g. touch, save-without-change),
+                # skip re-parsing and just update the mtime.
+                old_hashes = existing_index.file_hashes or {}
+                actually_changed: list[str] = []
+                raw_files_subset: dict[str, str] = {}
+                subset_hashes: dict[str, str] = {}
+                fast_mtimes: dict[str, int] = {}
+                fast_warnings: list[str] = []
+                mtime_only_updates: dict[str, int] = {}
+
+                for rel_path in set(changed_files) | set(new_files):
+                    abs_path = rel_path_map_fast[rel_path]
+                    try:
+                        with open(abs_path, "r", encoding="utf-8", errors="replace", newline="") as f:
+                            content = f.read()
+                    except Exception as e:
+                        fast_warnings.append(f"Failed to read {abs_path}: {e}")
+                        continue
+                    new_hash = _file_hash(content)
+                    try:
+                        cur_mtime = os.stat(abs_path).st_mtime_ns
+                    except OSError:
+                        cur_mtime = None
+
+                    # Content unchanged — skip parse, just record new mtime
+                    if rel_path in changed_files and new_hash == old_hashes.get(rel_path, ""):
+                        if cur_mtime is not None:
+                            mtime_only_updates[rel_path] = cur_mtime
+                        continue
+
+                    raw_files_subset[rel_path] = content
+                    subset_hashes[rel_path] = new_hash
+                    if cur_mtime is not None:
+                        fast_mtimes[rel_path] = cur_mtime
+                    if rel_path in changed_files:
+                        actually_changed.append(rel_path)
+
+                # Replace changed_files with only the truly changed ones
+                changed_files = actually_changed
+
+                # If only mtimes changed (no content changes, no new, no deleted),
+                # update mtimes in DB and return early — no parsing needed.
+                if not changed_files and not new_files and not deleted_files:
+                    if mtime_only_updates:
+                        # Update mtimes directly via incremental_save with empty deltas
+                        store.incremental_save(
+                            owner=owner, name=repo_name,
+                            changed_files=[], new_files=[], deleted_files=[],
+                            new_symbols=[], raw_files={},
+                            file_mtimes=mtime_only_updates,
+                        )
+                    return {
+                        "success": True,
+                        "message": "No changes detected",
+                        "repo": f"{owner}/{repo_name}",
+                        "folder_path": str(folder_path),
+                        "fast_path": True,
+                        "changed": 0, "new": 0, "deleted": 0,
+                        "duration_seconds": round(time.monotonic() - t0, 2),
+                    }
+
+                files_to_parse = set(changed_files) | set(new_files)
+                new_symbols, incr_file_summaries, incr_file_languages, incr_file_imports, incremental_no_symbols = (
+                    parse_and_prepare_incremental(
+                        files_to_parse=files_to_parse,
+                        file_contents=raw_files_subset,
+                        active_providers=active_providers,
+                        use_ai_summaries=use_ai_summaries,
+                        warnings=fast_warnings,
+                    )
+                )
+
+                git_head = _get_git_head(folder_path) or ""
+                incr_context_metadata = collect_metadata(active_providers) if active_providers else None
+
+                # Merge mtime-only updates so they're persisted alongside real changes
+                all_mtimes = {**mtime_only_updates, **fast_mtimes}
+
+                updated = store.incremental_save(
+                    owner=owner, name=repo_name,
+                    changed_files=changed_files, new_files=new_files, deleted_files=deleted_files,
+                    new_symbols=new_symbols,
+                    raw_files=raw_files_subset,
+                    git_head=git_head,
+                    file_summaries=incr_file_summaries,
+                    file_languages=incr_file_languages,
+                    imports=incr_file_imports,
+                    context_metadata=incr_context_metadata,
+                    file_hashes=subset_hashes,
+                    file_mtimes=all_mtimes,
+                )
+
+                result = {
+                    "success": True,
+                    "repo": f"{owner}/{repo_name}",
+                    "folder_path": str(folder_path),
+                    "incremental": True,
+                    "fast_path": True,
+                    "changed": len(changed_files), "new": len(new_files), "deleted": len(deleted_files),
+                    "symbol_count": len(updated.symbols) if updated else 0,
+                    "indexed_at": updated.indexed_at if updated else "",
+                    "duration_seconds": round(time.monotonic() - t0, 2),
+                }
+                if fast_warnings:
+                    result["warnings"] = fast_warnings
+                return result
+
+        # ── Standard path: full directory discovery ──
         # Discover source files (with security filtering)
         source_files, discover_warnings, skip_counts = discover_local_files(
             folder_path,
