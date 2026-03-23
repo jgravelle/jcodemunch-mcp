@@ -384,6 +384,67 @@ async def test_call_tool_uses_our_schema_cache_not_sdk():
 
 
 @pytest.mark.asyncio
+async def test_descriptions_shared_applied_to_all_tools(monkeypatch):
+    """_shared description should apply to all tools with that param."""
+    from jcodemunch_mcp import config as config_module
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+
+    try:
+        config_module._GLOBAL_CONFIG["descriptions"] = {
+            "_shared": {
+                "repo": "Custom shared repo description"
+            }
+        }
+        config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+        tools = await list_tools()
+
+        for tool_name in ["search_symbols", "get_file_tree", "get_symbol"]:
+            tool = next((t for t in tools if t.name == tool_name), None)
+            if tool:
+                repo_param = tool.inputSchema.get("properties", {}).get("repo", {})
+                if repo_param:
+                    assert "Custom shared repo description" in repo_param.get("description", "")
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_descriptions_tool_specific_overrides_shared(monkeypatch):
+    """Tool-specific description should override _shared for that param."""
+    from jcodemunch_mcp import config as config_module
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+
+    try:
+        config_module._GLOBAL_CONFIG["descriptions"] = {
+            "_shared": {"repo": "Shared description"},
+            "search_symbols": {"repo": "search_symbols specific desc"}
+        }
+        config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+        tools = await list_tools()
+
+        search_tool = next((t for t in tools if t.name == "search_symbols"), None)
+        assert search_tool is not None
+        repo_param = search_tool.inputSchema.get("properties", {}).get("repo", {})
+        assert "search_symbols specific desc" in repo_param.get("description", "")
+
+        tree_tool = next((t for t in tools if t.name == "get_file_tree"), None)
+        assert tree_tool is not None
+        repo_param = tree_tool.inputSchema.get("properties", {}).get("repo", {})
+        assert "Shared description" in repo_param.get("description", "")
+        assert "search_symbols specific" not in repo_param.get("description", "")
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
 async def test_descriptions_config_overrides_tool_descriptions(monkeypatch):
     """Config descriptions should override tool descriptions."""
     from jcodemunch_mcp import config as config_module

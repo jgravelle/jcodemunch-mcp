@@ -762,15 +762,13 @@ def _apply_description_overrides(tools: list) -> None:
     shared = descriptions.get("_shared", {})
 
     for tool in tools:
-        tool_desc = descriptions.get(tool.name)
-        if not tool_desc:
-            continue
+        tool_desc = descriptions.get(tool.name, {})
 
         # Override tool-level description
-        if "_tool" in tool_desc and tool_desc["_tool"]:
+        if tool_desc.get("_tool"):
             tool.description = tool_desc["_tool"]
 
-        # Override parameter descriptions
+        # Override parameter descriptions (applies even if only _shared is set)
         if isinstance(tool.inputSchema, dict):
             props = tool.inputSchema.get("properties", {})
             for param_name, param_schema in props.items():
