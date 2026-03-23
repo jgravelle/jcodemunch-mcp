@@ -366,6 +366,10 @@ def index_folder(
             "Prefer passing an absolute path to avoid unexpected behaviour."
         )
 
+    # Redact absolute path from responses when JCODEMUNCH_REDACT_SOURCE_ROOT=1
+    _redact = os.environ.get("JCODEMUNCH_REDACT_SOURCE_ROOT", "") == "1"
+    _folder_display = folder_path.name if _redact else str(folder_path)
+
     max_files = get_max_folder_files()
 
     try:
@@ -424,7 +428,7 @@ def index_folder(
                         "success": True,
                         "message": "No changes detected",
                         "repo": f"{owner}/{repo_name}",
-                        "folder_path": str(folder_path),
+                        "folder_path": _folder_display,
                         "changed": 0, "new": 0, "deleted": 0,
                         "duration_seconds": round(time.monotonic() - t0, 2),
                     }
@@ -486,7 +490,7 @@ def index_folder(
                         "success": True,
                         "message": "No changes detected",
                         "repo": f"{owner}/{repo_name}",
-                        "folder_path": str(folder_path),
+                        "folder_path": _folder_display,
                         "fast_path": True,
                         "changed": 0, "new": 0, "deleted": 0,
                         "duration_seconds": round(time.monotonic() - t0, 2),
@@ -526,7 +530,7 @@ def index_folder(
                 result = {
                     "success": True,
                     "repo": f"{owner}/{repo_name}",
-                    "folder_path": str(folder_path),
+                    "folder_path": _folder_display,
                     "incremental": True,
                     "fast_path": True,
                     "changed": len(changed_files), "new": len(new_files), "deleted": len(deleted_files),
@@ -628,7 +632,7 @@ def index_folder(
                     "success": True,
                     "message": "No changes detected",
                     "repo": f"{owner}/{repo_name}",
-                    "folder_path": str(folder_path),
+                    "folder_path": _folder_display,
                     "changed": 0, "new": 0, "deleted": 0,
                     "duration_seconds": round(time.monotonic() - t0, 2),
                 }
@@ -675,7 +679,7 @@ def index_folder(
             result = {
                 "success": True,
                 "repo": f"{owner}/{repo_name}",
-                "folder_path": str(folder_path),
+                "folder_path": _folder_display,
                 "incremental": True,
                 "changed": len(changed), "new": len(new), "deleted": len(deleted),
                 "symbol_count": len(updated.symbols) if updated else 0,
@@ -786,7 +790,7 @@ def index_folder(
         result = {
             "success": True,
             "repo": index.repo,
-            "folder_path": str(folder_path),
+            "folder_path": _folder_display,
             "indexed_at": index.indexed_at,
             "file_count": len(source_file_list),
             "symbol_count": len(all_symbols),

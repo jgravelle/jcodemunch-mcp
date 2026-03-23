@@ -617,6 +617,7 @@ class SQLiteIndexStore:
             # (not in changed_or_new, not deleted — mtime-only drift e.g. `touch file.py`)
             # Without this, the mtime fast-path would never apply for these files on
             # subsequent cycles: old mtime stays in DB → perpetual re-hash.
+            mtime_only: list = []
             if file_mtimes:
                 changed_or_new_set = set(changed_or_new)
                 deleted_set = set(deleted_files)
@@ -627,10 +628,13 @@ class SQLiteIndexStore:
                 if mtime_only:
                     conn.executemany("UPDATE files SET mtime_ns = ? WHERE path = ?", mtime_only)
 
-            # Fetch final state BEFORE commit — same transaction, no second round-trip
-            all_symbol_rows = conn.execute("SELECT * FROM symbols").fetchall()
-            all_file_rows = conn.execute("SELECT * FROM files").fetchall()
+            # Always read meta (small). Only read all rows when no cached index to patch.
             meta = self._read_meta(conn)
+            if old_index is None:
+                all_symbol_rows = conn.execute("SELECT * FROM symbols").fetchall()
+                all_file_rows = conn.execute("SELECT * FROM files").fetchall()
+            else:
+                all_symbol_rows = all_file_rows = None  # unused in patch path
 
             conn.commit()
         finally:
@@ -650,16 +654,36 @@ class SQLiteIndexStore:
             dest.parent.mkdir(parents=True, exist_ok=True)
             self._write_cached_text(dest, content)
 
-        # Build CodeIndex from already-fetched rows (no second round-trip)
-        index = self._build_index_from_rows(meta, all_symbol_rows, all_file_rows, owner, name)
-
-        # Carry forward cached BM25 token bags from unchanged symbols.
-        # Matched by symbol id; content_hash must match on both sides to
-        # guarantee the symbol text is identical. If either hash is missing,
-        # we can't verify — skip to avoid stale tokens.
         if old_index is not None:
+            # Fast path: patch in-memory — O(delta), no full table read.
+            # Retained symbols already carry their BM25 token bags (_tokens/_tf/_dl).
+            index = self._patch_index_from_delta(
+                old=old_index,
+                meta=meta,
+                files_to_remove=files_to_remove,
+                new_files=new_files,
+                changed_files=changed_files,
+                new_symbols=new_symbols,
+                file_hashes=file_hashes,
+                file_mtimes=file_mtimes,
+                mtime_only=mtime_only,
+                file_languages=file_languages,
+                file_summaries=file_summaries,
+                file_blob_shas=file_blob_shas,
+                imports=imports,
+                context_metadata=context_metadata,
+                computed_langs=computed_langs,
+            )
+        else:
+            # Cold path: build from DB rows (no cached index available)
+            index = self._build_index_from_rows(meta, all_symbol_rows, all_file_rows, owner, name)
+
+            # Carry forward cached BM25 token bags from unchanged symbols.
+            # (Only needed in cold path — patch path retains them automatically.)
+            # Matched by symbol id; content_hash must match on both sides to
+            # guarantee the symbol text is identical.
             old_sym_map = {}
-            for sym in old_index.symbols:
+            for sym in (old_index.symbols if old_index else []):
                 tokens = sym.get("_tokens")
                 ch = sym.get("content_hash")
                 if tokens is not None and ch:
@@ -673,7 +697,6 @@ class SQLiteIndexStore:
                     new_hash = sym.get("content_hash")
                     if new_hash and new_hash == old_hash:
                         sym["_tokens"] = old_sym["_tokens"]
-                        # Also carry forward pre-computed TF and dl if present
                         if "_tf" in old_sym:
                             sym["_tf"] = old_sym["_tf"]
                         if "_dl" in old_sym:
@@ -1011,6 +1034,122 @@ class SQLiteIndexStore:
             "content_hash": content_hash,
             "ecosystem_context": ecosystem_context,
         }
+
+    def _symbol_to_dict(self, symbol: "Symbol") -> dict:
+        """Convert a Symbol object directly to a CodeIndex.symbols-format dict.
+
+        Used by the in-memory patch path in incremental_save to avoid a DB
+        round-trip when the cached old_index is available.
+        """
+        return {
+            "id": symbol.id,
+            "file": symbol.file,
+            "name": symbol.name,
+            "kind": symbol.kind or "",
+            "signature": symbol.signature or "",
+            "summary": symbol.summary or "",
+            "docstring": symbol.docstring or "",
+            "qualified_name": symbol.qualified_name or symbol.name,
+            "language": symbol.language or "",
+            "decorators": symbol.decorators or [],
+            "keywords": symbol.keywords or [],
+            "parent": symbol.parent,
+            "line": symbol.line or 0,
+            "end_line": symbol.end_line or 0,
+            "byte_offset": symbol.byte_offset or 0,
+            "byte_length": symbol.byte_length or 0,
+            "content_hash": symbol.content_hash or "",
+            "ecosystem_context": getattr(symbol, "ecosystem_context", "") or "",
+        }
+
+    def _patch_index_from_delta(
+        self,
+        old: "CodeIndex",
+        meta: dict,
+        files_to_remove: set,
+        new_files: list,
+        changed_files: list,
+        new_symbols: list,
+        file_hashes: Optional[dict],
+        file_mtimes: Optional[dict],
+        mtime_only: list,
+        file_languages: Optional[dict],
+        file_summaries: Optional[dict],
+        file_blob_shas: Optional[dict],
+        imports: Optional[dict],
+        context_metadata: Optional[dict],
+        computed_langs: dict,
+    ) -> "CodeIndex":
+        """Patch an existing CodeIndex in memory — O(delta) instead of O(total rows).
+
+        Retained symbols already carry their BM25 token bags (_tokens/_tf/_dl)
+        from old_index, so no separate carry-forward step is needed.
+        """
+        from .index_store import CodeIndex
+
+        # New symbol dicts — no DB round-trip required
+        new_sym_dicts = [self._symbol_to_dict(s) for s in new_symbols]
+
+        # Patch symbol list: drop changed/deleted, append new.
+        # Strip BM25 internal keys from any retained symbol that lacks a content_hash —
+        # matches the carry-forward contract of the cold path (no hash = can't verify).
+        _bm25_keys = {"_tokens", "_tf", "_dl"}
+        retained_syms = []
+        for s in old.symbols:
+            if s.get("file") in files_to_remove:
+                continue
+            if s.keys() & _bm25_keys and not s.get("content_hash"):
+                s = {k: v for k, v in s.items() if k not in _bm25_keys}
+            retained_syms.append(s)
+        patched_symbols = retained_syms + new_sym_dicts
+
+        # Patch source_files
+        kept_files = [f for f in old.source_files if f not in files_to_remove]
+        added_files = set(changed_files) | set(new_files)
+        patched_source_files = sorted(set(kept_files) | added_files)
+
+        def _patch_dict(old_d: dict, delta: Optional[dict], remove_keys: set) -> dict:
+            result = {k: v for k, v in old_d.items() if k not in remove_keys}
+            if delta:
+                result.update(delta)
+            return result
+
+        mtime_only_dict = {fp: mt for mt, fp in mtime_only}
+
+        new_file_mtimes = _patch_dict(old.file_mtimes, file_mtimes, files_to_remove)
+        new_file_mtimes.update(mtime_only_dict)  # mtime-only drift updates
+        new_file_hashes = _patch_dict(old.file_hashes, file_hashes, files_to_remove)
+        new_file_languages = _patch_dict(old.file_languages, file_languages, files_to_remove)
+        new_file_summaries = _patch_dict(old.file_summaries, file_summaries, files_to_remove)
+        new_file_blob_shas = _patch_dict(old.file_blob_shas, file_blob_shas, files_to_remove)
+
+        if old.imports is not None:
+            new_imports: Optional[dict] = _patch_dict(old.imports, imports, files_to_remove)
+        else:
+            new_imports = imports or {}
+
+        new_ctx = context_metadata if context_metadata is not None else old.context_metadata
+
+        return CodeIndex(
+            repo=old.repo,
+            owner=old.owner,
+            name=old.name,
+            indexed_at=meta.get("indexed_at", old.indexed_at),
+            source_files=patched_source_files,
+            languages=computed_langs,
+            symbols=patched_symbols,
+            index_version=old.index_version,
+            file_hashes=new_file_hashes,
+            git_head=meta.get("git_head", old.git_head),
+            file_summaries=new_file_summaries,
+            source_root=old.source_root,
+            file_languages=new_file_languages,
+            display_name=old.display_name,
+            imports=new_imports,
+            context_metadata=new_ctx,
+            file_blob_shas=new_file_blob_shas,
+            file_mtimes=new_file_mtimes,
+        )
 
     def _build_index_from_rows(
         self, meta: dict, symbol_rows: list, file_rows: list, owner: str, name: str,

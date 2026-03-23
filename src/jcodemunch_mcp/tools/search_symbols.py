@@ -253,7 +253,16 @@ def search_symbols(
 
     has_filters = bool(kind or file_pattern or language)
 
-    effective_limit = max_results if token_budget is None else len(index.symbols)
+    # Bound the heap size in both modes.
+    # token_budget mode: estimate ceiling as budget_bytes / min_symbol_size so the
+    # heap stays O(N log K) instead of O(N log N) on large indexes.
+    # A 20-byte floor is conservative — real symbols are rarely smaller.
+    _MIN_BYTES_PER_SYMBOL = 20
+    if token_budget is not None:
+        budget_bytes = token_budget * BYTES_PER_TOKEN
+        effective_limit = max(max_results, budget_bytes // _MIN_BYTES_PER_SYMBOL)
+    else:
+        effective_limit = max_results
     heap: list[tuple[float, int, dict]] = []  # (score, candidates_scored, entry)
     candidates_scored = 0
 
@@ -297,21 +306,16 @@ def search_symbols(
         if debug:
             entry["score_breakdown"] = _bm25_breakdown(sym, query_terms, idf, avgdl)
 
-        if token_budget is not None:
-            # Token budget mode: keep all candidates, pack later
+        # Bounded heap: O(N log K) instead of O(N log N)
+        if len(heap) < effective_limit:
             heapq.heappush(heap, (score, candidates_scored, entry))
-        else:
-            # Fixed max_results: bounded heap
-            if len(heap) < effective_limit:
-                heapq.heappush(heap, (score, candidates_scored, entry))
-            elif score > heap[0][0]:
-                heapq.heapreplace(heap, (score, candidates_scored, entry))
+        elif score > heap[0][0]:
+            heapq.heapreplace(heap, (score, candidates_scored, entry))
 
     # Extract results sorted by score descending
     scored_results = [entry for _, _, entry in sorted(heap, key=lambda x: x[0], reverse=True)]
 
     if token_budget is not None:
-        budget_bytes = token_budget * BYTES_PER_TOKEN
         packed, used_bytes = [], 0
         for entry in scored_results:
             b = entry["byte_length"]
