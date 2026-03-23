@@ -508,7 +508,11 @@ def index_folder(
                         continue
 
                     if change_type == "deleted":
-                        if existing_index is not None and existing_index.has_source_file(rel_path):
+                        if use_memory_hash_cache:
+                            # Memory cache path: the watcher confirmed this file was
+                            # in the index (it was in the hash cache), so trust it.
+                            deleted_files.append(rel_path)
+                        elif existing_index is not None and existing_index.has_source_file(rel_path):
                             deleted_files.append(rel_path)
                     elif change_type == "added":
                         if existing_index is None or not existing_index.has_source_file(rel_path):
@@ -619,6 +623,13 @@ def index_folder(
                 # Merge mtime-only updates so they're persisted alongside real changes
                 all_mtimes = {**mtime_only_updates, **fast_mtimes}
 
+                # Capture deferred generation BEFORE incremental_save to avoid a race:
+                # if mark_reindex_start fires between save and read, the deferred thread
+                # would incorrectly think it belongs to the newer generation.
+                _repo_full = f"{owner}/{repo_name}"
+                from ..reindex_state import _get_state
+                _deferred_gen = _get_state(_repo_full).deferred_generation
+
                 updated = store.incremental_save(
                     owner=owner, name=repo_name,
                     changed_files=changed_files, new_files=new_files, deleted_files=deleted_files,
@@ -636,13 +647,10 @@ def index_folder(
                 # Fire daemon thread for deferred summarization — index is already saved
                 # with empty summaries; this fills them in without blocking the response.
                 if new_symbols and use_ai_summaries:
-                    from ..reindex_state import _get_state
-                    _repo_full = f"{owner}/{repo_name}"
-                    _gen = _get_state(_repo_full).deferred_generation
                     _summaries_copy = list(new_symbols)
                     _contents_copy = dict(raw_files_subset)
                     _daemon = threading.Thread(
-                        target=lambda _g=_gen, _s=_summaries_copy, _c=_contents_copy: _run_deferred_summarize(
+                        target=lambda _g=_deferred_gen, _s=_summaries_copy, _c=_contents_copy: _run_deferred_summarize(
                             _g, _repo_full, _s, _c, store, owner, repo_name,
                         ),
                         daemon=True,

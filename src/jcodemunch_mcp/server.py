@@ -57,6 +57,7 @@ _EXCLUDED_FROM_STRICT = frozenset({
     "wait_for_fresh",
     "index_repo",
     "index_folder",
+    "index_file",
     "invalidate_cache",
 })
 
@@ -764,10 +765,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 ))]
 
         # Strict freshness mode: wait for any in-progress reindex to complete
-        # before serving query results (except for write/index tools)
+        # before serving query results (except for write/index tools).
+        # MUST use asyncio.to_thread — threading.Event.wait() cannot run on the event loop.
         repo_arg = arguments.get("repo")
         if (name not in _EXCLUDED_FROM_STRICT and repo_arg):
-            await_freshness_if_strict(repo_arg, timeout_ms=500)
+            await asyncio.to_thread(await_freshness_if_strict, repo_arg, timeout_ms=500)
 
         if name == "index_repo":
             result = await index_repo(
@@ -1041,14 +1043,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             # Inject staleness fields for per-repo tools
             repo_arg = arguments.get("repo")
             if repo_arg:
-                status = get_reindex_status(repo_arg)
-                _meta["reindexing"] = status["reindexing"]
-                _meta["index_stale"] = status["reindexing"] or status["reindex_finished"]
+                # get_reindex_status returns spec fields: index_stale, reindex_in_progress,
+                # stale_since_ms, and conditionally reindex_error / reindex_failures.
+                _meta.update(get_reindex_status(repo_arg))
             elif name not in ("list_repos", "get_session_stats", "index_repo", "index_folder"):
-                # For non-repo tools, check if any reindex is in progress globally
+                # For non-repo tools, report global reindex activity
                 from .reindex_state import is_any_reindex_in_progress
-                _meta["reindexing"] = is_any_reindex_in_progress()
-                _meta["index_stale"] = is_any_reindex_in_progress()
+                any_in_progress = is_any_reindex_in_progress()
+                _meta["index_stale"] = any_in_progress
+                _meta["reindex_in_progress"] = any_in_progress
+                _meta["stale_since_ms"] = None
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except KeyError as e:
