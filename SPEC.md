@@ -167,6 +167,26 @@ Returns all indexed repositories known to the local store, together with summary
 
 ---
 
+#### `resolve_repo` — Resolve a path to a repo identifier
+
+```json
+{
+  "path": "/absolute/path/to/project"
+}
+```
+
+O(1) lookup that resolves a filesystem path to its indexed repo identifier. Accepts repo roots, worktrees, subdirectories, or file paths. Computes the deterministic repo ID from the path hash and checks index existence directly — far cheaper than `list_repos` when you only need one repo.
+
+Returns `indexed: true` with full metadata (symbol count, file count, languages, etc.) if found, or `indexed: false` with the computed repo ID and a hint to call `index_folder` if not.
+
+**Behavioral notes:**
+
+* Preferred over `list_repos` when the client knows its working directory
+* Tries the input path first, then walks up to the git root for subdirectory lookups
+* Returns ~200 tokens vs. potentially thousands from `list_repos`
+
+---
+
 ### Discovery and Repository Inspection
 
 #### `get_file_tree` — Get file structure

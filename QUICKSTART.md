@@ -69,7 +69,7 @@ Always use jCodemunch-MCP tools — never fall back to Read, Grep, Glob, or Bash
 - Before reading a file: use get_file_outline or get_file_content
 - Before searching: use search_symbols or search_text
 - Before exploring structure: use get_file_tree or get_repo_outline
-- Call list_repos first; if the project is not indexed, call index_folder with the current directory.
+- Call resolve_repo with the current directory first; if not indexed, call index_folder.
 ```
 
 You can also add the same block to a project-level `CLAUDE.md` in your repo root.
@@ -84,7 +84,7 @@ You can also add the same block to a project-level `CLAUDE.md` in your repo root
 2. Ask: *"Index this project"* — Claude will call `index_folder` on the current directory.
 3. Ask: *"Find the authenticate function"* — Claude calls `search_symbols`, then `get_symbol`. No file reads.
 
-**Verify it's working:** ask *"What repos do you have indexed?"* — Claude should call `list_repos` without touching any files.
+**Verify it's working:** ask *"Is this project indexed?"* — Claude should call `resolve_repo` with the current directory. To see all indexed repos, ask *"What repos do you have indexed?"* — Claude will call `list_repos`.
 
 ---
 

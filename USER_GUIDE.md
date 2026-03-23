@@ -318,7 +318,7 @@ Use this when:
 
 ```json
 index_folder: { "path": "/home/user/myproject" }
-list_repos: {}
+resolve_repo: { "path": "/home/user/myproject" }
 get_repo_outline: { "repo": "myproject" }
 search_symbols: { "repo": "myproject", "query": "main" }
 ```
@@ -483,6 +483,7 @@ These IDs stay stable across re-indexing as long as path, qualified name, and ki
 | `index_folder` | Index a local folder | `path`, `incremental`, `use_ai_summaries`, `extra_ignore_patterns`, `follow_symlinks` |
 | `index_file` | Re-index one file — faster than `index_folder` for surgical updates | `path`, `use_ai_summaries`, `context_providers` |
 | `list_repos` | List all indexed repositories | — |
+| `resolve_repo` | Resolve a filesystem path to its repo ID — O(1) lookup, preferred over `list_repos` when you know the path | `path` |
 | `invalidate_cache` | Delete cached index and force a full re-index | `repo` |
 | `wait_for_fresh` | Wait for in-progress watcher reindex to finish before proceeding | `repo`, `timeout_ms` |
 
