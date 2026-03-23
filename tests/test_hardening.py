@@ -1014,9 +1014,7 @@ class TestBearerAuthTimingSafe:
 
         with patch("hmac.compare_digest", wraps=hmac.compare_digest) as mock_cd:
             import asyncio
-            asyncio.get_event_loop().run_until_complete(
-                instance.dispatch(request, call_next)
-            )
+            asyncio.run(instance.dispatch(request, call_next))
             mock_cd.assert_called_once()
 
     def test_wrong_token_returns_401(self):
@@ -1037,9 +1035,7 @@ class TestBearerAuthTimingSafe:
         call_next = AsyncMock()
 
         import asyncio
-        response = asyncio.get_event_loop().run_until_complete(
-            instance.dispatch(request, call_next)
-        )
+        response = asyncio.run(instance.dispatch(request, call_next))
         assert isinstance(response, JSONResponse)
         assert response.status_code == 401
         call_next.assert_not_called()
