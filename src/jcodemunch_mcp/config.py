@@ -576,7 +576,7 @@ def generate_template() -> str:
 
     # All available tools (for disabled_tools reference)
     all_tools = [
-        "index_repo", "index_folder", "index_file", "list_repos",
+        "index_repo", "index_folder", "index_file", "list_repos", "resolve_repo",
         "get_file_tree", "get_file_outline", "get_symbol", "get_file_content",
         "get_symbols", "search_symbols", "search_text", "search_columns",
         "get_repo_outline", "get_context_bundle", "get_session_stats",
