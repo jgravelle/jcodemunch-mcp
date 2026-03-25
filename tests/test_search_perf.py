@@ -17,8 +17,8 @@ REPO = "jcodemunch-mcp"
 QUERIES = ["editor", "search_symbols", "save", "symbol", "tokenize", "CodeIndex"]
 
 
-def _search(query, max_results=10):
-    return search_symbols(repo=REPO, query=query, max_results=max_results, detail_level="compact")
+def _search(query, max_results=10, debug=False):
+    return search_symbols(repo=REPO, query=query, max_results=max_results, detail_level="compact", debug=debug)
 
 
 def _require_index():
@@ -32,14 +32,16 @@ def test_search_results_stable():
     """Verify search results are identical across two consecutive calls."""
     _require_index()
     for q in QUERIES:
-        r1 = _search(q)
-        r2 = _search(q)
+        r1 = _search(q, debug=True)
+        r2 = _search(q, debug=True)
         ids1 = [r["id"] for r in r1["results"]]
         ids2 = [r["id"] for r in r2["results"]]
         assert ids1 == ids2, f"Query '{q}': results differ between calls"
         scores1 = [round(r["score"], 6) for r in r1["results"]]
         scores2 = [round(r["score"], 6) for r in r2["results"]]
         assert scores1 == scores2, f"Query '{q}': scores differ between calls"
+
+
 
 
 def test_warm_search_timing():

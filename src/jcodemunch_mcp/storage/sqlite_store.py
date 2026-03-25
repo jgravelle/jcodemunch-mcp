@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, cast
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
 
+# Cache of base_path strings that have already had mkdir called — avoids
+# a redundant CreateDirectoryW syscall on every tool call.
+_VERIFIED_PATHS: set[str] = set()
+
 if TYPE_CHECKING:
     from .index_store import CodeIndex
 
@@ -63,7 +67,8 @@ CREATE TABLE IF NOT EXISTS files (
     language   TEXT,
     summary    TEXT,
     blob_sha   TEXT,
-    imports    TEXT
+    imports    TEXT,
+    size_bytes INTEGER
 );
 """
 
@@ -196,6 +201,18 @@ def _migrate_v4_to_v5(conn: sqlite3.Connection) -> None:
     logger.info("Migrated symbols table from v4 to v5 (promoted data fields to columns)")
 
 
+def _migrate_v5_to_v6(conn: sqlite3.Connection) -> None:
+    """Migrate a v5 database to v6: add size_bytes column to files table."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(files)").fetchall()}
+    if "size_bytes" not in existing:
+        conn.execute("ALTER TABLE files ADD COLUMN size_bytes INTEGER")
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        ("index_version", "6"),
+    )
+    logger.info("Migrated files table from v5 to v6 (added size_bytes column)")
+
+
 class SQLiteIndexStore:
     """Storage backend using SQLite WAL for code indexes.
 
@@ -217,7 +234,10 @@ class SQLiteIndexStore:
             self.base_path = Path(base_path)
         else:
             self.base_path = Path.home() / ".code-index"
-        self.base_path.mkdir(parents=True, exist_ok=True)
+        _key = str(self.base_path)
+        if _key not in _VERIFIED_PATHS:
+            self.base_path.mkdir(parents=True, exist_ok=True)
+            _VERIFIED_PATHS.add(_key)
 
     # ── Connection helpers ──────────────────────────────────────────
 
@@ -251,6 +271,8 @@ class SQLiteIndexStore:
                 stored_version = int(row[0]) if row else 0
                 if stored_version < 5:
                     _migrate_v4_to_v5(conn)
+                if stored_version < 6:
+                    _migrate_v5_to_v6(conn)
 
             SQLiteIndexStore._initialized_dbs.add(db_key)
 
@@ -369,6 +391,8 @@ class SQLiteIndexStore:
                 lang_counts[lang] = lang_counts.get(lang, 0) + 1
             languages = lang_counts
 
+        file_sizes = {fp: len(content.encode("utf-8")) for fp, content in raw_files.items()}
+
         index = CodeIndex(
             repo=f"{owner}/{name}", owner=owner, name=name,
             indexed_at=datetime.now().isoformat(),
@@ -386,6 +410,7 @@ class SQLiteIndexStore:
             context_metadata=context_metadata or {},
             file_blob_shas=file_blob_shas or {},
             file_mtimes=file_mtimes or {},
+            file_sizes=file_sizes,
         )
 
         db_path = self._db_path(owner, name)
@@ -411,7 +436,7 @@ class SQLiteIndexStore:
             # Insert files (batch via executemany)
             conn.executemany(
                 "INSERT OR REPLACE INTO files (path, hash, mtime_ns, language, "
-                "summary, blob_sha, imports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "summary, blob_sha, imports, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         fp,
@@ -421,6 +446,7 @@ class SQLiteIndexStore:
                         (file_summaries or {}).get(fp, ""),
                         (file_blob_shas or {}).get(fp, ""),
                         json.dumps((imports or {}).get(fp, [])),
+                        file_sizes.get(fp),
                     )
                     for fp in normalized_source_files
                 ],
@@ -568,6 +594,7 @@ class SQLiteIndexStore:
 
             # Update file records for changed + new files
             changed_or_new = sorted(set(changed_files) | set(new_files))
+            incr_file_sizes = {fp: len(c.encode("utf-8")) for fp, c in raw_files.items()}
             for fp in changed_or_new:
                 # Prefer caller-supplied values; fall back to preserved (for changed files)
                 # or empty (for truly new files)
@@ -576,7 +603,7 @@ class SQLiteIndexStore:
                 existing = preserved.get(fp, {})
                 conn.execute(
                     "INSERT OR REPLACE INTO files (path, hash, mtime_ns, language, "
-                    "summary, blob_sha, imports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "summary, blob_sha, imports, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         fp,
                         inp_hashes.get(fp, existing.get("hash", "")),
@@ -585,6 +612,7 @@ class SQLiteIndexStore:
                         (file_summaries or {}).get(fp, ""),
                         (file_blob_shas or {}).get(fp, ""),
                         json.dumps((imports or {}).get(fp, [])),
+                        incr_file_sizes.get(fp),
                     ),
                 )
 
@@ -674,6 +702,7 @@ class SQLiteIndexStore:
                 imports=imports,
                 context_metadata=context_metadata,
                 computed_langs=computed_langs,
+                file_sizes=incr_file_sizes,
             )
         else:
             # Cold path: build from DB rows (no cached index available)
@@ -934,12 +963,20 @@ class SQLiteIndexStore:
         """Path to raw content directory."""
         return self.base_path / self._repo_slug(owner, name)
 
+    # Cache of resolved content_dir paths — avoids repeated resolve() syscalls
+    # in search_text (called once per file in the repo) and search_symbols.
+    _resolved_content_dirs: dict[str, str] = {}
+
     def _safe_content_path(self, content_dir: Path, relative_path: str) -> Optional[Path]:
         """Resolve a content path and ensure it stays within content_dir."""
         try:
-            base = content_dir.resolve()
+            dir_key = str(content_dir)
+            base_str = self._resolved_content_dirs.get(dir_key)
+            if base_str is None:
+                base_str = str(content_dir.resolve())
+                self._resolved_content_dirs[dir_key] = base_str
             candidate = (content_dir / relative_path).resolve()
-            if os.path.commonpath([str(base), str(candidate)]) != str(base):
+            if os.path.commonpath([base_str, str(candidate)]) != base_str:
                 return None
             return candidate
         except (OSError, ValueError):
@@ -1083,6 +1120,7 @@ class SQLiteIndexStore:
         imports: Optional[dict],
         context_metadata: Optional[dict],
         computed_langs: dict,
+        file_sizes: Optional[dict] = None,
     ) -> "CodeIndex":
         """Patch an existing CodeIndex in memory — O(delta) instead of O(total rows).
 
@@ -1126,6 +1164,7 @@ class SQLiteIndexStore:
         new_file_languages = _patch_dict(old.file_languages, file_languages, files_to_remove)
         new_file_summaries = _patch_dict(old.file_summaries, file_summaries, files_to_remove)
         new_file_blob_shas = _patch_dict(old.file_blob_shas, file_blob_shas, files_to_remove)
+        new_file_sizes = _patch_dict(old.file_sizes, file_sizes, files_to_remove)
 
         if old.imports is not None:
             new_imports: Optional[dict] = _patch_dict(old.imports, imports, files_to_remove)
@@ -1153,6 +1192,7 @@ class SQLiteIndexStore:
             context_metadata=new_ctx,
             file_blob_shas=new_file_blob_shas,
             file_mtimes=new_file_mtimes,
+            file_sizes=new_file_sizes,
         )
 
     def _build_index_from_rows(
@@ -1171,6 +1211,7 @@ class SQLiteIndexStore:
         file_languages: dict[str, str] = {}
         file_summaries: dict[str, str] = {}
         file_blob_shas: dict[str, str] = {}
+        file_sizes: dict[str, int] = {}
         imports: Optional[dict[str, list[dict]]] = {}
         for r in file_rows:
             p = r["path"]
@@ -1185,6 +1226,9 @@ class SQLiteIndexStore:
                 file_summaries[p] = r["summary"]
             if r["blob_sha"]:
                 file_blob_shas[p] = r["blob_sha"]
+            size = r["size_bytes"] if "size_bytes" in r.keys() else None
+            if size is not None:
+                file_sizes[p] = size
             if r["imports"]:
                 parsed = json.loads(r["imports"])
                 if parsed:
@@ -1217,6 +1261,7 @@ class SQLiteIndexStore:
             context_metadata=context_metadata,
             file_blob_shas=file_blob_shas,
             file_mtimes=file_mtimes,
+            file_sizes=file_sizes,
         )
 
     def _write_meta(self, conn: sqlite3.Connection, index: "CodeIndex") -> None:

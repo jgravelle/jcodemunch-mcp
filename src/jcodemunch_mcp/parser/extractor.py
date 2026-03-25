@@ -8,14 +8,16 @@ from .symbols import Symbol, make_symbol_id, compute_content_hash
 from .languages import LanguageSpec, LANGUAGE_REGISTRY
 
 
-def parse_file(content: str, filename: str, language: str) -> list[Symbol]:
+def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None) -> list[Symbol]:
     """Parse source code and extract symbols using tree-sitter.
-    
+
     Args:
         content: Raw source code
         filename: File path (for ID generation)
         language: Language name (must be in LANGUAGE_REGISTRY)
-    
+        source_bytes: Optional pre-encoded UTF-8 bytes. If provided, avoids
+            a redundant encode() call when the caller has already encoded content.
+
     Returns:
         List of Symbol objects
     """
@@ -30,8 +32,9 @@ def parse_file(content: str, filename: str, language: str) -> list[Symbol]:
             return []
     except ImportError:
         pass  # config module not available (e.g. standalone use)
-    
-    source_bytes = content.encode("utf-8")
+
+    if source_bytes is None:
+        source_bytes = content.encode("utf-8")
 
     if language == "cpp":
         symbols = _parse_cpp_symbols(source_bytes, filename)

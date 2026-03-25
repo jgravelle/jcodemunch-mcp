@@ -16,12 +16,12 @@ from typing import Callable, Optional
 from .. import config as _config
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
-from .sqlite_store import SQLiteIndexStore
+from .sqlite_store import SQLiteIndexStore, _VERIFIED_PATHS
 
 logger = logging.getLogger(__name__)
 
 # Bump this when the index schema changes in an incompatible way.
-INDEX_VERSION = 5
+INDEX_VERSION = 6
 
 
 @functools.lru_cache(maxsize=16)
@@ -44,6 +44,11 @@ def _invalidate_index_cache() -> None:
 def _file_hash(content: str) -> str:
     """SHA-256 hash of file content string."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _file_hash_bytes(content_bytes: bytes) -> str:
+    """SHA-256 hash from pre-encoded bytes — avoids redundant encode() call."""
+    return hashlib.sha256(content_bytes).hexdigest()
 
 
 def _get_git_head(repo_path: Path) -> Optional[str]:
@@ -83,6 +88,7 @@ class CodeIndex:
     context_metadata: dict = field(default_factory=dict)  # Provider metadata (e.g., dbt_columns)
     file_blob_shas: dict[str, str] = field(default_factory=dict)  # file_path -> GitHub blob SHA (remote repos only)
     file_mtimes: dict[str, int] = field(default_factory=dict)  # file_path -> os.stat().st_mtime_ns
+    file_sizes: dict[str, int] = field(default_factory=dict)   # file_path -> size in bytes (UTF-8 encoded)
 
     def __post_init__(self) -> None:
         if not self.display_name:
@@ -228,7 +234,10 @@ class IndexStore:
         else:
             self.base_path = Path.home() / ".code-index"
 
-        self.base_path.mkdir(parents=True, exist_ok=True)
+        _key = str(self.base_path)
+        if _key not in _VERIFIED_PATHS:
+            self.base_path.mkdir(parents=True, exist_ok=True)
+            _VERIFIED_PATHS.add(_key)
         self._sqlite = SQLiteIndexStore(base_path=base_path)
 
     def close(self) -> None:
@@ -667,6 +676,12 @@ class IndexStore:
         # repo is in the canonical format before any tool can interact with it.
         # This prevents data loss when invalidate_cache is called before
         # load_index has had a chance to trigger lazy migration.
+
+        # Fast exit: if no legacy JSON files exist, skip the glob passes entirely.
+        if not any(self.base_path.glob("*.json")):
+            repos.sort(key=lambda r: r["repo"])
+            return repos
+
         json_files_to_migrate: list[Path] = []
 
         for meta_file in self.base_path.glob("*.meta.json"):

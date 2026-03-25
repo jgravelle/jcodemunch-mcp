@@ -1,6 +1,5 @@
 """Get raw cached file content."""
 
-import os
 import time
 from typing import Optional
 
@@ -50,12 +49,7 @@ def get_file_content(
         actual_end = max(actual_start, min(end_line if end_line is not None else line_count, line_count))
         selected_content = "\n".join(lines[actual_start - 1:actual_end])
 
-    raw_bytes = 0
-    try:
-        raw_file = store._content_dir(owner, name) / file_path
-        raw_bytes = os.path.getsize(raw_file)
-    except OSError:
-        pass
+    raw_bytes = index.file_sizes.get(file_path, 0)
     response_bytes = len(selected_content.encode("utf-8"))
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved, tool_name="get_file_content")

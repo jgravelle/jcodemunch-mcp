@@ -90,6 +90,7 @@ def parse_immediate(
     # 1. Parse each file
     new_symbols: list[Symbol] = []
     no_symbols_files: list[str] = []
+    file_language_map: dict[str, str] = {}
 
     for rel_path in sorted(files_to_parse):
         content = file_contents.get(rel_path)
@@ -99,6 +100,7 @@ def parse_immediate(
         if not language:
             no_symbols_files.append(rel_path)
             continue
+        file_language_map[rel_path] = language
         try:
             symbols = parse_file(content, rel_path, language)
             if symbols:
@@ -127,17 +129,18 @@ def parse_immediate(
     file_summaries = complete_file_summaries(sorted_files, symbols_map, context_providers=providers or None)
     file_langs = file_languages_for_paths(sorted_files, symbols_map)
 
-    # 5. Extract imports
+    # 5. Extract imports — reuse language computed in step 1
     file_imports: dict[str, list[dict]] = {}
     for rel_path in files_to_parse:
+        language = file_language_map.get(rel_path)
+        if not language:
+            continue
         content = file_contents.get(rel_path)
         if content is None:
             continue
-        language = get_language_for_path(rel_path)
-        if language:
-            imps = extract_imports(content, rel_path, language)
-            if imps:
-                file_imports[rel_path] = imps
+        imps = extract_imports(content, rel_path, language)
+        if imps:
+            file_imports[rel_path] = imps
 
     return new_symbols, file_summaries, file_langs, file_imports, no_symbols_files
 
@@ -199,6 +202,7 @@ def parse_and_prepare_incremental(
     # 1. Parse each file
     new_symbols: list[Symbol] = []
     no_symbols_files: list[str] = []
+    file_language_map: dict[str, str] = {}
 
     for rel_path in sorted(files_to_parse):
         content = file_contents.get(rel_path)
@@ -208,6 +212,7 @@ def parse_and_prepare_incremental(
         if not language:
             no_symbols_files.append(rel_path)
             continue
+        file_language_map[rel_path] = language
         try:
             symbols = parse_file(content, rel_path, language)
             if symbols:
@@ -241,17 +246,18 @@ def parse_and_prepare_incremental(
     file_summaries = complete_file_summaries(sorted_files, symbols_map, context_providers=providers or None)
     file_langs = file_languages_for_paths(sorted_files, symbols_map)
 
-    # 5. Extract imports
+    # 5. Extract imports — reuse language computed in step 1
     file_imports: dict[str, list[dict]] = {}
     for rel_path in files_to_parse:
+        language = file_language_map.get(rel_path)
+        if not language:
+            continue
         content = file_contents.get(rel_path)
         if content is None:
             continue
-        language = get_language_for_path(rel_path)
-        if language:
-            imps = extract_imports(content, rel_path, language)
-            if imps:
-                file_imports[rel_path] = imps
+        imps = extract_imports(content, rel_path, language)
+        if imps:
+            file_imports[rel_path] = imps
 
     return new_symbols, file_summaries, file_langs, file_imports, no_symbols_files
 
@@ -283,6 +289,7 @@ def parse_and_prepare_full(
     all_symbols: list[Symbol] = []
     symbols_by_file: dict[str, list] = defaultdict(list)
     no_symbols_files: list[str] = []
+    file_language_map: dict[str, str] = {}
 
     for path in source_file_list:
         content = file_contents[path]
@@ -290,6 +297,7 @@ def parse_and_prepare_full(
         if not language:
             no_symbols_files.append(path)
             continue
+        file_language_map[path] = language
         try:
             symbols = parse_file(content, path, language)
             if symbols:
@@ -325,10 +333,10 @@ def parse_and_prepare_full(
     languages = language_counts(file_langs)
     file_summaries = complete_file_summaries(source_file_list, file_symbols_map, context_providers=providers or None)
 
-    # 5. Extract imports
+    # 5. Extract imports — reuse language computed in step 1
     file_imports: dict[str, list[dict]] = {}
     for path, content in file_contents.items():
-        language = get_language_for_path(path)
+        language = file_language_map.get(path)
         if language:
             imps = extract_imports(content, path, language)
             if imps:

@@ -2,7 +2,6 @@
 
 import heapq
 import math
-import os
 import re
 import time
 from fnmatch import fnmatch
@@ -289,7 +288,6 @@ def search_symbols(
                 "file": sym["file"],
                 "line": sym["line"],
                 "byte_length": sym.get("byte_length", 0),
-                "score": score,
             }
         else:
             entry = {
@@ -301,9 +299,9 @@ def search_symbols(
                 "signature": sym["signature"],
                 "summary": sym.get("summary", ""),
                 "byte_length": sym.get("byte_length", 0),
-                "score": score,
             }
         if debug:
+            entry["score"] = round(score, 3)
             entry["score_breakdown"] = _bm25_breakdown(sym, query_terms, idf, avgdl)
 
         # Bounded heap: O(N log K) instead of O(N log N)
@@ -338,15 +336,11 @@ def search_symbols(
     raw_bytes = 0
     seen_files: set = set()
     response_bytes = 0
-    content_dir = store._content_dir(owner, name)
     for entry in scored_results:
         f = entry["file"]
         if f not in seen_files:
             seen_files.add(f)
-            try:
-                raw_bytes += os.path.getsize(content_dir / f)
-            except OSError:
-                pass
+            raw_bytes += index.file_sizes.get(f, 0)
         response_bytes += entry["byte_length"]
     tokens_saved = estimate_savings(raw_bytes, response_bytes)
     total_saved = record_savings(tokens_saved, tool_name="search_symbols")
@@ -370,8 +364,6 @@ def search_symbols(
         meta["candidates_scored"] = candidates_scored
 
     return {
-        "repo": f"{owner}/{name}",
-        "query": query,
         "result_count": len(scored_results),
         "results": scored_results,
         "_meta": meta,

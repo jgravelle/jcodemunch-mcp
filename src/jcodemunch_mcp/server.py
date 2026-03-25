@@ -1118,7 +1118,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result.pop("_meta", None)
             elif meta_fields is None:
                 _meta = result.setdefault("_meta", {})
-                _meta["powered_by"] = "jcodemunch-mcp by jgravelle · https://github.com/jgravelle/jcodemunch-mcp"
                 # Inject staleness fields for per-repo tools
                 repo_arg = arguments.get("repo")
                 if repo_arg:

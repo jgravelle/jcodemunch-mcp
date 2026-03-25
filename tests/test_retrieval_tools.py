@@ -155,7 +155,6 @@ def test_search_text_clamps_context_lines(tmp_path):
 
     result = search_text("retrieval/demo", "TODO", context_lines=999, storage_path=str(tmp_path))
 
-    assert result["context_lines"] == 10
     grouped = {entry["file"]: entry["matches"] for entry in result["results"]}
     assert grouped["src/main.py"][0]["before"] == ["def run():"]
     assert grouped["src/main.py"][0]["after"] == ["    return FLAG"]

@@ -197,4 +197,4 @@ def test_backward_compat_v2_index():
 
 def test_index_version_bumped():
     """INDEX_VERSION should reflect the current index schema."""
-    assert INDEX_VERSION == 5
+    assert INDEX_VERSION == 6

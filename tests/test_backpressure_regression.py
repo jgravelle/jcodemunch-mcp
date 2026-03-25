@@ -58,7 +58,6 @@ class TestMetaContractRegression:
         assert "index_stale" in meta, "_meta missing 'index_stale'"
         assert "reindex_in_progress" in meta, "_meta missing 'reindex_in_progress'"
         assert "stale_since_ms" in meta, "_meta missing 'stale_since_ms'"
-        assert "powered_by" in meta, "_meta missing 'powered_by'"
 
     @pytest.mark.asyncio
     async def test_regression_index_stale_false_when_idle(self):
