@@ -1006,6 +1006,85 @@ class TestTrustedFoldersConfig:
         repo_key = str(project_root.resolve())
         assert get("trusted_folders", repo=repo_key) == []
 
+    def test_global_config_deduplicates_trusted_folders(self, tmp_path):
+        """Global config should deduplicate identical trusted_folders entries."""
+        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+
+        _GLOBAL_CONFIG.clear()
+
+        config_path = tmp_path / "config.jsonc"
+        config_path.write_text('{"trusted_folders": ["/work", "/work", "/work"]}')
+
+        load_config(str(tmp_path))
+
+        result = get("trusted_folders")
+        assert len(result) == 1
+        assert result[0] == Path("/work").resolve()
+
+    def test_project_config_deduplicates_equivalent_entries(self, tmp_path):
+        """Project config should deduplicate equivalent entries like '.' and './'."""
+        from src.jcodemunch_mcp.config import (
+            load_config,
+            load_project_config,
+            get,
+            _GLOBAL_CONFIG,
+            _PROJECT_CONFIGS,
+            _PROJECT_CONFIG_HASHES,
+        )
+
+        _GLOBAL_CONFIG.clear()
+        _PROJECT_CONFIGS.clear()
+        _PROJECT_CONFIG_HASHES.clear()
+
+        global_config = tmp_path / "config.jsonc"
+        global_config.write_text("{}")
+        load_config(str(tmp_path))
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        project_config = project_root / ".jcodemunch.jsonc"
+        # ".", "./", "work", "./work" should dedupe to 2 unique paths
+        project_config.write_text('{"trusted_folders": [".", "./", "work", "./work"]}')
+
+        load_project_config(str(project_root))
+
+        repo_key = str(project_root.resolve())
+        result = get("trusted_folders", repo=repo_key)
+        assert len(result) == 2
+        assert project_root.resolve() in result
+        assert (project_root / "work").resolve() in result
+
+    def test_project_config_deduplicates_absolute_duplicates(self, tmp_path):
+        """Project config should deduplicate duplicate absolute paths."""
+        from src.jcodemunch_mcp.config import (
+            load_config,
+            load_project_config,
+            get,
+            _GLOBAL_CONFIG,
+            _PROJECT_CONFIGS,
+            _PROJECT_CONFIG_HASHES,
+        )
+
+        _GLOBAL_CONFIG.clear()
+        _PROJECT_CONFIGS.clear()
+        _PROJECT_CONFIG_HASHES.clear()
+
+        global_config = tmp_path / "config.jsonc"
+        global_config.write_text("{}")
+        load_config(str(tmp_path))
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        project_config = project_root / ".jcodemunch.jsonc"
+        project_config.write_text('{"trusted_folders": ["/work", "/work", "/work"]}')
+
+        load_project_config(str(project_root))
+
+        repo_key = str(project_root.resolve())
+        result = get("trusted_folders", repo=repo_key)
+        assert len(result) == 1
+        assert Path("/work").resolve() in result
+
 
 # ── Config file validation ────────────────────────────────────────────────────
 
@@ -1757,10 +1836,11 @@ class TestAllConfigKeys:
         )
 
         load_config(str(tmp_path))
-        assert get("trusted_folders") == [
-            trusted1.expanduser(),
-            trusted2.expanduser(),
-        ]
+        result = get("trusted_folders")
+        # Order is not guaranteed (set-based deduplication)
+        assert len(result) == 2
+        assert trusted1.expanduser() in result
+        assert trusted2.expanduser() in result
 
     def test_all_list_keys_languages(self):
         """Test languages list-typed config key with valid language names."""
