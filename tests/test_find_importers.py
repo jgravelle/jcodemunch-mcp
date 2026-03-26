@@ -315,6 +315,91 @@ class TestResolveSpecifier:
         # The test verifies no crash
         assert result is None or isinstance(result, str)
 
+    # --- .js → .ts extension resolution (TypeScript ESM) ---
+
+    def test_js_to_ts_extension(self):
+        """'./foo.js' should resolve to './foo.ts' when only .ts exists."""
+        files = {"src/utils/helpers.ts", "src/app.ts"}
+        result = resolve_specifier("./helpers.js", "src/utils/other.ts", files)
+        assert result == "src/utils/helpers.ts"
+
+    def test_js_to_tsx_extension(self):
+        """'./Button.js' should resolve to './Button.tsx' when only .tsx exists."""
+        files = {"src/components/Button.tsx"}
+        result = resolve_specifier("./Button.js", "src/components/Home.tsx", files)
+        assert result == "src/components/Button.tsx"
+
+    def test_js_exact_takes_priority(self):
+        """When both .js and .ts exist, .js exact match should win."""
+        files = {"src/utils/helpers.js", "src/utils/helpers.ts"}
+        result = resolve_specifier("./helpers.js", "src/utils/other.ts", files)
+        assert result == "src/utils/helpers.js"
+
+    # --- Path alias resolution ---
+
+    def test_at_alias_root(self):
+        """'@/lib/utils' with '@/*' → './*' alias resolves to 'lib/utils.ts'."""
+        files = {"lib/utils.ts", "src/app.ts"}
+        alias_map = {"@/*": ["/*"]}  # "@/*": ["./*"] normalized
+        result = resolve_specifier("@/lib/utils", "src/app.ts", files, alias_map)
+        assert result == "lib/utils.ts"
+
+    def test_at_alias_with_src_prefix(self):
+        """'@/components/Button' with '@/*' → 'src/*' resolves to 'src/components/Button.tsx'."""
+        files = {"src/components/Button.tsx", "src/app.ts"}
+        alias_map = {"@/*": ["src/*"]}
+        result = resolve_specifier("@/components/Button", "src/pages/Home.ts", files, alias_map)
+        assert result == "src/components/Button.tsx"
+
+    def test_lib_alias_svelte(self):
+        """'$lib/server/db' with '$lib/*' → 'src/lib/*' resolves to 'src/lib/server/db.ts'."""
+        files = {"src/lib/server/db.ts", "src/routes/+page.svelte"}
+        alias_map = {"$lib/*": ["src/lib/*"]}
+        result = resolve_specifier("$lib/server/db", "src/routes/+page.svelte", files, alias_map)
+        assert result == "src/lib/server/db.ts"
+
+    def test_alias_without_map_returns_none(self):
+        """Alias specifier with no alias_map should not resolve."""
+        files = {"lib/utils.ts"}
+        result = resolve_specifier("@/lib/utils", "src/app.ts", files)
+        assert result is None
+
+    def test_alias_no_match_returns_none(self):
+        """Alias pattern that doesn't match the specifier returns None."""
+        files = {"lib/utils.ts"}
+        alias_map = {"~/*": ["src/*"]}
+        result = resolve_specifier("@/lib/utils", "src/app.ts", files, alias_map)
+        assert result is None
+
+    def test_load_tsconfig_aliases_basic(self):
+        """_load_tsconfig_aliases parses compilerOptions.paths from tsconfig.json."""
+        import json, tempfile
+        from pathlib import Path
+        from jcodemunch_mcp.parser.imports import _load_tsconfig_aliases, _alias_map_cache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tsconfig = {
+                "compilerOptions": {
+                    "paths": {
+                        "@/*": ["./*"],
+                        "~/*": ["./src/*"],
+                    }
+                }
+            }
+            (Path(tmp) / "tsconfig.json").write_text(json.dumps(tsconfig))
+            # Clear cache to ensure fresh load
+            _alias_map_cache.pop(tmp, None)
+            result = _load_tsconfig_aliases(tmp)
+            assert "@/*" in result
+            assert result["@/*"] == ["/*"]  # "./*" normalized to "/*" (root)
+            assert "~/*" in result
+            assert result["~/*"] == ["src/*"]  # "./src/*" normalized to "src/*"
+
+    def test_load_tsconfig_aliases_empty_root(self):
+        """_load_tsconfig_aliases returns {} for empty source_root."""
+        from jcodemunch_mcp.parser.imports import _load_tsconfig_aliases
+        assert _load_tsconfig_aliases("") == {}
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: find_importers + find_references via index_folder

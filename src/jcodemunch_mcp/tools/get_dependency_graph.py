@@ -9,13 +9,15 @@ from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo
 
 
-def _build_adjacency(imports: dict, source_files: frozenset) -> dict[str, list[str]]:
+def _build_adjacency(
+    imports: dict, source_files: frozenset, alias_map: Optional[dict] = None
+) -> dict[str, list[str]]:
     """Build forward adjacency {file: [files_it_imports]} from raw import data."""
     adj: dict[str, list[str]] = {}
     for src_file, file_imports in imports.items():
         resolved = []
         for imp in file_imports:
-            target = resolve_specifier(imp["specifier"], src_file, source_files)
+            target = resolve_specifier(imp["specifier"], src_file, source_files, alias_map)
             if target and target != src_file:
                 resolved.append(target)
         if resolved:
@@ -96,7 +98,7 @@ def get_dependency_graph(
         return {"error": f"File not found in index: {file}"}
 
     source_files = frozenset(index.source_files)
-    fwd = _build_adjacency(index.imports, source_files)
+    fwd = _build_adjacency(index.imports, source_files, index.alias_map)
     rev = _invert(fwd)
 
     nodes_out: set[str] = set()

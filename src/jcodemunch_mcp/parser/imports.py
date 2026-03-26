@@ -1,7 +1,9 @@
 """Extract import statements from source files using language-specific regex patterns."""
 
+import json
 import posixpath
 import re
+from pathlib import Path
 from typing import Optional
 
 
@@ -375,23 +377,142 @@ def _candidates(base: str) -> list[str]:
         for e in _JS_EXTENSIONS:
             cands.append(posixpath.join(base, "index" + e))
         cands.append(posixpath.join(base, "__init__.py"))
+    elif ext == ".js":
+        # TypeScript ESM convention: 'import "./foo.js"' may resolve to './foo.ts' or './foo.tsx'
+        stem = base[:-3]
+        cands.append(stem + ".ts")
+        cands.append(stem + ".tsx")
     return cands
 
 
-def resolve_specifier(specifier: str, importer_path: str, source_files: set[str]) -> Optional[str]:
+# ---------------------------------------------------------------------------
+# Path alias resolution (tsconfig.json / jsconfig.json compilerOptions.paths)
+# ---------------------------------------------------------------------------
+
+# Module-level cache: source_root -> alias_map (no mtime invalidation — tsconfig rarely
+# changes during a session; a re-index is needed anyway if paths change).
+_alias_map_cache: dict[str, dict[str, list[str]]] = {}
+
+
+def _norm_alias_replacement(rep: str, tsconfig_dir_rel: str = "") -> str:
+    """Normalize one tsconfig paths replacement to a repo-root-relative prefix.
+
+    The returned string has any wildcard suffix (``/*`` or ``*``) preserved so
+    the caller can distinguish directory-prefix patterns from exact replacements.
+    """
+    is_wildcard = rep.endswith("/*") or rep == "*"
+    if rep.endswith("/*"):
+        base = rep[:-2]  # strip /*
+    elif rep == "*":
+        base = ""
+    else:
+        base = rep  # exact replacement — no wildcard
+
+    if tsconfig_dir_rel:
+        # Replacement is relative to tsconfig_dir_rel (e.g. ".svelte-kit").
+        # posixpath.normpath resolves ".." segments.
+        combined = posixpath.normpath(posixpath.join(tsconfig_dir_rel, base)) if base else tsconfig_dir_rel
+        if combined == ".":
+            combined = ""
+        return (combined + "/*") if is_wildcard else combined
+    else:
+        # Root tsconfig: strip leading "./"
+        if base.startswith("./"):
+            base = base[2:]
+        if base == ".":
+            base = ""
+        return (base + "/*") if is_wildcard else base
+
+
+def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
+    """Read tsconfig.json / jsconfig.json path aliases for a project root.
+
+    Returns a dict mapping tsconfig pattern strings (e.g. ``"@/*"``) to lists
+    of normalized replacement strings (e.g. ``["src/*"]``).  All replacements
+    are repo-root-relative.  Results are module-level cached by source_root.
+    """
+    if not source_root:
+        return {}
+    if source_root in _alias_map_cache:
+        return _alias_map_cache[source_root]
+
+    alias_map: dict[str, list[str]] = {}
+    root = Path(source_root)
+
+    def _ingest(paths: dict, tsconfig_dir_rel: str = "") -> None:
+        for pattern, reps in paths.items():
+            if pattern in alias_map:
+                continue  # earlier config wins
+            normalized = [_norm_alias_replacement(r, tsconfig_dir_rel) for r in (reps or []) if r]
+            if normalized:
+                alias_map[pattern] = normalized
+
+    # Root tsconfig.json / jsconfig.json (tsconfig.json takes priority)
+    for cfg_name in ("tsconfig.json", "jsconfig.json"):
+        cfg_path = root / cfg_name
+        if cfg_path.is_file():
+            try:
+                data = json.loads(cfg_path.read_text("utf-8", errors="replace"))
+                _ingest(data.get("compilerOptions", {}).get("paths", {}))
+            except Exception:
+                pass
+            break
+
+    # SvelteKit: .svelte-kit/tsconfig.json (auto-generated; paths are relative to .svelte-kit/)
+    svelte_cfg = root / ".svelte-kit" / "tsconfig.json"
+    if svelte_cfg.is_file():
+        try:
+            data = json.loads(svelte_cfg.read_text("utf-8", errors="replace"))
+            _ingest(data.get("compilerOptions", {}).get("paths", {}), tsconfig_dir_rel=".svelte-kit")
+        except Exception:
+            pass
+
+    _alias_map_cache[source_root] = alias_map
+    return alias_map
+
+
+def _expand_aliases(specifier: str, alias_map: dict[str, list[str]]) -> list[str]:
+    """Return candidate repo-root-relative paths by applying tsconfig path aliases.
+
+    Each replacement in *alias_map* is already normalized (no leading ``./``) by
+    :func:`_load_tsconfig_aliases`.
+    """
+    results: list[str] = []
+    for pattern, replacements in alias_map.items():
+        if pattern.endswith("/*"):
+            prefix = pattern[:-1]  # e.g. "@/"
+            if not specifier.startswith(prefix):
+                continue
+            rest = specifier[len(prefix):]  # e.g. "lib/utils"
+            for rep in replacements:
+                if rep.endswith("/*"):
+                    rep_dir = rep[:-2]  # e.g. "src/lib" or "" (repo root)
+                    results.append((rep_dir + "/" + rest) if rep_dir else rest)
+                # Non-wildcard replacement for wildcard pattern: unusual, skip
+        elif pattern == specifier:
+            for rep in replacements:
+                results.append(rep[2:] if rep.startswith("./") else rep)
+    return results
+
+
+def resolve_specifier(
+    specifier: str,
+    importer_path: str,
+    source_files: set[str],
+    alias_map: Optional[dict[str, list[str]]] = None,
+) -> Optional[str]:
     """Attempt to resolve an import specifier to a concrete file in the index.
 
-    Only resolves relative imports (starting with '.' or '..') and tries
-    several common extension permutations.  Absolute/package imports are
-    returned as-is if they exactly match a source file, otherwise None.
-
-    For bare names (no path separators or dots), falls back to SQL stem
-    matching to support dbt ref() specifiers like 'dim_client'.
+    Resolves relative imports (starting with '.') and tries common extension
+    permutations.  For TypeScript/JS projects with path aliases (e.g. ``@/*``
+    or ``$lib/*``), pass the project's ``alias_map`` (from
+    :func:`_load_tsconfig_aliases`) to enable alias expansion.
 
     Args:
-        specifier: Raw import specifier (e.g. '../intake/IntakeService').
+        specifier: Raw import specifier (e.g. '../intake/IntakeService' or '@/lib/utils').
         importer_path: POSIX path of the importing file (e.g. 'src/a/b.js').
         source_files: Set of all file paths present in the index.
+        alias_map: Optional tsconfig path alias map for this project.
 
     Returns:
         The matching source file path, or None if unresolvable.
@@ -409,6 +530,13 @@ def resolve_specifier(specifier: str, importer_path: str, source_files: set[str]
     for c in _candidates(specifier):
         if c in source_files:
             return c
+
+    # Alias expansion (tsconfig compilerOptions.paths: @/*, $lib/*, etc.)
+    if alias_map:
+        for expanded in _expand_aliases(specifier, alias_map):
+            for c in _candidates(expanded):
+                if c in source_files:
+                    return c
 
     # Stem matching fallback: bare names like dbt ref('dim_client')
     # resolve to any .sql file whose stem matches.  Uses a cached stem

@@ -65,7 +65,7 @@ def suggest_queries(
         importer_counts: Counter = Counter()
         for src_file, file_imports in index.imports.items():
             for imp in file_imports:
-                target = resolve_specifier(imp["specifier"], src_file, source_files)
+                target = resolve_specifier(imp["specifier"], src_file, source_files, index.alias_map)
                 if target:
                     importer_counts[target] += 1
         for fpath, count in importer_counts.most_common(8):

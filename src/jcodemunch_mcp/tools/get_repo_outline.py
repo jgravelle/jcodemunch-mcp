@@ -71,7 +71,7 @@ def get_repo_outline(
         source_files_set = frozenset(index.source_files)
         for src_file, file_imports in index.imports.items():
             for imp in file_imports:
-                target = resolve_specifier(imp["specifier"], src_file, source_files_set)
+                target = resolve_specifier(imp["specifier"], src_file, source_files_set, index.alias_map)
                 if target and target != src_file:
                     in_degree[target] += 1
         most_imported = [

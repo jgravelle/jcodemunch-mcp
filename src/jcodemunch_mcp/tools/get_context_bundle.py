@@ -85,7 +85,7 @@ def _direct_callers(index, store, owner: str, name: str, sym_file: str) -> list[
         if src_file == sym_file:
             continue
         for imp in file_imports:
-            resolved = resolve_specifier(imp["specifier"], src_file, source_files)
+            resolved = resolve_specifier(imp["specifier"], src_file, source_files, index.alias_map)
             if resolved == sym_file:
                 callers.append(src_file)
                 break

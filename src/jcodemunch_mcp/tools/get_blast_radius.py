@@ -10,12 +10,14 @@ from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo
 
 
-def _build_reverse_adjacency(imports: dict, source_files: frozenset) -> dict[str, list[str]]:
+def _build_reverse_adjacency(
+    imports: dict, source_files: frozenset, alias_map: Optional[dict] = None
+) -> dict[str, list[str]]:
     """Return {file: [files_that_import_it]} from raw import data."""
     rev: dict[str, list[str]] = {}
     for src_file, file_imports in imports.items():
         for imp in file_imports:
-            target = resolve_specifier(imp["specifier"], src_file, source_files)
+            target = resolve_specifier(imp["specifier"], src_file, source_files, alias_map)
             if target and target != src_file:
                 rev.setdefault(target, []).append(src_file)
     # Deduplicate
@@ -126,7 +128,7 @@ def get_blast_radius(
 
     # Build reverse adjacency (importer graph)
     source_files = frozenset(index.source_files)
-    rev = _build_reverse_adjacency(index.imports, source_files)
+    rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map)
 
     # BFS to collect all importing files
     importer_files = _bfs_importers(sym_file, rev, depth)

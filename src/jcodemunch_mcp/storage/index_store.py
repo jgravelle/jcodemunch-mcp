@@ -89,6 +89,7 @@ class CodeIndex:
     file_blob_shas: dict[str, str] = field(default_factory=dict)  # file_path -> GitHub blob SHA (remote repos only)
     file_mtimes: dict[str, int] = field(default_factory=dict)  # file_path -> os.stat().st_mtime_ns
     file_sizes: dict[str, int] = field(default_factory=dict)   # file_path -> size in bytes (UTF-8 encoded)
+    alias_map: dict[str, list[str]] = field(default_factory=dict)  # tsconfig/jsconfig path aliases; auto-loaded from source_root
 
     def __post_init__(self) -> None:
         if not self.display_name:
@@ -100,6 +101,13 @@ class CodeIndex:
         self._bm25_cache: dict = {}
         # Lazy import-name inverted index — populated on first find_references call
         self._import_name_index: Optional[dict[str, list[tuple[str, dict]]]] = None
+        # Load tsconfig/jsconfig path aliases from source_root if not already provided
+        if not self.alias_map and self.source_root:
+            try:
+                from ..parser.imports import _load_tsconfig_aliases
+                self.alias_map = _load_tsconfig_aliases(self.source_root)
+            except Exception:
+                pass
 
     # Keys added by BM25 caching — must not leak into API responses
     _INTERNAL_KEYS = {"_tokens", "_tf", "_dl"}

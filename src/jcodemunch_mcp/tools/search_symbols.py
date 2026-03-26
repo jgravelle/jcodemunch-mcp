@@ -90,7 +90,9 @@ def _compute_bm25(symbols: list[dict]) -> tuple[dict[str, float], float, dict[st
     return idf, avgdl, inverted
 
 
-def _compute_centrality(symbols: list[dict], imports: Optional[dict]) -> dict[str, float]:
+def _compute_centrality(
+    symbols: list[dict], imports: Optional[dict], alias_map: Optional[dict] = None
+) -> dict[str, float]:
     """Return {file: log-scaled centrality bonus} based on importer count."""
     if not imports:
         return {}
@@ -98,7 +100,7 @@ def _compute_centrality(symbols: list[dict], imports: Optional[dict]) -> dict[st
     counts: dict[str, int] = {}
     for src_file, file_imports in imports.items():
         for imp in file_imports:
-            target = resolve_specifier(imp["specifier"], src_file, source_files)
+            target = resolve_specifier(imp["specifier"], src_file, source_files, alias_map)
             if target:
                 counts[target] = counts.get(target, 0) + 1
     return {f: math.log(1 + c) * _CENTRALITY_WEIGHT for f, c in counts.items()}
@@ -229,7 +231,7 @@ def search_symbols(
     cache = index._bm25_cache
     if "idf" not in cache:
         cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(index.symbols)
-        cache["centrality"] = _compute_centrality(index.symbols, index.imports)
+        cache["centrality"] = _compute_centrality(index.symbols, index.imports, index.alias_map)
     idf = cache["idf"]
     avgdl = cache["avgdl"]
     centrality = cache["centrality"]

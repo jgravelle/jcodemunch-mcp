@@ -1,9 +1,9 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.11.3 (published to PyPI)
+- **Version:** 1.11.4 (published to PyPI)
 - **INDEX_VERSION:** 6
-- **Tests:** 1109 passed, 7 skipped
+- **Tests:** 1119 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
@@ -215,6 +215,7 @@ Custom parsers (tree-sitter grammar lacks clean named fields):
 | 1.11.1 | Feat: OpenAI Responses API support — set OPENAI_WIRE_API=responses to use /responses endpoint instead of /chat/completions; supports output_text shortcut and output[].content[] traversal; graceful fallback to signature on parse error; 7 new tests — contributed by tmeckel (PR #165) |
 | 1.11.2 | (pre-bumped, no new content shipped) |
 | 1.11.3 | Fix: debug logging for all three silent skip paths (skip_dir, skip_file, secret) + skip_dir/skip_file counters in discovery summary; add exclude_secret_patterns config option to suppress specific SECRET_PATTERNS entries (workaround for *secret* glob false-positives on full relative paths in Go monorepos); 6 new tests — contributed by DrHayt (PR #168) |
+| 1.11.4 | Fix: import-graph tools (find_importers, get_blast_radius, get_dependency_graph, and 5 others) now resolve TypeScript/SvelteKit path aliases (@/*, $lib/*) by reading compilerOptions.paths from tsconfig.json/jsconfig.json at the project root; also resolves TypeScript ESM .js→.ts extension convention; alias_map auto-loaded from source_root and module-level cached; 10 new tests — closes #169 |
 
 ## Maintenance Practices
 
