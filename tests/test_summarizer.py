@@ -5,11 +5,13 @@ from unittest.mock import MagicMock, patch
 from jcodemunch_mcp.parser import Symbol
 from jcodemunch_mcp.summarizer import (
     extract_summary_from_docstring,
+    get_provider_name,
     signature_fallback,
     summarize_symbols_simple,
     GeminiBatchSummarizer,
     OpenAIBatchSummarizer,
 )
+from jcodemunch_mcp.summarizer.batch_summarize import _create_summarizer
 
 
 def test_extract_summary_from_docstring_simple():
@@ -205,6 +207,83 @@ def test_gemini_summarizer_with_mock_client():
     ]
     summarizer.summarize_batch(symbols)
     assert symbols[0].summary == "Computes the sum of two integers."
+
+
+def test_get_provider_name_explicit_values(monkeypatch):
+    """Explicit provider selection should win over auto-detect."""
+    for provider in ("anthropic", "gemini", "openai", "minimax", "glm"):
+        monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", provider)
+        assert get_provider_name() == provider
+
+
+def test_get_provider_name_none_disables(monkeypatch):
+    """Explicit none should disable AI providers."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "none")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    assert get_provider_name() is None
+
+
+def test_get_provider_name_unknown_falls_back_to_auto(monkeypatch):
+    """Unknown explicit values should fall back to auto-detection."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "unknown-provider")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    assert get_provider_name() == "minimax"
+
+
+def test_get_provider_name_auto_detect_priority(monkeypatch):
+    """Auto-detect should follow Anthropic -> Gemini -> OpenAI -> MiniMax -> GLM."""
+    for key in (
+        "JCODEMUNCH_SUMMARIZER_PROVIDER",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_BASE",
+        "MINIMAX_API_KEY",
+        "ZHIPUAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:11434/v1")
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    monkeypatch.setenv("ZHIPUAI_API_KEY", "test-key")
+    assert get_provider_name() == "openai"
+
+
+def test_get_provider_name_auto_detect_minimax(monkeypatch):
+    """MiniMax should be detected when higher-priority providers are absent."""
+    for key in (
+        "JCODEMUNCH_SUMMARIZER_PROVIDER",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_BASE",
+        "ZHIPUAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
+    assert get_provider_name() == "minimax"
+
+
+def test_get_provider_name_auto_detect_glm(monkeypatch):
+    """GLM should be detected when it is the only configured provider."""
+    for key in (
+        "JCODEMUNCH_SUMMARIZER_PROVIDER",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_BASE",
+        "MINIMAX_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("ZHIPUAI_API_KEY", "test-key")
+    assert get_provider_name() == "glm"
+
+
+def test_create_summarizer_explicit_provider_missing_key_returns_none(monkeypatch):
+    """Explicit minimax/glm provider selection should degrade gracefully without keys."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "minimax")
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    assert _create_summarizer() is None
+
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "glm")
+    monkeypatch.delenv("ZHIPUAI_API_KEY", raising=False)
+    assert _create_summarizer() is None
 
 
 def test_openai_summarizer_no_api_base():
@@ -480,6 +559,139 @@ def test_openai_summarizer_responses_partial_parse_falls_back_per_symbol():
     mock_client.post.assert_called_once()
     assert symbols[0].summary == "Handles the first function only."
     assert symbols[1].summary == "def second():"
+
+
+def test_openai_summarizer_explicit_openai_provider_uses_default_api_base():
+    """Explicit openai provider should default to the hosted OpenAI base URL."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Handles hosted OpenAI requests."}}]
+    }
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ",
+        {
+            "JCODEMUNCH_SUMMARIZER_PROVIDER": "openai",
+            "OPENAI_API_KEY": "sk-test",
+            "OPENAI_MODEL": "gpt-4o-mini",
+            "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1",
+        },
+        clear=True,
+    ):
+        summarizer = OpenAIBatchSummarizer(
+            model="gpt-4o-mini",
+            api_base="https://api.openai.com/v1",
+            api_key="sk-test",
+        )
+        summarizer.client = mock_client
+
+    symbols = [
+        Symbol(
+            id="test::hosted",
+            file="test.py",
+            name="hosted",
+            qualified_name="hosted",
+            kind="function",
+            language="python",
+            signature="def hosted():",
+        )
+    ]
+    summarizer.summarize_batch(symbols)
+
+    mock_client.post.assert_called_once()
+    assert mock_client.post.call_args[0][0] == "https://api.openai.com/v1/chat/completions"
+    assert symbols[0].summary == "Handles hosted OpenAI requests."
+
+
+def test_openai_summarizer_minimax_provider_defaults():
+    """MiniMax should use its fixed API base and model."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Uses the MiniMax endpoint."}}]
+    }
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ",
+        {
+            "MINIMAX_API_KEY": "test-key",
+            "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1",
+        },
+        clear=True,
+    ):
+        summarizer = OpenAIBatchSummarizer(
+            model="minimax-m2.7",
+            api_base="https://api.minimax.io/v1",
+            api_key="test-key",
+        )
+        summarizer.client = mock_client
+
+    symbols = [
+        Symbol(
+            id="test::minimax",
+            file="test.py",
+            name="minimax",
+            qualified_name="minimax",
+            kind="function",
+            language="python",
+            signature="def minimax():",
+        )
+    ]
+    summarizer.summarize_batch(symbols)
+
+    mock_client.post.assert_called_once()
+    assert mock_client.post.call_args[0][0] == "https://api.minimax.io/v1/chat/completions"
+    assert mock_client.post.call_args[1]["json"]["model"] == "minimax-m2.7"
+    assert symbols[0].summary == "Uses the MiniMax endpoint."
+
+
+def test_openai_summarizer_glm_provider_defaults():
+    """GLM should use its fixed API base and model."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Uses the GLM endpoint."}}]
+    }
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ",
+        {
+            "ZHIPUAI_API_KEY": "test-key",
+            "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1",
+        },
+        clear=True,
+    ):
+        summarizer = OpenAIBatchSummarizer(
+            model="glm-5",
+            api_base="https://api.z.ai/api/paas/v4/",
+            api_key="test-key",
+        )
+        summarizer.client = mock_client
+
+    symbols = [
+        Symbol(
+            id="test::glm",
+            file="test.py",
+            name="glm",
+            qualified_name="glm",
+            kind="function",
+            language="python",
+            signature="def glm():",
+        )
+    ]
+    summarizer.summarize_batch(symbols)
+
+    mock_client.post.assert_called_once()
+    assert mock_client.post.call_args[0][0] == "https://api.z.ai/api/paas/v4/chat/completions"
+    assert mock_client.post.call_args[1]["json"]["model"] == "glm-5"
+    assert symbols[0].summary == "Uses the GLM endpoint."
 
 
 def test_openai_summarizer_remote_endpoint_requires_allow_flag():

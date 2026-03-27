@@ -179,6 +179,24 @@ With optional GitHub auth and AI summaries:
 * `GOOGLE_MODEL`
   Overrides the default Gemini model.
 
+* `JCODEMUNCH_SUMMARIZER_PROVIDER`
+  Forces the AI summarizer provider. Supported values: `anthropic`, `gemini`,
+  `openai`, `minimax`, `glm`, `none`. If unset, `jcodemunch-mcp` auto-detects
+  by API keys in this order: Anthropic, Gemini, OpenAI-compatible, MiniMax, GLM-5.
+
+* `OPENAI_API_BASE`
+  Enables OpenAI-compatible summaries against a local or custom endpoint when
+  no higher-priority provider is configured or when
+  `JCODEMUNCH_SUMMARIZER_PROVIDER=openai`.
+
+* `MINIMAX_API_KEY`
+  Enables AI-generated summaries via MiniMax using the default model
+  `minimax-m2.7`.
+
+* `ZHIPUAI_API_KEY`
+  Enables AI-generated summaries via GLM-5 using the default endpoint
+  `https://api.z.ai/api/paas/v4/`.
+
 * `JCODEMUNCH_PATH_MAP`
   Remaps stored path prefixes so an index built on one machine can be reused on
   another without re-indexing. Format: `orig1=new1,orig2=new2` where `orig` is
@@ -740,6 +758,22 @@ Useful tuning knobs:
 * `OPENAI_BATCH_SIZE`
 * `OPENAI_MAX_TOKENS`
 
+For hosted OpenAI-compatible providers, use explicit provider selection instead:
+
+```json
+"env": {
+  "JCODEMUNCH_SUMMARIZER_PROVIDER": "minimax",
+  "MINIMAX_API_KEY": "..."
+}
+```
+
+```json
+"env": {
+  "JCODEMUNCH_SUMMARIZER_PROVIDER": "glm",
+  "ZHIPUAI_API_KEY": "..."
+}
+```
+
 If you document this section, I would keep it framed as optional power-user tuning, not required setup.
 
 ---
@@ -781,7 +815,7 @@ Set `GITHUB_TOKEN` to increase GitHub API limits.
 
 ## AI summaries are missing
 
-Set `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`. Without either, summaries fall back to docstrings or signatures.
+Set one of `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_BASE`, `MINIMAX_API_KEY`, or `ZHIPUAI_API_KEY`. You can also force a specific provider with `JCODEMUNCH_SUMMARIZER_PROVIDER`. Without a configured provider, summaries fall back to docstrings or signatures.
 
 ## The index seems stale
 

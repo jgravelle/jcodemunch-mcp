@@ -286,9 +286,9 @@ The following env vars still work but are deprecated. Config file values take pr
 | `JCODEMUNCH_PORT` | `port` | `8901` |
 | `JCODEMUNCH_LOG_LEVEL` | `log_level` | `WARNING` |
 
-AI provider keys (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_BASE`, etc.) and `CODE_INDEX_PATH` are **always** read from env vars — they are never placed in config files.
+AI provider keys (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `OPENAI_API_BASE`, `MINIMAX_API_KEY`, `ZHIPUAI_API_KEY`, etc.), `JCODEMUNCH_SUMMARIZER_PROVIDER`, and `CODE_INDEX_PATH` are **always** read from env vars — they are never placed in config files.
 
-AI provider priority: Anthropic → Gemini → local LLM → signature fallback. The first key that is set wins. `jcodemunch-mcp config` shows which provider is active.
+AI provider priority in auto-detect mode: Anthropic → Gemini → OpenAI-compatible (`OPENAI_API_BASE`) → MiniMax → GLM-5 → signature fallback. Set `JCODEMUNCH_SUMMARIZER_PROVIDER` to force `anthropic`, `gemini`, `openai`, `minimax`, `glm`, or `none`. `jcodemunch-mcp config` shows which provider is active.
 
 ---
 

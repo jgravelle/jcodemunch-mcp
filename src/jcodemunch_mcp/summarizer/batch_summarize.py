@@ -1,4 +1,4 @@
-"""Three-tier summarization: docstring > AI (Haiku or Gemini) > signature fallback."""
+"""Three-tier summarization: docstring > AI provider > signature fallback."""
 
 import logging
 import os
@@ -13,6 +13,14 @@ from ..parser.symbols import Symbol
 logger = logging.getLogger(__name__)
 
 _LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+_AUTO_DETECT_ORDER = [
+    ("ANTHROPIC_API_KEY", "anthropic"),
+    ("GOOGLE_API_KEY", "gemini"),
+    ("OPENAI_API_BASE", "openai"),
+    ("MINIMAX_API_KEY", "minimax"),
+    ("ZHIPUAI_API_KEY", "glm"),
+]
+_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "none"}
 
 
 def _is_localhost_url(url: str) -> bool:
@@ -299,20 +307,23 @@ class GeminiBatchSummarizer(BaseSummarizer):
 class OpenAIBatchSummarizer(BaseSummarizer):
     """AI-based batch summarization using OpenAI-compatible endpoints (Tier 2).
 
-    Ideal for local LLMs like Ollama (http://localhost:11434/v1) or LM Studio.
+    Supports OpenAI-hosted APIs, local LLMs, and compatible providers like MiniMax
+    and GLM-5.
     """
 
     model: str = "qwen3-coder"
+    api_base: Optional[str] = None
+    api_key: str = "local-llm"
 
     def __post_init__(self):
         self.client = None
         self.wire_api = (
             os.environ.get("OPENAI_WIRE_API", "chat").strip().lower() or "chat"
         )
-        self.api_base = os.environ.get("OPENAI_API_BASE")
+        api_base = self.api_base or os.environ.get("OPENAI_API_BASE")
+        self.api_base = api_base.rstrip("/") if api_base else None
         if self.api_base:
             # Strip trailing slash if present
-            self.api_base = self.api_base.rstrip("/")
             # Security: restrict to localhost unless explicitly overridden
             allow_remote = _config.get("allow_remote_summarizer", False)
             if not _is_localhost_url(self.api_base) and not allow_remote:
@@ -323,7 +334,8 @@ class OpenAIBatchSummarizer(BaseSummarizer):
                 )
                 self.api_base = None
                 return
-            self.model = os.environ.get("OPENAI_MODEL", self.model)
+            if not self.api_base or self.api_base == os.environ.get("OPENAI_API_BASE", "").rstrip("/"):
+                self.model = os.environ.get("OPENAI_MODEL", self.model)
             self.max_tokens_per_batch = int(
                 os.environ.get("OPENAI_MAX_TOKENS", str(self.max_tokens_per_batch))
             )
@@ -349,8 +361,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
             except ValueError:
                 timeout = 60.0
 
-            api_key = os.environ.get("OPENAI_API_KEY", "local-llm")
-            headers = {"Authorization": f"Bearer {api_key}"}
+            headers = {"Authorization": f"Bearer {self.api_key}"}
             self.client = httpx.Client(timeout=timeout, headers=headers)
         except ImportError:
             self.client = None
@@ -457,27 +468,69 @@ class OpenAIBatchSummarizer(BaseSummarizer):
 
 
 def _create_summarizer() -> Optional[BaseSummarizer]:
-    """Return the appropriate summarizer based on available API keys.
-
-    Priority: Anthropic > Google Gemini > OpenAI/Local.
-    Returns None if no API keys are configured.
-    """
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    """Return the appropriate summarizer based on explicit provider or API keys."""
+    name = get_provider_name()
+    if name == "anthropic":
         s = BatchSummarizer()
-        if s.client:
-            return s
-
-    if os.environ.get("GOOGLE_API_KEY"):
+        return s if s.client else None
+    if name == "gemini":
         s = GeminiBatchSummarizer()
-        if s.client:
-            return s
-
-    if os.environ.get("OPENAI_API_BASE"):
-        s = OpenAIBatchSummarizer()
-        if s.client:
-            return s
-
+        return s if s.client else None
+    if name == "openai":
+        s = _make_openai_compat(
+            api_key=os.environ.get("OPENAI_API_KEY", "local-llm"),
+            base_url=os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1"),
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        )
+        return s if s.client else None
+    if name == "minimax":
+        try:
+            s = _make_openai_compat(
+                api_key=os.environ.get("MINIMAX_API_KEY"),
+                base_url="https://api.minimax.io/v1",
+                model="minimax-m2.7",
+            )
+        except ValueError:
+            return None
+        return s if s.client else None
+    if name == "glm":
+        try:
+            s = _make_openai_compat(
+                api_key=os.environ.get("ZHIPUAI_API_KEY"),
+                base_url="https://api.z.ai/api/paas/v4/",
+                model="glm-5",
+            )
+        except ValueError:
+            return None
+        return s if s.client else None
     return None
+
+
+def get_provider_name() -> Optional[str]:
+    """Return the active summarizer provider name, or None if disabled/unset.
+
+    Priority: explicit JCODEMUNCH_SUMMARIZER_PROVIDER env var > auto-detect by key.
+    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5.
+    """
+    explicit = os.environ.get("JCODEMUNCH_SUMMARIZER_PROVIDER", "").lower().strip()
+    if explicit in _VALID_PROVIDERS:
+        return None if explicit == "none" else explicit
+
+    for env_var, name in _AUTO_DETECT_ORDER:
+        if os.environ.get(env_var):
+            return name
+    return None
+
+
+def _make_openai_compat(
+    api_key: Optional[str],
+    base_url: str,
+    model: str,
+) -> OpenAIBatchSummarizer:
+    """Factory helper for OpenAI-compatible providers."""
+    if not api_key:
+        raise ValueError("Missing API key for OpenAI-compatible summarizer")
+    return OpenAIBatchSummarizer(model=model, api_base=base_url, api_key=api_key)
 
 
 def summarize_symbols_simple(symbols: list[Symbol]) -> list[Symbol]:
@@ -504,13 +557,15 @@ def summarize_symbols(symbols: list[Symbol], use_ai: bool = True) -> list[Symbol
     """Full three-tier summarization.
 
     Tier 1: Docstring extraction (free)
-    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, or Local LLM)
+    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, OpenAI, MiniMax, GLM-5)
     Tier 3: Signature fallback (always works)
 
     Provider selection (Tier 2 priority):
-      1. ANTHROPIC_API_KEY set → Claude Haiku
-      2. GOOGLE_API_KEY set    → Gemini Flash
-      3. OPENAI_API_BASE set   → Local LLM via OpenAI compatible endpoint
+      1. ANTHROPIC_API_KEY set or provider=anthropic → Claude Haiku
+      2. GOOGLE_API_KEY set or provider=gemini       → Gemini Flash
+      3. OPENAI provider/base                         → OpenAI-compatible endpoint
+      4. MINIMAX_API_KEY set or provider=minimax     → MiniMax M2.7
+      5. ZHIPUAI_API_KEY set or provider=glm         → GLM-5
       - None set               → skip to Tier 3
     """
     # Tier 1: Extract from docstrings

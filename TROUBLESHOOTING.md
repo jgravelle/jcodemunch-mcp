@@ -33,11 +33,19 @@ optional package installed.
    `ANTHROPIC_API_KEY`.
 2. For Gemini summaries: `pip install "jcodemunch-mcp[gemini]"` and set
    `GOOGLE_API_KEY`.
-3. For local LLM: set `OPENAI_API_BASE` to your endpoint (e.g.,
+3. For OpenAI-compatible endpoints: `pip install "jcodemunch-mcp[openai]"` and set
+   `OPENAI_API_BASE` to your endpoint (e.g.,
    `http://127.0.0.1:11434/v1` for Ollama).
-4. To verify: re-index and check the server logs for
+4. For MiniMax summaries: `pip install "jcodemunch-mcp[minimax]"`, set
+   `MINIMAX_API_KEY`, and optionally force it with
+   `JCODEMUNCH_SUMMARIZER_PROVIDER=minimax`.
+5. For GLM-5 summaries: `pip install "jcodemunch-mcp[zhipu]"`, set
+   `ZHIPUAI_API_KEY`, and optionally force it with
+   `JCODEMUNCH_SUMMARIZER_PROVIDER=glm`.
+6. To verify: re-index and check the server logs for
    `"AI summarization failed, falling back to signature"` warnings.
-5. To disable: set `JCODEMUNCH_USE_AI_SUMMARIES=0`.
+7. To disable: set `JCODEMUNCH_USE_AI_SUMMARIES=0` or
+   `JCODEMUNCH_SUMMARIZER_PROVIDER=none`.
 
 ---
 

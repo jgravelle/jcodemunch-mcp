@@ -23,11 +23,14 @@ Repository = "https://github.com/jgravelle/jcodemunch-mcp"
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40.0"]
 gemini = ["google-generativeai>=0.8.0"]
+openai = ["openai>=1.0.0"]
+minimax = ["openai>=1.0.0"]
+zhipu = ["openai>=1.0.0"]
 dbt = ["pyyaml>=6.0"]
 http = ["uvicorn>=0.20.0", "starlette>=0.27.0", "anyio>=4.0.0"]
 watch = ["watchfiles>=1.0.0"]
 semantic = ["sentence-transformers>=2.2.0"]
-all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=0.27.0", "anyio>=4.0.0", "watchfiles>=1.0.0", "sentence-transformers>=2.2.0"]
+all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=0.27.0", "anyio>=4.0.0", "watchfiles>=1.0.0", "sentence-transformers>=2.2.0"]
 
 
 [project.scripts]
