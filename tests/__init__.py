@@ -5,14 +5,10 @@ from pathlib import Path
 
 
 def _platform_path(unix_path: str) -> Path:
-    """Convert Unix-style path to platform-appropriate path for testing.
-
-    On Unix: returns Path(unix_path) unchanged.
-    On Windows: converts "/work" to "C:/work" to ensure is_absolute() is True.
-    """
+    """Convert Unix-style path to platform-appropriate path."""
     if sys.platform == "win32":
         if unix_path.startswith("/"):
-            return Path("C:" + unix_path.replace("/", "/"))
+            return Path("C:" + unix_path)
     return Path(unix_path)
 
 
