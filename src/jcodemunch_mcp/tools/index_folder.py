@@ -90,20 +90,28 @@ def _load_all_gitignores(root: Path) -> dict[Path, pathspec.PathSpec]:
 
 
 @lru_cache(maxsize=512)
-def _is_trusted(folder_path: Path, trusted_folders: tuple) -> bool:
+def _is_trusted(
+    folder_path: Path, trusted_folders: tuple, whitelist_mode: bool = True
+) -> bool:
     """Return True when folder_path is trusted.
 
-    Empty trusted_folders means all folders are untrusted.
+    whitelist_mode=True (default): trusted_folders contains trusted paths
+    whitelist_mode=False: trusted_folders contains untrusted paths (blacklist)
+
+    Empty list returns False (nothing explicitly trusted) for backward compatibility.
+    The trust check is skipped for empty list, but the broad check uses this value.
     """
     if not trusted_folders:
+        # Empty list: nothing explicitly trusted (backward compatible)
         return False
 
-    return any(
+    is_in_list = any(
         folder_path == Path(trusted_folder)
         or Path(trusted_folder) in folder_path.parents
         for trusted_folder in trusted_folders
     )
 
+    return is_in_list if whitelist_mode else not is_in_list
 
 def _is_gitignored(file_path: Path, gitignore_specs: dict[Path, pathspec.PathSpec]) -> bool:
     """Check if a file is excluded by any .gitignore in its ancestor chain.
@@ -408,7 +416,21 @@ def index_folder(
 
     warnings = []
     trusted_folders = _config.get("trusted_folders", [], repo=str(folder_path))
-    is_trusted = _is_trusted(folder_path, tuple(trusted_folders))
+    whitelist_mode = _config.get(
+        "trusted_folders_whitelist_mode", True, repo=str(folder_path)
+    )
+
+    # Handle empty blacklist as error
+    if not whitelist_mode and not trusted_folders:
+        error_msg = (
+            "trusted_folders_whitelist_mode is False (blacklist mode) but "
+            "trusted_folders is empty. No folders would be trusted. "
+            "Add entries to trusted_folders to specify which folders should be untrusted."
+        )
+        logger.error(error_msg)
+        return {"success": False, "error": error_msg}
+
+    is_trusted = _is_trusted(folder_path, tuple(trusted_folders), whitelist_mode)
     if trusted_folders and not is_trusted:
         return {
             "success": False,

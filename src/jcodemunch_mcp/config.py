@@ -21,6 +21,7 @@ _REPO_PATH_CACHE: dict[str, str] = {}
 ENV_VAR_MAPPING = {
     "JCODEMUNCH_USE_AI_SUMMARIES": "use_ai_summaries",
     "JCODEMUNCH_TRUSTED_FOLDERS": "trusted_folders",
+    "JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE": "trusted_folders_whitelist_mode",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
     "JCODEMUNCH_STALENESS_DAYS": "staleness_days",
@@ -49,6 +50,7 @@ ENV_VAR_MAPPING = {
 DEFAULTS = {
     "use_ai_summaries": True,
     "trusted_folders": [],
+    "trusted_folders_whitelist_mode": True,
     "max_folder_files": 2000,
     "max_index_files": 10000,
     "staleness_days": 7,
@@ -82,6 +84,7 @@ DEFAULTS = {
 CONFIG_TYPES = {
     "use_ai_summaries": bool,
     "trusted_folders": list,
+    "trusted_folders_whitelist_mode": bool,
     "max_folder_files": int,
     "max_index_files": int,
     "staleness_days": int,
