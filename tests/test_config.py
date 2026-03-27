@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tests import _platform_path, _platform_path_str
 from src.jcodemunch_mcp.config import _strip_jsonc
 
 
@@ -646,14 +647,16 @@ class TestEnvVarFallback:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
-            config_path.write_text('{"trusted_folders": ["/config/work"]}')
+            config_work = _platform_path_str("/config/work")
+            env_work = _platform_path_str("/env/work")
+            config_path.write_text(f'{{"trusted_folders": ["{config_work}"]}}')
 
-            monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", "/env/work")
+            monkeypatch.setenv("JCODEMUNCH_TRUSTED_FOLDERS", env_work)
 
             with caplog.at_level(logging.WARNING):
                 load_config(tmpdir)
 
-            assert get("trusted_folders") == [Path("/config/work").resolve()]
+            assert get("trusted_folders") == [_platform_path("/config/work").resolve()]
             assert not any(
                 "JCODEMUNCH_TRUSTED_FOLDERS" in rec.message for rec in caplog.records
             )
@@ -708,11 +711,12 @@ class TestTrustedFoldersConfig:
         _GLOBAL_CONFIG.clear()
 
         config_path = tmp_path / "config.jsonc"
-        config_path.write_text('{"trusted_folders": ["/work"]}')
+        work_path = _platform_path_str("/work")
+        config_path.write_text(f'{{"trusted_folders": ["{work_path}"]}}')
 
         load_config(str(tmp_path))
 
-        assert get("trusted_folders") == [Path("/work").expanduser()]
+        assert get("trusted_folders") == [_platform_path("/work").expanduser()]
 
     def test_project_config_trusted_folders_expand_from_dot_slash(self, tmp_path):
         """Project config './' trusted_folders entries should expand from project root."""
@@ -933,7 +937,10 @@ class TestTrustedFoldersConfig:
         project_root = tmp_path / "project"
         project_root.mkdir()
         project_config = project_root / ".jcodemunch.jsonc"
-        project_config.write_text('{"trusted_folders": [".", "src", "/work", "./lib"]}')
+        work_path = _platform_path_str("/work")
+        project_config.write_text(
+            f'{{"trusted_folders": [".", "src", "{work_path}", "./lib"]}}'
+        )
 
         load_project_config(str(project_root))
 
@@ -941,7 +948,7 @@ class TestTrustedFoldersConfig:
         result = get("trusted_folders", repo=repo_key)
         assert project_root.resolve() in result
         assert (project_root / "src").resolve() in result
-        assert Path("/work").resolve() in result
+        assert _platform_path("/work").resolve() in result
         assert (project_root / "lib").resolve() in result
         assert len(result) == 4
 
@@ -961,7 +968,8 @@ class TestTrustedFoldersConfig:
         _PROJECT_CONFIG_HASHES.clear()
 
         global_config = tmp_path / "config.jsonc"
-        global_config.write_text('{"trusted_folders": ["/global/trusted"]}')
+        global_trusted = _platform_path_str("/global/trusted")
+        global_config.write_text(f'{{"trusted_folders": ["{global_trusted}"]}}')
         load_config(str(tmp_path))
 
         project_root = tmp_path / "project"
@@ -973,7 +981,7 @@ class TestTrustedFoldersConfig:
 
         repo_key = str(project_root.resolve())
         # Global should still have its value
-        assert get("trusted_folders") == [Path("/global/trusted").resolve()]
+        assert get("trusted_folders") == [_platform_path("/global/trusted").resolve()]
         # Project should have only its own value
         assert get("trusted_folders", repo=repo_key) == [project_root.resolve()]
 
@@ -1013,13 +1021,16 @@ class TestTrustedFoldersConfig:
         _GLOBAL_CONFIG.clear()
 
         config_path = tmp_path / "config.jsonc"
-        config_path.write_text('{"trusted_folders": ["/work", "/work", "/work"]}')
+        work_path = _platform_path_str("/work")
+        config_path.write_text(
+            f'{{"trusted_folders": ["{work_path}", "{work_path}", "{work_path}"]}}'
+        )
 
         load_config(str(tmp_path))
 
         result = get("trusted_folders")
         assert len(result) == 1
-        assert result[0] == Path("/work").resolve()
+        assert result[0] == _platform_path("/work").resolve()
 
     def test_project_config_deduplicates_equivalent_entries(self, tmp_path):
         """Project config should deduplicate equivalent entries like '.' and './'."""
@@ -1076,14 +1087,17 @@ class TestTrustedFoldersConfig:
         project_root = tmp_path / "project"
         project_root.mkdir()
         project_config = project_root / ".jcodemunch.jsonc"
-        project_config.write_text('{"trusted_folders": ["/work", "/work", "/work"]}')
+        work_path = _platform_path_str("/work")
+        project_config.write_text(
+            f'{{"trusted_folders": ["{work_path}", "{work_path}", "{work_path}"]}}'
+        )
 
         load_project_config(str(project_root))
 
         repo_key = str(project_root.resolve())
         result = get("trusted_folders", repo=repo_key)
         assert len(result) == 1
-        assert Path("/work").resolve() in result
+        assert _platform_path("/work").resolve() in result
 
 
 # ── Config file validation ────────────────────────────────────────────────────
