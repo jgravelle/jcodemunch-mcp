@@ -1519,6 +1519,26 @@ def test_parse_env_value_list_comma_separated_fallback():
     assert result == ["*.log", "*.tmp"]
 
 
+# ── use_ai_summaries env var preserves string values ──────────────────────────────
+
+
+def test_parse_env_value_use_ai_summaries_preserves_string():
+    """_parse_env_value returns raw string for use_ai_summaries to preserve 'auto'."""
+    from src.jcodemunch_mcp.config import _parse_env_value
+
+    # "auto" must be preserved as a string, not coerced to False by bool parsing
+    assert _parse_env_value("auto", (bool, str), key="use_ai_summaries") == "auto"
+
+    # "true" stored as string — downstream handlers accept both str and bool
+    assert _parse_env_value("true", (bool, str), key="use_ai_summaries") == "true"
+
+    # "false" stored as string
+    assert _parse_env_value("false", (bool, str), key="use_ai_summaries") == "false"
+
+    # Case-insensitive
+    assert _parse_env_value("AUTO", (bool, str), key="use_ai_summaries") == "auto"
+
+
 # ── Comprehensive Config File Edge Case Tests ────────────────────────────────────
 
 

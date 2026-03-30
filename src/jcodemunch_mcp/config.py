@@ -542,8 +542,12 @@ def load_config(storage_path: str | None = None) -> None:
     _apply_env_var_fallback(_explicit_keys)
 
 
-def _parse_env_value(value: str, expected_type: type | tuple) -> Any:
+def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = None) -> Any:
     """Parse env var string to expected type."""
+    # use_ai_summaries accepts "auto", "true", "false" as strings;
+    # generic bool parsing would coerce "auto" to False.
+    if key == "use_ai_summaries":
+        return value.strip().lower()
     try:
         if isinstance(expected_type, tuple):
             for t in expected_type:
@@ -620,7 +624,7 @@ def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
             expected_type = CONFIG_TYPES.get(config_key)
             if expected_type is None:
                 continue
-            parsed = _parse_env_value(env_value, expected_type)  # type: ignore[arg-type]
+            parsed = _parse_env_value(env_value, expected_type, key=config_key)  # type: ignore[arg-type]
             if parsed is not None:
                 _GLOBAL_CONFIG[config_key] = parsed
 
