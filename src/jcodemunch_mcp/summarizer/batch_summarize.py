@@ -19,8 +19,9 @@ _AUTO_DETECT_ORDER = [
     ("OPENAI_API_BASE", "openai"),
     ("MINIMAX_API_KEY", "minimax"),
     ("ZHIPUAI_API_KEY", "glm"),
+    ("OPENROUTER_API_KEY", "openrouter"),
 ]
-_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "none"}
+_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
 
 
 def _is_localhost_url(url: str) -> bool:
@@ -560,6 +561,16 @@ def _create_summarizer() -> Optional[BaseSummarizer]:
         except ValueError:
             return None
         return s if s.client else None
+    if name == "openrouter":
+        try:
+            s = _make_openai_compat(
+                api_key=os.environ.get("OPENROUTER_API_KEY"),
+                base_url="https://openrouter.ai/api/v1",
+                model=model_override or "meta-llama/llama-3.3-70b-instruct:free",
+            )
+        except ValueError:
+            return None
+        return s if s.client else None
     return None
 
 
@@ -567,7 +578,7 @@ def get_provider_name() -> Optional[str]:
     """Return the active summarizer provider name, or None if disabled/unset.
 
     Priority: summarizer_provider config key > JCODEMUNCH_SUMMARIZER_PROVIDER env var > auto-detect by key.
-    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5.
+    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5 > OpenRouter.
     """
     explicit = (_config.get("summarizer_provider", "") or os.environ.get("JCODEMUNCH_SUMMARIZER_PROVIDER", "")).lower().strip()
     if explicit in _VALID_PROVIDERS:

@@ -1119,14 +1119,15 @@ def generate_template() -> str:
   // "use_ai_summaries": "auto",
 
   // AI summarizer provider to use when use_ai_summaries is true.
-  // Valid values: "anthropic", "gemini", "openai", "minimax", "glm", "none"
+  // Valid values: "anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"
   // Leave empty ("") to auto-detect from available API keys.
   // "summarizer_provider": "",
 
   // Model name to use for the selected summarizer provider.
   // Leave empty ("") to use the provider's default model.
   // Examples: "claude-haiku-4-5-20251001" (anthropic), "gemini-2.5-flash-lite" (gemini),
-  //           "gpt-4o-mini" (openai), "minimax-m2.7" (minimax), "glm-5" (glm)
+  //           "gpt-4o-mini" (openai), "minimax-m2.7" (minimax), "glm-5" (glm),
+  //           "meta-llama/llama-3.3-70b-instruct:free" (openrouter)
   // "summarizer_model": "",
   // "embed_model": "",
   //   Sentence-transformers model name for local (free) semantic embeddings.
