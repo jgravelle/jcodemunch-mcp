@@ -146,6 +146,7 @@ def index_file(
             active_providers=active_providers,
             use_ai_summaries=use_ai_summaries,
             warnings=warnings,
+            repo=str(source_root),
         )
     )
 

@@ -66,6 +66,7 @@ def parse_immediate(
     file_contents: dict[str, str],
     active_providers: Optional[list[ContextProvider]] = None,
     warnings: Optional[list[str]] = None,
+    repo: Optional[str] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Parse files and enrich, but skip AI summarization for immediate return.
 
@@ -102,7 +103,7 @@ def parse_immediate(
             continue
         file_language_map[rel_path] = language
         try:
-            symbols = parse_file(content, rel_path, language)
+            symbols = parse_file(content, rel_path, language, repo=repo)
             if symbols:
                 new_symbols.extend(symbols)
             else:
@@ -182,6 +183,7 @@ def parse_and_prepare_incremental(
     active_providers: Optional[list[ContextProvider]] = None,
     use_ai_summaries: bool = True,
     warnings: Optional[list[str]] = None,
+    repo: Optional[str] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, str], dict[str, list[dict]], list[str]]:
     """Shared incremental pipeline: parse, enrich, summarize, extract metadata.
 
@@ -214,7 +216,7 @@ def parse_and_prepare_incremental(
             continue
         file_language_map[rel_path] = language
         try:
-            symbols = parse_file(content, rel_path, language)
+            symbols = parse_file(content, rel_path, language, repo=repo)
             if symbols:
                 new_symbols.extend(symbols)
             else:
@@ -267,6 +269,7 @@ def parse_and_prepare_full(
     active_providers: Optional[list[ContextProvider]] = None,
     use_ai_summaries: bool = True,
     warnings: Optional[list[str]] = None,
+    repo: Optional[str] = None,
 ) -> tuple[list[Symbol], dict[str, str], dict[str, int], dict[str, str], dict[str, list[dict]], list[str]]:
     """Shared full-index pipeline: parse all files, enrich, summarize.
 
@@ -299,7 +302,7 @@ def parse_and_prepare_full(
             continue
         file_language_map[path] = language
         try:
-            symbols = parse_file(content, path, language)
+            symbols = parse_file(content, path, language, repo=repo)
             if symbols:
                 all_symbols.extend(symbols)
                 symbols_by_file[path].extend(symbols)

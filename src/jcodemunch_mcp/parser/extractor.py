@@ -8,7 +8,7 @@ from .symbols import Symbol, make_symbol_id, compute_content_hash
 from .languages import LanguageSpec, LANGUAGE_REGISTRY
 
 
-def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None) -> list[Symbol]:
+def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None, repo: Optional[str] = None) -> list[Symbol]:
     """Parse source code and extract symbols using tree-sitter.
 
     Args:
@@ -17,6 +17,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         language: Language name (must be in LANGUAGE_REGISTRY)
         source_bytes: Optional pre-encoded UTF-8 bytes. If provided, avoids
             a redundant encode() call when the caller has already encoded content.
+        repo: Optional folder path used to consult per-project .jcodemunch.jsonc
+            when checking whether the language is enabled.
 
     Returns:
         List of Symbol objects
@@ -26,9 +28,10 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
 
     # Skip parsing if the language is not in the configured languages list.
     # When languages config is None (default), all languages are enabled.
+    # Pass repo so that per-project .jcodemunch.jsonc overrides the global config.
     try:
         from ..config import is_language_enabled as _is_lang_enabled
-        if not _is_lang_enabled(language):
+        if not _is_lang_enabled(language, repo=repo):
             return []
     except ImportError:
         pass  # config module not available (e.g. standalone use)

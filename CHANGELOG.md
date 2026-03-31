@@ -4,6 +4,11 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-03-31
+
+### Fixed
+- **Per-project language config ignored during parsing** — `parse_file()` was calling `is_language_enabled(language)` without forwarding the `repo` path, so it always consulted the global config and never the per-project `.jcodemunch.jsonc`. Projects that declared their own `"languages"` list got `symbol_count: 0` when the global config had `"languages": []` (the recommended default). Fixed by threading `repo` from every `parse_file` call site (`index_folder`, `index_file`, `get_changed_symbols`, and all three pipeline functions in `_indexing_pipeline`) down to the language-gate check. `index_repo` is unaffected (remote repos have no local project config). Reported and root-caused by AmaralVini in issue #187.
+
 ## [1.13.1] - 2026-03-30
 
 ### Changed

@@ -49,13 +49,13 @@ def _get_file_content_at(sha: str, file_path: str, cwd: str) -> Optional[str]:
     return out
 
 
-def _parse_symbols_from_content(content: str, rel_path: str) -> dict[str, dict]:
+def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = None) -> dict[str, dict]:
     """Parse content → dict keyed by symbol qualified_name#kind → symbol dict."""
     language = get_language_for_path(rel_path)
     if not language:
         return {}
     try:
-        symbols = parse_file(content, rel_path, language)
+        symbols = parse_file(content, rel_path, language, repo=repo)
     except Exception:
         logger.debug("parse_file failed for %s", rel_path, exc_info=True)
         return {}
@@ -215,9 +215,9 @@ def get_changed_symbols(
         after_syms: dict[str, dict] = {}
 
         if before_content is not None:
-            before_syms = _parse_symbols_from_content(before_content, file_path)
+            before_syms = _parse_symbols_from_content(before_content, file_path, repo=cwd)
         if after_content is not None:
-            after_syms = _parse_symbols_from_content(after_content, file_path)
+            after_syms = _parse_symbols_from_content(after_content, file_path, repo=cwd)
 
         before_keys = set(before_syms)
         after_keys = set(after_syms)

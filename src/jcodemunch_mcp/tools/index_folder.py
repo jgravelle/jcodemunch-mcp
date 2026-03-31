@@ -711,6 +711,7 @@ def index_folder(
                         file_contents=raw_files_subset,
                         active_providers=active_providers,
                         warnings=fast_warnings,
+                        repo=str(folder_path),
                     )
                 )
 
@@ -920,6 +921,7 @@ def index_folder(
                     active_providers=active_providers,
                     use_ai_summaries=use_ai_summaries,
                     warnings=warnings,
+                    repo=str(folder_path),
                 )
             )
 
@@ -991,7 +993,7 @@ def index_folder(
                 # content eligible for GC after this iteration
                 continue
             try:
-                symbols = parse_file(content, rel_path, language, source_bytes=content_bytes)
+                symbols = parse_file(content, rel_path, language, source_bytes=content_bytes, repo=str(folder_path))
                 if symbols:
                     all_symbols.extend(symbols)
                     symbols_by_file[rel_path].extend(symbols)
