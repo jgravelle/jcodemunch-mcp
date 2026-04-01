@@ -1,9 +1,9 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.13.0 (published to PyPI)
+- **Version:** 1.14.0 (published to PyPI)
 - **INDEX_VERSION:** 6
-- **Tests:** 1378 passed, 9 skipped
+- **Tests:** 1491 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
@@ -33,6 +33,9 @@ src/jcodemunch_mcp/
     test_summarizer.py # Diagnostic tool: probe AI summarizer, report status (disabled by default)
     package_registry.py # Cross-repo package registry: manifest parsing, registry building, specifier resolution
     get_cross_repo_map.py # Cross-repo dependency map at the package level
+    _call_graph.py       # Shared AST-derived call-graph helpers (callers/callees, BFS)
+    get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, N levels deep
+    get_impact_preview.py # get_impact_preview: transitive "what breaks?" analysis
 ```
 
 ## CLI Subcommands

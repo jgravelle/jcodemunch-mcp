@@ -37,6 +37,8 @@ from .tools.get_session_stats import get_session_stats
 from .tools.test_summarizer import test_summarizer
 from .tools.get_dependency_graph import get_dependency_graph
 from .tools.get_blast_radius import get_blast_radius
+from .tools.get_call_hierarchy import get_call_hierarchy
+from .tools.get_impact_preview import get_impact_preview
 from .tools.get_symbol_diff import get_symbol_diff
 from .tools.get_class_hierarchy import get_class_hierarchy
 from .tools.get_related_symbols import get_related_symbols
@@ -576,7 +578,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="find_references",
-            description="Find all files that import or reference an identifier. Answers 'where is this used?'. Supports dbt {{ ref() }} edges. Use identifiers for batch queries.",
+            description="Find all files that import or reference an identifier. Answers 'where is this used?'. Supports dbt {{ ref() }} edges. Use identifiers for batch queries. Set include_call_chain=true to also see which symbols in each file call the identifier.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -584,6 +586,11 @@ async def list_tools() -> list[Tool]:
                     "identifier": {"type": "string", "description": "Symbol or module name to search for (e.g. 'bulkImport', 'IntakeService'). Use for single-identifier queries. Cannot be used together with identifiers."},
                     "identifiers": {"type": "array", "items": {"type": "string"}, "description": "List of symbol or module names to search for (batch mode). Returns a results array. Cannot be used together with identifier."},
                     "max_results": {"type": "integer", "default": 50, "description": "Maximum results"},
+                    "include_call_chain": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "When true (singular mode only), each reference entry includes calling_symbols: symbols in that file whose bodies mention the identifier. Default false.",
+                    },
                 },
                 "required": ["repo"],
             },
@@ -829,9 +836,73 @@ async def list_tools() -> list[Tool]:
                         "description": "When true, also find files in other indexed repos that consume this repo's package. Default: false.",
                         "default": False,
                     },
+                    "call_depth": {
+                        "type": "integer",
+                        "description": "When > 0, also find symbols that *call* this symbol (call-level analysis). Returns a callers list alongside the import-level confirmed/potential. Max 3. Default 0 (disabled).",
+                        "default": 0,
+                    },
                 },
                 "required": ["repo", "symbol"]
             }
+        ),
+        Tool(
+            name="get_call_hierarchy",
+            description=(
+                "Return incoming callers and outgoing callees for a symbol, N levels deep. "
+                "Uses AST-derived call detection: callers = symbols in importing files that "
+                "mention this name; callees = imported symbols mentioned in this symbol's body. "
+                "Useful for understanding how a symbol fits into the call graph before refactoring. "
+                "For a 'what breaks if I delete this?' answer, use get_impact_preview instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)"
+                    },
+                    "symbol_id": {
+                        "type": "string",
+                        "description": "Symbol name or full ID to analyse. Use search_symbols to find IDs."
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": ["callers", "callees", "both"],
+                        "description": "'callers' = who calls this symbol; 'callees' = what this symbol calls; 'both' (default).",
+                        "default": "both",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Maximum hops to traverse (1–5). Default 3.",
+                        "default": 3,
+                    },
+                },
+                "required": ["repo", "symbol_id"],
+            },
+        ),
+        Tool(
+            name="get_impact_preview",
+            description=(
+                "Show what breaks if a symbol is removed or renamed. "
+                "Walks the call graph transitively to find every symbol that calls this one, "
+                "returning affected symbols grouped by file with call-chain paths. "
+                "Use this before deleting or renaming a symbol to understand full impact. "
+                "For a structured caller/callee tree, use get_call_hierarchy instead."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)"
+                    },
+                    "symbol_id": {
+                        "type": "string",
+                        "description": "Symbol name or full ID to analyse. Use search_symbols to find IDs."
+                    },
+                },
+                "required": ["repo", "symbol_id"],
+            },
         ),
         Tool(
             name="get_symbol_importance",
@@ -1292,6 +1363,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     identifiers=arguments.get("identifiers"),
                     max_results=arguments.get("max_results", 50),
                     storage_path=storage_path,
+                    include_call_chain=arguments.get("include_call_chain", False),
                 )
             )
         elif name == "check_references":
@@ -1381,6 +1453,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     include_depth_scores=arguments.get("include_depth_scores", False),
                     storage_path=storage_path,
                     cross_repo=arguments.get("cross_repo"),
+                    call_depth=arguments.get("call_depth", 0),
+                )
+            )
+        elif name == "get_call_hierarchy":
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_call_hierarchy,
+                    repo=arguments["repo"],
+                    symbol_id=arguments["symbol_id"],
+                    direction=arguments.get("direction", "both"),
+                    depth=arguments.get("depth", 3),
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "get_impact_preview":
+            result = await asyncio.to_thread(
+                functools.partial(
+                    get_impact_preview,
+                    repo=arguments["repo"],
+                    symbol_id=arguments["symbol_id"],
+                    storage_path=storage_path,
                 )
             )
         elif name == "get_symbol_diff":

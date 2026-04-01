@@ -9,6 +9,7 @@ from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo
 from .package_registry import extract_root_package_from_specifier
+from ._call_graph import build_symbols_by_file, find_direct_callers, bfs_callers
 
 
 def _build_reverse_adjacency(
@@ -74,6 +75,7 @@ def get_blast_radius(
     include_depth_scores: bool = False,
     storage_path: Optional[str] = None,
     cross_repo: Optional[bool] = None,
+    call_depth: int = 0,
 ) -> dict:
     """Find all files that would be affected if a symbol's signature or behaviour changed.
 
@@ -89,12 +91,16 @@ def get_blast_radius(
         repo: Repository identifier (owner/repo or just repo name).
         symbol: Symbol name or ID to analyse.
         depth: Import hops to traverse (1 = direct importers only; max 3).
+        call_depth: Call-graph hops for caller detection (0 = disabled; max 3).
+                    When > 0, adds a ``callers`` list of calling symbols with depth scores.
         storage_path: Custom storage path.
 
     Returns:
         Dict with symbol info, confirmed/potential affected files, counts, and _meta.
+        When call_depth > 0: also includes ``callers`` and ``caller_count``.
     """
     depth = max(1, min(depth, 3))
+    call_depth = max(0, min(call_depth, 3))
     start = time.perf_counter()
 
     # Resolve cross_repo default from config if not explicitly provided
@@ -210,6 +216,14 @@ def get_blast_radius(
     else:
         overall_risk = 0.0
 
+    # Call-level analysis (optional, gated on call_depth > 0)
+    callers: list[dict] = []
+    if call_depth > 0:
+        symbols_by_file = build_symbols_by_file(index)
+        callers, _ = bfs_callers(
+            index, store, owner, name, sym, rev, symbols_by_file, call_depth
+        )
+
     elapsed = (time.perf_counter() - start) * 1000
     result = {
         "repo": f"{owner}/{name}",
@@ -232,10 +246,14 @@ def get_blast_radius(
             "timing_ms": round(elapsed, 1),
             "tip": (
                 "confirmed = imports the file + mentions the symbol name; "
-                "potential = imports the file only (wildcard/namespace import)"
+                "potential = imports the file only (wildcard/namespace import). "
+                "Use call_depth > 0 to also get symbol-level callers."
             ),
         },
     }
+    if call_depth > 0:
+        result["caller_count"] = len(callers)
+        result["callers"] = callers
     if cross_repo and cross_repo_confirmed:
         result["cross_repo_confirmed"] = cross_repo_confirmed
         result["cross_repo_confirmed_count"] = len(cross_repo_confirmed)

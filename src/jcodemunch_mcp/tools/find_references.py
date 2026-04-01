@@ -1,6 +1,7 @@
 """Find all files that reference (import) a given identifier."""
 
 import posixpath
+import re
 import time
 from typing import Optional
 
@@ -32,6 +33,52 @@ def _get_import_index(index) -> dict[str, list[tuple[str, dict]]]:
     return index._import_name_index
 
 
+def _calling_symbols_in_file(
+    index,
+    store,
+    owner: str,
+    repo_name: str,
+    src_file: str,
+    identifier: str,
+) -> list[dict]:
+    """Return symbols in *src_file* whose bodies mention *identifier*.
+
+    Used to populate the optional ``calling_symbols`` field when
+    ``include_call_chain=True``.  Each result is ``{id, name, kind, line}``.
+    """
+    from ._call_graph import build_symbols_by_file, _word_match, _symbol_body
+
+    # Lazy: build symbols_by_file only once per call_chain enrichment pass.
+    # We do it here inline to keep the function self-contained; callers can
+    # pass a pre-built map if they need efficiency across multiple files.
+    file_content = store.get_file_content(owner, repo_name, src_file)
+    if not file_content:
+        return []
+    if not _word_match(file_content, identifier):
+        return []
+
+    file_lines = file_content.splitlines()
+    syms_in_file = [s for s in index.symbols if s.get("file") == src_file]
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    for sym in syms_in_file:
+        sid = sym.get("id", "")
+        if not sid or sid in seen or not sym.get("line"):
+            continue
+        body = _symbol_body(file_lines, sym)
+        if body and _word_match(body, identifier):
+            seen.add(sid)
+            results.append({
+                "id": sid,
+                "name": sym.get("name", ""),
+                "kind": sym.get("kind", ""),
+                "line": sym.get("line", 0),
+            })
+
+    return results
+
+
 def _find_references_single(
     identifier: str,
     index,
@@ -39,6 +86,8 @@ def _find_references_single(
     owner: str,
     name: str,
     start: float,
+    include_call_chain: bool = False,
+    store=None,
 ) -> dict:
     """Core logic for a single identifier query. Returns the original flat shape."""
     if index.imports is None:
@@ -77,6 +126,13 @@ def _find_references_single(
 
     results = [{"file": f, "matches": m} for f, m in file_matches.items()]
     results.sort(key=lambda r: r["file"])
+
+    # Optional: enrich each reference with which symbols in that file call the identifier
+    if include_call_chain and store is not None:
+        for ref in results:
+            ref["calling_symbols"] = _calling_symbols_in_file(
+                index, store, owner, name, ref["file"], identifier
+            )
 
     elapsed = (time.perf_counter() - start) * 1000
     return {
@@ -159,6 +215,7 @@ def find_references(
     max_results: int = 50,
     storage_path: Optional[str] = None,
     identifiers: Optional[list[str]] = None,
+    include_call_chain: bool = False,
 ) -> dict:
     """Find all indexed files that import or reference an identifier.
 
@@ -173,6 +230,9 @@ def find_references(
         max_results: Maximum number of results.
         storage_path: Custom storage path.
         identifiers: List of symbol/module names to look for (batch mode).
+        include_call_chain: When True (singular mode only), each reference entry gains a
+            ``calling_symbols`` list of symbols in that file whose bodies mention the
+            identifier. Gated off by default; batch mode ignores this flag.
 
     Returns:
         Singular mode: dict with flat ``references`` list and _meta envelope.
@@ -200,4 +260,8 @@ def find_references(
     if identifiers is not None:
         return _find_references_batch(identifiers, index, max_results, owner, name, start)
     else:
-        return _find_references_single(identifier, index, max_results, owner, name, start)
+        return _find_references_single(
+            identifier, index, max_results, owner, name, start,
+            include_call_chain=include_call_chain,
+            store=store,
+        )
