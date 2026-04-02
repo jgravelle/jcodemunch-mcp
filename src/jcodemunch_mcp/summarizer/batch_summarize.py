@@ -452,7 +452,7 @@ class OpenAIBatchSummarizer(BaseSummarizer):
         total = len(to_summarize)
         logger.info("AI summarization starting: %d symbols to process (provider=openai model=%s)", total, self.model)
 
-        max_workers = int(os.environ.get("OPENAI_CONCURRENCY", "1"))
+        max_workers = int(os.environ.get("OPENAI_CONCURRENCY", str(_config.get("summarizer_concurrency", 4))))
         batches = [
             to_summarize[i : i + batch_size]
             for i in range(0, len(to_summarize), batch_size)

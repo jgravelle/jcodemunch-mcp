@@ -4,6 +4,11 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.21.1] - 2026-04-02
+
+### Fixed
+- **`summarizer_concurrency` now respected by OpenAI-compatible provider** — `OpenAIBatchSummarizer` was reading concurrency from `OPENAI_CONCURRENCY` env var with a hardcoded default of 1, ignoring the `summarizer_concurrency` config key entirely. The default is now `_config.get("summarizer_concurrency", 4)`, so the config file (and `JCODEMUNCH_SUMMARIZER_CONCURRENCY` env var) correctly controls concurrency for all providers. `OPENAI_CONCURRENCY` env var still overrides when set. The `config` diagnostic display now shows the effective fallback value from config rather than the stale hardcoded 1. Reported by nikolai-vysotskyi (issue #194).
+
 ## [1.21.0] - 2026-04-02
 
 ### Added
