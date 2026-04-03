@@ -345,6 +345,7 @@ BLADE_WITH_REFS = """
 @section('content')
     @include('partials.header')
     @includeWhen($showSidebar, 'partials.sidebar')
+    @includeFirst(['partials.primary', 'partials.fallback'])
 
     <x-alert />
     <x-forms.input type="text" />
@@ -378,6 +379,9 @@ class TestBladeImportExtraction:
         assert "resources/views/components/alert.blade.php" in specifiers
         # <x-forms.input>
         assert "resources/views/components/forms/input.blade.php" in specifiers
+        # @includeFirst(['partials.primary', 'partials.fallback']) — first candidate only
+        assert "resources/views/partials/primary.blade.php" in specifiers
+        assert "resources/views/partials/fallback.blade.php" not in specifiers
 
     def test_layout_has_no_blade_imports(self, tmp_path):
         _make_laravel_project(tmp_path)

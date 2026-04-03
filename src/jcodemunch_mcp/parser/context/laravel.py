@@ -87,9 +87,15 @@ _BLADE_DOTREF = re.compile(
     re.MULTILINE,
 )
 
-# @includeWhen($cond, 'view'), @includeUnless($cond, 'view'), @includeFirst(['a', 'b'])
+# @includeWhen($cond, 'view'), @includeUnless($cond, 'view')
 _BLADE_INCLUDE_CONDITIONAL = re.compile(
     r"""@include(?:When|Unless)\s*\([^,]+,\s*['"](?P<ref>[^'"]+)['"]""",
+    re.MULTILINE,
+)
+
+# @includeFirst(['primary.view', 'fallback.view']) — captures only the first (highest-priority) candidate
+_BLADE_INCLUDE_FIRST = re.compile(
+    r"""@includeFirst\s*\(\s*\[\s*['"](?P<ref>[^'"]+)['"]""",
     re.MULTILINE,
 )
 
@@ -543,6 +549,14 @@ class LaravelContextProvider(ContextProvider):
 
             # @includeWhen($cond, 'view'), @includeUnless($cond, 'view')
             for m in _BLADE_INCLUDE_CONDITIONAL.finditer(content):
+                ref = m.group("ref")
+                resolved = _blade_dot_to_path(ref)
+                if resolved and resolved not in seen:
+                    imports.append({"specifier": resolved, "names": []})
+                    seen.add(resolved)
+
+            # @includeFirst(['primary.view', 'fallback.view']) — first candidate only
+            for m in _BLADE_INCLUDE_FIRST.finditer(content):
                 ref = m.group("ref")
                 resolved = _blade_dot_to_path(ref)
                 if resolved and resolved not in seen:

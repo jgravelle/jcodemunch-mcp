@@ -4,6 +4,11 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.21.23] - 2026-04-02
+
+### Fixed
+- **`@includeFirst` Blade directive now parsed** (`laravel.py`) — `_BLADE_INCLUDE_FIRST` regex captures the first (highest-priority) candidate from `@includeFirst(['primary.view', 'fallback.view'])` array arguments and injects it as an import edge. Previously the directive was silently dropped. The fallback candidates are intentionally omitted — only the preferred view is tracked. Closes #203.
+
 ## [1.21.22] - 2026-04-02
 
 ### Added
