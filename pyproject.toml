@@ -36,6 +36,14 @@ all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyya
 [project.scripts]
 jcodemunch-mcp = "jcodemunch_mcp.server:main"
 
+# Hermes Agent auto-discovers plugins via this entry point. Installing
+# jcodemunch-mcp into the same environment as Hermes makes every
+# jcodemunch tool available inside Hermes under the `jcm_` prefix and
+# wires up the read/edit/index lifecycle hooks.
+# See src/jcodemunch_mcp/hermes/README.md for details.
+[project.entry-points."hermes_agent.plugins"]
+jcodemunch = "jcodemunch_mcp.hermes"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

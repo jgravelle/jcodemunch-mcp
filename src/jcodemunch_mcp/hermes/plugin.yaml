@@ -1,0 +1,89 @@
+# Hermes plugin manifest for jcodemunch-mcp.
+#
+# This file is primarily informational — the canonical registration
+# path is the `hermes_agent.plugins` entry point declared in this
+# package's pyproject.toml, which hands Hermes a Python module to call
+# register() on. The YAML here documents the plugin for humans and is
+# also consumed if anyone drops this directory under
+# ~/.hermes/plugins/ for manual / editable installs.
+
+name: jcodemunch
+# Version tracks the parent jcodemunch-mcp package — the plugin ships
+# inside jcodemunch_mcp and dynamically discovers whatever tools the
+# installed version exposes. The loader reads jcodemunch_mcp.__version__
+# at runtime; this field is static for convenience.
+version: "1.21.27"
+description: >-
+  Token-efficient code exploration via tree-sitter AST parsing
+  (25+ languages, 95%+ token savings). Exposes every jcodemunch-mcp
+  tool as a native Hermes tool under the `jcm_` prefix and ships
+  lifecycle hooks that nudge the agent toward structured retrieval and
+  auto-reindex files after edits.
+author: "J. Gravelle <j@gravelle.us>"
+homepage: https://github.com/jgravelle/jcodemunch-mcp
+
+# The actual tool list is built dynamically at load time from
+# jcodemunch_mcp.server.list_tools(). The names below are representative
+# and may differ by a few entries depending on which jcodemunch features
+# (watch, semantic, etc.) are enabled in the host environment.
+provides_tools:
+  # Indexing
+  - jcm_index_repo
+  - jcm_index_folder
+  - jcm_index_file
+  - jcm_summarize_repo
+  # Discovery
+  - jcm_list_repos
+  - jcm_resolve_repo
+  - jcm_suggest_queries
+  - jcm_get_repo_outline
+  - jcm_get_file_tree
+  - jcm_get_file_outline
+  # Search & retrieval
+  - jcm_search_symbols
+  - jcm_get_symbol_source
+  - jcm_get_context_bundle
+  - jcm_get_file_content
+  - jcm_search_text
+  - jcm_search_columns
+  - jcm_get_ranked_context
+  # Relationships
+  - jcm_find_importers
+  - jcm_find_references
+  - jcm_check_references
+  - jcm_get_dependency_graph
+  - jcm_get_dependency_cycles
+  - jcm_get_class_hierarchy
+  - jcm_get_related_symbols
+  - jcm_get_call_hierarchy
+  # Impact & refactoring
+  - jcm_get_blast_radius
+  - jcm_get_impact_preview
+  - jcm_check_rename_safe
+  - jcm_get_extraction_candidates
+  - jcm_get_symbol_diff
+  - jcm_get_changed_symbols
+  # Metrics & quality
+  - jcm_get_coupling_metrics
+  - jcm_get_layer_violations
+  - jcm_get_symbol_complexity
+  - jcm_get_churn_rate
+  - jcm_get_hotspots
+  - jcm_get_repo_health
+  - jcm_get_symbol_importance
+  - jcm_find_dead_code
+  # Cross-repo & embeddings
+  - jcm_embed_repo
+  - jcm_get_cross_repo_map
+  # Session / admin
+  - jcm_invalidate_cache
+  - jcm_get_session_stats
+  - jcm_test_summarizer
+  - jcm_audit_agent_config
+
+provides_hooks:
+  - pre_tool_call       # read_guard + edit_guard
+  - post_tool_call      # index_hook (auto-reindex after write_file/patch)
+  - pre_llm_call        # session_context_injector (guidance + remediation)
+  - on_session_start
+  - on_session_end
