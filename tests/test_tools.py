@@ -36,6 +36,25 @@ def test_should_skip_file():
     assert should_skip_file("src/main.py") is False
 
 
+def test_should_skip_file_respects_exclude_config():
+    """exclude_skip_directories config removes entries from skip list."""
+    from jcodemunch_mcp import config as config_module
+
+    orig = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    try:
+        # proto/ is skipped by default
+        assert should_skip_file("proto/messages.proto") is True
+        # After excluding, it should pass
+        config_module._GLOBAL_CONFIG["exclude_skip_directories"] = ["proto"]
+        assert should_skip_file("proto/messages.proto") is False
+        # Other skips still work
+        assert should_skip_file("node_modules/foo.js") is True
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig)
+
+
 def test_discover_source_files():
     """Test file discovery from tree entries."""
     tree_entries = [

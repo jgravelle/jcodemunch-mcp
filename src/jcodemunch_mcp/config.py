@@ -262,6 +262,7 @@ DEFAULTS = {
     "gitignore_warn_threshold": 500,
     "extra_ignore_patterns": [],
     "exclude_secret_patterns": [],
+    "exclude_skip_directories": [],
     "extra_extensions": {},
     "context_providers": True,
     "meta_fields": [],  # [] = no _meta (token-efficient; set null in config for all fields)
@@ -322,6 +323,7 @@ CONFIG_TYPES = {
     "gitignore_warn_threshold": int,
     "extra_ignore_patterns": list,
     "exclude_secret_patterns": list,
+    "exclude_skip_directories": list,
     "extra_extensions": dict,
     "context_providers": bool,
     "meta_fields": (list, type(None)),
@@ -1211,6 +1213,10 @@ def generate_template() -> str:
   // "exclude_secret_patterns": [],
   //   Glob patterns to exclude from *secret* detection.
   //   Use when *secret* has false positives on specific paths.
+
+  // "exclude_skip_directories": [],
+  //   Directory names to remove from the built-in skip list.
+  //   Example: ["proto"] to index protobuf directories.
 
   // "extra_extensions": {{}},
   //   Map additional file extensions to languages.

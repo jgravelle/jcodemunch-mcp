@@ -25,6 +25,11 @@ from jcodemunch_mcp.security import (
     get_max_folder_files,
     EXTRA_IGNORE_PATTERNS_ENV_VAR,
     get_extra_ignore_patterns,
+    get_skip_directories,
+    get_skip_patterns,
+    SKIP_DIRECTORIES,
+    SKIP_PATTERNS,
+    _SKIP_DIRECTORY_NAMES,
 )
 
 
@@ -666,3 +671,79 @@ class TestSecurityConfigIntegration:
         """Per-call max_files param should still work."""
         result = get_max_folder_files(max_files=1000)
         assert result == 1000
+
+
+class TestExcludeSkipDirectories:
+    """Tests for the exclude_skip_directories config key."""
+
+    def test_default_includes_proto(self):
+        """Proto is in the default skip list."""
+        assert "proto" in _SKIP_DIRECTORY_NAMES
+        assert any("proto" in d for d in SKIP_DIRECTORIES)
+        assert "proto/" in SKIP_PATTERNS
+
+    def test_get_skip_directories_default(self):
+        """Without config, returns full list."""
+        dirs = get_skip_directories()
+        assert "proto" in dirs
+        assert "node_modules" in dirs
+
+    def test_get_skip_directories_excludes_configured(self):
+        """Config can remove entries from the skip list."""
+        from jcodemunch_mcp import config as config_module
+
+        orig = config_module._GLOBAL_CONFIG.copy()
+        config_module._GLOBAL_CONFIG.clear()
+        try:
+            config_module._GLOBAL_CONFIG["exclude_skip_directories"] = ["proto"]
+            dirs = get_skip_directories()
+            assert "proto" not in dirs
+            assert "node_modules" in dirs
+        finally:
+            config_module._GLOBAL_CONFIG.clear()
+            config_module._GLOBAL_CONFIG.update(orig)
+
+    def test_get_skip_patterns_excludes_configured(self):
+        """Config removes corresponding pattern entries too."""
+        from jcodemunch_mcp import config as config_module
+
+        orig = config_module._GLOBAL_CONFIG.copy()
+        config_module._GLOBAL_CONFIG.clear()
+        try:
+            config_module._GLOBAL_CONFIG["exclude_skip_directories"] = ["proto"]
+            patterns = get_skip_patterns()
+            assert "proto/" not in patterns
+            assert "node_modules/" in patterns
+        finally:
+            config_module._GLOBAL_CONFIG.clear()
+            config_module._GLOBAL_CONFIG.update(orig)
+
+    def test_exclude_multiple_directories(self):
+        """Can exclude more than one directory at a time."""
+        from jcodemunch_mcp import config as config_module
+
+        orig = config_module._GLOBAL_CONFIG.copy()
+        config_module._GLOBAL_CONFIG.clear()
+        try:
+            config_module._GLOBAL_CONFIG["exclude_skip_directories"] = ["proto", "migrations"]
+            dirs = get_skip_directories()
+            assert "proto" not in dirs
+            assert "migrations" not in dirs
+            assert "node_modules" in dirs
+        finally:
+            config_module._GLOBAL_CONFIG.clear()
+            config_module._GLOBAL_CONFIG.update(orig)
+
+    def test_empty_config_returns_full_list(self):
+        """Empty list config is same as no config."""
+        from jcodemunch_mcp import config as config_module
+
+        orig = config_module._GLOBAL_CONFIG.copy()
+        config_module._GLOBAL_CONFIG.clear()
+        try:
+            config_module._GLOBAL_CONFIG["exclude_skip_directories"] = []
+            assert get_skip_directories() == SKIP_DIRECTORIES
+            assert get_skip_patterns() == SKIP_PATTERNS
+        finally:
+            config_module._GLOBAL_CONFIG.clear()
+            config_module._GLOBAL_CONFIG.update(orig)

@@ -30,7 +30,7 @@ from ..security import (
     DEFAULT_MAX_FILE_SIZE,
     get_max_folder_files,
     get_extra_ignore_patterns,
-    SKIP_DIRECTORIES,
+    get_skip_directories,
     SKIP_FILES
 )
 from ..storage import IndexStore
@@ -39,8 +39,12 @@ from ..summarizer import summarize_symbols
 from ..reindex_state import WatcherChange
 from ..path_map import parse_path_map, remap
 
-SKIP_DIRS_REGEX = re.compile("^(" + "|".join(SKIP_DIRECTORIES) + ")$")
 SKIP_FILES_REGEX = re.compile("(" + "|".join(re.escape(p) for p in SKIP_FILES) + ")$")
+
+def _build_skip_dirs_regex() -> re.Pattern:
+    """Build regex from config-filtered skip directories (called per-index)."""
+    dirs = get_skip_directories()
+    return re.compile("^(" + "|".join(dirs) + ")$")
 
 
 def _maybe_apply_adaptive(folder_path: str, result: dict) -> None:
@@ -59,11 +63,12 @@ def _maybe_apply_adaptive(folder_path: str, result: dict) -> None:
 
 def get_filtered_files(path: str) -> Generator[str, None, None]:
     """Generator function to filter directories and files"""
+    skip_dirs_regex = _build_skip_dirs_regex()
     # Use os.walk with followlinks=False to avoid infinite loops caused by
     # NTFS junctions or symlinks pointing back to ancestor directories.
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
         # Don't walk directories that should be skipped
-        dirnames[:] = [dir for dir in dirnames if not SKIP_DIRS_REGEX.match(dir)]
+        dirnames[:] = [dir for dir in dirnames if not skip_dirs_regex.match(dir)]
         dpath = Path(dirpath)
         for file in filenames:
             if not SKIP_FILES_REGEX.search(file):
@@ -241,12 +246,13 @@ def discover_local_files(
         except Exception:
             pass
 
+    skip_dirs_regex = _build_skip_dirs_regex()
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
         # Prune directories that should always be skipped before descending.
         pruned = []
         kept = []
         for d in dirnames:
-            if SKIP_DIRS_REGEX.match(d):
+            if skip_dirs_regex.match(d):
                 pruned.append(d)
             else:
                 kept.append(d)

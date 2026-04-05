@@ -211,6 +211,29 @@ SKIP_DIRECTORIES: list[str] = _SKIP_DIRECTORY_NAMES + [
 
 SKIP_FILES: list[str] = list(_SKIP_FILE_PATTERNS)
 
+
+def _excluded_skip_directories() -> set[str]:
+    """Return the set of directory names the user wants to un-skip."""
+    raw = _config.get("exclude_skip_directories", [])
+    return set(raw) if isinstance(raw, list) else set()
+
+
+def get_skip_directories() -> list[str]:
+    """Return SKIP_DIRECTORIES with user-excluded entries removed."""
+    excluded = _excluded_skip_directories()
+    if not excluded:
+        return SKIP_DIRECTORIES
+    return [d for d in SKIP_DIRECTORIES if d not in excluded]
+
+
+def get_skip_patterns() -> frozenset[str]:
+    """Return SKIP_PATTERNS with user-excluded directory entries removed."""
+    excluded = _excluded_skip_directories()
+    if not excluded:
+        return SKIP_PATTERNS
+    excluded_with_slash = {d + "/" for d in excluded}
+    return frozenset(p for p in SKIP_PATTERNS if p not in excluded_with_slash)
+
 BINARY_EXTENSIONS = frozenset([
     # Executables
     ".exe", ".dll", ".so", ".dylib", ".bin", ".out",
