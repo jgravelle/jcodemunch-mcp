@@ -1,9 +1,9 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.22.3 (published to PyPI)
+- **Version:** 1.22.4 (published to PyPI)
 - **INDEX_VERSION:** 7
-- **Tests:** 2131 passed, 7 skipped
+- **Tests:** 2147 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
@@ -14,7 +14,7 @@ src/jcodemunch_mcp/
   config.py            # JSONC config: global + per-project layering, env var fallback, language/tool gating
   cli/
     init.py            # `jcodemunch-mcp init` — one-command onboarding (client detection, config patching, CLAUDE.md, Cursor rules, Windsurf rules, hooks); --demo flag
-    hooks.py           # PreToolUse (Read interceptor) + PostToolUse (auto-reindex) hook handlers for Claude Code
+    hooks.py           # PreToolUse (Read interceptor) + PostToolUse (auto-reindex) + PreCompact (session snapshot) hook handlers for Claude Code
   parser/
     languages.py       # LANGUAGE_REGISTRY, extension → language map, LanguageSpec
     extractor.py       # parse_file() dispatch; custom parsers for Erlang, Fortran, SQL, Razor
@@ -61,6 +61,7 @@ src/jcodemunch_mcp/
 | `config --upgrade` | Add missing keys from current template to existing config.jsonc, preserving user values |
 | `hook-pretooluse` | PreToolUse hook: intercept Read on large code files, suggest jCodemunch (reads JSON stdin) |
 | `hook-posttooluse` | PostToolUse hook: auto-reindex files after Edit/Write (reads JSON stdin) |
+| `hook-precompact` | PreCompact hook: generate session snapshot before context compaction (reads JSON stdin) |
 
 ## Architecture Notes
 - `index_folder` is **synchronous** — dispatched via `asyncio.to_thread()` in server.py to avoid blocking the event loop

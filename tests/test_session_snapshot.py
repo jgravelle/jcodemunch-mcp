@@ -1,17 +1,15 @@
 """Unit tests for get_session_snapshot tool."""
 import time
 from unittest.mock import patch
-from _pytest.fixtures import fixture
-
 import pytest
 
-from src.jcodemunch_mcp.tools.session_journal import SessionJournal
+from jcodemunch_mcp.tools.session_journal import SessionJournal
 
 
 @pytest.fixture(autouse=True)
 def reset_session_journal():
     """Reset the session journal for each test to prevent test pollution."""
-    from src.jcodemunch_mcp.tools import session_journal
+    from jcodemunch_mcp.tools import session_journal
     
     # Reset the singleton by setting it to None
     with session_journal._journal_lock:
@@ -23,7 +21,7 @@ def reset_session_journal():
 
 def test_empty_session_returns_minimal_snapshot():
     """Test that an empty session returns a basic snapshot structure."""
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -49,7 +47,7 @@ def test_empty_session_returns_minimal_snapshot():
 
 def test_snapshot_includes_focus_files():
     """Test that recorded file reads appear in the snapshot sorted by count."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -58,7 +56,7 @@ def test_snapshot_includes_focus_files():
     journal.record_read("src/server.py", "get_file_outline")  # Second read
     journal.record_read("src/tools/search.py", "search_symbols")  # First read
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -73,7 +71,7 @@ def test_snapshot_includes_focus_files():
 
 def test_snapshot_includes_edited_files():
     """Test that recorded file edits appear in the snapshot."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -82,7 +80,7 @@ def test_snapshot_includes_edited_files():
     journal.record_edit("src/new_feature.py")  # Second edit
     journal.record_edit("src/utils.py")  # First edit
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -94,7 +92,7 @@ def test_snapshot_includes_edited_files():
 
 def test_snapshot_includes_searches():
     """Test that recorded searches appear in the snapshot."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -103,7 +101,7 @@ def test_snapshot_includes_searches():
     journal.record_search("get_session_context", 0)  # Zero results
     journal.record_search("session snapshot", 4)  # Second search for same term
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=10, max_edits=10, include_negative_evidence=True)
     
@@ -118,7 +116,7 @@ def test_snapshot_includes_searches():
 
 def test_snapshot_includes_negative_evidence():
     """Test that negative evidence appears in the dead ends section."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -134,7 +132,7 @@ def test_snapshot_includes_negative_evidence():
         "scanned_symbols": 150
     })
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -146,7 +144,7 @@ def test_snapshot_includes_negative_evidence():
 
 def test_snapshot_respects_max_files():
     """Test that max_files limits the number of files returned."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -154,7 +152,7 @@ def test_snapshot_respects_max_files():
     for i in range(15):
         journal.record_read(f"src/file{i}.py", "get_file_outline")
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=5, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -163,7 +161,7 @@ def test_snapshot_respects_max_files():
 
 def test_snapshot_respects_max_edits():
     """Test that max_edits limits the number of edited files returned."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -171,7 +169,7 @@ def test_snapshot_respects_max_edits():
     for i in range(15):
         journal.record_edit(f"src/updated_file{i}.py")
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=7, include_negative_evidence=True)
     
@@ -180,7 +178,7 @@ def test_snapshot_respects_max_edits():
 
 def test_snapshot_excludes_negative_evidence_when_disabled():
     """Test that negative evidence is excluded when include_negative_evidence is False."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -191,7 +189,7 @@ def test_snapshot_excludes_negative_evidence_when_disabled():
         "scanned_symbols": 4147
     })
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=False)
     
@@ -201,7 +199,7 @@ def test_snapshot_excludes_negative_evidence_when_disabled():
 
 def test_snapshot_text_under_token_budget():
     """Test that snapshot text is reasonable length (under token budget)."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -219,7 +217,7 @@ def test_snapshot_text_under_token_budget():
             "scanned_symbols": 4147
         })
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     
@@ -232,7 +230,7 @@ def test_snapshot_text_under_token_budget():
 
 def test_structured_field_matches_snapshot():
     """Test that structured data contains recorded activities and that they appear in the snapshot text."""
-    from src.jcodemunch_mcp.tools.session_journal import get_journal
+    from jcodemunch_mcp.tools.session_journal import get_journal
     
     journal = get_journal()
     
@@ -249,7 +247,7 @@ def test_structured_field_matches_snapshot():
     journal.record_edit("src/new_feature.py")
     journal.record_search("session snapshot", 2)
     
-    from src.jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
     
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
     

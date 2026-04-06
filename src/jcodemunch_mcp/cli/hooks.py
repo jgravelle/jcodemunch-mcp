@@ -165,7 +165,7 @@ def run_precompact() -> int:
     Returns exit code (always 0 — errors are swallowed to avoid blocking).
     """
     try:
-        data = json.load(sys.stdin)  # Read hook JSON (may contain session info)
+        json.load(sys.stdin)  # Validate stdin is valid JSON
     except (json.JSONDecodeError, ValueError):
         return 0
 

@@ -4,6 +4,14 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+## [1.22.4] - 2026-04-06
+
+### Added
+- **`get_session_snapshot` MCP tool** — compact ~200 token markdown summary of session state (focus files by read count, edited files, key searches, negative evidence). Designed for context injection after compaction to restore session orientation. Contributed by @MariusAdrian88. Closes #211.
+- **PreCompact CLI hook** (`jcodemunch-mcp hook-precompact`) — automatically generates and injects a session snapshot before Claude Code context compaction via the `systemMessage` hook output field. Registered by `jcodemunch-mcp init`.
+- **`sort_by` parameter for `get_context()`** — session journal now supports `sort_by="frequency"` (by read/edit/query count) in addition to the default `sort_by="timestamp"`.
+- **`max_edits` parameter for `get_context()`** — limits the number of edited files returned, consistent with `max_files` and `max_queries`.
+
 ## [1.22.3] - 2026-04-06
 
 ### Added
