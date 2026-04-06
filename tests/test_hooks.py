@@ -35,14 +35,27 @@ def _make_hook_input(tool_name: str, file_path: str, **extra) -> str:
     return json.dumps(data)
 
 
-def _run_with_stdin(func, stdin_text: str) -> tuple[int, str]:
-    """Call *func* with fake stdin/stdout and return (exit_code, stdout)."""
+def _make_hook_input_with_params(tool_name: str, file_path: str, **tool_input_extra) -> str:
+    """Build hook JSON with extra tool_input fields (offset, limit, etc.)."""
+    data = {
+        "session_id": "test-session",
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": {"file_path": file_path, **tool_input_extra},
+    }
+    return json.dumps(data)
+
+
+def _run_with_stdin(func, stdin_text: str) -> tuple[int, str, str]:
+    """Call *func* with fake stdin/stdout/stderr and return (exit_code, stdout, stderr)."""
     fake_in = io.StringIO(stdin_text)
     fake_out = io.StringIO()
+    fake_err = io.StringIO()
     with mock.patch.object(sys, "stdin", fake_in), \
-         mock.patch.object(sys, "stdout", fake_out):
+         mock.patch.object(sys, "stdout", fake_out), \
+         mock.patch.object(sys, "stderr", fake_err):
         rc = func()
-    return rc, fake_out.getvalue()
+    return rc, fake_out.getvalue(), fake_err.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -56,35 +69,57 @@ class TestPreToolUse:
         """Non-code extensions (e.g. .txt, .md) are always allowed."""
         f = tmp_path / "readme.md"
         f.write_text("x" * 10_000)
-        rc, out = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
+        rc, out, err = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
         assert rc == 0
         assert out == ""  # No output → allow
+        assert err == ""  # No warning either
 
     def test_allows_small_code_file(self, tmp_path):
         """Code files below the size threshold are allowed."""
         f = tmp_path / "tiny.py"
         f.write_text("x = 1\n")
-        rc, out = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
+        rc, out, err = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
         assert rc == 0
         assert out == ""
+        assert err == ""
 
-    def test_denies_large_code_file(self, tmp_path):
-        """Code files above the size threshold are denied with a suggestion."""
+    def test_warns_large_code_file(self, tmp_path):
+        """Large code files are allowed but produce a stderr warning."""
         f = tmp_path / "big.py"
         f.write_text("x = 1\n" * 2000)  # well above 4KB
-        rc, out = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
+        rc, out, err = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
         assert rc == 0
-        assert out != ""
-        result = json.loads(out)
-        decision = result["hookSpecificOutput"]["permissionDecision"]
-        reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-        assert decision == "deny"
-        assert "get_file_outline" in reason
-        assert "get_symbol_source" in reason
+        assert out == ""  # No deny JSON on stdout
+        assert "get_file_outline" in err
+        assert "get_symbol_source" in err
+
+    def test_allows_large_code_file_with_offset(self, tmp_path):
+        """Targeted reads (offset set) are allowed silently — likely pre-edit."""
+        f = tmp_path / "big.py"
+        f.write_text("x = 1\n" * 2000)
+        rc, out, err = _run_with_stdin(
+            run_pretooluse,
+            _make_hook_input_with_params("Read", str(f), offset=50),
+        )
+        assert rc == 0
+        assert out == ""
+        assert err == ""  # No warning for targeted reads
+
+    def test_allows_large_code_file_with_limit(self, tmp_path):
+        """Targeted reads (limit set) are allowed silently — likely pre-edit."""
+        f = tmp_path / "big.py"
+        f.write_text("x = 1\n" * 2000)
+        rc, out, err = _run_with_stdin(
+            run_pretooluse,
+            _make_hook_input_with_params("Read", str(f), limit=50),
+        )
+        assert rc == 0
+        assert out == ""
+        assert err == ""
 
     def test_allows_missing_file(self):
         """Files that don't exist are allowed (can't stat)."""
-        rc, out = _run_with_stdin(
+        rc, out, err = _run_with_stdin(
             run_pretooluse,
             _make_hook_input("Read", "/nonexistent/path/foo.py"),
         )
@@ -93,7 +128,7 @@ class TestPreToolUse:
 
     def test_allows_empty_input(self):
         """Empty/missing file_path is allowed."""
-        rc, out = _run_with_stdin(
+        rc, out, err = _run_with_stdin(
             run_pretooluse,
             json.dumps({"tool_input": {}}),
         )
@@ -102,7 +137,7 @@ class TestPreToolUse:
 
     def test_allows_invalid_json(self):
         """Unparseable stdin is allowed (no crash)."""
-        rc, out = _run_with_stdin(run_pretooluse, "not json at all")
+        rc, out, err = _run_with_stdin(run_pretooluse, "not json at all")
         assert rc == 0
         assert out == ""
 
@@ -112,36 +147,35 @@ class TestPreToolUse:
         f.write_text("const x = 1;\n" * 500)  # ~6.5KB
         size = f.stat().st_size
 
-        # With a very high threshold, it should be allowed
+        # With a very high threshold, it should be allowed silently
         with mock.patch("jcodemunch_mcp.cli.hooks._MIN_SIZE_BYTES", size + 1):
-            rc, out = _run_with_stdin(
+            rc, out, err = _run_with_stdin(
                 run_pretooluse, _make_hook_input("Read", str(f))
             )
             assert out == ""
+            assert err == ""
 
-        # With a low threshold, it should be denied
+        # With a low threshold, it should warn on stderr
         with mock.patch("jcodemunch_mcp.cli.hooks._MIN_SIZE_BYTES", 100):
-            rc, out = _run_with_stdin(
+            rc, out, err = _run_with_stdin(
                 run_pretooluse, _make_hook_input("Read", str(f))
             )
-            assert out != ""
-            assert json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "deny"
+            assert out == ""  # No deny
+            assert "jCodemunch hint" in err
 
     @pytest.mark.parametrize("ext", [".py", ".ts", ".go", ".rs", ".java", ".cpp", ".rb"])
     def test_code_extensions_covered(self, ext, tmp_path):
         """Spot-check that major code extensions are in the set."""
         assert ext in _CODE_EXTENSIONS
 
-    def test_deny_message_includes_file_size(self, tmp_path):
-        """The deny reason includes the file size for context."""
+    def test_warning_includes_file_size(self, tmp_path):
+        """The stderr warning includes the file size for context."""
         f = tmp_path / "large.go"
         content = "package main\n" * 1000
         f.write_text(content)
         size = f.stat().st_size
-        rc, out = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
-        result = json.loads(out)
-        reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-        assert f"{size:,}" in reason
+        rc, out, err = _run_with_stdin(run_pretooluse, _make_hook_input("Read", str(f)))
+        assert f"{size:,}" in err
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +196,7 @@ class TestPostToolUse:
             "tool_response": {"success": True},
         })
         with mock.patch("jcodemunch_mcp.cli.hooks.subprocess.Popen") as mock_popen:
-            rc, out = _run_with_stdin(run_posttooluse, inp)
+            rc, out, _ = _run_with_stdin(run_posttooluse, inp)
 
         assert rc == 0
         mock_popen.assert_called_once()
@@ -180,7 +214,7 @@ class TestPostToolUse:
             "tool_response": {"success": True},
         })
         with mock.patch("jcodemunch_mcp.cli.hooks.subprocess.Popen") as mock_popen:
-            rc, out = _run_with_stdin(run_posttooluse, inp)
+            rc, out, _ = _run_with_stdin(run_posttooluse, inp)
 
         assert rc == 0
         mock_popen.assert_not_called()
@@ -189,14 +223,14 @@ class TestPostToolUse:
         """Missing file_path in input is handled gracefully."""
         inp = json.dumps({"tool_input": {}})
         with mock.patch("jcodemunch_mcp.cli.hooks.subprocess.Popen") as mock_popen:
-            rc, out = _run_with_stdin(run_posttooluse, inp)
+            rc, out, _ = _run_with_stdin(run_posttooluse, inp)
         assert rc == 0
         mock_popen.assert_not_called()
 
     def test_handles_invalid_json(self):
         """Invalid JSON stdin is handled gracefully."""
         with mock.patch("jcodemunch_mcp.cli.hooks.subprocess.Popen") as mock_popen:
-            rc, out = _run_with_stdin(run_posttooluse, "broken json")
+            rc, out, _ = _run_with_stdin(run_posttooluse, "broken json")
         assert rc == 0
         mock_popen.assert_not_called()
 
@@ -214,7 +248,7 @@ class TestPostToolUse:
             "jcodemunch_mcp.cli.hooks.subprocess.Popen",
             side_effect=FileNotFoundError("jcodemunch-mcp not found"),
         ):
-            rc, out = _run_with_stdin(run_posttooluse, inp)
+            rc, out, _ = _run_with_stdin(run_posttooluse, inp)
         assert rc == 0  # No crash
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
@@ -230,7 +264,7 @@ class TestPostToolUse:
             "tool_response": {"success": True},
         })
         with mock.patch("jcodemunch_mcp.cli.hooks.subprocess.Popen") as mock_popen:
-            rc, _ = _run_with_stdin(run_posttooluse, inp)
+            rc, _, _ = _run_with_stdin(run_posttooluse, inp)
         kwargs = mock_popen.call_args[1]
         assert kwargs.get("creationflags") == sp.CREATE_NO_WINDOW
 
@@ -244,13 +278,13 @@ class TestPreCompact:
     
     def test_precompact_empty_stdin(self):
         """Empty stdin returns exit 0, no stdout."""
-        rc, out = _run_with_stdin(run_precompact, "")
+        rc, out, _ = _run_with_stdin(run_precompact, "")
         assert rc == 0
         assert out == ""
-    
+
     def test_precompact_invalid_json(self):
         """Invalid JSON stdin returns exit 0."""
-        rc, out = _run_with_stdin(run_precompact, "invalid json")
+        rc, out, _ = _run_with_stdin(run_precompact, "invalid json")
         assert rc == 0
         assert out == ""
     
@@ -277,7 +311,7 @@ class TestPreCompact:
             mock_get_session_snapshot
         )
         
-        rc, out = _run_with_stdin(run_precompact, '{"hook_event_name": "PreCompact"}')
+        rc, out, _ = _run_with_stdin(run_precompact, '{"hook_event_name": "PreCompact"}')
         assert rc == 0
         assert out != ""
         result = json.loads(out)

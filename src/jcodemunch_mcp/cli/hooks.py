@@ -91,24 +91,20 @@ def run_pretooluse() -> int:
     if size < _MIN_SIZE_BYTES:
         return 0  # Small file → allow
 
-    # Deny with actionable suggestion
-    reason = (
-        f"This is a {size:,}-byte code file. "
-        "Use jCodemunch for efficient navigation: "
-        "get_file_outline to see the file structure, "
-        "then get_symbol_source for specific symbols you need. "
-        "Only fall back to Read when you need exact line numbers for Edit, "
-        "or for non-code files."
-    )
+    # Targeted reads (offset/limit set) are likely pre-edit — allow silently.
+    tool_input = data.get("tool_input", {})
+    if tool_input.get("offset") is not None or tool_input.get("limit") is not None:
+        return 0
 
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }
-    }
-    json.dump(result, sys.stdout)
+    # Full-file exploratory read on a large code file — warn but allow.
+    # Hard deny breaks the Edit workflow (Claude Code requires Read before Edit).
+    # Stderr text is surfaced to the agent as guidance.
+    print(
+        f"jCodemunch hint: this is a {size:,}-byte code file. "
+        "Prefer get_file_outline + get_symbol_source for exploration. "
+        "Use Read only when you need exact line numbers for Edit.",
+        file=sys.stderr,
+    )
     return 0
 
 
