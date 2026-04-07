@@ -105,27 +105,14 @@ def _parse_pyproject_toml_deps(content: str) -> set[str]:
         except Exception:
             pass
 
-    # Fallback: simple text parsing for basic TOML format
-    in_project_deps = False
-    for line in content.splitlines():
-        line_stripped = line.strip()
-        if line_stripped.startswith("[") and line_stripped.endswith("]"):
-            section = line_stripped[1:-1].strip()
-            in_project_deps = section in ("project.dependencies", "project.optional-dependencies")
-            continue
-        if in_project_deps and line_stripped:
-            # Handle inline tables { package = "1.0" } - skip
-            if line_stripped.startswith("{"):
-                continue
-            # Handle multiline arrays - skip for simplicity
-            if line_stripped.startswith("["):
-                continue
-            # Remove comments
-            line_stripped = re.split(r"\s*#", line_stripped)[0].strip()
-            if not line_stripped or line_stripped.startswith("#"):
-                continue
-            # Handle versions: package>=1.0
-            pkg = re.split(r"[<>=!~]", line_stripped)[0].strip().strip('"\'')
+    # Fallback: regex-based extraction for Python < 3.11 (no tomllib)
+    # Match dependencies = ["pkg1", "pkg2>=1.0", "pkg3[extra]"]
+    # Works for both [project] dependencies and [project.optional-dependencies] groups
+    for m in re.finditer(r'dependencies\s*=\s*\[([^\]]*)\]', content, re.DOTALL):
+        for dep_m in re.finditer(r'["\']([^"\']+)["\']', m.group(1)):
+            dep = dep_m.group(1)
+            # Strip extras like [async] and version specifiers
+            pkg = re.split(r'[\[<>=!~;]', dep)[0].strip()
             if pkg:
                 packages.add(pkg)
     return packages
