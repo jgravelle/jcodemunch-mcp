@@ -133,7 +133,8 @@ def handle_hook_event(event_type: str, manifest_path: Path | None = None) -> Non
     _append_manifest(event_type, resolved, manifest_path)
 
     # Claude Code reads stdout to get the worktree path.
-    print(resolved)
+    # flush=True ensures output is not buffered (e.g. when run via uvx).
+    print(resolved, flush=True)
 
 
 def read_manifest(manifest_path: Path | None = None) -> set[str]:
