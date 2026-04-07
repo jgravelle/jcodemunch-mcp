@@ -106,15 +106,26 @@ def _parse_pyproject_toml_deps(content: str) -> set[str]:
             pass
 
     # Fallback: regex-based extraction for Python < 3.11 (no tomllib)
-    # Match dependencies = ["pkg1", "pkg2>=1.0", "pkg3[extra]"]
-    # Works for both [project] dependencies and [project.optional-dependencies] groups
+    # 1) Match dependencies = ["pkg1", "pkg2>=1.0", "pkg3[extra]"]
     for m in re.finditer(r'dependencies\s*=\s*\[([^\]]*)\]', content, re.DOTALL):
         for dep_m in re.finditer(r'["\']([^"\']+)["\']', m.group(1)):
             dep = dep_m.group(1)
-            # Strip extras like [async] and version specifiers
             pkg = re.split(r'[\[<>=!~;]', dep)[0].strip()
             if pkg:
                 packages.add(pkg)
+    # 2) Match optional-dependencies groups: dev = ["pytest", "flask[async]"]
+    #    These appear under [project.optional-dependencies] as key = [...]
+    opt_section = re.search(
+        r'\[project\.optional-dependencies\]\s*\n(.*?)(?:\n\[|\Z)',
+        content, re.DOTALL,
+    )
+    if opt_section:
+        for m in re.finditer(r'\w+\s*=\s*\[([^\]]*)\]', opt_section.group(1), re.DOTALL):
+            for dep_m in re.finditer(r'["\']([^"\']+)["\']', m.group(1)):
+                dep = dep_m.group(1)
+                pkg = re.split(r'[\[<>=!~;]', dep)[0].strip()
+                if pkg:
+                    packages.add(pkg)
     return packages
 
 
