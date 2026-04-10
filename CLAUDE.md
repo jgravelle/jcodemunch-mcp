@@ -3,7 +3,7 @@
 ## Current State
 - **Version:** 1.25.0 (published to PyPI)
 - **INDEX_VERSION:** 8
-- **Tests:** 2373 passed, 5 skipped
+- **Tests:** 2439 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
