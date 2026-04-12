@@ -58,7 +58,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "get_call_hierarchy",
     # Impact & Safety
     "get_blast_radius", "check_rename_safe", "get_impact_preview",
-    "get_changed_symbols",
+    "get_changed_symbols", "plan_refactoring",
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_extraction_candidates", "get_cross_repo_map",
@@ -1111,7 +1111,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_blast_radius",
-            description="Find all files affected by changing a symbol. Returns confirmed files (import + name match) and potential files (import only, e.g. wildcard). Use before renaming or deleting a symbol. Set cross_repo=true to also find consumers in other indexed repos. Set include_source=true to get source snippets at each reference site (fix-ready context in one call).",
+            description="Find all files affected by changing a symbol. Returns confirmed files (import + name match) and potential files (import only, e.g. wildcard). Use before renaming or deleting a symbol. Set cross_repo=true to also find consumers in other indexed repos. Set include_source=true to get source snippets at each reference site (fix-ready context in one call). For automated edit plans, use plan_refactoring instead.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1302,7 +1302,8 @@ def _build_tools_list() -> list[Tool]:
                 "Scans the symbol's own file and every file that imports it, "
                 "looking for an existing symbol with the proposed new name. "
                 "Returns safe=true when no collisions are found. "
-                "Run this before any rename/refactor to avoid silent breakage."
+                "Run this before any rename/refactor to avoid silent breakage. "
+                "For a full rename plan with edits, use plan_refactoring."
             ),
             inputSchema={
                 "type": "object",
@@ -1324,6 +1325,55 @@ def _build_tools_list() -> list[Tool]:
                     },
                 },
                 "required": ["repo", "symbol_id", "new_name"],
+            },
+        ),
+        Tool(
+            name="plan_refactoring",
+            description=(
+                "Generate edit-ready refactoring instructions for renaming, moving, extracting, or "
+                "changing the signature of a symbol. Returns {old_text, new_text} blocks for every "
+                "affected file — directly compatible with Edit tool. Handles import rewrites, "
+                "collision detection, new file generation, and multi-file coordination. "
+                "Use BEFORE executing any multi-file refactoring to get a complete edit plan in one call."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)",
+                    },
+                    "symbol": {
+                        "type": "string",
+                        "description": (
+                            "Symbol name or ID to refactor. For extract, comma-separated list "
+                            "(e.g. 'helper,process_data')."
+                        ),
+                    },
+                    "refactor_type": {
+                        "type": "string",
+                        "enum": ["rename", "move", "extract", "signature"],
+                        "description": "Type of refactoring to plan.",
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "New name for rename operations.",
+                    },
+                    "new_file": {
+                        "type": "string",
+                        "description": "Destination file path for move/extract operations.",
+                    },
+                    "new_signature": {
+                        "type": "string",
+                        "description": "New function signature (e.g. 'foo(x, y, z=0)').",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Import hops to traverse (1-3, default 2).",
+                        "default": 2,
+                    },
+                },
+                "required": ["repo", "symbol", "refactor_type"],
             },
         ),
         Tool(
@@ -2497,6 +2547,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     storage_path=storage_path,
                 )
             )
+        elif name == "plan_refactoring":
+            from .tools.plan_refactoring import plan_refactoring
+            result = await asyncio.to_thread(
+                functools.partial(
+                    plan_refactoring,
+                    repo=arguments["repo"],
+                    symbol=arguments["symbol"],
+                    refactor_type=arguments["refactor_type"],
+                    new_name=arguments.get("new_name"),
+                    new_file=arguments.get("new_file"),
+                    new_signature=arguments.get("new_signature"),
+                    depth=arguments.get("depth", 2),
+                    storage_path=storage_path,
+                )
+            )
         elif name == "get_dead_code_v2":
             from .tools.get_dead_code_v2 import get_dead_code_v2
             result = await asyncio.to_thread(
@@ -3285,7 +3350,8 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
                            "get_dependency_graph", "get_class_hierarchy",
                            "get_related_symbols", "get_call_hierarchy"]),
         ("Impact & Safety", ["get_blast_radius", "check_rename_safe",
-                              "get_impact_preview", "get_changed_symbols"]),
+                              "get_impact_preview", "get_changed_symbols",
+                              "plan_refactoring"]),
         ("Architecture", ["get_dependency_cycles", "get_coupling_metrics",
                           "get_layer_violations", "get_extraction_candidates",
                           "get_cross_repo_map"]),

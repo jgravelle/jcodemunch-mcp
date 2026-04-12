@@ -1149,6 +1149,7 @@ def generate_template() -> str:
         "suggest_queries",
         "test_summarizer",
         "plan_turn",
+        "plan_refactoring",
         "register_edit",
         "get_session_context",
     ])
