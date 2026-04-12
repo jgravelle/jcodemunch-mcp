@@ -609,18 +609,20 @@ class TestPlanExtractCrossLanguage:
         """Extracting to a TS file generates ES module import syntax."""
         idx = FakeIndex(
             symbols=[
-                {"id": "src/utils/helpers.ts::foo#function", "name": "foo", "file": "src/utils/helpers.ts", "line": 1, "end_line": 2},
-                {"id": "src/utils/helpers.ts::bar#function", "name": "bar", "file": "src/utils/helpers.ts", "line": 4, "end_line": 5},
+                {"id": "src/utils/helpers.ts::foo#function", "name": "foo", "file": "src/utils/helpers.ts", "line": 1, "end_line": 1},
+                {"id": "src/utils/helpers.ts::bar#function", "name": "bar", "file": "src/utils/helpers.ts", "line": 2, "end_line": 4},
             ],
             imports={},
             source_files=["src/utils/helpers.ts"],
             file_languages={"src/utils/helpers.ts": "typescript"},
         )
         store = FakeStore({
-            "src/utils/helpers.ts": "export function foo() {}\nexport function bar() {}",
+            "src/utils/helpers.ts": "export function foo() {}\nexport function bar() {\n    foo()\n}",
         })
         syms = [idx.get_symbol("src/utils/helpers.ts::foo#function")]
         result = _plan_extract(idx, store, "owner", "name", syms, "src/lib/new.ts", depth=1)
+        # bar() calls foo() which is being extracted, so add_import should be present
+        assert "add_import" in result
         add_import = result["add_import"]["import_line"]
         # Should be ES module syntax, not Python syntax
         assert add_import.startswith("import {")
@@ -638,10 +640,13 @@ class TestPlanExtractCrossLanguage:
             file_languages={"utils/helpers.py": "python"},
         )
         store = FakeStore({
-            "utils/helpers.py": "def foo():\n    pass",
+            "utils/helpers.py": "def foo():\n    pass\n\ndef bar():\n    foo()\n",
         })
+        # Need bar to reference foo so add_import is generated
+        idx.symbols.append({"id": "utils/helpers.py::bar#function", "name": "bar", "file": "utils/helpers.py", "line": 4, "end_line": 5})
         syms = [idx.get_symbol("utils/helpers.py::foo#function")]
         result = _plan_extract(idx, store, "owner", "name", syms, "lib/new.py", depth=1)
+        assert "add_import" in result
         add_import = result["add_import"]["import_line"]
         assert add_import.startswith("from ")
         assert "foo" in add_import

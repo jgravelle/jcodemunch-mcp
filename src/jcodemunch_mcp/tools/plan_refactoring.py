@@ -938,11 +938,11 @@ def _ensure_unique_context_smart(
     while content.count(old_text) > 1 and (above + below) < max_expand:
         # Fix 4: Prefer direction with more available content to avoid wasting budget
         above_room = match_line_idx - above - 1
-        below_room = match_line_idx + below + 1 < len(lines)
-        
-        if above_room >= 0 and (below_room and above_room >= below_room or not below_room):
+        below_room = len(lines) - (match_line_idx + below + 1)
+
+        if above_room >= 0 and (below_room <= 0 or above_room >= below_room):
             above += 1
-        elif below_room:
+        elif below_room > 0:
             below += 1
         else:
             break
@@ -1293,7 +1293,7 @@ def _plan_move(index, store, owner, name, sym, new_file, depth):
     if lang in ("typescript", "javascript"):
         add_import_line = f"import {{ {sym_name} }} from '{new_module}';"
     elif lang == "rust":
-        add_import_line = f"use {new_module.replace('/', "::")};"
+        add_import_line = "use " + new_module.replace("/", "::") + ";"
     elif lang == "go":
         add_import_line = f'import "{new_module}"'
     else:
@@ -1382,10 +1382,11 @@ def _split_python_import(line, moving_name, old_module, new_module):
     Bug 4: Handle aliased imports like 'from X import User as U, Admin'
     where 'User as U' should match 'User' (strip alias when comparing).
     """
-    match = re.match(r"^(\s*from\s+\S+\s+import\s+)(.+)$", line)
+    match = re.match(r"^(\s*)(from\s+\S+\s+import\s+)(.+)$", line)
     if not match:
         return line
-    prefix, names_str = match.group(1), match.group(2)
+    indent, from_keyword, names_str = match.group(1), match.group(2), match.group(3)
+    prefix = indent + from_keyword
     names = [n.strip() for n in names_str.split(",")]
 
     # Bug 4: Strip alias part when matching (e.g., "User as U" -> "User")
@@ -1394,7 +1395,7 @@ def _split_python_import(line, moving_name, old_module, new_module):
         if " as " in name:
             return name.split(" as ")[0].strip()
         return name
-    
+
     # Find the moving import (may have alias)
     moving_import = None
     remaining = []
@@ -1404,17 +1405,17 @@ def _split_python_import(line, moving_name, old_module, new_module):
             moving_import = n  # Keep original form (with alias if present)
         else:
             remaining.append(n)
-    
+
     if moving_import and remaining:
         # Keep remaining imports + add new import on next line
         kept = prefix + ", ".join(remaining)
         # B-3: Use moving_import to preserve alias (e.g., "User as U")
-        added = f"from {new_module} import {moving_import}"
+        added = f"{indent}from {new_module} import {moving_import}"
         return kept + "\n" + added
     elif moving_import:
         # All names moved — just rewrite the module
         # B-3: Use moving_import to preserve alias (e.g., "User as U")
-        return f"from {new_module} import {moving_import}"
+        return f"{indent}from {new_module} import {moving_import}"
     else:
         # Moving name not found in import - return unchanged
         return line
@@ -1494,7 +1495,7 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
     if lang in ("typescript", "javascript"):
         add_import = f"import {{ {', '.join(sym_names)} }} from '{new_module}';"
     elif lang == "rust":
-        add_import = f"use {new_module.replace('/', "::")};"
+        add_import = "use " + new_module.replace("/", "::") + ";"
     elif lang == "go":
         add_import = f'import "{new_module}"'
     else:
@@ -1515,6 +1516,12 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
         import_rewrites.extend(rw)
         rewrite_warnings.extend(warns)
 
+    # Only add import to source file if staying symbols reference extracted symbols
+    needs_source_import = any(
+        w.get("direction") == "staying_calls_extracted"
+        for w in dep_warnings
+    )
+
     result = {
         "type": "extract",
         "new_file": {
@@ -1523,7 +1530,6 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
             "note": "Create with Write tool",
         },
         "source_removals": source_removals,
-        "add_import": {"file": source_file, "import_line": add_import},
         "import_rewrites": import_rewrites,
         "collision_check": {"safe": dest_collision is None, "conflict": dest_collision},
         "summary": {
@@ -1532,6 +1538,8 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
             "new_file": new_file,
         },
     }
+    if needs_source_import:
+        result["add_import"] = {"file": source_file, "import_line": add_import}
     if dep_warnings:
         result["dep_warnings"] = dep_warnings
     if rewrite_warnings:
@@ -1619,6 +1627,7 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
     if lang == "typescript":
         line_sep = _detect_line_sep(content)
         old_def, end_line_idx = _extract_ts_overload_signatures(lines, def_line_idx, sym_name, line_sep)
+        sig_end_idx = end_line_idx  # Align with the generic skip variable
         # Build new definition for all overload signatures
         indent = re.match(r"^(\s*)", lines[def_line_idx]).group(1)
         # For overloads, we replace all signatures with the new one
@@ -1937,14 +1946,9 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
         pattern = re.compile(r"\b" + re.escape(sym_name) + r"\s*\(")
 
         for i, line in enumerate(file_lines):
-            # Skip the definition itself (and overload signatures)
-            if fpath == sym_file and i == def_line_idx:
-                continue
-            # Fix D: Also skip overload signature lines
-            if fpath == sym_file and lang == "typescript" and i <= end_line_idx:
-                continue
-            # B-4: Skip all lines of multi-line Python signature
-            if fpath == sym_file and lang == "python" and def_line_idx < i <= sig_end_idx:
+            # Skip all lines that are part of the definition signature
+            # (handles multi-line signatures for all languages)
+            if fpath == sym_file and def_line_idx <= i <= sig_end_idx:
                 continue
             if not pattern.search(line):
                 continue
