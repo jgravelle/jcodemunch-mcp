@@ -123,6 +123,40 @@ def _detect_line_sep(content: str) -> str:
     return "\r\n" if "\r\n" in content else "\n"
 
 
+def _file_to_module(file_path: str) -> str:
+    """Convert a Python file path to a dot-separated module path.
+
+    Handles __init__.py: pkg/__init__.py -> pkg (not pkg.__init__).
+    """
+    path = PurePosixPath(file_path)
+    if path.name == "__init__.py":
+        return path.parent.as_posix().replace("/", ".")
+    return path.with_suffix("").as_posix().replace("/", ".")
+
+
+def _capture_multiline_sig(
+    lines: list[str], def_line_idx: int, content: str,
+) -> tuple[list[str], str, int]:
+    """Capture a multi-line signature via paren balancing.
+
+    Returns (sig_lines, line_sep, sig_end_idx).
+    """
+    first_line = lines[def_line_idx]
+    sig_lines = [first_line.rstrip()]
+    paren_depth = first_line.count("(") - first_line.count(")")
+    current_idx = def_line_idx + 1
+
+    while paren_depth > 0 and current_idx < len(lines):
+        next_line = lines[current_idx]
+        sig_lines.append(next_line.rstrip())
+        paren_depth += next_line.count("(") - next_line.count(")")
+        current_idx += 1
+
+    line_sep = _detect_line_sep(content)
+    sig_end_idx = def_line_idx + len(sig_lines) - 1
+    return sig_lines, line_sep, sig_end_idx
+
+
 def plan_refactoring(
     repo: str,
     symbol: str,
@@ -474,15 +508,6 @@ def _compute_new_import(old_import_line, old_file, new_file, sym_name, language)
     warning = None
     
     if language == "python":
-        # Bug 2: Handle __init__.py - use parent directory as module path
-        # pkg/__init__.py -> pkg (not pkg.__init__)
-        def _file_to_module(file_path: str) -> str:
-            path = PurePosixPath(file_path)
-            if path.name == "__init__.py":
-                # For __init__.py, the module is the parent directory
-                return path.parent.as_posix().replace("/", ".")
-            return path.with_suffix("").as_posix().replace("/", ".")
-        
         old_module = _file_to_module(old_file)
         new_module = _file_to_module(new_file)
         if old_module in old_import_line:
@@ -881,7 +906,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
     parts = specifier.split(".")
     if len(parts) >= 2:
         # Build regex that checks the first part is used followed by the rest
-        # e.g., for os.path: check if 'os.path' or 'os\n.path' (跨 line) appears
+        # e.g., for os.path: check if 'os.path' or 'os\n.path' (cross-line) appears
         # or if os appears followed by . and then path
         qualified_pattern = re.escape(parts[0]) + r"(?:\s*\.\s*)" + re.escape(".".join(parts[1:]))
         # Fix 3: Add word boundary at BOTH ends of the full qualified pattern
@@ -1336,13 +1361,6 @@ def _generate_import_rewrites(index, store, owner, name, affected_files, sym_nam
     """
     rewrites = []
     warnings = []
-    # Bug 2: Handle __init__.py - use parent directory as module path
-    def _file_to_module(file_path: str) -> str:
-        path = PurePosixPath(file_path)
-        if path.name == "__init__.py":
-            return path.parent.as_posix().replace("/", ".")
-        return path.with_suffix("").as_posix().replace("/", ".")
-    
     old_module = _file_to_module(old_file)
     new_module = _file_to_module(new_file)
 
@@ -1633,18 +1651,15 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
         # For overloads, we replace all signatures with the new one
         new_def = f"{indent}function {new_signature}"
     else:
-        # Bug 3: Capture multi-line signatures - collect all lines until closing paren/colon
         def_line_idx = sym.get("line", 1) - 1
         first_line = lines[def_line_idx]
         indent = re.match(r"^(\s*)", first_line).group(1)
-        
+
         # B-1: Check if this is an async def
         is_async = first_line.strip().startswith("async ")
-        
-        # Check if signature is multi-line (no closing paren on first line for Python)
+
         if lang == "python":
-            # For Python, signature ends with ":" or when parens are balanced
-            # Collect lines until we find a line ending with ":" and balanced parens
+            # Python: signature ends with ":" — custom loop for colon check
             sig_lines = [first_line.rstrip()]
             paren_depth = first_line.count("(") - first_line.count(")")
             current_idx = def_line_idx + 1
@@ -1653,78 +1668,34 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
                 next_line = lines[current_idx]
                 sig_lines.append(next_line.rstrip())
                 paren_depth += next_line.count("(") - next_line.count(")")
-                # Check if line ends with ":" and parens balanced
                 if paren_depth == 0 and next_line.rstrip().endswith(":"):
                     break
                 current_idx += 1
 
-            # LE-4: Use content's line separator; B-1: preserve async keyword
             line_sep = _detect_line_sep(content)
             old_def = line_sep.join(sig_lines)
             new_def = f"{indent}{'async ' if is_async else ''}def {new_signature}:"
-            # B-4: Track end line index for skipping internal call detection
             sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "rust":
-            # Rust: pub fn name(params) -> ReturnType {
-            # Multi-line sigs end with opening brace after balanced parens
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
-            # Preserve visibility: pub, pub(crate), pub(super), etc.
             vis_match = re.match(r"^(\s*(?:pub\s*(?:\([^)]*\)\s*)?)?)", first_line)
             vis_prefix = vis_match.group(1) if vis_match else indent
             new_def = f"{vis_prefix}fn {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "go":
-            # Go: func name(params) returnType {
-            # Also handles method receivers: func (r Receiver) name(params)
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
-            # Preserve method receiver if present: func (r *Receiver) name(...)
             recv_match = re.match(r"^(\s*func\s+\([^)]+\)\s+)", first_line)
             if recv_match:
                 new_def = f"{recv_match.group(1)}{new_signature}"
             else:
                 new_def = f"{indent}func {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang in ("java", "csharp", "kotlin"):
-            # Java/C#/Kotlin: [modifiers] ReturnType name(params) {
-            # Multi-line with paren balancing; preserve modifiers
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
-            # Preserve access modifiers + static/abstract/override etc. before the method name
             mod_match = re.match(
                 r"^(\s*(?:(?:public|private|protected|internal|static|abstract|override|virtual|sealed|final|open|suspend|inline)\s+)*)",
                 first_line,
@@ -1734,21 +1705,9 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
                 new_def = f"{mod_prefix}fun {new_signature}"
             else:
                 new_def = f"{mod_prefix}{new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "swift":
-            # Swift: [modifiers] func name(params) -> ReturnType {
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             mod_match = re.match(
                 r"^(\s*(?:(?:public|private|internal|open|fileprivate|static|class|mutating|nonmutating|@\w+)\s+)*)",
@@ -1756,168 +1715,67 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
             )
             mod_prefix = mod_match.group(1) if mod_match else indent
             new_def = f"{mod_prefix}func {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "scala":
-            # Scala: [modifiers] def name(params): ReturnType = {
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             mod_match = re.match(r"^(\s*(?:(?:private|protected|override|implicit|lazy|final|sealed|abstract)\s+)*)", first_line)
             mod_prefix = mod_match.group(1) if mod_match else indent
             new_def = f"{mod_prefix}def {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "dart":
-            # Dart: [modifiers] ReturnType name(params) {
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             mod_match = re.match(r"^(\s*(?:(?:static|abstract|external|factory)\s+)*)", first_line)
             mod_prefix = mod_match.group(1) if mod_match else indent
             new_def = f"{mod_prefix}{new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "php":
-            # PHP: [modifiers] function name(params): ReturnType {
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             mod_match = re.match(r"^(\s*(?:(?:public|private|protected|static|abstract|final)\s+)*)", first_line)
             mod_prefix = mod_match.group(1) if mod_match else indent
             new_def = f"{mod_prefix}function {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "ruby":
-            # Ruby: def name(params)
             old_def = first_line.rstrip()
             new_def = f"{indent}def {new_signature}"
             sig_end_idx = def_line_idx
 
         elif lang == "elixir":
-            # Elixir: def name(params) do / defp name(params) do
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             keyword = "defp" if first_line.strip().startswith("defp") else "def"
             new_def = f"{indent}{keyword} {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang in ("c", "cpp"):
-            # C/C++: ReturnType name(params) { — no keyword prefix
-            # Multi-line paren balancing
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             new_def = f"{indent}{new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
-        elif lang == "lua" or lang == "luau":
-            # Lua: [local] function name(params)
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+        elif lang in ("lua", "luau"):
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             local_prefix = "local " if first_line.strip().startswith("local ") else ""
             new_def = f"{indent}{local_prefix}function {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "perl":
-            # Perl: sub name { or sub name (prototype) {
             old_def = first_line.rstrip()
             new_def = f"{indent}sub {new_signature}"
             sig_end_idx = def_line_idx
 
         elif lang == "julia":
-            # Julia: function name(params)
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             new_def = f"{indent}function {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         elif lang == "gleam":
-            # Gleam: [pub] fn name(params) -> ReturnType {
-            sig_lines = [first_line.rstrip()]
-            paren_depth = first_line.count("(") - first_line.count(")")
-            current_idx = def_line_idx + 1
-
-            while paren_depth > 0 and current_idx < len(lines):
-                next_line = lines[current_idx]
-                sig_lines.append(next_line.rstrip())
-                paren_depth += next_line.count("(") - next_line.count(")")
-                current_idx += 1
-
-            line_sep = _detect_line_sep(content)
+            sig_lines, line_sep, sig_end_idx = _capture_multiline_sig(lines, def_line_idx, content)
             old_def = line_sep.join(sig_lines)
             pub_prefix = "pub " if first_line.strip().startswith("pub ") else ""
             new_def = f"{indent}{pub_prefix}fn {new_signature}"
-            sig_end_idx = def_line_idx + len(sig_lines) - 1
 
         else:
-            # Generic fallback for any other language
             old_def = first_line.rstrip()
             new_def = f"{indent}{new_signature}"
             sig_end_idx = def_line_idx
