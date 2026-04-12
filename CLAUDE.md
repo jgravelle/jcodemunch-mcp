@@ -49,6 +49,7 @@ src/jcodemunch_mcp/
     _call_graph.py       # Shared AST-derived call-graph helpers (callers/callees, BFS)
     get_call_hierarchy.py # get_call_hierarchy: callers+callees for a symbol, N levels deep
     get_impact_preview.py # get_impact_preview: transitive "what breaks?" analysis
+    plan_refactoring.py   # plan_refactoring: edit-ready plans for rename/move/extract/signature refactorings
     get_symbol_complexity.py  # get_symbol_complexity: cyclomatic/nesting/param_count for a symbol
     get_churn_rate.py         # get_churn_rate: git commit count for file or symbol over N days
     get_hotspots.py           # get_hotspots: top-N high-risk symbols by complexity x churn
