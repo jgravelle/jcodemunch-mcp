@@ -4,13 +4,15 @@
 
 jCodeMunch was designed from the ground up as an MCP server, and that choice was not accidental.
 
-The Model Context Protocol is not merely a transport layer — it is the native language of modern AI agents. When Claude (or any MCP-compatible agent) calls `search_symbols`, the result arrives structured, typed, and immediately actionable. There is no parsing step, no intermediate representation, no translation tax. The agent reads the `_meta` envelope, sees the tokens saved, and carries on. The entire round-trip — from query to precise symbol retrieval — takes milliseconds and costs a fraction of what brute-force file reading would.
+**Structured I/O without parsing tax.** When an agent calls `search_symbols` over MCP, results arrive as typed JSON with schemas the client already understands. No stdout to parse, no column boundaries to guess, no escaping to handle. The agent reads the `_meta` envelope, sees the tokens saved, and chains directly into the next call. A CLI tool can return JSON too — but the agent still has to parse untyped stdout, and the client has no schema to validate against. That parsing step burns tokens and introduces ambiguity that MCP eliminates by design.
 
-MCP also gives you something a CLI fundamentally cannot: **context continuity**. An agent running inside Claude Code or Claude Desktop accumulates its tool call history. It knows what it searched for, what it retrieved, and what it has not yet looked at. It can chain calls intelligently — `list_repos` to confirm the index exists, `search_symbols` to find a candidate, `get_symbol` to read the exact implementation, `find_references` to trace usage — all within a single coherent reasoning thread. A CLI, by contrast, is stateless by definition. Each invocation starts cold.
+**Tool discovery at connection time.** MCP clients enumerate every available tool and its parameter schema when the server starts. The agent knows what it can call, what parameters are required, and what types they expect — before it makes a single request. With CLI, the agent either needs hardcoded knowledge of every subcommand and flag, or it runs `--help` and parses the output. More tokens spent on overhead instead of the actual task.
 
-There is also the question of cost accounting. Every MCP tool response includes a `_meta` envelope that carries `tokens_saved`, `total_tokens_saved`, and `cost_avoided` — a running ledger of exactly how much waste jCodeMunch has eliminated across your session. The savings accumulate, persist to `~/.code-index/_savings.json`, and are reported in real time. That ledger only exists because the agent and the tool are in continuous conversation. A CLI call has no session to accumulate against.
+**Zero-config integration.** `pip install jcodemunch-mcp`, add one JSON block to your client config, done. Every MCP-compatible client — Claude Code, Cursor, Windsurf, Zed, Continue, Antigravity — picks it up with full type signatures and structured return values. CLI integration requires per-client shell wiring, PATH management, and often Docker or platform-specific install steps.
 
-Finally, MCP is where the ecosystem is going. Every major AI client — Claude Desktop, Claude Code, VS Code Copilot, Google Antigravity, and others — supports MCP natively. Investing in MCP fluency pays forward; investing in CLI wrappers pays sideways.
+**Built-in cost accounting.** Every MCP tool response includes a `_meta` envelope carrying `tokens_saved`, `total_tokens_saved`, and `cost_avoided` — a running ledger that persists to `~/.code-index/_savings.json`. You could build equivalent tracking into a CLI wrapper, but MCP gives it to you for free because the protocol already defines the envelope.
+
+**Ecosystem direction.** Every major AI client — Claude Desktop, Claude Code, VS Code Copilot, Antigravity, and others — supports MCP natively. Investing in MCP fluency pays forward; investing in CLI wrappers pays sideways.
 
 **If you are using jCodeMunch with an AI agent, use the MCP interface.** That is what it was built for.
 
@@ -18,21 +20,21 @@ Finally, MCP is where the ecosystem is going. Every major AI client — Claude D
 
 ## On "CLI-first" agent frameworks
 
-Projects like [CLI-Anything](https://github.com/HKUDS/CLI-Anything) make a compelling case that CLIs with structured JSON output are the right interface for AI agents to control software that has no API. We agree with the thesis — and it actually clarifies why jCodemunch takes the opposite approach.
+Projects like [CLI-Anything](https://github.com/HKUDS/CLI-Anything) make a compelling case that CLIs with structured JSON output are the right interface for AI agents to control software that has no API. We agree with the thesis — and it clarifies why jCodemunch takes the opposite approach.
 
-CLI-Anything exists to bridge software that *lacks* a native agent interface. When GIMP or Blender ships no MCP server, an LLM-generated CLI with JSON output is the best available option. It is a thoughtful solution to a real gap.
+CLI-Anything exists to bridge software that *lacks* a native agent interface. When GIMP or Blender ships no MCP server, an LLM-generated CLI with JSON output is the best available option. A thoughtful solution to a real gap.
 
-jCodemunch has no gap to bridge. It was written as an MCP server from the first commit. The protocol that CLI-Anything is approximating with JSON output is the same protocol jCodemunch speaks natively:
+jCodemunch has no gap to bridge. It was written as an MCP server from the first commit. The protocol that CLI-Anything approximates with JSON output is what jCodemunch speaks natively:
 
 | | CLI-Anything-style | jCodemunch MCP |
 |---|---|---|
 | Transport | Shell subprocess + stdout | Native MCP protocol |
-| Output | JSON strings, parsed by agent | Structured tool results, typed |
-| Session state | Stateless per invocation | Continuous, accumulated in agent context |
-| Cost accounting | None | `_meta` envelope: `tokens_saved`, `cost_avoided` per call |
+| Output | JSON strings, parsed by agent | Structured tool results, typed with schemas |
+| Tool discovery | `--help` parsing or hardcoded knowledge | Automatic schema enumeration at connect |
+| Cost accounting | Roll your own | `_meta` envelope: `tokens_saved`, `cost_avoided` per call |
 | Ecosystem fit | Bridge for apps with no API | First-class citizen in every MCP client |
 
-The CLI in this directory exists for the same reason CLI-Anything exists: sometimes the native interface is not available (no AI agent in the loop, CI script, terminal session). When that is your situation, use it. When an AI agent is present, it would be a step backwards from the interface jCodemunch was built to provide.
+The CLI in this directory exists for the same reason CLI-Anything exists: sometimes the native interface isn't available (no AI agent in the loop, CI script, terminal session). When that's your situation, use it. When an agent is present, it would be a step backwards from the interface jCodemunch was built to provide.
 
 ---
 
