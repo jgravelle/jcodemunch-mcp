@@ -467,10 +467,14 @@ Project config merges over global config — closest to the work wins.
 
 | Config key | What it controls | Typical savings |
 |-----------|-----------------|----------------|
-| `disabled_tools` | Remove tools from schema entirely | ~100–400 tokens/tool |
+| `tool_profile` | `"core"` (16 tools), `"standard"` (~40), `"full"` (all, default) | ~5-6k tokens (core) |
+| `compact_schemas` | Strip rarely-used advanced params from schemas | ~1-2k tokens |
+| `disabled_tools` | Remove individual tools from schema entirely | ~100–400 tokens/tool |
 | `languages` | Shrink language enum + gate features | ~2–86 tokens/turn |
 | `meta_fields` | Filter `_meta` response fields | ~50–150 tokens/call |
 | `descriptions` | Control description verbosity | ~0–600 tokens/turn |
+
+**Recommended for context-conscious setups:** `"tool_profile": "core", "compact_schemas": true` reduces the schema footprint from ~11.5k tokens to ~4k tokens.
 
 See the full template for all available keys. Run `jcodemunch-mcp config --init` to generate one.
 

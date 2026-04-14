@@ -268,6 +268,8 @@ DEFAULTS = {
     "meta_fields": [],  # [] = no _meta (token-efficient; set null in config for all fields)
     "languages": None,  # None = all languages
     "languages_adaptive": False,
+    "tool_profile": "full",  # "core", "standard", or "full"
+    "compact_schemas": False,
     "disabled_tools": ["test_summarizer"],
     "descriptions": {},
     "transport": "stdio",
@@ -334,6 +336,8 @@ CONFIG_TYPES = {
     "meta_fields": (list, type(None)),
     "languages": (list, type(None)),
     "languages_adaptive": bool,
+    "tool_profile": str,
+    "compact_schemas": bool,
     "disabled_tools": list,
     "descriptions": dict,
     "transport": str,
@@ -1261,6 +1265,20 @@ def generate_template() -> str:
   //   Runs on every index_folder call (full and incremental).
   //   Set in global config to auto-create project configs on first index.
   //   Set in project config to enable ongoing adaptation.
+
+  // === Tool Profile ===
+  // Controls how many tools are loaded into the LLM context.
+  //   "core"     — ~16 essential tools (indexing, search, retrieval). Lowest token cost.
+  //   "standard" — core + analytics, architecture, quality tools (~40 tools).
+  //   "full"     — all tools including refactoring, session, and diagnostics (default).
+  // Tip: "core" saves ~5-6k schema tokens per session.
+  // "tool_profile": "full",
+
+  // === Compact Schemas ===
+  // When true, strips rarely-used advanced parameters (debug, fusion, semantic_*,
+  // fuzzy_*, etc.) from tool schemas. The server still accepts them — they're just
+  // hidden from the LLM to save tokens. Saves ~1-2k tokens on top of any profile.
+  // "compact_schemas": false,
 
   // === Disabled Tools ===
   // Global: tools listed here are removed from the schema entirely.

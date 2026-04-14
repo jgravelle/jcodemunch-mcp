@@ -73,6 +73,71 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "audit_agent_config",
 )
 
+# --------------------------------------------------------------------------- #
+# Tool profiles: tiered sets for controlling context budget.                   #
+# core ⊂ standard ⊂ full.  Config key: tool_profile (default "full").         #
+# --------------------------------------------------------------------------- #
+_TOOL_TIER_CORE: frozenset[str] = frozenset({
+    # Indexing
+    "index_repo", "index_folder", "index_file",
+    # Discovery
+    "list_repos", "resolve_repo", "get_repo_outline",
+    "get_file_tree", "get_file_outline",
+    # Search & Retrieval
+    "search_symbols", "get_symbol_source", "get_file_content",
+    "search_text", "get_context_bundle", "get_ranked_context",
+    # Relationships
+    "find_importers", "find_references",
+})
+
+_TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
+    # Indexing extras
+    "summarize_repo", "embed_repo",
+    # Discovery extras
+    "suggest_queries", "search_columns",
+    # Relationships
+    "check_references", "get_dependency_graph",
+    "get_class_hierarchy", "get_related_symbols", "get_call_hierarchy",
+    # Impact & Safety
+    "get_blast_radius", "check_rename_safe",
+    "get_impact_preview", "get_changed_symbols", "get_symbol_diff",
+    # Quality & Metrics
+    "get_symbol_complexity", "get_churn_rate", "get_hotspots",
+    "get_symbol_importance", "find_dead_code", "get_dead_code_v2",
+    "get_untested_symbols", "get_repo_health",
+    # Architecture
+    "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
+    "get_cross_repo_map",
+    # Utilities
+    "invalidate_cache",
+})
+
+# full = everything (no filter applied)
+
+_PROFILE_TIERS: dict[str, frozenset[str] | None] = {
+    "core": _TOOL_TIER_CORE,
+    "standard": _TOOL_TIER_STANDARD,
+    "full": None,  # None = no filtering
+}
+
+# Parameters stripped from tool schemas when compact_schemas is enabled.
+# These are advanced/rarely-used params that cost tokens every session but
+# are used <5% of the time.  The underlying handler still accepts them.
+_COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
+    "search_symbols": {
+        "debug", "fusion", "semantic", "semantic_only", "semantic_weight",
+        "fuzzy", "fuzzy_threshold", "max_edit_distance", "sort_by", "fqn",
+        "decorator", "token_budget",
+    },
+    "get_context_bundle": {"budget_strategy"},
+    "get_ranked_context": {"detail_level"},
+    "get_blast_radius": {"cross_repo", "max_depth"},
+    "find_importers": {"cross_repo"},
+    "get_dependency_graph": {"cross_repo"},
+    "index_repo": {"extra_ignore_patterns", "incremental"},
+    "index_folder": {"extra_ignore_patterns", "incremental"},
+}
+
 # Tools eligible for Agent Selector complexity scoring
 _AGENT_SELECTOR_TOOLS = frozenset({
     "get_ranked_context", "get_context_bundle", "search_symbols",
@@ -1784,6 +1849,12 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
     ]
+    # --- Profile filtering ---------------------------------------------------
+    profile = config_module.get("tool_profile", "full")
+    allowed = _PROFILE_TIERS.get(profile)
+    if allowed is not None:
+        tools = [t for t in tools if t.name in allowed]
+
     # Filter out disabled tools
     disabled = config_module.get("disabled_tools", [])
     if disabled:
@@ -1793,6 +1864,16 @@ def _build_tools_list() -> list[Tool]:
     languages = config_module.get("languages")
     if languages is not None and "sql" not in languages:
         tools = [t for t in tools if t.name != "search_columns"]
+
+    # --- Compact schemas: strip rarely-used params ---------------------------
+    if config_module.get("compact_schemas", False):
+        for tool in tools:
+            strip_set = _COMPACT_STRIP_PARAMS.get(tool.name)
+            if strip_set and isinstance(tool.inputSchema, dict):
+                props = tool.inputSchema.get("properties")
+                if props:
+                    for param in strip_set:
+                        props.pop(param, None)
 
     # Merge descriptions from config (runs after disabled_tools filter)
     _apply_description_overrides(tools)
@@ -3560,6 +3641,14 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         row("languages", dim("(all languages)"), "default")
     else:
         row("languages", _fmt_list(languages), _detect_source("languages", None))
+
+    # ── Tool Profile ──────────────────────────────────────────────────────
+    section("Tool Profile")
+    profile = _cfg.get("tool_profile", "full")
+    profile_display = {"core": f"{green('core')} (~16 tools)", "standard": f"{yellow('standard')} (~40 tools)", "full": f"{dim('full')} (all tools)"}
+    row("tool_profile", profile_display.get(profile, profile), _detect_source("tool_profile", "full"))
+    compact = _cfg.get("compact_schemas", False)
+    row("compact_schemas", green("enabled") if compact else dim("disabled"), _detect_source("compact_schemas", False))
 
     # ── Disabled Tools ────────────────────────────────────────────────────
     section("Disabled Tools")

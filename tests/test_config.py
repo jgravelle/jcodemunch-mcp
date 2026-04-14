@@ -1488,6 +1488,8 @@ class TestClaudeMdGenerate:
         import src.jcodemunch_mcp.config as cfg_mod
         monkeypatch.setattr(cfg_mod, "get", lambda key, default=None: (
             [] if key == "disabled_tools" else
+            "full" if key == "tool_profile" else
+            False if key == "compact_schemas" else
             None if key in ("languages", "meta_fields", "descriptions") else
             default
         ))

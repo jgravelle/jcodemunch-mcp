@@ -2,6 +2,17 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.44.0] — 2026-04-14
+
+### Added
+- **Tool profiles** — new `tool_profile` config key with three tiers to control context budget (#242):
+  - `"core"` — 16 essential tools (indexing, search, retrieval, relationships). ~5-6k tokens saved vs full.
+  - `"standard"` — core + analytics, architecture, quality, impact tools (~40 tools).
+  - `"full"` — all tools (default, backwards-compatible).
+- **Compact schemas** — new `compact_schemas` config key strips rarely-used advanced parameters (debug, fusion, semantic_*, fuzzy_*, etc.) from tool schemas. The server still accepts them — they're just hidden from the LLM. Saves ~1-2k tokens on top of any profile.
+- `config` command now shows `tool_profile` and `compact_schemas` in the Tool Profile section.
+- 6 new tests for profile filtering and compact schema stripping.
+
 ## [1.43.0] — 2026-04-13
 
 ### Added

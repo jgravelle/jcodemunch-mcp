@@ -948,3 +948,171 @@ async def test_project_tool_disabled_rejected_in_call_tool():
         config_module._GLOBAL_CONFIG.update(orig_global)
         config_module._PROJECT_CONFIGS.clear()
         config_module._PROJECT_CONFIGS.update(orig_project)
+
+
+# --------------------------------------------------------------------------- #
+# Tool profiles                                                                #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_tool_profile_core():
+    """Core profile should only expose ~16 essential tools."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.server import _TOOL_TIER_CORE
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["tool_profile"] = "core"
+    config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+    try:
+        tools = await list_tools()
+        names = {t.name for t in tools}
+        assert names == _TOOL_TIER_CORE
+        # Core must include the essentials
+        for essential in ("search_symbols", "get_symbol_source", "list_repos",
+                          "get_file_tree", "index_folder"):
+            assert essential in names, f"{essential} missing from core profile"
+        # Core must NOT include advanced tools
+        for excluded in ("plan_refactoring", "get_hotspots", "audit_agent_config",
+                         "get_session_stats", "plan_turn"):
+            assert excluded not in names, f"{excluded} should not be in core profile"
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_tool_profile_standard():
+    """Standard profile should include core + analytics but not refactoring/session."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.server import _TOOL_TIER_STANDARD
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["tool_profile"] = "standard"
+    config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+    try:
+        tools = await list_tools()
+        names = {t.name for t in tools}
+        assert names == _TOOL_TIER_STANDARD
+        # Standard includes analytics
+        assert "get_hotspots" in names
+        assert "get_blast_radius" in names
+        # Standard excludes power-user tools
+        assert "plan_refactoring" not in names
+        assert "get_session_stats" not in names
+        assert "audit_agent_config" not in names
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_tool_profile_full_is_default():
+    """Full profile (default) should expose all tools minus disabled."""
+    from jcodemunch_mcp import config as config_module
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+
+    try:
+        tools = await list_tools()
+        names = {t.name for t in tools}
+        # Full profile includes everything except default-disabled test_summarizer
+        assert "plan_refactoring" in names
+        assert "get_session_stats" in names
+        assert "audit_agent_config" in names
+        assert "test_summarizer" not in names  # disabled by default, not by profile
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_tool_profile_combined_with_disabled_tools():
+    """Profile + disabled_tools should stack: profile filters first, then disabled."""
+    from jcodemunch_mcp import config as config_module
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["tool_profile"] = "core"
+    config_module._GLOBAL_CONFIG["disabled_tools"] = ["search_text"]
+
+    try:
+        tools = await list_tools()
+        names = {t.name for t in tools}
+        assert "search_text" not in names
+        assert "search_symbols" in names
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+# --------------------------------------------------------------------------- #
+# Compact schemas                                                              #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_compact_schemas_strips_advanced_params():
+    """compact_schemas should remove advanced params from search_symbols schema."""
+    from jcodemunch_mcp import config as config_module
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["compact_schemas"] = True
+    config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+    try:
+        tools = await list_tools()
+        search = next(t for t in tools if t.name == "search_symbols")
+        props = search.inputSchema["properties"]
+        # Core params still present
+        assert "repo" in props
+        assert "query" in props
+        assert "kind" in props
+        assert "max_results" in props
+        # Advanced params stripped
+        assert "debug" not in props
+        assert "fusion" not in props
+        assert "semantic" not in props
+        assert "semantic_only" not in props
+        assert "fuzzy" not in props
+        assert "fuzzy_threshold" not in props
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_compact_schemas_off_preserves_all_params():
+    """When compact_schemas is off (default), all params remain."""
+    from jcodemunch_mcp import config as config_module
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["disabled_tools"] = []
+
+    try:
+        tools = await list_tools()
+        search = next(t for t in tools if t.name == "search_symbols")
+        props = search.inputSchema["properties"]
+        assert "debug" in props
+        assert "fusion" in props
+        assert "semantic" in props
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
