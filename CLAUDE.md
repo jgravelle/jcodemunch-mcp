@@ -1,7 +1,7 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.51.0 (published to PyPI)
+- **Version:** 1.52.0 (published to PyPI)
 - **INDEX_VERSION:** 9
 - **Tests:** 3248 passed, 9 skipped
 - **Python:** >=3.10
@@ -67,6 +67,7 @@ src/jcodemunch_mcp/
     get_project_intel.py      # get_project_intel: auto-discover+parse non-code knowledge (Dockerfiles, CI configs, compose, K8s, .env templates, Makefiles, scripts); cross-references to code symbols; 6 categories
     get_repo_health.py        # get_repo_health: one-call triage snapshot (delegate aggregator)
     get_untested_symbols.py   # get_untested_symbols: find functions with no test-file reachability (import graph + name matching)
+    search_ast.py             # search_ast: cross-language AST pattern matching; 10 preset anti-patterns + custom mini-DSL (call:, string:, comment:, nesting:, loops:, lines:); enriched with symbol context
     audit_agent_config.py    # audit_agent_config: token waste audit for CLAUDE.md, .cursorrules, etc.; cross-refs against index
 ```
 

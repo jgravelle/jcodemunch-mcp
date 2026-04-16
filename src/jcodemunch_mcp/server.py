@@ -67,7 +67,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_hotspots",
     "get_repo_health", "get_symbol_importance", "find_dead_code",
-    "get_dead_code_v2", "get_untested_symbols",
+    "get_dead_code_v2", "get_untested_symbols", "search_ast",
     # Diffs & Embeddings
     "get_symbol_diff", "embed_repo",
     # Utilities
@@ -107,7 +107,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     # Quality & Metrics
     "get_symbol_complexity", "get_churn_rate", "get_hotspots",
     "get_symbol_importance", "find_dead_code", "get_dead_code_v2",
-    "get_untested_symbols", "get_repo_health",
+    "get_untested_symbols", "get_repo_health", "search_ast",
     # Architecture
     "get_dependency_cycles", "get_coupling_metrics", "get_layer_violations",
     "get_cross_repo_map", "get_tectonic_map", "get_signal_chains",
@@ -1726,6 +1726,61 @@ def _build_tools_list() -> list[Tool]:
             },
         ),
         Tool(
+            name="search_ast",
+            description=(
+                "Cross-language AST pattern matching. Finds structural code patterns "
+                "across all 70+ indexed languages using a single query — no need to know "
+                "language-specific AST node types. Two modes: (1) preset anti-patterns "
+                "(empty_catch, bare_except, deeply_nested, nested_loops, god_function, "
+                "eval_exec, hardcoded_secret, todo_fixme, magic_number, reassigned_param), "
+                "or (2) custom mini-DSL (call:*.unwrap, string:/password/i, comment:/TODO/i, "
+                "nesting:5+, loops:3+, lines:80+). Use category='all' to run every preset "
+                "at once, or category='security'/'error_handling'/'complexity'/'performance'/"
+                "'maintenance' for a focused scan. Every match is attributed to its enclosing "
+                "indexed symbol with complexity metadata. Requires a locally indexed repo."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository identifier (owner/repo or just repo name)",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": (
+                            "Preset name (empty_catch, bare_except, deeply_nested, nested_loops, "
+                            "god_function, eval_exec, hardcoded_secret, todo_fixme, magic_number, "
+                            "reassigned_param) or custom query (call:NAME, string:/REGEX/i, "
+                            "comment:/REGEX/i, nesting:N+, loops:N+, lines:N+). "
+                            "Mutually exclusive with category."
+                        ),
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": (
+                            "Run all presets in a category: security, error_handling, "
+                            "complexity, performance, maintenance, or all."
+                        ),
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Restrict scan to one language (e.g. 'python', 'typescript').",
+                    },
+                    "file_pattern": {
+                        "type": "string",
+                        "description": "Glob filter on file paths (e.g. 'src/**/*.py').",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Cap on total matches returned (default 50).",
+                        "default": 50,
+                    },
+                },
+                "required": ["repo"],
+            },
+        ),
+        Tool(
             name="get_symbol_importance",
             description=(
                 "Return the most architecturally important symbols in a repo, ranked by "
@@ -2193,6 +2248,7 @@ complexity, churn, test gaps, and change volume. Includes actionable recommendat
 6. **get_untested_symbols** on affected files → flag unreached symbols in the blast radius.
 7. **get_coupling_metrics** on changed files → check if the change increases coupling.
 8. **get_dependency_cycles** → check if the change introduces new cycles.
+9. **search_ast** with `category='security'` on changed files → catch hardcoded secrets or eval() calls in the diff.
 """
 
 _TRIAGE_PROMPT_TEXT = """\
@@ -2208,6 +2264,7 @@ Goal: Get a complete health picture in one guided session.
 6. **get_layer_violations** → architectural boundary violations.
 7. **get_extraction_candidates** → functions that should be refactored out.
 8. **get_coupling_metrics** on hotspot files → instability analysis.
+9. **search_ast** with `category='all'` → sweep for anti-patterns (empty catches, god functions, magic numbers, etc.).
 """
 
 _TRACE_PROMPT_TEXT = """\
@@ -3024,6 +3081,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     storage_path=storage_path,
                 )
             )
+        elif name == "search_ast":
+            from .tools.search_ast import search_ast
+            result = await asyncio.to_thread(
+                functools.partial(
+                    search_ast,
+                    repo=arguments["repo"],
+                    pattern=arguments.get("pattern"),
+                    category=arguments.get("category"),
+                    language=arguments.get("language"),
+                    file_pattern=arguments.get("file_pattern"),
+                    max_results=arguments.get("max_results", 50),
+                    storage_path=storage_path,
+                )
+            )
         elif name == "get_changed_symbols":
             from .tools.get_changed_symbols import get_changed_symbols
             result = await asyncio.to_thread(
@@ -3743,7 +3814,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
         ("Quality & Metrics", ["get_symbol_complexity", "get_churn_rate", "get_hotspots",
                                 "get_repo_health", "get_symbol_importance",
                                 "find_dead_code", "get_dead_code_v2",
-                                "get_untested_symbols"]),
+                                "get_untested_symbols", "search_ast"]),
         ("Diffs & Embeddings", ["get_symbol_diff", "embed_repo"]),
         ("Session-Aware Routing", ["plan_turn", "get_session_context", "get_session_snapshot", "register_edit"]),
         ("Utilities", ["get_session_stats", "invalidate_cache", "test_summarizer",

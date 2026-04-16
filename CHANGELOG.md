@@ -2,6 +2,12 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.52.0] — 2026-04-16
+
+### Added
+- **AST Pattern Matching** — new `search_ast` tool provides cross-language structural code pattern matching across all 70+ indexed languages. Write one query, match everywhere — no need to know language-specific tree-sitter node types. Two modes: **(1) Preset anti-patterns** — 10 curated detectors that auto-translate across languages: `empty_catch` (silently swallowed errors), `bare_except` (catch-all without specific type), `deeply_nested` (5+ control-flow levels), `nested_loops` (O(n³)+ triple loops), `god_function` (100+ line functions), `eval_exec` (dynamic code execution — injection risk), `hardcoded_secret` (credential patterns in string literals), `todo_fixme` (unfinished work markers), `magic_number` (unexplained numeric constants), `reassigned_param` (overwritten function parameters). **(2) Custom mini-DSL** — ad-hoc structural queries: `call:*.unwrap` (call-site glob matching), `string:/password/i` (regex over string literals), `comment:/TODO/i` (regex over comments), `nesting:5+` / `loops:3+` / `lines:80+` (threshold queries). Run by category (`security`, `error_handling`, `complexity`, `performance`, `maintenance`) or `category=all` for a full sweep. Every match is attributed to its enclosing indexed symbol with complexity metadata. Universal node-type mapping covers 15 language families (Python, JS/TS, Go, Rust, Java, C#, Ruby, PHP, C/C++, Kotlin, Swift, Dart). Results sorted by severity (error → warning → info).
+- Updated **assess** and **triage** MCP prompt templates to recommend `search_ast` for security and anti-pattern sweeps.
+
 ## [1.51.0] — 2026-04-16
 
 ### Added
