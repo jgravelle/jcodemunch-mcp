@@ -74,117 +74,325 @@ class FakeStoreWithIndex(FakeStore):
 # -- Core helper tests --
 
 class TestResolveSymbol:
-    def test_exact_id(self):
-        idx = FakeIndex([{"id": "a.py::Foo#class", "name": "Foo"}])
-        assert _resolve_symbol(idx, "a.py::Foo#class")["name"] == "Foo"
+    """Parametrized tests for _resolve_symbol."""
 
-    def test_bare_name(self):
-        idx = FakeIndex([{"id": "a.py::Foo#class", "name": "Foo"}])
-        assert _resolve_symbol(idx, "Foo")["name"] == "Foo"
-
-    def test_ambiguous(self):
-        idx = FakeIndex([
-            {"id": "a.py::Foo#class", "name": "Foo"},
-            {"id": "b.py::Foo#function", "name": "Foo"},
-        ])
-        result = _resolve_symbol(idx, "Foo")
-        assert "error" in result
-
-    def test_not_found(self):
-        idx = FakeIndex([])
-        result = _resolve_symbol(idx, "Missing")
-        assert "error" in result
+    @pytest.mark.parametrize("idx_symbols,query,expected_key,expected_val", [
+        ([{"id": "a.py::Foo#class", "name": "Foo"}], "a.py::Foo#class", "name", "Foo"),
+        ([{"id": "a.py::Foo#class", "name": "Foo"}], "Foo", "name", "Foo"),
+        ([{"id": "a.py::Foo#class", "name": "Foo"}, {"id": "b.py::Foo#function", "name": "Foo"}], "Foo", "error", None),
+        ([], "Missing", "error", None),
+    ], ids=["exact_id", "bare_name", "ambiguous", "not_found"])
+    def test_resolve_symbol(self, idx_symbols, query, expected_key, expected_val):
+        idx = FakeIndex(idx_symbols)
+        result = _resolve_symbol(idx, query)
+        if expected_key == "error":
+            assert expected_key in result
+        else:
+            assert result[expected_key] == expected_val
 
 
 class TestApplyWordReplacement:
-    def test_basic(self):
-        assert _apply_word_replacement("x = Foo()", "Foo", "Bar") == "x = Bar()"
+    """Tests for _apply_word_replacement."""
 
-    def test_no_partial(self):
-        assert _apply_word_replacement("x = FooBar()", "Foo", "Bar") == "x = FooBar()"
-
-    def test_multiple(self):
-        assert _apply_word_replacement("Foo + Foo", "Foo", "Bar") == "Bar + Bar"
-
-    def test_in_string(self):
-        assert _apply_word_replacement('msg = "Hello Foo"', "Foo", "Bar") == 'msg = "Hello Bar"'
+    @pytest.mark.parametrize("content,symbol,replacement,expected", [
+        ("x = Foo()", "Foo", "Bar", "x = Bar()"),
+        ("x = FooBar()", "Foo", "Bar", "x = FooBar()"),
+        ("Foo + Foo", "Foo", "Bar", "Bar + Bar"),
+        ('msg = "Hello Foo"', "Foo", "Bar", 'msg = "Hello Bar"'),
+    ], ids=["basic", "no_partial", "multiple", "in_string"])
+    def test_apply_word_replacement(self, content, symbol, replacement, expected):
+        assert _apply_word_replacement(content, symbol, replacement) == expected
 
 
 class TestClassifyLine:
-    def test_python_import(self):
-        assert _classify_line("from models import User", "User", "python") == "import"
+    """Parametrized tests for _classify_line across all languages.
 
-    def test_python_import_direct(self):
-        assert _classify_line("import os", "os", "python") == "import"
+    Consolidates ~95 test cases from 24 TestClassifyLine* classes into 4 parametrized methods.
+    """
 
-    def test_python_def(self):
-        assert _classify_line("class User:", "User", "python") == "definition"
+    # -------------------------------------------------------------------------
+    # Group A: Definition cases (~70)
+    # -------------------------------------------------------------------------
+    @pytest.mark.parametrize("line,symbol,language", [
+        # Python
+        ("class User:", "User", "python"),
+        ("def User():", "User", "python"),
+        # TypeScript
+        ("export class User {", "User", "typescript"),
+        # Rust
+        ("fn process_data(data: Vec<u8>) {", "process_data", "rust"),
+        # Go
+        ("var User = 1", "User", "go"),
+        ("func processData(data string) {", "processData", "go"),
+        # Java
+        ("public class User {", "User", "java"),
+        ("public interface UserService {", "UserService", "java"),
+        ("public enum Status {", "Status", "java"),
+        ("public record UserDTO(String name) {", "UserDTO", "java"),
+        # C#
+        ("public class UserService {", "UserService", "csharp"),
+        ("public struct Point {", "Point", "csharp"),
+        ("public interface IUserService {", "IUserService", "csharp"),
+        ("public partial class UserService {", "UserService", "csharp"),
+        # PHP
+        ("class User {", "User", "php"),
+        ("trait HasTimestamps {", "HasTimestamps", "php"),
+        ("interface UserRepository {", "UserRepository", "php"),
+        ("abstract class BaseModel {", "BaseModel", "php"),
+        # Ruby
+        ("class User", "User", "ruby"),
+        ("module Authentication", "Authentication", "ruby"),
+        # C
+        ("struct User {", "User", "c"),
+        ("enum Status {", "Status", "c"),
+        # C++
+        ("class UserService {", "UserService", "cpp"),
+        ("namespace utils {", "utils", "cpp"),
+        ("struct Point {", "Point", "cpp"),
+        # Swift
+        ("public class UserService {", "UserService", "swift"),
+        ("struct Point {", "Point", "swift"),
+        ("protocol UserDelegate {", "UserDelegate", "swift"),
+        ("func calculate(x: Int) -> Int {", "calculate", "swift"),
+        ("actor DataStore {", "DataStore", "swift"),
+        # Scala
+        ("class UserService {", "UserService", "scala"),
+        ("object Config {", "Config", "scala"),
+        ("trait Serializable {", "Serializable", "scala"),
+        ("case class User(name: String)", "User", "scala"),
+        ("def calculate(x: Int): Int = {", "calculate", "scala"),
+        # Haskell
+        ("data User = User { name :: String }", "User", "haskell"),
+        ("type Name = String", "Name", "haskell"),
+        ("newtype UserId = UserId Int", "UserId", "haskell"),
+        # Dart
+        ("class UserWidget extends StatelessWidget {", "UserWidget", "dart"),
+        ("abstract class Repository {", "Repository", "dart"),
+        ("enum Status {", "Status", "dart"),
+        ("mixin Scrollable {", "Scrollable", "dart"),
+        # Elixir
+        ("defmodule MyApp do", "MyApp", "elixir"),
+        ("def handle_call(msg, _from, state) do", "handle_call", "elixir"),
+        ("defp validate(data) do", "validate", "elixir"),
+        # Perl
+        ("sub process_data {", "process_data", "perl"),
+        ("package My::Module;", "My", "perl"),
+        # Lua
+        ("function calculate(x, y)", "calculate", "lua"),
+        ("local function helper(x)", "helper", "lua"),
+        # Gleam
+        ("pub fn main() {", "main", "gleam"),
+        ("fn helper(x) {", "helper", "gleam"),
+        ("pub type User {", "User", "gleam"),
+        # Julia
+        ("function calculate(x, y)", "calculate", "julia"),
+        ("struct Point", "Point", "julia"),
+        ("mutable struct User", "User", "julia"),
+        ("module MyModule", "MyModule", "julia"),
+        # GDScript
+        ("func _ready():", "_ready", "gdscript"),
+        ("class Player:", "Player", "gdscript"),
+        ("signal health_changed", "health_changed", "gdscript"),
+        # Proto
+        ("message UserRequest {", "UserRequest", "proto"),
+        ("service UserService {", "UserService", "proto"),
+        ("enum Status {", "Status", "proto"),
+        # GraphQL
+        ("type User {", "User", "graphql"),
+        ("query GetUser {", "GetUser", "graphql"),
+        ("interface Node {", "Node", "graphql"),
+        ("enum Role {", "Role", "graphql"),
+        ("input CreateUserInput {", "CreateUserInput", "graphql"),
+        # Fortran
+        ("subroutine calculate(x, y, result)", "calculate", "fortran"),
+        ("function factorial(n)", "factorial", "fortran"),
+        ("module math_utils", "math_utils", "fortran"),
+        # Bash
+        ("function cleanup {", "cleanup", "bash"),
+        ("cleanup() {", "cleanup", "bash"),
+    ], ids=[
+        "py_class", "py_func",
+        "ts_class",
+        "rust_fn",
+        "go_var", "go_func",
+        "java_class", "java_interface", "java_enum", "java_record",
+        "cs_class", "cs_struct", "cs_interface", "cs_partial",
+        "php_class", "php_trait", "php_interface", "php_abstract",
+        "rb_class", "rb_module",
+        "c_struct", "c_enum",
+        "cpp_class", "cpp_namespace", "cpp_struct",
+        "swift_class", "swift_struct", "swift_protocol", "swift_func", "swift_actor",
+        "scala_class", "scala_object", "scala_trait", "scala_case", "scala_def",
+        "hs_data", "hs_type", "hs_newtype",
+        "dart_class", "dart_abstract", "dart_enum", "dart_mixin",
+        "ex_defmodule", "ex_def", "ex_defp",
+        "perl_sub", "perl_package",
+        "lua_func", "lua_local_func",
+        "gleam_pub_fn", "gleam_fn", "gleam_type",
+        "jl_func", "jl_struct", "jl_mutable_struct", "jl_module",
+        "gd_func", "gd_class", "gd_signal",
+        "proto_message", "proto_service", "proto_enum",
+        "graphql_type", "graphql_query", "graphql_interface", "graphql_enum", "graphql_input",
+        "ftn_subroutine", "ftn_function", "ftn_module",
+        "bash_func_kw", "bash_func_parens",
+    ])
+    def test_definition(self, line, symbol, language):
+        assert _classify_line(line, symbol, language) == "definition"
 
-    def test_python_func_def(self):
-        assert _classify_line("def User():", "User", "python") == "definition"
+    # -------------------------------------------------------------------------
+    # Group B: Import cases (~27)
+    # -------------------------------------------------------------------------
+    @pytest.mark.parametrize("line,symbol,language", [
+        # Python
+        ("from models import User", "User", "python"),
+        ("import os", "os", "python"),
+        # TypeScript
+        ("import { User } from './models';", "User", "typescript"),
+        # Rust
+        ("use crate::models::User;", "User", "rust"),
+        # Go
+        ('import "fmt"', "fmt", "go"),
+        # Java
+        ("import com.example.User;", "User", "java"),
+        ("import static com.example.Utils.parse;", "parse", "java"),
+        # C#
+        ("using System.Collections.Generic;", "Generic", "csharp"),
+        ("using static System.Math;", "Math", "csharp"),
+        # PHP
+        ("use App\\Models\\User;", "User", "php"),
+        # Ruby
+        ("require 'models/user'", "user", "ruby"),
+        ("require_relative 'user'", "user", "ruby"),
+        # C
+        ("#include <stdio.h>", "stdio", "c"),
+        ('#include "models/user.h"', "user", "c"),
+        # C++
+        ('#include "user.hpp"', "user", "cpp"),
+        # Swift
+        ("import Foundation", "Foundation", "swift"),
+        # Scala
+        ("import scala.collection.mutable", "mutable", "scala"),
+        # Haskell
+        ("import Data.Map", "Map", "haskell"),
+        ("import qualified Data.Map as Map", "Map", "haskell"),
+        # Dart
+        ("import 'package:flutter/material.dart';", "material", "dart"),
+        # Elixir
+        ("alias MyApp.Accounts.User", "User", "elixir"),
+        ("use GenServer", "GenServer", "elixir"),
+        # Perl
+        ("use strict;", "strict", "perl"),
+        ("use Carp qw(croak);", "Carp", "perl"),
+        # Lua
+        ("require('models.user')", "user", "lua"),
+        ("local user = require('models.user')", "user", "lua"),
+        # Gleam
+        ("import gleam/io", "io", "gleam"),
+        # Julia
+        ("using LinearAlgebra", "LinearAlgebra", "julia"),
+        # GDScript
+        ('preload("res://scenes/player.gd")', "player", "gdscript"),
+        # Proto
+        ('import "google/protobuf/timestamp.proto";', "timestamp", "proto"),
+        # Fortran
+        ("use math_utils", "math_utils", "fortran"),
+        # R
+        ("library(ggplot2)", "ggplot2", "r"),
+    ], ids=[
+        "py_from", "py_import",
+        "ts_import",
+        "rust_use",
+        "go_import",
+        "java_import", "java_static_import",
+        "cs_using", "cs_using_static",
+        "php_use",
+        "rb_require", "rb_require_relative",
+        "c_include_angle", "c_include_quote",
+        "cpp_include",
+        "swift_import",
+        "scala_import",
+        "hs_import", "hs_import_qualified",
+        "dart_import",
+        "ex_alias", "ex_use",
+        "perl_use", "perl_use_module",
+        "lua_require", "lua_local_require",
+        "gleam_import",
+        "jl_using",
+        "gd_preload",
+        "proto_import",
+        "ftn_use",
+        "r_library",
+    ])
+    def test_import(self, line, symbol, language):
+        assert _classify_line(line, symbol, language) == "import"
 
-    def test_python_usage(self):
-        assert _classify_line("    x = User()", "User", "python") == "usage"
+    # -------------------------------------------------------------------------
+    # Group C: Usage cases (4)
+    # -------------------------------------------------------------------------
+    @pytest.mark.parametrize("line,symbol,language", [
+        ("    x = User()", "User", "python"),
+        ("User u = new User();", "User", "java"),
+        ("var svc = new UserService();", "UserService", "csharp"),
+        ("$user = new User();", "User", "php"),
+    ], ids=[
+        "py_usage",
+        "java_usage",
+        "cs_usage",
+        "php_usage",
+    ])
+    def test_usage(self, line, symbol, language):
+        assert _classify_line(line, symbol, language) == "usage"
 
-    def test_ts_import(self):
-        assert _classify_line("import { User } from './models';", "User", "typescript") == "import"
-
-    def test_ts_class_def(self):
-        assert _classify_line("export class User {", "User", "typescript") == "definition"
-
-    def test_string_literal(self):
-        assert _classify_line('msg = "User not found"', "User", "python") == "string"
+    # -------------------------------------------------------------------------
+    # Group D: Mixed cases (8 - base class with varying expected values)
+    # -------------------------------------------------------------------------
+    @pytest.mark.parametrize("line,symbol,language,expected", [
+        ("from models import User", "User", "python", "import"),
+        ("import os", "os", "python", "import"),
+        ("class User:", "User", "python", "definition"),
+        ("def User():", "User", "python", "definition"),
+        ("    x = User()", "User", "python", "usage"),
+        ("import { User } from './models';", "User", "typescript", "import"),
+        ("export class User {", "User", "typescript", "definition"),
+        ('msg = "User not found"', "User", "python", "string"),
+    ], ids=[
+        "py_from", "py_import", "py_class", "py_func", "py_usage",
+        "ts_import", "ts_class", "py_string",
+    ])
+    def test_mixed(self, line, symbol, language, expected):
+        assert _classify_line(line, symbol, language) == expected
 
 
 class TestEnsureUniqueContextSmart:
-    def test_already_unique(self):
-        content = "x = 1\ny = 2\nz = 3"
-        lines = content.splitlines()
-        old, new = _ensure_unique_context_smart(content, lines, 1, "y = 2", "y = 3", "y", "3")
-        assert old == "y = 2"
-        assert new == "y = 3"
+    """Parametrized tests for _ensure_unique_context_smart."""
 
-    def test_expands_for_duplicate_symbol(self):
-        """When symbol name appears multiple times, expansion is needed."""
-        content = "x = Foo\ny = Foo\nz = 3"
+    @pytest.mark.parametrize("content,line_idx,old_line,new_line,symbol,replacement,expected_old,expected_new_check", [
+        ("x = 1\ny = 2\nz = 3", 1, "y = 2", "y = 3", "y", "3", "y = 2", "y = 3"),
+        ("x = Foo\ny = Foo\nz = 3", 0, "x = Foo", "x = Bar", "Foo", "Bar", "x = Foo", "Bar"),
+        ("x = 1\nx = 1\nz = 3", 0, "x = 1", "x = 2", "y", "2", "x = 1", "x = 2"),
+    ], ids=["already_unique", "expands_duplicate_symbol", "no_expand_count_zero"])
+    def test_ensure_unique_context_smart(self, content, line_idx, old_line, new_line, symbol, replacement, expected_old, expected_new_check):
         lines = content.splitlines()
-        old, new = _ensure_unique_context_smart(content, lines, 0, "x = Foo", "x = Bar", "Foo", "Bar")
-        # Should expand to include more context since Foo appears twice
-        assert content.count(old) == 1
-        assert "Bar" in new
-
-    def test_no_expand_when_symbol_unique_count_zero(self):
-        """Fix C: When symbol count is 0 (symbol not in content), no expansion needed."""
-        content = "x = 1\nx = 1\nz = 3"
-        lines = content.splitlines()
-        # Symbol "y" doesn't appear in content, so count=0, no expansion needed
-        old, new = _ensure_unique_context_smart(content, lines, 0, "x = 1", "x = 2", "y", "2")
-        # Since symbol "y" count is 0 (<=1), we don't expand even though line is duplicated
-        assert old == "x = 1"
-        assert new == "x = 2"
+        old, new = _ensure_unique_context_smart(content, lines, line_idx, old_line, new_line, symbol, replacement)
+        assert old == expected_old
+        assert expected_new_check in new
 
 
 class TestGenerateRenameBlocks:
-    def test_single_match(self):
-        content = "class Foo:\n    pass"
-        blocks = _generate_rename_blocks(content, "Foo", "Bar", "python")
-        assert len(blocks) == 1
-        assert blocks[0]["old_text"] == "class Foo:"
-        assert blocks[0]["new_text"] == "class Bar:"
-        assert blocks[0]["category"] == "definition"
+    """Parametrized tests for _generate_rename_blocks."""
 
-    def test_import_and_usage(self):
-        content = "from models import Foo\nx = Foo()"
-        blocks = _generate_rename_blocks(content, "Foo", "Bar", "python")
-        assert len(blocks) == 2
-        categories = [b["category"] for b in blocks]
-        assert "import" in categories
-        assert "usage" in categories
-
-    def test_skips_strings(self):
-        content = 'msg = "Foo is here"'
-        blocks = _generate_rename_blocks(content, "Foo", "Bar", "python")
-        assert len(blocks) == 0
+    @pytest.mark.parametrize("content,symbol,replacement,expected_count,expected_categories", [
+        ("class Foo:\n    pass", "Foo", "Bar", 1, ["definition"]),
+        ("from models import Foo\nx = Foo()", "Foo", "Bar", 2, ["import", "usage"]),
+        ('msg = "Foo is here"', "Foo", "Bar", 0, []),
+    ], ids=["single_match", "import_and_usage", "skips_strings"])
+    def test_generate_rename_blocks(self, content, symbol, replacement, expected_count, expected_categories):
+        blocks = _generate_rename_blocks(content, symbol, replacement, "python")
+        assert len(blocks) == expected_count
+        if expected_categories:
+            categories = [b["category"] for b in blocks]
+            for cat in expected_categories:
+                assert cat in categories
 
 
 class TestCheckCollision:
@@ -252,56 +460,139 @@ class TestExtractSymbolWithDeps:
 
 
 class TestComputeNewImport:
-    def test_python_module(self):
-        line = "from models.user import User"
-        result, warning = _compute_new_import(line, "models/user.py", "utils/user_utils.py", "User", "python")
-        assert "utils.user_utils" in result
-        assert warning is None
+    """Parametrized tests for _compute_new_import across all languages."""
 
-    def test_typescript_path(self):
-        line = "import { User } from 'src/models/user';"
-        result, warning = _compute_new_import(line, "src/models/user.ts", "src/utils/user_utils.ts", "User", "typescript")
-        assert "src/utils/user_utils" in result
-        assert warning is None
+    @pytest.mark.parametrize("line,old_path,new_path,symbol,language,expected_fragment", [
+        # Group 11a: rewrite succeeds (11 tests)
+        ("from models.user import User", "models/user.py", "utils/user_utils.py", "User", "python", "utils.user_utils"),
+        ("import { User } from 'src/models/user';", "src/models/user.ts", "src/utils/user_utils.ts", "User", "typescript", "src/utils/user_utils"),
+        ("use crate::models::user::User;", "src/models/user.rs", "src/services/user.rs", "User", "rust", "services::user"),
+        ("use super::models::user::User;", "src/models/user.rs", "src/services/user.rs", "User", "rust", "services::user"),
+        ('import "myapp/models"', "models/user.go", "services/user.go", "User", "go", "services"),
+        ("import com.example.models.User;", "src/main/java/com/example/models/User.java", "src/main/java/com/example/services/User.java", "User", "java", "services.User"),
+        ("using MyApp.Models.User;", "src/Models/User.cs", "src/Services/User.cs", "User", "csharp", "Services.User"),
+        ("use App\\Models\\User;", "src/App/Models/User.php", "src/App/Services/User.php", "User", "php", "Services"),
+        ("require 'models/user'", "models/user.rb", "services/user.rb", "User", "ruby", "services/user"),
+        ('#include "models/user.h"', "models/user.h", "services/user.h", "User", "c", "services/user.h"),
+        ("import Models", "Models/User.swift", "Services/User.swift", "User", "swift", "Services"),
+    ], ids=[
+        "python_module", "typescript_path",
+        "rust_crate_path", "rust_super_path",
+        "go_package", "java_package",
+        "csharp_namespace", "php_namespace",
+        "ruby_require", "c_include", "swift_module",
+    ])
+    def test_rewrite_succeeds(self, line, old_path, new_path, symbol, language, expected_fragment):
+        result, warning = _compute_new_import(line, old_path, new_path, symbol, language)
+        assert warning is None, f"Expected no warning for {language}"
+        assert expected_fragment in result, f"Expected '{expected_fragment}' in result for {language}"
 
-    def test_fallback(self):
-        line = "import Something from 'somewhere'"
-        result, warning = _compute_new_import(line, "src/models.hs", "src/utils.hs", "User", "haskell")
-        assert result == line  # unchanged
-        assert warning is not None  # unsupported language warning
+    @pytest.mark.parametrize("line,old_path,new_path,symbol,language", [
+        # Group 11b: no match warns (6 tests)
+        ("use external_crate::Something;", "src/models/user.rs", "src/services/user.rs", "User", "rust"),
+        ('import "github.com/other/pkg"', "models/user.go", "services/user.go", "User", "go"),
+        ("import org.other.Thing;", "src/main/java/com/example/User.java", "src/main/java/com/example/services/User.java", "User", "java"),
+        ("#include <stdlib.h>", "models/user.h", "services/user.h", "User", "c"),
+        ("import Something from 'somewhere'", "src/models.hs", "src/utils.hs", "User", "haskell"),
+        ('#include <stdio.h>', "models/user.h", "services/user.h", "User", "cpp"),
+    ], ids=[
+        "rust_no_match", "go_no_match", "java_no_match",
+        "c_angle_bracket", "haskell_fallback", "cpp_angle_bracket",
+    ])
+    def test_no_match_warns(self, line, old_path, new_path, symbol, language):
+        result, warning = _compute_new_import(line, old_path, new_path, symbol, language)
+        assert warning is not None, f"Expected warning for {language}"
+        assert result == line, f"Expected unchanged line for {language}"
 
 
 class TestFormatImportLine:
-    def test_python_from_import(self):
-        imp = {"specifier": "typing", "names": ["List", "Optional"]}
-        assert _format_import_line(imp, "python") == "from typing import List, Optional"
+    """Consolidated parametrized tests for _format_import_line across all languages."""
 
-    def test_python_import(self):
-        imp = {"specifier": "os", "names": []}
-        assert _format_import_line(imp, "python") == "import os"
+    @pytest.mark.parametrize("imp,language,expected", [
+        # TestFormatImportLine (3)
+        ({"specifier": "typing", "names": ["List", "Optional"]}, "python", "from typing import List, Optional"),
+        ({"specifier": "os", "names": []}, "python", "import os"),
+        ({"specifier": "./models", "names": ["User"]}, "typescript", "import { User } from './models';"),
+        # TestFormatImportLineRustGo (3)
+        ({"specifier": "crate::models", "names": ["User", "Admin"]}, "rust", "use crate::models::{User, Admin};"),
+        ({"specifier": "crate::utils", "names": []}, "rust", "use crate::utils;"),
+        ({"specifier": "github.com/user/project", "names": []}, "go", 'import "github.com/user/project"'),
+        # TestFormatImportLineExtended (6)
+        ({"specifier": "com.example.models", "names": ["User"]}, "java", "import com.example.models.User;"),
+        ({"specifier": "com.example.models.User", "names": []}, "java", "import com.example.models.User;"),
+        ({"specifier": "com.example.User", "names": []}, "kotlin", "import com.example.User"),
+        ({"specifier": "System.Collections.Generic", "names": []}, "csharp", "using System.Collections.Generic;"),
+        ({"specifier": "App\\Models\\User", "names": []}, "php", "use App\\Models\\User;"),
+        ({"specifier": "models/user", "names": []}, "ruby", "require 'models/user'"),
+        # TestFormatImportLineAllLanguages (39)
+        ({"specifier": "typing", "names": ["List"]}, "python", "from typing import List"),
+        ({"specifier": "./user", "names": ["User"]}, "typescript", "import { User } from './user';"),
+        ({"specifier": "./user", "names": ["User"]}, "tsx", "import { User } from './user';"),
+        ({"specifier": "./user", "names": []}, "jsx", "import './user';"),
+        ({"specifier": "./component", "names": ["Comp"]}, "vue", "import { Comp } from './component';"),
+        ({"specifier": "crate::models", "names": ["User"]}, "rust", "use crate::models::{User};"),
+        ({"specifier": "fmt", "names": []}, "go", 'import "fmt"'),
+        ({"specifier": "com.example", "names": ["User"]}, "java", "import com.example.User;"),
+        ({"specifier": "com.example.User", "names": []}, "kotlin", "import com.example.User"),
+        ({"specifier": "scala.collection", "names": ["Map", "Set"]}, "scala", "import scala.collection.{Map, Set}"),
+        ({"specifier": "scala.collection", "names": ["Map"]}, "scala", "import scala.collection.Map"),
+        ({"specifier": "com.example", "names": ["User"]}, "groovy", "import com.example.User;"),
+        ({"specifier": "System.Collections.Generic", "names": []}, "csharp", "using System.Collections.Generic;"),
+        ({"specifier": "App\\Models\\User", "names": []}, "php", "use App\\Models\\User;"),
+        ({"specifier": "models/user", "names": []}, "ruby", "require 'models/user'"),
+        ({"specifier": "models/user.h", "names": []}, "c", '#include "models/user.h"'),
+        ({"specifier": "user.hpp", "names": []}, "cpp", '#include "user.hpp"'),
+        ({"specifier": "User.h", "names": []}, "objc", '#include "User.h"'),
+        ({"specifier": "Foundation", "names": []}, "swift", "import Foundation"),
+        ({"specifier": "Data.Map", "names": ["Map", "fromList"]}, "haskell", "import Data.Map (Map, fromList)"),
+        ({"specifier": "Data.Map", "names": []}, "haskell", "import Data.Map"),
+        ({"specifier": "package:flutter/material.dart", "names": []}, "dart", "import 'package:flutter/material.dart';"),
+        ({"specifier": "MyApp.User", "names": []}, "elixir", "alias MyApp.User"),
+        ({"specifier": "MyApp", "names": ["User", "Admin"]}, "elixir", "alias MyApp.{User, Admin}"),
+        ({"specifier": "Models/User", "names": []}, "perl", "use Models::User;"),
+        ({"specifier": "models/user", "names": []}, "lua", 'require("models.user")'),
+        ({"specifier": "models/user", "names": []}, "luau", 'require("models.user")'),
+        ({"specifier": "LinearAlgebra", "names": []}, "julia", "using LinearAlgebra"),
+        ({"specifier": "user.proto", "names": []}, "proto", 'import "user.proto";'),
+        ({"specifier": "math_utils", "names": []}, "fortran", "use math_utils"),
+        ({"specifier": "macros.inc", "names": []}, "asm", '.include "macros.inc"'),
+        ({"specifier": "Servo.h", "names": []}, "arduino", '#include "Servo.h"'),
+        ({"specifier": "ieee.std_logic_1164.all", "names": []}, "vhdl", "use ieee.std_logic_1164.all;"),
+        ({"specifier": "defines.vh", "names": []}, "verilog", '`include "defines.vh"'),
+        ({"specifier": "gleam/io", "names": []}, "gleam", "import gleam/io"),
+        ({"specifier": "ggplot2", "names": []}, "r", "library(ggplot2)"),
+        ({"specifier": "res://player.gd", "names": []}, "gdscript", 'preload("res://player.gd")'),
+        ({"specifier": "fragments/user", "names": []}, "graphql", "# import fragments/user"),
+    ], ids=[
+        "python_from_multi", "python_import_bare", "typescript_named",
+        "rust_named_multi", "rust_module", "go_import",
+        "java_with_names", "java_no_names", "kotlin_no_semicolon", "csharp", "php", "ruby",
+        "python_from_single", "typescript", "tsx", "jsx", "vue", "rust_single", "go_bare",
+        "java", "kotlin", "scala_multi", "scala_single", "groovy", "csharp_bare", "php_bare", "ruby",
+        "c", "cpp", "objc", "swift", "haskell_multi", "haskell_bare", "dart",
+        "elixir", "elixir_multi", "perl", "lua", "luau", "julia", "proto",
+        "fortran", "asm", "arduino", "vhdl", "verilog", "gleam", "r", "gdscript", "graphql",
+    ])
+    def test_format_import_line(self, imp, language, expected):
+        assert _format_import_line(imp, language) == expected
 
-    def test_typescript_named(self):
-        imp = {"specifier": "./models", "names": ["User"]}
-        result = _format_import_line(imp, "typescript")
-        assert "import { User } from './models';" == result
+    def test_unknown_language_fallback(self):
+        """Unknown language falls back to 'import <specifier>'."""
+        assert _format_import_line({"specifier": "something", "names": []}, "unknown_lang") == "import something"
 
 
 class TestSplitPythonImport:
-    def test_split_multi_import(self):
-        line = "from models import User, Admin, Guest"
-        result = _split_python_import(line, "User", "models", "utils/users")
-        assert "from models import Admin, Guest" in result
-        assert "from utils/users import User" in result
+    """Parametrized tests for _split_python_import."""
 
-    def test_single_name_moves(self):
-        line = "from models import User"
-        result = _split_python_import(line, "User", "models", "utils/users")
-        assert result == "from utils/users import User"
-
-    def test_no_match_returns_original(self):
-        line = "import os"
-        result = _split_python_import(line, "User", "models", "utils/users")
-        assert result == line
+    @pytest.mark.parametrize("line,symbol,old_module,new_module,expected_contains", [
+        ("from models import User, Admin, Guest", "User", "models", "utils/users", ["from models import Admin, Guest", "from utils/users import User"]),
+        ("from models import User", "User", "models", "utils/users", ["from utils/users import User"]),
+        ("import os", "User", "models", "utils/users", ["import os"]),
+    ], ids=["split_multi_import", "single_name_moves", "no_match_returns_original"])
+    def test_split_python_import(self, line, symbol, old_module, new_module, expected_contains):
+        result = _split_python_import(line, symbol, old_module, new_module)
+        for expected in expected_contains:
+            assert expected in result
 
 
 # -- Extract helpers tests --
@@ -362,27 +653,17 @@ class TestFindInterSymbolDeps:
 # -- Signature change tests --
 
 class TestExtractCallExpression:
-    def test_single_line_call(self):
-        lines = ["result = foo(1, 2)", "print(result)"]
-        expr = _extract_call_expression(lines, "foo", 0)
-        assert "foo(1, 2)" in expr
+    """Parametrized tests for _extract_call_expression."""
 
-    def test_multi_line_call(self):
-        lines = [
-            "result = foo(",
-            "    1,",
-            "    2,",
-            ")",
-            "print(result)",
-        ]
-        expr = _extract_call_expression(lines, "foo", 0)
-        assert "foo(" in expr
-        assert ")" in expr
-
-    def test_no_paren_returns_line(self):
-        lines = ["x = foo"]
-        expr = _extract_call_expression(lines, "foo", 0)
-        assert expr == "x = foo"
+    @pytest.mark.parametrize("lines,symbol,start_line,expected_contains", [
+        (["result = foo(1, 2)", "print(result)"], "foo", 0, ["foo(1, 2)"]),
+        (["result = foo(", "    1,", "    2,", ")", "print(result)"], "foo", 0, ["foo(", ")"]),
+        (["x = foo"], "foo", 0, ["x = foo"]),
+    ], ids=["single_line_call", "multi_line_call", "no_paren_returns_line"])
+    def test_extract_call_expression(self, lines, symbol, start_line, expected_contains):
+        expr = _extract_call_expression(lines, symbol, start_line)
+        for expected in expected_contains:
+            assert expected in expr
 
 
 # -- Full rename tests --
@@ -495,72 +776,29 @@ class TestGenerateImportRewrites:
 
 
 class TestScanNonCodeFiles:
-    def test_yaml_warning(self):
-        """Non-code files matching symbol name produce warnings."""
+    """Parametrized tests for _scan_non_code_files."""
+
+    @pytest.mark.parametrize("symbol_name,file_lang,file_content,expected_count,expected_file", [
+        ("FOO", "yaml", "key: FOO\nother: bar", 1, "config.yaml"),
+        ("Bar", "markdown", "# Using Bar in tests\nSee the class documentation.", 1, "README.md"),
+        ("Foo", "python", "x = Foo()", 0, None),
+    ], ids=["yaml_warning", "md_warning", "no_false_positives_code"])
+    def test_scan_non_code_files(self, symbol_name, file_lang, file_content, expected_count, expected_file):
+        file_name = f"file.{file_lang}" if file_lang != "python" else "a.py"
+        other_file = f"config.{file_lang}" if file_lang == "yaml" else ("README.md" if file_lang == "markdown" else "b.py")
         idx = FakeIndex(
-            symbols=[{"id": "a.py::FOO#constant", "name": "FOO", "file": "a.py"}],
-            source_files=["a.py", "config.yaml"],
-            file_languages={"a.py": "python", "config.yaml": "yaml"},
+            symbols=[{"id": "a.py::Foo#class", "name": symbol_name, "file": "a.py"}],
+            source_files=["a.py", other_file],
+            file_languages={"a.py": "python", other_file: file_lang},
         )
         store = FakeStore({
-            "config.yaml": "key: FOO\nother: bar",
+            "a.py": "x = 1",
+            other_file: file_content,
         })
-        warnings = _scan_non_code_files(store, "owner", "name", idx, "FOO")
-        assert len(warnings) == 1
-        assert warnings[0]["file"] == "config.yaml"
-        assert warnings[0]["reason"] == "non-code file"
-
-    def test_md_warning(self):
-        """Markdown files matching symbol name produce warnings."""
-        idx = FakeIndex(
-            symbols=[{"id": "a.py::Bar#class", "name": "Bar", "file": "a.py"}],
-            source_files=["a.py", "README.md"],
-            file_languages={"a.py": "python", "README.md": "markdown"},
-        )
-        store = FakeStore({
-            "README.md": "# Using Bar in tests\nSee the class documentation.",
-        })
-        warnings = _scan_non_code_files(store, "owner", "name", idx, "Bar")
-        assert len(warnings) == 1
-        assert warnings[0]["file"] == "README.md"
-
-    def test_no_false_positives_on_code_files(self):
-        """Code files with the extension are NOT scanned."""
-        idx = FakeIndex(
-            symbols=[{"id": "a.py::Foo#class", "name": "Foo", "file": "a.py"}],
-            source_files=["a.py", "b.py"],
-            file_languages={"a.py": "python", "b.py": "python"},
-        )
-        store = FakeStore({
-            "b.py": "x = Foo()",
-        })
-        warnings = _scan_non_code_files(store, "owner", "name", idx, "Foo")
-        assert warnings == []
-
-
-class TestComputeNewImportUnchanged:
-    def test_typescript_path_alias_resolved(self):
-        """Fix A: @/ path alias cannot be reliably resolved (requires tsconfig.json)."""
-        line = "import { User } from '@/models/user';"
-        result, warning = _compute_new_import(line, "src/models/user.ts", "src/utils/user.ts", "User", "typescript")
-        # @/ is ambiguous (could be src/, app/, root/) - requires tsconfig.json to resolve
-        # So import should remain unchanged with a warning
-        assert result == line  # unchanged
-        assert warning is not None  # has warning about ambiguous alias
-
-    def test_typescript_unknown_alias_not_resolved(self):
-        """Fix A: Unknown path alias returns warning."""
-        line = "import { User } from '#custom/models/user';"
-        result, warning = _compute_new_import(line, "src/models/user.ts", "src/utils/user.ts", "User", "typescript")
-        assert result == line  # unchanged
-        assert warning is not None  # has warning about unknown alias
-
-    def test_typescript_relative_path_not_matched(self):
-        """TS relative import that doesn't match file path returns warning."""
-        line = "import { User } from '../models/user';"
-        result, warning = _compute_new_import(line, "src/models/user.ts", "src/utils/user.ts", "User", "typescript")
-        assert result == line  # unchanged
-        assert warning is not None  # has warning about relative path
+        warnings = _scan_non_code_files(store, "owner", "name", idx, symbol_name)
+        assert len(warnings) == expected_count
+        if expected_file:
+            assert any(w["file"] == expected_file for w in warnings)
 
 
 class TestPlanMoveCollision:
@@ -653,41 +891,27 @@ class TestPlanExtractCrossLanguage:
 
 
 class TestExtractCallExpressionNested:
-    def test_nested_parentheses(self):
-        """Multi-line call with nested parens balances correctly."""
-        lines = [
-            "result = foo(",
-            "    bar(",
-            '        baz(),',
-            "    ),",
-            ")",
-        ]
-        expr = _extract_call_expression(lines, "foo", 0)
-        assert "foo(" in expr
-        assert "baz()" in expr
-        # Should NOT stop at the first ) but continue until depth returns to 0
-        assert expr.count(")") >= 2
+    """Parametrized tests for _extract_call_expression with nested calls."""
 
-    def test_deeply_nested(self):
-        """Very deeply nested call is fully extracted."""
-        lines = [
-            "x = call(",
-            "    inner(",
-            "        deeper(",
-            "            deepest(arg)",
-            "        )",
-            "    )",
-            ")",
-        ]
-        expr = _extract_call_expression(lines, "call", 0)
-        assert "deepest(arg)" in expr
-        assert expr.count("(") == expr.count(")")
-
-    def test_method_chain_single_line(self):
-        """Method chain on one line is fully captured."""
-        lines = ["result = foo.bar().baz()"]
-        expr = _extract_call_expression(lines, "foo", 0)
-        assert "foo.bar().baz()" in expr
+    @pytest.mark.parametrize("lines,symbol,start_line,expected_contains,balance_check", [
+        (
+            ["result = foo(", "    bar(", '        baz(),', "    ),", ")"],
+            "foo", 0, ["foo(", "baz()"], "count_paren_ge_2"
+        ),
+        (
+            ["x = call(", "    inner(", "        deeper(", "            deepest(arg)", "        )", "    )", ")"],
+            "call", 0, ["deepest(arg)"], "balanced"
+        ),
+        (["result = foo.bar().baz()"], "foo", 0, ["foo.bar().baz()"], None),
+    ], ids=["nested_parentheses", "deeply_nested", "method_chain_single_line"])
+    def test_extract_call_expression_nested(self, lines, symbol, start_line, expected_contains, balance_check):
+        expr = _extract_call_expression(lines, symbol, start_line)
+        for expected in expected_contains:
+            assert expected in expr
+        if balance_check == "count_paren_ge_2":
+            assert expr.count(")") >= 2
+        elif balance_check == "balanced":
+            assert expr.count("(") == expr.count(")")
 
 
 class TestResolveSymbolAmbiguous:
@@ -710,57 +934,29 @@ class TestResolveSymbolAmbiguous:
 # ---------------------------------------------------------------------------
 
 class TestIsInsideInterpolation:
-    """Tests for Fix E: f-string and template literal interpolation detection."""
+    """Tests for _is_inside_interpolation (f-string and template literal interpolation detection)."""
 
-    def test_python_f_string_simple(self):
-        """Symbol inside f-string braces is detected as interpolation."""
-        assert _is_inside_interpolation('name = f"Hello {User}"', "User", "python") is True
+    @pytest.mark.parametrize("line,symbol,expected", [
+        ('name = f"Hello {User}"', "User", True),
+        ('msg = f"{User} is {status}"', "User", True),
+        ('msg = f"Hello World"', "User", False),
+        ('msg = f"Hello {name}"', "User", False),
+        ('msg = f"""Hello {User}"""', "User", True),
+        ('msg = f"""Hello World"""', "User", False),
+        ('msg = "Hello {User}"', "User", False),
+        ('name = f"{User[\'name\']}"', "User", True),
+    ], ids=["py_simple", "py_multi", "py_not_interp", "py_not_present", "py_triple", "py_triple_not", "py_reg_str", "py_nested"])
+    def test_python_f_strings(self, line, symbol, expected):
+        assert _is_inside_interpolation(line, symbol, "python") is expected
 
-    def test_python_f_string_multiple_braces(self):
-        """Symbol in f-string with multiple braces."""
-        assert _is_inside_interpolation('msg = f"{User} is {status}"', "User", "python") is True
-
-    def test_python_f_string_not_interpolated(self):
-        """Symbol outside braces in f-string is NOT interpolation."""
-        assert _is_inside_interpolation('msg = f"Hello World"', "User", "python") is False
-
-    def test_python_f_string_not_present(self):
-        """Symbol not present at all in f-string line."""
-        assert _is_inside_interpolation('msg = f"Hello {name}"', "User", "python") is False
-
-    def test_python_triple_quote_f_string(self):
-        """Symbol inside triple-quoted f-string is detected."""
-        assert _is_inside_interpolation('msg = f"""Hello {User}"""', "User", "python") is True
-
-    def test_python_triple_quote_f_string_not_interpolated(self):
-        """Symbol in triple-quoted f-string but not inside braces."""
-        assert _is_inside_interpolation('msg = f"""Hello World"""', "User", "python") is False
-
-    def test_python_regular_string_not_f_string(self):
-        """Symbol in regular string (not f-string) is NOT interpolation."""
-        assert _is_inside_interpolation('msg = "Hello {User}"', "User", "python") is False
-
-    def test_python_f_string_nested_braces(self):
-        """Symbol in f-string with nested dict access."""
-        assert _is_inside_interpolation('name = f"{User[\'name\']}"', "User", "python") is True
-
-    def test_typescript_template_literal(self):
-        """Symbol inside template literal with ${} is detected."""
-        assert _is_inside_interpolation('const name = `Hello ${User}`', "User", "typescript") is True
-
-    def test_typescript_template_literal_not_interpolated(self):
-        """Symbol in template literal but not in ${} is NOT interpolation."""
-        assert _is_inside_interpolation('const msg = `Hello World`', "User", "typescript") is False
-
-    def test_typescript_template_literal_multiline(self):
-        """Symbol inside ${} on a multiline template literal line."""
-        # When a line contains ${User} directly (part of multiline template),
-        # it should be detected even without backticks on that line
-        assert _is_inside_interpolation('${User.name}', "User", "typescript") is True
-
-    def test_javascript_template_literal(self):
-        """Symbol inside JS template literal is detected."""
-        assert _is_inside_interpolation('const name = `Hello ${User}`', "User", "javascript") is True
+    @pytest.mark.parametrize("line,symbol,lang,expected", [
+        ('const name = `Hello ${User}`', "User", "typescript", True),
+        ('const msg = `Hello World`', "User", "typescript", False),
+        ('${User.name}', "User", "typescript", True),
+        ('const name = `Hello ${User}`', "User", "javascript", True),
+    ], ids=["ts_template", "ts_not_interp", "ts_multiline", "js_template"])
+    def test_ts_js_templates(self, line, symbol, lang, expected):
+        assert _is_inside_interpolation(line, symbol, lang) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -838,53 +1034,20 @@ class TestExtractTSOverloadSignatures:
 # ---------------------------------------------------------------------------
 
 class TestCheckQualifiedImportUsed:
-    """Tests for Fix B: qualified import detection that avoids false positives."""
+    """Tests for _check_qualified_import_used (qualified import detection)."""
 
-    def test_os_path_qualified_access(self):
-        """os.path used as qualified access is detected."""
-        body = "os.path.join('a', 'b')"
-        assert _check_qualified_import_used(body, "os.path") is True
-
-    def test_os_path_word_false_positive(self):
-        """'path' appearing as word in body should NOT trigger false positive."""
-        body = "file_path = 'some/path'"
-        assert _check_qualified_import_used(body, "os.path") is False
-
-    def test_os_path_partial_word(self):
-        """Single-part import appearing as word in body IS detected (no false positive for qualified)."""
-        # mypath is a single-part import specifier, so it should check for 'mypath' as word
-        # This is correct behavior for single-part imports
-        body = "import mypath\nmypath.do_something()"
-        assert _check_qualified_import_used(body, "mypath") is True
-
-    def test_full_qualified_name(self):
-        """Full qualified name in body is detected."""
-        # os.path.join is in body via the qualified access
-        body = "os.path.join('a', 'b')"
-        assert _check_qualified_import_used(body, "os.path.join") is True
-
-    def test_from_import_qualified_access(self):
-        """from os.path import join with join() usage is detected."""
-        # When using `from os.path import join`, the qualified access os.path is NOT used
-        # Only `join` is used directly. But os.path should still be considered used
-        # because the from import implies the os.path namespace is accessed.
-        body = "from os.path import join\njoin('a', 'b')"
-        assert _check_qualified_import_used(body, "os.path") is True
-
-    def test_nested_qualified_import(self):
-        """Nested qualified import like a.b.c is handled."""
-        body = "a.b.c.do_something()"
-        assert _check_qualified_import_used(body, "a.b.c") is True
-
-    def test_simple_module_import(self):
-        """Simple module import without dots."""
-        body = "import os\nos.path.exists()"
-        assert _check_qualified_import_used(body, "os") is True
-
-    def test_unused_qualified_import(self):
-        """Qualified import not used in body returns False."""
-        body = "x = 1\ny = 2"
-        assert _check_qualified_import_used(body, "os.path") is False
+    @pytest.mark.parametrize("body,import_path,expected", [
+        ("os.path.join('a', 'b')", "os.path", True),
+        ("file_path = 'some/path'", "os.path", False),
+        ("import mypath\nmypath.do_something()", "mypath", True),
+        ("os.path.join('a', 'b')", "os.path.join", True),
+        ("from os.path import join\njoin('a', 'b')", "os.path", True),
+        ("a.b.c.do_something()", "a.b.c", True),
+        ("import os\nos.path.exists()", "os", True),
+        ("x = 1\ny = 2", "os.path", False),
+    ], ids=["os_path_qualified", "os_path_false_positive", "single_part", "full_qualified", "from_import", "nested_qualified", "simple_module", "unused"])
+    def test_check_qualified_import_used(self, body, import_path, expected):
+        assert _check_qualified_import_used(body, import_path) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -892,29 +1055,21 @@ class TestCheckQualifiedImportUsed:
 # ---------------------------------------------------------------------------
 
 class TestGetFileContentSafe:
-    """Tests for _get_file_content_safe error handling."""
+    """Tests for _get_file_content_safe."""
 
-    def test_file_exists_returns_content(self):
-        """File that exists returns content with no error."""
-        store = FakeStore({"a.py": "x = 1"})
-        content, error = _get_file_content_safe(store, "owner", "name", "a.py")
-        assert content == "x = 1"
-        assert error is None
-
-    def test_file_not_found_returns_error(self):
-        """File not in store returns error message."""
-        store = FakeStore({})
-        content, error = _get_file_content_safe(store, "owner", "name", "missing.py")
-        assert content == ""
-        assert error is not None
-        assert "missing.py" in error
-
-    def test_file_empty_returns_empty_string(self):
-        """Empty file returns empty string, not error."""
-        store = FakeStore({"empty.py": ""})
-        content, error = _get_file_content_safe(store, "owner", "name", "empty.py")
-        assert content == ""
-        assert error is None
+    @pytest.mark.parametrize("store_data,file_path,expected_content,expected_error", [
+        ({"a.py": "x = 1"}, "a.py", "x = 1", None),
+        ({}, "missing.py", "", "missing.py"),
+        ({"empty.py": ""}, "empty.py", "", None),
+    ], ids=["exists", "not_found", "empty"])
+    def test_get_file_content_safe(self, store_data, file_path, expected_content, expected_error):
+        store = FakeStore(store_data)
+        content, error = _get_file_content_safe(store, "owner", "name", file_path)
+        assert content == expected_content
+        if expected_error is None:
+            assert error is None
+        else:
+            assert expected_error in error
 
 
 # ---------------------------------------------------------------------------
@@ -924,25 +1079,14 @@ class TestGetFileContentSafe:
 class TestCountSymbolOccurrences:
     """Tests for _count_symbol_occurrences."""
 
-    def test_single_occurrence(self):
-        """Symbol appearing once returns 1."""
-        content = "def foo():\n    pass"
-        assert _count_symbol_occurrences(content, "foo") == 1
-
-    def test_multiple_occurrences(self):
-        """Symbol appearing multiple times returns count."""
-        content = "foo()\nfoo()\nfoo()"
-        assert _count_symbol_occurrences(content, "foo") == 3
-
-    def test_word_boundary(self):
-        """Only word-boundary matches count."""
-        content = "foo()\nfoobar()\nbarfoo()"
-        assert _count_symbol_occurrences(content, "foo") == 1
-
-    def test_no_occurrence(self):
-        """Symbol not present returns 0."""
-        content = "def bar():\n    pass"
-        assert _count_symbol_occurrences(content, "foo") == 0
+    @pytest.mark.parametrize("content,symbol,expected", [
+        ("def foo():\n    pass", "foo", 1),
+        ("foo()\nfoo()\nfoo()", "foo", 3),
+        ("foo()\nfoobar()\nbarfoo()", "foo", 1),
+        ("def bar():\n    pass", "foo", 0),
+    ], ids=["single", "multiple", "word_boundary", "no_occurrence"])
+    def test_count_symbol_occurrences(self, content, symbol, expected):
+        assert _count_symbol_occurrences(content, symbol) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -952,25 +1096,15 @@ class TestCountSymbolOccurrences:
 class TestDetectPathAlias:
     """Tests for _detect_path_alias."""
 
-    def test_detects_at_alias(self):
-        """@/ alias is detected."""
-        assert _detect_path_alias("from '@/models/user'") == "@"
-
-    def test_detects_dollar_lib_alias(self):
-        """$lib alias is detected."""
-        assert _detect_path_alias("import from '$lib/store'") == "$lib"
-
-    def test_detects_tilde_alias(self):
-        """~/ alias is detected."""
-        assert _detect_path_alias("import from '~/utils'") == "~"
-
-    def test_detects_hash_alias(self):
-        """#/ alias is detected."""
-        assert _detect_path_alias("import from '#/components'") == "#"
-
-    def test_no_alias(self):
-        """Regular import has no alias."""
-        assert _detect_path_alias("from './models'") is None
+    @pytest.mark.parametrize("import_line,expected", [
+        ("from '@/models/user'", "@"),
+        ("import from '$lib/store'", "$lib"),
+        ("import from '~/utils'", "~"),
+        ("import from '#/components'", "#"),
+        ("from './models'", None),
+    ], ids=["at_alias", "dollar_lib", "tilde", "hash", "no_alias"])
+    def test_detect_path_alias(self, import_line, expected):
+        assert _detect_path_alias(import_line) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -1118,50 +1252,18 @@ class TestEdgeCases:
 # Test gaps - new tests for uncovered functionality
 # ---------------------------------------------------------------------------
 
-class TestFormatImportLineRustGo:
-    """Test gap 1: _format_import_line for Rust and Go languages (Bug 7 fix)."""
-
-    def test_rust_named_import(self):
-        """Rust use statement with named imports uses :: and braces."""
-        imp = {"specifier": "crate::models", "names": ["User", "Admin"]}
-        result = _format_import_line(imp, "rust")
-        assert result == "use crate::models::{User, Admin};"
-
-    def test_rust_module_import(self):
-        """Rust use statement for module uses :: separator."""
-        imp = {"specifier": "crate::utils", "names": []}
-        result = _format_import_line(imp, "rust")
-        assert result == "use crate::utils;"
-
-    def test_go_import(self):
-        """Go import uses import "pkg" format."""
-        imp = {"specifier": "github.com/user/project", "names": []}
-        result = _format_import_line(imp, "go")
-        assert result == 'import "github.com/user/project"'
-
-
 class TestSplitPythonImportAliased:
-    """Test gap 2: _split_python_import with aliased imports (Bug 3 fix)."""
+    """Parametrized tests for _split_python_import with aliased imports."""
 
-    def test_alias_preserved_when_remaining(self):
-        """from X import User as U, Admin -> User as U moves, Admin stays."""
-        line = "from models import User as U, Admin"
-        result = _split_python_import(line, "User", "models", "new_models")
-        assert "from models import Admin" in result
-        assert "from new_models import User as U" in result
-
-    def test_alias_preserved_when_only_moving(self):
-        """from X import User as U -> from new_module import User as U (alias preserved)."""
-        line = "from models import User as U"
-        result = _split_python_import(line, "User", "models", "new_models")
-        assert result == "from new_models import User as U"
-
-    def test_alias_mixed_multi_import(self):
-        """from X import User as U, Admin as A, Guest -> correct split."""
-        line = "from models import User as U, Admin as A, Guest"
-        result = _split_python_import(line, "Admin", "models", "new_models")
-        assert "from models import User as U, Guest" in result
-        assert "from new_models import Admin as A" in result
+    @pytest.mark.parametrize("line,symbol,old_module,new_module,expected_contains", [
+        ("from models import User as U, Admin", "User", "models", "new_models", ["from models import Admin", "from new_models import User as U"]),
+        ("from models import User as U", "User", "models", "new_models", ["from new_models import User as U"]),
+        ("from models import User as U, Admin as A, Guest", "Admin", "models", "new_models", ["from models import User as U, Guest", "from new_models import Admin as A"]),
+    ], ids=["alias_preserved_remaining", "alias_preserved_only_moving", "alias_mixed_multi"])
+    def test_split_python_import_aliased(self, line, symbol, old_module, new_module, expected_contains):
+        result = _split_python_import(line, symbol, old_module, new_module)
+        for expected in expected_contains:
+            assert expected in result
 
 
 class TestPlanSignatureChangeAsync:
@@ -1377,29 +1479,6 @@ class TestPlanRefactoringEntryPointValidation:
         assert len(result["error"]) > 0
 
 
-class TestClassifyLineRustGo:
-    """Test gap 8: _classify_line for Rust and Go languages."""
-
-    def test_rust_use_statement(self):
-        """Rust use statement is classified as import."""
-        assert _classify_line("use crate::models::User;", "User", "rust") == "import"
-
-    def test_rust_function_def(self):
-        """Rust fn definition is classified as definition."""
-        assert _classify_line("fn process_data(data: Vec<u8>) {", "process_data", "rust") == "definition"
-
-    def test_go_import(self):
-        """Go import statement is classified as import even when identifier is inside quotes."""
-        # import "fmt" — the identifier is inside a string, but import pattern takes priority
-        assert _classify_line('import "fmt"', "fmt", "go") == "import"
-        # var User = 1 is a DEFINITION (defining the variable), not a usage
-        assert _classify_line('var User = 1', "User", "go") == "definition"
-
-    def test_go_function_def(self):
-        """Go func definition is classified as definition."""
-        assert _classify_line("func processData(data string) {", "processData", "go") == "definition"
-
-
 class TestClassifyLineUnclosedString:
     """Test gap 9: _classify_line with unclosed strings (B-5 fix)."""
 
@@ -1488,54 +1567,29 @@ class TestClassifyLineUnclosedString:
 
 
 class TestCheckSymbolInTemplateInterp:
-    """Test gap 10: _check_symbol_in_template_interp direct tests."""
+    """Tests for _check_symbol_in_template_interp."""
 
-    def test_symbol_in_simple_interpolation(self):
-        """Symbol inside ${symbol} is detected."""
-        content = "Hello ${User}"
-        assert _check_symbol_in_template_interp(content, "User") is True
-
-    def test_symbol_in_nested_braces(self):
-        """Symbol in ${obj.method({key: value})} is detected (Bug 12 fix)."""
-        content = "${obj.method({key: User})}"
-        assert _check_symbol_in_template_interp(content, "User") is True
-
-    def test_symbol_not_in_interpolation(self):
-        """Symbol outside ${} is not detected."""
-        content = "Hello $User"
-        assert _check_symbol_in_template_interp(content, "User") is False
-
-    def test_multiple_interpolations(self):
-        """Symbol in one of multiple interpolations is detected."""
-        content = "${foo} and ${User.name}"
-        assert _check_symbol_in_template_interp(content, "User") is True
-
-    def test_symbol_in_deeply_nested_interpolation(self):
-        """Symbol in deeply nested structure is detected."""
-        content = "${async ({user: User}) => user.name}"
-        assert _check_symbol_in_template_interp(content, "User") is True
+    @pytest.mark.parametrize("content,symbol,expected", [
+        ("Hello ${User}", "User", True),
+        ("${obj.method({key: User})}", "User", True),
+        ("Hello $User", "User", False),
+        ("${foo} and ${User.name}", "User", True),
+        ("${async ({user: User}) => user.name}", "User", True),
+    ], ids=["simple", "nested_braces", "not_interp", "multiple", "deeply_nested"])
+    def test_check_symbol_in_template_interp(self, content, symbol, expected):
+        assert _check_symbol_in_template_interp(content, symbol) is expected
 
 
 class TestDetectLineSep:
-    """Test for _detect_line_sep helper (used in LE fixes)."""
+    """Tests for _detect_line_sep."""
 
-    def test_windows_line_sep_detected(self):
-        """\\r\\n line endings are detected."""
-        content = "line1\r\nline2\r\nline3"
-        assert _detect_line_sep(content) == "\r\n"
-
-    def test_unix_line_sep_detected(self):
-        """\\n line endings are detected."""
-        content = "line1\nline2\nline3"
-        assert _detect_line_sep(content) == "\n"
-
-    def test_mixed_returns_unix(self):
-        """Content with both \\r\\n and \\n uses \\n (last one wins or unix default)."""
-        content = "line1\r\nline2\nline3"
-        # When both present, prefer \r\n if it appears first
-        # Actually the function checks if \r\n IN content, so it would be \r\n
-        result = _detect_line_sep(content)
-        assert result in ("\r\n", "\n")
+    @pytest.mark.parametrize("content,expected", [
+        ("line1\r\nline2\r\nline3", "\r\n"),
+        ("line1\nline2\nline3", "\n"),
+        ("line1\r\nline2\nline3", "\r\n"),
+    ], ids=["windows", "unix", "mixed"])
+    def test_detect_line_sep(self, content, expected):
+        assert _detect_line_sep(content) == expected
 
 
 class TestExtractCallExpressionTripleQuote:
@@ -1562,991 +1616,92 @@ class TestExtractCallExpressionTripleQuote:
 # Language Extension Tests
 # ---------------------------------------------------------------------------
 
-class TestClassifyLineJava:
-    """Test _classify_line with Java patterns."""
-
-    def test_import(self):
-        assert _classify_line("import com.example.User;", "User", "java") == "import"
-
-    def test_static_import(self):
-        assert _classify_line("import static com.example.Utils.parse;", "parse", "java") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("public class User {", "User", "java") == "definition"
-
-    def test_interface_def(self):
-        assert _classify_line("public interface UserService {", "UserService", "java") == "definition"
-
-    def test_enum_def(self):
-        assert _classify_line("public enum Status {", "Status", "java") == "definition"
-
-    def test_record_def(self):
-        assert _classify_line("public record UserDTO(String name) {", "UserDTO", "java") == "definition"
-
-    def test_usage(self):
-        assert _classify_line("User u = new User();", "User", "java") == "usage"
-
-
-class TestClassifyLineCSharp:
-    """Test _classify_line with C# patterns."""
-
-    def test_using(self):
-        assert _classify_line("using System.Collections.Generic;", "Generic", "csharp") == "import"
-
-    def test_using_static(self):
-        assert _classify_line("using static System.Math;", "Math", "csharp") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("public class UserService {", "UserService", "csharp") == "definition"
-
-    def test_struct_def(self):
-        assert _classify_line("public struct Point {", "Point", "csharp") == "definition"
-
-    def test_interface_def(self):
-        assert _classify_line("public interface IUserService {", "IUserService", "csharp") == "definition"
-
-    def test_partial_class(self):
-        assert _classify_line("public partial class UserService {", "UserService", "csharp") == "definition"
-
-    def test_usage(self):
-        assert _classify_line("var svc = new UserService();", "UserService", "csharp") == "usage"
-
-
-class TestClassifyLinePHP:
-    """Test _classify_line with PHP patterns."""
-
-    def test_use(self):
-        assert _classify_line("use App\\Models\\User;", "User", "php") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("class User {", "User", "php") == "definition"
-
-    def test_trait_def(self):
-        assert _classify_line("trait HasTimestamps {", "HasTimestamps", "php") == "definition"
-
-    def test_interface_def(self):
-        assert _classify_line("interface UserRepository {", "UserRepository", "php") == "definition"
-
-    def test_abstract_class(self):
-        assert _classify_line("abstract class BaseModel {", "BaseModel", "php") == "definition"
-
-    def test_usage(self):
-        assert _classify_line("$user = new User();", "User", "php") == "usage"
-
-
-class TestClassifyLineRuby:
-    """Test _classify_line with Ruby patterns."""
-
-    def test_require(self):
-        assert _classify_line("require 'models/user'", "user", "ruby") == "import"
-
-    def test_require_relative(self):
-        assert _classify_line("require_relative 'user'", "user", "ruby") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("class User", "User", "ruby") == "definition"
-
-    def test_module_def(self):
-        assert _classify_line("module Authentication", "Authentication", "ruby") == "definition"
-
-    def test_usage(self):
-        assert _classify_line("user = User.new", "User", "ruby") == "usage"
-
-
-class TestComputeNewImportRust:
-    """Test _compute_new_import for Rust."""
-
-    def test_crate_path_rewrite(self):
-        line = "use crate::models::user::User;"
-        new_line, warn = _compute_new_import(
-            line, "src/models/user.rs", "src/services/user.rs", "User", "rust"
-        )
-        assert warn is None
-        assert "services::user" in new_line
-        assert "models::user" not in new_line
-
-    def test_super_path_rewrite(self):
-        line = "use super::models::user::User;"
-        new_line, warn = _compute_new_import(
-            line, "src/models/user.rs", "src/services/user.rs", "User", "rust"
-        )
-        assert warn is None
-        assert "services::user" in new_line
-
-    def test_no_match_warns(self):
-        line = "use external_crate::Something;"
-        new_line, warn = _compute_new_import(
-            line, "src/models/user.rs", "src/services/user.rs", "User", "rust"
-        )
-        assert warn is not None
-        assert new_line == line
-
-
-class TestComputeNewImportGo:
-    """Test _compute_new_import for Go."""
-
-    def test_package_path_rewrite(self):
-        line = 'import "myapp/models"'
-        new_line, warn = _compute_new_import(
-            line, "models/user.go", "services/user.go", "User", "go"
-        )
-        assert warn is None
-        assert "services" in new_line
-        assert "models" not in new_line
-
-    def test_no_match_warns(self):
-        line = 'import "github.com/other/pkg"'
-        _, warn = _compute_new_import(
-            line, "models/user.go", "services/user.go", "User", "go"
-        )
-        assert warn is not None
-
-
-class TestComputeNewImportJava:
-    """Test _compute_new_import for Java."""
-
-    def test_package_rewrite(self):
-        line = "import com.example.models.User;"
-        new_line, warn = _compute_new_import(
-            line, "src/main/java/com/example/models/User.java",
-            "src/main/java/com/example/services/User.java",
-            "User", "java"
-        )
-        assert warn is None
-        assert "services.User" in new_line
-        assert "models.User" not in new_line
-
-    def test_no_match_warns(self):
-        line = "import org.other.Thing;"
-        _, warn = _compute_new_import(
-            line, "src/main/java/com/example/User.java",
-            "src/main/java/com/example/services/User.java",
-            "User", "java"
-        )
-        assert warn is not None
-
-
-class TestComputeNewImportCSharp:
-    """Test _compute_new_import for C#."""
-
-    def test_namespace_rewrite(self):
-        line = "using MyApp.Models.User;"
-        new_line, warn = _compute_new_import(
-            line, "src/Models/User.cs", "src/Services/User.cs", "User", "csharp"
-        )
-        assert warn is None
-        assert "Services.User" in new_line
-        assert "Models.User" not in new_line
-
-
-class TestComputeNewImportPHP:
-    """Test _compute_new_import for PHP."""
-
-    def test_namespace_rewrite(self):
-        line = "use App\\Models\\User;"
-        new_line, warn = _compute_new_import(
-            line, "src/App/Models/User.php", "src/App/Services/User.php", "User", "php"
-        )
-        assert warn is None
-        assert "Services\\User" in new_line or "Services" in new_line
-        assert "Models\\User" not in new_line
-
-
-class TestComputeNewImportRuby:
-    """Test _compute_new_import for Ruby."""
-
-    def test_require_path_rewrite(self):
-        line = "require 'models/user'"
-        new_line, warn = _compute_new_import(
-            line, "models/user.rb", "services/user.rb", "User", "ruby"
-        )
-        assert warn is None
-        assert "services/user" in new_line
-        assert "models/user" not in new_line
-
-
-class TestFormatImportLineExtended:
-    """Test _format_import_line for new languages."""
-
-    def test_java_with_names(self):
-        result = _format_import_line({"specifier": "com.example.models", "names": ["User"]}, "java")
-        assert result == "import com.example.models.User;"
-
-    def test_java_no_names(self):
-        result = _format_import_line({"specifier": "com.example.models.User", "names": []}, "java")
-        assert result == "import com.example.models.User;"
-
-    def test_kotlin_no_semicolon(self):
-        result = _format_import_line({"specifier": "com.example.User", "names": []}, "kotlin")
-        assert result == "import com.example.User"
-        assert ";" not in result
-
-    def test_csharp(self):
-        result = _format_import_line({"specifier": "System.Collections.Generic", "names": []}, "csharp")
-        assert result == "using System.Collections.Generic;"
-
-    def test_php(self):
-        result = _format_import_line({"specifier": "App\\Models\\User", "names": []}, "php")
-        assert result == "use App\\Models\\User;"
-
-    def test_ruby(self):
-        result = _format_import_line({"specifier": "models/user", "names": []}, "ruby")
-        assert result == "require 'models/user'"
-
-
-class TestSignatureChangeRust:
-    """Test signature change for Rust functions."""
-
-    def test_simple_fn(self):
-        sym = {
-            "id": "src/lib.rs::calculate#function",
-            "name": "calculate",
-            "file": "src/lib.rs",
-            "line": 1,
-        }
-        index = FakeIndex(
-            symbols=[sym],
-            file_languages={"src/lib.rs": "rust"},
-        )
-        store = FakeStore(files={
-            "src/lib.rs": "fn calculate(x: i32) -> i32 {\n    x + 1\n}\n",
-        })
-        result = _plan_signature_change(index, store, "o", "n", sym, "calculate(x: i32, y: i32) -> i32 {", depth=1)
+class TestSignatureChange:
+    """Parametrized tests for _plan_signature_change across all languages."""
+
+    @pytest.mark.parametrize("sym_id,sym_name,sym_file,language,source,old_sig,new_sig", [
+        # Group 12a: simple function tests (12 tests)
+        ("src/lib.rs::calculate#function", "calculate", "src/lib.rs", "rust",
+         "fn calculate(x: i32) -> i32 {\n    x + 1\n}\n",
+         "fn calculate(x: i32)", "fn calculate(x: i32, y: i32) -> i32 {"),
+        ("main.go::Calculate#function", "Calculate", "main.go", "go",
+         "func Calculate(x int) int {\n\treturn x + 1\n}\n",
+         "func Calculate(x int)", "func Calculate(x, y int) int {"),
+        ("main.scala::compute#function", "compute", "main.scala", "scala",
+         "def compute(x: Int): Int = {\n  x + 1\n}\n",
+         "def compute(x: Int)", "def compute(x: Int, y: Int): Int = {"),
+        ("server.ex::handle#function", "handle", "server.ex", "elixir",
+         "def handle(msg, state) do\n  {:ok, state}\nend\n",
+         "def handle(msg, state) do", "def handle(msg, _from, state) do"),
+        ("server.ex::validate#function", "validate", "server.ex", "elixir",
+         "defp validate(data) do\n  :ok\nend\n",
+         "defp validate(data) do", "defp validate(data, opts) do"),
+        ("utils.lua::helper#function", "helper", "utils.lua", "lua",
+         "function helper(x)\n  return x\nend\n",
+         "function helper(x)", "function helper(x, y)"),
+        ("utils.cpp::calculate#function", "calculate", "utils.cpp", "cpp",
+         "int calculate(int x) {\n    return x;\n}\n",
+         "int calculate(int x)", "int calculate(int x, int y) {"),
+        ("main.kt::process#function", "process", "main.kt", "kotlin",
+         "fun process(input: String): Int {\n    return 0\n}\n",
+         "fun process(input: String)", "fun process(input: String, retries: Int): Int {"),
+        ("utils.rb::process#function", "process", "utils.rb", "ruby",
+         "def process(input)\n  input.upcase\nend\n",
+         "def process(input)", "def process(input, opts = {})"),
+        ("utils.dart::calculate#function", "calculate", "utils.dart", "dart",
+         "int calculate(int x) {\n  return x;\n}\n",
+         "int calculate(int x)", "int calculate(int x, int y) {"),
+        ("utils.pl::process#function", "process", "utils.pl", "perl",
+         "sub process {\n    my ($self, $input) = @_;\n}\n",
+         "sub process", "sub process_batch {"),
+        ("utils.jl::compute#function", "compute", "utils.jl", "julia",
+         "function compute(x::Int)\n    x + 1\nend\n",
+         "function compute(x::Int)", "function compute(x::Int, y::Int)"),
+    ], ids=[
+        "rust_simple_fn", "go_simple_func", "scala_def",
+        "elixir_def", "elixir_defp", "lua_function",
+        "cpp_function", "kotlin_fun", "ruby_def",
+        "dart_function", "perl_sub", "julia_function",
+    ])
+    def test_simple_function(self, sym_id, sym_name, sym_file, language, source, old_sig, new_sig):
+        sym = {"id": sym_id, "name": sym_name, "file": sym_file, "line": 1}
+        index = FakeIndex(symbols=[sym], file_languages={sym_file: language})
+        store = FakeStore(files={sym_file: source})
+        result = _plan_signature_change(index, store, "o", "n", sym, new_sig, depth=1)
         assert "error" not in result
         edit = result["definition_edit"]
-        assert "fn calculate(x: i32)" in edit["old_text"]
-        assert "fn calculate(x: i32, y: i32) -> i32 {" in edit["new_text"]
+        assert old_sig in edit["old_text"]
+        assert new_sig in edit["new_text"]
 
-    def test_pub_fn_preserves_visibility(self):
-        sym = {
-            "id": "src/lib.rs::serve#function",
-            "name": "serve",
-            "file": "src/lib.rs",
-            "line": 1,
-        }
-        index = FakeIndex(
-            symbols=[sym],
-            file_languages={"src/lib.rs": "rust"},
-        )
-        store = FakeStore(files={
-            "src/lib.rs": "pub fn serve(port: u16) {\n    // ...\n}\n",
-        })
-        result = _plan_signature_change(index, store, "o", "n", sym, "serve(addr: &str, port: u16) {", depth=1)
+    @pytest.mark.parametrize("sym_id,sym_name,sym_file,language,source,old_sig,new_sig,visibility_check", [
+        # Group 12b: visibility modifier preserved (6 tests)
+        ("src/lib.rs::serve#function", "serve", "src/lib.rs", "rust",
+         "pub fn serve(port: u16) {\n    // ...\n}\n",
+         "fn serve(port: u16)", "fn serve(addr: &str, port: u16) {", "pub "),
+        ("src/lib.rs::helper#function", "helper", "src/lib.rs", "rust",
+         "pub(crate) fn helper(x: i32) {\n}\n",
+         "fn helper(x: i32)", "fn helper(x: i32, y: i32) {", "pub(crate) "),
+        ("server.go::Serve#function", "Serve", "server.go", "go",
+         "func (s *Server) Serve(port int) error {\n\treturn nil\n}\n",
+         "func (s *Server) Serve(port int)", "func (s *Server) Serve(addr string, port int) error {", "func (s *Server) "),
+        ("Svc.java::process#function", "process", "Svc.java", "java",
+         "public void process(String input) {\n}\n",
+         "void process(String input)", "void process(String input, int retries) {", "public "),
+        ("Utils.java::parse#function", "parse", "Utils.java", "java",
+         "public static int parse(String s) {\n}\n",
+         "int parse(String s)", "int parse(String s, int radix) {", "public static "),
+        ("utils.lua::inner#function", "inner", "utils.lua", "lua",
+         "local function inner(x)\n  return x\nend\n",
+         "function inner(x)", "function inner(x, y)", "local function "),
+    ], ids=[
+        "rust_pub_fn", "rust_pub_crate_fn", "go_method_receiver",
+        "java_public_method", "java_static_method", "lua_local_function",
+    ])
+    def test_visibility_preserved(self, sym_id, sym_name, sym_file, language, source, old_sig, new_sig, visibility_check):
+        sym = {"id": sym_id, "name": sym_name, "file": sym_file, "line": 1}
+        index = FakeIndex(symbols=[sym], file_languages={sym_file: language})
+        store = FakeStore(files={sym_file: source})
+        result = _plan_signature_change(index, store, "o", "n", sym, new_sig, depth=1)
         assert "error" not in result
-        assert "pub " in result["definition_edit"]["new_text"]
-
-    def test_pub_crate_fn(self):
-        sym = {
-            "id": "src/lib.rs::helper#function",
-            "name": "helper",
-            "file": "src/lib.rs",
-            "line": 1,
-        }
-        index = FakeIndex(
-            symbols=[sym],
-            file_languages={"src/lib.rs": "rust"},
-        )
-        store = FakeStore(files={
-            "src/lib.rs": "pub(crate) fn helper(x: i32) {\n}\n",
-        })
-        result = _plan_signature_change(index, store, "o", "n", sym, "helper(x: i32, y: i32) {", depth=1)
-        assert "error" not in result
-        assert "pub(crate) " in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeGo:
-    """Test signature change for Go functions."""
-
-    def test_simple_func(self):
-        sym = {
-            "id": "main.go::Calculate#function",
-            "name": "Calculate",
-            "file": "main.go",
-            "line": 1,
-        }
-        index = FakeIndex(
-            symbols=[sym],
-            file_languages={"main.go": "go"},
-        )
-        store = FakeStore(files={
-            "main.go": "func Calculate(x int) int {\n\treturn x + 1\n}\n",
-        })
-        result = _plan_signature_change(index, store, "o", "n", sym, "Calculate(x, y int) int {", depth=1)
-        assert "error" not in result
-        edit = result["definition_edit"]
-        assert "func Calculate(x int)" in edit["old_text"]
-        assert "func Calculate(x, y int) int {" in edit["new_text"]
-
-    def test_method_receiver_preserved(self):
-        sym = {
-            "id": "server.go::Serve#function",
-            "name": "Serve",
-            "file": "server.go",
-            "line": 1,
-        }
-        index = FakeIndex(
-            symbols=[sym],
-            file_languages={"server.go": "go"},
-        )
-        store = FakeStore(files={
-            "server.go": "func (s *Server) Serve(port int) error {\n\treturn nil\n}\n",
-        })
-        result = _plan_signature_change(index, store, "o", "n", sym, "Serve(addr string, port int) error {", depth=1)
-        assert "error" not in result
-        edit = result["definition_edit"]
-        assert "func (s *Server) " in edit["new_text"]
-        assert "Serve(addr string, port int) error {" in edit["new_text"]
-
-
-# ---------------------------------------------------------------------------
-# Extended Language Coverage Tests — Tier 1 (import extractors)
-# ---------------------------------------------------------------------------
-
-class TestClassifyLineC:
-    def test_include_angle(self):
-        assert _classify_line('#include <stdio.h>', "stdio", "c") == "import"
-
-    def test_include_quoted(self):
-        assert _classify_line('#include "models/user.h"', "user", "c") == "import"
-
-    def test_struct_def(self):
-        assert _classify_line("struct User {", "User", "c") == "definition"
-
-    def test_enum_def(self):
-        assert _classify_line("enum Status {", "Status", "c") == "definition"
-
-    def test_usage(self):
-        assert _classify_line("User* u = create_user();", "User", "c") == "usage"
-
-
-class TestClassifyLineCpp:
-    def test_include(self):
-        assert _classify_line('#include "user.hpp"', "user", "cpp") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("class UserService {", "UserService", "cpp") == "definition"
-
-    def test_namespace_def(self):
-        assert _classify_line("namespace utils {", "utils", "cpp") == "definition"
-
-    def test_struct_def(self):
-        assert _classify_line("struct Point {", "Point", "cpp") == "definition"
-
-
-class TestClassifyLineSwift:
-    def test_import(self):
-        assert _classify_line("import Foundation", "Foundation", "swift") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("public class UserService {", "UserService", "swift") == "definition"
-
-    def test_struct_def(self):
-        assert _classify_line("struct Point {", "Point", "swift") == "definition"
-
-    def test_protocol_def(self):
-        assert _classify_line("protocol UserDelegate {", "UserDelegate", "swift") == "definition"
-
-    def test_func_def(self):
-        assert _classify_line("func calculate(x: Int) -> Int {", "calculate", "swift") == "definition"
-
-    def test_actor_def(self):
-        assert _classify_line("actor DataStore {", "DataStore", "swift") == "definition"
-
-
-class TestClassifyLineScala:
-    def test_import(self):
-        assert _classify_line("import scala.collection.mutable", "mutable", "scala") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("class UserService {", "UserService", "scala") == "definition"
-
-    def test_object_def(self):
-        assert _classify_line("object Config {", "Config", "scala") == "definition"
-
-    def test_trait_def(self):
-        assert _classify_line("trait Serializable {", "Serializable", "scala") == "definition"
-
-    def test_case_class(self):
-        assert _classify_line("case class User(name: String)", "User", "scala") == "definition"
-
-    def test_def(self):
-        assert _classify_line("def calculate(x: Int): Int = {", "calculate", "scala") == "definition"
-
-
-class TestClassifyLineHaskell:
-    def test_import(self):
-        assert _classify_line("import Data.Map", "Map", "haskell") == "import"
-
-    def test_import_qualified(self):
-        assert _classify_line("import qualified Data.Map as Map", "Map", "haskell") == "import"
-
-    def test_data_def(self):
-        assert _classify_line("data User = User { name :: String }", "User", "haskell") == "definition"
-
-    def test_type_def(self):
-        assert _classify_line("type Name = String", "Name", "haskell") == "definition"
-
-    def test_newtype_def(self):
-        assert _classify_line("newtype UserId = UserId Int", "UserId", "haskell") == "definition"
-
-
-class TestClassifyLineDart:
-    def test_import(self):
-        assert _classify_line("import 'package:flutter/material.dart';", "material", "dart") == "import"
-
-    def test_class_def(self):
-        assert _classify_line("class UserWidget extends StatelessWidget {", "UserWidget", "dart") == "definition"
-
-    def test_abstract_class(self):
-        assert _classify_line("abstract class Repository {", "Repository", "dart") == "definition"
-
-    def test_enum_def(self):
-        assert _classify_line("enum Status {", "Status", "dart") == "definition"
-
-    def test_mixin_def(self):
-        assert _classify_line("mixin Scrollable {", "Scrollable", "dart") == "definition"
-
-
-# ---------------------------------------------------------------------------
-# Extended Language Coverage Tests — Tier 2 (tree-sitter, no import extractors)
-# ---------------------------------------------------------------------------
-
-class TestClassifyLineElixir:
-    def test_import(self):
-        assert _classify_line("alias MyApp.Accounts.User", "User", "elixir") == "import"
-
-    def test_use(self):
-        assert _classify_line("use GenServer", "GenServer", "elixir") == "import"
-
-    def test_defmodule(self):
-        assert _classify_line("defmodule MyApp do", "MyApp", "elixir") == "definition"
-
-    def test_def(self):
-        assert _classify_line("def handle_call(msg, _from, state) do", "handle_call", "elixir") == "definition"
-
-    def test_defp(self):
-        assert _classify_line("defp validate(data) do", "validate", "elixir") == "definition"
-
-
-class TestClassifyLinePerl:
-    def test_use(self):
-        assert _classify_line("use strict;", "strict", "perl") == "import"
-
-    def test_use_module(self):
-        assert _classify_line("use Carp qw(croak);", "Carp", "perl") == "import"
-
-    def test_sub_def(self):
-        assert _classify_line("sub process_data {", "process_data", "perl") == "definition"
-
-    def test_package_def(self):
-        assert _classify_line("package My::Module;", "My", "perl") == "definition"
-
-
-class TestClassifyLineLua:
-    def test_require(self):
-        assert _classify_line("require('models.user')", "user", "lua") == "import"
-
-    def test_local_require(self):
-        assert _classify_line("local user = require('models.user')", "user", "lua") == "import"
-
-    def test_function_def(self):
-        assert _classify_line("function calculate(x, y)", "calculate", "lua") == "definition"
-
-    def test_local_function(self):
-        assert _classify_line("local function helper(x)", "helper", "lua") == "definition"
-
-
-class TestClassifyLineGleam:
-    def test_import(self):
-        assert _classify_line("import gleam/io", "io", "gleam") == "import"
-
-    def test_pub_fn(self):
-        assert _classify_line("pub fn main() {", "main", "gleam") == "definition"
-
-    def test_fn(self):
-        assert _classify_line("fn helper(x) {", "helper", "gleam") == "definition"
-
-    def test_type(self):
-        assert _classify_line("pub type User {", "User", "gleam") == "definition"
-
-
-class TestClassifyLineJulia:
-    def test_using(self):
-        assert _classify_line("using LinearAlgebra", "LinearAlgebra", "julia") == "import"
-
-    def test_function_def(self):
-        assert _classify_line("function calculate(x, y)", "calculate", "julia") == "definition"
-
-    def test_struct_def(self):
-        assert _classify_line("struct Point", "Point", "julia") == "definition"
-
-    def test_mutable_struct(self):
-        assert _classify_line("mutable struct User", "User", "julia") == "definition"
-
-    def test_module_def(self):
-        assert _classify_line("module MyModule", "MyModule", "julia") == "definition"
-
-
-class TestClassifyLineGDScript:
-    def test_preload(self):
-        assert _classify_line('preload("res://scenes/player.gd")', "player", "gdscript") == "import"
-
-    def test_func_def(self):
-        assert _classify_line("func _ready():", "_ready", "gdscript") == "definition"
-
-    def test_class_def(self):
-        assert _classify_line("class Player:", "Player", "gdscript") == "definition"
-
-    def test_signal_def(self):
-        assert _classify_line("signal health_changed", "health_changed", "gdscript") == "definition"
-
-
-class TestClassifyLineProto:
-    def test_import(self):
-        assert _classify_line('import "google/protobuf/timestamp.proto";', "timestamp", "proto") == "import"
-
-    def test_message_def(self):
-        assert _classify_line("message UserRequest {", "UserRequest", "proto") == "definition"
-
-    def test_service_def(self):
-        assert _classify_line("service UserService {", "UserService", "proto") == "definition"
-
-    def test_enum_def(self):
-        assert _classify_line("enum Status {", "Status", "proto") == "definition"
-
-
-class TestClassifyLineGraphQL:
-    def test_type_def(self):
-        assert _classify_line("type User {", "User", "graphql") == "definition"
-
-    def test_query_def(self):
-        assert _classify_line("query GetUser {", "GetUser", "graphql") == "definition"
-
-    def test_interface_def(self):
-        assert _classify_line("interface Node {", "Node", "graphql") == "definition"
-
-    def test_enum_def(self):
-        assert _classify_line("enum Role {", "Role", "graphql") == "definition"
-
-    def test_input_def(self):
-        assert _classify_line("input CreateUserInput {", "CreateUserInput", "graphql") == "definition"
-
-
-class TestClassifyLineFortran:
-    def test_use(self):
-        assert _classify_line("use math_utils", "math_utils", "fortran") == "import"
-
-    def test_subroutine_def(self):
-        assert _classify_line("subroutine calculate(x, y, result)", "calculate", "fortran") == "definition"
-
-    def test_function_def(self):
-        assert _classify_line("function factorial(n)", "factorial", "fortran") == "definition"
-
-    def test_module_def(self):
-        assert _classify_line("module math_utils", "math_utils", "fortran") == "definition"
-
-
-class TestClassifyLineBash:
-    def test_function_keyword(self):
-        assert _classify_line("function cleanup {", "cleanup", "bash") == "definition"
-
-    def test_function_parens(self):
-        assert _classify_line("cleanup() {", "cleanup", "bash") == "definition"
-
-
-class TestClassifyLineR:
-    def test_library(self):
-        assert _classify_line("library(ggplot2)", "ggplot2", "r") == "import"
-
-
-# ---------------------------------------------------------------------------
-# _compute_new_import — Extended Language Tests
-# ---------------------------------------------------------------------------
-
-class TestComputeNewImportC:
-    def test_include_rewrite(self):
-        line = '#include "models/user.h"'
-        new_line, warn = _compute_new_import(
-            line, "models/user.h", "services/user.h", "User", "c"
-        )
-        assert warn is None
-        assert "services/user.h" in new_line
-
-    def test_angle_bracket_no_match(self):
-        line = "#include <stdlib.h>"
-        _, warn = _compute_new_import(
-            line, "models/user.h", "services/user.h", "User", "c"
-        )
-        assert warn is not None
-
-
-class TestComputeNewImportSwift:
-    def test_module_rewrite(self):
-        line = "import Models"
-        new_line, warn = _compute_new_import(
-            line, "Models/User.swift", "Services/User.swift", "User", "swift"
-        )
-        assert warn is None
-        assert "Services" in new_line
-
-
-class TestComputeNewImportScala:
-    def test_package_rewrite(self):
-        line = "import com.example.models.User"
-        new_line, warn = _compute_new_import(
-            line, "src/main/scala/com/example/models/User.scala",
-            "src/main/scala/com/example/services/User.scala",
-            "User", "scala"
-        )
-        assert warn is None
-        assert "services.User" in new_line
-
-
-class TestComputeNewImportHaskell:
-    def test_module_rewrite(self):
-        line = "import Models.User"
-        new_line, warn = _compute_new_import(
-            line, "src/Models/User.hs", "src/Services/User.hs", "User", "haskell"
-        )
-        assert warn is None
-        assert "Services.User" in new_line
-
-
-class TestComputeNewImportDart:
-    def test_path_rewrite(self):
-        line = "import 'models/user.dart';"
-        new_line, warn = _compute_new_import(
-            line, "models/user.dart", "services/user.dart", "User", "dart"
-        )
-        assert warn is None
-        assert "services/user.dart" in new_line
-
-
-class TestComputeNewImportLua:
-    def test_dot_separated(self):
-        line = 'require("models.user")'
-        new_line, warn = _compute_new_import(
-            line, "models/user.lua", "services/user.lua", "User", "lua"
-        )
-        assert warn is None
-        assert "services.user" in new_line
-
-
-class TestComputeNewImportPerl:
-    def test_module_rewrite(self):
-        line = "use Models::User;"
-        new_line, warn = _compute_new_import(
-            line, "lib/Models/User.pm", "lib/Services/User.pm", "User", "perl"
-        )
-        assert warn is None
-        assert "Services::User" in new_line
-
-
-class TestComputeNewImportFortran:
-    def test_module_rewrite(self):
-        line = "use math_utils"
-        new_line, warn = _compute_new_import(
-            line, "math_utils.f90", "calc_utils.f90", "calculate", "fortran"
-        )
-        assert warn is None
-        assert "calc_utils" in new_line
-
-
-class TestComputeNewImportProto:
-    def test_path_rewrite(self):
-        line = 'import "models/user.proto";'
-        new_line, warn = _compute_new_import(
-            line, "models/user.proto", "services/user.proto", "User", "proto"
-        )
-        assert warn is None
-        assert "services/user.proto" in new_line
-
-
-# ---------------------------------------------------------------------------
-# _format_import_line — Extended Language Tests
-# ---------------------------------------------------------------------------
-
-class TestFormatImportLineAllLanguages:
-    """Comprehensive test of _format_import_line for every supported language."""
-
-    def test_python_from(self):
-        assert _format_import_line({"specifier": "typing", "names": ["List"]}, "python") == "from typing import List"
-
-    def test_typescript(self):
-        assert _format_import_line({"specifier": "./user", "names": ["User"]}, "typescript") == "import { User } from './user';"
-
-    def test_tsx(self):
-        assert _format_import_line({"specifier": "./user", "names": ["User"]}, "tsx") == "import { User } from './user';"
-
-    def test_jsx(self):
-        assert _format_import_line({"specifier": "./user", "names": []}, "jsx") == "import './user';"
-
-    def test_vue(self):
-        assert _format_import_line({"specifier": "./component", "names": ["Comp"]}, "vue") == "import { Comp } from './component';"
-
-    def test_rust(self):
-        assert _format_import_line({"specifier": "crate::models", "names": ["User"]}, "rust") == "use crate::models::{User};"
-
-    def test_go(self):
-        assert _format_import_line({"specifier": "fmt", "names": []}, "go") == 'import "fmt"'
-
-    def test_java(self):
-        assert _format_import_line({"specifier": "com.example", "names": ["User"]}, "java") == "import com.example.User;"
-
-    def test_kotlin(self):
-        assert _format_import_line({"specifier": "com.example.User", "names": []}, "kotlin") == "import com.example.User"
-
-    def test_scala_multi(self):
-        assert _format_import_line({"specifier": "scala.collection", "names": ["Map", "Set"]}, "scala") == "import scala.collection.{Map, Set}"
-
-    def test_scala_single(self):
-        assert _format_import_line({"specifier": "scala.collection", "names": ["Map"]}, "scala") == "import scala.collection.Map"
-
-    def test_groovy(self):
-        assert _format_import_line({"specifier": "com.example", "names": ["User"]}, "groovy") == "import com.example.User;"
-
-    def test_csharp(self):
-        assert _format_import_line({"specifier": "System.Collections.Generic", "names": []}, "csharp") == "using System.Collections.Generic;"
-
-    def test_php(self):
-        result = _format_import_line({"specifier": "App\\Models\\User", "names": []}, "php")
-        assert result == "use App\\Models\\User;"
-
-    def test_ruby(self):
-        assert _format_import_line({"specifier": "models/user", "names": []}, "ruby") == "require 'models/user'"
-
-    def test_c(self):
-        assert _format_import_line({"specifier": "models/user.h", "names": []}, "c") == '#include "models/user.h"'
-
-    def test_cpp(self):
-        assert _format_import_line({"specifier": "user.hpp", "names": []}, "cpp") == '#include "user.hpp"'
-
-    def test_objc(self):
-        assert _format_import_line({"specifier": "User.h", "names": []}, "objc") == '#include "User.h"'
-
-    def test_swift(self):
-        assert _format_import_line({"specifier": "Foundation", "names": []}, "swift") == "import Foundation"
-
-    def test_haskell_with_names(self):
-        assert _format_import_line({"specifier": "Data.Map", "names": ["Map", "fromList"]}, "haskell") == "import Data.Map (Map, fromList)"
-
-    def test_haskell_bare(self):
-        assert _format_import_line({"specifier": "Data.Map", "names": []}, "haskell") == "import Data.Map"
-
-    def test_dart(self):
-        assert _format_import_line({"specifier": "package:flutter/material.dart", "names": []}, "dart") == "import 'package:flutter/material.dart';"
-
-    def test_elixir(self):
-        assert _format_import_line({"specifier": "MyApp.User", "names": []}, "elixir") == "alias MyApp.User"
-
-    def test_elixir_with_names(self):
-        assert _format_import_line({"specifier": "MyApp", "names": ["User", "Admin"]}, "elixir") == "alias MyApp.{User, Admin}"
-
-    def test_perl(self):
-        assert _format_import_line({"specifier": "Models/User", "names": []}, "perl") == "use Models::User;"
-
-    def test_lua(self):
-        assert _format_import_line({"specifier": "models/user", "names": []}, "lua") == 'require("models.user")'
-
-    def test_luau(self):
-        assert _format_import_line({"specifier": "models/user", "names": []}, "luau") == 'require("models.user")'
-
-    def test_julia(self):
-        assert _format_import_line({"specifier": "LinearAlgebra", "names": []}, "julia") == "using LinearAlgebra"
-
-    def test_proto(self):
-        assert _format_import_line({"specifier": "user.proto", "names": []}, "proto") == 'import "user.proto";'
-
-    def test_fortran(self):
-        assert _format_import_line({"specifier": "math_utils", "names": []}, "fortran") == "use math_utils"
-
-    def test_asm(self):
-        assert _format_import_line({"specifier": "macros.inc", "names": []}, "asm") == '.include "macros.inc"'
-
-    def test_arduino(self):
-        assert _format_import_line({"specifier": "Servo.h", "names": []}, "arduino") == '#include "Servo.h"'
-
-    def test_vhdl(self):
-        assert _format_import_line({"specifier": "ieee.std_logic_1164.all", "names": []}, "vhdl") == "use ieee.std_logic_1164.all;"
-
-    def test_verilog(self):
-        assert _format_import_line({"specifier": "defines.vh", "names": []}, "verilog") == '`include "defines.vh"'
-
-    def test_gleam(self):
-        assert _format_import_line({"specifier": "gleam/io", "names": []}, "gleam") == "import gleam/io"
-
-    def test_r(self):
-        assert _format_import_line({"specifier": "ggplot2", "names": []}, "r") == "library(ggplot2)"
-
-    def test_gdscript(self):
-        assert _format_import_line({"specifier": "res://player.gd", "names": []}, "gdscript") == 'preload("res://player.gd")'
-
-    def test_graphql(self):
-        assert _format_import_line({"specifier": "fragments/user", "names": []}, "graphql") == "# import fragments/user"
-
-    def test_unknown_fallback(self):
-        assert _format_import_line({"specifier": "something", "names": []}, "unknown_lang") == "import something"
-
-
-# ---------------------------------------------------------------------------
-# Signature Change — Extended Language Tests
-# ---------------------------------------------------------------------------
-
-class TestSignatureChangeJava:
-    def test_public_method(self):
-        sym = {"id": "Svc.java::process#function", "name": "process", "file": "Svc.java", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"Svc.java": "java"})
-        store = FakeStore(files={"Svc.java": "public void process(String input) {\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "void process(String input, int retries) {", depth=1)
-        assert "error" not in result
-        edit = result["definition_edit"]
-        assert "public " in edit["new_text"]
-        assert "void process(String input, int retries) {" in edit["new_text"]
-
-    def test_static_method(self):
-        sym = {"id": "Utils.java::parse#function", "name": "parse", "file": "Utils.java", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"Utils.java": "java"})
-        store = FakeStore(files={"Utils.java": "public static int parse(String s) {\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "int parse(String s, int radix) {", depth=1)
-        assert "error" not in result
-        assert "public static " in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeSwift:
-    def test_func(self):
-        sym = {"id": "main.swift::calculate#function", "name": "calculate", "file": "main.swift", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"main.swift": "swift"})
-        store = FakeStore(files={"main.swift": "public func calculate(x: Int) -> Int {\n    return x\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "calculate(x: Int, y: Int) -> Int {", depth=1)
-        assert "error" not in result
-        edit = result["definition_edit"]
-        assert "public " in edit["new_text"]
-        assert "func calculate(x: Int, y: Int) -> Int {" in edit["new_text"]
-
-
-class TestSignatureChangeScala:
-    def test_def(self):
-        sym = {"id": "main.scala::compute#function", "name": "compute", "file": "main.scala", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"main.scala": "scala"})
-        store = FakeStore(files={"main.scala": "def compute(x: Int): Int = {\n  x + 1\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "compute(x: Int, y: Int): Int = {", depth=1)
-        assert "error" not in result
-        assert "def compute(x: Int, y: Int): Int = {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangePHP:
-    def test_function(self):
-        sym = {"id": "utils.php::process#function", "name": "process", "file": "utils.php", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.php": "php"})
-        store = FakeStore(files={"utils.php": "public function process(string $input): void {\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "process(string $input, int $retries): void {", depth=1)
-        assert "error" not in result
-        assert "public " in result["definition_edit"]["new_text"]
-        assert "function process(string $input, int $retries): void {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeElixir:
-    def test_def(self):
-        sym = {"id": "server.ex::handle#function", "name": "handle", "file": "server.ex", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"server.ex": "elixir"})
-        store = FakeStore(files={"server.ex": "def handle(msg, state) do\n  {:ok, state}\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "handle(msg, _from, state) do", depth=1)
-        assert "error" not in result
-        assert "def handle(msg, _from, state) do" in result["definition_edit"]["new_text"]
-
-    def test_defp(self):
-        sym = {"id": "server.ex::validate#function", "name": "validate", "file": "server.ex", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"server.ex": "elixir"})
-        store = FakeStore(files={"server.ex": "defp validate(data) do\n  :ok\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "validate(data, opts) do", depth=1)
-        assert "error" not in result
-        assert "defp validate(data, opts) do" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeLua:
-    def test_function(self):
-        sym = {"id": "utils.lua::helper#function", "name": "helper", "file": "utils.lua", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.lua": "lua"})
-        store = FakeStore(files={"utils.lua": "function helper(x)\n  return x\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "helper(x, y)", depth=1)
-        assert "error" not in result
-        assert "function helper(x, y)" in result["definition_edit"]["new_text"]
-
-    def test_local_function(self):
-        sym = {"id": "utils.lua::inner#function", "name": "inner", "file": "utils.lua", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.lua": "lua"})
-        store = FakeStore(files={"utils.lua": "local function inner(x)\n  return x\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "inner(x, y)", depth=1)
-        assert "error" not in result
-        assert "local function inner(x, y)" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeGleam:
-    def test_pub_fn(self):
-        sym = {"id": "main.gleam::greet#function", "name": "greet", "file": "main.gleam", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"main.gleam": "gleam"})
-        store = FakeStore(files={"main.gleam": "pub fn greet(name: String) -> String {\n  name\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "greet(name: String, greeting: String) -> String {", depth=1)
-        assert "error" not in result
-        assert "pub fn greet(name: String, greeting: String) -> String {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeCpp:
-    def test_function(self):
-        sym = {"id": "utils.cpp::calculate#function", "name": "calculate", "file": "utils.cpp", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.cpp": "cpp"})
-        store = FakeStore(files={"utils.cpp": "int calculate(int x) {\n    return x;\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "int calculate(int x, int y) {", depth=1)
-        assert "error" not in result
-        assert "int calculate(int x, int y) {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeKotlin:
-    def test_fun(self):
-        sym = {"id": "main.kt::process#function", "name": "process", "file": "main.kt", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"main.kt": "kotlin"})
-        store = FakeStore(files={"main.kt": "fun process(input: String): Int {\n    return 0\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "process(input: String, retries: Int): Int {", depth=1)
-        assert "error" not in result
-        assert "fun process(input: String, retries: Int): Int {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeRuby:
-    def test_def(self):
-        sym = {"id": "utils.rb::process#function", "name": "process", "file": "utils.rb", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.rb": "ruby"})
-        store = FakeStore(files={"utils.rb": "def process(input)\n  input.upcase\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "process(input, opts = {})", depth=1)
-        assert "error" not in result
-        assert "def process(input, opts = {})" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeDart:
-    def test_function(self):
-        sym = {"id": "utils.dart::calculate#function", "name": "calculate", "file": "utils.dart", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.dart": "dart"})
-        store = FakeStore(files={"utils.dart": "int calculate(int x) {\n  return x;\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "int calculate(int x, int y) {", depth=1)
-        assert "error" not in result
-        assert "int calculate(int x, int y) {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangePerl:
-    def test_sub(self):
-        sym = {"id": "utils.pl::process#function", "name": "process", "file": "utils.pl", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.pl": "perl"})
-        store = FakeStore(files={"utils.pl": "sub process {\n    my ($self, $input) = @_;\n}\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "process_batch {", depth=1)
-        assert "error" not in result
-        assert "sub process_batch {" in result["definition_edit"]["new_text"]
-
-
-class TestSignatureChangeJulia:
-    def test_function(self):
-        sym = {"id": "utils.jl::compute#function", "name": "compute", "file": "utils.jl", "line": 1}
-        index = FakeIndex(symbols=[sym], file_languages={"utils.jl": "julia"})
-        store = FakeStore(files={"utils.jl": "function compute(x::Int)\n    x + 1\nend\n"})
-        result = _plan_signature_change(index, store, "o", "n", sym, "compute(x::Int, y::Int)", depth=1)
-        assert "error" not in result
-        assert "function compute(x::Int, y::Int)" in result["definition_edit"]["new_text"]
+        assert visibility_check in result["definition_edit"]["new_text"]
 
