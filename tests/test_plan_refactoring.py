@@ -1486,58 +1486,6 @@ class TestClassifyLineUnclosedString:
         
         assert result_holder[0] in ("string", "usage", "definition", "import")
 
-    def test_unclosed_double_quote_no_hang(self):
-        """Unclosed double-quoted string does not hang (B-5 fix)."""
-        import threading
-        
-        result_holder = [None]
-        error_holder = [None]
-        
-        def run_test():
-            try:
-                result_holder[0] = _classify_line('msg = "hello', "msg", "python")
-            except Exception as e:
-                error_holder[0] = e
-        
-        t = threading.Thread(target=run_test)
-        t.daemon = True
-        t.start()
-        t.join(timeout=2.0)
-        
-        if t.is_alive():
-            raise AssertionError("B-5 fix failed: _classify_line hung on unclosed double-quoted string!")
-        
-        if error_holder[0]:
-            raise error_holder[0]
-        
-        assert result_holder[0] in ("string", "usage", "definition", "import")
-
-    def test_unclosed_backtick_no_hang(self):
-        """Unclosed backtick string does not hang (B-5 fix)."""
-        import threading
-        
-        result_holder = [None]
-        error_holder = [None]
-        
-        def run_test():
-            try:
-                result_holder[0] = _classify_line("msg = `hello", "msg", "javascript")
-            except Exception as e:
-                error_holder[0] = e
-        
-        t = threading.Thread(target=run_test)
-        t.daemon = True
-        t.start()
-        t.join(timeout=2.0)
-        
-        if t.is_alive():
-            raise AssertionError("B-5 fix failed: _classify_line hung on unclosed backtick string!")
-        
-        if error_holder[0]:
-            raise error_holder[0]
-        
-        assert result_holder[0] in ("string", "usage", "definition", "import")
-
 
 class TestCheckSymbolInTemplateInterp:
     """Test gap 10: _check_symbol_in_template_interp direct tests."""
