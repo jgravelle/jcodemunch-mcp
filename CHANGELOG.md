@@ -2,6 +2,24 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.60.0] — 2026-04-18
+
+### Added
+- **Tiered tool surface with runtime model-driven switching (#246, @MariusAdrian88)** — jcodemunch's 60+ tools now narrow per model at runtime, so request-capped plans stretch further when a small model is driving. Three tiers (`core` / `standard` / `full`); tier bundle contents are user-editable in `config.jsonc` (moved from hardcoded constants in `server.py`) with baked-in defaults as a fallback. New `model_tier_map` config maps model identifiers to tiers via layered matching: normalize (lowercase, strip provider prefix, strip bracket/date suffixes) → exact → glob → substring → `*` wildcard → `full` fallback. Opt-in `adaptive_tiering: true` enables runtime switching; defaults preserve prior behavior. New tools: `set_tool_tier(tier=...)` for explicit override, `announce_model(model=...)` for non-plan_turn flows; `plan_turn(model=...)` piggybacks tier flips on the opening-move call (zero extra MCP requests). Both tier-control tools are force-included at list-time and call-time so users can never strand themselves via `disabled_tools`. Bundle ∩ `disabled_tools` conflicts emit startup WARNING + `config --check` diagnostic. HTTP transport + `adaptive_tiering: true` emits startup WARNING about process-global tier state leaking across clients (hard refusal tracked in #248).
+- **Server error responses include `summary` field** — unexpected exceptions now add a short, sanitized `RuntimeError: ...` summary alongside the generic top-level `error`. Full traceback still lands in the server log.
+
+### Fixed
+- **MUNCH `search_text` round-trip restored (#246)** — the on-wire schema declared flat columns `file|line|line_content`, but the real tool response is nested `{results:[{file, matches:[...]}]}`. Two matches in the same file collapsed to one null row; the matched line `text` was read as `line_content` (wrong column); `before`/`after` context arrays were dropped entirely. Rewritten with flatten/regroup around the real nested shape; columns now `file|line|text|before|after` with context lines riding as JSON strings inside CSV cells (adversarial-tested for embedded commas, quotes, newlines). Encoding ID bumped `st1` → `st2`; legacy `st1` payloads still decode via a new `LEGACY_ENCODING_IDS` discovery hook in the encoder registry. `schema_driven.decode()` gains an opt-in `scalar_types` parameter so typed scalars (ints, floats, bools) round-trip correctly instead of stringifying — `search_text` declares its numeric/boolean fields; every other schema's behavior is unchanged.
+- **`tools/list_changed` notifications actually emit now (#246)** — `_emit_tools_list_changed` was a `pass` placeholder, so the entire runtime-tier feature was silently never notifying clients. New `_get_mcp_session` helper does concrete `srv.request_context.session` lookup with narrowed `LookupError` / `AttributeError` handling; warns at WARNING level when the session lacks `send_tool_list_changed` so SDK version mismatches are visible. Integration test exercises the real `FakeServer.request_context.session` chain instead of mocking the helper.
+- **`plan_turn` tie-safe heap (#246)** — the bounded heap stored `(score, entry)` tuples, so equal scores forced Python to compare `dict` values and raised `TypeError: '<' not supported between instances of 'dict' and 'dict'`. Heap now stores `(score, symbol_id, entry)` triples; regression test covers the equal-score case with two indexed `helper()` symbols.
+- **`plan_turn` tier flip atomicity (#246)** — when `adaptive_tiering: true`, the tier switch now runs after the handler returns successfully. A handler failure can no longer leave a half-applied session tier.
+- **`render_diagram` integration test portability (#250)** — test now skips cleanly when `MMD_VIEWER_PATH` is unset, instead of falling back to a hardcoded path only one contributor's machine had. Set `MMD_VIEWER_PATH` to opt in locally.
+
+### Migration
+- No config changes required. Existing installs see zero behavior change; `adaptive_tiering` defaults to `false`.
+- Operators wanting runtime tier switching: set `adaptive_tiering: true` in `config.jsonc` and optionally customize `tool_tier_bundles` and `model_tier_map`. Run `jcodemunch-mcp config --upgrade` to pull the new keys into an existing config file without clobbering user values.
+- The MUNCH `search_text` encoder bumped from `st1` to `st2`. Existing cached `st1` payloads continue to decode via `LEGACY_ENCODING_IDS`.
+
 ## [1.59.1] — 2026-04-18
 
 ### Fixed
