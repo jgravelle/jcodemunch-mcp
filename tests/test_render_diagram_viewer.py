@@ -62,6 +62,24 @@ class TestResolveViewerPath:
                 result = mv.resolve_viewer_path()
                 assert result is None
 
+    def test_bare_name_config_resolves_via_path(self):
+        """Audit F6: bare-name config like ``mermaid_viewer_path="mmd-viewer"``
+        must still resolve when the executable lives on $PATH — the prior
+        implementation rejected anything that didn't pass `_looks_executable`
+        as an absolute path check, even if `shutil.which` would have found it.
+        """
+        import importlib
+        import jcodemunch_mcp.tools.mermaid_viewer as mv
+        import jcodemunch_mcp.config as config_module
+        importlib.reload(mv)
+        resolved_path = "/usr/local/bin/mmd-viewer"
+        with patch.object(config_module, "get", side_effect=lambda k, d=None: "mmd-viewer" if k == "mermaid_viewer_path" else d):
+            # `_looks_executable` sees no file on disk; `which` finds it on PATH.
+            with patch.object(Path, "exists", return_value=False):
+                with patch.object(shutil, "which", return_value=resolved_path):
+                    result = mv.resolve_viewer_path()
+                    assert result == resolved_path
+
 
 class TestOpenDiagram:
     """open_diagram() writes .mmd file and spawns viewer."""

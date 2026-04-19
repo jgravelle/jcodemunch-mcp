@@ -70,10 +70,33 @@ def _looks_executable(path: Path) -> bool:
     return os.access(str(path), os.X_OK)
 
 
+def _looks_like_bare_name(value: str) -> bool:
+    """True when the string looks like a command name (no path separators)."""
+    if not value:
+        return False
+    if "/" in value or "\\" in value:
+        return False
+    # Windows drive-relative like ``C:viewer.exe`` still counts as a path.
+    if os.name == "nt" and len(value) >= 2 and value[1] == ":":
+        return False
+    return True
+
+
 def resolve_viewer_path() -> str | None:
-    """Return the mmd-viewer executable path, or None if not found."""
+    """Return the mmd-viewer executable path, or None if not found.
+
+    Users commonly configure a bare command name (``"mmd-viewer"`` on POSIX,
+    ``"mmd-viewer.exe"`` on Windows) rather than a full path. When the
+    configured value is a bare name we defer to ``shutil.which`` so it
+    resolves against ``$PATH`` — the prior implementation rejected it as
+    "not an executable file on disk" (audit finding F6). Absolute / relative
+    paths continue to go through the strict `_looks_executable` check so a
+    misspelled path doesn't get silently replaced by whatever is on ``PATH``.
+    """
     configured = config_module.get("mermaid_viewer_path", "")
     if configured:
+        if _looks_like_bare_name(configured):
+            return shutil.which(configured)
         return configured if _looks_executable(Path(configured)) else None
     return shutil.which("mmd-viewer")
 
