@@ -470,6 +470,135 @@ class TestResolveSpecifier:
         assert "app/components/Header.tsx" in files
 
 
+class TestTsconfigWalker:
+    """Tests for the generic tsconfig/jsconfig discovery walker in _load_tsconfig_aliases."""
+
+    def _load(self, tmp_path):
+        from jcodemunch_mcp.parser.imports import _load_tsconfig_aliases, _alias_map_cache
+        _alias_map_cache.pop(str(tmp_path), None)
+        return _load_tsconfig_aliases(str(tmp_path))
+
+    def test_extends_chain_resolves_hidden_base(self, tmp_path):
+        """Aliases from a base config the walker cannot reach directly are found via extends.
+
+        .config/ starts with '.' so the walker skips it entirely.  The alias is
+        ONLY reachable by following the extends pointer from apps/web/tsconfig.json.
+        Without extends-chain following this test fails with KeyError on '@shared/*'.
+        """
+        import json
+        hidden = tmp_path / ".config"
+        hidden.mkdir()
+        (hidden / "tsconfig.base.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@shared/*": ["./src/*"]}},
+        }))
+        (tmp_path / "apps" / "web").mkdir(parents=True)
+        (tmp_path / "apps" / "web" / "tsconfig.json").write_text(json.dumps({
+            "extends": "../../.config/tsconfig.base.json",
+        }))
+        result = self._load(tmp_path)
+        assert "@shared/*" in result
+        assert result["@shared/*"] == [".config/src/*"]
+
+    def test_extends_array_ts5_all_entries_followed(self, tmp_path):
+        """Array-form extends (TS 5+): every entry is followed, not just the first.
+
+        Both base configs live in hidden dirs so the walker cannot find them
+        directly.  The test would fail for either missing alias if the array
+        iteration stopped after the first entry.
+        """
+        import json
+        (tmp_path / ".base-a").mkdir()
+        (tmp_path / ".base-a" / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@a/*": ["./src/a/*"]}},
+        }))
+        (tmp_path / ".base-b").mkdir()
+        (tmp_path / ".base-b" / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@b/*": ["./src/b/*"]}},
+        }))
+        (tmp_path / "apps" / "web").mkdir(parents=True)
+        (tmp_path / "apps" / "web" / "tsconfig.json").write_text(json.dumps({
+            "extends": ["../../.base-a/tsconfig.json", "../../.base-b/tsconfig.json"],
+        }))
+        result = self._load(tmp_path)
+        assert "@a/*" in result
+        assert "@b/*" in result
+
+    def test_circular_extends_no_recursion_error(self, tmp_path):
+        """Circular extends chain (A extends B extends A) terminates cleanly.
+
+        Both files are visible to the walker; the seen_cfg deduplication must
+        block the cycle.  Without it Python would hit RecursionError.
+        """
+        import json
+        (tmp_path / "tsconfig.a.json").write_text(json.dumps({
+            "extends": "./tsconfig.b.json",
+            "compilerOptions": {"paths": {"@a/*": ["./src/a/*"]}},
+        }))
+        (tmp_path / "tsconfig.b.json").write_text(json.dumps({
+            "extends": "./tsconfig.a.json",
+            "compilerOptions": {"paths": {"@b/*": ["./src/b/*"]}},
+        }))
+        result = self._load(tmp_path)  # must not raise
+        assert "@a/*" in result
+        assert "@b/*" in result
+
+    def test_out_of_root_extends_blocked(self, tmp_path):
+        """extends pointing at a real file outside the repo root is silently blocked.
+
+        The guard is relative_to(root): if the resolved path escapes tmp_path
+        the alias must NOT appear in the result.  Using a non-existent path
+        would pass for the wrong reason (is_file() → False before the guard).
+        """
+        import json
+        import shutil
+        outside = tmp_path.parent / (tmp_path.name + "_external")
+        outside.mkdir(exist_ok=True)
+        (outside / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@outside/*": ["src/*"]}},
+        }))
+        try:
+            (tmp_path / "apps" / "web").mkdir(parents=True)
+            (tmp_path / "apps" / "web" / "tsconfig.json").write_text(json.dumps({
+                # Absolute path → resolved path is outside tmp_path
+                "extends": str(outside / "tsconfig.json"),
+                "compilerOptions": {"paths": {"@/*": ["./src/*"]}},
+            }))
+            result = self._load(tmp_path)
+            assert "@/*" in result           # own paths still resolved
+            assert "@outside/*" not in result  # out-of-root alias blocked
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_precedence_first_alphabetical_wins(self, tmp_path):
+        """When two workspaces define the same alias, the first one found (alphabetical) wins.
+
+        Pins walk order so that a future refactor silently changing resolution
+        order produces a visible test failure instead of a silent behaviour change.
+        mobile/ sorts before web/ so its normalised replacement must win.
+        """
+        import json
+        (tmp_path / "apps" / "mobile").mkdir(parents=True)
+        (tmp_path / "apps" / "mobile" / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@/*": ["./src/*"]}},
+        }))
+        (tmp_path / "apps" / "web").mkdir(parents=True)
+        (tmp_path / "apps" / "web" / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@/*": ["./src/*"]}},
+        }))
+        result = self._load(tmp_path)
+        assert result.get("@/*") == ["apps/mobile/src/*"]
+
+    def test_nx_libs_layout(self, tmp_path):
+        """Nx-style libs/ workspace layout is discovered without any hardcoded globs."""
+        import json
+        (tmp_path / "libs" / "shared" / "ui").mkdir(parents=True)
+        (tmp_path / "libs" / "shared" / "ui" / "tsconfig.json").write_text(json.dumps({
+            "compilerOptions": {"paths": {"@myorg/ui/*": ["./src/*"]}},
+        }))
+        result = self._load(tmp_path)
+        assert result.get("@myorg/ui/*") == ["libs/shared/ui/src/*"]
+
+
 class TestResolveSpecifierPython:
     """Resolve Python module-style absolute imports against detected source roots.
 

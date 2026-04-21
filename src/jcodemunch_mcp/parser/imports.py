@@ -703,7 +703,7 @@ _ALIAS_MAP_LOCK = threading.Lock()
 # Directories to skip when walking for tsconfig files.
 _TSCONFIG_SKIP_DIRS = frozenset({
     "node_modules", ".git", "dist", "build", "out", ".cache",
-    ".next", ".nuxt", ".svelte-kit",
+    ".next", ".nuxt", ".svelte-kit", ".turbo", ".vercel",
 })
 
 
@@ -830,7 +830,8 @@ def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
             _ingest_tsconfig_file(extended)
 
     def _walk_tsconfigs(directory: Path, depth: int) -> None:
-        if depth > 4:
+        # Depth 5 covers layouts up to apps/x/frontend/packages/bar/tsconfig.json.
+        if depth > 5:
             return
         try:
             for entry in sorted(directory.iterdir()):
