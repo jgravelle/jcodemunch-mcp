@@ -700,6 +700,12 @@ def _clear_python_roots_cache() -> None:
 _alias_map_cache: dict[str, dict[str, list[str]]] = {}
 _ALIAS_MAP_LOCK = threading.Lock()
 
+# Directories to skip when walking for tsconfig files.
+_TSCONFIG_SKIP_DIRS = frozenset({
+    "node_modules", ".git", "dist", "build", "out", ".cache",
+    ".next", ".nuxt", ".svelte-kit",
+})
+
 
 def _norm_alias_replacement(rep: str, tsconfig_dir_rel: str = "") -> str:
     """Normalize one tsconfig paths replacement to a repo-root-relative prefix.
@@ -777,6 +783,70 @@ def _load_tsconfig_aliases(source_root: str) -> dict[str, list[str]]:
     if svelte_cfg.is_file():
         data = _load_json(svelte_cfg)
         _ingest(data.get("compilerOptions", {}).get("paths", {}), tsconfig_dir_rel=".svelte-kit")
+
+    # Generic discovery: walk all tsconfig*.json / jsconfig*.json files in the
+    # repo tree (depth ≤ 4, skipping build/dependency dirs), following each
+    # file's `extends` chain.  This covers any workspace layout — apps/, libs/,
+    # services/, Nx/Turborepo — and repos that centralise aliases in a shared
+    # tsconfig.base.json or tsconfig.paths.json at any level.
+    seen_cfg: set[Path] = {
+        root / "tsconfig.json",
+        root / "jsconfig.json",
+        root / ".svelte-kit" / "tsconfig.json",
+    }
+
+    def _ingest_tsconfig_file(cfg_path: Path) -> None:
+        if cfg_path in seen_cfg:
+            return
+        seen_cfg.add(cfg_path)
+        if not cfg_path.is_file():
+            return
+        data = _load_json(cfg_path)
+        try:
+            cfg_dir_rel = cfg_path.parent.relative_to(root).as_posix()
+            if cfg_dir_rel == ".":
+                cfg_dir_rel = ""
+        except ValueError:
+            return  # outside repo root
+        paths = data.get("compilerOptions", {}).get("paths", {})
+        if paths:
+            _ingest(paths, tsconfig_dir_rel=cfg_dir_rel)
+        # Follow extends chain — handles tsconfig.base.json / tsconfig.paths.json pattern.
+        # TypeScript 5+ allows extends to be an array; normalise to list.
+        extends_val = data.get("extends")
+        if not extends_val:
+            return
+        if isinstance(extends_val, str):
+            extends_val = [extends_val]
+        for ref in extends_val:
+            if not isinstance(ref, str):
+                continue
+            ref_path = ref if ref.endswith(".json") else ref + ".json"
+            extended = (cfg_path.parent / ref_path).resolve()
+            try:
+                extended.relative_to(root)  # must stay inside the repo
+            except ValueError:
+                continue  # skip package references like "@tsconfig/recommended"
+            _ingest_tsconfig_file(extended)
+
+    def _walk_tsconfigs(directory: Path, depth: int) -> None:
+        if depth > 4:
+            return
+        try:
+            for entry in sorted(directory.iterdir()):
+                if entry.is_dir():
+                    if entry.name not in _TSCONFIG_SKIP_DIRS and not entry.name.startswith("."):
+                        _walk_tsconfigs(entry, depth + 1)
+                elif (
+                    entry.is_file()
+                    and entry.suffix == ".json"
+                    and (entry.name.startswith("tsconfig") or entry.name.startswith("jsconfig"))
+                ):
+                    _ingest_tsconfig_file(entry)
+        except PermissionError:
+            pass
+
+    _walk_tsconfigs(root, 0)
 
     with _ALIAS_MAP_LOCK:
         _alias_map_cache[source_root] = alias_map
