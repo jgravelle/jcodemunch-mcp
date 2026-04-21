@@ -117,24 +117,31 @@ def test_get_dependency_graph_round_trip():
 def test_get_blast_radius_round_trip():
     resp = {
         "repo": "acme/app",
-        "symbol": "get_user",
-        "direction": "importers",
+        "symbol": {"id": "s1", "name": "get_user", "kind": "function", "file": "auth.py", "line": 42},
         "depth": 3,
-        "importer_file_count": 2,
-        "affected_symbol_count": 2,
-        "affected_symbols": [
-            {"id": "s1", "name": "handler", "kind": "function", "file": "api.py", "line": 10, "depth": 1},
-            {"id": "s2", "name": "route", "kind": "function", "file": "api.py", "line": 20, "depth": 1},
+        "importer_count": 2,
+        "confirmed_count": 2,
+        "potential_count": 1,
+        "direct_dependents_count": 5,
+        "overall_risk_score": 0.75,
+        "confirmed": [
+            {"file": "api.py", "references": 3, "has_test_reach": True},
+            {"file": "main.py", "references": 1, "has_test_reach": False},
         ],
-        "importer_files": [
-            {"file": "api.py", "depth": 1},
-            {"file": "main.py", "depth": 2},
+        "potential": [
+            {"file": "utils.py", "reason": "wildcard import"},
         ],
         "_meta": {"timing_ms": 3.0},
     }
     out = _rt("get_blast_radius", resp)
-    assert len(out["affected_symbols"]) == 2
-    assert out["affected_symbols"][0]["name"] == "handler"
+    assert len(out["confirmed"]) == 2
+    assert out["confirmed"][0]["file"] == "api.py"
+    assert out["confirmed"][0]["references"] == 3
+    assert out["confirmed"][0]["has_test_reach"] is True
+    assert len(out["potential"]) == 1
+    assert out["potential"][0]["file"] == "utils.py"
+    assert out["symbol"]["name"] == "get_user"
+    assert out["overall_risk_score"] == "0.75"
 
 
 def test_get_dependency_cycles_round_trip():

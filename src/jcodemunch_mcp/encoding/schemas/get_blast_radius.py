@@ -3,31 +3,30 @@
 from .. import schema_driven as sd
 
 TOOLS = ("get_blast_radius",)
-ENCODING_ID = "br1"
+ENCODING_ID = "br2"
 
 _TABLES = [
     sd.TableSpec(
-        key="affected_symbols",
-        tag="a",
-        cols=["id", "name", "kind", "file", "line", "depth"],
-        intern=["file", "id"],
-        types={"line": "int", "depth": "int"},
+        key="confirmed",
+        tag="c",
+        cols=["file", "references", "has_test_reach"],
+        intern=["file"],
+        types={"references": "int", "has_test_reach": "bool"},
     ),
     sd.TableSpec(
-        key="importer_files",
-        tag="f",
-        cols=["file", "depth"],
+        key="potential",
+        tag="p",
+        cols=["file", "reason"],
         intern=["file"],
-        types={"depth": "int"},
     ),
 ]
 _SCALARS = (
-    "repo", "symbol", "direction", "depth",
-    "importer_file_count", "affected_symbol_count",
+    "repo", "depth", "importer_count", "confirmed_count", "potential_count",
+    "direct_dependents_count", "overall_risk_score",
 )
-_NESTED = {"symbol_info": ["id", "name", "kind", "file", "line"]}
-_META = ("timing_ms", "truncated", "cross_repo", "methodology")
-_JSON = ("files_by_depth",)
+_NESTED = {"symbol": ["id", "name", "kind", "file", "line"]}
+_META = ("timing_ms",)
+_JSON = ("impact_by_depth", "callers", "cross_repo_confirmed")
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:
