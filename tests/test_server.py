@@ -10,7 +10,7 @@ from jcodemunch_mcp.server import server, list_tools, call_tool, _coerce_argumen
 
 @pytest.mark.asyncio
 async def test_server_lists_all_tools():
-    """Test that server lists all 36 enabled tools (test_summarizer disabled by default)."""
+    """Test that server lists all enabled tools (test_summarizer disabled by default)."""
     from jcodemunch_mcp import config as config_module
     from copy import deepcopy
 
@@ -21,7 +21,7 @@ async def test_server_lists_all_tools():
     try:
         tools = await list_tools()
 
-        assert len(tools) == 61  # 59 + set_tool_tier + announce_model
+        assert len(tools) == 62  # 59 + set_tool_tier + announce_model + jcodemunch_guide
 
         names = {t.name for t in tools}
         expected = {
@@ -45,7 +45,7 @@ async def test_server_lists_all_tools():
             "get_project_intel",
             "get_symbol_provenance", "get_pr_risk_profile",
             "winnow_symbols",
-            "set_tool_tier", "announce_model",
+            "set_tool_tier", "announce_model", "jcodemunch_guide",
         }
         assert names == expected
         assert "test_summarizer" not in names  # disabled by default in DEFAULTS
@@ -665,9 +665,9 @@ async def test_disabled_tools_filtered_from_schema(monkeypatch):
         assert "index_repo" not in tool_names
         assert "search_columns" not in tool_names
         assert "get_file_tree" in tool_names  # Not disabled
-        # 61 default tools (59 + 2 runtime) + test_summarizer (config cleared) - 2 disabled = 60
-        # But set_tool_tier + announce_model are force-included even when disabled
-        assert len(tools) == 60
+        # 62 default tools (59 + 3 force-included) + test_summarizer (config cleared) - 2 disabled = 61
+        # But set_tool_tier + announce_model + jcodemunch_guide are force-included even when disabled
+        assert len(tools) == 61
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
@@ -685,7 +685,7 @@ async def test_disabled_tools_empty_all_tools_present(monkeypatch):
         config_module._GLOBAL_CONFIG["disabled_tools"] = []
 
         tools = await list_tools()
-        assert len(tools) == 62  # 60 + set_tool_tier + announce_model
+        assert len(tools) == 63  # 60 + set_tool_tier + announce_model + jcodemunch_guide
     finally:
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(orig_config)
@@ -977,8 +977,8 @@ async def test_tool_profile_core():
     try:
         tools = await list_tools()
         names = {t.name for t in tools}
-        # Core tier + the two always-present runtime tools
-        assert names == _TOOL_TIER_CORE | {"set_tool_tier", "announce_model"}
+        # Core tier + force-included tools (set_tool_tier, announce_model, jcodemunch_guide)
+        assert names == _TOOL_TIER_CORE | {"set_tool_tier", "announce_model", "jcodemunch_guide"}
         # Core must include the essentials
         for essential in ("search_symbols", "get_symbol_source", "list_repos",
                           "get_file_tree", "index_folder"):
@@ -1008,8 +1008,8 @@ async def test_tool_profile_standard():
     try:
         tools = await list_tools()
         names = {t.name for t in tools}
-        # Standard tier + the two always-present runtime tools
-        assert names == _TOOL_TIER_STANDARD | {"set_tool_tier", "announce_model"}
+        # Standard tier + force-included tools (set_tool_tier, announce_model, jcodemunch_guide)
+        assert names == _TOOL_TIER_STANDARD | {"set_tool_tier", "announce_model", "jcodemunch_guide"}
         # Standard includes analytics
         assert "get_hotspots" in names
         assert "get_blast_radius" in names
@@ -1194,6 +1194,7 @@ def test_generate_template_disabled_tools_reference_includes_runtime_switch_tool
     text = generate_template()
     assert '// "set_tool_tier",' in text
     assert '// "announce_model",' in text
+    assert '// "jcodemunch_guide",' in text
 
 
 def test_upgrade_config_adds_tier_bundle_keys(tmp_path):
@@ -1287,6 +1288,8 @@ def test_all_canonical_tools_accounted_in_tier_bundles():
         # Runtime tier-switching tools (force-included regardless of tier)
         "set_tool_tier",
         "announce_model",
+        # Self-guide tool (force-included regardless of tier)
+        "jcodemunch_guide",
         # Core planning tool (too expensive for core tier)
         "plan_turn",
     }
@@ -1306,3 +1309,60 @@ def test_all_canonical_tools_accounted_in_tier_bundles():
         f"Tools in known_full_only but also in a tier bundle (stale): {stale}. "
         f"Remove them from known_full_only in this test."
     )
+
+
+# --------------------------------------------------------------------------- #
+# jcodemunch_guide (issue #255): one-line CLAUDE.md pulls latest policy       #
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_jcodemunch_guide_returns_current_snippet():
+    """Tool content matches _generate_claude_md_snippet and embeds current version."""
+    from jcodemunch_mcp import __version__
+    from jcodemunch_mcp.server import _generate_claude_md_snippet
+
+    result = await call_tool("jcodemunch_guide", {})
+    payload = json.loads(result[0].text)
+
+    assert payload["version"] == __version__
+    assert payload["content"] == _generate_claude_md_snippet(missing_only=False)
+    # Sanity: snippet names a canonical tool and the running version
+    assert "search_symbols" in payload["content"]
+    assert f"v{__version__}" in payload["content"]
+
+
+@pytest.mark.asyncio
+async def test_jcodemunch_guide_force_included_when_disabled():
+    """disabled_tools can't hide jcodemunch_guide — a one-line CLAUDE.md must keep working."""
+    from jcodemunch_mcp import config as config_module
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+
+    try:
+        config_module._GLOBAL_CONFIG["disabled_tools"] = ["jcodemunch_guide"]
+        tools = await list_tools()
+        names = {t.name for t in tools}
+        assert "jcodemunch_guide" in names
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)
+
+
+@pytest.mark.asyncio
+async def test_jcodemunch_guide_force_included_in_core_tier():
+    """Core tier must still expose jcodemunch_guide even though it's not in the bundle."""
+    from jcodemunch_mcp import config as config_module
+    from copy import deepcopy
+
+    orig_config = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG.update(deepcopy(config_module.DEFAULTS))
+    config_module._GLOBAL_CONFIG["tool_profile"] = "core"
+
+    try:
+        tools = await list_tools()
+        assert "jcodemunch_guide" in {t.name for t in tools}
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(orig_config)

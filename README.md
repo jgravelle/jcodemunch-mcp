@@ -277,6 +277,19 @@ jcodemunch-mcp init
 
 `init` auto-detects your MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf, Continue), writes their config entries, installs the CLAUDE.md prompt policy so your agent actually uses jCodeMunch, optionally installs enforcement hooks (PreToolUse read guard + PostToolUse auto-reindex + PreCompact session snapshot), optionally indexes your project, and audits your agent config files for token waste. Run `jcodemunch-mcp init --help` for all flags.
 
+> **Prefer a one-line CLAUDE.md?** From v1.71.0 the server exposes a
+> `jcodemunch_guide` tool that returns the same policy snippet `claude-md
+> --generate` prints — with the running version embedded. Keep this single
+> line in your CLAUDE.md / AGENT.md and the guide always matches the installed
+> server:
+>
+> ```markdown
+> Call the jcodemunch_guide tool and strictly follow its instructions.
+> ```
+>
+> The tool is force-included, so it can't be hidden by `disabled_tools` or
+> tier filtering.
+
 For non-interactive CI or scripting:
 
 ```bash

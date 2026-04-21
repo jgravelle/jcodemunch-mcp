@@ -77,6 +77,8 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "set_tool_tier", "announce_model",
     # Composite retrieval
     "winnow_symbols",
+    # Self-guide (force-included; lets one-line CLAUDE.md pull full policy on demand)
+    "jcodemunch_guide",
 )
 
 # --------------------------------------------------------------------------- #
@@ -129,7 +131,7 @@ _PROFILE_TIERS: dict[str, frozenset[str] | None] = {
 }
 
 # Tools that must always remain visible/callable for runtime tier control.
-_ALWAYS_PRESENT_TOOLS: frozenset[str] = frozenset({"set_tool_tier", "announce_model"})
+_ALWAYS_PRESENT_TOOLS: frozenset[str] = frozenset({"set_tool_tier", "announce_model", "jcodemunch_guide"})
 
 # --- Runtime session tier state -------------------------------------------- #
 import threading
@@ -2500,6 +2502,22 @@ def _build_tools_list() -> list[Tool]:
                 "required": ["model"],
             },
         ),
+        Tool(
+            name="jcodemunch_guide",
+            description=(
+                "Return the version-current CLAUDE.md / AGENT.md policy snippet for "
+                "jcodemunch-mcp — the same text produced by `jcodemunch-mcp claude-md "
+                "--generate`. Lets an agent keep a one-line CLAUDE.md (e.g. \"Call "
+                "jcodemunch_guide and strictly follow its instructions.\") instead of "
+                "pasting a static snippet that drifts from the installed version. "
+                "Always force-included so it can't be hidden by disabled_tools or tier "
+                "filtering. Idempotent, no repo context required."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
     ]
     # Start with a mutable copy for filtering.
     tools = list(all_tools)
@@ -3611,6 +3629,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = {"error": "model parameter is required and must be a non-empty string"}
             else:
                 result = await _apply_model_announcement(model)
+        elif name == "jcodemunch_guide":
+            from . import __version__ as _ver
+            result = {
+                "version": _ver,
+                "content": _generate_claude_md_snippet(missing_only=False),
+            }
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -4292,6 +4316,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
         ("Utilities", ["get_session_stats", "invalidate_cache", "test_summarizer",
                         "audit_agent_config"]),
         ("Runtime Tier Switching", ["set_tool_tier", "announce_model"]),
+        ("Self-Guide", ["jcodemunch_guide"]),
     ]
     from . import __version__ as _ver
     lines = [

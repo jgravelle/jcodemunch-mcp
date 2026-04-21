@@ -1222,6 +1222,7 @@ def generate_template() -> str:
         "index_folder",
         "index_repo",
         "invalidate_cache",
+        "jcodemunch_guide",
         "list_repos",
         "plan_refactoring",
         "plan_turn",

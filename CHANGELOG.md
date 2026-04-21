@@ -2,6 +2,21 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.71.0] — 2026-04-21
+
+One-line CLAUDE.md / AGENT.md via the new `jcodemunch_guide` tool. Resolves
+issue #255 (credit @rsubr).
+
+### Added
+- **`jcodemunch_guide` tool.** Returns the version-current policy snippet —
+  the exact text `jcodemunch-mcp claude-md --generate` emits, plus the running
+  `version`. Agents can now keep a one-liner such as
+  `"Call jcodemunch_guide and strictly follow its instructions."` in their
+  CLAUDE.md / AGENT.md and never hand-edit it again when the tool surface
+  changes. Force-included alongside `set_tool_tier` / `announce_model`, so it
+  can't be hidden by `disabled_tools` or tier filtering. No repo context
+  needed; idempotent.
+
 ## [1.70.0] — 2026-04-19
 
 Context-optimization release — default detail level and token-budget bug fix.
