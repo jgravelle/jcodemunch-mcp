@@ -35,6 +35,8 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_REDACT_SOURCE_ROOT": "redact_source_root",
     "JCODEMUNCH_STATS_FILE_INTERVAL": "stats_file_interval",
     "JCODEMUNCH_SHARE_SAVINGS": "share_savings",
+    "JCODEMUNCH_PERF_TELEMETRY": "perf_telemetry_enabled",
+    "JCODEMUNCH_PERF_TELEMETRY_MAX_ROWS": "perf_telemetry_max_rows",
     "JCODEMUNCH_SUMMARIZER_CONCURRENCY": "summarizer_concurrency",
     "JCODEMUNCH_SUMMARIZER_MAX_FAILURES": "summarizer_max_failures",
     "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "allow_remote_summarizer",
@@ -319,6 +321,7 @@ DEFAULTS = {
             "get_layer_violations", "get_cross_repo_map",
             "get_tectonic_map", "get_signal_chains", "render_diagram",
             "get_project_intel", "invalidate_cache", "get_watch_status",
+            "analyze_perf",
         ],
     },
     "model_tier_map": {
@@ -360,6 +363,8 @@ DEFAULTS = {
     "redact_source_root": False,
     "stats_file_interval": 3,
     "share_savings": True,
+    "perf_telemetry_enabled": False,
+    "perf_telemetry_max_rows": 100_000,
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
     "allow_remote_summarizer": False,
@@ -436,6 +441,8 @@ CONFIG_TYPES = {
     "redact_source_root": bool,
     "stats_file_interval": int,
     "share_savings": bool,
+    "perf_telemetry_enabled": bool,
+    "perf_telemetry_max_rows": int,
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
     "allow_remote_summarizer": bool,
@@ -1210,6 +1217,7 @@ def generate_template() -> str:
     # All available tools (for disabled_tools reference) - sorted alphabetically
     # Removed: wait_for_fresh (v1.12.0 - check_freshness and wait_for_fresh tools removed)
     all_tools = sorted([
+        "analyze_perf",
         "announce_model",
         "audit_agent_config",
         "check_references",
@@ -1566,6 +1574,14 @@ def generate_template() -> str:
   // "share_savings": true,
   //   Enable anonymous token savings telemetry (helps project funding).
   //   Set false/0 to disable.
+  // "perf_telemetry_enabled": false,
+  //   Persist per-tool latency rows (tool, duration_ms, ok, repo) to
+  //   ~/.code-index/telemetry.db. The in-memory ring (queryable via
+  //   analyze_perf and get_session_stats) is always tracked; this flag
+  //   only controls durable persistence.
+  // "perf_telemetry_max_rows": 100000,
+  //   Rolling cap on persisted perf rows; oldest rows trimmed in 1k batches
+  //   once exceeded. Lower this on small disks or short-lived deployments.
   // "summarizer_concurrency": 4,
   //   Number of parallel threads for AI summarization.
   //   Higher = faster indexing but more API calls.

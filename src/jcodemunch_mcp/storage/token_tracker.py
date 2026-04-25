@@ -18,15 +18,17 @@ time rather than per-call to avoid spawning a new thread on every tool use.
 """
 
 import atexit
+import bisect
 import json
 import logging
 import os
 import queue
 import signal
+import sqlite3
 import threading
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -38,10 +40,13 @@ logger = logging.getLogger(__name__)
 _SAVINGS_FILE = "_savings.json"
 _SESSION_STATS_FILE = "session_stats.json"
 _PULSE_FILE = "_pulse.json"
+_PERF_DB_FILE = "telemetry.db"
 _BYTES_PER_TOKEN = 4  # ~4 bytes per token (rough but consistent)
 _TELEMETRY_URL = "https://j.gravelle.us/APIs/savings/post.php"
 _FLUSH_INTERVAL = 3  # flush to disk every N calls
 _RESULT_CACHE_MAXSIZE = 256  # max tool-result cache entries per session
+_LATENCY_RING_DEFAULT = 512  # per-tool latency ring size
+_PERF_DB_MAX_ROWS_DEFAULT = 100_000  # rolling cap on persisted perf rows
 
 def _get_stats_file_interval() -> int:
     """Read stats_file_interval from config. 0 = disabled, default 3."""
@@ -84,6 +89,13 @@ class _State:
         self._result_cache: OrderedDict = OrderedDict()  # (tool, repo, key) -> result
         self._cache_hits: dict = {}    # tool_name -> hit count
         self._cache_misses: dict = {}  # tool_name -> miss count
+        # Per-tool latency ring (process-lifetime; cap _LATENCY_RING_DEFAULT entries)
+        self._tool_latencies: dict[str, deque] = {}
+        self._tool_errors: dict[str, int] = {}
+        # Perf SQLite sink (opt-in via config "perf_telemetry_enabled")
+        self._perf_db_path_cached: Optional[Path] = None
+        self._perf_db_failed: bool = False
+        self._perf_rows_since_trim: int = 0
 
     def _ensure_loaded(self, base_path: Optional[str]) -> None:
         """Load persisted total from disk (once per process)."""
@@ -205,7 +217,137 @@ class _State:
             "total_tokens_saved": self._total,
             "tool_breakdown": dict(self._session_tool_breakdown),
             "result_cache": cache_stats,
+            "latency_per_tool": self._latency_stats_locked(),
         }
+
+    # ---------------------------------------------------------------------
+    # Latency tracking + perf SQLite sink (v1.74.0)
+    # ---------------------------------------------------------------------
+
+    def record_latency(
+        self,
+        tool_name: str,
+        duration_ms: float,
+        ok: bool = True,
+        repo: Optional[str] = None,
+    ) -> None:
+        """Record a tool-call duration. Called from server.call_tool."""
+        try:
+            with self._lock:
+                ring = self._tool_latencies.get(tool_name)
+                if ring is None:
+                    ring = deque(maxlen=_LATENCY_RING_DEFAULT)
+                    self._tool_latencies[tool_name] = ring
+                ring.append(float(duration_ms))
+                if not ok:
+                    self._tool_errors[tool_name] = self._tool_errors.get(tool_name, 0) + 1
+                if _config.get("perf_telemetry_enabled", False):
+                    self._persist_perf_locked(tool_name, duration_ms, ok, repo)
+        except Exception:
+            logger.debug("record_latency failed for %s", tool_name, exc_info=True)
+
+    def _latency_stats_locked(self) -> dict:
+        """Compute p50/p95 per tool from the ring. Caller must hold _lock."""
+        out: dict = {}
+        for tool, ring in self._tool_latencies.items():
+            if not ring:
+                continue
+            sorted_vals = sorted(ring)
+            n = len(sorted_vals)
+            p50 = sorted_vals[n // 2]
+            # p95 index — bisect-style lower bound
+            p95_idx = max(0, min(n - 1, int(0.95 * n)))
+            p95 = sorted_vals[p95_idx]
+            errors = self._tool_errors.get(tool, 0)
+            out[tool] = {
+                "count": n,
+                "p50_ms": round(p50, 2),
+                "p95_ms": round(p95, 2),
+                "max_ms": round(sorted_vals[-1], 2),
+                "errors": errors,
+                "error_rate": round(errors / n, 3) if n else 0.0,
+            }
+        return out
+
+    def latency_stats(self) -> dict:
+        """Public latency snapshot. Thread-safe."""
+        with self._lock:
+            return self._latency_stats_locked()
+
+    def _perf_db_path(self) -> Optional[Path]:
+        if self._perf_db_path_cached is not None:
+            return self._perf_db_path_cached
+        try:
+            root = Path(self._base_path) if self._base_path else Path.home() / ".code-index"
+            root.mkdir(parents=True, exist_ok=True)
+            path = root / _PERF_DB_FILE
+            self._perf_db_path_cached = path
+            return path
+        except Exception:
+            logger.debug("Failed to resolve perf db path", exc_info=True)
+            return None
+
+    def _ensure_perf_db_locked(self) -> Optional[sqlite3.Connection]:
+        """Open the perf SQLite db (create schema on first use)."""
+        if self._perf_db_failed:
+            return None
+        path = self._perf_db_path()
+        if path is None:
+            return None
+        try:
+            conn = sqlite3.connect(str(path), timeout=2.0, isolation_level=None)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tool_calls (
+                    ts        REAL NOT NULL,
+                    tool      TEXT NOT NULL,
+                    duration_ms REAL NOT NULL,
+                    ok        INTEGER NOT NULL,
+                    repo      TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_tool_calls_tool ON tool_calls(tool)")
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_tool_calls_ts   ON tool_calls(ts)")
+            return conn
+        except Exception:
+            logger.debug("Failed to open perf db at %s", path, exc_info=True)
+            self._perf_db_failed = True
+            return None
+
+    def _persist_perf_locked(
+        self,
+        tool: str,
+        duration_ms: float,
+        ok: bool,
+        repo: Optional[str],
+    ) -> None:
+        conn = self._ensure_perf_db_locked()
+        if conn is None:
+            return
+        try:
+            conn.execute(
+                "INSERT INTO tool_calls (ts, tool, duration_ms, ok, repo) VALUES (?, ?, ?, ?, ?)",
+                (time.time(), tool, float(duration_ms), 1 if ok else 0, repo or None),
+            )
+            self._perf_rows_since_trim += 1
+            if self._perf_rows_since_trim >= 1000:
+                cap = max(1000, int(_config.get("perf_telemetry_max_rows", _PERF_DB_MAX_ROWS_DEFAULT)))
+                conn.execute(
+                    "DELETE FROM tool_calls WHERE rowid IN ("
+                    "  SELECT rowid FROM tool_calls ORDER BY ts ASC LIMIT MAX(0, "
+                    "    (SELECT COUNT(*) FROM tool_calls) - ?"
+                    "  )"
+                    ")",
+                    (cap,),
+                )
+                self._perf_rows_since_trim = 0
+        except Exception:
+            logger.debug("Failed to persist perf row for %s", tool, exc_info=True)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _write_session_stats_locked(self, stats: dict, force: bool = False) -> None:
         """Write session stats to ~/.code-index/session_stats.json. Must be called with _lock held.
@@ -465,6 +607,65 @@ def result_cache_invalidate(repo: Optional[str] = None) -> int:
 def result_cache_stats() -> dict:
     """Return cache hit/miss stats for the current session."""
     return _state.cache_stats()
+
+
+def record_tool_latency(
+    tool_name: str,
+    duration_ms: float,
+    ok: bool = True,
+    repo: Optional[str] = None,
+) -> None:
+    """Record a tool-call duration for the current session (and optional perf db)."""
+    _state.record_latency(tool_name, duration_ms, ok=ok, repo=repo)
+
+
+def latency_stats() -> dict:
+    """Return per-tool p50/p95/error_rate from the in-memory ring."""
+    return _state.latency_stats()
+
+
+def perf_db_path(base_path: Optional[str] = None) -> Path:
+    """Return the perf telemetry SQLite path (creating its parent dir)."""
+    root = Path(base_path) if base_path else Path.home() / ".code-index"
+    root.mkdir(parents=True, exist_ok=True)
+    return root / _PERF_DB_FILE
+
+
+def perf_db_query(
+    base_path: Optional[str] = None,
+    window_seconds: Optional[float] = None,
+    tool: Optional[str] = None,
+) -> list[tuple]:
+    """Read recent perf rows from telemetry.db for the analyze_perf tool.
+
+    Returns a list of (ts, tool, duration_ms, ok, repo). Empty if the db
+    doesn't exist yet (perf telemetry never enabled or never written).
+    """
+    path = perf_db_path(base_path)
+    if not path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(str(path), timeout=2.0)
+        try:
+            sql = "SELECT ts, tool, duration_ms, ok, repo FROM tool_calls"
+            args: list = []
+            clauses: list[str] = []
+            if window_seconds is not None:
+                clauses.append("ts >= ?")
+                args.append(time.time() - float(window_seconds))
+            if tool:
+                clauses.append("tool = ?")
+                args.append(tool)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY ts DESC"
+            rows = conn.execute(sql, args).fetchall()
+            return rows
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("perf_db_query failed at %s", path, exc_info=True)
+        return []
 
 
 def estimate_savings(raw_bytes: int, response_bytes: int) -> int:

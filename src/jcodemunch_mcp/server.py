@@ -10,6 +10,7 @@ import jsonschema
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -72,7 +73,7 @@ _CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "get_symbol_diff", "embed_repo",
     # Utilities
     "get_session_stats", "get_session_context", "get_session_snapshot", "plan_turn", "register_edit", "invalidate_cache", "test_summarizer",
-    "audit_agent_config", "get_watch_status",
+    "audit_agent_config", "get_watch_status", "analyze_perf",
     # Runtime tier switching
     "set_tool_tier", "announce_model",
     # Composite retrieval
@@ -119,7 +120,7 @@ _TOOL_TIER_STANDARD: frozenset[str] = _TOOL_TIER_CORE | frozenset({
     "get_cross_repo_map", "get_tectonic_map", "get_signal_chains",
     "render_diagram", "get_project_intel",
     # Utilities
-    "invalidate_cache", "get_watch_status",
+    "invalidate_cache", "get_watch_status", "analyze_perf",
 })
 
 # full = everything (no filter applied)
@@ -395,6 +396,7 @@ _EXCLUDED_FROM_STRICT = frozenset({
     "index_folder",
     "index_file",
     "invalidate_cache",
+    "analyze_perf",
 })
 
 
@@ -1233,6 +1235,30 @@ def _build_tools_list() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {},
+            }
+        ),
+        Tool(
+            name="analyze_perf",
+            description="Per-tool latency telemetry: p50/p95/max in ms, error rate, plus cache hit-rate by tool. Defaults to the in-memory session ring; pass window=1h|24h|7d|all to query persisted telemetry.db (requires perf_telemetry_enabled). Useful for finding slow tools, cold caches, and regressions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "window": {
+                        "type": "string",
+                        "enum": ["session", "1h", "24h", "7d", "all"],
+                        "default": "session",
+                        "description": "session = in-memory ring; others read telemetry.db.",
+                    },
+                    "top": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Cap on slowest tools to return.",
+                    },
+                    "tool": {
+                        "type": "string",
+                        "description": "Restrict the analysis to a single tool name.",
+                    },
+                },
             }
         ),
         Tool(
@@ -2768,6 +2794,7 @@ _AUTO_WATCH_EXCLUDED = frozenset({
     "get_session_context",
     "get_session_snapshot",
     "index_file",  # path arg is a file path, not a folder; requires repo already indexed
+    "analyze_perf",
 })
 
 
@@ -2847,6 +2874,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     storage_path = os.environ.get("CODE_INDEX_PATH")
     logger.info("tool_call: %s args=%s", name, {k: v for k, v in arguments.items() if k != "content"})
 
+    _t0_call = time.perf_counter()
+    _call_ok = True
     try:   # main handler try starts here, before coerce
         # Extract cross-cutting args that are not part of any tool's schema.
         # `format` controls compact-output encoding (see .encoding package).
@@ -3176,6 +3205,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = await asyncio.to_thread(
                 functools.partial(
                     get_session_stats,
+                    storage_path=storage_path,
+                )
+            )
+        elif name == "analyze_perf":
+            from .tools.analyze_perf import analyze_perf
+            result = await asyncio.to_thread(
+                functools.partial(
+                    analyze_perf,
+                    window=arguments.get("window", "session"),
+                    top=arguments.get("top", 20),
+                    tool=arguments.get("tool"),
                     storage_path=storage_path,
                 )
             )
@@ -3853,8 +3893,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(result, separators=(',', ':')))]
 
     except KeyError as e:
+        _call_ok = False
         return [TextContent(type="text", text=json.dumps({"error": f"Missing required argument: {e}. Check the tool schema for correct parameter names."}, separators=(',', ':')))]
     except Exception as exc:
+        _call_ok = False
         logger.error("call_tool %s failed", name, exc_info=True)
         summary = " ".join((str(exc).strip().splitlines() or [""])[0].split())
         summary = f"{type(exc).__name__}: {summary}" if summary else type(exc).__name__
@@ -3865,6 +3907,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             "summary": summary,
         }
         return [TextContent(type="text", text=json.dumps(payload, separators=(',', ':')))]
+    finally:
+        try:
+            from .storage.token_tracker import record_tool_latency
+            duration_ms = (time.perf_counter() - _t0_call) * 1000.0
+            _repo_arg = arguments.get("repo") if isinstance(arguments, dict) else None
+            record_tool_latency(name, duration_ms, ok=_call_ok, repo=_repo_arg)
+        except Exception:
+            logger.debug("Latency recording failed for %s", name, exc_info=True)
 
 
 async def _run_server_with_watcher(
@@ -4328,7 +4378,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
                                 "winnow_symbols"]),
         ("Diffs & Embeddings", ["get_symbol_diff", "embed_repo"]),
         ("Session-Aware Routing", ["plan_turn", "get_session_context", "get_session_snapshot", "register_edit"]),
-        ("Utilities", ["get_session_stats", "invalidate_cache", "test_summarizer",
+        ("Utilities", ["get_session_stats", "analyze_perf", "invalidate_cache", "test_summarizer",
                         "audit_agent_config", "get_watch_status"]),
         ("Runtime Tier Switching", ["set_tool_tier", "announce_model"]),
         ("Self-Guide", ["jcodemunch_guide"]),

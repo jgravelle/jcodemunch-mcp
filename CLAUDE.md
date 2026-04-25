@@ -1,9 +1,9 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.73.1 (published to PyPI)
+- **Version:** 1.74.0 (published to PyPI)
 - **INDEX_VERSION:** 9
-- **Tests:** 3530 passed, 7 skipped
+- **Tests:** 3602 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
@@ -78,6 +78,7 @@ src/jcodemunch_mcp/
     search_ast.py             # search_ast: cross-language AST pattern matching; 10 preset anti-patterns + custom mini-DSL (call:, string:, comment:, nesting:, loops:, lines:); enriched with symbol context
     winnow_symbols.py         # winnow_symbols: multi-axis constraint-chain query; AND-intersects kind/language/name/file/complexity/decorator/calls/summary/churn in one round trip; ranks by importance/complexity/churn/name
     audit_agent_config.py    # audit_agent_config: token waste audit for CLAUDE.md, .cursorrules, etc.; cross-refs against index
+    analyze_perf.py          # analyze_perf: per-tool latency telemetry (p50/p95/max/error_rate) + cache hit-rate; reads in-memory session ring or persistent telemetry.db (opt-in via perf_telemetry_enabled)
 ```
 
 ## CLI Subcommands
@@ -140,6 +141,8 @@ Tree-sitter grammar lacks clean named fields for these — custom regex extracto
 | `JCODEMUNCH_SHARE_SAVINGS` | 1 | Set 0 to disable anonymous token savings telemetry |
 | `JCODEMUNCH_REDACT_RESPONSE_SECRETS` | 1 | Set 0 to disable response-level secret redaction (AWS/GCP/Azure/JWT/etc.) |
 | `JCODEMUNCH_STATS_FILE_INTERVAL` | 3 | Calls between session_stats.json writes; 0 = disable |
+| `JCODEMUNCH_PERF_TELEMETRY` | 0 | Set 1 to enable persistent perf SQLite sink at ~/.code-index/telemetry.db (per-tool latency + ok flag + repo). In-memory ring is always tracked; the env var only controls durable persistence. |
+| `JCODEMUNCH_PERF_TELEMETRY_MAX_ROWS` | 100000 | Rolling cap on persisted perf rows; oldest rows trimmed in 1k-row batches once exceeded. |
 | `ANTHROPIC_API_KEY` | — | Enables Claude Haiku summaries (`pip install jcodemunch-mcp[anthropic]`) |
 | `GOOGLE_API_KEY` | — | Enables Gemini Flash summaries (`pip install jcodemunch-mcp[gemini]`) |
 | `OPENAI_API_BASE` | — | Local LLM endpoint (Ollama, LM Studio) |

@@ -2,6 +2,34 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.74.0] — 2026-04-25
+
+### Added — Telemetry foundation (kicks off the multi-release telemetry initiative)
+- **Per-tool latency tracking.** Every `call_tool` invocation is now timed
+  (high-resolution `time.perf_counter`) and recorded into a per-tool ring
+  buffer (cap 512 entries) inside `_State`. `get_session_stats` now returns
+  a `latency_per_tool` field with `{count, p50_ms, p95_ms, max_ms, errors,
+  error_rate}` for every tool that ran during the session.
+- **`analyze_perf` MCP tool.** New utility tool surfacing latency + cache
+  telemetry. Defaults to the in-memory session ring; pass
+  `window=1h|24h|7d|all` to query the persistent perf SQLite db. Returns
+  the `top` slowest tools by p95 alongside the coldest cache hit-rates,
+  scoped optionally to a single `tool` name. Registered in canonical tool
+  names, standard tier bundle, default `tool_tier_bundles`, init template,
+  and the CLAUDE.md Utilities snippet category. Excluded from strict
+  freshness mode and auto-watch (read-only telemetry).
+- **Opt-in perf SQLite sink.** When `perf_telemetry_enabled: true` in
+  config (or env `JCODEMUNCH_PERF_TELEMETRY=1`), the latency recorder also
+  appends rows to `~/.code-index/telemetry.db` (`tool_calls(ts, tool,
+  duration_ms, ok, repo)`, indexed on `tool` and `ts`). Rolling cap via
+  `perf_telemetry_max_rows` (default 100k). Disabled by default — every
+  session tracks latency in memory but only the explicit opt-in writes a
+  durable file.
+
+### Fixed
+- (Carried from v1.73.2): `get_repo_health` no longer raises NameError on
+  decorated symbols.
+
 ## [1.73.2] — 2026-04-25
 
 ### Fixed
