@@ -2,6 +2,37 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.77.0] — 2026-04-25
+
+### Added — Per-symbol freshness markers
+- **`_freshness ∈ {fresh, edited_uncommitted, stale_index}`** on every
+  symbol returned by `search_symbols` (BM25, semantic, fusion paths),
+  `get_symbol_source` (single + batch), `get_context_bundle` (single +
+  multi), and both `get_ranked_context` paths. Lets agents decide when
+  to trust a result and when to reindex first.
+- **`retrieval/freshness.py` — `FreshnessProbe`.** Per-tool-call helper
+  that classifies each result's file:
+  * `stale_index` — index SHA differs from live `git rev-parse HEAD`
+    (whole index is behind, every result inherits the marker).
+  * `edited_uncommitted` — repo SHA matches but the file's on-disk mtime
+    is newer than the indexed mtime (file was edited since indexing).
+    Compares against `CodeIndex.file_mtimes` per-file when available;
+    falls back to the index-wide `indexed_at` timestamp.
+  * `fresh` — neither condition triggered.
+  Probe caches `git HEAD` and per-file mtime stats so classifying many
+  symbols in one call stays cheap.
+- **Confidence integration.** `attach_confidence` now receives
+  `is_stale=probe.repo_is_stale` from each retrieval path, so the
+  freshness component of the confidence score finally reflects real
+  index drift instead of always reading 1.0.
+- **`_meta.freshness` summary** on each result envelope:
+  `{fresh, edited_uncommitted, stale_index, repo_is_stale}` counts
+  across the returned set — a one-glance health check.
+- 11 tests in `tests/test_freshness.py` covering probe construction,
+  SHA mismatch, per-file mtime comparison, in-place annotation,
+  end-to-end through `search_symbols` (with a forced post-index edit)
+  and `get_symbol_source`.
+
 ## [1.76.0] — 2026-04-25
 
 ### Added — Replayable benchmark + retrieval-quality harness

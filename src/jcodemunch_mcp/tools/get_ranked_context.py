@@ -337,7 +337,16 @@ def get_ranked_context(
         },
     }
     from ..retrieval.confidence import attach_confidence as _attach_confidence
-    _attach_confidence(result, context_items)
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(context_items)
+    result["_meta"]["freshness"] = _probe.summary(context_items)
+    _attach_confidence(result, context_items, is_stale=_probe.repo_is_stale)
     if negative_evidence is not None:
         result["negative_evidence"] = negative_evidence
         if negative_evidence["verdict"] == "no_implementation_found":
@@ -483,8 +492,23 @@ def _get_ranked_context_fusion(
         },
     }
     from ..retrieval.confidence import attach_confidence as _attach_confidence
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    # Fusion context_items expose only ``symbol_id`` (e.g. ``path/to/file.py::Name#kind``)
+    # — derive the file path from each id rather than the raw id string.
+    for item in context_items:
+        sid = item.get("symbol_id", "")
+        file_rel = sid.split("::", 1)[0] if "::" in sid else ""
+        item["_freshness"] = _probe.classify(file_rel)
+    fusion_result["_meta"]["freshness"] = _probe.summary(context_items)
     _attach_confidence(
         fusion_result,
         [{"score": item.get("fusion_score")} for item in context_items],
+        is_stale=_probe.repo_is_stale,
     )
     return fusion_result

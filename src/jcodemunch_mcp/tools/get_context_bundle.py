@@ -389,6 +389,13 @@ def get_context_bundle(
                 result["budget_report"] = budget_report
             return result
         e = symbol_entries[0]
+        from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+        _single_probe = _FreshnessProbe(
+            source_root=getattr(index, "source_root", "") or None,
+            indexed_at=getattr(index, "indexed_at", ""),
+            index_sha=getattr(index, "git_head", None),
+            file_mtimes=getattr(index, "file_mtimes", None),
+        )
         result = {
             "symbol_id": e["symbol_id"],
             "name": e["name"],
@@ -400,6 +407,7 @@ def get_context_bundle(
             "docstring": e["docstring"],
             "source": e["source"],
             "imports": e["imports"],
+            "_freshness": _single_probe.classify(e.get("file", "")),
         }
         if include_callers:
             result["callers"] = e["callers"]
@@ -413,6 +421,15 @@ def get_context_bundle(
     for sym_file, imports in file_imports_cache.items():
         files_map[sym_file] = {"imports": imports}
 
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(symbol_entries)
+
     result = {
         "repo": repo_id,
         "symbol_count": len(symbol_entries),
@@ -422,4 +439,5 @@ def get_context_bundle(
     if include_budget_report and budget_report is not None:
         result["budget_report"] = budget_report
     result["_meta"] = _make_meta(elapsed, **meta_kwargs)
+    result["_meta"]["freshness"] = _probe.summary(symbol_entries)
     return result

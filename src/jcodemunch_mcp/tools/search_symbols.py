@@ -941,7 +941,16 @@ def search_symbols(
         "_meta": meta,
     }
     from ..retrieval.confidence import attach_confidence as _attach_confidence
-    _attach_confidence(result, scored_results)
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(scored_results)
+    meta["freshness"] = _probe.summary(scored_results)
+    _attach_confidence(result, scored_results, is_stale=_probe.repo_is_stale)
 
     # Feature 1: Add negative_evidence if present
     if negative_evidence is not None:
@@ -1183,7 +1192,16 @@ def _search_symbols_semantic(
         "_meta": meta,
     }
     from ..retrieval.confidence import attach_confidence as _attach_confidence
-    _attach_confidence(result, scored_results)
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(scored_results)
+    meta["freshness"] = _probe.summary(scored_results)
+    _attach_confidence(result, scored_results, is_stale=_probe.repo_is_stale)
     best_score = max_cos if semantic_only else max_bm25
     if not scored_results or best_score < _ne_threshold:
         # Find files whose names partially match query terms
@@ -1430,7 +1448,16 @@ def _search_symbols_fusion(
         "_meta": meta,
     }
     from ..retrieval.confidence import attach_confidence as _attach_confidence
-    _attach_confidence(result, scored_results)
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(scored_results)
+    meta["freshness"] = _probe.summary(scored_results)
+    _attach_confidence(result, scored_results, is_stale=_probe.repo_is_stale)
 
     if cacheable and cache_key is not None:
         _result_cache_put(cache_key, result)

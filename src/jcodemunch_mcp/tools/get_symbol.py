@@ -138,8 +138,18 @@ def get_symbol_source(
     meta = _make_meta(elapsed, tokens_saved=tokens_saved, total_tokens_saved=total_saved,
                       **_cost_avoided(tokens_saved, total_saved))
 
+    from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
+    _probe = _FreshnessProbe(
+        source_root=getattr(index, "source_root", "") or None,
+        indexed_at=getattr(index, "indexed_at", ""),
+        index_sha=getattr(index, "git_head", None),
+        file_mtimes=getattr(index, "file_mtimes", None),
+    )
+    _probe.annotate(symbols_out)
+
     if batch_mode:
         meta["symbol_count"] = len(symbols_out)
+        meta["freshness"] = _probe.summary(symbols_out)
         return {"symbols": symbols_out, "errors": errors_out, "_meta": meta}
 
     # Single mode: flat object or error
@@ -147,5 +157,6 @@ def get_symbol_source(
         return {"error": errors_out[0]["error"]}
     result = symbols_out[0]
     meta["hint"] = "Use get_context_bundle(symbol_id) to retrieve source + imports in one call"
+    meta["freshness"] = _probe.summary(symbols_out)
     result["_meta"] = meta
     return result

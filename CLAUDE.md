@@ -1,9 +1,9 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.76.0 (published to PyPI)
+- **Version:** 1.77.0 (published to PyPI)
 - **INDEX_VERSION:** 9
-- **Tests:** 3634 passed, 7 skipped
+- **Tests:** 3645 passed, 7 skipped
 - **Python:** >=3.10
 
 ## Key Files
@@ -81,6 +81,7 @@ src/jcodemunch_mcp/
     analyze_perf.py          # analyze_perf: per-tool latency telemetry (p50/p95/max/error_rate) + cache hit-rate; reads in-memory session ring or persistent telemetry.db (opt-in via perf_telemetry_enabled); compare_release="X" loads benchmarks/token_baselines/vX.json and adds baseline_diff
   retrieval/
     confidence.py        # compute_confidence/attach_confidence: 0-1 retrieval confidence score (geometric mean of gap, strength, identity, freshness sub-signals); attached to _meta.confidence on search_symbols / plan_turn / get_ranked_context
+    freshness.py         # FreshnessProbe: per-result _freshness classification (fresh / edited_uncommitted / stale_index); compares index SHA vs git HEAD + per-file mtime vs CodeIndex.file_mtimes; wired into search_symbols / get_symbol_source / get_context_bundle / get_ranked_context
 ```
 
 ## CLI Subcommands
