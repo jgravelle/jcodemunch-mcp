@@ -1197,26 +1197,36 @@ SCALA_SPEC = LanguageSpec(
         "object_definition": "class",
         "trait_definition": "type",
         "enum_definition": "type",
+        "type_definition": "type",
         "function_definition": "function",
+        "function_declaration": "function",
+        "val_definition": "constant",
+        "var_definition": "constant",
     },
     name_fields={
         "class_definition": "name",
         "object_definition": "name",
         "trait_definition": "name",
         "enum_definition": "name",
+        "type_definition": "name",
         "function_definition": "name",
+        "function_declaration": "name",
+        "val_definition": "pattern",
+        "var_definition": "pattern",
     },
     param_fields={
         "function_definition": "parameters",
+        "function_declaration": "parameters",
     },
     return_type_fields={
         "function_definition": "return_type",
+        "function_declaration": "return_type",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
-    container_node_types=["class_definition", "object_definition", "trait_definition"],
+    container_node_types=["class_definition", "object_definition", "trait_definition", "enum_definition"],
     constant_patterns=["val_definition", "var_definition"],
-    type_patterns=["trait_definition", "enum_definition"],
+    type_patterns=["trait_definition", "enum_definition", "type_definition"],
 )
 
 
