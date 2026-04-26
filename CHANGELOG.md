@@ -2,6 +2,22 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.80.1] — 2026-04-26 — Scala 3 parser fix (PR #262)
+
+### Fixed
+- **Scala 3 symbol extraction** (#262, irreversible-paths). The Scala
+  language spec only matched `function_definition` nodes, silently
+  dropping abstract defs (`function_declaration`), fields
+  (`val_definition` / `var_definition`), and type aliases
+  (`type_definition`). It also assumed the identifier field was named
+  `name`, but tree-sitter-scala uses `pattern` for val/var nodes.
+  `SCALA_SPEC` now declares the additional node types and the
+  `pattern` name field. On a real Scala 3 + Spring Boot project the
+  indexed symbol count went from 734 → 1,475 (≈2x).
+- New `tests/test_scala_parser.py` covers Scala 3 significant-
+  indentation syntax: traits, classes, objects, enums, vals, vars,
+  type aliases, abstract defs, and nested methods.
+
 ## [1.80.0] — 2026-04-25 — closes the 7-release telemetry initiative
 
 ### Added — Embedding drift detector
