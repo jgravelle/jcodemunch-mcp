@@ -1719,7 +1719,7 @@ class TestLanguageCoverage:
         import_langs = set(_IMPORT_PATTERNS.keys())
 
         # Data formats are exempt — they have no import syntax
-        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"}
+        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi", "markdown"}
         expected = registry_langs - exempt
         missing = expected - import_langs
 
@@ -1735,7 +1735,7 @@ class TestLanguageCoverage:
         def_langs = set(_DEF_PATTERNS.keys())
 
         # Data formats are exempt — they have no symbol definitions
-        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"}
+        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi", "markdown"}
         expected = registry_langs - exempt
         missing = expected - def_langs
 

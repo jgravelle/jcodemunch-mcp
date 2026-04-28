@@ -324,7 +324,7 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_tcl_symbols(source_bytes, filename)
     elif language == "dlang":
         symbols = _parse_dlang_symbols(source_bytes, filename)
-    elif language in ("sass", "less", "styl"):
+    elif language in ("sass", "less", "styl", "markdown"):
         symbols = []  # No tree-sitter grammar; files indexed for text search only
     elif language == "json":
         symbols = _parse_json_symbols(source_bytes, filename)

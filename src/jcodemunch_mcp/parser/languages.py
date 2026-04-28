@@ -234,6 +234,10 @@ LANGUAGE_EXTENSIONS = {
     ".yml": "yaml",
     # JSON (compound .openapi.json / .swagger.json checked first via LANGUAGE_EXTENSIONS key order)
     ".json": "json",
+    # Markdown docs (indexed for text search; no symbol extraction)
+    ".md": "markdown",
+    ".markdown": "markdown",
+    ".mdx": "markdown",
     # OpenAPI / Swagger (compound extensions; basenames handled in get_language_for_path)
     ".openapi.yaml": "openapi",
     ".openapi.yml": "openapi",
@@ -1377,6 +1381,23 @@ STYL_SPEC = LanguageSpec(
 )
 
 
+# Markdown specification
+# Files are indexed as raw text for search_text, get_file_content, get_file_tree,
+# and file-level summaries. Headings are intentionally not symbols.
+MARKDOWN_SPEC = LanguageSpec(
+    ts_language="markdown",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
 # TOML specification
 # NOTE: TOML tables are the closest analogue to symbols. Custom extraction
 # deferred. Files are indexed for text search.
@@ -1936,6 +1957,7 @@ LANGUAGE_REGISTRY = {
     "sass": SASS_SPEC,
     "less": LESS_SPEC,
     "styl": STYL_SPEC,
+    "markdown": MARKDOWN_SPEC,
     "toml": TOML_SPEC,
     "groovy": GROOVY_SPEC,
     "objc": OBJC_SPEC,

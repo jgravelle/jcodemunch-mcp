@@ -2,6 +2,14 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## Unreleased
+
+### Added
+- Markdown documentation files (`.md`, `.markdown`, `.mdx`) are now indexed
+  as text-only files. They are available to `search_text`, `get_file_content`,
+  `get_file_tree`, and file summaries without emitting heading symbols or
+  affecting code graph analysis.
+
 ## [1.80.1] — 2026-04-26 — Scala 3 parser fix (PR #262)
 
 ### Fixed

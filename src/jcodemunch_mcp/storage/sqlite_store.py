@@ -2002,7 +2002,8 @@ class SQLiteIndexStore:
                 ".sql": "sql", ".xml": "xml", ".html": "html",
                 ".css": "css", ".scss": "scss", ".less": "less",
                 ".json": "json", ".yaml": "yaml", ".yml": "yaml",
-                ".toml": "toml", ".md": "markdown", ".rst": "rst",
+                ".toml": "toml", ".md": "markdown", ".markdown": "markdown",
+                ".mdx": "markdown", ".rst": "rst",
                 ".sh": "bash", ".ps1": "powershell",
             }
             for path in paths:

@@ -79,6 +79,7 @@ These languages are fully indexed and searchable via `search_text`. Symbol extra
 
 | Language | Extensions     | Notes                                                              |
 | -------- | -------------- | ------------------------------------------------------------------ |
+| Markdown | `.md`, `.markdown`, `.mdx` | Documentation is indexed for `search_text`, `get_file_content`, `get_file_tree`, and file summaries; headings are not emitted as symbols |
 | TOML     | `.toml`        | Tables indexed; key-as-symbol extractor planned                    |
 
 ---
@@ -186,6 +187,6 @@ JCODEMUNCH_EXTRA_EXTENSIONS=".cgi:perl,.psgi:perl,.mjs:javascript"
 - Comma-separated `.ext:lang` pairs
 - Overrides built-in mappings on collision
 - Unknown languages and malformed entries are skipped with a warning
-- Valid language names: `ada`, `al`, `ansible`, `apex`, `arduino`, `asm`, `autohotkey`, `bash`, `blade`, `c`, `clojure`, `cobol`, `commonlisp`, `cpp`, `csharp`, `css`, `dart`, `dlang`, `ejs`, `elisp`, `elixir`, `erlang`, `fortran`, `fsharp`, `gdscript`, `gleam`, `go`, `graphql`, `groovy`, `haskell`, `hcl`, `java`, `javascript`, `json`, `julia`, `kotlin`, `less`, `lua`, `luau`, `matlab`, `nim`, `nix`, `objc`, `ocaml`, `openapi`, `pascal`, `perl`, `php`, `powershell`, `proto`, `python`, `r`, `razor`, `ruby`, `rust`, `sass`, `scala`, `scss`, `solidity`, `sql`, `styl`, `swift`, `tcl`, `toml`, `tsx`, `typescript`, `verilog`, `verse`, `vhdl`, `vue`, `xml`, `yaml`, `zig`
+- Valid language names: `ada`, `al`, `ansible`, `apex`, `arduino`, `asm`, `autohotkey`, `bash`, `blade`, `c`, `clojure`, `cobol`, `commonlisp`, `cpp`, `csharp`, `css`, `dart`, `dlang`, `ejs`, `elisp`, `elixir`, `erlang`, `fortran`, `fsharp`, `gdscript`, `gleam`, `go`, `graphql`, `groovy`, `haskell`, `hcl`, `java`, `javascript`, `json`, `julia`, `kotlin`, `less`, `lua`, `luau`, `markdown`, `matlab`, `nim`, `nix`, `objc`, `ocaml`, `openapi`, `pascal`, `perl`, `php`, `powershell`, `proto`, `python`, `r`, `razor`, `ruby`, `rust`, `sass`, `scala`, `scss`, `solidity`, `sql`, `styl`, `swift`, `tcl`, `toml`, `tsx`, `typescript`, `verilog`, `verse`, `vhdl`, `vue`, `xml`, `yaml`, `zig`
 
 Set via `.mcp.json` `env` block or any environment mechanism supported by your MCP client.
