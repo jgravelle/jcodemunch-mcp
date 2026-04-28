@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/jgravelle-jcodemunch-mcp-badge.png)](https://mseep.ai/app/jgravelle-jcodemunch-mcp)
+
 Quickstart - https://github.com/jgravelle/jcodemunch-mcp/blob/main/QUICKSTART.md
 
 A crapload of detailed info: http://jcodemunch.com/
