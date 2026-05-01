@@ -18,6 +18,7 @@ A crapload of detailed info: http://jcodemunch.com/
 | [AGENT_HOOKS.md](AGENT_HOOKS.md) | Agent hooks and prompt policies |
 | [CONFIGURATION.md](CONFIGURATION.md) | JSONC config file reference, migration from env vars |
 | [GROQ.md](GROQ.md) | Groq Remote MCP integration, deployment, gcm CLI |
+| [HEADLESS.md](HEADLESS.md) | Using jCodeMunch with `claude -p` (and the jragmunch CLI) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Internal design, storage model, and extension points |
 | [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md) | Supported languages and parsing details |
 | [CONTEXT_PROVIDERS.md](CONTEXT_PROVIDERS.md) | dbt, Git, and custom context provider docs |
