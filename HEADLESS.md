@@ -97,20 +97,29 @@ The `system/init` event (first line of stream) lists `mcp_servers` — assert
 
 ## Patterns this enables
 
-- **PR review bots.** Fan out one subprocess per changed symbol; each uses
-  `get_changed_symbols` + `get_blast_radius` to scope its review.
-- **Batch refactors.** `search_symbols` enumerates targets; one subprocess per
-  target emits a unified diff; aggregator merges into a patch.
-- **Test generators.** `get_untested_symbols` lists targets; subprocess per
-  symbol writes a test file using `get_symbol_source` + `get_call_hierarchy`.
+- **Local code Q&A.** Solo dev asks questions about a repo from the terminal;
+  jcodemunch retrieves the slices, claude assembles the answer.
+- **Personal-repo review on push.** A solo dev wires a diff-aware review verb
+  into their own repo's CI using `CLAUDE_CODE_OAUTH_TOKEN`. Anthropic
+  explicitly permits this individual-use pattern.
+- **Batch refactors / test generation / sweeps.** Fan out one subprocess per
+  target with narrow context; aggregator merges results.
 - **Doc-drift watchers.** Code change → jdocmunch finds doc sections referencing
   changed symbols → subprocess proposes doc edits.
-- **"Chat with your repo" services.** REST endpoint that shells out to
-  `claude -p` with `mcp__jcodemunch__*` allowlisted. Drop-in replacement for
-  embedding-only RAG, with much better answers because the model can actively
-  call retrieval tools.
+- **"Chat with your repo" services.** Wrapper that shells out to `claude -p`
+  with `mcp__jcodemunch__*` allowlisted. Better answers than embedding-only
+  RAG because the model can actively call retrieval tools.
 - **Editor/IDE side commands.** "Explain this symbol", "who calls this",
   "is this dead?" — shell out instead of eating the user's interactive context.
+
+> **A note on team/business CI:** Anthropic's [Claude Code legal and
+> compliance docs](https://code.claude.com/docs/en/legal-and-compliance)
+> distinguish *individual ordinary use* (permitted on Pro/Max subscriptions)
+> from *business / always-on / multi-contributor* deployments (which require
+> API keys). Solo dev on their own repo with `CLAUDE_CODE_OAUTH_TOKEN` =
+> permitted. Shared team CI / commercial automation = use API keys. The
+> [jragmunch CLI](https://github.com/jgravelle/jragmunch-cli) defaults to
+> subscription mode and exposes `--use-api` for the team/business case.
 
 All of the above are first-class verbs in `jragmunch`. The CLI is a working
 reference implementation if you want to build your own variant.
