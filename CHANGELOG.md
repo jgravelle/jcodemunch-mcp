@@ -2,6 +2,15 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.81.1] — 2026-05-04 — Docs: VS Code extension on the marketplace
+
+### Changed
+- README now points at the [VS Code marketplace listing](https://marketplace.visualstudio.com/items?itemName=jgravelle.jcodemunch-mcp-vscode)
+  for the on-save reindex extension (published under v1.81.0). New rows
+  in the MCP-client table for "VS Code (any MCP client)" and
+  "GitHub Copilot CLI / cloud agent" so the discovery surface matches
+  what's actually shippable today.
+
 ## [1.81.0] — 2026-05-04 — VS Code extension, GitHub Copilot hooks, upgrade command
 
 ### Added
