@@ -366,6 +366,10 @@ class SQLiteIndexStore:
         if _key not in _VERIFIED_PATHS:
             self.base_path.mkdir(parents=True, exist_ok=True)
             _VERIFIED_PATHS.add(_key)
+        # Instance-scoped cache of resolved content_dir paths (was a class
+        # attribute, which leaked entries across every instance for the life
+        # of the process and shared state across tests).
+        self._resolved_content_dirs: dict[str, str] = {}
 
     # ── Connection helpers ──────────────────────────────────────────
 
@@ -1564,10 +1568,6 @@ class SQLiteIndexStore:
     def _content_dir(self, owner: str, name: str) -> Path:
         """Path to raw content directory."""
         return self.base_path / self._repo_slug(owner, name)
-
-    # Cache of resolved content_dir paths — avoids repeated resolve() syscalls
-    # in search_text (called once per file in the repo) and search_symbols.
-    _resolved_content_dirs: dict[str, str] = {}
 
     def _safe_content_path(self, content_dir: Path, relative_path: str) -> Optional[Path]:
         """Resolve a content path and ensure it stays within content_dir."""

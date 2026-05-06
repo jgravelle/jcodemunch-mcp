@@ -2,6 +2,39 @@
 
 All notable changes to jcodemunch-mcp are documented here.
 
+## [1.81.2] — 2026-05-06 — Security & robustness audit fixes
+
+### Fixed
+- **stdio JSON-RPC corruption**: `download_model()` no longer prints to
+  stdout when invoked from the lazy `_get_session()` path inside an MCP
+  tool call. The auto-download branch now passes `quiet=True`, and the
+  CLI-mode prints in `download_model()` go to stderr.
+- **`SqliteStore._resolved_content_dirs`** is now an instance attribute,
+  not a class attribute — entries no longer leak across every store
+  instance for the life of the process.
+
+### Changed
+- **Streamable-HTTP session table** now caps at
+  `JCODEMUNCH_MAX_SESSIONS` (default 1024) and an idle sweeper evicts
+  sessions inactive longer than `JCODEMUNCH_SESSION_IDLE_TIMEOUT`
+  (default 300 s). Excess sessions get HTTP 503 with a `Retry-After`
+  header. SSE/streamable-http startup logs a warning when binding to a
+  non-loopback host without `JCODEMUNCH_HTTP_TOKEN`.
+- **Rate-limiter `_buckets`** drops empty entries after window-eviction
+  and caps at 10,000 tracked IPs (LRU eviction). Closes a slow leak that
+  defeated opt-in rate limiting on public deployments.
+- **`search_text` regex mode** now enforces a 2-second wall-clock
+  budget across the whole call. Returns `_meta.timed_out=true` when
+  exceeded so a crafted regex can't pin a worker thread.
+- **`resolve_repo._git_toplevel`** runs git with `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_CONFIG_GLOBAL=/dev/null`, and `GIT_TERMINAL_PROMPT=0` so an
+  untrusted workspace cannot influence the probe via system/global git
+  config or hook execution.
+- **Response-level secret redaction** is skipped for `get_file_content`,
+  `get_symbol_source`, and `get_context_bundle` — these tools return raw
+  cached source where any "secret" found is the user's own checked-in
+  code, and the per-byte regex sweep was wasted latency.
+
 ## [1.81.1] — 2026-05-04 — Docs: VS Code extension on the marketplace
 
 ### Changed

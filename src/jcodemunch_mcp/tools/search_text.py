@@ -17,6 +17,13 @@ _NESTED_QUANTIFIER_RE = re.compile(
 
 _MAX_REGEX_LEN = 200
 
+# Wall-clock budget for regex evaluation across all files in a single
+# search_text call. Python's `re` has no per-call timeout and the existing
+# nested-quantifier guard only catches `(a+)+`-shape patterns; alternation
+# overlap and look-ahead-driven blowup slip through. Cap total regex time
+# so a crafted pattern can't pin a worker thread indefinitely.
+_REGEX_BUDGET_SEC = 2.0
+
 
 def search_text(
     repo: str,
@@ -93,10 +100,18 @@ def search_text(
     result_count = 0
     files_searched = 0
     truncated = False
+    timed_out = False
     raw_bytes = 0
     response_bytes = 0
 
+    # Only enforce the wall-clock budget for regex mode — substring (`in`)
+    # is linear and not a ReDoS vector.
+    _budget_deadline = (start + _REGEX_BUDGET_SEC) if pattern is not None else None
+
     for file_path in files:
+        if _budget_deadline is not None and time.perf_counter() > _budget_deadline:
+            timed_out = True
+            break
         full_path = store._safe_content_path(content_dir, file_path)
         if not full_path:
             continue
@@ -109,6 +124,15 @@ def search_text(
         files_searched += 1
         file_matches = []
         for line_index, line in enumerate(lines):
+            # Check the budget every 256 lines — cheap, and bounds worst-case
+            # blowup on any single regex/line pair.
+            if (
+                _budget_deadline is not None
+                and (line_index & 0xFF) == 0
+                and time.perf_counter() > _budget_deadline
+            ):
+                timed_out = True
+                break
             line = line.rstrip("\n")
             hit = pattern.search(line) if pattern else (query_lower in line.lower())
             if not hit:
@@ -138,7 +162,7 @@ def search_text(
             response_bytes += len(file_path) + 20
             raw_bytes += index.file_sizes.get(file_path, 0)
 
-        if truncated:
+        if truncated or timed_out:
             break
 
     elapsed = (time.perf_counter() - start) * 1000
@@ -153,6 +177,7 @@ def search_text(
             "timing_ms": round(elapsed, 1),
             "files_searched": files_searched,
             "truncated": truncated,
+            "timed_out": timed_out,
             "tokens_saved": tokens_saved,
             "total_tokens_saved": total_saved,
             **cost_avoided(tokens_saved, total_saved),

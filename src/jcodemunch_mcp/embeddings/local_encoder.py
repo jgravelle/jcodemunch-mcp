@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import sys
 import unicodedata
 from pathlib import Path
 from typing import Optional
@@ -94,7 +95,7 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
             continue
         if not quiet:
             logger.info("download_model: downloading %s ...", filename)
-            print(f"  Downloading {filename} from {MODEL_REPO} ...")  # noqa: T201
+            print(f"  Downloading {filename} from {MODEL_REPO} ...", file=sys.stderr)  # noqa: T201
         try:
             urllib.request.urlretrieve(url, str(out_path))
         except Exception as exc:
@@ -106,10 +107,10 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
             ) from exc
         if not quiet:
             size_mb = out_path.stat().st_size / (1024 * 1024)
-            print(f"  Saved {filename} ({size_mb:.1f} MB)")  # noqa: T201
+            print(f"  Saved {filename} ({size_mb:.1f} MB)", file=sys.stderr)  # noqa: T201
 
     if not quiet:
-        print(f"  Model ready at {dest}")  # noqa: T201
+        print(f"  Model ready at {dest}", file=sys.stderr)  # noqa: T201
     return dest
 
 
@@ -267,9 +268,11 @@ def _get_session():
     vocab_path = d / VOCAB_FILENAME
 
     if not onnx_path.exists():
-        # Auto-download on first use
+        # Auto-download on first use. quiet=True is required: this path runs
+        # inside an MCP tool call, where stdout is the JSON-RPC frame channel
+        # under stdio transport — any print() corrupts the stream.
         logger.info("ONNX model not found at %s — downloading ...", d)
-        download_model(d)
+        download_model(d, quiet=True)
 
     if not onnx_path.exists():
         raise FileNotFoundError(

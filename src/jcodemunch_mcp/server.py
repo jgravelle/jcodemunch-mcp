@@ -3965,8 +3965,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         _write_pulse(name, tokens_saved=_saved, base_path=storage_path)
 
         # Response-level secret redaction — scrub leaked credentials
-        # before they reach the LLM context window
-        if isinstance(result, dict):
+        # before they reach the LLM context window. Skipped for tools that
+        # return raw cached source (any "secret" found is the user's own
+        # checked-in code; the per-byte regex sweep is wasted latency on
+        # tools whose payloads can be hundreds of KB).
+        _SOURCE_DUMP_TOOLS = frozenset({
+            "get_file_content", "get_symbol_source", "get_context_bundle",
+        })
+        if isinstance(result, dict) and name not in _SOURCE_DUMP_TOOLS:
             try:
                 from .redact import is_redaction_enabled, redact_dict
                 if is_redaction_enabled():
@@ -4201,11 +4207,17 @@ def _make_rate_limit_middleware():
     _WINDOW = 60.0  # seconds
     _buckets: dict[str, collections.deque] = {}
 
+    # Hard cap on tracked IPs so a botnet/rotating-NAT client cannot bloat
+    # the bucket dict indefinitely. When full, evict the oldest-touched entry.
+    _MAX_TRACKED_IPS = 10_000
+    _last_touched: dict[str, float] = {}
+
     class RateLimitMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
             ip = request.client.host if request.client else "unknown"
             now = _time.monotonic()
             bucket = _buckets.setdefault(ip, collections.deque())
+            _last_touched[ip] = now
             # Evict timestamps outside the sliding window
             while bucket and now - bucket[0] >= _WINDOW:
                 bucket.popleft()
@@ -4217,6 +4229,16 @@ def _make_rate_limit_middleware():
                     headers={"Retry-After": str(retry_after)},
                 )
             bucket.append(now)
+            # If the bucket is now empty after window-eviction, drop the IP
+            # entry entirely so cold IPs don't accumulate forever.
+            if not bucket:
+                _buckets.pop(ip, None)
+                _last_touched.pop(ip, None)
+            elif len(_buckets) > _MAX_TRACKED_IPS:
+                # Cap exceeded: evict the least-recently-touched IP.
+                oldest_ip = min(_last_touched, key=_last_touched.get)
+                _buckets.pop(oldest_ip, None)
+                _last_touched.pop(oldest_ip, None)
             return await call_next(request)
 
     return Middleware(RateLimitMiddleware)
@@ -4269,6 +4291,13 @@ async def run_sse_server(host: str, port: int):
         f"jcodemunch-mcp {__version__} by jgravelle · SSE server at http://{host}:{port}/sse",
         file=sys.stderr,
     )
+    if not os.environ.get("JCODEMUNCH_HTTP_TOKEN") and host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"WARNING: SSE bound to non-loopback host {host!r} without "
+            f"JCODEMUNCH_HTTP_TOKEN — anyone on the network can drive this MCP server. "
+            f"Set JCODEMUNCH_HTTP_TOKEN to require bearer auth.",
+            file=sys.stderr,
+        )
     logger.info(
         "startup version=%s transport=sse host=%s port=%d storage=%s",
         __version__, host, port,
@@ -4302,6 +4331,43 @@ async def run_streamable_http_server(host: str, port: int):
     # Keeps server.run() alive across multiple HTTP requests from the same client.
     _sessions: dict[str, StreamableHTTPServerTransport] = {}
     _session_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+    _session_last_seen: dict[str, float] = {}
+
+    # Resource caps. A misbehaving or hostile client must not be able to
+    # balloon process memory by opening sessions and never sending DELETE.
+    try:
+        _MAX_SESSIONS = int(os.environ.get("JCODEMUNCH_MAX_SESSIONS", "1024"))
+    except (ValueError, TypeError):
+        _MAX_SESSIONS = 1024
+    try:
+        _SESSION_IDLE_TIMEOUT = float(os.environ.get("JCODEMUNCH_SESSION_IDLE_TIMEOUT", "300"))
+    except (ValueError, TypeError):
+        _SESSION_IDLE_TIMEOUT = 300.0
+
+    def _drop_session(sid: str) -> None:
+        _sessions.pop(sid, None)
+        _session_last_seen.pop(sid, None)
+        t = _session_tasks.pop(sid, None)
+        if t and not t.done():
+            t.cancel()
+
+    async def _idle_session_sweeper() -> None:
+        import time as _t
+        try:
+            while True:
+                await asyncio.sleep(max(30.0, _SESSION_IDLE_TIMEOUT / 4))
+                now = _t.monotonic()
+                stale = [
+                    sid for sid, ts in list(_session_last_seen.items())
+                    if now - ts > _SESSION_IDLE_TIMEOUT
+                ]
+                for sid in stale:
+                    logger.info("evicting idle MCP session %s (idle > %.0fs)", sid, _SESSION_IDLE_TIMEOUT)
+                    _drop_session(sid)
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.create_task(_idle_session_sweeper())
 
     # Sentinel response: transport.handle_request() already wrote to the ASGI
     # send callable, so Starlette's endpoint wrapper must not send anything
@@ -4314,25 +4380,35 @@ async def run_streamable_http_server(host: str, port: int):
     _ALREADY_SENT = _AlreadySent()
 
     async def handle_mcp(request: Request):
+        import time as _t
         session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         # Route to existing session if client sent a session ID we recognise.
         if session_id and session_id in _sessions:
             transport = _sessions[session_id]
+            _session_last_seen[session_id] = _t.monotonic()
             await transport.handle_request(request.scope, request.receive, request._send)
             # Clean up terminated sessions (e.g. after DELETE).
             if transport._terminated:
-                _sessions.pop(session_id, None)
-                task = _session_tasks.pop(session_id, None)
-                if task and not task.done():
-                    task.cancel()
+                _drop_session(session_id)
             return _ALREADY_SENT
+
+        # Reject new sessions when the cap is reached so a noisy client cannot
+        # exhaust memory / asyncio task slots.
+        if len(_sessions) >= _MAX_SESSIONS:
+            from starlette.responses import Response as StarletteResponse
+            return StarletteResponse(
+                f"Server at session capacity (max {_MAX_SESSIONS}); retry later.",
+                status_code=503,
+                headers={"Retry-After": "30"},
+            )
 
         # New session — generate a unique ID so the transport enforces it on
         # all subsequent requests, preventing cross-session pollution.
         new_id = uuid.uuid4().hex
         transport = StreamableHTTPServerTransport(mcp_session_id=new_id)
         _sessions[new_id] = transport
+        _session_last_seen[new_id] = _t.monotonic()
 
         # streams_ready is set once transport.connect() has initialised its
         # internal memory streams.  We must wait for it before calling
@@ -4353,6 +4429,7 @@ async def run_streamable_http_server(host: str, port: int):
             finally:
                 _sessions.pop(new_id, None)
                 _session_tasks.pop(new_id, None)
+                _session_last_seen.pop(new_id, None)
 
         task = asyncio.create_task(_session_runner())
         _session_tasks[new_id] = task
@@ -4361,9 +4438,7 @@ async def run_streamable_http_server(host: str, port: int):
             # Wait up to 10 s for the transport to be ready.
             await asyncio.wait_for(streams_ready.wait(), timeout=10.0)
         except asyncio.TimeoutError:
-            task.cancel()
-            _sessions.pop(new_id, None)
-            _session_tasks.pop(new_id, None)
+            _drop_session(new_id)
             from starlette.responses import Response as StarletteResponse
             return StarletteResponse("Session setup timed out", status_code=500)
 
@@ -4393,6 +4468,13 @@ async def run_streamable_http_server(host: str, port: int):
         f"jcodemunch-mcp {__version__} by jgravelle · streamable-http server at http://{host}:{port}/mcp",
         file=sys.stderr,
     )
+    if not os.environ.get("JCODEMUNCH_HTTP_TOKEN") and host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"WARNING: streamable-http bound to non-loopback host {host!r} without "
+            f"JCODEMUNCH_HTTP_TOKEN — anyone on the network can drive this MCP server. "
+            f"Set JCODEMUNCH_HTTP_TOKEN to require bearer auth.",
+            file=sys.stderr,
+        )
     logger.info(
         "startup version=%s transport=streamable-http host=%s port=%d storage=%s",
         __version__, host, port,
