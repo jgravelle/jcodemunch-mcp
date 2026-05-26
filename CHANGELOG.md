@@ -4,6 +4,17 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- `is_secret_file()` no longer matches `SECRET_PATTERNS` against the full
+  file path — only the basename. Previously the loop fell through to
+  `fnmatch.fnmatch(path_lower, pattern)`, which caused any path containing
+  the substring `secret` (e.g. a `services/secrets-manager/` directory) to
+  match the `*secret*` glob, silently excluding every file underneath from
+  the index. All shipped `SECRET_PATTERNS` entries are basename patterns,
+  so the full-path branch contributed zero true positives. Documentation-
+  extension safe-list logic for `*secret*` is preserved unchanged.
+
 ## [1.108.24] - 2026-05-26 - check_edit_safe edit-safety preflight
 
 New tool `check_edit_safe`: the edit-safety companion to `check_delete_safe`.

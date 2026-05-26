@@ -140,21 +140,28 @@ _SECRET_DOC_EXEMPT_PATTERNS: frozenset[str] = frozenset({"*secret*"})
 def is_secret_file(file_path: str) -> bool:
     """Check if a file path matches known secret file patterns.
 
-    Uses filename/extension matching, not content inspection. The broad
-    ``*secret*`` glob is not applied to known documentation extensions
-    (.md, .rst, .txt, .adoc, .html, .ipynb, etc.) to avoid false positives
-    on files like ``docs/secrets-handling.md``.
+    Matches against the file's basename only — never the full path. Every
+    pattern in :data:`SECRET_PATTERNS` is a basename pattern (``.env``,
+    ``*.pem``, ``id_rsa``, ``*secret*``, etc.); applying them to the full
+    path produced false positives that excluded whole legitimate subtrees.
+    For example, ``services/secrets-manager/app/main.py`` would match
+    ``*secret*`` against the full path even though ``main.py`` is clearly
+    not a credential file, silently dropping the entire service from the
+    index.
+
+    The broad ``*secret*`` glob is also skipped for known documentation
+    extensions (.md, .rst, .txt, .adoc, .html, .ipynb, etc.) to avoid
+    false positives on files like ``docs/secrets-handling.md``.
 
     Args:
         file_path: Relative file path (forward slashes).
 
     Returns:
-        True if the file matches a secret pattern.
+        True if the file's basename matches a secret pattern.
     """
     import fnmatch
 
     name = os.path.basename(file_path).lower()
-    path_lower = file_path.lower()
     _, ext = os.path.splitext(name)
 
     excluded = set(_config.get("exclude_secret_patterns", []))
@@ -164,9 +171,6 @@ def is_secret_file(file_path: str) -> bool:
         if pattern in _SECRET_DOC_EXEMPT_PATTERNS and ext in _SECRET_GLOB_SAFE_EXTENSIONS:
             continue
         if fnmatch.fnmatch(name, pattern):
-            return True
-        # Also check full path for patterns like .env.*
-        if fnmatch.fnmatch(path_lower, pattern):
             return True
     return False
 

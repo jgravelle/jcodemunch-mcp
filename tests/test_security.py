@@ -155,6 +155,52 @@ class TestSecretDetection:
         """Non-doc files with 'secret' in the name must still be caught."""
         assert is_secret_file(path) is True
 
+    @pytest.mark.parametrize("path", [
+        # Real-world: a downstream user indexing a "secrets-manager" service
+        # saw the entire subtree dropped because the old full-path fnmatch
+        # made every file under it match the *secret* glob.
+        "services/secrets-manager/app/main.py",
+        "services/secrets-manager/app/handlers/auth.py",
+        "services/secret-config/foo.py",
+        "services/secret-bridge/src/bridge.py",
+        "app/secret_helpers/utils.py",
+        "internal/secrets/router.go",
+        "pkg/secret/loader.rs",
+        # Directory-name false-positives that hit other broad globs via full-path:
+        "keys-and-locks/README_only.py",
+        "id_rsa_helpers/main.py",
+        # Doc-extension files also covered (independent of doc-exempt logic):
+        "services/secrets-manager/README.md",
+    ])
+    def test_non_secret_files_under_secret_named_dirs_not_flagged(self, path):
+        """Regression: directory names containing 'secret' (or other pattern
+        substrings) must not cause non-secret files inside them to be flagged.
+
+        Prior to the basename-only fix, ``is_secret_file()`` ran fnmatch on
+        the full path, so any path containing the literal substring "secret"
+        matched the ``*secret*`` glob — silently excluding entire legitimate
+        subtrees (e.g. a "secrets-manager" microservice) from indexing.
+        """
+        assert is_secret_file(path) is False
+
+    @pytest.mark.parametrize("path", [
+        # Real credential files inside a "secret"-named directory must still
+        # be flagged — the fix only changes which part of the path is matched,
+        # not whether matching happens at all.
+        "services/secrets-manager/.env",
+        "services/secrets-manager/keys/id_rsa",
+        "services/secrets-manager/certs/server.pem",
+        "services/secrets-manager/credentials.json",
+        "deploy/secret-config/private.key",
+        # Basename pattern still wins regardless of parent dir.
+        "src/utils/mysecretstuff.py",
+    ])
+    def test_real_secrets_inside_secret_named_dirs_still_flagged(self, path):
+        """Regression-pair: even with basename-only matching, true secret
+        files nested under any directory (including ones whose names contain
+        'secret') must still be excluded."""
+        assert is_secret_file(path) is True
+
 
 # --- Binary Detection (S-05) ---
 
