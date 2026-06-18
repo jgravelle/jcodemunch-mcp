@@ -81,6 +81,31 @@ These languages are fully indexed and searchable via `search_text`. Symbol extra
 | -------- | -------------- | ------------------------------------------------------------------ |
 | TOML     | `.toml`        | Tables indexed; key-as-symbol extractor planned                    |
 
+### Templating engines (over an underlying language)
+
+A template file named `name.<underlying-ext>.<engine-ext>` is indexed by masking
+the engine's constructs (offset-preserving) and re-parsing the body as its
+underlying language — so a Jinja2 template of TypeScript (`foo.ts.j2`) yields the
+real TypeScript symbols, with correct line/byte positions. The **underlying
+language is inferred from the middle extension**, so any language above works as
+the body. A bare template with no underlying extension (`report.j2`) is skipped.
+
+| Engine     | Extensions                          | Notes                                                                 |
+| ---------- | ----------------------------------- | --------------------------------------------------------------------- |
+| Jinja2     | `.j2`, `.jinja`, `.jinja2`          | `{% macro %}` / `{% block %}` also surfaced as symbols                 |
+| Twig       | `.twig`                             | Shares Jinja delimiters; macro/block extraction applies               |
+
+The engine registry (`parser/template_shared.py`) is pluggable. The first cut
+ships Jinja2 and Twig — the engines whose `name.<lang>.<engine>` double-extension
+convention this feature targets. Single-extension HTML-bodied engines
+(Handlebars/Liquid/Mustache — `page.hbs`, `index.liquid`) carry no underlying
+extension to resolve and can be added on demand.
+
+Caveat (best-effort, same as dbt SQL): a template hole at a *name* position
+(`function {{ name }}()`) erases that symbol's name, and free template text
+emitted inside a block body can disrupt the declaration immediately after it.
+EJS (`.ejs`) keeps its own dedicated parser.
+
 ---
 
 ## Parser Engine

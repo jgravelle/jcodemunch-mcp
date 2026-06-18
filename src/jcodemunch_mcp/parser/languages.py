@@ -6,6 +6,8 @@ import threading
 from dataclasses import dataclass
 from typing import Optional
 
+from .template_shared import TEMPLATE_ENGINE_LANGUAGES, TEMPLATE_EXTENSIONS
+
 
 @dataclass
 class LanguageSpec:
@@ -1993,6 +1995,26 @@ LANGUAGE_REGISTRY = {
     "dlang": DLANG_SPEC,
 }
 
+# Template-engine languages (jinja/twig) all route through the
+# custom _parse_template_symbols() path in extractor.py, so they need no
+# tree-sitter grammar. A shared placeholder spec (empty node maps) satisfies
+# parse_file()'s `language in LANGUAGE_REGISTRY` gate and makes the engines
+# appear in the auto-generated `languages` config list for enable/disable gating.
+_TEMPLATE_LANG_SPEC = LanguageSpec(
+    ts_language="__template__",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+for _engine_lang in TEMPLATE_ENGINE_LANGUAGES:
+    LANGUAGE_REGISTRY.setdefault(_engine_lang, _TEMPLATE_LANG_SPEC)
+
 logger = logging.getLogger(__name__)
 
 _APPLIED_EXTENSIONS = False
@@ -2103,9 +2125,11 @@ def get_language_for_path(path: str) -> "Optional[str]":
     Check order:
     1. Well-known OpenAPI/Swagger basenames (openapi.yaml, swagger.json, …).
     2. Ansible path heuristics for YAML inventory/playbook files.
-    3. Compound suffixes (e.g. ``.blade.php``, ``.openapi.yaml``).
-    4. MATLAB vs Objective-C disambiguation for ``.m`` files.
+    3. MATLAB vs Objective-C disambiguation for ``.m`` files.
+    4. Compound suffixes (e.g. ``.blade.php``, ``.openapi.yaml``).
     5. Last extension (e.g. ``.php``).
+    6. Template fallback only — ``name.<lang>.<engine>`` (e.g. ``foo.ts.j2``);
+       runs after 4 and 5 so it can only turn an unresolved path into a language.
     """
     _apply_extra_extensions()
     import os as _os
@@ -2128,4 +2152,43 @@ def get_language_for_path(path: str) -> "Optional[str]":
             return LANGUAGE_EXTENSIONS[compound]
     # 5. Simple extension
     _, ext = _os.path.splitext(lower)
-    return LANGUAGE_EXTENSIONS.get(ext)
+    simple = LANGUAGE_EXTENSIONS.get(ext)
+    if simple is not None:
+        return simple
+    # 6. Template files (fallback only): name.<underlying-ext>.<engine-ext>
+    # (e.g. foo.ts.j2). This sits AFTER the compound (4) and last-extension (5)
+    # checks and fires only for the registered engine extensions, so it can only
+    # ever turn an unresolved path INTO a language — it can never re-resolve an
+    # extension that a check above already matched (e.g. ``.d.ts`` / ``.blade.php``
+    # win at step 4/5 and never reach here). Strip the engine extension and
+    # resolve the remaining name's language; if it resolves, this is a template
+    # over that language and we return the engine name (the custom parser
+    # re-derives the underlying language from the path). A bare template with no
+    # inner language extension (e.g. report.j2) returns None and is skipped —
+    # there is nothing to parse as source.
+    for _engine_ext, _engine_lang in TEMPLATE_EXTENSIONS.items():
+        if base.endswith(_engine_ext):
+            inner = base[: -len(_engine_ext)]
+            if inner and "." in inner and get_language_for_path(inner):
+                return _engine_lang
+            return None
+    return None
+
+
+def template_underlying_language(path: str) -> "Optional[str]":
+    """Return the underlying source language for a template file, or None.
+
+    For ``name.<underlying-ext>.<engine-ext>`` (e.g. ``foo.ts.j2``) this strips
+    the templating-engine extension and resolves the remaining name's language
+    (``typescript``). Returns None when the path is not a template or has no
+    inferable underlying language (a bare ``report.j2``).
+    """
+    _apply_extra_extensions()
+    base = os.path.basename(path.lower())
+    for engine_ext in TEMPLATE_EXTENSIONS:
+        if base.endswith(engine_ext):
+            inner = base[: -len(engine_ext)]
+            if inner and "." in inner:
+                return get_language_for_path(inner)
+            return None
+    return None

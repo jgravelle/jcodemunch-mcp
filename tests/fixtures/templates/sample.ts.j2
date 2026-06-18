@@ -1,0 +1,21 @@
+import { Helper } from "./helper";
+import type { Config } from "./config";
+
+export interface User {
+  id: number;
+  name: string;
+}
+
+export function buildUser(id: number): User {
+  const label: string = "{{ default_label }}";
+  return { id, name: label };
+}
+
+{% block footer %}
+export const FOOTER = "{{ footer_text }}";
+{% endblock %}
+
+{# A reusable greeting macro rendering prose (free text). #}
+{% macro greeting(name, salutation) %}
+{{ salutation }}, {{ name }}!
+{% endmacro %}

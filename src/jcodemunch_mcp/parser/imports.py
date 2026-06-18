@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
+from .languages import template_underlying_language
+from .template_shared import TEMPLATE_ENGINE_LANGUAGES, mask_template_keep_offsets
 
 
 # ---------------------------------------------------------------------------
@@ -608,6 +610,21 @@ def extract_imports(content: str, file_path: str, language: str) -> list[dict]:
         where ``specifier`` is the raw module/path string and ``names`` are
         the specific identifiers imported from that module.
     """
+    # Template files (foo.ts.j2, widget.ts.twig, …): mask the engine constructs
+    # offset-preserving, then run the underlying language's import extractor on
+    # the result. The underlying language is re-derived from the path, so this is
+    # handled before the generic _LANGUAGE_EXTRACTORS lookup (whose callbacks
+    # receive only `content`).
+    if language in TEMPLATE_ENGINE_LANGUAGES:
+        underlying = template_underlying_language(file_path)
+        underlying_extractor = _LANGUAGE_EXTRACTORS.get(underlying) if underlying else None
+        if underlying_extractor is None:
+            return []
+        try:
+            return underlying_extractor(mask_template_keep_offsets(content, language))
+        except Exception:
+            return []
+
     extractor = _LANGUAGE_EXTRACTORS.get(language)
     if extractor is None:
         return []

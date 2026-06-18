@@ -1,0 +1,20 @@
+import os
+from typing import Optional
+
+{% macro render_path(name) %}
+{{ name }}
+{% endmacro %}
+
+
+class Settings:
+    """Project settings rendered from a Jinja template."""
+
+    DEBUG = {{ debug_flag }}
+
+    def resolve(self, key: str) -> Optional[str]:
+        prefix = "{{ env_prefix }}"
+        return os.environ.get(prefix + key)
+
+
+def build_settings() -> Settings:
+    return Settings()

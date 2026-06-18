@@ -9,6 +9,7 @@ from Jinja blocks before stripping, so the caller can create symbols for them.
 """
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 # Matches {{ expr }}, {% block %}, and {# comment #} in any order
@@ -19,16 +20,33 @@ JINJA_PATTERN = re.compile(
     re.DOTALL
 )
 
-# dbt directive patterns — extract name and optional params from Jinja blocks.
-# Matches: {% macro name(args) %}, {%- macro name(args) -%}, etc.
-_DBT_DIRECTIVE_RE = re.compile(
-    r'\{%-?\s*'
-    r'(?P<directive>macro|test|snapshot|materialization)'
-    r'\s+(?P<name>\w+)'
-    r'(?:\s*\((?P<params>[^)]*)\))?'  # optional (params)
-    r'[^%]*?-?%\}',
-    re.DOTALL
-)
+# Default dbt directive keywords (macro, test, snapshot, materialization).
+_DEFAULT_DBT_DIRECTIVES = ("macro", "test", "snapshot", "materialization")
+
+
+@lru_cache(maxsize=None)
+def _directive_pattern(directives: tuple[str, ...]) -> "re.Pattern[str]":
+    """Build the Jinja-directive regex for a set of directive keywords.
+
+    The shape ``{% <kw> name(params) %}`` is the same for every Jinja-family
+    engine; only the keyword set differs. Shared by dbt SQL parsing (its default
+    macro/test/snapshot/materialization set) and the generic template parser
+    (which passes ``("macro", "block")``) so the scan/end-tag/docstring/offset
+    logic in :func:`extract_dbt_directives` is reused rather than duplicated.
+    """
+    alternation = "|".join(re.escape(d) for d in directives)
+    return re.compile(
+        r'\{%-?\s*'
+        r'(?P<directive>' + alternation + r')'
+        r'\s+(?P<name>\w+)'
+        r'(?:\s*\((?P<params>[^)]*)\))?'  # optional (params)
+        r'[^%]*?-?%\}',
+        re.DOTALL
+    )
+
+
+# dbt directive matcher — matches {% macro name(args) %}, {%- macro -%}, etc.
+_DBT_DIRECTIVE_RE = _directive_pattern(_DEFAULT_DBT_DIRECTIVES)
 
 # Jinja block comment: {# ... #}
 _JINJA_COMMENT_RE = re.compile(r'\{#(.*?)#\}', re.DOTALL)
@@ -47,18 +65,25 @@ class DbtDirective:
     byte_length: int  # from directive start to endmacro/endsnapshot/etc.
 
 
-def extract_dbt_directives(sql_bytes: bytes) -> list[DbtDirective]:
-    """Extract dbt macro/test/snapshot/materialization directives from Jinja SQL.
+def extract_dbt_directives(
+    sql_bytes: bytes,
+    directive_keywords: tuple[str, ...] = _DEFAULT_DBT_DIRECTIVES,
+) -> list[DbtDirective]:
+    """Extract Jinja ``{% <kw> name(params) %}`` directive blocks as metadata.
 
     Scans for ``{% macro name(params) %}`` and matching ``{% endmacro %}`` blocks,
     and similarly for test, snapshot, and materialization directives.
+
+    ``directive_keywords`` selects which directive shapes to match; it defaults to
+    the dbt set, and the generic template parser passes ``("macro", "block")`` to
+    reuse this same scan/end-tag/docstring/offset path for Jinja/Twig templates.
 
     Returns a list of DbtDirective with name, params, line range, and docstring.
     """
     sql_str = sql_bytes.decode("utf-8", errors="replace")
     directives: list[DbtDirective] = []
 
-    for m in _DBT_DIRECTIVE_RE.finditer(sql_str):
+    for m in _directive_pattern(tuple(directive_keywords)).finditer(sql_str):
         directive = m.group("directive")
         name = m.group("name")
         params = (m.group("params") or "").strip()

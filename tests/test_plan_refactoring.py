@@ -1718,8 +1718,10 @@ class TestLanguageCoverage:
         registry_langs = set(LANGUAGE_REGISTRY.keys())
         import_langs = set(_IMPORT_PATTERNS.keys())
 
-        # Data formats are exempt — they have no import syntax
-        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"}
+        # Data formats and templating engines are exempt — they have no import
+        # syntax of their own (a template refactor uses the underlying language).
+        from jcodemunch_mcp.parser.template_shared import TEMPLATE_ENGINE_LANGUAGES
+        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"} | set(TEMPLATE_ENGINE_LANGUAGES)
         expected = registry_langs - exempt
         missing = expected - import_langs
 
@@ -1734,8 +1736,10 @@ class TestLanguageCoverage:
         registry_langs = set(LANGUAGE_REGISTRY.keys())
         def_langs = set(_DEF_PATTERNS.keys())
 
-        # Data formats are exempt — they have no symbol definitions
-        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"}
+        # Data formats and templating engines are exempt — they have no symbol
+        # definitions of their own (a template refactor uses the underlying language).
+        from jcodemunch_mcp.parser.template_shared import TEMPLATE_ENGINE_LANGUAGES
+        exempt = {"toml", "xml", "json", "yaml", "ansible", "openapi"} | set(TEMPLATE_ENGINE_LANGUAGES)
         expected = registry_langs - exempt
         missing = expected - def_langs
 

@@ -7,7 +7,12 @@ from tree_sitter_language_pack import get_parser
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
 from .symbols import Symbol, make_symbol_id, compute_content_hash
-from .languages import LanguageSpec, LANGUAGE_REGISTRY
+from .languages import LanguageSpec, LANGUAGE_REGISTRY, template_underlying_language
+from .template_shared import (
+    TEMPLATE_ENGINES,
+    TEMPLATE_ENGINE_LANGUAGES,
+    mask_template_keep_offsets,
+)
 from .complexity import compute_complexity
 
 
@@ -243,6 +248,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_razor_symbols(source_bytes, filename)
     elif language == "astro":
         symbols = _parse_astro_symbols(source_bytes, filename)
+    elif language in TEMPLATE_ENGINE_LANGUAGES:
+        symbols = _parse_template_symbols(source_bytes, filename, language, repo=repo)
     elif language == "nix":
         symbols = _parse_nix_symbols(source_bytes, filename)
     elif language == "vue":
@@ -4090,6 +4097,56 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     symbols.sort(key=lambda s: (s.line, s.byte_offset, s.name))
     return symbols
+
+
+def _parse_template_symbols(
+    source_bytes: bytes,
+    filename: str,
+    engine_language: str,
+    repo: Optional[str] = None,
+) -> list[Symbol]:
+    """Extract symbols from a templating-engine file over a supported language.
+
+    A template file (e.g. ``foo.ts.j2``) wraps an underlying source language
+    with engine constructs. We (1) optionally extract the engine's own named
+    definitions (Jinja/Twig ``{% macro %}`` / ``{% block %}``), (2) mask the
+    engine constructs while preserving byte offsets and line numbers, then
+    (3) re-parse the masked text as the underlying language. Because the mask is
+    offset-preserving, the underlying symbols already carry correct positions in
+    the template file — no block-offset rewrapping is needed. Mirrors
+    _parse_sql_symbols' ``dbt_directives + sql_body`` composition.
+
+    The underlying language is re-derived from the filename's middle extension
+    (``foo.ts.j2`` → ``typescript``), so any supported language works as the
+    template body. Returns the engine's directive symbols even when the
+    underlying language is absent or unsupported (bare/unparseable body).
+
+    ``repo`` is forwarded into the recursive body parse so the underlying
+    language honors per-project ``.jcodemunch.jsonc`` enable/disable gating.
+    """
+    text = source_bytes.decode("utf-8", errors="replace")
+
+    engine = TEMPLATE_ENGINES.get(engine_language)
+    directive_symbols: list[Symbol] = []
+    if engine is not None and engine.directive_extractor is not None:
+        try:
+            directive_symbols = engine.directive_extractor(
+                text, filename, engine_language
+            )
+        except Exception:
+            directive_symbols = []
+
+    underlying = template_underlying_language(filename)
+    if not underlying:
+        return directive_symbols
+
+    masked = mask_template_keep_offsets(text, engine_language)
+    # Recurse into the underlying language. `underlying` is never a template
+    # engine (its extension carries no engine suffix), so this cannot loop.
+    underlying_symbols = parse_file(
+        masked, filename, underlying, source_bytes=masked.encode("utf-8"), repo=repo
+    )
+    return directive_symbols + underlying_symbols
 
 
 def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:

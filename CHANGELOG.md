@@ -4,6 +4,51 @@ All notable changes to jcodemunch-mcp are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Index templating-language files over a supported underlying source
+  language** (issue #336). Files of the form `name.<underlying-ext>.<engine-ext>`
+  — e.g. a Jinja2 template of TypeScript (`foo.ts.j2`), Jinja of Python
+  (`service.py.jinja`), or a Twig template of TS (`widget.ts.twig`) — were
+  previously dropped at discovery as `wrong_extension`, so every real source
+  symbol inside them went unindexed. They are now recognized, the engine
+  constructs are masked **offset-preserving**, and the body is re-parsed as its
+  underlying language so symbols, signatures, imports, and line/byte positions
+  all resolve correctly.
+  - **Engines:** Jinja2 (`.j2`/`.jinja`/`.jinja2`) and Twig (`.twig`) — the
+    first cut, scoped to the engines whose `name.<lang>.<engine>` double-extension
+    convention this feature targets. The masking layer is a pluggable
+    `TemplateEngine` registry (`parser/template_shared.py`), so adding a
+    single-extension HTML-bodied engine (Handlebars/Liquid/Mustache) later is a
+    few lines. EJS (`.ejs`) keeps its existing parser.
+  - **Underlying language is inferred from the middle extension**, so *every*
+    language jCodeMunch already supports works as the template body with no
+    per-language work — the engine extension is stripped and the remaining name
+    is resolved recursively (`foo.ts.j2` → `typescript`). The resolution step
+    runs *after* the existing compound and last-extension checks in
+    `get_language_for_path`, so it can only ever turn an unresolved path into a
+    language — never re-resolve a `.d.ts` / `.blade.php` that already matched.
+  - **Jinja/Twig `{% macro %}` / `{% block %}` definitions** are additionally
+    surfaced as symbols, reusing the dbt directive path
+    (`sql_preprocessor.extract_dbt_directives`, generalized to accept a directive
+    keyword set) rather than a parallel implementation. The underlying body
+    symbols keep their own sub-language tag.
+  - **Offset-preserving mask** mirrors `astro_shared.mask_html_comments_keep_offsets`
+    but fills each hole with an identifier placeholder (`{{ x }}` →
+    same-length `_`), keeping value-position holes (`DEBUG = {{ x }}`) parseable
+    in strict grammars — the offset-preserving form of dbt's `__jinja__`. A hole
+    at a *name* position, or free template text emitted inside a block body, is
+    best-effort (same contract as dbt SQL parsing).
+  - **Bare templates** with no underlying-language extension (`report.j2`) are
+    skipped — there is nothing to parse as source.
+  - Purely additive: previously-skipped files only add symbols, with no
+    `INDEX_VERSION` bump (a re-index picks up the now-recognized files).
+  - New `tests/test_templates.py` (16 cases, incl. non-collision guards for
+    `.d.ts` / `.test.ts` / `.blade.php` / bare `report.j2`) + fixtures under
+    `tests/fixtures/templates/`. Implemented via offset-preserving masking +
+    recursive `parse_file()` delegation (the Razor/Astro pattern), and the
+    `get_language_for_path` resolution branch.
+
 ## [1.108.61] - 2026-06-18 - Every config key is now documented (no more "Other")
 
 ### Fixed

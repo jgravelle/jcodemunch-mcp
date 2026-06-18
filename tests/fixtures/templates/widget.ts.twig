@@ -1,0 +1,14 @@
+import { Component } from "./component";
+
+{# Twig shares Jinja's delimiters; macro extraction applies. #}
+{% macro field(label) %}
+<label>{{ label }}</label>
+{% endmacro %}
+
+export class Widget extends Component {
+  readonly title: string = "{{ widget_title }}";
+
+  render(): string {
+    return `<div>${this.title}</div>`;
+  }
+}
