@@ -1,5 +1,7 @@
 # jCodeMunch MCP
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.jgravelle%2Fjcodemunch-mcp.svg)](https://mcptoplist.com/server/io.github.jgravelle%2Fjcodemunch-mcp)
+
 **The leading, most token-efficient MCP server for precise GitHub source code retrieval via tree-sitter AST parsing.** Cut AI token costs **95%+** on code exploration — stop burning your context window reading entire files.
 
 > **Real results, live from production**
