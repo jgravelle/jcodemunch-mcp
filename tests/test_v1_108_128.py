@@ -17,6 +17,7 @@ from jcodemunch_mcp.summarizer import batch_summarize as bs
 def _clean_env(monkeypatch):
     for k in (
         "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "OPENAI_API_KEY",
+        "ATLASCLOUD_API_KEY", "ATLAS_CLOUD_API_KEY",
         "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY",
         "JCODEMUNCH_SUMMARIZER_PROVIDER", "JCODEMUNCH_ALLOW_PAID_SUMMARIES",
     ):
@@ -32,7 +33,7 @@ def _cfg_default(raising_keys):
     return _get
 
 
-@pytest.mark.parametrize("env_var", ["ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"])
+@pytest.mark.parametrize("env_var", ["ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "ATLASCLOUD_API_KEY", "ATLAS_CLOUD_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"])
 def test_bare_paid_key_does_not_auto_select(monkeypatch, env_var):
     """A bare paid-cloud key must NOT auto-enable that provider."""
     monkeypatch.setenv(env_var, "sk-fake-key")
@@ -63,6 +64,13 @@ def test_env_opt_in_re_enables_auto(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake-key")
     monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")
     assert bs.get_provider_name() == "anthropic"
+
+
+def test_env_opt_in_enables_atlascloud_auto_detect(monkeypatch):
+    """Atlas Cloud follows the same paid-cloud opt-in guard as hosted providers."""
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-test-key")
+    monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")
+    assert bs.get_provider_name() == "atlascloud"
 
 
 def test_config_opt_in_re_enables_auto(monkeypatch):

@@ -127,7 +127,7 @@ class TestResolveCredentialsInEnv:
 class TestRecognisedEnvVars:
     def test_canonical_list_matches_documented_surface(self):
         listed = _creds.list_recognised_env_vars()
-        # The PRD names these ten env vars as the credential surface. Locking
+        # The PRD names these env vars as the credential surface. Locking
         # the set here so any future change is forced through CHANGELOG.
         expected = {
             "GITHUB_TOKEN",
@@ -135,6 +135,10 @@ class TestRecognisedEnvVars:
             "GOOGLE_API_KEY",
             "OPENAI_API_KEY",
             "OPENAI_API_BASE",
+            "ATLASCLOUD_API_KEY",
+            "ATLAS_CLOUD_API_KEY",
+            "ATLASCLOUD_BASE_URL",
+            "ATLAS_CLOUD_BASE_URL",
             "MINIMAX_API_KEY",
             "ZHIPUAI_API_KEY",
             "OPENROUTER_API_KEY",

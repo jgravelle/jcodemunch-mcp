@@ -7468,6 +7468,18 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     google_key = os.environ.get("GOOGLE_API_KEY", "")
     openai_base = os.environ.get("OPENAI_API_BASE", "")
+    atlas_base = (
+        os.environ.get("ATLASCLOUD_BASE_URL")
+        or os.environ.get("ATLAS_CLOUD_BASE_URL")
+        or os.environ.get("ATLASCLOUD_API_BASE")
+        or os.environ.get("ATLAS_CLOUD_API_BASE")
+        or "https://api.atlascloud.ai/v1"
+    )
+    atlas_model = (
+        os.environ.get("ATLASCLOUD_MODEL")
+        or os.environ.get("ATLAS_CLOUD_MODEL")
+        or "qwen/qwen3.5-flash"
+    )
     provider_name = get_provider_name()
 
     if not use_ai:
@@ -7508,6 +7520,15 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         row("  OPENAI_CONCURRENCY", v, "env" if not d else "config")
         v, d = env("OPENAI_MAX_TOKENS", "500")
         row("  OPENAI_MAX_TOKENS", v, "env" if not d else "default")
+    elif provider_name == "atlascloud":
+        suffix = (
+            "JCODEMUNCH_SUMMARIZER_PROVIDER=atlascloud"
+            if provider in ("atlascloud", "atlas-cloud", "atlas")
+            else "ATLASCLOUD_API_KEY set"
+        )
+        print(f"  Active provider:  {green('Atlas Cloud')}  ({suffix})")
+        row("  ATLASCLOUD_BASE_URL", atlas_base, "env" if os.environ.get("ATLASCLOUD_BASE_URL") or os.environ.get("ATLAS_CLOUD_BASE_URL") or os.environ.get("ATLASCLOUD_API_BASE") or os.environ.get("ATLAS_CLOUD_API_BASE") else "default")
+        row("  ATLASCLOUD_MODEL", _sm_effective or atlas_model, _detect_source("summarizer_model", "") if _sm_effective else ("env" if os.environ.get("ATLASCLOUD_MODEL") or os.environ.get("ATLAS_CLOUD_MODEL") else "default"))
     elif provider_name == "minimax":
         suffix = "JCODEMUNCH_SUMMARIZER_PROVIDER=minimax" if provider == "minimax" else "MINIMAX_API_KEY set"
         print(f"  Active provider:  {green('MiniMax')}  ({suffix})")
@@ -7527,7 +7548,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         print(f"  Active provider:  {yellow('none')} — explicitly disabled, signature fallback active")
     else:
         print(f"  Active provider:  {yellow('none')} — no API key set, signature fallback active")
-        print(f"  {dim('Set ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_BASE, MINIMAX_API_KEY, ZHIPUAI_API_KEY, or OPENROUTER_API_KEY to enable')}")
+        print(f"  {dim('Set ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_BASE, ATLASCLOUD_API_KEY, MINIMAX_API_KEY, ZHIPUAI_API_KEY, or OPENROUTER_API_KEY to enable')}")
 
     allow_remote = _cfg.get("allow_remote_summarizer", False)
     allow_label = str(allow_remote).lower()

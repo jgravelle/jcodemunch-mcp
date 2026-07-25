@@ -14,6 +14,21 @@ from jcodemunch_mcp.summarizer import (
 from jcodemunch_mcp.summarizer.batch_summarize import _create_summarizer, get_model_name
 
 
+@pytest.fixture(autouse=True)
+def _clean_atlascloud_env(monkeypatch):
+    for key in (
+        "ATLASCLOUD_API_KEY",
+        "ATLAS_CLOUD_API_KEY",
+        "ATLASCLOUD_BASE_URL",
+        "ATLAS_CLOUD_BASE_URL",
+        "ATLASCLOUD_API_BASE",
+        "ATLAS_CLOUD_API_BASE",
+        "ATLASCLOUD_MODEL",
+        "ATLAS_CLOUD_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_extract_summary_from_docstring_simple():
     """Test extracting first sentence from docstring."""
     doc = "Do something cool.\n\nMore details here."
@@ -211,9 +226,16 @@ def test_gemini_summarizer_with_mock_client():
 
 def test_get_provider_name_explicit_values(monkeypatch):
     """Explicit provider selection should win over auto-detect."""
-    for provider in ("anthropic", "gemini", "openai", "minimax", "glm"):
+    for provider in ("anthropic", "gemini", "openai", "atlascloud", "minimax", "glm"):
         monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", provider)
         assert get_provider_name() == provider
+
+
+@pytest.mark.parametrize("provider", ("atlas", "atlas-cloud"))
+def test_get_provider_name_atlascloud_aliases(monkeypatch, provider):
+    """Atlas Cloud aliases should normalize to the canonical provider."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", provider)
+    assert get_provider_name() == "atlascloud"
 
 
 def test_get_provider_name_none_disables(monkeypatch):
@@ -297,7 +319,12 @@ def test_get_provider_name_auto_detect_openrouter(monkeypatch):
 
 
 def test_create_summarizer_explicit_provider_missing_key_returns_none(monkeypatch):
-    """Explicit minimax/glm/openrouter provider selection should degrade gracefully without keys."""
+    """Explicit Atlas/MiniMax/GLM/OpenRouter provider selection should degrade gracefully without keys."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "atlascloud")
+    monkeypatch.delenv("ATLASCLOUD_API_KEY", raising=False)
+    monkeypatch.delenv("ATLAS_CLOUD_API_KEY", raising=False)
+    assert _create_summarizer() is None
+
     monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "minimax")
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
     assert _create_summarizer() is None
@@ -809,6 +836,82 @@ def test_openai_summarizer_openrouter_provider_defaults():
     assert mock_client.post.call_args[0][0] == "https://openrouter.ai/api/v1/chat/completions"
     assert mock_client.post.call_args[1]["json"]["model"] == "meta-llama/llama-3.3-70b-instruct:free"
     assert symbols[0].summary == "Uses the OpenRouter endpoint."
+
+
+def test_create_summarizer_atlascloud_provider_defaults(monkeypatch):
+    """Atlas Cloud should use the OpenAI-compatible endpoint and default model."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "atlascloud")
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-test-key")
+
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.setattr(
+        OpenAIBatchSummarizer,
+        "_init_client",
+        lambda self: setattr(self, "client", object()),
+    )
+
+    with patch(
+        "jcodemunch_mcp.summarizer.batch_summarize._config.get",
+        side_effect=lambda k, d=None, **kwargs: True if k == "allow_remote_summarizer" else d,
+    ):
+        summarizer = _create_summarizer()
+
+    assert summarizer is not None
+    assert isinstance(summarizer, OpenAIBatchSummarizer)
+    assert summarizer.api_base == "https://api.atlascloud.ai/v1"
+    assert summarizer.api_key == "atlas-test-key"
+    assert summarizer.model == "qwen/qwen3.5-flash"
+
+
+def test_create_summarizer_atlascloud_env_aliases(monkeypatch):
+    """Atlas Cloud should honor spaced env aliases for key, base URL, and model."""
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "atlas")
+    monkeypatch.setenv("ATLAS_CLOUD_API_KEY", "atlas-alias-key")
+    monkeypatch.setenv("ATLAS_CLOUD_BASE_URL", "https://atlas.example/v1")
+    monkeypatch.setenv("ATLAS_CLOUD_MODEL", "deepseek-ai/deepseek-v4-pro")
+
+    monkeypatch.setattr(
+        OpenAIBatchSummarizer,
+        "_init_client",
+        lambda self: setattr(self, "client", object()),
+    )
+
+    with patch(
+        "jcodemunch_mcp.summarizer.batch_summarize._config.get",
+        side_effect=lambda k, d=None, **kwargs: True if k == "allow_remote_summarizer" else d,
+    ):
+        summarizer = _create_summarizer()
+
+    assert summarizer is not None
+    assert summarizer.api_key == "atlas-alias-key"
+    assert summarizer.api_base == "https://atlas.example/v1"
+    assert summarizer.model == "deepseek-ai/deepseek-v4-pro"
+
+
+def test_create_summarizer_atlascloud_config_alias_when_explicit_true(monkeypatch):
+    """use_ai_summaries=True should honor Atlas Cloud provider aliases from config."""
+    monkeypatch.setenv("ATLASCLOUD_API_KEY", "atlas-test-key")
+
+    monkeypatch.setattr(
+        OpenAIBatchSummarizer,
+        "_init_client",
+        lambda self: setattr(self, "client", object()),
+    )
+
+    with patch(
+        "jcodemunch_mcp.summarizer.batch_summarize._config.get",
+        side_effect=lambda k, d=None, **kwargs: (
+            True if k in ("use_ai_summaries", "allow_remote_summarizer")
+            else "atlas-cloud" if k == "summarizer_provider"
+            else d
+        ),
+    ):
+        summarizer = _create_summarizer()
+
+    assert summarizer is not None
+    assert summarizer.model == "qwen/qwen3.5-flash"
 
 
 def test_openai_summarizer_remote_endpoint_requires_allow_flag():
@@ -1706,7 +1809,8 @@ class TestProjectAwareSummarizer:
         )
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
-        import sys, types as _types
+        import sys
+        import types as _types
         stub = _types.ModuleType("anthropic")
         stub.Anthropic = lambda **kwargs: object()
         monkeypatch.setitem(sys.modules, "anthropic", stub)

@@ -19,11 +19,29 @@ _AUTO_DETECT_ORDER = [
     ("ANTHROPIC_API_KEY", "anthropic"),
     ("GOOGLE_API_KEY", "gemini"),
     ("OPENAI_API_BASE", "openai"),
+    ("ATLASCLOUD_API_KEY", "atlascloud"),
+    ("ATLAS_CLOUD_API_KEY", "atlascloud"),
     ("MINIMAX_API_KEY", "minimax"),
     ("ZHIPUAI_API_KEY", "glm"),
     ("OPENROUTER_API_KEY", "openrouter"),
 ]
-_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
+_PROVIDER_ALIASES = {
+    "atlas": "atlascloud",
+    "atlas-cloud": "atlascloud",
+    "atlascloud": "atlascloud",
+}
+_VALID_PROVIDERS = {
+    "anthropic",
+    "gemini",
+    "openai",
+    "atlascloud",
+    "minimax",
+    "glm",
+    "openrouter",
+    "none",
+}
+_ATLAS_CLOUD_DEFAULT_BASE_URL = "https://api.atlascloud.ai/v1"
+_ATLAS_CLOUD_DEFAULT_MODEL = "qwen/qwen3.5-flash"
 
 # Providers that bill a remote cloud account per call. A bare env key for any of
 # these must NEVER auto-enable summarization — that silently spends real money
@@ -31,8 +49,51 @@ _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrout
 # this). Paid-cloud auto-selection requires explicit opt-in; see
 # _paid_summaries_allowed. "openai" is handled separately because OPENAI_API_BASE
 # may point at a free local endpoint (Ollama / LM Studio).
-_PAID_CLOUD_PROVIDERS = frozenset({"anthropic", "gemini", "minimax", "glm", "openrouter"})
+_PAID_CLOUD_PROVIDERS = frozenset(
+    {"anthropic", "gemini", "atlascloud", "minimax", "glm", "openrouter"}
+)
 _WARNED_SUPPRESSED_PAID: set[str] = set()
+
+
+def _normalize_provider_name(name: str) -> str:
+    """Return the canonical provider name for known aliases."""
+    return _PROVIDER_ALIASES.get(name, name)
+
+
+def _first_env(*names: str) -> Optional[str]:
+    """Return the first non-empty environment value from names."""
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None
+
+
+def _atlas_cloud_api_key() -> Optional[str]:
+    """Return the Atlas Cloud API key from either supported env spelling."""
+    return _first_env("ATLASCLOUD_API_KEY", "ATLAS_CLOUD_API_KEY")
+
+
+def _atlas_cloud_base_url() -> str:
+    """Return the configured Atlas Cloud OpenAI-compatible base URL."""
+    return (
+        _first_env(
+            "ATLASCLOUD_BASE_URL",
+            "ATLAS_CLOUD_BASE_URL",
+            "ATLASCLOUD_API_BASE",
+            "ATLAS_CLOUD_API_BASE",
+        )
+        or _ATLAS_CLOUD_DEFAULT_BASE_URL
+    )
+
+
+def _atlas_cloud_model(model_override: Optional[str] = None) -> str:
+    """Return the configured Atlas Cloud model name."""
+    return (
+        model_override
+        or _first_env("ATLASCLOUD_MODEL", "ATLAS_CLOUD_MODEL")
+        or _ATLAS_CLOUD_DEFAULT_MODEL
+    )
 
 
 def _paid_summaries_allowed(repo: Optional[str] = None) -> bool:
@@ -759,6 +820,7 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
     if explicit_mode:
         # Use summarizer_provider from config; fall back to auto-detect if unset
         explicit_provider = (_config.get("summarizer_provider", "", repo=repo) or "").lower().strip()
+        explicit_provider = _normalize_provider_name(explicit_provider)
         if explicit_provider == "":
             logger.warning(
                 "use_ai_summaries is 'true' but summarizer_provider is not set; falling back to auto-detect"
@@ -790,6 +852,17 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
             model=model_override or os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
             repo=repo,
         )
+        return s if s.client else None
+    if name == "atlascloud":
+        try:
+            s = _make_openai_compat(
+                api_key=_atlas_cloud_api_key(),
+                base_url=_atlas_cloud_base_url(),
+                model=_atlas_cloud_model(model_override),
+                repo=repo,
+            )
+        except ValueError:
+            return None
         return s if s.client else None
     if name == "minimax":
         try:
@@ -831,12 +904,13 @@ def get_provider_name(repo: Optional[str] = None) -> Optional[str]:
     """Return the active summarizer provider name, or None if disabled/unset.
 
     Priority: summarizer_provider config key > JCODEMUNCH_SUMMARIZER_PROVIDER env var > auto-detect by key.
-    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5 > OpenRouter.
+    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > Atlas Cloud > MiniMax > GLM-5 > OpenRouter.
 
     `repo` routes the config read through the project-aware path so a
     `summarizer_provider` set in `.jcodemunch.jsonc` is honored (#304).
     """
     explicit = (_config.get("summarizer_provider", "", repo=repo) or os.environ.get("JCODEMUNCH_SUMMARIZER_PROVIDER", "")).lower().strip()
+    explicit = _normalize_provider_name(explicit)
     if explicit in _VALID_PROVIDERS:
         return None if explicit == "none" else explicit
 
@@ -924,16 +998,17 @@ def summarize_symbols(
     """Full three-tier summarization.
 
     Tier 1: Docstring extraction (free)
-    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, OpenAI, MiniMax, GLM-5)
+    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, OpenAI, Atlas Cloud, MiniMax, GLM-5)
     Tier 3: Signature fallback (always works)
 
     Provider selection (Tier 2 priority):
       1. ANTHROPIC_API_KEY set or provider=anthropic → Claude Haiku
       2. GOOGLE_API_KEY set or provider=gemini       → Gemini Flash
       3. OPENAI provider/base                         → OpenAI-compatible endpoint
-      4. MINIMAX_API_KEY set or provider=minimax     → MiniMax M2.7
-      5. ZHIPUAI_API_KEY set or provider=glm         → GLM-5
-      6. OPENROUTER_API_KEY set or provider=openrouter → OpenRouter
+      4. ATLASCLOUD_API_KEY set or provider=atlascloud → Atlas Cloud
+      5. MINIMAX_API_KEY set or provider=minimax     → MiniMax M2.7
+      6. ZHIPUAI_API_KEY set or provider=glm         → GLM-5
+      7. OPENROUTER_API_KEY set or provider=openrouter → OpenRouter
       - None set               → skip to Tier 3
 
     `repo` (absolute path of the index source_root) routes config reads
