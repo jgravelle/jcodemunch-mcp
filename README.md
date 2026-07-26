@@ -662,7 +662,7 @@ See **[speedreview/README.md](speedreview/README.md)** for full setup and config
 Ask any question about any codebase. Get an answer in under 3 seconds.
 
 ```bash
-pip install jcodemunch-mcp[groq]
+pip install 'jcodemunch-mcp[groq]'
 export GROQ_API_KEY=gsk_...
 
 # Ask about a GitHub repo (auto-indexes on first use)
@@ -685,7 +685,7 @@ Combines jCodeMunch's token-efficient retrieval (BM25 + PageRank) with Groq's 28
 Speak a question, hear the answer. Full audio loop: Whisper STT → retrieval → LLM → Orpheus TTS.
 
 ```bash
-pip install jcodemunch-mcp[groq-voice]
+pip install 'jcodemunch-mcp[groq-voice]'
 
 # Voice conversation with a codebase
 gcm --voice --repo pallets/flask
@@ -701,7 +701,7 @@ Push-to-talk via Enter key. Caps answers to ~100 words for natural spoken delive
 Generate a narrated explainer video for any codebase in a single command.
 
 ```bash
-pip install jcodemunch-mcp[groq-explain]
+pip install 'jcodemunch-mcp[groq-explain]'
 
 # Generate a 60-second narrated explainer
 gcm explain --repo pallets/flask -o flask-explainer.mp4

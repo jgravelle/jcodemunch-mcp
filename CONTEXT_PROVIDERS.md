@@ -124,7 +124,7 @@ When the dbt provider is active, `index_folder` returns enrichment stats:
 The dbt provider requires `pyyaml` for schema.yml parsing:
 
 ```bash
-pip install jcodemunch-mcp[dbt]
+pip install 'jcodemunch-mcp[dbt]'
 ```
 
 Without PyYAML, doc blocks are still parsed but model/column metadata from YAML files is skipped.
