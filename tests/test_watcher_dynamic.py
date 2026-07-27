@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -50,6 +50,59 @@ class TestManagerAddFolder:
 
         # Cleanup
         await mgr.remove_folder(str(folder))
+
+    @pytest.mark.asyncio
+    async def test_add_folder_can_skip_initial_index(self, tmp_path, monkeypatch):
+        """The caller can start watching when it will perform the initial index."""
+        folder = _make_folder(tmp_path)
+        mgr = WatcherManager(storage_path=str(tmp_path / "storage"), quiet=True)
+        started = asyncio.Event()
+        captured = {}
+
+        async def fake_watch_single(**kwargs):
+            captured.update(kwargs)
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(watcher, "_watch_single", fake_watch_single)
+
+        result = await mgr.add_folder(str(folder), initial_index=False)
+        await started.wait()
+
+        assert result["status"] == "started"
+        assert captured["initial_index"] is False
+
+        await mgr.remove_folder(str(folder))
+
+
+class TestWatchSingleInitialIndex:
+    @pytest.mark.asyncio
+    async def test_initial_index_can_be_skipped(self, tmp_path, monkeypatch):
+        """A watcher registered by index_folder must not index the tree itself."""
+        import watchfiles
+
+        folder = _make_folder(tmp_path)
+
+        async def no_changes(*args, **kwargs):
+            if False:
+                yield None
+
+        index_folder_mock = MagicMock()
+        monkeypatch.setattr(watchfiles, "awatch", no_changes)
+        monkeypatch.setattr(watcher, "index_folder", index_folder_mock)
+
+        await watcher._watch_single(
+            folder_path=str(folder),
+            debounce_ms=100,
+            use_ai_summaries=False,
+            storage_path=str(tmp_path / "storage"),
+            extra_ignore_patterns=None,
+            follow_symlinks=False,
+            quiet=True,
+            initial_index=False,
+        )
+
+        index_folder_mock.assert_not_called()
 
 
 class TestManagerAddDuplicate:
@@ -235,8 +288,8 @@ class TestAutoWatchPathFromPathArg:
     """test_auto_watch_path_from_path_arg — Tools with path arg → correct folder."""
 
     @pytest.mark.asyncio
-    async def test_auto_watch_extracts_path_from_path_arg(self, tmp_path, monkeypatch):
-        """Auto-watch should extract folder from 'path' argument."""
+    async def test_index_folder_registers_watch_without_preindex(self, tmp_path, monkeypatch):
+        """index_folder supplies the initial index, so auto-watch only registers."""
         from jcodemunch_mcp import server
 
         folder = _make_folder(tmp_path)
@@ -253,11 +306,10 @@ class TestAutoWatchPathFromPathArg:
 
         await server._auto_watch_if_needed("index_folder", {"path": str(folder)}, str(tmp_path))
 
-        # Should have called ensure_indexed and add_folder with the correct path
-        mock_mgr.ensure_indexed.assert_called_once()
-        mock_mgr.add_folder.assert_called_once()
-        call_args = mock_mgr.add_folder.call_args[0]
-        assert call_args[0] == str(folder)
+        resolved = str(folder.resolve())
+        mock_mgr.maybe_takeover.assert_awaited_once_with(resolved, initial_index=False)
+        mock_mgr.ensure_indexed.assert_not_awaited()
+        mock_mgr.add_folder.assert_awaited_once_with(resolved, initial_index=False)
 
 
 class TestAutoWatchPathFromRepoArg:

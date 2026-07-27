@@ -244,8 +244,13 @@ async def _watch_single(
     on_reindex: Optional[Callable[[], None]] = None,
     quiet: bool = False,
     log_file_handle: Optional[IO] = None,
+    initial_index: bool = True,
 ) -> None:
-    """Watch a single folder and re-index on changes."""
+    """Watch a single folder and re-index on changes.
+
+    ``initial_index=False`` is for callers that register the watcher immediately
+    before performing the initial index themselves.
+    """
     _watcher_output(f"Watching {folder_path} (debounce={debounce_ms}ms)", quiet=quiet, log_file_handle=log_file_handle)
 
     # Compute repo identifier for memory hash cache and reindex state.
@@ -282,34 +287,35 @@ async def _watch_single(
         if idx and idx.file_hashes:
             _hash_cache.update(idx.file_hashes)
 
-    # Do an initial incremental index to ensure the index is current
-    _watcher_output(f"  Initial index for {folder_path}...", quiet=quiet, log_file_handle=log_file_handle)
-    mark_reindex_start(repo_id)
-    try:
-        result = await asyncio.to_thread(
-            index_folder,
-            path=folder_path,
-            use_ai_summaries=use_ai_summaries,
-            storage_path=storage_path,
-            extra_ignore_patterns=extra_ignore_patterns,
-            follow_symlinks=follow_symlinks,
-            incremental=True,
-        )
-        if result.get("success"):
-            msg = result.get("message", f"{result.get('symbol_count', '?')} symbols")
-            _watcher_output(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", quiet=quiet, log_file_handle=log_file_handle)
-            # Build hash cache from the index we just created/updated
-            _build_hash_cache()
-            mark_reindex_done(repo_id, result)
-            # Count initial index as activity (only if it actually did work)
-            if on_reindex is not None and result.get("message") != "No changes detected":
-                on_reindex()
-        else:
-            _watcher_output(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", quiet=quiet, log_file_handle=log_file_handle)
-            mark_reindex_failed(repo_id, result.get("error", "unknown error"))
-    except Exception as exc:
-        mark_reindex_failed(repo_id, str(exc))
-        raise
+    if initial_index:
+        # Do an initial incremental index to ensure the index is current
+        _watcher_output(f"  Initial index for {folder_path}...", quiet=quiet, log_file_handle=log_file_handle)
+        mark_reindex_start(repo_id)
+        try:
+            result = await asyncio.to_thread(
+                index_folder,
+                path=folder_path,
+                use_ai_summaries=use_ai_summaries,
+                storage_path=storage_path,
+                extra_ignore_patterns=extra_ignore_patterns,
+                follow_symlinks=follow_symlinks,
+                incremental=True,
+            )
+            if result.get("success"):
+                msg = result.get("message", f"{result.get('symbol_count', '?')} symbols")
+                _watcher_output(f"  Indexed {folder_path}: {msg} ({result.get('duration_seconds', '?')}s)", quiet=quiet, log_file_handle=log_file_handle)
+                # Build hash cache from the index we just created/updated
+                _build_hash_cache()
+                mark_reindex_done(repo_id, result)
+                # Count initial index as activity (only if it actually did work)
+                if on_reindex is not None and result.get("message") != "No changes detected":
+                    on_reindex()
+            else:
+                _watcher_output(f"  WARNING: initial index failed for {folder_path}: {result.get('error')}", quiet=quiet, log_file_handle=log_file_handle)
+                mark_reindex_failed(repo_id, result.get("error", "unknown error"))
+        except Exception as exc:
+            mark_reindex_failed(repo_id, str(exc))
+            raise
 
     try:
         from watchfiles import awatch, Change
@@ -357,6 +363,10 @@ async def _watch_single(
 
         try:
             # Map watchfiles Change enum to WatcherChange objects with old_hash from memory cache
+            # A watcher registered by index_folder starts before that tool finishes,
+            # so hydrate its cache lazily from the completed external index.
+            if not _hash_cache:
+                _build_hash_cache()
             _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
             watcher_changes: list[WatcherChange] = []
             for ct, p in relevant:
@@ -555,7 +565,7 @@ class WatcherManager:
         except Exception:
             logger.debug("Failed to record watcher task crash for %s", folder, exc_info=True)
 
-    def _start_watch_task(self, folder: str) -> asyncio.Task:
+    def _start_watch_task(self, folder: str, *, initial_index: bool = True) -> asyncio.Task:
         task = asyncio.create_task(
             _watch_single(
                 folder_path=folder,
@@ -567,6 +577,7 @@ class WatcherManager:
                 on_reindex=self._on_reindex,
                 quiet=self._quiet,
                 log_file_handle=self._log_file_handle,
+                initial_index=initial_index,
             ),
             name=f"watch:{folder}",
         )
@@ -574,7 +585,7 @@ class WatcherManager:
         self._watched.add(folder)
         return task
 
-    async def maybe_takeover(self, folder: str) -> dict:
+    async def maybe_takeover(self, folder: str, *, initial_index: bool = True) -> dict:
         """Try to become the active watcher for a standby folder."""
         folder = str(Path(folder).expanduser().resolve())
         if folder in self._watched:
@@ -593,7 +604,7 @@ class WatcherManager:
         self._locked.add(folder)
         try:
             self._clear_standby(folder)
-            self._start_watch_task(folder)
+            self._start_watch_task(folder, initial_index=initial_index)
             _watcher_output(
                 f"WatcherManager: standby took over {folder}",
                 quiet=self._quiet,
@@ -607,8 +618,11 @@ class WatcherManager:
 
     # ── Folder management ────────────────────────────────────────────────────
 
-    async def add_folder(self, folder: str) -> dict:
+    async def add_folder(self, folder: str, *, initial_index: bool = True) -> dict:
         """Add a folder to watch, acquiring lock and starting watch task.
+
+        Set initial_index=False when the caller will index the folder after
+        registration.
 
         Returns dict with 'status' and optionally 'task' or 'already_watched' key.
         """
@@ -627,7 +641,7 @@ class WatcherManager:
         self._clear_standby(folder)
 
         try:
-            self._start_watch_task(folder)
+            self._start_watch_task(folder, initial_index=initial_index)
             _watcher_output(
                 f"WatcherManager: started watching {folder}",
                 quiet=self._quiet,

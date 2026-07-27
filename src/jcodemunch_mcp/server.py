@@ -4673,16 +4673,24 @@ async def _auto_watch_if_needed(name: str, arguments: dict, storage_path: Option
     # Opportunistic standby takeover before indexing
     maybe_takeover = getattr(_watcher_manager, "maybe_takeover", None)
     if maybe_takeover is not None:
-        result = await maybe_takeover(folder)
+        if name == "index_folder":
+            result = await maybe_takeover(folder, initial_index=False)
+        else:
+            result = await maybe_takeover(folder)
         if result.get("status") in {"started", "already_watched"}:
-            await _watcher_manager.ensure_indexed(folder)
+            if name != "index_folder":
+                await _watcher_manager.ensure_indexed(folder)
             return
 
     # Race-safe reindex, then start watching
     try:
-        await _watcher_manager.ensure_indexed(folder)
-        await _watcher_manager.add_folder(folder)
-        logger.debug("Auto-watch: indexed and watching %s", folder)
+        if name == "index_folder":
+            await _watcher_manager.add_folder(folder, initial_index=False)
+            logger.debug("Auto-watch: watching %s; index delegated to index_folder", folder)
+        else:
+            await _watcher_manager.ensure_indexed(folder)
+            await _watcher_manager.add_folder(folder)
+            logger.debug("Auto-watch: indexed and watching %s", folder)
     except Exception:
         logger.debug("Auto-watch failed for %s", folder, exc_info=True)
 
