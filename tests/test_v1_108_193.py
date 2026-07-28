@@ -95,10 +95,10 @@ class TestMaxFileSizeIsMovable:
             encoding="utf-8",
         )
 
-        original = config_module._GLOBAL_CONFIG.copy()
-        config_module._GLOBAL_CONFIG.clear()
-        config_module._GLOBAL_CONFIG.update(config_module.DEFAULTS)
-        config_module._GLOBAL_CONFIG["max_file_size"] = source.stat().st_size
+        (project / ".jcodemunch.jsonc").write_text(
+            f'{{"max_file_size": {source.stat().st_size}}}',
+            encoding="utf-8",
+        )
 
         try:
             result = index_folder(
@@ -110,8 +110,7 @@ class TestMaxFileSizeIsMovable:
                 paths=paths,
             )
         finally:
-            config_module._GLOBAL_CONFIG.clear()
-            config_module._GLOBAL_CONFIG.update(original)
+            config_module.invalidate_project_config_cache(str(project))
 
         assert result["success"] is True, result
         assert result["file_count"] == 1

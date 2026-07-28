@@ -369,7 +369,10 @@ MAX_FOLDER_FILES_ENV_VAR = "JCODEMUNCH_MAX_FOLDER_FILES"
 MAX_FILE_SIZE_ENV_VAR = "JCODEMUNCH_MAX_FILE_SIZE"
 
 
-def get_max_file_size(max_size: Optional[int] = None) -> int:
+def get_max_file_size(
+    max_size: Optional[int] = None,
+    repo: Optional[str] = None,
+) -> int:
     """Resolve the per-file byte cap from arg or config.
 
     Parity with ``get_max_index_files`` / ``get_max_folder_files``, which is the
@@ -378,6 +381,8 @@ def get_max_file_size(max_size: Optional[int] = None) -> int:
 
     Args:
         max_size: Explicit override. Must be a positive integer when provided.
+        repo: Repo identifier (absolute path or display name). When supplied,
+            the merged project config (`.jcodemunch.jsonc`) is consulted.
 
     Returns:
         Positive byte limit. Falls back to the default if config is unset or
@@ -388,7 +393,7 @@ def get_max_file_size(max_size: Optional[int] = None) -> int:
             raise ValueError("max_size must be a positive integer")
         return max_size
 
-    value = _config.get("max_file_size", DEFAULT_MAX_FILE_SIZE)
+    value = _config.get("max_file_size", DEFAULT_MAX_FILE_SIZE, repo=repo)
     if isinstance(value, int) and value > 0:
         return value
     return DEFAULT_MAX_FILE_SIZE
