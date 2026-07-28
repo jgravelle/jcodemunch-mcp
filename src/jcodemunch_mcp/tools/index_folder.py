@@ -1861,12 +1861,14 @@ def index_folder(
                 walk_root,
                 list(paths),
                 max_files=max_files,
+                max_size=get_max_file_size(),
                 follow_symlinks=follow_symlinks,
             )
         else:
             source_files, discover_warnings, skip_counts = discover_local_files(
                 walk_root,
                 max_files=max_files,
+                max_size=get_max_file_size(),
                 extra_ignore_patterns=_merged_ignore or None,
                 follow_symlinks=follow_symlinks,
             )

@@ -75,6 +75,47 @@ class TestMaxFileSizeIsMovable:
         assert "max_size=get_max_file_size()" in src
         assert "max_size=DEFAULT_MAX_FILE_SIZE," not in src.split("def _should_index_file")[0]
 
+    @pytest.mark.parametrize(
+        "paths",
+        [None, ["large.py"]],
+        ids=["full-walk", "explicit-path"],
+    )
+    def test_index_folder_applies_configured_size_to_discovery(
+        self, tmp_path, paths
+    ):
+        from jcodemunch_mcp import config as config_module
+        from jcodemunch_mcp.security import DEFAULT_MAX_FILE_SIZE
+        from jcodemunch_mcp.tools.index_folder import index_folder
+
+        project = tmp_path / "project"
+        project.mkdir()
+        source = project / "large.py"
+        source.write_text(
+            "def marker():\n    return 1\n#" + ("x" * (DEFAULT_MAX_FILE_SIZE + 1)),
+            encoding="utf-8",
+        )
+
+        original = config_module._GLOBAL_CONFIG.copy()
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(config_module.DEFAULTS)
+        config_module._GLOBAL_CONFIG["max_file_size"] = source.stat().st_size
+
+        try:
+            result = index_folder(
+                str(project),
+                use_ai_summaries=False,
+                storage_path=str(tmp_path / "store"),
+                incremental=False,
+                context_providers=False,
+                paths=paths,
+            )
+        finally:
+            config_module._GLOBAL_CONFIG.clear()
+            config_module._GLOBAL_CONFIG.update(original)
+
+        assert result["success"] is True, result
+        assert result["file_count"] == 1
+
 
 # ── the finding underneath it ───────────────────────────────────────────────
 
