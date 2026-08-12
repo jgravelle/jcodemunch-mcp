@@ -13,6 +13,7 @@ from jcodemunch_mcp.cli.install_pack import (
     _install_pack,
     _list_packs,
     _mask_license,
+    _safe_extract_path,
     run_install_pack,
 )
 
@@ -344,3 +345,45 @@ def test_run_install_pack_list_flag(mock_list):
 def test_run_install_pack_no_pack_id(mock_list):
     assert run_install_pack(pack_id=None) == 0
     mock_list.assert_called_once()
+
+
+# ── Archive member confinement ────────────────────────────────────────────
+#
+# The pre-scan string test (leading "/", or ".." anywhere) is necessary but not
+# sufficient on Windows. A member named "C:/Windows/Temp/x" contains no ".."
+# and does not start with "/", yet `base / relative` yields an absolute path
+# that discards `base` entirely -- so the write lands wherever the archive says.
+# `_safe_extract_path` resolves and compares against the base instead, which is
+# the same form `IndexStore._safe_content_path` already applies to untrusted
+# repository paths on every cached write.
+
+class TestSafeExtractPath:
+    """Destination paths are confined to the install directory."""
+
+    def test_ordinary_relative_member_resolves_under_base(self, tmp_path):
+        base = tmp_path / "code-index"
+        base.mkdir()
+        dest = _safe_extract_path(base, "repo/symbols.db")
+        assert dest is not None
+        assert dest == (base / "repo" / "symbols.db").resolve()
+
+    def test_parent_traversal_is_rejected(self, tmp_path):
+        base = tmp_path / "code-index"
+        base.mkdir()
+        assert _safe_extract_path(base, "../escape.txt") is None
+        assert _safe_extract_path(base, "a/../../escape.txt") is None
+
+    @pytest.mark.parametrize(
+        "member",
+        [
+            "C:/Windows/Temp/evil.txt",     # drive-absolute, forward slashes
+            r"C:\Windows\Temp\evil.txt",    # drive-absolute, backslashes
+            r"\\server\share\evil.txt",     # UNC-shaped
+        ],
+    )
+    def test_absolute_member_names_are_rejected(self, tmp_path, member):
+        """None of these contain ".." or a leading "/", so the string test
+        passes them; joining one to the base discards the base."""
+        base = tmp_path / "code-index"
+        base.mkdir()
+        assert _safe_extract_path(base, member) is None

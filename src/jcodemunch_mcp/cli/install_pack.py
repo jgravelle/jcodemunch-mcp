@@ -19,6 +19,31 @@ import httpx
 STARTER_PACK_API = "https://jcodemunch.com/starter-packs-system/api/index.php"
 
 
+def _safe_extract_path(base: Path, relative: str) -> Optional[Path]:
+    """Resolve an archive member's destination and confine it to ``base``.
+
+    Mirrors ``IndexStore._safe_content_path`` -- the same resolve-then-compare
+    form already used for untrusted repository paths on every cached write.
+
+    A leading-``/`` and ``..`` string test is not sufficient on Windows: a
+    member named ``C:/Windows/Temp/x`` (or its backslash form) contains no
+    ``..`` and does not start with ``/``, yet ``base / relative`` yields an
+    absolute path that DISCARDS ``base`` entirely. Resolving and comparing
+    against the base catches every such form, including UNC-shaped names,
+    without having to enumerate them.
+    """
+    try:
+        resolved_base = base.resolve()
+        candidate = (base / relative).resolve()
+        if os.path.commonpath([str(resolved_base), str(candidate)]) != str(resolved_base):
+            return None
+        return candidate
+    except (OSError, ValueError):
+        # ValueError is also what commonpath raises for paths on different
+        # drives, which is exactly the escape we are refusing.
+        return None
+
+
 def _pack_api_headers(extra: Optional[dict] = None) -> dict:
     """Headers for every starter-pack API request.
 
@@ -408,7 +433,14 @@ def _install_pack(
                     symbol_count = manifest_data.get("total_symbols", 0)
                     continue
 
-                dest = base / relative
+                dest = _safe_extract_path(base, relative)
+                if dest is None:
+                    print(
+                        f"  {_RED}{_CROSS} Archive member escapes the install "
+                        f"directory: {info.filename!r}. Aborting.{_RESET}",
+                        file=sys.stderr,
+                    )
+                    return 1
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info.filename) as src, open(dest, "wb") as dst:
                     dst.write(src.read())
