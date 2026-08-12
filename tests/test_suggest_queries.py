@@ -21,8 +21,10 @@ class TestSuggestQueriesErrors:
         store = tmp_path / "store"
         src.mkdir()
         store.mkdir()
-        # Write a file type the parser ignores (no symbols extracted)
-        (src / "README.md").write_text("# Hello\n")
+        # Write a parseable file that yields no symbols. (README.md no longer
+        # qualifies — markdown headings ARE symbols now, so a comment-only .py
+        # keeps this test on the empty-index path.)
+        (src / "empty.py").write_text("# nothing defined here\n")
         r_idx = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
         # If no symbols were extracted the tool returns an empty-index error
         if r_idx["success"] and r_idx.get("symbols_indexed", 0) == 0:
