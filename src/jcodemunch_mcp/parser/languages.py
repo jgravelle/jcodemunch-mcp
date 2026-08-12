@@ -247,6 +247,10 @@ LANGUAGE_EXTENSIONS = {
     ".swagger.yaml": "openapi",
     ".swagger.yml": "openapi",
     ".swagger.json": "openapi",
+    ".md": "markdown",
+    ".markdown": "markdown",
+    ".html": "html",
+    ".htm": "html",
 }
 
 
@@ -1946,6 +1950,35 @@ DLANG_SPEC = LanguageSpec(
     type_patterns=[],
 )
 
+MARKDOWN_SPEC = LanguageSpec(
+    ts_language="markdown",
+    # Nested `section` nodes span a heading through its content (verified
+    # against tree-sitter-language-pack's block grammar 2026-08-12). Each
+    # becomes a container symbol so get_symbol_source returns one section.
+    symbol_node_types={"section": "class"},
+    name_fields={},  # heading text has no ts field; see _extract_name special case
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=["section"],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+HTML_SPEC = LanguageSpec(
+    ts_language="html",   # same bundled grammar RAZOR_SPEC already rides
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
 
 # Language registry
 LANGUAGE_REGISTRY = {
@@ -2024,6 +2057,8 @@ LANGUAGE_REGISTRY = {
     "nim": NIM_SPEC,
     "tcl": TCL_SPEC,
     "dlang": DLANG_SPEC,
+    "markdown": MARKDOWN_SPEC,
+    "html": HTML_SPEC,
 }
 
 # Template-engine languages (jinja/twig) all route through the
