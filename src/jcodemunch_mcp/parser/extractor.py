@@ -928,6 +928,18 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
                             return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
         return None
 
+    # Markdown sections: the heading text lives in atx_heading > inline,
+    # which tree-sitter exposes as plain children, not named fields.
+    if spec.ts_language == "markdown" and node.type == "section":
+        for child in node.children:
+            if child.type == "atx_heading":
+                for sub in child.children:
+                    if sub.type == "inline":
+                        text = source_bytes[sub.start_byte:sub.end_byte].decode("utf-8").strip()
+                        return text or None
+                break
+        return None  # heading-less section (e.g. preamble) -> not a symbol
+
     if node.type not in spec.name_fields:
         return None
     
