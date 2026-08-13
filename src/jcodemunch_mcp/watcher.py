@@ -166,11 +166,6 @@ def _lock_path(folder_path: str, storage_path: Optional[str]) -> Path:
     return process_locks.lock_path(_WATCHER_SCOPE, folder_path, storage_path)
 
 
-def _is_pid_alive(pid: int) -> bool:
-    """Return True if a process with the given PID is running."""
-    return process_locks._is_pid_alive(pid)
-
-
 def _acquire_lock(folder_path: str, storage_path: Optional[str]) -> bool:
     """Attempt to acquire an exclusive watcher-slot lock for the given folder."""
     return process_locks.acquire(_WATCHER_SCOPE, folder_path, storage_path)

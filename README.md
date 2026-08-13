@@ -15,6 +15,7 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 ![License](https://img.shields.io/badge/license-dual--use-blue)
 ![MCP](https://img.shields.io/badge/MCP-compatible-purple)
 ![Local-first](https://img.shields.io/badge/local--first-yes-brightgreen)
+[![Issues closed](https://img.shields.io/github/issues-closed/jgravelle/jcodemunch-mcp?label=issues%20closed&color=brightgreen)](https://github.com/jgravelle/jcodemunch-mcp/issues?q=is%3Aissue+is%3Aclosed)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20102349.svg)](https://doi.org/10.5281/zenodo.20102349)
 
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
@@ -145,9 +146,9 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
-- **[v1.108.272](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.272)** (2026-08-12) — A column recorded on the wrong exit is not a measurement
-- **[v1.108.271](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.271)** (2026-08-10) — A stock Nuxt 4 project is not an empty one, and advice you cannot follow is worse than none
-- **[v1.108.270](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.270)** (2026-08-09) — A directory that declares itself a cache is not corpus
+- **[v1.108.277](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.277)** (2026-08-13) — Reachability is not only the import graph, and liveness is not only the PID
+- **[v1.108.276](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.276)** (2026-08-13) — A Windows drive-root child can prove it is a repository
+- **[v1.108.275](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.275)** (2026-08-12) — A pattern that matches nothing now says so
 <!-- WHATSNEW:END -->
 
 ---

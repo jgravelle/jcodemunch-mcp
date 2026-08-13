@@ -9,10 +9,12 @@ We cannot reap another program's children. What we can do is stop the sprawl
 being invisible, which is the part that let it reach 25.
 
 Each server writes one small file on startup and removes it on clean exit.
-Readers filter by PID liveness and prune what they find dead, so a killed
-process leaves no lasting trace and there is no daemon to keep the registry
-honest. This deliberately reuses ``process_locks._is_pid_alive`` rather than
-inventing a second liveness notion.
+Readers filter by PID liveness AND creation-time identity (jcm#450: a recycled
+PID is pruned like a dead one, not mistaken for the old server) and prune what
+they find dead, so a killed process leaves no lasting trace and there is no
+daemon to keep the registry honest. This deliberately reuses
+``process_locks._is_live_holder`` rather than inventing a second liveness
+notion.
 
 Contains no repo paths, no queries, and no file contents. Written under the
 index store, disclosed in the README's background-behavior section alongside the
@@ -29,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .process_locks import _client_id, _is_pid_alive
+from .process_locks import _client_id, _is_live_holder, _process_create_time
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,10 @@ class ProcessEntry:
     transport: str
     version: str
     started_at: str
+    # OS creation time of the registered process (identity anchor against PID
+    # reuse, jcm#450). None for rows written by pre-fix versions or platforms
+    # without a creation-time source.
+    create_time: Optional[float] = None
 
     def age_seconds(self) -> Optional[float]:
         try:
@@ -72,6 +78,8 @@ class ProcessEntry:
         age = self.age_seconds()
         if age is not None:
             out["age_seconds"] = round(age, 1)
+        if self.create_time is not None:
+            out["create_time"] = self.create_time
         return out
 
 
@@ -88,6 +96,8 @@ def register(transport: str, version: str, storage_path: Optional[str] = None) -
             "transport": transport,
             "version": version,
             "started_at": datetime.now(timezone.utc).isoformat(),
+            # Identity anchor against PID reuse (jcm#450).
+            "create_time": _process_create_time(os.getpid()),
         }
         tmp = path.with_suffix(f".tmp.{os.getpid()}")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
@@ -114,7 +124,12 @@ def unregister() -> None:
 
 
 def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> list[ProcessEntry]:
-    """Return entries whose PID is still alive, pruning the ones that are not."""
+    """Return entries whose recorded process is still alive, pruning the rest.
+
+    "Alive" means PID alive AND, when the row recorded a ``create_time``,
+    creation-time identity matches — a recycled PID (jcm#450) is pruned like a
+    dead one instead of impersonating the long-gone server forever.
+    """
     directory = _registry_dir(storage_path)
     if not directory.is_dir():
         return []
@@ -138,7 +153,7 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
             continue
 
         pid = data.get("pid")
-        if not isinstance(pid, int) or not _is_pid_alive(pid):
+        if not isinstance(pid, int) or not _is_live_holder(pid, data.get("create_time")):
             if prune:
                 try:
                     path.unlink(missing_ok=True)
@@ -146,6 +161,7 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
                     pass
             continue
 
+        raw_ct = data.get("create_time")
         entries.append(
             ProcessEntry(
                 pid=pid,
@@ -153,6 +169,7 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
                 transport=str(data.get("transport") or "unknown"),
                 version=str(data.get("version") or "unknown"),
                 started_at=str(data.get("started_at") or ""),
+                create_time=float(raw_ct) if isinstance(raw_ct, (int, float)) else None,
             )
         )
 

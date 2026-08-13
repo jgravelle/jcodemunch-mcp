@@ -25,7 +25,7 @@ from ._utils import resolve_repo as _resolve_repo
 from ._call_graph import _word_match, build_symbols_by_file
 # One matcher, not two: entry_point_patterns must mean the same thing in
 # both dead-code tools or #436 gets replaced by a subtler version of itself.
-from .find_dead_code import _matches_any_pattern
+from .find_dead_code import _matches_any_pattern, unmatched_patterns
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 
 
@@ -553,18 +553,42 @@ def get_dead_code_v2(
 
     if index is None:
         return {"error": f"No index found for {repo!r}. Run index_folder first."}
+
+    # v1.108.275 (#446). Computed BEFORE the call-graph-only branch, because that
+    # branch returns early and shares the hazard.
+    _unmatched = unmatched_patterns(entry_point_patterns, index.source_files)
+
     if not index.imports:
         # 1.80.9+: when there's no import graph (single-file libs like
         # pre-bundled lodash 4.x, monolithic IIFEs, etc.), fall through
         # to call-graph-only mode rather than erroring out. Reports
         # symbols whose names appear nowhere in any indexed function's
         # call_references.
-        return _call_graph_only_dead_code(
+        _fallback = _call_graph_only_dead_code(
             index, owner, name, t0,
             include_tests=include_tests,
             max_results=max_results,
             file_pattern=file_pattern,
         )
+        # ⚠⚠ v1.108.275 (#446). This exit never received `entry_point_patterns` and
+        # still does not use them — call-graph-only mode has no notion of a live
+        # ROOT FILE, so there is nothing for a path pattern to seed. That is
+        # defensible; **silently accepting a parameter and ignoring it is not.**
+        # A caller who passes patterns here and reads an ordinary answer has no way
+        # to learn they did nothing.
+        if entry_point_patterns:
+            _fallback["entry_point_patterns_ignored"] = True
+            _fallback["entry_point_patterns_warning"] = (
+                "entry_point_patterns was supplied but this repository has no import "
+                "graph, so analysis fell back to call-graph-only mode, which has no "
+                "file-level entry-point concept. The patterns were not applied."
+                + (
+                    f" Separately, {len(_unmatched)} of them match no indexed file "
+                    f"at all: {', '.join(_unmatched[:5])}."
+                    if _unmatched else ""
+                )
+            )
+        return _fallback
 
     source_files = frozenset(index.source_files)
     alias_map = getattr(index, "alias_map", {}) or {}
@@ -862,6 +886,24 @@ def get_dead_code_v2(
             "entry_point_patterns was supplied but matched no indexed file, so "
             "Signal 1 still fires for every symbol. Check the patterns against "
             "repo-relative paths."
+        )
+
+    # ⚠⚠ v1.108.275 (#446). The message above was RIGHT and almost never fired: it
+    # is gated on `entry_point_count == 0`, so any repo carrying one ordinary
+    # main.py/app.py made the count non-zero and the caller heard nothing about
+    # patterns that matched nothing. **A correct warning behind the wrong gate reads
+    # as "no problem found".** This one is ungated and names the offenders.
+    if _unmatched:
+        result["entry_point_patterns_unmatched"] = _unmatched
+        result["entry_point_patterns_warning"] = (
+            f"{len(_unmatched)} of {len(entry_point_patterns)} entry_point_patterns "
+            f"matched no indexed file, so they declared no roots: "
+            f"{', '.join(_unmatched[:5])}"
+            + (f" (+{len(_unmatched) - 5} more)" if len(_unmatched) > 5 else "")
+            + ". Patterns are matched with fnmatch against repo-relative paths: "
+            "brace alternation ({ts,js}) is NOT expanded, and ** does not match "
+            "zero directories (plugins/**/*.ts misses plugins/auth.ts). "
+            "List each extension separately and add the flat form."
         )
     return result
 

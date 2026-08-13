@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import logging
 import re
 import time
 from typing import Optional
@@ -12,6 +13,8 @@ from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +71,36 @@ def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:
         if fnmatch.fnmatch(fp_fwd, pat) or fnmatch.fnmatch(fp_fwd.rsplit("/", 1)[-1], pat):
             return True
     return False
+
+
+def unmatched_patterns(patterns: Optional[list[str]], source_files) -> list[str]:
+    """Which caller-supplied patterns matched no indexed file.
+
+    v1.108.275 (#446). ``entry_point_patterns`` is documented as glob patterns and
+    matched with ``fnmatch``, which supports only ``*``, ``?`` and ``[seq]``. Two
+    constructs that work in every shell do not work here and neither fails loudly:
+
+    * **Brace alternation.** ``src/main.{ts,js}`` needs a filename literally
+      containing ``{ts,js}``. We shipped this mistake ourselves in v1.108.271 and
+      did not notice for a release (#445).
+    * **``**`` as "zero or more directories".** ``**/`` becomes ``(?>.*?/)``, which
+      REQUIRES a slash, so ``plugins/**/*.ts`` misses ``plugins/auth.ts``.
+
+    ⚠⚠ **A pattern that matches nothing is indistinguishable from a repo that
+    genuinely has no such entry points** — same output, same confidence, no marker.
+    The caller gets more symbols reported unreachable and no reason to doubt it.
+    Naming the patterns that did nothing is what turns that into a signal, and it
+    covers every cause at once (braces, ``**``, a typo, the wrong path root)
+    rather than the one spelling we happened to get wrong.
+
+    ⚠ Deliberately NOT a rejection. A pattern matching nothing is legitimate — a
+    caller may pass one set of patterns across several repos. This reports; it
+    never refuses.
+    """
+    if not patterns:
+        return []
+    files = list(source_files)
+    return [p for p in patterns if not any(_matches_any_pattern(f, [p]) for f in files)]
 
 
 def _package_json_entries(index, store, owner: str, repo_name: str) -> set[str]:
@@ -220,6 +253,42 @@ def find_dead_code(
     live_roots.update(pkg_entries)
 
     # -----------------------------------------------------------------------
+    # Phase 1b: render-edge reachability (#461)
+    # -----------------------------------------------------------------------
+    # A template is never IMPORTED. It is reached by a render edge — a string
+    # argument (`render(request, "page.html")`) that `flow_edges` resolves to a
+    # file. Classifying from the import graph alone therefore reports an
+    # actively-rendered template as `zero_importers` at confidence 1.0, the
+    # value reserved for "no importers and not a test file", while
+    # `_resolve_template` resolves that same file from the same index in the
+    # same process. Two subsystems disagreeing is bad; the one that was wrong
+    # being the one with no hedge is worse.
+    #
+    # ⚠ This is deliberately NOT an extension exemption. A template that
+    # nothing renders IS dead and must still be reported — `.html` is not
+    # special, having an inbound render edge is. An exemption would suppress
+    # the true positives with the false ones and would not generalise to the
+    # other edge families `resolve_flow_edges` already emits.
+    #
+    # ⚠ Always-on rather than behind a parameter: this tool ALREADY reads file
+    # content in two places (package.json entries above, the `__main__` guard
+    # in Phase 2), so consulting a content-scanning resolver introduces no new
+    # class of work. The issue text originally claimed otherwise and was wrong.
+    render_reachable: set[str] = set()
+    try:
+        from .flow_edges import resolve_flow_edges
+
+        for edge in resolve_flow_edges(index, store, owner, name, kinds=("render",)):
+            if edge.get("resolution") != "resolved":
+                continue
+            dst = edge.get("dst_file")
+            if dst and dst in source_files:
+                render_reachable.add(dst)
+    except Exception:  # pragma: no cover - resolver must never fail the tool
+        logger.debug("render-edge reachability pass failed", exc_info=True)
+    live_roots.update(render_reachable)
+
+    # -----------------------------------------------------------------------
     # Phase 2: content check for `if __name__ == "__main__"` (Python only,
     # only for files not yet classified as live and with zero importers)
     # -----------------------------------------------------------------------
@@ -320,6 +389,14 @@ def find_dead_code(
     ]
     if sample_roots:
         analysis_notes.append(f"Sample entry points: {', '.join(sample_roots)}")
+    # Surfaced separately from the entry-point total (#461): a file kept alive by
+    # an inbound render edge is reachable for a different reason than a file that
+    # looks like an entry point, and a caller auditing this tool's verdict cannot
+    # tell them apart from a single count.
+    if render_reachable:
+        analysis_notes.append(
+            f"Reachable via render edges (not imports): {len(render_reachable)}"
+        )
 
     result: dict = {
         "repo": f"{owner}/{name}",
@@ -330,7 +407,26 @@ def find_dead_code(
         "dead_file_count": len(dead_files),
         "dead_symbol_count": len(dead_symbols),
         "live_root_count": len(live_roots),
+        "render_reachable_count": len(render_reachable),
         "analysis_notes": analysis_notes,
         "_meta": {"timing_ms": round(elapsed, 1)},
     }
+
+    # v1.108.275 (#446). Until now this tool reported NOTHING when a caller's
+    # patterns matched no file, at any confidence — the sibling `get_dead_code_v2`
+    # at least had a message, though gated. Silence here is the worse half: the
+    # answer looks the same as an honest one.
+    _unmatched = unmatched_patterns(entry_point_patterns, index.source_files)
+    if _unmatched:
+        result["entry_point_patterns_unmatched"] = _unmatched
+        result["warning"] = (
+            f"{len(_unmatched)} of {len(entry_point_patterns)} entry_point_patterns "
+            f"matched no indexed file, so they contributed no live roots: "
+            f"{', '.join(_unmatched[:5])}"
+            + (f" (+{len(_unmatched) - 5} more)" if len(_unmatched) > 5 else "")
+            + ". Patterns are matched with fnmatch against repo-relative paths: "
+            "brace alternation ({ts,js}) is NOT expanded, and ** does not match "
+            "zero directories (plugins/**/*.ts misses plugins/auth.ts). "
+            "List each extension separately and add the flat form."
+        )
     return result

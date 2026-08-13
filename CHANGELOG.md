@@ -33,6 +33,508 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+
+## [1.108.277] - 2026-08-13 - Reachability is not only the import graph, and liveness is not only the PID
+
+### `.html` / `.htm` are indexable as a text-searchable file class ([#452](https://github.com/jgravelle/jcodemunch-mcp/issues/452), [PR #459](https://github.com/jgravelle/jcodemunch-mcp/pull/459) by [@phantom-man](https://github.com/phantom-man))
+
+`.html` and `.htm` register on the bundled `html` grammar — the one `RAZOR_SPEC`
+already rides, so no new dependency — with **empty `symbol_node_types`**. An
+indexed template contributes **zero** entries to `index.symbols`, so every
+symbol-driven consumer (`find_dead_code`'s per-symbol sweep, the health-radar
+axes, `get_symbol_importance`, the Gini concentration maths) is unaffected. What
+changes is that the file enters `index.source_files`.
+
+That is the point of the change, not a side effect. `flow_edges._resolve_template`
+resolves a `render(request, "page.html")` string to its template **only when that
+file is indexed**, so before this it returned `None` on every Django, Flask,
+Express and Rails repo we touch — the `views` annotation on `get_signal_chains`
+and the render edges in `get_endpoint_impact` were degraded, silently, for
+exactly that reason.
+
+⚠ **The markdown half of #452 was declined**, and not on scope grounds:
+`find_dead_code` is file-driven with no language filter, nothing imports a `.md`
+file, and on the reporter's own numbers 2,410 new section symbols would have
+landed in dead code — collapsing the `dead_code` radar axis and the composite
+grade we publish weekly for third-party repos. **A repo would have received a
+worse public grade for being well documented.** Section-level doc retrieval is
+[jdocmunch](https://github.com/jgravelle/jdocmunch-mcp)'s product and ships today.
+
+⚠ **The known interaction shipped stated rather than discovered**, in a comment at
+`HTML_SPEC`: an indexed `.html` with no importers was still a dead *file* under
+the file-level rule. **That caveat is closed in this same unreleased window** by
+the #461 fix below, which teaches `find_dead_code` that a resolved render edge is
+a reachability edge.
+
+### `find_dead_code` reported a rendered template as dead at confidence 1.0 ([#461](https://github.com/jgravelle/jcodemunch-mcp/issues/461))
+
+A template is never *imported*. It is reached by a render edge — a string
+argument (`render(request, "page.html")`) that `flow_edges` resolves to a file.
+`find_dead_code` classified purely from the import graph, so an actively
+rendered template came back `zero_importers` while
+`flow_edges._resolve_template` resolved that same file from the same index in
+the same process.
+
+Resolved render edges now contribute live roots, surfaced separately as
+`render_reachable_count` and an analysis note: a file kept alive by an inbound
+render edge is reachable for a *different reason* than one that looks like an
+entry point, and a caller auditing the verdict could not otherwise tell them
+apart from a single count.
+
+⚠⚠ **The confidence value is the sharp part, not the misclassification.** `1.0`
+is reserved for "no importers and not a test file" — a test file gets `0.9`, a
+cascading case `0.7`. So the one file class indexed *because* another subsystem
+can prove it reachable was reported dead with no hedge attached, above the
+default `min_confidence` of `0.8`, meaning it could not be filtered out without
+discarding genuine findings too. **A wrong answer delivered at maximum certainty
+is worse than the same wrong answer delivered tentatively**, because the
+confidence is exactly what a caller uses to decide whether to look.
+
+⚠ **Deliberately NOT an extension exemption**, and two tests exist to fail
+against one. A template that nothing renders **is** dead and is still reported;
+`.html` is not special, having an inbound render edge is. An exemption would
+trade a false positive for a false negative — the worse direction, because
+silence reads as "nothing found" — and would not generalise to the other edge
+families `resolve_flow_edges` already emits.
+
+⚠ **This is not a regression from [#459](https://github.com/jgravelle/jcodemunch-mcp/pull/459) and that PR is not the cause.** Before the HTML
+file class, `.html` was not indexed, so it could not be reported dead — it also
+could not be resolved, which is the silent degradation
+[#452](https://github.com/jgravelle/jcodemunch-mcp/issues/452) was accepted to
+fix. The trade was made knowingly and stated in a comment at `HTML_SPEC`.
+
+⚠ **Two corrections to the issue's own text, made rather than quietly
+contradicted.** It claimed this would newly introduce content scanning to a tool
+that "reads only the import graph"; `find_dead_code` already reads file content
+at two sites (`_package_json_entries`, the `__main__` guard), so the fix is
+always-on and the design question the issue raised does not arise. It also
+flagged the observatory-grade question as unmeasured; measured, templates emit no
+symbols and `dead_symbol_count` is 0, so the symbol-driven `dead_code` radar axis
+does not move.
+
+⚠ Scope checked rather than assumed: **`get_dead_code_v2` does not share this
+defect.** It returns symbols only and templates emit none — 0 template-derived
+entries on the reproduction. Worth stating because
+[#446](https://github.com/jgravelle/jcodemunch-mcp/issues/446) went the other
+way, where both dead-code tools needed the same fix and doing one would have been
+half a job.
+
+The resolver call degrades to the previous behaviour and logs at debug on
+failure: a flow-edge resolution problem must never fail this tool.
+
+### Process liveness now verifies identity, not just PID occupancy ([#450](https://github.com/jgravelle/jcodemunch-mcp/issues/450))
+
+`_is_pid_alive` answered "is this PID taken?", not "is my process still there?"
+After the OS recycles a PID, a process-registry row or coordination-lock file
+naming a long-dead holder read as live indefinitely — observed in the field as
+two-week-old registry rows resolving to a Chrome renderer and an AMD service,
+and a recycled PID could equally "hold" a watcher or index-write lock forever.
+
+`register()` and `acquire()` now record the holder's OS creation time
+(Windows: `GetProcessTimes`, absolute FILETIME; Linux: `/proc/<pid>/stat`
+starttime, deliberately kept boot-relative so `settimeofday`-class clock steps
+— suspend/resume, VM restore, first NTP sync — cannot move every recorded
+value at once). Readers (`live_processes`, `inspect`, `acquire` stale-recovery)
+treat alive-PID-but-mismatched-creation-time as dead → stale → prune/reclaim.
+Rows and locks written by earlier versions carry no `create_time` and keep
+liveness-only behavior, so mixed-version stores degrade instead of
+mass-pruning. The watcher's `_is_pid_alive` wrapper, which bypassed the
+identity check and had no production caller, is removed.
+
+## [1.108.276] - 2026-08-13 - A Windows drive-root child can prove it is a repository
+
+### Exact Git working trees no longer trip the broad-root guard ([#438](https://github.com/jgravelle/jcodemunch-mcp/issues/438))
+
+On Windows, an explicit repository at `X:\repo` has only two logical path
+components, so `index_folder` rejected it alongside genuinely broad paths. The
+guard now accepts that narrow case only when `.git` exists at the selected root.
+Drive roots, shallow non-Git directories, POSIX paths, and UNC depth handling are
+unchanged.
+
+The Windows regression coverage keeps the positive repository case beside both
+negative cases and mocks the filesystem probes, so the runner's drive layout
+cannot decide the result.
+
+⚠⚠ **Review note, recorded because the wrong version of this nearly shipped on
+maintainer advice.** The first review asked for the UNC scope predicate to be
+dropped as redundant with the shared depth helper. It is not, and the two are
+not the same kind of rule: `_path_safety_part_count` measures DEPTH, while
+`not drive.startswith("\\")` bounds SCOPE. A UNC share root has one real part
+and the depth helper adds one for the `\\server\share` anchor, so it computes to
+**exactly two -- the same depth as `C:\repo`**. With the predicate gone, a share
+root holding a `.git` would have been admitted, handing a whole file server to
+the indexer through the guard that exists to prevent it (#321/#322).
+
+⚠ **The regression test for it was ALSO wrong on its first run, in a way that
+passed.** It patched `os.path.exists` to a blanket `True`, which answers
+`_is_container()`'s `/.dockerenv` probe as well -- that drops `_MIN_PATH_PARTS`
+from three to two, so `2 < 2` skips the guard and the assertion never reaches
+the code under test. The probe is narrowed to the `.git` path and the reason is
+recorded at the patch site. **A mock broad enough to satisfy the assertion can
+be broad enough to bypass what the assertion is about.**
+
+### A path-safety test that let the network decide its verdict ([#453](https://github.com/jgravelle/jcodemunch-mcp/issues/453))
+
+Test-only, no behaviour change. `TestWindowsUNCPathSafety` names a UNC path that
+does not exist, and **it was not fully isolated from the real filesystem**, so its
+result depended on the runner's network rather than on the code under test. It
+failed two releases in one day (.272 on `windows-latest/3.10`, .275 on 3.11),
+both times passing on re-run of the identical SHA.
+
+⚠⚠ **The cause is one unpatched probe, and the mechanism explains why it was
+intermittent rather than simply broken.** `resolve_index_identity` calls
+`folder_path.is_file()` (`storage/git_root.py:160`); the test patched `Path.exists`
+and `Path.is_dir` but never `Path.is_file`, so `os.stat` went to the network.
+`Path.is_file()` **swallows ENOENT-class errors** -- what a box with no such share
+returns, which is why it passes everywhere locally -- but **propagates
+`WinError 64` (`ERROR_NETNAME_DELETED`)**, which is what a runner with
+live-but-failing networking returns. Same code, same test, opposite outcomes,
+decided by whose network answered.
+
+⚠ **The false-green half is the same test class and the more expensive one.**
+`test_unc_share_root_remains_too_broad` let the runner's lack of a
+`\\server\share\.git` decide the #438 probe. So the boundary it defends could move
+without the test noticing -- and it did, in #439, where a UNC share root would have
+been admitted as narrow. It now answers that probe TRUE, which proves the UNC scope
+predicate excludes a share root **on its own** rather than by accident of the
+runner's drive layout.
+
+⚠ **Fixed by isolation, deliberately not by a retry or a flaky marker.** A retry
+would have hidden the false red while leaving the false green fully intact -- and
+the false green is what let a real regression through.
+
+**The durable half is `_no_real_access_under()`**, a tripwire wrapping `Path.stat`
+/ `read_text` / `open` that fails loudly if a test touches the fake root at all.
+Two details are load-bearing and were both found by measurement rather than
+design:
+
+- ⚠⚠ **It raises a `BaseException` subclass, not `AssertionError`.** Every read
+  site it covers is wrapped in a bare `except Exception` in production
+  (`_composer_requires` and friends). The first version derived from `Exception`,
+  was silently swallowed, and **a deliberately re-broadened mock passed cleanly
+  with the guard in place** -- a tripwire that cannot fire is worse than none,
+  because it reads as coverage.
+- An audit hook showed the blanket `Path.exists=True` also convinced
+  `detect_framework` that seven manifests existed, so a unit test did seven
+  network round trips reading `composer.json`, `package.json`, `pyproject.toml`,
+  `pom.xml`, `build.gradle`, `Gemfile` and `requirements.txt`. Those never failed
+  anything, because production swallows them. Narrowed anyway.
+
+Proven non-vacuous by removing the `is_file` patch: the guard fires and names the
+call, rather than the run going red somewhere else an hour later.
+
+### A stored list of 50 could mean 50 or 500 ([#441](https://github.com/jgravelle/jcodemunch-mcp/issues/441))
+
+`ranking_events.returned_ids` keeps the first 50 ids and the row carried nothing
+saying how many there really were, so **a complete result set and a truncated one
+were byte-identical in every stored field**. An analysis could neither exclude the
+truncated rows nor say how many it dropped.
+
+Rows now carry `returned_count`: the true size, recorded before the cap. The id
+list stays bounded — only the count is added.
+
+⚠⚠ **Pre-existing rows keep `NULL`, which means UNKNOWN and must never be read as
+"the count equals `len(returned_ids)`".** That inference is the defect, not the
+fix, and no heuristic backfills it — the same treatment `ledger_trust` gives its
+unseparable history. ⚠ `0` is a measurement and `NULL` is an absence; the test
+pins that they do not collide.
+
+⚠ **Blast radius is analysis, not runtime, and that was checked rather than
+assumed.** `regret` only asks whether `returned_ids` is empty or holds more than
+one entry (`regret.py:122`, `:138-144`) and `ledger_trust` only whether it is
+empty (`:112-115`) — truncation begins above 50, so none of them is reached.
+
+⚠ **@rknighton filed this against his own earlier claim.** In Discussion #430 he
+described six rows as having "hit the 50-item cap", an assertion he had inferred
+from the stored length rather than measured, and he caught it on re-verification.
+The defect and the mistake it invites are the same shape.
+
+### ~79% of a telemetry write was reopening the database ([#442](https://github.com/jgravelle/jcodemunch-mcp/issues/442))
+
+With `perf_telemetry_enabled` on — off by default, so this reaches opt-in installs
+only — every event opened a fresh connection and replayed all eight
+`IF NOT EXISTS` statements before inserting one row. Connections are now cached
+per resolved path for the process.
+
+⚠⚠ **The schema replay was NOT the expensive part, and measuring that is what
+killed the cheap fix.** The obvious low-risk change — remember the schema is ready
+and skip the DDL, needing no connection lifetime at all — was measured first,
+across 400 interleaved events:
+
+| arm | median |
+|---|---:|
+| connect + `PRAGMA` + 8 DDL + insert | 15.441ms |
+| connect + insert, schema ensured once | 15.166ms |
+| cached connection + insert | 3.214ms |
+
+Skipping the DDL captures **2%** of the available saving. The other 98% is the
+open/close itself, so caching the connection is the only thing that works. The
+shipped path measures **3.455ms against a 16.615ms pre-fix baseline, a 79%
+reduction**. (Absolute figures are this machine's and slower than the reporter's
+3.99ms/0.74ms; the ratio is what transfers, and it agrees with his 82%.)
+
+⚠ `check_same_thread=False` is **required**, because searches dispatch through
+`asyncio.to_thread` and a cached connection outlives the thread that opened it. It
+is **safe** because every caller holds `_State._lock` — the serialisation the flag
+would otherwise enforce is already there. That reasoning is recorded at the call
+site, because it is the thing a future edit could quietly invalidate.
+
+### Two ways a process-lifetime connection goes bad, both silent
+
+Neither was in the report; the first surfaced when the benchmark crashed.
+
+⚠⚠ **A closed cached connection poisoned the cache.** The old contract had callers
+closing after every write, so any missed call site — or third-party caller — left
+a dead handle that every later caller received. Telemetry would be off for the
+process while every write still reported success.
+
+⚠⚠ **A deleted database file would be written into the void.** SQLite keeps
+writing happily to an unlinked inode; rows land nowhere and nothing raises. Before
+caching, the next event simply recreated the file, so caching would have
+introduced this. ⚠ A liveness probe cannot catch it — the connection is perfectly
+healthy, it is the file that is gone — so the guard checks `exists()` too.
+⚠ **Windows cannot produce this case at all** (it refuses to unlink a file with an
+open handle), so the end-to-end test is POSIX-only and a portable unit test covers
+the predicate. Stating that rather than implying cross-platform coverage.
+
+Both checks together cost **0.344ms, 2.1% of the pre-fix write**, against the 79%
+saved. Paying 2 to keep 79, where the alternative failure is silent.
+
+`close_perf_dbs()` is public because the connections now outlive a write: on
+Windows an open handle blocks removal of the directory holding the database.
+⚠ It is registered with `atexit` **before** `flush` on purpose — `atexit` runs
+LIFO, so registering it second would close the database out from under the final
+flush.
+
+`tests/test_v1_108_276.py` (19, 1 skipped), **11 fail against the pre-fix call
+sites**; the 7 passing both sides are the schema, the migration's idempotence, the
+telemetry-disabled control and the public surface.
+
+⚠⚠ **Writing these tests exposed an unrelated ranking defect, filed as
+[#458](https://github.com/jgravelle/jcodemunch-mcp/issues/458).** The
+`Retrieval-quality gate` failed on this branch -- a telemetry-only change that
+cannot affect ranking -- because the replay harness indexes **this repo itself**,
+so a new test file changes the corpus. Isolated by removing the file from the same
+tree and re-indexing: `mrr 1.0` becomes `0.95` when it is present.
+
+The displacement is real: a fixture named `state` scored `identity_type: "exact"`
+for the query `_State`, identically to the class literally named `_State`, and won
+the tie on field length and having a docstring. **`identity_type` graded a
+normalised match as exact** -- the same shape as #440, a column reporting a grade
+it did not measure. ⚠ The fixture is renamed here so the gate passes; **that
+unblocks a PR and fixes nothing**, and the test file says so at the rename site.
+⚠ The gate's self-indexing sensitivity will produce false reds on ordinary
+test-adding PRs. It also caught this. Both are true; neither is addressed here.
+
+## [1.108.275] - 2026-08-12 - A pattern that matches nothing now says so
+
+### `entry_point_patterns` failed silently ([#446](https://github.com/jgravelle/jcodemunch-mcp/issues/446))
+
+`entry_point_patterns` is documented as glob patterns and matched with `fnmatch`,
+which supports only `*`, `?` and `[seq]`. Two constructs that work in every shell
+do not work here, and neither fails loudly: **brace alternation is not expanded**,
+and **`**` does not match zero directories** (`plugins/**/*.ts` misses
+`plugins/auth.ts`).
+
+⚠⚠ **A pattern that matches nothing is indistinguishable from a repo that genuinely
+has no such entry points** — same output, same confidence, no marker. The caller
+gets more symbols reported unreachable and no reason to doubt it. We made the first
+mistake ourselves, in shipped framework profiles, and did not notice for a release
+([#445](https://github.com/jgravelle/jcodemunch-mcp/issues/445)).
+
+Both dead-code tools now name the patterns that matched nothing, and the message
+explains both `fnmatch` surprises rather than only reporting the outcome. Reporting
+covers every cause at once — braces, `**`, a typo, the wrong path root — instead of
+the one spelling we happened to get wrong.
+
+⚠ **It reports; it never refuses.** A pattern matching nothing is legitimate: a
+caller may pass one pattern set across several repos.
+
+### Two gaps found while implementing it
+
+⚠⚠ **`get_dead_code_v2`'s existing message was correct and almost never fired.** It
+already said "entry_point_patterns was supplied but matched no indexed file" — gated
+on `entry_point_count == 0`. Any repo carrying one ordinary `main.py` made the count
+non-zero, so the caller heard nothing. **A correct warning behind the wrong gate
+reads as "no problem found".** It is now ungated and names the offenders.
+
+⚠⚠ **`get_dead_code_v2`'s call-graph-only exit ignored the parameter entirely.**
+When a repo has no import graph the tool returns early through
+`_call_graph_only_dead_code`, which never received `entry_point_patterns` and still
+does not use them — that mode has no file-level entry-point concept, so there is
+nothing for a path pattern to seed. That is defensible; **silently accepting a
+parameter and discarding it is not.** That exit now says so.
+
+This was found because the new end-to-end test landed on the fallback by accident,
+which is the argument for testing through the tool rather than the helper: the
+helper-level tests all passed while a whole exit ignored the feature.
+
+### Not decided here
+
+Whether `entry_point_patterns` should *also* accept brace expansion remains open on
+[#446](https://github.com/jgravelle/jcodemunch-mcp/issues/446). Implementing the
+warning surfaced an argument for keeping it separate: a pattern containing literal
+`{}` matches such filenames today, so expanding braces would **change** existing
+behaviour rather than being purely additive — a real decision under the 1.x
+no-removal contract, and one that immediately raises whether `**` should gain real
+recursive semantics too. The harm is closed either way.
+
+`tests/test_v1_108_275.py` (14), **4 fail against the v1.108.274 call sites**; the
+10 passing on both sides are helper unit tests and controls, including one asserting
+the tools stay silent when every pattern matches.
+
+## [1.108.274] - 2026-08-12 - A disclosure that is true when written is not yet a control
+
+Two `SECURITY.md` accuracy items from [@elfrost](https://github.com/elfrost)'s QA
+pass ([#444](https://github.com/jgravelle/jcodemunch-mcp/issues/444), split into
+[#448](https://github.com/jgravelle/jcodemunch-mcp/issues/448) and
+[#449](https://github.com/jgravelle/jcodemunch-mcp/issues/449)), and a test so the
+class stops recurring.
+
+The method is worth naming, because it is not one we run against ourselves:
+**diffing a controls document against the tree, treating its named functions,
+defaults and guarantees as checkable assertions.** Neither finding is a
+vulnerability. Both are the document falling behind the code.
+
+### Response-level redaction was absent from `SECURITY.md` entirely (#448)
+
+The document described the secret classifier as deciding from filename and
+directory shape only — accurate — and then said nothing about response-level
+redaction anywhere. `SECURITY.md` contained exactly one occurrence of the string
+`redact`, and it was a filename used as a false-positive example.
+
+So a shipped, **on-by-default** control was undocumented, the Summary of Controls
+table did not list it, and the exemption for `get_file_content`,
+`get_symbol_source` and `get_context_bundle` was undiscoverable by a reader
+auditing against the document.
+
+⚠ **The exemption itself is unchanged and is not a defect.** A per-byte regex sweep
+over payloads of hundreds of KB is latency for no gain, and what those tools return
+is the user's own checked-in code being read back to them. What was missing was
+saying so. The new section states the consequence directly — a credential hardcoded
+in an ordinary source file is caught by neither control, and the mitigations are CI
+secret scanning and pre-commit hooks, because the credential is in the repository
+regardless of what this server does with it.
+
+⚠ **An on-by-default control that is undocumented is a disclosure problem in its own
+right**, not merely a missing nicety. The reader this document is written for cannot
+attest to what it does not say.
+
+### `/org/report` was described as the only remote-write route (#449)
+
+`make_runtime_routes()` mounts three more `POST` routes — `/runtime/otel`,
+`/runtime/sql`, `/runtime/stack` — in both transport builders. The section now
+enumerates all four with their separate gates, and states the property @elfrost
+singled out as good: with `JCODEMUNCH_HTTP_TOKEN` unset these routes return **503
+rather than running unauthenticated**, so a missing token disables the endpoint
+instead of opening it.
+
+The posture never changed. The sentence did not keep up.
+
+### The part that will outlast both: `tests/test_security_disclosure.py`
+
+⚠⚠ **This is the second time this exact failure mode has shipped.** v1.108.261 fixed
+a sentence claiming the telemetry ping sends "**only** an integer delta plus an
+anonymous UUID" while the payload also carried a lifetime `total`. Both sentences
+were true when written and were not revisited as the code grew. **Prose cannot
+notice that happening.**
+
+The section promises that its enumeration is *complete*, so the enumeration is now
+checked against the code: route paths and the declared count are read from
+`make_org_routes()` / `make_runtime_routes()`, and the redaction exemptions from
+`_SOURCE_DUMP_TOOLS`, rather than restated in the test. A route or exemption added
+later is covered by construction. Assertions are about enumerations and defaults,
+never wording, so editing the document stays cheap.
+
+⚠ **It fired on its first run, against this release's own text** — a historical note
+quoting the retired sentence verbatim tripped the check that refuses that claim. The
+note was paraphrased rather than the test loosened: a guard that allows the exact
+phrase in some contexts would pass the moment someone reintroduced it about a
+different route.
+
+6 tests, **all 6 fail against the v1.108.273 document** — so the guard catches the
+two defects it was written for rather than merely agreeing with the text shipped
+beside it.
+
+### Not in this release
+
+Item 1 of the QA pass — the `install-pack` archive guard missing drive-absolute
+member names — is [#447](https://github.com/jgravelle/jcodemunch-mcp/issues/447),
+with @elfrost's [PR #443](https://github.com/jgravelle/jcodemunch-mcp/pull/443)
+open against it.
+## [1.108.273] - 2026-08-12 - A pattern that names two extensions and matches neither
+
+### v1.108.271's #435 fix matched nothing ([#445](https://github.com/jgravelle/jcodemunch-mcp/issues/445))
+
+v1.108.271 fixed [#435](https://github.com/jgravelle/jcodemunch-mcp/issues/435) for
+the `nuxt` and `nestjs` profiles by rewriting their `entry_point_patterns` as brace
+alternation (`{ts,js}`, `{ts,js,mjs}`). The consumer is `fnmatch`, which expands no
+braces: `fnmatch.translate("src/main.{ts,js}")` yields `(?s:src/main\.\{ts,js\})\Z`,
+requiring a filename that literally contains `{ts,js}`.
+
+**The change did not add JavaScript coverage. It removed the TypeScript coverage
+that was working.**
+
+```
+profile  file                      v1.108.270  v1.108.271
+nestjs   src/main.ts               True        False
+nestjs   src/app.module.ts         True        False
+nuxt     plugins/a/b.ts            True        False
+nuxt     middleware/x/g.ts         True        False
+```
+
+`nestjs` is the worst case: its entire entry set was those two patterns, so a stock
+NestJS project went from two entry points to zero, and NestJS is TypeScript-first by
+convention. The failure direction is the one that matters here — a lost reachability
+seed does not error, it silently reports a genuine framework root as unreachable.
+
+⚠⚠ **The guard passed, and that is the more useful half of this.** The #435 sweep
+asks which extensions appear in a pattern *string*, and skipped brace patterns
+outright (`if "{" in glob: continue`) as already-covered. A pattern naming both `ts`
+and `js` satisfied a spelling check while matching no file on disk. **A test that
+inspects the shape of a fix cannot tell it from a plausible-looking non-fix.** The
+new tests run patterns against realistic scaffold paths through
+`_matches_any_pattern` — the real matcher both dead-code tools share — so they
+measure effect rather than spelling.
+
+⚠ **A second fnmatch surprise, pre-existing and not part of the regression:** `**/`
+translates to `(?>.*?/)` and therefore *requires* a slash, so `plugins/**/*.ts`
+matches `plugins/a/b.ts` but not `plugins/auth.ts`. Every profile using `**/` was
+missing files sitting directly in the named directory — the commonest layout there
+is. Fixed here too, since fixing braces alone would have left the patterns still
+missing the majority case.
+
+Both constraints now live in `_entry_globs` / `_entry_named`, which emit the flat
+and nested form for each extension, so a profile lists *where* its entry points live
+and never how to spell a glob. Explicit alternatives were chosen over teaching the
+matcher braces: that keeps the semantics of a user-facing parameter unchanged under
+the 1.x no-removal contract. Whether `entry_point_patterns` should *also* accept
+braces is a separate question — a caller copying these out of `context_metadata`
+hits the identical trap — and is not decided here.
+
+`nestjs`'s four `Layer` globs carried the same braces. No in-tree consumer reads
+them (`profile_to_meta` publishes them to callers), so that half is bad published
+data rather than a measured regression, and is corrected on the same reasoning:
+braces are wrong under a glob matcher and meaningless under a prefix one.
+
+### #435 closed: the `next` profile gained its JS/JSX counterparts
+
+The remainder of #435, deferred behind [PR #433](https://github.com/jgravelle/jcodemunch-mcp/pull/433)
+so as not to force a conflict onto a contributor's rebase. That PR merged
+2026-08-11, retiring the deferral, and the work landed here rather than on its own
+because doing it first would have propagated the brace defect to a third profile.
+
+`next` now covers Next.js's own extension sets — `js`/`jsx`/`ts`/`tsx` for pages and
+layouts, `js`/`ts` for route handlers and middleware — across both the root and
+`src/` layouts. Its entry in `_JS_VARIANT_EXEMPT` is deleted; the ratchet added in
+v1.108.271 is what forced the fix and the retirement to land together, and it worked
+exactly as designed.
+
+`tests/test_v1_108_273.py` (11), **6 fail against the shipped v1.108.272 profiles**;
+the 5 passing on both sides pin the `fnmatch` premises and the new helpers. One of
+them asserts a non-entry file is still not an entry point, because every other test
+here would also pass if the patterns had been replaced with `*`.
+
 ## [1.108.272] - 2026-08-12 - A column recorded on the wrong exit is not a measurement
 
 ### `identity_hit` was 0 on every non-fusion `search_symbols` row ([#440](https://github.com/jgravelle/jcodemunch-mcp/issues/440))
@@ -15397,7 +15899,7 @@ Thanks to **@MariusAdrian88** for this contribution (#244).
 - **`cross_repo_default` config key** — boolean default for the `cross_repo` parameter across all import graph tools. Env var: `JCODEMUNCH_CROSS_REPO_DEFAULT`. Default: `false`.
 - **53 new tests** (1431 total, 9 skipped).
 
-## [1.12.9] — docs patch 2026-03-30
+## Docs patch — 2026-03-30 (no version bump)
 
 ### Changed
 - **QUICKSTART.md Step 3** — upgraded AGENT_HOOKS.md footnote to an `[!IMPORTANT]` callout naming the "pressure bypass" failure mode (agent sees CLAUDE.md rule, ignores it under load) and explaining why hooks are needed for hard enforcement.

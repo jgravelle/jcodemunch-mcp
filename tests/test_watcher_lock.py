@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("watchfiles")
 
 from jcodemunch_mcp import watcher
+from jcodemunch_mcp.storage import process_locks
 
 
 # ---------------------------------------------------------------------------
@@ -84,16 +85,19 @@ class TestFolderHash:
 # ---------------------------------------------------------------------------
 
 class TestIsPidAlive:
+    # jcm#450: the watcher's `_is_pid_alive` wrapper was removed — it bypassed
+    # the creation-time identity check and had no production caller. Liveness
+    # tests exercise the real primitive in process_locks directly.
     def test_current_process_is_alive(self):
-        assert watcher._is_pid_alive(os.getpid()) is True
+        assert process_locks._is_pid_alive(os.getpid()) is True
 
     def test_dead_pid_is_not_alive(self, tmp_path):
         # Use a PID that's very unlikely to be alive (current PID + huge offset)
         dead_pid = os.getpid() + 999999
-        assert watcher._is_pid_alive(dead_pid) is False
+        assert process_locks._is_pid_alive(dead_pid) is False
 
     def test_invalid_pid_is_not_alive(self):
-        assert watcher._is_pid_alive(999999999) is False
+        assert process_locks._is_pid_alive(999999999) is False
 
 
 # ---------------------------------------------------------------------------

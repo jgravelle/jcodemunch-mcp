@@ -321,6 +321,33 @@ def _path_safety_part_count(path: Path) -> int:
     return count
 
 
+def _is_shallow_windows_git_root(path: Path) -> bool:
+    r"""Return whether ``path`` is a Git root directly below a local drive.
+
+    ``C:\repo`` has a safety depth of two and normally trips the broad-root
+    guard. A ``.git`` directory or file at that exact path proves the caller
+    selected a working-tree root rather than the drive itself or a broad parent.
+    The corresponding POSIX case was considered and intentionally left unchanged
+    so this exception remains scoped to the reported Windows drive-root behavior.
+
+    ⚠ The depth check and the UNC check answer different questions and neither
+    is redundant with the other. ``_path_safety_part_count`` is a DEPTH rule;
+    ``not drive.startswith("\\\\")`` is a SCOPE rule. A UNC share root has one
+    real part and the depth helper adds one for the ``\\server\share`` anchor,
+    so it computes to exactly two -- the same value as ``C:\repo``. Dropping the
+    UNC test would therefore admit ``\\server\share`` itself, which #321/#322
+    classify as too broad whatever it happens to contain.
+    """
+    drive = str(path.drive)
+    return (
+        os.name == "nt"
+        and _path_safety_part_count(path) == 2
+        and bool(drive)
+        and not drive.startswith("\\\\")
+        and os.path.exists(path / ".git")
+    )
+
+
 @lru_cache(maxsize=512)
 def _is_trusted(
     folder_path: Path, trusted_folders: tuple, whitelist_mode: bool = True
@@ -1445,7 +1472,8 @@ def index_folder(
     _MIN_PATH_PARTS = 2 if container else 3
     path_part_count = _path_safety_part_count(folder_path)
     if path_part_count < _MIN_PATH_PARTS:
-        if not is_trusted:
+        shallow_windows_git_root = _is_shallow_windows_git_root(folder_path)
+        if not is_trusted and not shallow_windows_git_root:
             error_msg = (
                 f"Resolved path '{folder_path}' is too broad to index safely "
                 f"(fewer than {_MIN_PATH_PARTS} path components). "
@@ -1456,10 +1484,16 @@ def index_folder(
             logger.error(error_msg)
             return {"success": False, "error": error_msg}
 
-        warning_msg = (
-            f"Resolved path '{folder_path}' would normally be rejected as too broad, "
-            "but it matched trusted_folders and was allowed."
-        )
+        if is_trusted:
+            warning_msg = (
+                f"Resolved path '{folder_path}' would normally be rejected as too broad, "
+                "but it matched trusted_folders and was allowed."
+            )
+        else:
+            warning_msg = (
+                f"Resolved path '{folder_path}' is a Git working-tree root directly "
+                "below a Windows drive root and was allowed."
+            )
         logger.warning(warning_msg)
         warnings.append(warning_msg)
 

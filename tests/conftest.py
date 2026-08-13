@@ -46,6 +46,23 @@ def _reset_global_config():
     _reset_config_state()
     yield
     _reset_config_state()
+    _close_perf_dbs()
+
+
+def _close_perf_dbs():
+    """Drop any perf telemetry connection a test left open (v1.108.276, #442).
+
+    ⚠ Those connections are now held for the PROCESS rather than closed after
+    each write. Without this, a handle opened against one test's `tmp_path`
+    survives into the next test, and on Windows an open handle also blocks
+    removal of the directory holding it. Same isolation principle as the config
+    reset above: process-lifetime state must not cross a test boundary.
+    """
+    try:
+        from jcodemunch_mcp.storage import token_tracker
+        token_tracker.close_perf_dbs()
+    except ImportError:
+        pass
 
 
 def _reset_config_state():

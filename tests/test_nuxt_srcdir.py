@@ -38,13 +38,11 @@ def _provider():
 # having thought about it, and is the shape tests/test_constant_extraction_guard.py
 # was built to avoid for #428: "an exemption outliving its defect is how a
 # ratchet rots into a permanent allowance."
-_JS_VARIANT_EXEMPT = {
-    "next": (
-        "#435: PR #433 edits these exact lines to add the src/app layout. "
-        "Adding JS variants now forces a conflict onto the rebase we asked "
-        "its author for. Sequenced after #433 merges."
-    ),
-}
+# ⚠ v1.108.273: `next` retired from this dict. PR #433 merged 2026-08-11, and the
+# JS/JSX counterparts landed in the same release that fixed #445. The ratchet below
+# is what forced the two to happen together — an empty dict is the intended end
+# state, not a sign the mechanism was abandoned.
+_JS_VARIANT_EXEMPT: dict[str, str] = {}
 
 
 def _profile_by_name() -> dict:
@@ -87,8 +85,12 @@ def _ts_only_globs(profile) -> list[str]:
     present = set(globs)
     offenders = []
     for glob in globs:
-        if "{" in glob:
-            continue
+        # ⚠⚠ v1.108.273 (#445). This used to `continue` on a brace pattern, i.e.
+        # count `{ts,js}` as JS coverage. fnmatch expands no braces, so it was
+        # counting a pattern that matches NOTHING as the fix — which is how
+        # v1.108.271 shipped nuxt and nestjs with zero working entry points and a
+        # green sweep. Brace patterns are now an offender, never an exemption; the
+        # dedicated check lives in test_v1_108_273.py.
         for ts_ext, js_exts in _TS_TO_JS.items():
             if not glob.endswith(ts_ext):
                 continue

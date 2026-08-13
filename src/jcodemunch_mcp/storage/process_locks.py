@@ -214,11 +214,132 @@ def _is_pid_alive(pid: int) -> bool:
         return True
 
 
+# FILETIME epoch (1601-01-01) to Unix epoch (1970-01-01), in seconds.
+_FILETIME_EPOCH_DELTA = 11644473600
+
+
+def _process_create_time(pid: int) -> Optional[float]:
+    """OS creation time of an arbitrary PID as Unix-epoch seconds, or None.
+
+    jcm#450: ``_is_pid_alive`` answers "is this PID taken?", not "is my process
+    still there?" — after PID reuse a registry row or lock file for a long-dead
+    holder reads as live forever (observed: two-week-old rows resolving to a
+    Chrome renderer and an AMD service). Creation time is the identity anchor:
+    recorded at write time, compared at read time; a mismatch means a recycled
+    PID, never our holder.
+
+    Windows: OpenProcess + GetProcessTimes (same primitive runtime_identity
+    uses for self; here against a foreign PID) — seconds since the Unix epoch.
+    ``argtypes``/``restype`` are REQUIRED — see the warning on ``_is_pid_alive``.
+    Linux: /proc/<pid>/stat starttime (field 22) — SECONDS SINCE BOOT, not
+    epoch. The two platforms deliberately do not share an epoch; values are
+    only ever compared against ones produced by this same function on the same
+    machine, so the domain only has to be internally stable (see the Linux
+    branch comment for why boot-relative is the safe choice there).
+    Other platforms: None (identity check degrades to liveness-only).
+    """
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class _FILETIME(ctypes.Structure):
+            _fields_ = [
+                ("dwLowDateTime", wintypes.DWORD),
+                ("dwHighDateTime", wintypes.DWORD),
+            ]
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessTimes.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_FILETIME),
+            ctypes.POINTER(_FILETIME),
+            ctypes.POINTER(_FILETIME),
+            ctypes.POINTER(_FILETIME),
+        ]
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            creation, exit_t, kernel_t, user_t = (
+                _FILETIME(), _FILETIME(), _FILETIME(), _FILETIME(),
+            )
+            ok = kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_t),
+                ctypes.byref(kernel_t),
+                ctypes.byref(user_t),
+            )
+            if not ok:
+                return None
+            ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            if ticks == 0:
+                return None
+            return ticks / 1e7 - _FILETIME_EPOCH_DELTA
+        finally:
+            kernel32.CloseHandle(handle)
+    elif sys.platform.startswith("linux"):
+        try:
+            with open(f"/proc/{pid}/stat", "rb") as fh:
+                fields = fh.read().rsplit(b")", 1)[-1].split()
+            # After the comm field: fields[0] is stat field 3; starttime is
+            # stat field 22 -> index 19.
+            start_ticks = int(fields[19])
+            # ⚠ Deliberately NOT converted to wall clock. /proc/stat's btime is
+            # derived from the current wall clock, so a settimeofday-class step
+            # (suspend/resume, VM restore, first NTP sync) moves every recorded
+            # value at once and reads live holders as recycled. This value is
+            # only ever compared against one produced by this same function on
+            # this same machine, so the epoch is irrelevant to the comparison
+            # and seconds-since-boot is strictly safer than seconds-since-epoch.
+            # (A lock file surviving a reboot degrades to bare-PID matching —
+            # exactly pre-fix behavior, and far rarer than a clock step.)
+            return start_ticks / os.sysconf("SC_CLK_TCK")
+        except (OSError, ValueError, IndexError):
+            return None
+    return None
+
+
+# Both sides derive the value with the same code from the same OS constant
+# (Windows: absolute FILETIME; Linux: boot-relative starttime ticks — neither
+# moves under wall-clock adjustment), so a real match is near-exact and the
+# tolerance only absorbs float rounding. A recycled PID's mismatch is
+# minutes-to-weeks, never within this window.
+_CREATE_TIME_TOLERANCE_S = 2.0
+
+
+def _is_live_holder(pid: int, expected_create_time: object) -> bool:
+    """Liveness + identity: the PID is alive AND is still the recorded process.
+
+    ``expected_create_time`` is the value recorded at write time (may be absent
+    or None for files written by pre-jcm#450 versions — those keep the old
+    liveness-only behavior; there is nothing to compare against). If the
+    current creation time cannot be read while the PID is alive, fall back to
+    liveness-only rather than declaring a possibly-live holder dead.
+    """
+    if not _is_pid_alive(pid):
+        return False
+    if not isinstance(expected_create_time, (int, float)):
+        return True
+    actual = _process_create_time(pid)
+    if actual is None:
+        return True
+    return abs(actual - float(expected_create_time)) <= _CREATE_TIME_TOLERANCE_S
+
+
 def inspect(scope: str, target: str, storage_path: Optional[str] = None) -> Optional[LockHolder]:
     """Read the holder of a lock without acquiring it.
 
     Returns ``None`` if the lock file does not exist, is corrupted, or names
-    a PID that is no longer alive (stale lock — treated as no holder).
+    a PID that is no longer alive — or that has been recycled to a different
+    process (creation-time mismatch, jcm#450). Stale either way.
     """
     lock_fp = lock_path(scope, target, storage_path)
     if not lock_fp.exists():
@@ -230,7 +351,7 @@ def inspect(scope: str, target: str, storage_path: Optional[str] = None) -> Opti
     pid = data.get("pid")
     if pid is None or not isinstance(pid, int):
         return None
-    if not _is_pid_alive(pid):
+    if not _is_live_holder(pid, data.get("create_time")):
         return None
     return LockHolder(
         scope=scope,
@@ -261,6 +382,10 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
         "pid": os.getpid(),
         "client_id": _client_id(),
         "started_at": datetime.now(timezone.utc).isoformat(),
+        # Identity anchor against PID reuse (jcm#450); None on platforms
+        # without a creation-time source, which readers treat as "no identity
+        # recorded" (liveness-only).
+        "create_time": _process_create_time(os.getpid()),
     }
     payload = json.dumps(metadata).encode("utf-8")
 
@@ -307,7 +432,7 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
         existing_pid = existing.get("pid")
         if existing_pid is None:
             logger.info("Removing stale %s lock for %s (no pid)", scope, target)
-        elif _is_pid_alive(existing_pid):
+        elif _is_live_holder(existing_pid, existing.get("create_time")):
             client = existing.get("client_id", "unknown")
             logger.info(
                 "%s lock held for %s by pid %s (%s)",
@@ -316,7 +441,7 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
             return False
         else:
             logger.info(
-                "Removing stale %s lock for %s (pid %s is dead)",
+                "Removing stale %s lock for %s (pid %s is dead or recycled)",
                 scope, target, existing_pid,
             )
     except (json.JSONDecodeError, OSError):
