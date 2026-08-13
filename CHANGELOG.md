@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] - A string test cannot finish enumerating the ways a name is absolute
+
+### `install-pack` extracted drive-absolute archive members outside the install directory ([#447](https://github.com/jgravelle/jcodemunch-mcp/issues/447))
+
+The pre-scan rejected a leading `/` and `..` anywhere, which is necessary and not
+sufficient. A member named `C:/Windows/Temp/evil.txt` contains neither, so it
+passed — and `base / relative` with an absolute `relative` discards `base`, so the
+write landed wherever the archive asked. On Windows that is arbitrary file write
+from a downloaded pack.
+
+`_safe_extract_path()` now resolves the destination and compares it against the
+base with `commonpath`, and the join goes through it. This is the same
+resolve-then-compare form `IndexStore._safe_content_path()` already applies to
+untrusted repository paths on every cached write, so the installer uses the check
+the rest of the codebase relies on rather than a second, weaker one. `ValueError`
+from `commonpath` across drives is caught as a rejection, not an error — that
+raise *is* the escape. The string pre-scan is kept as an early abort before any
+file is opened, with the confinement check as the authoritative backstop.
+
+⚠ **The escaping shape needs the absolute name in the SECOND segment.** Every
+member has one leading `<pack-id>/` stripped before the join, so `C:/Windows/...`
+alone is skipped by the strip and `pack/C:/Windows/...` is what escapes. Since
+every real pack archive carries that prefix, this is the natural shape rather
+than a contrived one. Covered end-to-end through `_install_pack`, so a later
+reordering of the strip ahead of the confinement check would be caught.
+
+⚠ **The Windows-absolute cases are gated to `os.name == "nt"`, not asserted on
+POSIX.** Those names are relative on Linux and macOS, where resolving them under
+the base is correct behaviour; pinning it would encode platform trivia as if it
+were a security property.
+
+Reported and fixed by [@elfrost](https://github.com/elfrost).
+
 ## [1.108.272] - 2026-08-12 - A column recorded on the wrong exit is not a measurement
 
 ### `identity_hit` was 0 on every non-fusion `search_symbols` row ([#440](https://github.com/jgravelle/jcodemunch-mcp/issues/440))

@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -373,6 +374,19 @@ class TestSafeExtractPath:
         assert _safe_extract_path(base, "../escape.txt") is None
         assert _safe_extract_path(base, "a/../../escape.txt") is None
 
+
+# The names below are absolute on Windows and RELATIVE on POSIX, so `base /
+# member` stays under the base there and `_safe_extract_path` correctly returns
+# a path rather than refusing one. That behaviour is right on POSIX and is
+# deliberately not asserted: pinning it would encode platform trivia as if it
+# were a security property. Gated as a class, matching `TestWindowsUNCPathSafety`
+# in test_tools.py. The platform-agnostic cases stay in `TestSafeExtractPath`
+# above so they keep running on every leg of the matrix.
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows absolute-path semantics only")
+class TestWindowsAbsoluteMemberNames:
+    """Drive-absolute and UNC-shaped member names are refused on Windows."""
+
     @pytest.mark.parametrize(
         "member",
         [
@@ -387,3 +401,35 @@ class TestSafeExtractPath:
         base = tmp_path / "code-index"
         base.mkdir()
         assert _safe_extract_path(base, member) is None
+
+    @patch("jcodemunch_mcp.cli.install_pack.httpx")
+    def test_install_pack_aborts_before_writing_outside_base(
+        self, mock_httpx, tmp_path, monkeypatch
+    ):
+        """End-to-end, through the prefix strip the unit tests bypass.
+
+        `_install_pack` splits one leading `<pack-id>/` segment off every member
+        before the join, so a drive-absolute name only escapes when it sits in
+        the SECOND segment -- and since every real pack archive carries that
+        prefix, `pack/C:/...` is the natural shape, not a contrived one. Without
+        this case nothing in the suite would notice if the prefix strip were
+        later reordered ahead of the confinement check.
+
+        The escape is aimed inside `tmp_path` rather than at a real system
+        directory, so a regression fails an assertion here instead of writing
+        into C:\\Windows\\Temp.
+        """
+        monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", "0")
+        base = tmp_path / "code-index"
+        escape_target = tmp_path / "escaped.txt"
+        # The member must survive the string pre-scan to reach the join at all.
+        assert escape_target.is_absolute() and ".." not in str(escape_target)
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(f"testpack/{escape_target.as_posix()}", b"pwned")
+        mock_httpx.get.return_value = _mock_zip_response(buf.getvalue())
+
+        assert _install_pack("testpack", base_path=base) == 1
+        assert not escape_target.exists(), "member escaped the install directory"
+        assert not (base / "escaped.txt").exists(), "aborted install wrote anyway"
