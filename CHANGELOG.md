@@ -33,6 +33,8 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+## [1.108.278] - 2026-08-14 - `exact` must mean exact, and a guardrail must not be its own baseline
+
 ### `identity_type: "exact"` graded a normalised match ([#458](https://github.com/jgravelle/jcodemunch-mcp/issues/458))
 
 `_tokenize` folds case, strips leading underscores and drops punctuation, and the

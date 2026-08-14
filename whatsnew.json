@@ -1,6 +1,12 @@
 {
-  "current": "1.108.277",
+  "current": "1.108.278",
   "entries": [
+    {
+      "version": "1.108.278",
+      "date": "2026-08-14",
+      "title": "`exact` must mean exact, and a guardrail must not be its own baseline",
+      "summary": "`_tokenize` folds case, strips leading underscores and drops punctuation, and the identity channel's tokenized comparison ran against that folded form. So for the query `_State`, a pytest fixture named `state` and the class literally named `_State` both scored `identity: 50.0, identity_type: \"exact\"`. The identity"
+    },
     {
       "version": "1.108.277",
       "date": "2026-08-13",
@@ -12,12 +18,6 @@
       "date": "2026-08-13",
       "title": "A Windows drive-root child can prove it is a repository",
       "summary": "On Windows, an explicit repository at `X:\\repo` has only two logical path components, so `index_folder` rejected it alongside genuinely broad paths. The guard now accepts that narrow case only when `.git` exists at the selected root. Drive roots, shallow non-Git directories, POSIX paths, and UNC depth handling are"
-    },
-    {
-      "version": "1.108.275",
-      "date": "2026-08-12",
-      "title": "A pattern that matches nothing now says so",
-      "summary": "`entry_point_patterns` is documented as glob patterns and matched with `fnmatch`, which supports only `*`, `?` and `[seq]`. Two constructs that work in every shell do not work here, and neither fails loudly: **brace alternation is not expanded**, and **`**` does not match zero directories** (`plugins/**/*.ts` misses"
     }
   ]
 }
