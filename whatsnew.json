@@ -1,6 +1,12 @@
 {
-  "current": "1.108.278",
+  "current": "1.108.279",
   "entries": [
+    {
+      "version": "1.108.279",
+      "date": "2026-08-14",
+      "title": "A machine's language is not English and its bytes are not UTF-8",
+      "summary": "Both reported by [@lsg1103275794](https://github.com/lsg1103275794), split per one-issue-one-verdict, and independent: fixing either one alone leaves the other exactly as broken."
+    },
     {
       "version": "1.108.278",
       "date": "2026-08-14",
@@ -12,12 +18,6 @@
       "date": "2026-08-13",
       "title": "Reachability is not only the import graph, and liveness is not only the PID",
       "summary": "`.html` and `.htm` register on the bundled `html` grammar \u2014 the one `RAZOR_SPEC` already rides, so no new dependency \u2014 with **empty `symbol_node_types`**. An indexed template contributes **zero** entries to `index.symbols`, so every symbol-driven consumer (`find_dead_code`'s per-symbol sweep, the health-radar"
-    },
-    {
-      "version": "1.108.276",
-      "date": "2026-08-13",
-      "title": "A Windows drive-root child can prove it is a repository",
-      "summary": "On Windows, an explicit repository at `X:\\repo` has only two logical path components, so `index_folder` rejected it alongside genuinely broad paths. The guard now accepts that narrow case only when `.git` exists at the selected root. Drive roots, shallow non-Git directories, POSIX paths, and UNC depth handling are"
     }
   ]
 }
