@@ -112,6 +112,22 @@ full and we announce it retroactively. Nothing expires.
 Every timebox we set names its default action, because a date with no stated
 consequence is a wish. "Verification by X, or Y ships with disclosure Z."
 
+**No timebox we offer runs longer than 24 hours.** That applies to all of them,
+not only the CLA window above: signing a form, opening a PR you have already
+written, or taking an issue you want to implement. At expiry the default action
+fires — usually that we do the work ourselves — and you are credited in the
+CHANGELOG, the release notes and the close comment either way.
+
+The short clock is only fair because of that last sentence. It decides whose
+commit it is. It never decides whether you are credited, and it never decides
+whether the fix ships.
+
+If 24 hours does not fit — you want the weekend for it, you are away, the change
+is large — **say so and we will hold it.** An extension you ask for is not the
+same as a default we hand out, and we would rather you told us than went quiet.
+Timeboxes already posted are honoured as posted; we do not shorten a promise
+after making it.
+
 The point of this rule is that a reviewer's thoroughness should never become a
 veto. If being careful can stall a release, then careful review is expensive to
 accept, and that is the opposite of what we want. This way your findings are an

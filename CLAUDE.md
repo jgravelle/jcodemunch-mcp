@@ -624,11 +624,12 @@ which is backwards.
 **3. A contributor's PR is never the only path.** Timebox it and keep our own
 path warm (#388 taught this the expensive way).
 
-**3a. An unsigned CLA gets TWENTY-FOUR HOURS, not two weeks** (set 2026-08-14
-after #443 was given until 08-20). CLA Assistant prompts automatically the moment
-a PR opens and signing takes about 30 seconds, so the window is sized to the
-task. A longer one does not buy a contributor anything — it parks a finished,
-green, reviewed fix behind a form.
+**3a. NO TIMEBOX WE OFFER RUNS LONGER THAN 24 HOURS** (jjg, 2026-08-14, widened
+the same day from the CLA-only version). It covers **every** shape: signing the
+CLA, opening a PR already written, and taking an issue to implement. The CLA case
+is the easiest to justify — CLA Assistant prompts the moment a PR opens and
+signing takes about 30 seconds, so a longer window parks a finished, green,
+reviewed fix behind a form — but the rule is not limited to it.
 
 ⚠⚠ **The window is only fair BECAUSE the default action preserves credit.** At
 expiry we implement the fix ourselves and credit them in the CHANGELOG, the
@@ -637,9 +638,23 @@ never whether they are credited and never whether the fix ships. Quote the
 default in the same comment as the deadline — a 24-hour clock with an unstated
 consequence reads as a threat, and it is not one.
 
+⚠ **An extension the contributor ASKS FOR is not the same as a default we hand
+out**, and CONTRIBUTING.md invites the ask by name. Hold it when they ask; the
+clock exists to stop work going quiet, not to catch anyone out.
+
+⚠ **Stated consequence, not hidden**: on an IMPLEMENTATION handoff, 24 hours
+means in practice that we implement it and they are credited, because nobody
+lands an additive-schema-plus-dispatcher change around a job in a day. That is a
+change in what a handoff IS, not only in how long it lasts. It is the intended
+trade — our throughput over their commit — and it should be made in the open
+rather than discovered at expiry.
+
 ⚠ **Do not shorten a timebox already posted.** State the new window on new PRs.
 A public promise to a contributor outlives the policy that produced it, and
-retracting one to save six days costs more than the six days.
+retracting one to save six days costs more than the six days. ⚠⚠ **Reaffirmed by
+jjg when this rule widened: #447 (2026-08-20), #465 (2026-08-21) and #456
+(2026-08-27) stand AS POSTED.** The new ceiling applies to timeboxes offered
+after that date, and to nothing already promised.
 
 ⚠⚠ **Do NOT answer "an issue is stuck" with aggregate stats.** Measured
 2026-07-28: jcm median 0 days to close (80 issues, 70 within a day, 2 ever past

@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,114 @@ def _status_launchd() -> dict:
 # ── Task Scheduler (Windows) ────────────────────────────────────────────────
 
 
+def _windows_console_code_pages() -> list[str]:
+    """Codecs to try for native Windows console output, best first.
+
+    `schtasks.exe` writes in the machine's code page, not UTF-8. Which one
+    depends on the process: a redirected child writes in the CONSOLE OUTPUT
+    code page, which is not always the ANSI code page — on a Simplified-Chinese
+    install both are 936, but on a Western European one they are 850 and 1252.
+    Both are asked of Windows and tried in that order.
+
+    ⚠ `locale.getpreferredencoding()` is deliberately NOT used. Under
+    `PYTHONUTF8=1` it reports utf-8 while the child still writes CP936, which is
+    exactly the case #468 warned about — the answer would look principled and be
+    wrong only for the users this exists for.
+    """
+    pages: list[str] = []
+    try:
+        import ctypes  # noqa: PLC0415 — Windows-only, not imported on other platforms
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        for fn in (kernel32.GetConsoleOutputCP, kernel32.GetACP):
+            try:
+                cp = int(fn())
+            except Exception:  # pragma: no cover - defensive
+                logger.debug("code page probe failed", exc_info=True)
+                continue
+            # 0 means "no console attached"; 65001 is UTF-8 and is tried anyway.
+            if cp and f"cp{cp}" not in pages:
+                pages.append(f"cp{cp}")
+    except Exception:
+        logger.debug("ctypes unavailable for code page probe", exc_info=True)
+    pages.append("utf-8")
+    return pages
+
+
+def _decode_windows_output(raw: bytes) -> str:
+    """Decode native Windows tool output without inventing characters.
+
+    ⚠⚠ Every call site here used `encoding="utf-8", errors="replace"`, which does
+    not raise — so CP936 bytes became 40 U+FFFD characters and the corruption was
+    SILENT (#468). `errors="replace"` on a wrong codec is worse than a crash: it
+    produces a plausible string.
+
+    The ORDER is the answer: the first candidate is what Windows says the child
+    writes. Strict decoding is a net under it, and only a partial one — a
+    multi-byte page like cp936 rejects a wrong guess, while cp437 and cp1252 map
+    nearly every byte and cannot fail. Do not read a successful decode as
+    confirmation that the codec was right.
+    """
+    if not raw:
+        return ""
+    candidates = _windows_console_code_pages()
+    for codec in candidates:
+        try:
+            return raw.decode(codec)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode(candidates[0], errors="replace")
+
+
+def _run_schtasks(args: list[str]) -> tuple[int, str, str]:
+    """Run a `schtasks` command and decode its output in the machine's code page."""
+    result = subprocess.run(args, capture_output=True, check=False)
+    return (
+        result.returncode,
+        _decode_windows_output(result.stdout or b""),
+        _decode_windows_output(result.stderr or b""),
+    )
+
+
+# Task Scheduler's own state enum, which is stable across display languages.
+# Matches the pre-#469 semantics exactly: a task that exists and is enabled is
+# "active" whether or not an instance is executing right now, because the
+# installed task is ONLOGON and sits in Ready between logons.
+_ACTIVE_TASK_STATES = frozenset({"Running", "Ready"})
+
+
+def _scheduled_task_state() -> Optional[str]:
+    """The task's `State` enum from Windows, or None if it could not be read.
+
+    ⚠⚠ The display text cannot answer this. `schtasks` prints the state in the
+    installed display language (`正在运行` for Running), so the pre-#469 test
+    `"Running" in stdout or "Ready" in stdout` reported `active: false` on every
+    non-English Windows while the watcher was running normally. `/FO CSV` does
+    not help — its headers AND values are localized too.
+
+    `Get-ScheduledTask` returns a `ScheduledTaskState` enum whose `ToString()` is
+    invariant, which is the same source Windows' own tooling reads.
+    """
+    script = (
+        "$ErrorActionPreference='Stop';"
+        f"(Get-ScheduledTask -TaskName '{SERVICE_NAME}').State.ToString()"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        logger.debug("Get-ScheduledTask returned %s", result.returncode)
+        return None
+    state = _decode_windows_output(result.stdout or b"").strip()
+    return state or None
+
+
 def _install_windows() -> dict:
     _log_dir().mkdir(parents=True, exist_ok=True)
     cmd_str = " ".join(_cmd_quote(x) for x in _exec_cmd())
@@ -209,28 +318,44 @@ def _install_windows() -> dict:
         "/RL", "LIMITED",
         "/TR", cmd_str,
     ]
-    result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
-    if result.returncode != 0:
-        raise InstallerError(f"schtasks /Create failed: {result.stderr.strip() or result.stdout.strip()}")
+    # ⚠ The failure message is USER-FACING, so it needs the same decoding as the
+    # status path — a localized "access denied" rendered as mojibake is a support
+    # ticket, not a diagnosis.
+    returncode, stdout, stderr = _run_schtasks(args)
+    if returncode != 0:
+        raise InstallerError(f"schtasks /Create failed: {stderr.strip() or stdout.strip()}")
     subprocess.run(["schtasks", "/Run", "/TN", SERVICE_NAME], check=False, capture_output=True)
     return {"platform": "schtasks", "task": SERVICE_NAME, "status": "registered"}
 
 
 def _uninstall_windows() -> dict:
-    result = subprocess.run(
-        ["schtasks", "/Delete", "/F", "/TN", SERVICE_NAME],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    returncode, _stdout, _stderr = _run_schtasks(
+        ["schtasks", "/Delete", "/F", "/TN", SERVICE_NAME]
     )
-    return {"platform": "schtasks", "task": SERVICE_NAME, "removed": result.returncode == 0}
+    return {"platform": "schtasks", "task": SERVICE_NAME, "removed": returncode == 0}
 
 
 def _status_windows() -> dict:
-    result = subprocess.run(
-        ["schtasks", "/Query", "/TN", SERVICE_NAME, "/FO", "LIST"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    _rc, stdout, _stderr = _run_schtasks(
+        ["schtasks", "/Query", "/TN", SERVICE_NAME, "/FO", "LIST"]
     )
-    active = "Running" in result.stdout or "Ready" in result.stdout
-    return {"platform": "schtasks", "active": active, "detail": result.stdout.strip()[:400]}
+    state = _scheduled_task_state()
+    if state is not None:
+        active = state in _ACTIVE_TASK_STATES
+        source = "scheduled_task_state"
+    else:
+        # Fallback only. ⚠ This is the pre-#469 predicate and it is WRONG on any
+        # non-English Windows; `state_source` says so rather than letting a
+        # confident `false` pass for a measurement.
+        active = "Running" in stdout or "Ready" in stdout
+        source = "display_text"
+    return {
+        "platform": "schtasks",
+        "active": active,
+        "state": state,
+        "state_source": source,
+        "detail": stdout.strip()[:400],
+    }
 
 
 # ── Public dispatch ─────────────────────────────────────────────────────────

@@ -33,6 +33,58 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+### `watch-status` on a non-English Windows ([#468](https://github.com/jgravelle/jcodemunch-mcp/issues/468), [#469](https://github.com/jgravelle/jcodemunch-mcp/issues/469))
+
+Both reported by [@lsg1103275794](https://github.com/lsg1103275794), split per
+one-issue-one-verdict, and independent: fixing either one alone leaves the other
+exactly as broken.
+
+**#468 — the output was decoded as UTF-8.** `schtasks.exe` writes in the
+machine's code page, so on a Simplified-Chinese install `watch-status.detail`
+came back as 40 U+FFFD characters. ⚠⚠ **`errors="replace"` is what made it
+silent.** Strict UTF-8 *raises* on those bytes; replacement turned a loud failure
+into a plausible string, and a plausible string is what nobody investigates.
+
+Native output now decodes through the code page Windows reports, asking for the
+**console output** page before the ANSI one — they are not always the same
+(measured on the dev box: 437 and 1252; on the reporter's, both 936). ⚠ The
+ORDER is the answer, not the strict-decode loop under it: a multi-byte page like
+cp936 rejects a wrong guess, while cp437 and cp1252 map nearly every byte and
+cannot fail. That is stated at the function so a successful decode is never read
+as confirmation.
+
+⚠ **`locale.getpreferredencoding()` is deliberately not used** — under
+`PYTHONUTF8=1` it reports utf-8 while the child still writes CP936, which is the
+case the reporter warned about. It would have looked principled and been wrong
+for exactly the users this is for.
+
+**#469 — liveness was decided by English display text.** `"Running" in stdout or
+"Ready" in stdout` reports `active: false` on every non-English Windows, while
+the watcher runs and reindexes normally. `正在运行` does not contain `Running`,
+and `/FO CSV` does not help because its headers *and* values are localized too.
+The verdict now reads `Get-ScheduledTask`'s `State`, an enum whose string form is
+invariant, and `Ready` still counts as active so the meaning of the field is
+unchanged.
+
+⚠ The fallback to the old predicate remains for a box where the enum cannot be
+read, and **it says so**: `state_source` is `scheduled_task_state` or
+`display_text`, and `state` is `null` rather than a guess. A wrong answer that
+names its own source is recoverable; a confident one is not.
+
+⚠ **Three call sites shared the decoding hazard and only one was reported.**
+`_install_windows` raises `InstallerError` carrying `schtasks` stderr and
+`_uninstall_windows` reads its output too, so a localized "access denied" reached
+the user as mojibake — on the path taken when something is already going wrong.
+All three go through one decoder, with a ratchet test that fails if a fourth
+arrives.
+
+⚠⚠ **The reporter's own note is why both survived a green suite:** searching
+`tests/` for `_status_windows`, `schtasks` and the `Running`/`Ready` predicate
+returned no hits. There was no coverage to fail. `tests/test_schtasks_locale.py`
+(20) runs on every platform because it drives the decode and the verdict
+directly; **17 fail against `35eeb2d`**, and the 3 that pass both sides are
+controls asserting the defect itself.
+
 ## [1.108.278] - 2026-08-14 - `exact` must mean exact, and a guardrail must not be its own baseline
 
 ### `identity_type: "exact"` graded a normalised match ([#458](https://github.com/jgravelle/jcodemunch-mcp/issues/458))
