@@ -17,6 +17,21 @@ the work is yours to submit.
 CLA Assistant will prompt you automatically when you open a PR. It takes about
 30 seconds.
 
+### The signing window is 24 hours
+
+Once your PR is reviewed and green, you have **24 hours** to sign. If the CLA is
+not signed by then, we implement the fix ourselves and credit you in the
+CHANGELOG, the release notes and the close comment.
+
+So the window decides whose commit it is. It does not decide whether you are
+credited, and it does not decide whether your fix ships — both of those are
+settled the moment the fix is right. We keep it short because a signed CLA takes
+30 seconds and an unsigned one parks finished work behind a form.
+
+If 24 hours does not work for you — you need legal review, or you are away — say
+so on the PR and we will hold it. The clock exists to stop PRs going quiet, not
+to catch anyone out.
+
 ## Commercial Licensing
 
 If you're using jCodeMunch in a commercial context, see the [license section in the

@@ -219,7 +219,9 @@ class TestCutoffIsCallerOverridable:
         assert "dead_symbols" not in r
 
     def test_hidden_under_compact_but_still_honoured(self):
-        """⚠ get_dead_code_v2 is core-tier and core_compact sits at 3996/4000.
+        """⚠ get_dead_code_v2 is core-tier and core_compact sits just under its
+        4000-token ceiling (measured in `tests/test_schema_budget.py`, never
+        transcribed here).
 
         A new schema property does not fit there at any description length, so
         the param is stripped from the compact schema exactly as `receipt` and

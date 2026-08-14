@@ -624,6 +624,23 @@ which is backwards.
 **3. A contributor's PR is never the only path.** Timebox it and keep our own
 path warm (#388 taught this the expensive way).
 
+**3a. An unsigned CLA gets TWENTY-FOUR HOURS, not two weeks** (set 2026-08-14
+after #443 was given until 08-20). CLA Assistant prompts automatically the moment
+a PR opens and signing takes about 30 seconds, so the window is sized to the
+task. A longer one does not buy a contributor anything — it parks a finished,
+green, reviewed fix behind a form.
+
+⚠⚠ **The window is only fair BECAUSE the default action preserves credit.** At
+expiry we implement the fix ourselves and credit them in the CHANGELOG, the
+release notes and the close comment. So the 24 hours decide whose COMMIT it is,
+never whether they are credited and never whether the fix ships. Quote the
+default in the same comment as the deadline — a 24-hour clock with an unstated
+consequence reads as a threat, and it is not one.
+
+⚠ **Do not shorten a timebox already posted.** State the new window on new PRs.
+A public promise to a contributor outlives the policy that produced it, and
+retracting one to save six days costs more than the six days.
+
 ⚠⚠ **Do NOT answer "an issue is stuck" with aggregate stats.** Measured
 2026-07-28: jcm median 0 days to close (80 issues, 70 within a day, 2 ever past
 a week); jdoc median 1 day. **Those numbers are TRUE and they are NOT a

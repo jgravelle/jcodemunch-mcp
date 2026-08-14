@@ -365,17 +365,35 @@ def _compute_centrality(
 
 
 def _identity_score(sym: dict, query_joined: str, raw_query: str = "") -> float:
-    """Identity channel: exact or prefix match on symbol name/ID.
+    """Identity channel: exact, normalised, or prefix match on symbol name/ID.
 
-    Returns a high score for exact matches and a decreasing score for
-    prefix matches by specificity.  Replaces the old ``50.0`` exact-name hack.
+    Returns a high score for exact matches and a decreasing score for weaker
+    identity matches by specificity.  Replaces the old ``50.0`` exact-name hack.
 
     Scoring:
       - Exact name match          → 50.0
       - Exact ID match            → 50.0
+      - Normalised name/ID match  → 40.0
       - Name starts with query    → 30.0
       - ID contains query segment → 20.0
       - No match                  →  0.0
+
+    ⚠ **The 40.0 tier is the whole point of #458 and it is easy to delete by
+    "simplification".** ``_tokenize`` folds case *and* strips leading
+    underscores and punctuation, so a pytest fixture named ``state`` and the
+    class literally named ``_State`` both reach the tokenized comparison for
+    the query ``_State``. Grading them alike put them at 50.0 apiece, and the
+    tie fell through to BM25, where the shorter name with a docstring won —
+    a test fixture outranking the source symbol it tests, by 0.355 points out
+    of ~58. A literal match must outrank a normalised one, and ``identity_type``
+    must not report ``exact`` for a grade it did not measure (#440's shape).
+
+    ⚠ **Case folding alone still counts as exact, deliberately.** ``raw_lower``
+    is already case-folded and has graded exact since the channel arrived, so
+    making case load-bearing would change the answer for every caller who types
+    ``getuser`` for ``getUser`` — a behaviour change with no defect behind it.
+    What drops to 40.0 is a match that needed *more* than case: an underscore,
+    a separator, anything ``_tokenize`` removed.
     """
     raw_lower = raw_query.lower() if raw_query else ""
     if not raw_lower and not query_joined:
@@ -389,7 +407,9 @@ def _identity_score(sym: dict, query_joined: str, raw_query: str = "") -> float:
 
     # Tokenized fallback preserves previous semantics for callers that only have terms.
     if query_joined == name_lower or query_joined == sym_id_lower:
-        return 50.0
+        # With no raw spelling there is nothing to be literal about, so the
+        # tokenized match is the best evidence available and stays exact.
+        return 50.0 if not raw_lower else 40.0
 
     # Prefix match on name (e.g. query "get_sym" matches "get_symbol_source")
     if query_joined and name_lower.startswith(query_joined):
@@ -511,6 +531,10 @@ def _bm25_breakdown(sym: dict, query_terms: list[str], idf: dict[str, float], av
     out["identity"] = identity
     if identity >= 50.0:
         out["identity_type"] = "exact"
+    elif identity >= 40.0:
+        # #458: the query matched only after tokenization folded case,
+        # underscores and punctuation away. Still a match, not an exact one.
+        out["identity_type"] = "normalized"
     elif identity >= 30.0:
         out["identity_type"] = "prefix"
     elif identity >= 20.0:

@@ -33,6 +33,83 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+### `identity_type: "exact"` graded a normalised match ([#458](https://github.com/jgravelle/jcodemunch-mcp/issues/458))
+
+`_tokenize` folds case, strips leading underscores and drops punctuation, and the
+identity channel's tokenized comparison ran against that folded form. So for the
+query `_State`, a pytest fixture named `state` and the class literally named
+`_State` both scored `identity: 50.0, identity_type: "exact"`. The identity
+channel could not separate them, the tie fell through to BM25, and the shorter
+name with a docstring won by **0.355 points out of ~58** — a test fixture
+outranking the source symbol it tests, on the single highest-confidence query a
+caller can send.
+
+A match that needed normalisation now scores **40.0** and reports
+`identity_type: "normalized"`. Literal stays 50.0, prefix 30.0 and segment 20.0
+are untouched, so the tiering mechanism this uses already existed.
+
+⚠ **Case folding alone is still `exact`, and that boundary was the decision.**
+`raw_lower` has been case-folded since the channel arrived, so making case
+load-bearing would change the answer for every caller who types `getuser` for
+`getUser` — a behaviour change with no defect behind it. What drops a tier is a
+match that needed *more* than case. A caller passing only tokenized terms and no
+raw query keeps `exact`: with no raw spelling there is nothing to be literal
+about, and grading it down would report a distinction that was never measured —
+which is the defect, not the fix.
+
+⚠⚠ **The first version of the end-to-end test passed against the broken code**,
+and the reason generalises past this fix. BM25 normalises by document length, and
+on the real repo `_State` is a large class that scored *below* the two-line
+fixture on every lexical field (name 6.996 vs 8.012, signature 6.153 vs 7.389,
+summary 0.0 vs 5.992). A small synthetic class wins on lexical signals alone, so
+the ordering assertion held with or without the identity tier. The corpus in
+`tests/test_identity_normalized_tier.py` gives the class a long docstring of
+words unrelated to the query — length without a match — which is what the real
+class's own prose does. **4 of the 10 tests fail against `8cc01a0`**, including
+the ordering one; the 6 that pass both sides are the unchanged tiers and the
+term-only control.
+
+⚠ This was found by the `Retrieval-quality gate` failing on
+[PR #457](https://github.com/jgravelle/jcodemunch-mcp/pull/457), a telemetry-only
+change that cannot affect ranking: the replay harness indexes this repo, so a new
+test file changed the corpus and displaced the expected top-1. The gate's
+self-indexing sensitivity will keep producing false reds on ordinary test-adding
+PRs. **It also caught a defect nobody was looking for**, and neither half of that
+is addressed here.
+
+### A schema-budget guardrail asserted a file against copies of itself (test-only)
+
+`test_v1_108_183.py::test_the_core_compact_schema_budget_is_unchanged` read three
+numbers out of `benchmarks/schema_baseline.json` and asserted they equalled three
+copies of themselves written into the test. Both sides were the same frozen
+artifact, so it pinned the **artifact** and never the surface: the baseline was
+captured in 2026-07, the tool surface drifted underneath it release after
+release, and the assertion stayed green throughout. It failed for the first time
+on 2026-08-14 when the capture was re-run — **firing on the one event that proves
+nothing regressed, and silent through every event it existed for.**
+
+Removed rather than re-pinned. The budget is guarded where it is measured:
+`tests/test_schema_budget.py` holds the 5% drift ceiling against a live
+`_build_tools_list()` and the §10 `<=4000` hard ceiling recomputed from the live
+build, which is the check written specifically to catch a breach *before* the
+baseline is regenerated. The intent the removed test carried — a param on four
+core tools must not spend the core budget — is asserted structurally by its
+sibling, which fails if `receipt` ever reaches the published core+compact schema.
+
+`tests/test_schema_baseline_transcription.py` now fails if any baseline value
+returns to `tests/` or `benchmarks/`, prose included. Two of the five sites this
+was written for were **docstrings** claiming `core_compact sits at 3996` — a
+stale number in a comment survives longest precisely because nothing executes it.
+Same shape as maintenance practice #4 and as `test_counter_saving_is_read_not_typed`,
+which exists because `run_route_recall.py` asserted `~98%` for two months against
+a measured 95.9%.
+
+⚠ The counter arms (three digits) are deliberately **out of scope** rather than
+guarded badly — below four digits a baseline value collides with ordinary
+integers often enough that the guard would cost more than it saves. The scanner
+is proven non-vacuous both ways: against a real transcription, and against a
+longer number that merely contains a baseline value.
+
 
 ## [1.108.277] - 2026-08-13 - Reachability is not only the import graph, and liveness is not only the PID
 
