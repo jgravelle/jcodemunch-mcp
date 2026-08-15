@@ -5283,7 +5283,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
     Kept as the registered entry point (and the name the front door re-dispatches
     through) so every route into the dispatcher passes the cap.
     """
-    return _enforce_response_cap(name, await _call_tool_impl(name, arguments))
+    from .storage.token_tracker import begin_call_context, end_call_context
+
+    # **The dispatcher is re-entrant.** `order` and executable `route` both re-enter the
+    # registered `call_tool`, so one client request can produce two `tool_calls` rows. Giving
+    # each entry its own `call_uid` keeps a ranking event joined to exactly one latency row,
+    # which is why token-based reset matters: setting `None` in the `finally` would clear the
+    # outer entry's value and silently write `NULL` for it. The consequence to expect is that
+    # `COUNT(DISTINCT call_uid)` counts dispatcher entries rather than client requests, and
+    # the front-door row has no matching ranking event.
+    call_token = begin_call_context()
+    try:
+        return _enforce_response_cap(name, await _call_tool_impl(name, arguments))
+    finally:
+        end_call_context(call_token)
 
 
 async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | CallToolResult:

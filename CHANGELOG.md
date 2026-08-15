@@ -32,6 +32,9 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+
+## [1.108.280] - 2026-08-14 - A cache keyed on a spelling is keyed on the caller's working directory
+
 ### The perf-db connection cache used the unresolved path ([#465](https://github.com/jgravelle/jcodemunch-mcp/issues/465))
 
 Reported and fixed by [@rknighton](https://github.com/rknighton) in

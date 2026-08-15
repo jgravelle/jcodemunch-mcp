@@ -36,6 +36,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict, deque
+from contextvars import ContextVar, Token
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -43,6 +44,14 @@ from typing import Optional
 from .. import config as _config
 
 logger = logging.getLogger(__name__)
+
+# One identifier per entry into the registered call_tool. Set by the dispatcher,
+# read by the telemetry sinks at write time. Default None so writes outside any
+# dispatched call record NULL rather than inventing an identity.
+_CURRENT_CALL_UID: ContextVar[Optional[str]] = ContextVar(
+    "jcodemunch_current_call_uid",
+    default=None,
+)
 
 _SAVINGS_FILE = "_savings.json"
 
@@ -797,6 +806,15 @@ class _State:
             self._add_column_if_missing(
                 conn, "ranking_events", "returned_count", "INTEGER"
             )
+            # #456. Correlation keys, added the same additive way returned_count was.
+            #
+            # The join is best-effort, by design. `tool_calls` is trimmed to a rolling cap while
+            # `ranking_events` is not, so older events will outlive their `tool_calls` row.
+            # Queries should use `LEFT JOIN` and expect misses. These are correlation keys, not
+            # referential integrity. Aligning retention is a separate concern.
+            for _table in ("tool_calls", "ranking_events"):
+                self._add_column_if_missing(conn, _table, "session_uid", "TEXT")
+                self._add_column_if_missing(conn, _table, "call_uid", "TEXT")
             self._perf_conns[str(path)] = conn
             return conn
         except Exception:
@@ -913,8 +931,9 @@ class _State:
                         "INSERT INTO ranking_events "
                         "(ts, repo, tool, query_hash, query, returned_ids, "
                         " top1_score, top2_score, confidence, semantic_used, "
-                        " identity_hit, repo_is_stale, returned_count) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        " identity_hit, repo_is_stale, session_uid, call_uid, "
+                        "returned_count) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             time.time(),
                             repo or None,
@@ -928,6 +947,8 @@ class _State:
                             1 if semantic_used else 0,
                             1 if identity_hit else 0,
                             1 if repo_is_stale else 0,
+                            self._session_uid,
+                            _CURRENT_CALL_UID.get(),
                             # #441. The TRUE size of the result set, recorded before
                             # the cap. The stored id list stays bounded; only the
                             # count is added, so a reader can tell a complete row
@@ -953,8 +974,10 @@ class _State:
             return
         try:
             conn.execute(
-                "INSERT INTO tool_calls (ts, tool, duration_ms, ok, repo) VALUES (?, ?, ?, ?, ?)",
-                (time.time(), tool, float(duration_ms), 1 if ok else 0, repo or None),
+                "INSERT INTO tool_calls (ts, tool, duration_ms, ok, repo, session_uid, call_uid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (time.time(), tool, float(duration_ms), 1 if ok else 0, repo or None,
+                 self._session_uid, _CURRENT_CALL_UID.get()),
             )
             self._perf_rows_since_trim += 1
             if self._perf_rows_since_trim >= 1000:
@@ -1360,6 +1383,27 @@ def record_tool_latency(
 ) -> None:
     """Record a tool-call duration for the current session (and optional perf db)."""
     _state.record_latency(tool_name, duration_ms, ok=ok, repo=repo, base_path=base_path)
+
+
+def begin_call_context() -> Token:
+    """Bind a fresh dispatcher call identifier to the current execution context (#456).
+
+    ⚠ Reset with the returned token in a ``finally``. A skipped reset leaves the
+    inner entry's identity visible to the outer one after it returns, so the join
+    attributes rows to the wrong call while every write still reports success. That
+    is the failure the re-entrancy note at ``call_tool`` describes, reached by
+    forgetting the reset rather than by writing ``set(None)``.
+
+    A second entry point into the dispatcher would need this wrapper, for the reason
+    ``call_tool`` stays the single registered entry: the invariant is held by there
+    being one door, not by this helper.
+    """
+    return _CURRENT_CALL_UID.set(uuid.uuid4().hex)
+
+
+def end_call_context(token: Token) -> None:
+    """Restore the execution context that preceded begin_call_context."""
+    _CURRENT_CALL_UID.reset(token)
 
 
 def latency_stats() -> dict:
