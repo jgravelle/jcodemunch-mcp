@@ -53,15 +53,16 @@ SAMPLES: dict[str, tuple[str, str]] = {
 # directory and never a category -- an exemption that covers a class hides the
 # next member of it.
 #
-# These four are @mussonking's, left for the PR he offered on #428. The
-# `test_exemptions_are_not_stale` ratchet below FAILS once any of them starts
-# working, so landing a fix forces its own exemption out of this list.
-EXEMPT: dict[str, str] = {
-    "rust": "#428: const_item/static_item declared, no branch in _extract_constant",
-    "go": "#428: const_declaration declared, no branch; const ( ... ) binds N names",
-    "java": "#428: field_declaration declared, no branch; N declarators per node",
-    "php": "#428: const_declaration declared, no branch",
-}
+# EMPTY, and that is the end state this ratchet was built to reach. The four
+# entries here (rust, go, java, php) were @mussonking's half of #428; they were
+# implemented on 2026-08-15 and `test_exemptions_are_not_stale` below failed
+# until they were deleted, which is the mechanism working rather than a chore.
+#
+# ⚠ An empty set means `test_exemptions_are_not_stale` parametrizes over nothing
+# and pytest reports it as a SKIP ("got empty parameter set"). That skip is the
+# ratchet at rest, not a lost test -- it re-arms the moment anyone adds an
+# exemption. Same shape as `_JS_VARIANT_EXEMPT` in the v1.108.273 sweep.
+EXEMPT: dict[str, str] = {}
 
 DECLARING = sorted(
     lang

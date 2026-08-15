@@ -1,8 +1,10 @@
 {
-  "core_compact": 3996,
-  "core_full": 5811,
-  "standard_compact": 18875,
-  "standard_full": 20927,
-  "full_compact": 20185,
-  "full_full": 22237
+  "core_compact": 3885,
+  "core_full": 5913,
+  "standard_compact": 19083,
+  "standard_full": 21431,
+  "full_compact": 20393,
+  "full_full": 22741,
+  "counter_compact": 939,
+  "counter_full": 939
 }

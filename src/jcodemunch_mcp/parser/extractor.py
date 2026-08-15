@@ -18,6 +18,13 @@ from .complexity import compute_complexity
 
 logger = logging.getLogger(__name__)
 
+# Languages whose constants can only be written INSIDE a type, so the constant
+# walk must accept a container parent as well as no parent (#428). Membership is
+# a statement about the LANGUAGE, not a preference: Java has no file-scope
+# constant to find. Adding a language here without a sample in
+# tests/test_constant_extraction_guard.py is the failure that issue is about.
+_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java"})
+
 
 class ByteSlicedSource:
     """A text view indexed by BYTE offsets, not character offsets.
@@ -593,7 +600,25 @@ def _walk_tree(
             symbols.append(var_func)
 
     # Check for constant patterns (top-level assignments with UPPER_CASE names)
-    if node.type in spec.constant_patterns and parent_symbol is None:
+    #
+    # ⚠⚠ **The `parent_symbol is None` gate is what keeps LOCALS out**, and it is
+    # kept. `_CLASS_SCOPED_CONSTANT_LANGUAGES` widens it to a CONTAINER parent
+    # only, never to a function parent, for languages whose constants cannot be
+    # written at file scope at all: a Java constant is a `static final` field, so
+    # under the unwidened gate `field_declaration` sat in `constant_patterns`
+    # while being unreachable by construction (#428).
+    #
+    # ⚠ **Declined: relaxing this to `parent_is_container` for EVERY language.**
+    # It reads like the general fix and it is a different change -- Python class
+    # bodies, JS class fields and PHP class constants would all start emitting
+    # constants they never have, moving symbol counts in every index and every
+    # published dead-code grade. One named set, extended per language with a
+    # sample in tests/test_constant_extraction_guard.py, keeps the blast radius
+    # equal to the defect.
+    if node.type in spec.constant_patterns and (
+        parent_symbol is None
+        or (parent_is_container and language in _CLASS_SCOPED_CONSTANT_LANGUAGES)
+    ):
         symbols.extend(_extract_constants(node, spec, source_bytes, filename, language))
 
     # A JS/TS class field INITIALIZER is not the class body. Everything the
@@ -1466,9 +1491,118 @@ def _extract_constants(
     """
     if node.type == "declaration_command" and language == "bash":
         return _extract_bash_constants(node, source_bytes, filename, language)
+    if node.type == "const_declaration" and language == "go":
+        return _extract_go_constants(node, source_bytes, filename, language)
+    if node.type == "const_declaration" and language == "php":
+        return _extract_php_constants(node, source_bytes, filename, language)
+    if node.type == "field_declaration" and language == "java":
+        return _extract_java_constants(node, source_bytes, filename, language)
 
     single = _extract_constant(node, spec, source_bytes, filename, language)
     return [single] if single else []
+
+
+def _constant_symbol(
+    name: str, decl_node, source_bytes: bytes, filename: str, language: str
+) -> Symbol:
+    """One constant symbol spanning its whole declaration.
+
+    The N-name languages all report the same span for every name they bind: the
+    declaration is what the reader opens, and `const ( A = 1; B = 2 )` has no
+    narrower node that contains `B` alone in Go's grammar anyway. Sharing the
+    span keeps `byte_offset`/`byte_length` pointing at real source text rather
+    than at a synthesised range (#414's rule: an offset must address bytes that
+    exist).
+    """
+    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
+    return Symbol(
+        id=make_symbol_id(filename, name, "constant"),
+        file=filename,
+        name=name,
+        qualified_name=name,
+        kind="constant",
+        language=language,
+        signature=sig[:200],
+        line=decl_node.start_point[0] + 1,
+        end_line=decl_node.end_point[0] + 1,
+        byte_offset=decl_node.start_byte,
+        byte_length=decl_node.end_byte - decl_node.start_byte,
+        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
+    )
+
+
+def _extract_go_constants(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Go `const`, which binds N names through two nestings at once (#428).
+
+    `const_declaration` holds one `const_spec` for a single declaration and one
+    per line inside a `const ( ... )` block, and a spec itself can bind several
+    names (`const D, E = 1, 2`). Both are walked, so a grouped block of 935
+    constants yields 935 symbols rather than one.
+
+    ⚠ No naming heuristic. Python needs `name.isupper()` because an assignment
+    is a constant only by convention; `const` IS the declaration, so filtering
+    on case here would silently drop Go's unexported constants -- lowercase by
+    the language's own visibility rule, not by accident.
+    """
+    found: list[Symbol] = []
+    for spec_node in node.children:
+        if spec_node.type != "const_spec":
+            continue
+        for child in spec_node.children:
+            # Names precede the `=`; the value side lives in an expression_list.
+            if child.type == "=":
+                break
+            if child.type == "identifier":
+                name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", "replace")
+                found.append(_constant_symbol(name, node, source_bytes, filename, language))
+    return found
+
+
+def _extract_php_constants(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """PHP `const A = 1, B = 2;` -- one `const_element` per bound name (#428)."""
+    found: list[Symbol] = []
+    for element in node.children:
+        if element.type != "const_element":
+            continue
+        name_node = _first_named_child(element)
+        if name_node is None or name_node.type != "name":
+            continue
+        name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        found.append(_constant_symbol(name, node, source_bytes, filename, language))
+    return found
+
+
+def _extract_java_constants(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Java constants are `static final` fields, N declarators per node (#428).
+
+    ⚠ **Both modifiers are required, and that is the whole discriminator.** A
+    bare `final int x` is per-instance and a bare `static int x` is mutable
+    shared state; neither is a constant, and admitting either would put ordinary
+    fields into `kind="constant"` for every Java class in an index.
+    """
+    modifiers = next((c for c in node.children if c.type == "modifiers"), None)
+    if modifiers is None:
+        return []
+    present = {c.type for c in modifiers.children}
+    if not {"static", "final"} <= present:
+        return []
+
+    found: list[Symbol] = []
+    for declarator in node.children:
+        if declarator.type != "variable_declarator":
+            continue
+        name_node = declarator.child_by_field_name("name")
+        if name_node is None:
+            continue
+        name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        found.append(_constant_symbol(name, node, source_bytes, filename, language))
+    return found
 
 
 def _extract_bash_constants(
@@ -1741,6 +1875,26 @@ def _extract_constant(
             byte_length=node.end_byte - node.start_byte,
             content_hash=c_hash,
         )
+
+    # Rust `const NAME: T = ...;` and `static NAME: T = ...;` (#428).
+    #
+    # ⚠ **`static mut` is excluded, and the exclusion is the declaration's own
+    # word.** A `mutable_specifier` child says the binding can change, which is
+    # the one thing a constant cannot do -- the same evidence-not-heuristic rule
+    # Bash uses to accept `readonly` and reject a bare `declare`.
+    #
+    # ⚠ No UPPER_CASE filter. Rust's convention is SCREAMING_SNAKE, but `const`
+    # is a declaration rather than a convention, so a case test could only
+    # remove correct results. This was the reporter's file: 935 `pub const`
+    # inside nested `pub mod`s, indexed as zero symbols.
+    if node.type in ("const_item", "static_item") and language == "rust":
+        if any(c.type == "mutable_specifier" for c in node.children):
+            return None
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            return None
+        name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        return _constant_symbol(name, node, source_bytes, filename, language)
 
     # JS/TS/TSX: index `const` declarations as constants.
     # `export const foo = ...` appears as a lexical_declaration under an export_statement;

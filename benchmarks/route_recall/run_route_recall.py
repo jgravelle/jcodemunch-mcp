@@ -4,9 +4,20 @@ Answers one question: when a user phrases a task in their own words, does the
 Counter's front door propose the action that answers it?
 
 This gates whether ``tool_surface=counter`` can become the default. The Counter
-avoids ~98% of resident schema tokens; the cost it trades against is recall,
-because an action ``route`` never proposes is functionally absent. That cost has
-never been measured.
+avoids most of the resident schema tokens -- the exact share is printed at the
+top of every run, computed from ``benchmarks/schema_baseline.json`` -- and the
+cost it trades against is recall, because an action ``route`` never proposes is
+functionally absent. That cost has never been measured.
+
+⚠ This docstring asserted a hand-typed figure until 2026-08-14, when the arm was
+measured for the first time and came back lower. The number is now READ from the
+frozen baseline rather than written here, per maintenance practice #4: this file
+is a recall harness, so a schema-cost figure in it is a transcription with no run
+behind it and nothing that fails when it drifts. The old literal is deliberately
+not repeated in this note -- ``tests/test_schema_budget.py`` fails on any
+schema-saving percentage appearing in this file, including a historical one.
+⚠⚠ The direction is why it mattered: overstating the saving makes the recall
+trade this harness exists to price look cheaper than it is.
 
 Two paths are measured separately because they are different code:
 
@@ -39,6 +50,8 @@ HERE = Path(__file__).resolve().parent
 CORPUS = HERE / "queries.json"
 RESULTS = HERE / "results.json"
 
+SCHEMA_BASELINE = HERE.parent / "schema_baseline.json"
+
 MENU_KS = (1, 3, 5, 10)
 ROUTE_KS = (1, 3)
 MENU_LIMIT = 10
@@ -52,6 +65,27 @@ def _load_catalog():
     from jcodemunch_mcp.server import _catalog_names, _catalog_rows
 
     return _counter, _catalog_rows(), sorted(_catalog_names())
+
+
+def _schema_saving() -> str:
+    """What the Counter buys, read from the frozen baseline rather than typed.
+
+    The recall this harness measures is the price of that saving, so the two
+    belong on screen together. A missing or partial baseline returns a plain
+    'not measured' -- it must never fall back to a remembered figure, which is
+    the exact defect this replaced (the docstring said ~98%; it is lower).
+    """
+    try:
+        base = json.loads(SCHEMA_BASELINE.read_text(encoding="utf-8"))
+        full, counter = base["full_full"], base["counter_full"]
+    except (OSError, ValueError, KeyError):
+        return ("schema saving: not measured -- run "
+                "benchmarks/harness/capture_schema_baseline.py")
+    return (
+        f"schema saving: {100 * (full - counter) / full:.1f}% "
+        f"({counter} tokens at counter vs {full} at the default surface, "
+        f"cl100k_base, from {SCHEMA_BASELINE.name})"
+    )
 
 
 def _rank_of_target(ordered_actions, targets):
@@ -96,6 +130,8 @@ def main() -> int:
              "<corpus stem>_results.json for a non-default corpus)",
     )
     args = ap.parse_args()
+
+    print(_schema_saving())
 
     counter, rows, names = _load_catalog()
     name_set = set(names)

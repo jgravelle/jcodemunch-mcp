@@ -33,6 +33,70 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+## [1.108.281] - 2026-08-15 - A declared pattern with no implementation reads as a language without constants
+
+### Rust, Go, Java and PHP constants are extracted ([#428](https://github.com/jgravelle/jcodemunch-mcp/issues/428))
+
+Reported by [@mussonking](https://github.com/jgravelle/jcodemunch-mcp/issues/428),
+who found it on a generated Rust contract file holding 935 `pub const` and getting
+back zero symbols. The Kotlin and Bash halves shipped in v1.108.267; these four
+were left for the PR he offered. They are implemented here — see the note at the
+end about why, and the credit stands unchanged.
+
+All four declared `constant_patterns` in `LANGUAGE_REGISTRY` and had no branch in
+`_extract_constant`, so the walker dispatched on the node type and fell through to
+`return None`. **The declaration looked like coverage from every angle a caller
+can see**: `search_symbols` returned nothing, which is indistinguishable from a
+language that has no constants.
+
+`const_item` / `static_item` (Rust), `const_declaration` (Go, PHP) and
+`field_declaration` (Java) now extract.
+
+⚠ **Three of the four bind N names per declaration**, which is why
+`_extract_constants` is plural. Go alone does it two ways at once — `const ( ... )`
+groups one spec per line, and `const A, B = 1, 2` binds two names in one spec. A
+single-symbol return would have reported the first name of a 935-line grouped
+block and dropped the rest, which reads as success.
+
+⚠ **No naming heuristic on any of them.** Python needs `name.isupper()` because an
+assignment is a constant only by convention; `const` *is* the declaration. Filtering
+on case would have silently dropped Go's unexported constants, which are lowercase
+by the language's own visibility rule.
+
+⚠ **What is excluded, and why the exclusions are the careful half.** Rust `static mut`
+carries a `mutable_specifier` — the declaration itself says the binding can change.
+A Java constant is `static final`; a bare `final` field is per-instance and a bare
+`static` field is mutable shared state, so admitting either would reclassify ordinary
+fields as constants in every Java class in an index. A missing constant is a recall
+bug the reporter could see; a field arriving as `kind="constant"` is a precision bug
+nobody would go looking for.
+
+⚠⚠ **Java needed more than a branch, and the fix is deliberately narrow.** The
+constant walk was gated on `parent_symbol is None`, which keeps function locals out
+— and a Java constant is a class member, so `field_declaration` sat in
+`constant_patterns` while being unreachable by construction. The gate now also
+accepts a *container* parent, for languages named in `_CLASS_SCOPED_CONSTANT_LANGUAGES`
+(currently `{"java"}`) and never for a function parent. **Relaxing it for every
+language was declined**: Python class bodies, JS class fields and PHP class constants
+would all start emitting constants they never have, moving symbol counts in every
+index and every published dead-code grade. One named set, one sample per member.
+
+`tests/test_v1_108_281.py` (10) covers the shapes the guard's minimal samples cannot
+— the reporter's nested `pub mod`, the N-name forms, and each exclusion. **9 of the
+10 fail against `d10490e`**; the one that passes both sides is the control asserting
+that Java function locals are still not constants, which is a boundary that must not
+move.
+
+The four exemptions in `tests/test_constant_extraction_guard.py` are deleted, which
+its ratchet forced: that file fails while an exemption outlives its defect. `EXEMPT`
+is now empty and every language declaring `constant_patterns` extracts one.
+
+⚠ **On taking this back:** #428's remaining half was @mussonking's by an open offer
+with no date on it, and closing it ourselves is a reversal, not a handoff expiring.
+It was done at the maintainer's direction to clear the tracker. The credit for the
+report and for the design of the plural helper is his, and the offer should never
+have been left open-ended — every handoff gets a date and a stated default now.
+
 ## [1.108.280] - 2026-08-14 - A cache keyed on a spelling is keyed on the caller's working directory
 
 ### The perf-db connection cache used the unresolved path ([#465](https://github.com/jgravelle/jcodemunch-mcp/issues/465))
