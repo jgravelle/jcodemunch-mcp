@@ -128,6 +128,23 @@ same as a default we hand out, and we would rather you told us than went quiet.
 Timeboxes already posted are honoured as posted; we do not shorten a promise
 after making it.
 
+### Your PR merges before our own changelog work
+
+When your PR is ready to merge, it goes in **before** anything of ours that
+touches `CHANGELOG.md`. That is a rule about our merge order, not a favour.
+
+The reason is mechanical. Our entries land in the same `[Unreleased]` block
+yours does, so every merge of ours puts your branch into conflict — and a
+conflicting fork PR has no merge ref, which means **CI stops running on it
+entirely.** Your branch goes quiet for a reason that has nothing to do with your
+change, and you get asked to rebase work that was finished days ago.
+
+⚠ **When your PR is blocked — an unsigned CLA, a red matrix, a change we asked
+you for — we cannot put it first, and we will not hold our own work behind it.**
+We ship, and then **we** resolve the conflict on your branch and say so on the
+thread. You should never be asked to rebase for a conflict we created. If you
+would rather resolve it yourself, say so and it is yours.
+
 The point of this rule is that a reviewer's thoroughness should never become a
 veto. If being careful can stall a release, then careful review is expensive to
 accept, and that is the opposite of what we want. This way your findings are an

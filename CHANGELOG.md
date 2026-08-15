@@ -32,6 +32,48 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### The perf-db connection cache used the unresolved path ([#465](https://github.com/jgravelle/jcodemunch-mcp/issues/465))
+
+Reported and fixed by [@rknighton](https://github.com/rknighton) in
+[#473](https://github.com/jgravelle/jcodemunch-mcp/pull/473).
+
+`_ensure_perf_db_locked` documents its cache as "keyed by resolved path", and
+`_perf_db_path` returned `root / _PERF_DB_FILE` with no `resolve()`, so the key
+was whatever spelling the caller happened to pass. Both exits now resolve.
+
+Two consequences, and the second is the one that loses data. Aliases of one
+directory each got their own connection, and `_perf_conns` has no cap and no
+eviction, so each spelling held one for the life of the process. Worse, a
+RELATIVE spelling makes the key depend on the process CWD: after a chdir the
+same key names a different database, `_perf_conn_usable`'s `exists()` probe
+consults the new location while the cached connection still points at the old
+file, and a row recorded for one store is written into another's. That is the
+failure v1.108.188 fixed for the writers, reappearing one layer down in the
+cache key.
+
+⚠ The latency sink takes it by a shorter route than the ranking sink: `call_tool`
+hands `record_latency` the raw `storage_path` argument with no `IndexStore`
+normalising it on the way. `analyze_perf` reads `tool_calls` and `ranking_events`
+through one base path, so a split between the two tables is worse than either
+table being wrong alone.
+
+⚠ Fixed at the helper rather than at the cache, because `_perf_db_path` is the
+single place the key is built and all three telemetry sinks reach the cache
+through its one caller. `_persist_session_yield_locked`, whose reachability the
+issue left open, inherits it.
+
+⚠ The module-level `perf_db_path()` helper is deliberately left unresolved. It
+never touches the cache, and an unresolved spelling opens the same file on disk;
+the defect was the KEY, not the path.
+
+⚠ Existing installs are unaffected and nothing is backfilled. The default store
+is absolute with no symlinks, where `resolve()` returns it unchanged, and rows
+that already landed in the wrong file stay there.
+
+`tests/test_perf_db_path_resolution.py` (3). ⚠ **Reverting either `.resolve()`
+alone turns it red**: every row-level test supplies an explicit `base_path`, so
+the no-argument exit needed its own assertion rather than inheriting coverage
+from the other two.
 
 ## [1.108.279] - 2026-08-14 - A machine's language is not English and its bytes are not UTF-8
 

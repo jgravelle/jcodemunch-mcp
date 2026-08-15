@@ -599,7 +599,7 @@ class _State:
             try:
                 root = Path(base_path)
                 root.mkdir(parents=True, exist_ok=True)
-                return root / _PERF_DB_FILE
+                return (root / _PERF_DB_FILE).resolve()
             except Exception:
                 logger.debug("Failed to resolve perf db path at %s", base_path, exc_info=True)
                 return None
@@ -608,7 +608,7 @@ class _State:
         try:
             root = Path(self._base_path) if self._base_path else Path.home() / ".code-index"
             root.mkdir(parents=True, exist_ok=True)
-            path = root / _PERF_DB_FILE
+            path = (root / _PERF_DB_FILE).resolve()
             self._perf_db_path_cached = path
             return path
         except Exception:
