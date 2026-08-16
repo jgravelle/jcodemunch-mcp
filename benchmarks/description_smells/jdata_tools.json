@@ -1,0 +1,1338 @@
+[
+ {
+  "name": "index_local",
+  "description": "Index a local data file (CSV, Excel, Parquet, or JSONL). Profiles all columns, detects types, computes statistics, and loads rows into SQLite for fast filtered retrieval. Set incremental=true (default) to skip re-indexing if file is unchanged. CSV, Excel, Parquet and JSONL only; any other format is rejected.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Absolute path to data file (.csv, .tsv, .xlsx, .xls, .parquet, .jsonl, .ndjson)"
+    },
+    "name": {
+     "type": "string",
+     "description": "Dataset identifier override (defaults to filename stem)"
+    },
+    "incremental": {
+     "type": "boolean",
+     "description": "Skip re-index if file hash unchanged (default true)",
+     "default": true
+    },
+    "encoding": {
+     "type": "string",
+     "description": "File encoding override (auto-detected if omitted)"
+    },
+    "delimiter": {
+     "type": "string",
+     "description": "CSV delimiter override (auto-detected if omitted)"
+    },
+    "header_row": {
+     "type": "integer",
+     "description": "Row number containing column headers, 0-indexed (default 0)",
+     "default": 0
+    },
+    "sheet": {
+     "type": "string",
+     "description": "Excel sheet name to index (default: first sheet)"
+    },
+    "depth": {
+     "type": "string",
+     "enum": [
+      "shallow",
+      "standard",
+      "deep"
+     ],
+     "description": "Profiling depth (B7). 'shallow' caps at 100k rows for fast first-look; 'standard' is the full profile (default); 'deep' additionally precomputes correlations.",
+     "default": "standard"
+    }
+   },
+   "required": [
+    "path"
+   ]
+  }
+ },
+ {
+  "name": "index_repo",
+  "description": "Index data files from a GitHub repository. Discovers CSV, Excel, Parquet, and JSONL files, downloads them, and indexes each via the same pipeline as index_local. Datasets are named {owner}--{repo}--{filename}. Max 50 MB per file, 20 files per repo. Set GITHUB_TOKEN env var for private repos or to avoid rate limits.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "GitHub repo URL or owner/repo string (e.g. 'pandas-dev/pandas' or 'https://github.com/pandas-dev/pandas')"
+    },
+    "incremental": {
+     "type": "boolean",
+     "description": "Skip re-index if HEAD SHA unchanged (default true)",
+     "default": true
+    },
+    "github_token": {
+     "type": "string",
+     "description": "GitHub token override (defaults to GITHUB_TOKEN env var)"
+    }
+   },
+   "required": [
+    "url"
+   ]
+  }
+ },
+ {
+  "name": "list_datasets",
+  "description": "List every indexed dataset with its row count, column count, and source file. Call it first to find the dataset name every other tool needs, and to confirm a file was actually indexed. Lists only datasets under the active storage_path.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "list_repos",
+  "description": "List GitHub repositories indexed via index_repo. Shows repo name, HEAD SHA, dataset count, total rows, and dataset names for each repo. Covers repos indexed with index_repo only; a dataset added by index_local is not listed here.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "describe_dataset",
+  "description": "Primary orientation tool. Returns every column's name, type, cardinality, null%, and sample values. A single call replaces reading the entire source file. Equivalent to opening a spreadsheet and reading the column headers + stats. On wide tables (60+ columns), results are auto-paginated — use columns=[] to select specific ones, or columns_offset to page through remaining columns.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier (from list_datasets or index_local)"
+    },
+    "columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Filter to specific columns (default: all)"
+    },
+    "columns_offset": {
+     "type": "integer",
+     "description": "Pagination offset for wide tables (default 0)",
+     "default": 0
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "describe_column",
+  "description": "Deep profile of a single column. Full value distribution for low-cardinality columns, histogram bins for numeric, temporal range for datetime. top_n capped at 200; histogram_bins capped at 50.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "column": {
+     "type": "string",
+     "description": "Column name or column ID (e.g. 'lapd-crime::AREA NAME#column')"
+    },
+    "top_n": {
+     "type": "integer",
+     "description": "Top values to return for categorical columns (default 20)",
+     "default": 20
+    },
+    "histogram_bins": {
+     "type": "integer",
+     "description": "Bins for numeric histograms (default 10)",
+     "default": 10
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / credentials from value_distribution, top_values, and sample_values (default true). Numeric stats and counts are never altered. Set false for raw values when working with data you own.",
+     "default": true
+    },
+    "redact_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional Python regex patterns to redact on top of the built-in set."
+    }
+   },
+   "required": [
+    "dataset",
+    "column"
+   ]
+  }
+ },
+ {
+  "name": "search_data",
+  "description": "Search across column names and values. Returns column-level results with IDs — tells you where to look, not the data itself. Use before get_rows or describe_column. max_results capped at 50. Set semantic=true for embedding-based search (requires an embedding provider: JDATAMUNCH_EMBED_MODEL, GOOGLE_API_KEY, or OPENAI_API_KEY).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "query": {
+     "type": "string",
+     "description": "Natural-language or keyword query"
+    },
+    "search_scope": {
+     "type": "string",
+     "enum": [
+      "all",
+      "schema",
+      "values"
+     ],
+     "description": "Limit search to schema only, values only, or all (default 'all')",
+     "default": "all"
+    },
+    "max_results": {
+     "type": "integer",
+     "description": "Maximum results to return (default 10)",
+     "default": 10
+    },
+    "semantic": {
+     "type": "boolean",
+     "description": "Enable semantic search via embeddings (default false). Requires embedding provider.",
+     "default": false
+    },
+    "semantic_weight": {
+     "type": "number",
+     "description": "Weight for semantic score in hybrid ranking. 0.0 = pure keyword, 1.0 = pure semantic (default 0.5).",
+     "default": 0.5
+    },
+    "semantic_only": {
+     "type": "boolean",
+     "description": "Skip keyword scoring entirely; use only embeddings (default false).",
+     "default": false
+    }
+   },
+   "required": [
+    "dataset",
+    "query"
+   ]
+  }
+ },
+ {
+  "name": "get_rows",
+  "description": "Filtered row retrieval via structured filters. All filters are SQL-parameterized (no injection). Operators: eq, neq, gt, gte, lt, lte, contains, in, is_null, between. Use columns=[] to project — reduces tokens significantly on wide tables. Prefer aggregate() for summaries over paginating through rows. Returns at most limit rows (default 50); page with offset instead of raising it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "filters": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "column": {
+        "type": "string"
+       },
+       "op": {
+        "type": "string",
+        "enum": [
+         "eq",
+         "neq",
+         "gt",
+         "gte",
+         "lt",
+         "lte",
+         "contains",
+         "in",
+         "is_null",
+         "between"
+        ]
+       },
+       "value": {}
+      },
+      "required": [
+       "column",
+       "op"
+      ]
+     },
+     "description": "Filter conditions (ANDed). E.g. [{\"column\": \"AREA NAME\", \"op\": \"eq\", \"value\": \"Hollywood\"}]"
+    },
+    "columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Column projection — reduces tokens (default: all)"
+    },
+    "order_by": {
+     "type": "string",
+     "description": "Column to sort by"
+    },
+    "order_dir": {
+     "type": "string",
+     "enum": [
+      "asc",
+      "desc"
+     ],
+     "description": "Sort direction (default 'asc')",
+     "default": "asc"
+    },
+    "limit": {
+     "type": "integer",
+     "description": "Max rows returned (default 50, hard cap 500)",
+     "default": 50
+    },
+    "offset": {
+     "type": "integer",
+     "description": "Pagination offset (default 0)",
+     "default": 0
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / credentials (emails, SSNs, Luhn-valid credit cards, JWTs, API keys, PEM blocks, AWS keys, GitHub/Slack tokens) from row cells before return (default true). Numeric cells are never altered. _meta.redaction reports cells_redacted + per-pattern counts.",
+     "default": true
+    },
+    "redact_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional Python regex patterns to layer on top of the built-in set. Invalid patterns are silently skipped (reported in _meta.redaction.invalid_custom_patterns)."
+    },
+    "redact_skip_columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Column names to exempt from redaction (e.g. an `email_hashed` column where the email pattern would false-positive)."
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "aggregate",
+  "description": "Server-side aggregations (GROUP BY). Saves orders of magnitude in tokens vs returning rows for the LLM to aggregate. Functions: count, sum, avg, min, max, count_distinct, median. limit capped at 1000.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "aggregations": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "column": {
+        "type": "string"
+       },
+       "function": {
+        "type": "string",
+        "enum": [
+         "count",
+         "sum",
+         "avg",
+         "min",
+         "max",
+         "count_distinct",
+         "median"
+        ]
+       },
+       "alias": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "column",
+       "function"
+      ]
+     },
+     "description": "Aggregation specs. Use column='*' for COUNT(*)."
+    },
+    "group_by": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Group-by columns. Empty = whole-dataset aggregate."
+    },
+    "filters": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     },
+     "description": "Pre-filter rows before aggregating (same syntax as get_rows)"
+    },
+    "having": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     },
+     "description": "Post-aggregation filter on aggregation aliases (B11). Each item: {\"column\": <alias>, \"op\": eq|neq|gt|gte|lt|lte|in|between|is_null, \"value\": ...}"
+    },
+    "order_by": {
+     "type": "string",
+     "description": "Column or alias to sort by"
+    },
+    "order_dir": {
+     "type": "string",
+     "enum": [
+      "asc",
+      "desc"
+     ],
+     "default": "desc"
+    },
+    "limit": {
+     "type": "integer",
+     "description": "Max groups returned (default 50)",
+     "default": 50
+    },
+    "approximate": {
+     "type": "boolean",
+     "description": "Approximate-mode aggregation (C1). Routes count_distinct → HyperLogLog (~2% error), median → t-digest (~1% error), sum/avg → sampled estimator with 95% confidence interval. Whole-dataset only.",
+     "default": false
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / credentials from group-by column values (default true). Aggregate values (counts, sums, etc.) are never altered.",
+     "default": true
+    },
+    "redact_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional Python regex patterns to layer on top of the built-in set."
+    },
+    "redact_skip_columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Group-by column names to exempt from redaction."
+    }
+   },
+   "required": [
+    "dataset",
+    "aggregations"
+   ]
+  }
+ },
+ {
+  "name": "sample_rows",
+  "description": "Return a sample of rows. Useful for understanding data shape without prior knowledge. Method: 'head', 'tail', or 'random'. Use columns=[] on wide tables to reduce response size. Pass seed (int) with method='random' for deterministic, reproducible sampling. A sample shows shape, not distribution; use get_distribution when you need the spread.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "n": {
+     "type": "integer",
+     "description": "Rows to sample (default 5, max 100)",
+     "default": 5
+    },
+    "method": {
+     "type": "string",
+     "enum": [
+      "head",
+      "tail",
+      "random"
+     ],
+     "description": "Sampling method (default 'head')",
+     "default": "head"
+    },
+    "columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Column projection (default: all)"
+    },
+    "seed": {
+     "type": "integer",
+     "description": "Deterministic seed for method='random' (omitted = non-deterministic)"
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / credentials from sampled cells before return (default true).",
+     "default": true
+    },
+    "redact_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional Python regex patterns to layer on top of the built-in set."
+    },
+    "redact_skip_columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Column names to exempt from redaction."
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_schema_drift",
+  "description": "Compare schema (columns, types, nullability) between two indexed datasets. Detects added/removed columns, type changes, and null-rate shifts. Pure in-memory comparison — no re-reading source files. Useful for detecting schema changes between dataset versions. Assessment: 'identical' | 'additive' (only additions) | 'breaking' (removals or type changes).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_a": {
+     "type": "string",
+     "description": "First dataset identifier (baseline)"
+    },
+    "dataset_b": {
+     "type": "string",
+     "description": "Second dataset identifier (comparison target)"
+    }
+   },
+   "required": [
+    "dataset_a",
+    "dataset_b"
+   ]
+  }
+ },
+ {
+  "name": "get_data_hotspots",
+  "description": "Return the highest-risk columns in a dataset ranked by a composite score combining: null rate, cardinality anomalies, numeric outlier spread, and (v1.10.0) runtime traffic from runtime_query_calls when traces exist. When include_runtime is true but no traces are ingested, the response carries an honest-hint caveat in _meta.runtime_caveat rather than silently scoring on static signals alone. top_n capped at 50.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "top_n": {
+     "type": "integer",
+     "description": "Number of hotspot columns to return (default 10, max 50)",
+     "default": 10
+    },
+    "include_runtime": {
+     "type": "boolean",
+     "default": true,
+     "description": "Fuse traffic signal from runtime_query_calls when available."
+    },
+    "window_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Lookback window for the traffic signal. Default 30."
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_correlations",
+  "description": "Compute pairwise Pearson correlations between numeric columns. Returns pairs sorted by |r| descending, filtered to significant correlations. Use this to discover relationships in the data without manual exploration. top_n capped at 200.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "min_abs_correlation": {
+     "type": "number",
+     "description": "Minimum |r| to include in results (default 0.3)",
+     "default": 0.3
+    },
+    "columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Restrict to specific numeric columns (default: all numeric)"
+    },
+    "top_n": {
+     "type": "integer",
+     "description": "Max pairs to return (default 20, max 200)",
+     "default": 20
+    },
+    "method": {
+     "type": "string",
+     "enum": [
+      "pearson",
+      "spearman"
+     ],
+     "description": "Correlation method (default 'pearson'). Spearman is rank-based — robust to outliers and monotonic non-linear relationships (B10).",
+     "default": "pearson"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "join_datasets",
+  "description": "Join two indexed datasets via SQL JOIN. Uses ATTACH DATABASE to combine two SQLite stores into one query. Supports inner, left, right, and cross joins. Use columns_a/columns_b to project — reduces tokens on wide tables. Row limit capped at 500. Prefer aggregate() on join results for summaries.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_a": {
+     "type": "string",
+     "description": "First dataset identifier (left side of join)"
+    },
+    "dataset_b": {
+     "type": "string",
+     "description": "Second dataset identifier (right side of join)"
+    },
+    "join_column_a": {
+     "type": "string",
+     "description": "Column from dataset_a to join on"
+    },
+    "join_column_b": {
+     "type": "string",
+     "description": "Column from dataset_b to join on"
+    },
+    "join_type": {
+     "type": "string",
+     "enum": [
+      "inner",
+      "left",
+      "right",
+      "cross"
+     ],
+     "description": "Join type (default 'inner')",
+     "default": "inner"
+    },
+    "columns_a": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Columns to select from dataset_a (default: first 30)"
+    },
+    "columns_b": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Columns to select from dataset_b (default: first 30)"
+    },
+    "filters_a": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     },
+     "description": "Pre-filter dataset_a rows (same syntax as get_rows filters)"
+    },
+    "filters_b": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     },
+     "description": "Pre-filter dataset_b rows (same syntax as get_rows filters)"
+    },
+    "order_by": {
+     "type": "string",
+     "description": "Column to sort results by"
+    },
+    "order_dir": {
+     "type": "string",
+     "enum": [
+      "asc",
+      "desc"
+     ],
+     "description": "Sort direction (default 'asc')",
+     "default": "asc"
+    },
+    "limit": {
+     "type": "integer",
+     "description": "Max rows returned (default 50, hard cap 500)",
+     "default": 50
+    },
+    "offset": {
+     "type": "integer",
+     "description": "Pagination offset (default 0)",
+     "default": 0
+    }
+   },
+   "required": [
+    "dataset_a",
+    "dataset_b",
+    "join_column_a",
+    "join_column_b"
+   ]
+  }
+ },
+ {
+  "name": "summarize_dataset",
+  "description": "Generate natural-language summaries for a dataset and all its columns. Works on already-indexed datasets — reads profiles from index.json, generates summaries, and writes them back. No re-parsing of source files. Summaries are also auto-generated during index_local.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier (from list_datasets)"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "delete_dataset",
+  "description": "Delete an indexed dataset and its SQLite store. Frees disk space. Irreversible — the dataset must be re-indexed to use again.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier to delete (from list_datasets)"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "embed_dataset",
+  "description": "Precompute column embeddings for semantic search. Optional warm-up — search_data with semantic=true lazily embeds on first use. Running embed_dataset upfront eliminates that latency. Requires an embedding provider (JDATAMUNCH_EMBED_MODEL, GOOGLE_API_KEY, or OPENAI_API_KEY).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier (from list_datasets)"
+    },
+    "force": {
+     "type": "boolean",
+     "description": "Recompute all embeddings even if cached (default false)",
+     "default": false
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_session_stats",
+  "description": "Return cumulative token savings and cost avoided across all tool calls. Savings are modelled estimates, not per-call measurements.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "validate_index",
+  "description": "Verify an indexed dataset's on-disk integrity. Runs SQLite PRAGMA integrity_check, cross-checks row count and column list against index.json, and verifies index.json content hash. Reports stale-lock state from interrupted index_local runs. Returns overall_status: 'ok' | 'warning' | 'error'. Checks the integrity of the index, never the correctness of the underlying data.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_dataset_history",
+  "description": "Return the last N profile snapshots for a dataset. Snapshots are appended on every successful index_local — use this to detect schema/content drift over multiple ingests of the same dataset. n capped at 50.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "n": {
+     "type": "integer",
+     "description": "Number of snapshots to return (default 10, max 50)",
+     "default": 10
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_dataset_health",
+  "description": "Composite quality grade (A–F) for a dataset (B4). Combines null severity, type-confidence, constant-column count, primary-key presence, semantic-typing coverage, and drift history into a single score with a structured breakdown. Grades structure and completeness, not whether the values are right.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "suggest_keys",
+  "description": "Rank primary-key candidates for a dataset (B5). Each entry carries a confidence score plus the reasons that raised it (integer column, UUID format, no nulls, exact-count unique). Candidates are ranked from profile statistics, so confirm against the source system before treating one as the key.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "suggest_joins",
+  "description": "Discover FK candidates between this dataset and other indexed datasets (B5). For each non-PK column in the source, scans up to 20 other datasets' PK candidates and proposes joins where containment ≥ 95%. Sample-based (500 distinct values per source column).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Source dataset identifier"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "get_distribution",
+  "description": "Unified bin-counts for any column type (B8). Numeric → equal-width bins between min/max; datetime → time-bucket bins; categorical / string → top-n + 'other' bucket. Token-cheap way to ask 'what does this column look like?'. Bin counts only (default 20 bins); it never returns the underlying rows.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "column": {
+     "type": "string",
+     "description": "Column name"
+    },
+    "bins": {
+     "type": "integer",
+     "description": "Number of bins / categories to return (default 20, max 100)",
+     "default": 20
+    }
+   },
+   "required": [
+    "dataset",
+    "column"
+   ]
+  }
+ },
+ {
+  "name": "plan_query",
+  "description": "Map a natural-language intent into a ranked tool-call sequence for the given dataset (B3). Pure routing — no LLM call. Built-in intents: summarize, anomalies, compare, join, filter, trend, correlate.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset identifier"
+    },
+    "intent": {
+     "type": "string",
+     "description": "Natural-language intent (e.g. 'summarize', 'find anomalies', 'join with X', 'trend over time'). Default 'summarize'.",
+     "default": "summarize"
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "run_sql",
+  "description": "Read-only sandboxed SQL escape hatch (B1). Accepts a single SELECT (or WITH … SELECT) statement. The first dataset is the main connection; additional datasets are ATTACHed under schema names (e.g. `<dataset>.rows`). Statement runs under PRAGMA query_only=1 with a 10-second budget and 500-row cap. Use this for HAVING / window functions / CTEs / multi-way joins that the structured tools don't cover.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "sql": {
+     "type": "string",
+     "description": "SELECT or WITH … SELECT statement"
+    },
+    "datasets": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Indexed datasets to attach. Order matters: datasets[0] is the main connection."
+    },
+    "limit": {
+     "type": "integer",
+     "description": "Row cap (default 500, hard max 500)",
+     "default": 500
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / credentials from result cells before return (default true).",
+     "default": true
+    },
+    "redact_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional Python regex patterns to layer on top of the built-in set."
+    },
+    "redact_skip_columns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Result column names to exempt from redaction."
+    }
+   },
+   "required": [
+    "sql",
+    "datasets"
+   ]
+  }
+ },
+ {
+  "name": "get_schema_impact",
+  "description": "Transitive impact of a column-level schema change (drop_column, rename_column, retype_column). Walks the inferred FK graph to max_depth, surfaces direct + transitive hits across datasets, and normalises blast_score to [0, 1]. For retype_column, also flags type_mismatch entries at FK edges whose partner type wouldn't survive the retype. Read-only.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_id": {
+     "type": "string"
+    },
+    "column": {
+     "type": "string",
+     "description": "Column name (case-insensitive)."
+    },
+    "kind": {
+     "type": "string",
+     "enum": [
+      "drop_column",
+      "rename_column",
+      "retype_column"
+     ],
+     "default": "drop_column"
+    },
+    "new_name": {
+     "type": "string",
+     "description": "Required for rename_column."
+    },
+    "new_type": {
+     "type": "string",
+     "description": "Required for retype_column. e.g. integer / string / float."
+    },
+    "max_depth": {
+     "type": "integer",
+     "default": 3,
+     "description": "BFS depth over the inferred FK graph."
+    },
+    "window_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Runtime traffic look-back."
+    }
+   },
+   "required": [
+    "dataset_id",
+    "column"
+   ]
+  }
+ },
+ {
+  "name": "check_column_drop_safe",
+  "description": "Composite preflight: is this column safe to drop? Fuses four signals — primary-key status, foreign-key participation, cross-dataset name match, and runtime traffic — into a single verdict plus ranked blockers and a recommended_action. Verdict tiers: pk_blocking, fk_blocking, runtime_observed, cross_dataset_blocking, safe_to_drop. Read-only. The killer feature of the Phase-1 sibling-parity batch.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_id": {
+     "type": "string"
+    },
+    "column": {
+     "type": "string",
+     "description": "Column name (case-insensitive)."
+    },
+    "window_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Look-back window for runtime traffic. Default 30."
+    }
+   },
+   "required": [
+    "dataset_id",
+    "column"
+   ]
+  }
+ },
+ {
+  "name": "find_unused_columns",
+  "description": "Surface columns with zero or stale runtime traffic. Reads runtime_query_calls (populated by ingest_sql_log) and surfaces columns that haven't been queried within `window_days`. Excludes primary-key candidates and audit fields (created_at / updated_at / dbt_*) by default. Refuses to run with explicit error when no runtime data has been ingested — would otherwise trivially flag every column.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_id": {
+     "type": "string"
+    },
+    "window_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Look-back window. Default 30."
+    },
+    "min_calls": {
+     "type": "integer",
+     "default": 0,
+     "description": "Floor for 'considered used' within window. Default 0."
+    },
+    "exclude_pk": {
+     "type": "boolean",
+     "default": true,
+     "description": "Skip primary-key candidates. Default true."
+    },
+    "exclude_audit": {
+     "type": "boolean",
+     "default": true,
+     "description": "Skip audit columns (created_at, updated_at, dbt_*, etc). Default true."
+    }
+   },
+   "required": [
+    "dataset_id"
+   ]
+  }
+ },
+ {
+  "name": "ingest_sql_log",
+  "description": "Ingest a SQL log file (pg_stat_statements CSV or generic JSONL, .gz transparently) into the per-dataset runtime tables. Each query is parsed for table + column refs, redacted at the chokepoint (string + numeric literals + cell-PII registry), and rolled up into runtime_query_calls keyed by (fingerprint, table, column). Tables in the log that don't match any indexed dataset count as unmapped. Foundational primitive for find_unused_columns, check_column_drop_safe, and data_health_radar (v1.6.0 sibling-parity Phase 1).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "file_path": {
+     "type": "string",
+     "description": "Path to a CSV / JSONL / .gz log file."
+    },
+    "source": {
+     "type": "string",
+     "description": "pg_stat_statements | jsonl | auto (default — sniff by extension).",
+     "default": "auto"
+    },
+    "redact": {
+     "type": "boolean",
+     "description": "Scrub PII / literals before persisting. Default true.",
+     "default": true
+    },
+    "max_rows": {
+     "type": "integer",
+     "description": "Hard cap on ingested rows. Default 100000.",
+     "default": 100000
+    }
+   },
+   "required": [
+    "file_path"
+   ]
+  }
+ },
+ {
+  "name": "find_similar_columns",
+  "description": "Multi-signal cross-dataset column consolidation. Fuses name (token Jaccard), type, top-value overlap, cardinality similarity, and (when present) embedding cosine into a composite score. Clusters via union-find and classifies each cluster: near_duplicate, naming_drift, parallel_definition, or overlapping_topic. Use to find duplicate columns across datasets, surface naming drift (`email` vs `email_address`), or detect the same conceptual column spread across multiple datasets. Mirrors jcm's find_similar_symbols. Every signal is heuristic, so a high score means investigate, not merge.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "datasets": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Datasets to scan. Omit to scan every indexed dataset."
+    },
+    "min_score": {
+     "type": "number",
+     "default": 0.5,
+     "description": "Composite-score floor for surfacing pairs."
+    },
+    "top_n": {
+     "type": "integer",
+     "default": 50,
+     "description": "Max clusters returned. Default 50, capped at 200."
+    },
+    "same_type_only": {
+     "type": "boolean",
+     "default": false,
+     "description": "Drop pairs where types don't match."
+    }
+   }
+  }
+ },
+ {
+  "name": "data_health_radar",
+  "description": "Six-axis health radar for a dataset: null_health, type_confidence, cardinality_health, pk_presence, semantic_coverage, schema_stability (omitted when <2 history snapshots). Optional 7th axis runtime_coverage when traces ingested. Returns 0-100 score per axis + composite + A-F grade. Pairs with diff_data_health_radar for snapshot deltas. Mirrors jcm's six-axis health radar.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string"
+    },
+    "include_runtime": {
+     "type": "boolean",
+     "default": true,
+     "description": "Fuse runtime_coverage axis when traces exist."
+    },
+    "window_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Lookback for the runtime axis. Default 30."
+    }
+   },
+   "required": [
+    "dataset"
+   ]
+  }
+ },
+ {
+  "name": "diff_data_health_radar",
+  "description": "Diff two data_health_radar payloads. Pure function — pass the `radar` sub-field from two data_health_radar responses (e.g. yesterday vs today). Returns per-axis deltas, composite delta, grade change, regression and improvement lists (threshold: 3 points), one-line verdict.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "baseline": {
+     "type": "object",
+     "description": "Baseline radar payload (e.g. yesterday's snapshot)."
+    },
+    "current": {
+     "type": "object",
+     "description": "Current radar payload (e.g. today's snapshot)."
+    }
+   },
+   "required": [
+    "baseline",
+    "current"
+   ]
+  }
+ },
+ {
+  "name": "get_redaction_log",
+  "description": "Forensic accounting of PII redactions for a dataset. Returns per-pattern counts from runtime_redaction_log (populated by ingest_sql_log with redact=True), so operators can verify the chokepoint is firing on production traffic. Filter by source and lookback window. Empty result with no traces ingested is not an error — it just means no scrubbing has happened yet.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset_id": {
+     "type": "string"
+    },
+    "source": {
+     "type": "string",
+     "description": "Optional source filter. Today: 'sql_log'."
+    },
+    "since_days": {
+     "type": "integer",
+     "default": 30,
+     "description": "Lookback window for last_seen. Default 30."
+    }
+   },
+   "required": [
+    "dataset_id"
+   ]
+  }
+ },
+ {
+  "name": "tune_weights",
+  "description": "Inspect, set, or reset the weight vector search_data uses to rank columns (name/value/type match weights plus the BM25 and semantic blend scales). Omit all args to inspect the effective weights and their source. Pass set_weights (a {weight: number} object) to override, or reset=true to clear. Scope with dataset (per-dataset overrides win over the global default, which wins over built-ins). Honored by search_data at query time. Unlike jcodemunch/jdocmunch, weights are tuned explicitly here (no ranking ledger). Tunable: name_exact, name_substr, name_word, ai_summary_word, value_exact, value_substr, type_boost, bm25_scale, semantic_scale, default_semantic_weight. Affects search_data ranking only; no other tool reads these weights.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Tune one dataset. Omit for the global default."
+    },
+    "set_weights": {
+     "type": "object",
+     "description": "Weight overrides, e.g. name_exact=30. Unknown names or non-numeric values are rejected; values are clamped to each weight bounds.",
+     "additionalProperties": {
+      "type": "number"
+     }
+    },
+    "reset": {
+     "type": "boolean",
+     "default": false,
+     "description": "Clear this scope overrides."
+    }
+   }
+  }
+ },
+ {
+  "name": "check_embedding_drift",
+  "description": "Detect whether the embedding provider has drifted since it was pinned. Column embeddings power semantic search_data and find_similar_columns; if the provider model changes underneath a stored index, saved vectors stop matching the live encoder and semantic ranking quietly degrades. Pins a 16-string canary in <index_path>/embed_canary.json and recomputes it on demand, reporting cosine drift. Call with force=true once to set the baseline, then again after a suspected provider change. Sibling of jcodemunch / jdocmunch check_embedding_drift.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "force": {
+     "type": "boolean",
+     "default": false,
+     "description": "Re-embed and re-pin the canary baseline (set once to establish it)."
+    },
+    "threshold": {
+     "type": "number",
+     "default": 0.05,
+     "description": "Cosine-distance alarm threshold; alarm is true when the worst canary drifts past it."
+    }
+   }
+  }
+ },
+ {
+  "name": "analyze_perf",
+  "description": "Per-tool latency and cache-hit telemetry. Returns p50/p95/max latency and error rate per tool, the slowest tools by p95, and result-cache hit rates (aggregate / get_correlations / get_data_hotspots are the cached tools). window=session reads the always-on in-memory ring; window=1h/24h/7d/all reads the persistent SQLite sink (requires JDATAMUNCH_PERF_TELEMETRY=1). Sibling of jcodemunch / jdocmunch analyze_perf.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "window": {
+     "type": "string",
+     "enum": [
+      "session",
+      "1h",
+      "24h",
+      "7d",
+      "all"
+     ],
+     "default": "session",
+     "description": "session = in-memory ring; others read the persistent perf db."
+    },
+    "top": {
+     "type": "integer",
+     "default": 20,
+     "description": "Max slowest-tools / coldest-caches returned."
+    },
+    "tool": {
+     "type": "string",
+     "description": "Restrict the analysis to a single tool name."
+    }
+   }
+  }
+ },
+ {
+  "name": "finalize_handoff",
+  "description": "Finalize one canonical Markdown handoff for a completed data audit/analysis (jdatamunch.handoff/v1; suite parity with jCodeMunch). The server assembles YOUR sections deterministically, validates every evidence_refs entry against what this session actually retrieved (column ids like '<dataset>::<column>#column' or dataset names served by search_data / describe_dataset / describe_column — unknown refs fail closed), persists the result session-scoped, and returns a compact receipt {handoff_id, resource_uri, sha256, length, canonical:true}. Read the immutable body via the munch://handoff/<id> resource; repeated reads are byte-identical. Appendices are included exactly once; no character limit; never writes to your data.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "dataset": {
+     "type": "string",
+     "description": "Dataset the handoff is about."
+    },
+    "task": {
+     "type": "string",
+     "description": "The task/question this handoff answers (becomes the title)."
+    },
+    "sections": {
+     "type": "array",
+     "description": "Ordered report sections, each {heading, content} (markdown). The caller authors these; the server only assembles. Optional per-section claims[] bind evidence to an individual claim instead of one global list (handoff/v2).",
+     "items": {
+      "type": "object",
+      "properties": {
+       "heading": {
+        "type": "string"
+       },
+       "content": {
+        "type": "string"
+       },
+       "claims": {
+        "type": "array",
+        "description": "Optional caller-authored claims, each {id, statement, evidence_refs, classification?}. Ids must be unique across the handoff; each claim's refs are attested separately and rendered beside the claim.",
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "statement": {
+           "type": "string"
+          },
+          "evidence_refs": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "classification": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "id",
+          "statement",
+          "evidence_refs"
+         ]
+        }
+       }
+      },
+      "required": [
+       "heading"
+      ]
+     }
+    },
+    "evidence_refs": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Column ids or dataset names retrieved this session; validated against the session retrieval record."
+    },
+    "profile": {
+     "type": "string",
+     "default": "general",
+     "description": "Handoff profile label (e.g. data_audit)."
+    },
+    "appendices": {
+     "type": "array",
+     "description": "Optional named appendices, each {name, content, content_type?}; names must be unique.",
+     "items": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "content": {
+        "type": "string"
+       },
+       "content_type": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "content"
+      ]
+     }
+    }
+   },
+   "required": [
+    "dataset",
+    "task",
+    "sections",
+    "evidence_refs"
+   ]
+  }
+ },
+ {
+  "name": "jdatamunch_guide",
+  "description": "Return the version-current CLAUDE.md / AGENT.md policy snippet for jdatamunch-mcp. Lets an agent keep a one-line CLAUDE.md (e.g. \"Call jdatamunch_guide and strictly follow its instructions.\") instead of pasting a static snippet that drifts from the installed version. Idempotent, no dataset context required. Sibling of jcodemunch_guide and jdocmunch_guide.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ }
+]

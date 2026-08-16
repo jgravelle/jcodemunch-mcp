@@ -1,0 +1,1790 @@
+[
+ {
+  "name": "index_local",
+  "description": "Index a local folder containing documentation files (.md, .txt, .rst; plus .pdf/.docx/.pptx/.epub when the optional [office] extra is installed — converted to Markdown locally). Parses by heading hierarchy into sections for efficient retrieval. An already-indexed source is recognized before storage is chosen: the established handle is reused (or refreshed), an explicit conflicting name returns a conflict instead of creating a duplicate index, and multiple equivalent legacy indexes return bounded ambiguity. Embeddings auto-enable when a provider is configured (GOOGLE_API_KEY, OPENAI_API_KEY, openai-compatible + JDOCMUNCH_OPENAI_COMPAT_URL + JDOCMUNCH_OPENAI_COMPAT_MODEL, or sentence-transformers).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Path to local folder (absolute or relative, supports ~ for home directory)"
+    },
+    "use_ai_summaries": {
+     "type": "boolean",
+     "description": "Use AI to generate section summaries (requires ANTHROPIC_API_KEY or GOOGLE_API_KEY). When false, uses heading text.",
+     "default": true
+    },
+    "use_embeddings": {
+     "description": "Generate semantic embeddings for each section, enabling hybrid (BM25+semantic) search. true/false/\"auto\". \"auto\" (default) enables embeddings when an embedding provider is configured (GOOGLE_API_KEY, OPENAI_API_KEY, openai-compatible + JDOCMUNCH_OPENAI_COMPAT_URL + JDOCMUNCH_OPENAI_COMPAT_MODEL, or sentence-transformers installed).",
+     "default": "auto"
+    },
+    "extra_ignore_patterns": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Additional gitignore-style patterns to exclude from indexing"
+    },
+    "include_dot_dirs": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "jdoc#113 - directory NAMES to index even though they start with a dot, e.g. [\".claude\"]. Dotted directories are skipped by default so a tool's dotfile cache cannot be ingested as documentation; .github is always indexed. Names only, not paths."
+    },
+    "follow_symlinks": {
+     "type": "boolean",
+     "description": "Whether to follow symlinks. Default false for security.",
+     "default": false
+    },
+    "max_files": {
+     "type": "integer",
+     "description": "Maximum number of doc files to index. Default 10000. When the cap is hit, the response includes `truncated: true`, `discovered: <total found>`, and `indexed: <max_files>` so the caller can detect data loss programmatically. Raise this for very large corpora.",
+     "default": 10000
+    },
+    "sort_by": {
+     "type": "string",
+     "enum": [
+      "newest",
+      "walk_order"
+     ],
+     "description": "Order in which files are truncated when discovered > max_files. 'newest' (default) keeps the most recently-edited files so a fresh edit is always in the index. 'walk_order' preserves filesystem-walk order for deterministic reproducible builds. No effect when corpus fits under the cap.",
+     "default": "newest"
+    },
+    "name": {
+     "type": "string",
+     "description": "Optional repo identifier override. Use this when two folders share the same name (e.g. both named 'docs'). If omitted, the folder name is used. Example: 'requests-docs', 'flask-docs'."
+    },
+    "incremental": {
+     "type": "boolean",
+     "description": "When true (default), only re-index files that changed since the last index. Set to false to force a full re-index.",
+     "default": true
+    },
+    "autotune": {
+     "type": "boolean",
+     "description": "v1.29+ — when true, runs tune_weights against accumulated ranking events at the end of indexing. No-op when telemetry isn't enabled.",
+     "default": false
+    },
+    "paths": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Optional list of explicit paths to index. When provided, the directory walk is skipped; only these files (and the contents of any directories in the list) are indexed. Entries may be absolute or relative to `path`. Useful for batch-indexing exactly the files an agent already knows about — e.g. the doc files git just touched."
+    },
+    "worktree_mode": {
+     "type": "string",
+     "enum": [
+      "reuse_equivalent",
+      "branch_local"
+     ],
+     "description": "Linked-worktree behavior (jdoc#83). 'reuse_equivalent' (default) reuses a proven-fresh established index from another linked worktree instead of creating a duplicate; uncertain outcomes return a bounded decision with no write. 'branch_local' intentionally creates/refreshes an exact-path index for this worktree.",
+     "default": "reuse_equivalent"
+    },
+    "legacy_reconcile": {
+     "type": "string",
+     "enum": [
+      "report",
+      "apply"
+     ],
+     "description": "Part C.2 legacy reconciliation (jdoc#87). Requires an explicit name= selecting a pre-1.102 fieldless legacy index and a full refresh. 'report' proves whether it is an exact duplicate of its single modern peer (same verified identity, same clean certified commit, full path-and-hash coverage) without changing anything; 'apply' repeats the proof and retires the selected legacy handle — the only possible loser; the peer is never touched. Omitted: ordinary refresh, backfill-only, never retires."
+    }
+   },
+   "required": [
+    "path"
+   ]
+  }
+ },
+ {
+  "name": "doc_index_repo",
+  "description": "Index a GitHub repository's documentation. Fetches .md/.txt files, parses sections, and saves to local storage. Embeddings auto-enable when a provider is configured (GOOGLE_API_KEY, OPENAI_API_KEY, openai-compatible + JDOCMUNCH_OPENAI_COMPAT_URL + JDOCMUNCH_OPENAI_COMPAT_MODEL, or sentence-transformers). Indexes .md and .txt only; every other file in the repo is ignored.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "url": {
+     "type": "string",
+     "description": "GitHub repository URL or owner/repo string"
+    },
+    "ref": {
+     "type": "string",
+     "description": "Optional GitHub branch, tag, or commit-ish to index. If omitted, HEAD is used. The ref is resolved to a commit SHA before fetching content; repo@sha remains the durable lookup handle."
+    },
+    "use_ai_summaries": {
+     "type": "boolean",
+     "description": "Use AI to generate section summaries.",
+     "default": true
+    },
+    "use_embeddings": {
+     "description": "Generate semantic embeddings for each section. true/false/\"auto\". \"auto\" (default) enables embeddings when an embedding provider is configured, including openai-compatible + JDOCMUNCH_OPENAI_COMPAT_URL + JDOCMUNCH_OPENAI_COMPAT_MODEL.",
+     "default": "auto"
+    },
+    "name": {
+     "type": "string",
+     "description": "Optional stored index name override. If omitted, the GitHub repo name is used. Must be a safe storage component: letters, numbers, dot, underscore, and hyphen only."
+    },
+    "incremental": {
+     "type": "boolean",
+     "description": "When true (default), skip all HTTP fetches if the selected GitHub ref's commit SHA is unchanged; otherwise only re-index changed files. Set to false to force a full re-index.",
+     "default": true
+    }
+   },
+   "required": [
+    "url"
+   ]
+  }
+ },
+ {
+  "name": "doc_list_repos",
+  "description": "List every indexed documentation repo with its identifier and storage location. Call it first to find out whether the docs you need are already indexed, and to get the repo id every other tool needs. Lists only indexes under the active storage_path, so an empty list means nothing is indexed there.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "get_index_overview",
+  "description": "v1.56+ — single-call repo snapshot: doc_count, section_count, total_byte_size, format_breakdown, top_tags, top_roles, indexed_at. Composition of v1.46/v1.50/v1.55 aggregations. Use for 'what is this repo at a glance?'. Counts come from the index, so they are only as fresh as the last index run.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "top_n": {
+     "type": "integer",
+     "minimum": 0,
+     "default": 5,
+     "description": "Top-N tags and roles to surface. 0 omits both lists; full distributions still available via get_all_tags / get_all_roles."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_doc",
+  "description": "v1.58+ — single-doc detail view. Pairs with list_docs (cross-doc inventory). Returns section list (handles), role_distribution, tag_distribution, byte_size, format, indexed_at for one doc. No content reads.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "doc_path": {
+     "type": "string",
+     "description": "Document path within the repo, e.g. 'api/auth.md'"
+    }
+   },
+   "required": [
+    "repo",
+    "doc_path"
+   ]
+  }
+ },
+ {
+  "name": "list_docs",
+  "description": "v1.55+ — flat per-doc inventory of an indexed repo: doc_path, section_count, format, byte_size for each indexed document. Lighter than get_toc_tree (which returns full section trees per doc). Sorted by doc_path. Inventory only; it returns no section titles and no content.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_toc",
+  "description": "Get a flat table of contents for all sections in a repo, sorted by document order. Content is excluded — use get_section to retrieve content. Scope with path_glob; for a SINGLE document use get_document_outline (this tool has no doc_path parameter).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "path_glob": {
+     "type": "string",
+     "description": "v1.36+ — fnmatch glob restricting results to matching doc_paths (e.g. 'api/**/*.md', 'reference/*'). Default: no filter."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_toc_tree",
+  "description": "Get a nested table of contents tree per document. Shows parent/child heading relationships. Content is excluded.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "path_glob": {
+     "type": "string",
+     "description": "v1.36+ — fnmatch glob restricting results to matching doc_paths. Default: no filter."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_document_outline",
+  "description": "Get the section hierarchy for a single document file, without content. Headings only, no content. Read a section with get_section.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "doc_path": {
+     "type": "string",
+     "description": "Path to the document within the repository (e.g., 'README.md')"
+    }
+   },
+   "required": [
+    "repo",
+    "doc_path"
+   ]
+  }
+ },
+ {
+  "name": "search_sections",
+  "description": "Search sections by relevance. Hybrid (BM25 lexical + semantic embedding) fusion when the index was built with use_embeddings=true; falls back to lexical-only otherwise. Returns summaries only — use get_section for full content.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "query": {
+     "type": "string",
+     "description": "Search query"
+    },
+    "doc_path": {
+     "type": "string",
+     "description": "Optional: limit search to a specific document"
+    },
+    "path_glob": {
+     "type": "string",
+     "description": "v1.36+ — fnmatch glob restricting results to matching doc_paths (e.g. 'api/**/*.md'). Stacks with doc_path."
+    },
+    "max_results": {
+     "type": "integer",
+     "description": "Maximum number of results to return",
+     "default": 10
+    },
+    "semantic": {
+     "type": "boolean",
+     "description": "null/omit (auto — hybrid when embeddings exist), true (force hybrid), false (force lexical-only). Zero performance cost when the index has no embeddings."
+    },
+    "semantic_only": {
+     "type": "boolean",
+     "description": "Skip lexical scoring; rank purely by embedding cosine similarity.",
+     "default": false
+    },
+    "semantic_weight": {
+     "type": "number",
+     "description": "Weight (0.0–1.0) of semantic component in hybrid fusion. Lexical gets 1 - weight. Omit to use this repo's tuned weight, else 0.5; a value you pass is always honoured. _meta.semantic_weight and _meta.semantic_weight_source report which applied. Paraphrased queries usually want 0.7–0.95: RRF (k=60) structurally penalises an answer that is strong in only one channel, so 0.5 can rank below a section that is mediocre in both."
+    },
+    "role": {
+     "type": "string",
+     "description": "Optional v1.19+ role filter. Values: concept, tutorial, how_to, reference, api, example, troubleshooting, changelog, faq, other."
+    },
+    "profile": {
+     "type": "string",
+     "enum": [
+      "install",
+      "debug",
+      "explain",
+      "api"
+     ],
+     "description": "v1.32+ — task-aware retrieval profile. install/debug/explain/api each boost a small role set so matching sections rank ahead. Explicit role= overrides."
+    },
+    "dedupe": {
+     "type": "boolean",
+     "default": false,
+     "description": "v1.34+ — collapse near-duplicate sections to a single representative based on the v1.34 cluster sidecar. _meta.deduped reports suppressed member ids."
+    },
+    "min_answerability": {
+     "type": "number",
+     "description": "v1.42+ — drop results whose v1.33 _answerability score is below this threshold (0–1). _meta.quality_filtered reports drop count."
+    },
+    "min_quotability": {
+     "type": "number",
+     "description": "v1.42+ — drop results whose v1.33 _quotability score is below this threshold (0–1). Stacks with min_answerability."
+    },
+    "min_level": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "v1.44+ — restrict to sections at heading level >= this. Inclusive."
+    },
+    "max_level": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "v1.44+ — restrict to sections at heading level <= this. Inclusive. Stacks with min_level."
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "v1.45+ — restrict to sections whose Section.tags contains every listed tag (AND semantics). Case-insensitive."
+    },
+    "exclude_tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "v1.51+ — drop sections whose Section.tags contains ANY listed tag (negative ANY-match). Stacks with `tags`. Case-insensitive."
+    },
+    "roles": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "v1.52+ — restrict to sections whose metadata.role matches ANY listed role (positive OR-match). Differs from singular `role` (which is exact). Case-insensitive."
+    },
+    "exclude_roles": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "v1.52+ — drop sections whose metadata.role matches ANY listed role. Case-insensitive. Stacks with `roles` (the result must match an included role and not match any excluded role)."
+    },
+    "min_byte_length": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "v1.53+ — drop sections shorter than this many bytes (byte_end - byte_start). Use to filter out stubs / one-liners."
+    },
+    "max_byte_length": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "v1.53+ — drop sections longer than this many bytes. Use to filter out oversized dumps. Stacks with min_byte_length."
+    },
+    "repo_group": {
+     "type": "string",
+     "description": "v1.26+ — fan out across the named repo group (defined via define_repo_group). When set, the per-repo `repo` arg is ignored; results from each member repo are fused via RRF."
+    },
+    "compact": {
+     "type": "boolean",
+     "default": false,
+     "description": "v1.121+ — drop per-row fields a caller can't act on (repo, parent_id, children, byte_start/byte_end, content_hash, inline_code, references; plus empty tags and a summary identical to the title). Per-row _freshness is kept only when it isn't 'fresh'. ~40% fewer bytes per result. Default off — the full row is unchanged."
+    },
+    "fields": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "v1.121+ — explicit per-row field whitelist (e.g. ['id','title','doc_path','_score']). Wins over compact. `id` is always returned."
+    },
+    "snippet_bytes": {
+     "type": "integer",
+     "minimum": 0,
+     "default": 0,
+     "description": "v1.121+ — inline the first N bytes of each section's body as `snippet` so a confident top hit needs no get_section round-trip. UTF-8 safe (never splits a codepoint); `snippet_truncated: true` marks a cut section. 0 = off."
+    }
+   },
+   "required": [
+    "query"
+   ]
+  }
+ },
+ {
+  "name": "count_sections",
+  "description": "v1.59+ — count sections matching the same filter set as search_sections (path_glob, role/roles/exclude_roles, tags/exclude_tags, min/max_level, min/max_byte_length) but skip ranking. Use for UI counters or 'does anything match?' probes. Returns the count only, never the matching sections.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "doc_path": {
+     "type": "string"
+    },
+    "path_glob": {
+     "type": "string"
+    },
+    "role": {
+     "type": "string"
+    },
+    "roles": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "exclude_roles": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "exclude_tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "min_level": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "max_level": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "min_byte_length": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "max_byte_length": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "search_titles",
+  "description": "v1.57+ — fast title-only token-overlap match. Different from search_sections (full hybrid retrieval). Use for navigation: 'find the section whose heading text matches X'. Handle-only output ({id, title, level, doc_path, _score}); no content reads, no embeddings.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "query": {
+     "type": "string",
+     "description": "Heading text to match against"
+    },
+    "max_results": {
+     "type": "integer",
+     "default": 10,
+     "minimum": 1
+    }
+   },
+   "required": [
+    "repo",
+    "query"
+   ]
+  }
+ },
+ {
+  "name": "get_section",
+  "description": "Retrieve the full content of a specific section using byte-range reads. Use after identifying section IDs via search_sections or get_toc. Returns this section's own bytes; nested child sections are not included.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Section ID from get_toc, search_sections, or get_document_outline"
+    },
+    "verify": {
+     "type": "boolean",
+     "description": "Verify content hash matches stored hash (detects source drift)",
+     "default": false
+    },
+    "strip_boilerplate": {
+     "type": "boolean",
+     "description": "v1.24+ — when true, suppress repeated cross-section fragments (footers, nav, license headers) before returning content.",
+     "default": false
+    },
+    "compress_code": {
+     "type": "boolean",
+     "description": "v1.35+ — when true, drop blank lines and full-line comments inside fenced code blocks before returning. _meta.code_compressed_bytes reports bytes saved.",
+     "default": false
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_sections",
+  "description": "Batch content retrieval for multiple sections in one call. Content only for the ids you pass; unknown ids come back as per-id errors, not a failed call.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of section IDs to retrieve"
+    },
+    "verify": {
+     "type": "boolean",
+     "description": "Verify content hashes",
+     "default": false
+    },
+    "strip_boilerplate": {
+     "type": "boolean",
+     "description": "v1.24+ — strip repeated cross-section fragments per section before returning.",
+     "default": false
+    },
+    "compress_code": {
+     "type": "boolean",
+     "description": "v1.35+ — drop blank lines and full-line comments inside fenced code blocks before returning. _meta.code_compressed_bytes reports total bytes saved.",
+     "default": false
+    }
+   },
+   "required": [
+    "repo",
+    "section_ids"
+   ]
+  }
+ },
+ {
+  "name": "get_section_context",
+  "description": "Retrieve a section with its full hierarchy context: ancestor headings (root → parent) for orientation, the target section's content, and immediate child summaries. Prevents 'section too thin' without falling back to whole-file reads.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID from get_toc, search_sections, etc."
+    },
+    "max_tokens": {
+     "type": "integer",
+     "description": "Approximate token budget for the target section's content (bytes/4 estimate). Ancestors and child summaries are always included.",
+     "default": 2000
+    },
+    "include_children": {
+     "type": "boolean",
+     "description": "Include immediate child section summaries (no content reads). Default true.",
+     "default": true
+    },
+    "include_related": {
+     "type": "boolean",
+     "description": "v1.20+ adaptive context: append structural + semantic neighbor summaries.",
+     "default": false
+    },
+    "strip_boilerplate": {
+     "type": "boolean",
+     "description": "v1.24+ — strip repeated cross-section fragments before returning the target section content.",
+     "default": false
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "describe_section",
+  "description": "v1.54+ — consolidated handle bundle: full metadata + ancestor breadcrumb + prev/next/parent/first_child neighbors for one section in a single call. Saves three round-trips vs calling get_section_summary + get_section_path + section_neighbors separately. No content reads.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID"
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "section_neighbors",
+  "description": "v1.37+ — return prev/next siblings (in document order), parent, and first child for a section. Handles only (id, title, level, doc_path) — no content. Use for fast sequential navigation without re-querying search_sections.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID from get_toc, search_sections, etc."
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_recent_changes",
+  "description": "v1.47+ — list sections that have drifted from index state (edited_uncommitted or stale_index buckets via the v1.16 FreshnessProbe). By default compares the index against the cached raw-content mirror, NOT live workspace files; pass live_source=true to read the live files under the index's source_root. _meta.drift_layer reports which layer ran. Pre-flight check before deciding whether to re-index. Handle-only — no content reads.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "include_stale": {
+     "type": "boolean",
+     "default": true,
+     "description": "Include sections in stale_index bucket (byte range no longer hashes the same)."
+    },
+    "include_edited": {
+     "type": "boolean",
+     "default": true,
+     "description": "Include sections in edited_uncommitted bucket (file changed but this section's range still matches)."
+    },
+    "live_source": {
+     "type": "boolean",
+     "default": false,
+     "description": "Read the live workspace files under the index's source_root instead of the cached mirror. Falls back to the cached mirror (drift_layer='cached_mirror', live_source_available=false) when no usable source_root is recorded."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_all_roles",
+  "description": "v1.50+ — list every distinct role classification across the repo with per-role section counts and id samples. Companion to v1.46 get_all_tags. Sections without metadata.role are bucketed under 'unknown'. Use to discover what roles exist before constructing a `role=` or `profile=` query.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "sample_size": {
+     "type": "integer",
+     "minimum": 0,
+     "default": 3,
+     "description": "How many section_ids to surface per role. 0 omits samples."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_all_tags",
+  "description": "v1.46+ — list every unique #hashtag across the repo with per-tag section counts. Companion to the v1.45 `tags` filter on search_sections — use this to discover what tag namespaces exist before constructing a tag-filtered query. Lowercase-normalized. Aggregates the tags the index stored on each section, so a tag added since the last index is missing.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "min_section_count": {
+     "type": "integer",
+     "minimum": 1,
+     "default": 1,
+     "description": "Drop tags appearing in fewer than this many sections (filter out typos)."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_section_descendants",
+  "description": "v1.43+ — return every descendant of a section (BFS over parent_id) in document order with depth offset. Pairs with get_section_path (ancestors). Optional max_depth caps the walk; max_depth=1 returns immediate children only. Handles only — no content.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section. Its descendants are returned; target itself is not included."
+    },
+    "max_depth": {
+     "type": "integer",
+     "description": "Optional cap on traversal depth. None = full subtree. 1 = immediate children only.",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_section_excerpts",
+  "description": "v1.49+ — batch counterpart to get_section_excerpt. Resolves N previews in one call against a single index load. Per-id errors reported in-line. _meta.tokens_saved aggregates byte savings across the batch. Previews are truncated by design; read full content with get_sections.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of section IDs. Order preserved; each entry carries `requested_id` for correlation."
+    },
+    "max_bytes": {
+     "type": "integer",
+     "default": 500,
+     "description": "Per-section soft cap in UTF-8 bytes."
+    }
+   },
+   "required": [
+    "repo",
+    "section_ids"
+   ]
+  }
+ },
+ {
+  "name": "get_section_excerpt",
+  "description": "v1.41+ — return a short content preview (default 500 bytes) for one section. Trimmed to last newline before the cap so it ends on a paragraph boundary. Use to peek at content before paying for a full get_section read. _meta.tokens_saved reports the byte-savings vs full content.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID"
+    },
+    "max_bytes": {
+     "type": "integer",
+     "description": "Soft cap on excerpt size in UTF-8 bytes. Default 500.",
+     "default": 500
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_section_path",
+  "description": "v1.40+ — return the breadcrumb chain (root → ... → target) for a section_id. Walks parent_id upward; cycle-protected. Handles only ({id, title, level, doc_path}) per step plus depth.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID from get_toc, search_sections, etc."
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_orphan_sections",
+  "description": "v1.39+ — list sections whose doc_path receives zero inbound references from any other doc. Companion to get_broken_links and get_stale_pages: documentation that exists but nobody links to. Inbound links are counted across indexed docs only, so a link from code or an external site does not rescue a section.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "include_same_doc": {
+     "type": "boolean",
+     "description": "If true, count intra-document anchor links as inbound (e.g. a TOC at the top of a page). Default false — only cross-document references count.",
+     "default": false
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_section_summary",
+  "description": "v1.38+ — return full indexed metadata (title, summary, role, tags, metadata, parent_id, children, content_hash, byte_start/end, byte_length) for one section without fetching content. Use to inspect role/tags before deciding whether to read the content via get_section.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Target section ID from get_toc, search_sections, etc."
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_section_summaries",
+  "description": "v1.48+ — batch version of get_section_summary. Resolve metadata for many ids in one call against a single index load. Per-id errors are reported in-line on the corresponding result entry rather than aborting the batch.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier"
+    },
+    "section_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of section IDs to look up. Order preserved in response; each entry carries `requested_id` for correlation."
+    }
+   },
+   "required": [
+    "repo",
+    "section_ids"
+   ]
+  }
+ },
+ {
+  "name": "delete_index",
+  "description": "Remove a repo index and its cached raw files. Deletes the index and its cached files, never your source documents. There is no undo; re-index to restore.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_broken_links",
+  "description": "Scan indexed doc files for internal cross-references that no longer resolve. Checks markdown links, RST :ref:/:doc: directives, and anchor-only links (#heading). External links (http/https) are skipped. Output: list of {source_file, source_section, target, reason} where reason is 'file_not_found', 'section_not_found', or 'anchor_not_found'.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_doc_coverage",
+  "description": "Check which jcodemunch symbols have matching documentation in this doc index. Given a list of jcodemunch symbol IDs, reports which symbols are mentioned in section titles (documented) vs absent (undocumented). Bridges jcodemunch <-> jdocmunch. symbol_ids capped at 200. Output: {documented, undocumented, coverage_pct}.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Doc repo identifier (owner/repo or just repo name)"
+    },
+    "symbol_ids": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "List of jcodemunch symbol IDs to check coverage for"
+    }
+   },
+   "required": [
+    "repo",
+    "symbol_ids"
+   ]
+  }
+ },
+ {
+  "name": "get_backlinks",
+  "description": "Find all sections that link TO a given document (inverse reference graph). Useful for the LLM Wiki pattern: when a source changes, find which wiki pages reference it. Output: list of {source_file, source_section, source_section_id, link}. Counts links found inside indexed docs only.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "doc_path": {
+     "type": "string",
+     "description": "Target document path to find backlinks for (e.g., 'raw/article.md' or 'wiki/concepts/auth.md')"
+    }
+   },
+   "required": [
+    "repo",
+    "doc_path"
+   ]
+  }
+ },
+ {
+  "name": "get_stale_pages",
+  "description": "Find wiki pages whose declared sources have been modified on disk. Convention: wiki pages include YAML frontmatter with a 'sources' list of relative paths to raw source files. This tool checks whether those source files have changed since the page was last indexed. Output: list of {doc_path, title, stale_sources} where each stale source has a reason: 'modified', 'missing', or 'untracked'.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    },
+    "sources_dir": {
+     "type": "string",
+     "description": "Base directory for resolving relative source paths. If omitted, uses the index's source_root."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_wiki_stats",
+  "description": "Wiki health dashboard. Returns: orphan pages (zero inbound internal links), most-linked pages (top 10), tag distribution, total internal link count, and sections-per-doc min/max/avg. Use for periodic wiki lint checks.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Repository identifier (owner/repo or just repo name)"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "analyze_perf",
+  "description": "Per-tool latency analysis. window='session' reads the in-memory ring (last 512 calls per tool — always available); window='1h'|'24h'|'7d'|'all' reads the persistent SQLite sink at ~/.doc-index/telemetry.db (opt-in via JDOCMUNCH_PERF_TELEMETRY=1). Returns {window, telemetry_enabled, source, per_tool:{tool:{count,p50_ms,p95_ms,max_ms,errors,error_rate}}}.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "window": {
+     "type": "string",
+     "enum": [
+      "session",
+      "1h",
+      "24h",
+      "7d",
+      "all"
+     ],
+     "default": "session",
+     "description": "Time window. 'session' uses the in-memory ring; longer windows require JDOCMUNCH_PERF_TELEMETRY=1."
+    }
+   }
+  }
+ },
+ {
+  "name": "get_session_stats",
+  "description": "Session self-monitor: returns {latency_per_tool, total_tokens_saved}. Lightweight; reads the in-memory latency ring + persistent savings counter. For windowed analysis use analyze_perf. The latency ring lives in memory, so a server restart clears it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "get_watch_status",
+  "description": "Doc-watcher coverage + login-service state. Reports whether the `jdocmunch-watch` background service is active and, per locally-indexed doc repo, whether its source_root still exists on disk (watchable). Returns {service, watchable_repo_count, local_repo_count, repos[], hint}. Run `jdocmunch-mcp watch` (foreground) or `watch-install` (login service) to keep indexes fresh on any on-disk doc change. Covers locally-indexed repos only; a GitHub-indexed repo has no source_root to watch.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "finalize_handoff",
+  "description": "Finalize one canonical Markdown handoff for a completed documentation audit/analysis (jdocmunch.handoff/v1; suite parity with jCodeMunch). The server assembles YOUR sections deterministically, validates every evidence_refs entry against what this session actually retrieved (section ids or doc paths served by search_sections / search_titles / get_section / get_sections — unknown refs fail closed), persists the result session-scoped, and returns a compact receipt {handoff_id, resource_uri, sha256, length, canonical:true}. Read the immutable body via the munch://handoff/<id> resource; repeated reads are byte-identical. Appendices are included exactly once; no character limit; never writes to the documentation corpus.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Doc repo identifier the handoff is about."
+    },
+    "task": {
+     "type": "string",
+     "description": "The task/question this handoff answers (becomes the title)."
+    },
+    "sections": {
+     "type": "array",
+     "description": "Ordered report sections, each {heading, content} (markdown). The caller authors these; the server only assembles. Optional per-section claims[] bind evidence to an individual claim instead of one global list (handoff/v2).",
+     "items": {
+      "type": "object",
+      "properties": {
+       "heading": {
+        "type": "string"
+       },
+       "content": {
+        "type": "string"
+       },
+       "claims": {
+        "type": "array",
+        "description": "Optional caller-authored claims, each {id, statement, evidence_refs, classification?}. Ids must be unique across the handoff; each claim's refs are attested separately and rendered beside the claim.",
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string"
+          },
+          "statement": {
+           "type": "string"
+          },
+          "evidence_refs": {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          },
+          "classification": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "id",
+          "statement",
+          "evidence_refs"
+         ]
+        }
+       }
+      },
+      "required": [
+       "heading"
+      ]
+     }
+    },
+    "evidence_refs": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Section ids or doc paths retrieved this session; validated against the session retrieval record."
+    },
+    "profile": {
+     "type": "string",
+     "default": "general",
+     "description": "Handoff profile label (e.g. doc_audit)."
+    },
+    "appendices": {
+     "type": "array",
+     "description": "Optional named appendices, each {name, content, content_type?}; names must be unique.",
+     "items": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "content": {
+        "type": "string"
+       },
+       "content_type": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "content"
+      ]
+     }
+    }
+   },
+   "required": [
+    "repo",
+    "task",
+    "sections",
+    "evidence_refs"
+   ]
+  }
+ },
+ {
+  "name": "find_code_examples",
+  "description": "Search fenced code blocks across the indexed docs by BM25 over the block content. Returns one row per block with {block_id, section_id, doc_path, title, lang, byte_start, byte_end, snippet, _score}. Optional lang filter (e.g. 'python', 'bash') and doc_path/path_glob scope filters (applied before scoring, same contract as search_sections). Use after index_local; requires INDEX_VERSION>=3.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "jdocmunch repo identifier"
+    },
+    "query": {
+     "type": "string",
+     "description": "Free-form code-content query"
+    },
+    "lang": {
+     "type": "string",
+     "description": "Optional case-insensitive language filter"
+    },
+    "doc_path": {
+     "type": "string",
+     "description": "Optional exact-document scope: only blocks in the section with this doc_path"
+    },
+    "path_glob": {
+     "type": "string",
+     "description": "Optional fnmatch glob (e.g. 'docs/api/**') scoping blocks to matching document paths"
+    },
+    "max_results": {
+     "type": "integer",
+     "default": 10
+    }
+   },
+   "required": [
+    "repo",
+    "query"
+   ]
+  }
+ },
+ {
+  "name": "link_code_to_symbols",
+  "description": "Best-effort bridge from doc code blocks to jcodemunch code symbols. For each block, tokenizes identifiers and looks them up via jcodemunch's search_symbols. Returns {by_block, by_symbol, _meta} where _meta.bridge_available reports whether jcodemunch-mcp is importable.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "jdocmunch repo identifier"
+    },
+    "code_repo": {
+     "type": "string",
+     "description": "jcodemunch repo identifier"
+    },
+    "max_examples": {
+     "type": "integer",
+     "default": 200
+    },
+    "max_symbols_per_block": {
+     "type": "integer",
+     "default": 5
+    }
+   },
+   "required": [
+    "repo",
+    "code_repo"
+   ]
+  }
+ },
+ {
+  "name": "resolve_related_code_repos",
+  "description": "Map a jdocmunch docs repo to candidate jCodeMunch code repo handles by source_root. The two suites use independent repo-identity models, so a docs handle (e.g. 'local/foo-docs') is NOT a valid jCodeMunch code_repo. Given a docs repo, returns candidates[{repo, confidence, reason, source_root}] (exact source_root match = high; containment = medium/low), an 'ambiguous' flag, and _meta.bridge_available. Use it to pick the right code_repo for the link_code_to_symbols / get_undocumented_symbols bridge tools.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "jdocmunch docs repo identifier"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "doc_resolve_repo",
+  "description": "Resolve a filesystem path (index root, subfolder, or file) to its indexed documentation repo handle via stored source_root metadata — O(1)-sized response, use instead of doc_list_repos when the path is known. Exact root match wins, then the most specific containing root; equally-specific duplicates return ambiguous:true with a bounded candidates list (max 5) plus total_matches. GitHub-indexed corpora (no source_root) never match. Read-only: never creates, refreshes, or deletes an index. Prefer absolute paths; relative paths resolve against the server CWD (echoed as _meta.resolved_path).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "description": "Filesystem path — index root, subfolder, or file (absolute preferred)"
+    }
+   },
+   "required": [
+    "path"
+   ]
+  }
+ },
+ {
+  "name": "find_endpoint",
+  "description": "Find OpenAPI operations by path glob, method, and/or tag. All filters AND'd. Returns one row per match with {section_id, doc_path, method, path, operationId, summary, tags, deprecated}. Requires the spec to have been indexed under v1.18+ so structured metadata is present.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "path": {
+     "type": "string",
+     "description": "fnmatch glob (e.g. '/pets/*'); case-sensitive"
+    },
+    "method": {
+     "type": "string",
+     "description": "HTTP method; case-insensitive"
+    },
+    "tag": {
+     "type": "string",
+     "description": "Exact tag match"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "list_endpoints_by_tag",
+  "description": "Return every operation whose tags list contains the given tag (exact). Convenience wrapper around find_endpoint with only a tag filter.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "tag": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo",
+    "tag"
+   ]
+  }
+ },
+ {
+  "name": "find_operations_using_schema",
+  "description": "Return every operation whose request body or any response references the given schema. Each row gets a referenced_in list of all schema names that operation pulls in (so you can see the broader dependency cluster). Resolves references inside the indexed OpenAPI document only.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "schema_name": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo",
+    "schema_name"
+   ]
+  }
+ },
+ {
+  "name": "get_schema_graph",
+  "description": "BFS walk of the schema reference graph from a root schema name. Returns {root, nodes:{name:{type, properties, required, refs}}, edges:[[from, to]], unresolved}. max_depth bounds the walk (default 5).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "schema_name": {
+     "type": "string"
+    },
+    "max_depth": {
+     "type": "integer",
+     "default": 5
+    }
+   },
+   "required": [
+    "repo",
+    "schema_name"
+   ]
+  }
+ },
+ {
+  "name": "lookup_term",
+  "description": "Glossary lookup. Returns every entry whose term equals the query (case-insensitive, exact). Glossary entries are extracted at index time from **Term** — definition Markdown patterns and RST .. glossary:: blocks.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "term": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo",
+    "term"
+   ]
+  }
+ },
+ {
+  "name": "list_terms",
+  "description": "List glossary terms in alphabetical order, optionally filtered by prefix. Capped at max_results (default 100).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "prefix": {
+     "type": "string"
+    },
+    "max_results": {
+     "type": "integer",
+     "default": 100
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_related_sections",
+  "description": "v2.0+ related-section graph. Returns structural neighbors (siblings, children, parent, optional cousins) and semantic neighbors (top-N cosine over stored embeddings, score >= min_score). mode: structural | semantic | both.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "section_id": {
+     "type": "string"
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "structural",
+      "semantic",
+      "both"
+     ],
+     "default": "both"
+    },
+    "top_n": {
+     "type": "integer",
+     "default": 5
+    },
+    "min_score": {
+     "type": "number",
+     "default": 0.6
+    },
+    "max_per_kind": {
+     "type": "integer",
+     "default": 10
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_section_diff",
+  "description": "Unified diff between the indexed snapshot and the current on-disk byte range for a section. Returns hashes + diff text; identical=true when the section is in sync with disk.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "section_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_doc_health",
+  "description": "One-shot index health diagnostics. Returns section_count, doc_count, role_distribution, freshness counts, broken_link_count, drift status, BM25 corpus sanity, and embedding coverage. Diagnoses the index, not the writing; a healthy report says nothing about whether the docs are correct.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "doc_health_radar",
+  "description": "Six-axis health radar for a doc repo: freshness, link_integrity, orphan_health, embedding_coverage, role_coverage, drift_health (omitted when no canary). Each axis is 0-100, plus composite + A-F grade. Pairs with diff_doc_health_radar for snapshot deltas. Mirrors jcm's and jData's health-radar shape — third leg of the suite-wide pattern. Grades the index, not the prose; none of the six axes read the writing itself.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_doc_pr_risk_profile",
+  "description": "Composite doc-PR risk profile. Fuses volume + blast_radius + backlink_burden + tutorial_disruption + role_weight signals over a caller-supplied list of changed sections into a 0-1 risk_score with risk_level (low/medium/high/critical), top-5 blockers, and a one-line recommended_action. Caller computes the change list from a git diff or pairs with get_recent_changes. Mirrors jcm's get_pr_risk_profile.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "changed_sections": {
+     "type": "array",
+     "description": "List of changed sections. Each entry can be a bare section_id (str, kind defaults to 'modified') or {section_id, kind} where kind in {added, modified, deleted}.",
+     "items": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "object",
+        "properties": {
+         "section_id": {
+          "type": "string"
+         },
+         "kind": {
+          "type": "string",
+          "enum": [
+           "added",
+           "modified",
+           "deleted"
+          ]
+         }
+        },
+        "required": [
+         "section_id"
+        ]
+       }
+      ]
+     }
+    }
+   },
+   "required": [
+    "repo",
+    "changed_sections"
+   ]
+  }
+ },
+ {
+  "name": "diff_doc_health_radar",
+  "description": "Diff two doc_health_radar payloads. Pure function — pass the `radar` sub-field from two doc_health_radar responses (e.g. yesterday vs today). Returns per-axis deltas, composite delta, grade change, regression and improvement lists (threshold: 3 points), one-line verdict.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "baseline": {
+     "type": "object",
+     "description": "Baseline radar payload."
+    },
+    "current": {
+     "type": "object",
+     "description": "Current radar payload."
+    }
+   },
+   "required": [
+    "baseline",
+    "current"
+   ]
+  }
+ },
+ {
+  "name": "get_tutorial_path",
+  "description": "Reconstruct an ordered tutorial chain starting from section_id. Detects frontmatter next:/prev: keys, inline 'Next:' / 'Previous:' markdown links, or ordered numeric filename prefixes (01-intro.md). Returns chain[] of {section_id, doc_path, title} plus the strategy used. Follows only the three conventions above, so a tutorial wired up any other way returns a short chain.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "section_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "get_undocumented_symbols",
+  "description": "Best-effort inverse coverage: enumerate symbols in the jcodemunch code_repo and return those whose name (or qualified name) does not appear anywhere in this doc index. _meta.bridge_available=false when jcodemunch-mcp is not importable in this environment.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "code_repo": {
+     "type": "string"
+    },
+    "max_symbols": {
+     "type": "integer",
+     "default": 1000
+    }
+   },
+   "required": [
+    "repo",
+    "code_repo"
+   ]
+  }
+ },
+ {
+  "name": "list_repo_groups",
+  "description": "List defined repo groups (v1.26+). Each group is a named alias for a set of indexed repos that search_sections can fan out across via the repo_group kwarg. Lists the group definitions only; it does not check that every member repo is still indexed.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ },
+ {
+  "name": "define_repo_group",
+  "description": "Create, replace, or delete a repo group (v1.26+). Empty repos list deletes the group. Persisted to ~/.doc-index/_groups.jsonc (JSONC — hand-edits welcome).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "repos": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "name",
+    "repos"
+   ]
+  }
+ },
+ {
+  "name": "tune_weights",
+  "description": "Online weight tuning. Reads ranking_events from ~/.doc-index/telemetry.db (requires JDOCMUNCH_PERF_TELEMETRY=1) and proposes a per-repo semantic_weight step. dry_run=true skips the disk write. min_events gates against early overfitting. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Learning compares confidence WITH vs WITHOUT the semantic channel, so a workload that only ever runs one mode produces no signal at all — use set_weight there instead of waiting.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string",
+     "description": "Optional — single repo to tune. Omit to scan all repos with events. Required with set_weight."
+    },
+    "min_events": {
+     "type": "integer",
+     "default": 50
+    },
+    "dry_run": {
+     "type": "boolean",
+     "default": false
+    },
+    "max_age_days": {
+     "type": "integer",
+     "default": 90,
+     "description": "Only learn from ledger events newer than this many days. Keeps stale events from anchoring weights to an outdated query distribution. 0 = lifetime ledger."
+    },
+    "set_weight": {
+     "type": "number",
+     "description": "Persist this semantic_weight for repo directly, skipping the ledger. For when you have measured the right value for a corpus rather than waiting for the tuner to walk there. Does not require telemetry. Clamped to the allowed bounds, and the response reports whether clamping occurred."
+    }
+   }
+  }
+ },
+ {
+  "name": "verify_index",
+  "description": "Byte-offset integrity check. Walks every section, byte-range-reads the bytes, recomputes SHA-256, and compares to the stored content_hash. source='cache' (default) checks the INDEX MIRROR: a clean result proves the index is internally consistent, NOT that the source document is still current. source='live' checks the real workspace files under the index source_root, so an edited source drifts and a deleted one goes missing. _meta.verify_layer always names which one ran. Reports drift / missing / error counts plus the drifting section ids. Sample N sections via the sample arg for cheap CI checks.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "sample": {
+     "type": "integer",
+     "description": "Only verify the first N sections."
+    },
+    "source": {
+     "type": "string",
+     "enum": [
+      "cache",
+      "live"
+     ],
+     "description": "Which bytes to verify. 'cache' (default) = the indexed raw mirror; clean means the index is self-consistent and says nothing about whether the source changed. 'live' = the workspace files under source_root."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "check_embedding_drift",
+  "description": "Embedding-drift canary. Without args, re-embeds the saved CANARY_STRINGS and reports per-canary cosine drift; alarm fires when max_drift > threshold (default 0.05 ≈ cosine<0.95). Pass capture=true to seed the snapshot first (idempotent unless force=true). Catches silent provider model upgrades that would otherwise corrupt index recall without changing dim.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "capture": {
+     "type": "boolean",
+     "default": false,
+     "description": "Embed CANARY_STRINGS and persist the snapshot."
+    },
+    "force": {
+     "type": "boolean",
+     "default": false,
+     "description": "With capture=true, overwrite an existing snapshot."
+    },
+    "threshold": {
+     "type": "number",
+     "default": 0.05,
+     "description": "Max allowed drift (1 - cosine). Default 0.05."
+    }
+   }
+  }
+ },
+ {
+  "name": "find_similar_sections",
+  "description": "Multi-signal section dedup detection. Fuses embedding cosine (when available) with title + body lexical Jaccard, clusters via union-find, ranks each cluster's canonical by backlink_count + size. Verdict tiers: near_duplicate, overlapping_topic, parallel_tutorial. Read-only.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "min_score": {
+     "type": "number",
+     "default": 0.7,
+     "description": "Pairwise score floor for clustering. Default 0.7."
+    },
+    "near_duplicate_threshold": {
+     "type": "number",
+     "default": 0.92,
+     "description": "Score at/above which a cluster is flagged near_duplicate."
+    },
+    "max_clusters": {
+     "type": "integer",
+     "default": 50
+    },
+    "exclude_same_doc": {
+     "type": "boolean",
+     "default": false,
+     "description": "Skip pairs in the same doc. Useful for long pages with repeated structure."
+    },
+    "max_sections": {
+     "type": "integer",
+     "default": 1000,
+     "description": "Hard cap on sections examined. Default 1000."
+    }
+   },
+   "required": [
+    "repo"
+   ]
+  }
+ },
+ {
+  "name": "get_section_blast_radius",
+  "description": "Transitive impact of rewriting / restructuring a section. Walks the inbound reference graph to max_depth (default 3), classifies each hit as anchor / doc / tutorial, and returns direct_impact, transitive_impact, a summary, and a normalised blast_score in [0, 1]. Companion to get_backlinks (which is depth 1 only). Read-only.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Stable section ID, format owner/repo::doc_path::slug#level"
+    },
+    "max_depth": {
+     "type": "integer",
+     "default": 3,
+     "description": "BFS depth over the inbound reference graph. Default 3."
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "check_section_delete_safe",
+  "description": "Composite preflight: is this section safe to delete? Fuses tutorial-path membership, anchor-specific backlinks, transitive doc-level backlinks, and recent-edit recency into a single verdict (safe_to_delete, tutorial_path_blocking, anchor_referenced, backlinks_blocking, recently_edited_blocking) plus up to 5 ranked blockers and a one-line recommended_action. Read-only — never mutates the index.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "section_id": {
+     "type": "string",
+     "description": "Stable section ID, format owner/repo::doc_path::slug#level"
+    },
+    "transitive_depth": {
+     "type": "integer",
+     "default": 3,
+     "description": "Backlink BFS depth. Default 3."
+    },
+    "recent_edit_days": {
+     "type": "integer",
+     "default": 14,
+     "description": "Days within which a recent edit becomes a soft blocker. Default 14."
+    }
+   },
+   "required": [
+    "repo",
+    "section_id"
+   ]
+  }
+ },
+ {
+  "name": "jdocmunch_guide",
+  "description": "Return the version-current CLAUDE.md / AGENT.md policy snippet for jdocmunch-mcp. Lets an agent keep a one-line CLAUDE.md (e.g. \"Call jdocmunch_guide and strictly follow its instructions.\") instead of pasting a static snippet that drifts from the installed version. Idempotent, no repo context required. Sibling of jcodemunch_guide.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {}
+  }
+ }
+]

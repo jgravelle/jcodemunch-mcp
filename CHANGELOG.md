@@ -32,6 +32,70 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+## [1.108.282] - 2026-08-16 - Half the tool descriptions never said what the tool would not do
+
+Scored every description this server emits against the rubric in
+[arXiv:2602.14878](https://arxiv.org/abs/2602.14878) (Hasan, Li, Rajbahadur, Adams
+& Hassan, Queen's University), which examined 856 tools across 103 MCP servers and
+found 97.1% carrying at least one description smell. Their rubric scores six
+components; below 3 out of 5 on any one is a named smell.
+
+We scored 73.2% on the same measure, and the damage was concentrated in one
+component: **Unstated Limitation on 99 of the suite's 194 tools**. Half the tools
+never said what they do not return, when they refuse, or when an empty result means
+"nothing matched" rather than "nothing is indexed". That gap is the expensive kind,
+because an agent reading `search_symbols` with no mention of the index has no reason
+to suspect a stale index when the answer comes back empty.
+
+Purpose was our best component by a wide margin: 1.5% smelly against the paper's
+56%. The house style was already writing good opening sentences and skipping the
+caveat.
+
+41 of this server's 91 descriptions changed: 40 gained a limitation clause and
+`test_summarizer` was rewritten outright from a single sentence. Each clause is
+derived from the tool's own guard clauses, schema defaults, or module docstring,
+not written to satisfy the rubric. `search_symbols`
+now says it searches the index and not the working tree. `resolve_repo` says a
+relative path resolves against the server's working directory, which is the bug
+that bites over a detached SSE transport. `plan_refactoring` says it never writes a
+file. `check_rename_safe` says a collision in a file that uses the name without
+importing it is not detected.
+
+Result on the same scorer: Unstated Limitation 51.0% -> 21.6%, Unclear Purpose and
+Underspecified both to zero, and smell-free tools 45.9% -> 73.2% in the frame that
+credits schema parameter descriptions.
+
+### The core tier had 115 tokens of headroom, not 290
+
+The first pass added 290 tokens to `core_compact` and blew the §10 hard ceiling of
+4,000. The budget test says in as many words not to regenerate the baseline to paper
+over it, so the baseline is untouched and the core-tier clauses were cut down to fit
+instead: `core_compact` is 3,990. Core-tier tools carry terse clauses ("Searches the
+index, not the working tree."); standard and full tiers carry the fuller wording.
+`counter` is unchanged at 939 tokens, so a first-ever install pays nothing for this.
+
+### A ratchet, and what it deliberately does not gate
+
+`tests/test_description_smells.py` fails on any tool that regresses to an Unclear
+Purpose or Underspecified description, the two components now at zero. It does not
+gate Unstated Limitation: 42 tools still score below threshold and a good share of
+those are cue-matching misses on descriptions that do state a boundary, so gating it
+would freeze the scanner's own false positives into a test.
+
+It also does not gate Opaque Parameters, and that one is worth stating plainly. The
+paper's scanner is fed name + description text only, and its bottom tier for
+parameters reads "not explained **or only in schema**". 375 of this server's 377
+parameters carry a schema description, which is where JSON Schema says they belong
+and which the client does transmit. Scored their way we fail that component; scored
+against what the model actually receives, 1.5% of tools have it. The audit reports
+both frames rather than picking the flattering one.
+
+The scorer, the authors' unmodified rubric prompt, and the before/after numbers are
+in `benchmarks/description_smells/`.
+
+The same pass covers the siblings. jdocmunch's 20 descriptions shipped in 1.134.0
+and 1.134.1 (recorded in that entry, and see its note about why the tag did not
+attest the artifact); jdatamunch's 12 ship alongside this release.
 
 ## [1.108.281] - 2026-08-15 - A declared pattern with no implementation reads as a language without constants
 

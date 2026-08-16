@@ -1232,7 +1232,7 @@ def _build_tools_list() -> list[Tool]:
     all_tools = [
         Tool(
             name="index_repo",
-            description="Index a GitHub repository's source code. Fetches files, parses ASTs, extracts symbols, and saves to local storage. Set JCODEMUNCH_USE_AI_SUMMARIES=false to disable AI summaries globally.",
+            description="Index a GitHub repository's source code. Fetches files, parses ASTs, extracts symbols, and saves to local storage. Set JCODEMUNCH_USE_AI_SUMMARIES=false to disable AI summaries globally. github.com URLs only.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1266,7 +1266,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="index_folder",
-            description="Index a local folder of source code. Response surfaces `discovery_skip_counts` and `no_symbols_files` for diagnosing missing files.",
+            description="Index a local folder of source code. Response surfaces `discovery_skip_counts` and `no_symbols_files` for diagnosing missing files. Skips .gitignore and extra_ignore_patterns matches.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1323,6 +1323,8 @@ def _build_tools_list() -> list[Tool]:
                 "at index time, or the summarizer provider wasn't configured yet. "
                 "With force=true (recommended), clears all existing summaries and re-runs "
                 "the full 3-tier pipeline (docstring → AI → signature fallback)."
+            
+                " Requires a configured summarizer provider; without one the pipeline falls back to docstrings and signatures."
             ),
             inputSchema={
                 "type": "object",
@@ -1584,6 +1586,8 @@ def _build_tools_list() -> list[Tool]:
                 "call ToolSearch to load their schemas first."
                 if config_module.get("discovery_hint", True)
                 else "List all indexed repositories."
+            
+                " Lists only indexes under the active storage_path."
             ),
             inputSchema={
                 "type": "object",
@@ -1602,7 +1606,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="resolve_repo",
-            description="Resolve a filesystem path to its indexed repo identifier. O(1) lookup — faster than list_repos for finding a single repo. Accepts repo root, worktree, subdirectory, or file path.",
+            description="Resolve a filesystem path to its indexed repo identifier. O(1) lookup — faster than list_repos for finding a single repo. Accepts repo root, worktree, subdirectory, or file path. Pass an absolute path; a relative one resolves against the server's working directory.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1645,7 +1649,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_file_outline",
-            description="Get all symbols (functions, classes, methods) in a file with full signatures (including parameter names) and summaries. Use signatures to review naming at parameter granularity without reading the full file. Pass repo and file_path (e.g. 'src/main.py').",
+            description="Get all symbols (functions, classes, methods) in a file with full signatures (including parameter names) and summaries. Use signatures to review naming at parameter granularity without reading the full file. Pass repo and file_path (e.g. 'src/main.py'). Indexed symbols only, so an unparsed file returns empty.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1736,7 +1740,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_file_content",
-            description="Get cached source for a file, optionally sliced to a line range.",
+            description="Get cached source for a file, optionally sliced to a line range. Reads the indexed copy, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1762,7 +1766,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="search_symbols",
-            description="Search for symbols matching a query across the entire indexed repository. Returns matches with signatures and summaries.",
+            description="Search for symbols matching a query across the entire indexed repository. Returns matches with signatures and summaries. Searches the index, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1882,7 +1886,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="search_text",
-            description="Full-text search across indexed file contents. Useful when symbol search misses (e.g., string literals, comments, config values). Supports regex (is_regex=true) and context lines around matches (context_lines=N, like grep -C).",
+            description="Full-text search across indexed file contents. Useful when symbol search misses (e.g., string literals, comments, config values). Supports regex (is_regex=true) and context lines around matches (context_lines=N, like grep -C). Searches the indexed copy, not the working tree.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1924,7 +1928,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_repo_outline",
-            description="Get a high-level overview of an indexed repository: directories, file counts, language breakdown, symbol counts. Lighter than get_file_tree.",
+            description="Get a high-level overview of an indexed repository: directories, file counts, language breakdown, symbol counts. Lighter than get_file_tree. Directories only, not files.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1938,7 +1942,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="find_importers",
-            description="Find all files that import a given file. Answers 'what uses this file?'. has_importers=false on a result means that importer is itself unreachable (dead code chain). Supports dbt {{ ref() }} edges. Use file_paths for batch queries. Set cross_repo=true to also find importers in other indexed repos.",
+            description="Find all files that import a given file. Answers 'what uses this file?'. has_importers=false on a result means that importer is itself unreachable (dead code chain). Supports dbt {{ ref() }} edges. Use file_paths for batch queries. Set cross_repo=true to also find importers in other indexed repos. Import edges only; textual uses are not reported.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1972,7 +1976,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="check_references",
-            description="Check if an identifier is referenced anywhere: imports + file content. Combines find_references and search_text into one call. Returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param.",
+            description="Check if an identifier is referenced anywhere: imports + file content. Combines find_references and search_text into one call. Returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1996,7 +2000,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="search_columns",
-            description="Search column metadata across indexed models. Works with any ecosystem provider that emits column data (dbt, SQLMesh, database catalogs, etc.). Returns model name, file path, column name, and description. Use instead of grep/search_text for column discovery — 77% fewer tokens.",
+            description="Search column metadata across indexed models. Works with any ecosystem provider that emits column data (dbt, SQLMesh, database catalogs, etc.). Returns model name, file path, column name, and description. Use instead of grep/search_text for column discovery — 77% fewer tokens. Covers only providers that emit column metadata into the index, and returns at most max_results (default 20).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2028,6 +2032,7 @@ def _build_tools_list() -> list[Tool]:
                 "Multi-symbol bundles deduplicate shared imports. "
                 "Set token_budget to cap response size; use budget_strategy to control what's kept. "
                 "Supports fqn (PHP FQN via PSR-4) as alternative to symbol_id."
+            
             ),
             inputSchema={
                 "type": "object",
@@ -2085,7 +2090,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_session_stats",
-            description="Get token savings stats for the current MCP session. Returns tokens saved and cost avoided (this session and all-time), per-tool breakdown, session duration, and cumulative totals. Use to see how much jCodeMunch has saved you.",
+            description="Get token savings stats for the current MCP session. Returns tokens saved and cost avoided (this session and all-time), per-tool breakdown, session duration, and cumulative totals. Use to see how much jCodeMunch has saved you. Savings are modelled estimates from the committed benchmark artifacts (cited in savings_provenance), not per-call measurements.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -2126,7 +2131,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="check_embedding_drift",
-            description="Pin (or re-check) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check.",
+            description="Pin (or re-check) a 16-string canary against the active embedding provider. On first run with capture=True (or force=True), embeds CANARY_STRINGS and persists the vectors to ~/.code-index/embed_canary.json. Subsequent calls re-embed those strings and report cosine drift; alarm fires when max drift exceeds threshold (default 0.05 = cos sim < 0.95). Use after upgrading providers, when retrieval quality drops unexpectedly, or as a periodic background check. Requires an active embedding provider. The first run only captures the baseline; drift is reported from the second run onward.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2150,7 +2155,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="tune_weights",
-            description="Learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal.",
+            description="Learn per-repo retrieval weights from the v1.78.0 ranking ledger. Computes confidence correlations for the semantic and identity-match channels and writes overrides to ~/.code-index/tuning.jsonc. search_symbols reads those overrides at query time when the caller doesn't pass an explicit semantic_weight. Learns from a recency window of the ledger (default 90 days) so stale events can't anchor the weights. Safe to re-run; idempotent for stable signal. Requires perf_telemetry_enabled and the ranking ledger it writes; without that history there is nothing to learn from.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2183,7 +2188,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_session_context",
-            description="Get the current session context — files accessed, searches performed, and edits registered during this MCP session. Use to avoid re-reading the same files.",
+            description="Get the current session context — files accessed, searches performed, and edits registered during this MCP session. Use to avoid re-reading the same files. Truncated to max_files (default 50) and max_queries (default 20), and covers this server process only.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2202,7 +2207,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_session_snapshot",
-            description="Get a compact session snapshot for context continuity. Returns a ~200 token markdown summary of files explored, edits made, searches performed, and dead ends. Designed for injection after context compaction to restore session orientation.",
+            description="Get a compact session snapshot for context continuity. Returns a ~200 token markdown summary of files explored, edits made, searches performed, and dead ends. Designed for injection after context compaction to restore session orientation. Truncated to max_files (10), max_searches (5) and max_edits (10); it is a summary, not a full session log.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2376,6 +2381,8 @@ def _build_tools_list() -> list[Tool]:
                 "Designed for session-start context injection: call once when you "
                 "open a repo, get oriented to the load-bearing changes without cold "
                 "exploration."
+            
+                " Truncated to max_changed_files (5), max_hotspots (3) and max_dead_code (3), and the change section needs local git history."
             ),
             inputSchema={
                 "type": "object",
@@ -2409,7 +2416,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="plan_turn",
-            description="Plan the next turn by analyzing query against the codebase. Returns confidence level (high/medium/low), recommended symbols/files, and guidance. Use as opening move for any task.",
+            description="Plan the next turn by analyzing query against the codebase. Returns confidence level (high/medium/low), recommended symbols/files, and guidance. Use as opening move for any task. Recommends at most max_recommended symbols (default 5) and ranks only what the index holds.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2443,7 +2450,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="register_edit",
-            description="Register file edits to invalidate caches. Call after editing files to clear BM25 cache and search result cache for the repo.",
+            description="Register file edits to invalidate caches. Call after editing files to clear BM25 cache and search result cache for the repo. Clears caches only. It does not re-index unless reindex=true, so search results stay stale until you do.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2467,7 +2474,9 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="test_summarizer",
-            description="Verify AI summarizer config and connectivity.",
+            description=(
+                "Diagnostic probe: send one request to the configured AI summarizer and report status, provider, timing, and any error detail. Call it to confirm summarization is wired up before indexing a large repo. It checks connectivity only; a healthy probe says nothing about summary quality. Disabled in the shipped default config, so enable it before calling."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2487,6 +2496,8 @@ def _build_tools_list() -> list[Tool]:
                 "redundancy between global and project configs, bloat patterns, and scope leaks. "
                 "Cross-references against the jcodemunch index to catch references to renamed or deleted "
                 "symbols and files that no other linter can detect."
+            
+                " Reports findings only; it never edits a config file. Stale-reference detection needs the repo indexed."
             ),
             inputSchema={
                 "type": "object",
@@ -2581,7 +2592,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_symbol_diff",
-            description="Diff symbol sets between two indexed snapshots. Shows added, removed, and changed symbols. Branch workflow: index branch A as repo-main, index branch B as repo-feature, then diff.",
+            description="Diff symbol sets between two indexed snapshots. Shows added, removed, and changed symbols. Branch workflow: index branch A as repo-main, index branch B as repo-feature, then diff. Compares by (name, kind), so a renamed symbol appears as one removal plus one addition, not a rename.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2593,7 +2604,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="get_class_hierarchy",
-            description="Get the full inheritance hierarchy for a class: ancestors (base classes via extends/implements) and descendants (subclasses/implementors). Works across Python, Java, TypeScript, C#, and any language where class signatures contain 'extends' or 'implements'.",
+            description="Get the full inheritance hierarchy for a class: ancestors (base classes via extends/implements) and descendants (subclasses/implementors). Works across Python, Java, TypeScript, C#, and any language where class signatures contain 'extends' or 'implements'. Bases are resolved from indexed signature text, so a dynamically assigned or generated base class is not found.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2618,7 +2629,7 @@ def _build_tools_list() -> list[Tool]:
         ),
         Tool(
             name="suggest_queries",
-            description="Suggest search queries, entry-point files, and index stats. Good first call on an unfamiliar repo — surfaces most-imported files, top keywords, and ready-to-run example queries.",
+            description="Suggest search queries, entry-point files, and index stats. Good first call on an unfamiliar repo — surfaces most-imported files, top keywords, and ready-to-run example queries. Suggestions come from index statistics rather than your task, so treat them as starting points.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2696,6 +2707,8 @@ def _build_tools_list() -> list[Tool]:
                 "mention this name; callees = imported symbols mentioned in this symbol's body. "
                 "Useful for understanding how a symbol fits into the call graph before refactoring. "
                 "For a 'what breaks if I delete this?' answer, use get_impact_preview instead."
+            
+                " Detection is name-based, so same-name symbols in different modules can merge and dynamic dispatch is missed."
             ),
             inputSchema={
                 "type": "object",
@@ -2731,6 +2744,8 @@ def _build_tools_list() -> list[Tool]:
                 "returning affected symbols grouped by file with call-chain paths. "
                 "Use this before deleting or renaming a symbol to understand full impact. "
                 "For a structured caller/callee tree, use get_call_hierarchy instead."
+            
+                " Walks the same name-matched call graph, so a caller reached only by dynamic dispatch or reflection is missing."
             ),
             inputSchema={
                 "type": "object",
@@ -2825,6 +2840,8 @@ def _build_tools_list() -> list[Tool]:
                 "Returns every strongly-connected component (set of files that mutually import "
                 "each other, directly or transitively). Run this to identify architectural "
                 "problems before a refactor, or to understand why a module is hard to test in isolation."
+            
+                " Detects cycles in the file-level import graph only; it says nothing about call-level or runtime cycles."
             ),
             inputSchema={
                 "type": "object",
@@ -2845,6 +2862,8 @@ def _build_tools_list() -> list[Tool]:
                 "Ce = files this module imports (dependencies). "
                 "Instability I = Ce/(Ca+Ce): 0 = stable, 1 = unstable. "
                 "Use to identify fragile modules and guide refactoring priorities."
+            
+                " Counts import edges only, so a module coupled through configuration, strings, or dependency injection reads as stable."
             ),
             inputSchema={
                 "type": "object",
@@ -2869,6 +2888,8 @@ def _build_tools_list() -> list[Tool]:
                 "Layer rules can be passed directly or defined in .jcodemunch.jsonc under "
                 "'architecture.layers'. Use to enforce clean architecture and detect "
                 "dependency-direction violations (e.g. API layer importing DB layer directly)."
+            
+                " Files that match no declared layer are skipped, so coverage depends on your layer rules."
             ),
             inputSchema={
                 "type": "object",
@@ -2898,6 +2919,8 @@ def _build_tools_list() -> list[Tool]:
                 "Returns safe=true when no collisions are found. "
                 "Run this before any rename/refactor to avoid silent breakage. "
                 "For a full rename plan with edits, use plan_refactoring."
+            
+                " Scoped to the symbol's own file and its importers; a collision in a file that uses the name without importing it is not detected."
             ),
             inputSchema={
                 "type": "object",
@@ -3065,6 +3088,8 @@ def _build_tools_list() -> list[Tool]:
                 "affected file — directly compatible with Edit tool. Handles import rewrites, "
                 "collision detection, new file generation, and multi-file coordination. "
                 "Use BEFORE executing any multi-file refactoring to get a complete edit plan in one call."
+            
+                " Returns a plan only and never writes a file. Apply the returned blocks yourself, then re-index."
             ),
             inputSchema={
                 "type": "object",
@@ -3479,6 +3504,8 @@ def _build_tools_list() -> list[Tool]:
                 "and unstable module count. "
                 "Designed to be the first tool called in any new session — one call gives a complete "
                 "picture to guide follow-up analysis."
+            
+                " The dead-code percentage is a heuristic estimate, and the hotspot ranking needs local git history."
             ),
             inputSchema={
                 "type": "object",
@@ -3595,6 +3622,8 @@ def _build_tools_list() -> list[Tool]:
                 "PageRank or in-degree centrality on the import graph. Useful for "
                 "orientation: surfaces the symbols that most of the codebase depends on. "
                 "New tool: use after indexing to understand repo architecture at a glance."
+            
+                " Ranks at most top_n symbols (default 20) over the import graph, so a symbol reached only dynamically scores zero."
             ),
             inputSchema={
                 "type": "object",
@@ -3754,6 +3783,8 @@ def _build_tools_list() -> list[Tool]:
                 "Exact symbol names in the query (qualified, CamelCase, snake_case) are pinned ahead "
                 "of the ranking; include identifiers verbatim. "
                 "Use when you want 'the best N tokens of context for this task' without specifying exact symbols."
+            
+                " Truncates at token_budget."
             ),
             inputSchema={
                 "type": "object",
@@ -3809,6 +3840,8 @@ def _build_tools_list() -> list[Tool]:
                 "Task-aware single-call orchestrator. Auto-classifies task into "
                 "explore/debug/refactor/extend/audit/review intent, runs the right sub-tools, "
                 "returns one source-attributed capsule under token_budget."
+            
+                " Bounded by token_budget; see intent_detected."
             ),
             inputSchema={
                 "type": "object",
@@ -3922,6 +3955,8 @@ def _build_tools_list() -> list[Tool]:
                 "manifest files (pyproject.toml, package.json, go.mod, Cargo.toml, etc.). "
                 "Use to visualize how your indexed repos are interconnected. "
                 "Pass repo to filter to a single repo's perspective."
+            
+                " Edges come from package names in manifest files, so a path or git dependency with no manifest entry is invisible."
             ),
             inputSchema={
                 "type": "object",
@@ -4004,6 +4039,8 @@ def _build_tools_list() -> list[Tool]:
                 "directory doesn't match their logical module). Detects nexus plates (god-module risk: "
                 "coupled to ≥4 other plates). No k parameter — plate count emerges from the topology. "
                 "Use to find hidden module boundaries, misplaced files, and architectural drift."
+            
+                " The temporal signal needs local git history; without it plates are built from structure and behaviour only."
             ),
             inputSchema={
                 "type": "object",
@@ -4039,6 +4076,8 @@ def _build_tools_list() -> list[Tool]:
                 "CLI commands (@click, @app.command), task queues (@celery, @dramatiq), event handlers, "
                 "and standard entry points (main.py, __main__.py). "
                 "Use before refactoring to understand which user-facing behaviors depend on a symbol."
+            
+                " Traces at most max_depth hops (default 5) and recognises only the listed gateway patterns, so a custom framework's entry points are missed."
             ),
             inputSchema={
                 "type": "object",
@@ -4141,6 +4180,8 @@ def _build_tools_list() -> list[Tool]:
                 "grouping by file/plate/depth, risk heat coloring. Themes: 'flow' (blue/purple "
                 "depth gradient), 'risk' (red/yellow/green heat), 'minimal' (monochrome). "
                 "Smart pruning keeps output under max_nodes."
+            
+                " Prunes to max_nodes (default 80), so a large graph renders partially. It reads the dict you pass and never queries the index."
             ),
             inputSchema={
                 "type": "object",
@@ -4218,6 +4259,8 @@ def _build_tools_list() -> list[Tool]:
                 "`path` values as the `scope_path` argument on get_project_intel "
                 "to retrieve per-package intel (Dockerfile / CI / deps) instead of "
                 "the repo-wide aggregate."
+            
+                " Detects only the listed layouts; any other workspace arrangement returns is_monorepo=false."
             ),
             inputSchema={
                 "type": "object",
