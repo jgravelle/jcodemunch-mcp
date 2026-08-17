@@ -1,29 +1,23 @@
 {
-  "current": "1.108.282",
+  "current": "1.108.283",
   "entries": [
+    {
+      "version": "1.108.283",
+      "date": "2026-08-17",
+      "title": "A config in the wrong shape is a client that reports success and registers nothing",
+      "summary": "`jcodemunch-mcp init` went from 5 auto-configured clients to 10: **Codex CLI**, **opencode**, **Gemini CLI**, **Cline** and **VS Code / GitHub Copilot** join Claude Code, Claude Desktop, Cursor, Windsurf and Continue."
+    },
     {
       "version": "1.108.282",
       "date": "2026-08-16",
       "title": "Half the tool descriptions never said what the tool would not do",
-      "summary": "Scored every tool description against the rubric in arXiv:2602.14878, which found 97.1% of 856 MCP tools carrying at least one description smell. Half of ours never said what they do not return or when they refuse; 42 tools here got a limitation clause derived from their own guard clauses and schema defaults."
+      "summary": "Scored every description this server emits against the rubric in [arXiv:2602.14878](https://arxiv.org/abs/2602.14878) (Hasan, Li, Rajbahadur, Adams & Hassan, Queen's University), which examined 856 tools across 103 MCP servers and found 97.1% carrying at least one description smell. Their rubric scores six"
     },
     {
       "version": "1.108.281",
       "date": "2026-08-15",
       "title": "A declared pattern with no implementation reads as a language without constants",
-      "summary": "Reported by [@mussonking](https://github.com/jgravelle/jcodemunch-mcp/issues/428), who found it on a generated Rust contract file holding 935 `pub const` and getting back zero symbols. The Kotlin and Bash halves shipped in v1.108.267; these four were left for the PR he offered. They are implemented here — see the note at the"
-    },
-    {
-      "version": "1.108.280",
-      "date": "2026-08-14",
-      "title": "A cache keyed on a spelling is keyed on the caller's working directory",
-      "summary": "Reported and fixed by [@rknighton](https://github.com/rknighton) in [#473](https://github.com/jgravelle/jcodemunch-mcp/pull/473)."
-    },
-    {
-      "version": "1.108.279",
-      "date": "2026-08-14",
-      "title": "A machine's language is not English and its bytes are not UTF-8",
-      "summary": "Both reported by [@lsg1103275794](https://github.com/lsg1103275794), split per one-issue-one-verdict, and independent: fixing either one alone leaves the other exactly as broken."
+      "summary": "Reported by [@mussonking](https://github.com/jgravelle/jcodemunch-mcp/issues/428), who found it on a generated Rust contract file holding 935 `pub const` and getting back zero symbols. The Kotlin and Bash halves shipped in v1.108.267; these four were left for the PR he offered. They are implemented here \u2014 see the note at the"
     }
   ]
 }

@@ -44,10 +44,73 @@ COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40),
     # Anthropic
+    # Sonnet 5 carries an introductory rate of (2.00, 10.00) through 2026-08-31;
+    # the standard rate is listed so a benchmark run does not read cheap after it lapses.
+    "claude-fable-5": (10.00, 50.00),
+    "claude-mythos-5": (10.00, 50.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (3.00, 15.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-7": (5.00, 25.00),
+    "claude-opus-4-6": (5.00, 25.00),
     "claude-sonnet-4-6": (3.00, 15.00),
-    "claude-haiku-4-5-20251001": (0.80, 4.00),
-    "claude-opus-4-6": (15.00, 75.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
 }
+
+
+# Anthropic models that still accept `temperature`. Sampling parameters were
+# REMOVED on Opus 4.7 and later and on Sonnet 5 — sending one returns a 400, so
+# the benchmark cannot pass temperature unconditionally.
+#
+# ⚠ This is an allowlist, not a blocklist, and the default (omit) is the modern
+# behaviour: an unrecognised model id is far more likely to be a NEW model that
+# rejects sampling than an old one that accepts it. The cost of that default is
+# that a genuinely old, unlisted model silently samples at the API default of
+# 1.0 instead of 0.0 — visible as run-to-run variance, where the other way round
+# is a hard 400 that stops the run.
+#
+# ⚠⚠ EVERY ID HERE MUST HAVE A `COST_TABLE` ROW. `_price_for` falls back to
+# (1.00, 3.00) for anything unlisted, so a model this set says we can benchmark
+# but the table cannot price reports a cost several times under the real rate,
+# silently. `claude-sonnet-4-5` was in exactly that state and was removed rather
+# than priced — it is a legacy model nothing here benchmarks, and the fallback
+# would have made a run of it read cheap.
+_SAMPLING_SUPPORTED: frozenset[str] = frozenset({
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
+})
+
+# Anthropic models that run adaptive thinking when `thinking` is OMITTED, so the
+# benchmark must disable it explicitly to keep pre-Claude-5 behaviour. `max_tokens`
+# caps thinking and response TOGETHER, so leaving it on truncates a 2048-token
+# budget and bills reasoning the benchmark never reads.
+#
+# ⚠ Fable 5 is deliberately absent: its thinking is always on and an explicit
+# `{"type": "disabled"}` returns a 400. Opus 4.8/4.7 are absent because omitting
+# `thinking` already means no thinking there.
+_THINKING_ON_BY_DEFAULT: frozenset[str] = frozenset({
+    "claude-opus-5",
+    "claude-sonnet-5",
+})
+
+# Models whose thinking CANNOT be turned off, so `max_tokens` is always shared
+# between reasoning and answer and 2048 truncates.
+_THINKING_ALWAYS_ON: frozenset[str] = frozenset({
+    "claude-fable-5",
+    "claude-mythos-5",
+})
+
+# ⚠ The default stays 2048 rather than rising for everyone: every run in
+# `results/` was produced under it, and a larger budget lets answers grow, which
+# would silently break comparability with the committed corpus. Only the models
+# that cannot fit thinking inside it get more.
+_MAX_TOKENS = 2048
+# ~16k is the practical ceiling for a NON-STREAMING request — the SDK refuses one
+# it estimates will exceed its HTTP timeout. Going above this means streaming.
+_MAX_TOKENS_THINKING_ALWAYS_ON = 16000
 
 
 def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -140,7 +203,7 @@ def infer_openai(
 def infer_anthropic(
     context: str,
     question: str,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5",
     api_key: Optional[str] = None,
 ) -> InferenceResult:
     """Call Anthropic API for inference."""
@@ -149,6 +212,12 @@ def infer_anthropic(
 
     client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY", ""))
 
+    kwargs: dict = {}
+    if model in _SAMPLING_SUPPORTED:
+        kwargs["temperature"] = 0.0
+    if model in _THINKING_ON_BY_DEFAULT:
+        kwargs["thinking"] = {"type": "disabled"}
+
     t0 = time.perf_counter()
     response = client.messages.create(
         model=model,
@@ -156,14 +225,19 @@ def infer_anthropic(
         messages=[
             {"role": "user", "content": f"## Code Context\n\n{context}\n\n## Question\n\n{question}"},
         ],
-        temperature=0.0,
-        max_tokens=2048,
+        max_tokens=(
+            _MAX_TOKENS_THINKING_ALWAYS_ON if model in _THINKING_ALWAYS_ON else _MAX_TOKENS
+        ),
+        **kwargs,
     )
     elapsed = time.perf_counter() - t0
 
     input_tok = response.usage.input_tokens
     output_tok = response.usage.output_tokens
-    answer = response.content[0].text if response.content else ""
+    # Take the first TEXT block rather than content[0]: on a model whose thinking
+    # cannot be disabled (Fable 5) the first block is a thinking block, which has
+    # no `.text` at all.
+    answer = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
 
     return InferenceResult(
         answer=answer,
@@ -194,7 +268,7 @@ def infer(
     defaults = {
         "groq": "llama-3.3-70b-versatile",
         "openai": "gpt-4o-mini",
-        "anthropic": "claude-sonnet-4-6",
+        "anthropic": "claude-sonnet-5",
     }
     fn = PROVIDER_MAP.get(provider)
     if fn is None:

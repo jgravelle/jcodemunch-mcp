@@ -253,3 +253,46 @@ def test_both_predicates_pass_on_a_clean_changelog():
     assert _duplicate_versions(
         re.findall(r"^## \[(\d+\.\d+\.\d+)\]", clean, re.MULTILINE)
     ) == []
+
+
+def _unreleased_headings(text: str) -> list[str]:
+    """Every `## [Unreleased]...` heading, whatever follows the bracket.
+
+    Deliberately NOT anchored to end-of-line: the real one found on
+    2026-08-17 read `## [Unreleased] - benchmarks: one measurement path, no
+    estimates`, so a `$`-anchored pattern would have reported the file clean
+    while a second Unreleased block sat 5,000 lines down.
+    """
+    return [ln for ln in text.splitlines() if ln.startswith("## [Unreleased]")]
+
+
+def test_changelog_has_exactly_one_unreleased_heading():
+    """Two of them make a real duplicate indistinguishable from an old one.
+
+    Nothing consumes the stale heading — `whatsnew`'s parser wants `[\d.]+`
+    for the version and the predicates above want `\d+.\d+.\d+` — so this
+    is not about breakage. It is that a count of Unreleased headings is a
+    signal, and a permanently-wrong count spends it.
+    """
+    found = _unreleased_headings((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+    assert len(found) == 1, (
+        "CHANGELOG.md should carry exactly one `## [Unreleased]` heading; "
+        f"found {len(found)}: {found}. A shipped section still headed "
+        "Unreleased should be retitled to say what it is and which release "
+        "carried it."
+    )
+
+
+def test_unreleased_predicate_fires_on_the_known_bad_shape():
+    """Non-vacuity: the historical heading this test was written for."""
+    bad = (
+        "# Changelog\n\n## [Unreleased]\n\n### thing\n\n"
+        "## [Unreleased] - benchmarks: one measurement path, no estimates\n\n"
+        "No shipped-package changes.\n"
+    )
+    assert len(_unreleased_headings(bad)) == 2
+    clean = bad.replace(
+        "## [Unreleased] - benchmarks: one measurement path, no estimates",
+        "## Benchmarks — one measurement path, no estimates",
+    )
+    assert len(_unreleased_headings(clean)) == 1

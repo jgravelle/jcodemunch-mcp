@@ -3,8 +3,8 @@
 **The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 27.9x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
 
 > **Real results, live from production**
-> **645B+ tokens saved** · **95,000+ reporting installs** · **$3.2M+ in AI spend avoided** · **77,000+ kg CO₂ prevented**
-> Counter figures as of 2026-08-05, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/)**.
+> **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
+> Counter figures as of 2026-08-17, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/)**.
 
 Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**, **Continue**, and [any MCP-compatible client](CLIENTS.md).
 
@@ -88,13 +88,24 @@ Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHOD
 #### Recommended: one command
 
 ```bash
-pip install jcodemunch-mcp
+uv tool install jcodemunch-mcp
 jcodemunch-mcp init
 ```
 
+No virtualenv to manage, nothing written into system Python, and it works as-is on PEP 668 distros (Ubuntu 24.04+, Debian 12+) where bare `pip install` is refused. [Don't have `uv` yet?](https://docs.astral.sh/uv/getting-started/installation/)
+
 `init` auto-detects your MCP clients (Claude Code, Claude Desktop, Cursor, Windsurf, Continue), writes their config entries, installs the CLAUDE.md prompt policy so your agent actually uses jCodeMunch, optionally installs enforcement hooks, optionally indexes your project, and audits your agent config files for token waste.
 
-> **Ubuntu 24.04+ / Debian 12+:** system Python is externally managed (PEP 668). Use `pipx install jcodemunch-mcp` or `uv tool install jcodemunch-mcp` instead of bare `pip install`.
+<details>
+<summary><b>Other install paths</b></summary>
+
+| Command | Use it when |
+|---|---|
+| `uvx jcodemunch-mcp` | **Zero install.** Runs from an ephemeral environment — nothing lands on disk permanently. The client entries `init` writes already invoke the server this way, so for most setups this is all that ever runs. ⚠ Enforcement hooks are the exception: they're spawned by a minimal-PATH subshell and resolve the executable by name, so they need `uv tool install` (or `pipx`/`pip`) to work. |
+| `pipx install jcodemunch-mcp` | You already standardise on pipx |
+| `pip install jcodemunch-mcp` | Inside a virtualenv you manage yourself |
+
+</details>
 
 Verify:
 
@@ -105,9 +116,10 @@ jcodemunch-mcp --version
 #### Manual Claude Code setup
 
 ```bash
-pip install jcodemunch-mcp
-claude mcp add -s user jcodemunch jcodemunch-mcp
+claude mcp add -s user jcodemunch -- uvx jcodemunch-mcp
 ```
+
+No install step — `uvx` fetches and runs the server on demand. Prefer it on your PATH (and required for enforcement hooks)? `uv tool install jcodemunch-mcp`, then `claude mcp add -s user jcodemunch jcodemunch-mcp`.
 
 Then tell the agent to prefer the tools. This matters more than people think; installation makes the tools available but does not break the agent's brute-reading habit. One line in your CLAUDE.md does it:
 
@@ -146,9 +158,9 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.283](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.283)** (2026-08-17) — A config in the wrong shape is a client that reports success and registers nothing
+- **[v1.108.282](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.282)** (2026-08-16) — Half the tool descriptions never said what the tool would not do
 - **[v1.108.281](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.281)** (2026-08-15) — A declared pattern with no implementation reads as a language without constants
-- **[v1.108.280](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.280)** (2026-08-14) — A cache keyed on a spelling is keyed on the caller's working directory
-- **[v1.108.279](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.279)** (2026-08-14) — A machine's language is not English and its bytes are not UTF-8
 <!-- WHATSNEW:END -->
 
 ---

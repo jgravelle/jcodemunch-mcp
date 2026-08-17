@@ -12,7 +12,7 @@ This page tells you how.
 
 > **You're part of the jCodeMunch-MCP impact program.**
 >
-> Every token your team prevents adds to our public CO₂ counter, currently sitting at over 70,000 kg CO₂ saved across the community. If you want to show that on your site, grab a badge, a live widget, or an embeddable SVG from `https://github.com/jgravelle/jcodemunch-mcp/blob/main/badge-kit.md`. All three are free, configurable, and link to a public verification page.
+> Every token your team prevents adds to our public CO₂ counter, currently sitting at over 100,000 kg CO₂ saved across the community. If you want to show that on your site, grab a badge, a live widget, or an embeddable SVG from `https://github.com/jgravelle/jcodemunch-mcp/blob/main/badge-kit.md`. All three are free, configurable, and link to a public verification page.
 >
 > No tracking, no required attribution, no strings. Just a clean way to show you are reducing AI's carbon footprint.
 

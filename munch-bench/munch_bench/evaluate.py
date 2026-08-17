@@ -207,12 +207,21 @@ def llm_judge(
     question: str,
     ground_truth: str,
     answer: str,
-    judge_provider: str = "groq",
+    judge_provider: str = "anthropic",
     judge_model: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> float:
     """Use an LLM to judge answer quality on a 0-1 scale."""
-    from .inference import infer
+    from .inference import PROVIDER_MAP, infer
+
+    # Validated before the try block below: that block catches ValueError to
+    # degrade a non-numeric judge reply to 0.0, which would otherwise swallow
+    # `infer`'s unknown-provider ValueError and score the whole corpus zero.
+    if judge_provider not in PROVIDER_MAP:
+        raise ValueError(
+            f"Unknown judge provider: {judge_provider}. "
+            f"Choose from: {', '.join(PROVIDER_MAP)}"
+        )
 
     judge_prompt = f"""You are an expert judge evaluating answers about code.
 
@@ -234,28 +243,35 @@ Rate the candidate answer's accuracy on a scale of 0.0 to 1.0:
 
 Respond with ONLY a single number between 0.0 and 1.0, nothing else."""
 
-    defaults = {"groq": "llama-3.3-70b-versatile", "openai": "gpt-4o-mini", "anthropic": "claude-haiku-4-5-20251001"}
-    model = judge_model or defaults.get(judge_provider, "llama-3.3-70b-versatile")
+    defaults = {"groq": "llama-3.3-70b-versatile", "openai": "gpt-4o-mini", "anthropic": "claude-sonnet-5"}
+    model = judge_model or defaults.get(judge_provider, "claude-sonnet-5")
 
+    # Deliberately NOT inside the try below: a judge that could not run (missing
+    # credentials, transport error, API rejection) has produced no opinion, and
+    # scoring that 0.0 is indistinguishable from a judge that ran and rated the
+    # answer worthless. Let it propagate and fail the run.
+    result = infer(
+        context="",
+        question=judge_prompt,
+        provider=judge_provider,
+        model=model,
+        api_key=api_key,
+    )
+
+    # Only a reply the judge actually produced but that is not a number degrades
+    # to 0.0 — the judge was asked for a bare float and answered something else.
     try:
-        result = infer(
-            context="",
-            question=judge_prompt,
-            provider=judge_provider,
-            model=model,
-            api_key=api_key,
-        )
         score = float(result.answer.strip())
-        return max(0.0, min(1.0, score))
     except (ValueError, TypeError):
         return 0.0
+    return max(0.0, min(1.0, score))
 
 
 def evaluate_question(
     q: Question,
     retrieval_result: RetrievalResult,
     inference_result: InferenceResult,
-    judge_provider: str = "groq",
+    judge_provider: str = "anthropic",
     judge_model: Optional[str] = None,
 ) -> QuestionResult:
     """Evaluate a single question's retrieval + inference results."""

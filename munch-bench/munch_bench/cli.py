@@ -121,7 +121,7 @@ def main() -> None:
     p_run.add_argument("--difficulty", default=None, choices=["easy", "medium", "hard"])
     p_run.add_argument("--category", default=None)
     p_run.add_argument("--token-budget", type=int, default=8000, help="Retrieval token budget")
-    p_run.add_argument("--judge-provider", default="groq", help="LLM judge provider")
+    p_run.add_argument("--judge-provider", default="anthropic", help="LLM judge provider")
     p_run.add_argument("--judge-model", default=None, help="LLM judge model")
     p_run.add_argument("--storage-path", default=None, help="jCodeMunch storage path")
     p_run.add_argument("--output", "-o", default=None, help="Output JSON path")

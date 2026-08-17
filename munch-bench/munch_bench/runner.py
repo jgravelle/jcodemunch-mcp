@@ -24,7 +24,7 @@ def run_benchmark(
     provider: str = "groq",
     model: Optional[str] = None,
     token_budget: int = 8000,
-    judge_provider: str = "groq",
+    judge_provider: str = "anthropic",
     judge_model: Optional[str] = None,
     storage_path: Optional[str] = None,
     output_path: Optional[str] = None,
@@ -35,7 +35,7 @@ def run_benchmark(
     defaults = {
         "groq": "llama-3.3-70b-versatile",
         "openai": "gpt-4o-mini",
-        "anthropic": "claude-sonnet-4-6",
+        "anthropic": "claude-sonnet-5",
     }
     effective_model = model or defaults.get(provider, "unknown")
 

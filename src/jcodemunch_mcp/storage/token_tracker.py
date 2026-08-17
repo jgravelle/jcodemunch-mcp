@@ -168,7 +168,14 @@ class _State:
         # v1.108.276 (#442). Resolved-path -> open connection. Held for the
         # process; see _ensure_perf_db_locked and close_perf_dbs.
         self._perf_conns: dict = {}
-        self._perf_rows_since_trim: int = 0
+        # #476. Resolved-path -> rows written to THAT database since its last
+        # trim. ⚠⚠ One int here counted writes across every store while the
+        # trim it triggered ran on whichever store happened to make the 1000th
+        # write, so with two stores alternating one `tool_calls` table was
+        # never trimmed and grew past the cap. Keyed by the SAME `str(path)`
+        # the connection cache uses -- a counter keyed differently from the
+        # connection it guards is the same defect wearing a new key.
+        self._perf_rows_since_trim: dict = {}
 
     def _ensure_loaded(self, base_path: Optional[str]) -> None:
         """Load persisted total from disk (once per process)."""
@@ -682,6 +689,15 @@ class _State:
         with self._lock:
             conns = list(self._perf_conns.items())
             self._perf_conns.clear()
+            # #476. Same lifetime as the connections it is keyed alongside, so
+            # a key cannot outlive the store it names. ⚠ The cost is bounded
+            # and deliberate: a database whose connection is dropped mid-cycle
+            # forgets its progress toward the next trim, so `tool_calls` can
+            # carry up to ~1000 rows of slack over the cap before the next one
+            # fires. The cap is already an every-1000-writes approximation, and
+            # this keeps the two structures from disagreeing about which stores
+            # exist -- which is the class of bug #476 itself was.
+            self._perf_rows_since_trim.clear()
         closed = 0
         for _path, conn in conns:
             try:
@@ -693,6 +709,20 @@ class _State:
 
     def _ensure_perf_db_locked(self, base_path: Optional[str] = None) -> Optional[sqlite3.Connection]:
         """Return an open perf SQLite db connection, creating schema on first use.
+
+        Thin wrapper over :meth:`_ensure_perf_db_locked_with_key` for the two
+        callers that need only the connection. ⚠ Per-database bookkeeping must
+        use the with-key form: re-deriving the key by calling ``_perf_db_path``
+        a second time would repeat its ``mkdir`` on every write, and #442 exists
+        because per-write cost on this path was already the whole problem.
+        """
+        conn, _key = self._ensure_perf_db_locked_with_key(base_path)
+        return conn
+
+    def _ensure_perf_db_locked_with_key(
+        self, base_path: Optional[str] = None
+    ) -> tuple[Optional[sqlite3.Connection], Optional[str]]:
+        """Return ``(connection, cache_key)``; the key identifies the database.
 
         ⚠⚠ v1.108.276 (#442). The connection is CACHED for the process and the
         caller must NOT close it -- use ``close_perf_dbs()`` instead. Every event
@@ -731,14 +761,14 @@ class _State:
           unwritable caller-supplied path cannot disable telemetry process-wide.
         """
         if self._perf_db_failed:
-            return None
+            return None, None
         path = self._perf_db_path(base_path)
         if path is None:
-            return None
+            return None, None
         cached = self._perf_conns.get(str(path))
         if cached is not None:
             if self._perf_conn_usable(cached, path):
-                return cached
+                return cached, str(path)
             # Poisoned or orphaned -- drop it and fall through to a fresh open
             # rather than returning something that silently discards writes.
             self._perf_conns.pop(str(path), None)
@@ -816,7 +846,7 @@ class _State:
                 self._add_column_if_missing(conn, _table, "session_uid", "TEXT")
                 self._add_column_if_missing(conn, _table, "call_uid", "TEXT")
             self._perf_conns[str(path)] = conn
-            return conn
+            return conn, str(path)
         except Exception:
             logger.debug("Failed to open perf db at %s", path, exc_info=True)
             # v1.108.188. The kill-switch covers the DEFAULT db only. One unwritable
@@ -825,7 +855,7 @@ class _State:
             # could ever mean.
             if base_path is None:
                 self._perf_db_failed = True
-            return None
+            return None, None
 
     def _persist_session_yield_locked(self, base_path: Optional[str] = None) -> None:
         """Upsert this session's delivery counts into the perf db. Lock held.
@@ -969,7 +999,7 @@ class _State:
         repo: Optional[str],
         base_path: Optional[str] = None,
     ) -> None:
-        conn = self._ensure_perf_db_locked(base_path)
+        conn, db_key = self._ensure_perf_db_locked_with_key(base_path)
         if conn is None:
             return
         try:
@@ -979,8 +1009,12 @@ class _State:
                 (time.time(), tool, float(duration_ms), 1 if ok else 0, repo or None,
                  self._session_uid, _CURRENT_CALL_UID.get()),
             )
-            self._perf_rows_since_trim += 1
-            if self._perf_rows_since_trim >= 1000:
+            # #476. Count against THIS database. The trim below runs on `conn`,
+            # so the counter that triggers it has to name the same store, or a
+            # second store's writes spend a trim on the first one's table.
+            rows_since_trim = self._perf_rows_since_trim.get(db_key, 0) + 1
+            self._perf_rows_since_trim[db_key] = rows_since_trim
+            if rows_since_trim >= 1000:
                 cap = max(1000, int(_config.get("perf_telemetry_max_rows", _PERF_DB_MAX_ROWS_DEFAULT)))
                 conn.execute(
                     "DELETE FROM tool_calls WHERE rowid IN ("
@@ -990,7 +1024,7 @@ class _State:
                     ")",
                     (cap,),
                 )
-                self._perf_rows_since_trim = 0
+                self._perf_rows_since_trim[db_key] = 0
         except Exception:
             logger.debug("Failed to persist perf row for %s", tool, exc_info=True)
         finally:
