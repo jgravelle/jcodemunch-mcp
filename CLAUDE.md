@@ -327,6 +327,48 @@ compaction is near its floor; descriptions are untouched ground.
 a RESUMED conversation counts accumulated context on every step, so the total is
 dominated by how much the agent read early on, which compounds.
 
+**2026-08-17: #476 (@rknighton) FIXED BY US — one telemetry db spent another's
+trim.** `_perf_rows_since_trim` was one int on the `_State` process singleton
+while the trim runs on `conn`, so with two stores alternating one `tool_calls`
+was never trimmed. Now a dict. Unreleased; see CHANGELOG `[Unreleased]`.
+⚠ **Low severity and the REPORT said so** — opt-in, local-only, single-store
+installs cannot reach it, cost is disk. He rates his own findings honestly; the
+standing note that he understates still holds, but check each time.
+⚠⚠ **Keyed by the SAME `str(path)` the connection cache uses, and that IS the
+fix.** Keyed on the raw `base_path` instead, two spellings of one directory each
+get their own budget toward a trim on one shared table — the same defect wearing
+a new key. v1.108.280 resolved that spelling problem for the cache after #465;
+this inherits it rather than re-opening it. [[feedback_guard_every_path_that_shares_the_hazard]]
+⚠ **Added `_ensure_perf_db_locked_with_key` rather than calling `_perf_db_path`
+twice** — re-deriving the key at the trim site repeats that helper's `mkdir` on
+every write, and #442 exists because per-write cost on this exact path was the
+whole problem. Two callers keep the old connection-only signature.
+⚠ `close_perf_dbs()` clears the counters with the connections so a key cannot
+outlive its store; the bounded cost is ~1000 rows of slack for a database whose
+connection is dropped mid-cycle, against a cap that is already an
+every-1000-writes approximation.
+⚠ Nothing is backfilled: an already-oversized `tool_calls` trims on its own next
+cycle.
+⚠ `tests/test_perf_trim_is_per_database.py` (4) asserts on the COUNTER MAP, not
+row counts after 1000 writes — 2000 rows across two databases would be slow and
+would pin the trim interval. **All 4 red against a restored single counter.**
+
+**2026-08-17: #443's conflict was OURS and we resolved it on their branch.**
+elfrost's PR sat `CONFLICTING/DIRTY` since 2026-08-12 — and **a conflicting fork
+PR has no `refs/pull/N/merge`, so it gets NO CI AT ALL**, which is why it read as
+stalled contributor work when it was our CHANGELOG merges. Merged `main` in,
+resolved to one `## [Unreleased]` heading with their section first, pushed to
+their fork, said on the thread that the conflict was ours. `MERGEABLE` again,
+suite green (7856/17, +6 = their tests).
+⚠ **Checked before promising: elfrost is a User, not an Organization**, so the
+`maintainerCanModify`-lies trap did not apply and the push worked.
+⚠ **The CLA status SURVIVED this push** — the documented erase-on-push hazard did
+not fire here. Do not treat either outcome as the rule; read the status.
+⚠⚠ **#447 was NOT implemented, deliberately.** Its window is posted publicly to
+**2026-08-20** and jjg reaffirmed it stands as posted. Resolving the conflict is
+the move that respects the promise AND unblocks them — it removes the reason the
+PR was dark without shortening anything.
+
 **Merged 2026-08-16: #479 (@mikemikimike) closes #475** — `IndexStore` /
 `SQLiteIndexStore` keyed their init caches on the SPELLING of `base_path`, so a
 relative `storage_path` skipped `mkdir` and schema setup for the second store

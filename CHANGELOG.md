@@ -33,6 +33,50 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+### One telemetry database spent another's trim ([#476](https://github.com/jgravelle/jcodemunch-mcp/issues/476))
+
+Reported by [@rknighton](https://github.com/rknighton), who pinned the cause to
+the line.
+
+`_perf_rows_since_trim` was a single int on the `_State` process singleton, while
+the trim it fires runs on `conn` — the connection belonging to whichever store
+made the 1000th write. With two stores alternating, every store's writes advanced
+a counter toward a trim spent somewhere else, so one `tool_calls` table was never
+trimmed and grew past `perf_telemetry_max_rows`. It is now a dict keyed by
+resolved path.
+
+⚠ **Severity is low and the report says so itself.** Telemetry is opt-in and
+local-only, nothing is misrouted, and a single-store install cannot reach it. The
+cost is disk: that store's `telemetry.db` grows for as long as the process runs,
+and the rows stay after it exits. Nothing is backfilled — an existing oversized
+`tool_calls` is trimmed on its own next cycle, not retroactively.
+
+⚠⚠ **The counter is keyed by the SAME `str(path)` the connection cache uses, and
+that is the whole fix rather than an implementation detail.** A counter keyed on
+anything else — the raw `base_path` string, say — is the same defect wearing a
+new key: two spellings of one directory would each get their own budget toward a
+trim on one shared table. v1.108.280 resolved exactly that spelling problem for
+the connection cache after #465; this inherits it instead of re-opening it.
+
+⚠ **`_ensure_perf_db_locked` gained a `_with_key` sibling rather than a second
+`_perf_db_path` call.** Re-deriving the key at the trim site would repeat that
+helper's `mkdir` on every write, and #442 exists because per-write cost on this
+exact path was the entire problem. The two callers that need only a connection
+keep the old signature.
+
+⚠ **`close_perf_dbs()` clears the counters with the connections**, so a key
+cannot outlive the store it names. The cost is bounded and deliberate: a database
+whose connection is dropped mid-cycle forgets its progress, so `tool_calls` can
+carry up to ~1000 rows of slack before the next trim. The cap is already an
+every-1000-writes approximation, and two structures disagreeing about which
+stores exist is the class of bug this entry is about.
+
+⚠ `tests/test_perf_trim_is_per_database.py` (4) asserts on the COUNTER MAP, not
+on row counts after 1000 writes — writing 2000 rows to two databases to observe
+one trim would be slow and would pin the trim interval, and the defect is that
+the bookkeeping is not per-database. All 4 turn red against a restored single
+counter.
+
 ### The package twin is retired, and the guard that could not see it now can
 
 Fourteen test modules imported the package as `src.jcodemunch_mcp`. That is a
