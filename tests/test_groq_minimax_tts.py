@@ -173,6 +173,22 @@ class TestResponseParsing:
         with pytest.raises(RuntimeError, match="status_code=1004"):
             tts.parse_minimax_t2a_response(payload)
 
+    def test_missing_base_resp_is_not_treated_as_success(self):
+        # Unknown must never resolve to the confident answer.
+        wav = _make_wav_bytes(0.1)
+        payload = {"data": {"audio": wav.hex(), "status": tts.MINIMAX_T2A_STATUS_DONE}}
+        with pytest.raises(RuntimeError, match="could not be established"):
+            tts.parse_minimax_t2a_response(payload)
+
+    def test_base_resp_without_a_status_code_is_not_treated_as_success(self):
+        wav = _make_wav_bytes(0.1)
+        payload = {
+            "data": {"audio": wav.hex(), "status": tts.MINIMAX_T2A_STATUS_DONE},
+            "base_resp": {"status_msg": "success"},
+        }
+        with pytest.raises(RuntimeError, match="could not be established"):
+            tts.parse_minimax_t2a_response(payload)
+
     def test_incomplete_synthesis_raises(self):
         payload = {
             "data": {"audio": "00", "status": tts.MINIMAX_T2A_STATUS_SYNTHESIZING},
@@ -197,17 +213,24 @@ class TestResponseParsing:
 
 class TestOperationTable:
     def test_http_operation_targets_the_documented_path(self):
-        assert tts.MINIMAX_T2A_OPERATIONS["textToAudioHttp"] == ("POST", "/v1/t2a_v2")
-
-    def test_async_and_socket_operations_are_declared(self):
-        assert tts.MINIMAX_T2A_OPERATIONS["textToAudioAsyncCreate"][1] == "/v1/t2a_async_v2"
-        assert tts.MINIMAX_T2A_OPERATIONS["textToAudioAsyncQuery"][1] == (
-            "/v1/query/t2a_async_query_v2"
+        assert tts.MINIMAX_T2A_IMPLEMENTED_OPERATIONS["textToAudioHttp"] == (
+            "POST",
+            "/v1/t2a_v2",
         )
-        assert tts.MINIMAX_T2A_OPERATIONS["textToAudioWebSocket"] == ("WSS", "/ws/v1/t2a_v2")
+
+    def test_only_the_http_operation_is_declared_implemented(self):
+        assert set(tts.MINIMAX_T2A_IMPLEMENTED_OPERATIONS) == {"textToAudioHttp"}
+
+    def test_unimplemented_operations_are_recorded_separately(self):
+        unimplemented = tts.MINIMAX_T2A_UNIMPLEMENTED_OPERATIONS
+        assert unimplemented["textToAudioAsyncCreate"][1] == "/v1/t2a_async_v2"
+        assert unimplemented["textToAudioAsyncQuery"][1] == "/v1/query/t2a_async_query_v2"
+        assert unimplemented["textToAudioWebSocket"] == ("WSS", "/ws/v1/t2a_v2")
+        # A declared operation must never also count as an implemented one.
+        assert not set(unimplemented) & set(tts.MINIMAX_T2A_IMPLEMENTED_OPERATIONS)
 
     def test_every_declared_endpoint_path_matches_the_http_operation(self):
-        path = tts.MINIMAX_T2A_OPERATIONS["textToAudioHttp"][1]
+        path = tts.MINIMAX_T2A_IMPLEMENTED_OPERATIONS["textToAudioHttp"][1]
         for url in tts.MINIMAX_T2A_ENDPOINTS.values():
             assert url.endswith(path)
 

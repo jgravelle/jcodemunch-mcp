@@ -175,6 +175,8 @@ It helps most on targeted edits (one function, one method, one class), which is 
 
 Local-first by design: indexes live at `~/.code-index/`, and the base package's only default network behavior is an anonymous savings counter (random ID plus aggregate token counts, no code, no paths, no PII; opt out with `share_savings: false`). Everything the server does beyond answering a tool call (file watching, the opt-in login service, license validation, model downloads, org reporting) is opt-in or opt-out, visible, and reversible, and every item is enumerated in **[SECURITY.md](SECURITY.md#background-behavior-fully-disclosed)** alongside the path-traversal, symlink, and secret-redaction controls.
 
+**Text-to-speech egress (opt-in, user-invoked, not background).** `gcm --voice` and `gcm explain` use the audio endpoint already configured for the `gcm` CLI by default. Setting `JCODEMUNCH_TTS_PROVIDER=minimax` (plus `MINIMAX_API_KEY`) instead sends the narration text to the MiniMax T2A endpoint — `api.minimax.io` for the `global_en` region, `api.minimaxi.com` for `cn_zh` — and receives the synthesized audio back. Nothing contacts either host unless that variable is set, and each request is made by an explicit `gcm` invocation rather than in the background. Details in **[GROQ.md](GROQ.md#choosing-a-tts-backend)**.
+
 ---
 
 ## Documentation

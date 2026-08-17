@@ -15,10 +15,11 @@ the WAV frame count. The MiniMax backend therefore asks for
 ``data.audio`` back into those bytes.
 
 Limitations: only the synchronous ``textToAudioHttp`` operation is wired up
-here. The async and WebSocket operations are declared in
-``MINIMAX_T2A_OPERATIONS`` for callers that need them, but this module never
-polls a task id and never opens a socket, so a text longer than the endpoint's
-per-request ceiling has to be split by the caller.
+here, and it is the only entry in ``MINIMAX_T2A_IMPLEMENTED_OPERATIONS``. The
+async and WebSocket operations are recorded separately in
+``MINIMAX_T2A_UNIMPLEMENTED_OPERATIONS``: this module never polls a task id and
+never opens a socket, so a text longer than the endpoint's per-request ceiling
+has to be split by the caller.
 """
 
 from __future__ import annotations
@@ -70,11 +71,21 @@ MINIMAX_DEFAULT_T2A_MODEL = "speech-2.8-hd"
 MINIMAX_T2A_AUDIO_FORMATS: Tuple[str, ...] = ("mp3", "wav", "flac", "pcm")
 
 # operation_id -> (method, path)
-MINIMAX_T2A_OPERATIONS: Dict[str, Tuple[str, str]] = {
+#
+# The status is in the constant names rather than in a docstring caveat: a
+# caller reading the table at the point of use must not mistake a declared
+# operation for an implemented one.
+MINIMAX_T2A_IMPLEMENTED_OPERATIONS: Dict[str, Tuple[str, str]] = {
     "textToAudioHttp": ("POST", "/v1/t2a_v2"),
+}
+
+# Documented by the endpoint but deliberately not wired up here: this module
+# never polls a task id and never opens a socket. Recorded so the surface is
+# discoverable, and kept out of the table above so nothing can dispatch to it.
+MINIMAX_T2A_UNIMPLEMENTED_OPERATIONS: Dict[str, Tuple[str, str]] = {
     "textToAudioAsyncCreate": ("POST", "/v1/t2a_async_v2"),
-    "textToAudioWebSocket": ("WSS", "/ws/v1/t2a_v2"),
     "textToAudioAsyncQuery": ("POST", "/v1/query/t2a_async_query_v2"),
+    "textToAudioWebSocket": ("WSS", "/ws/v1/t2a_v2"),
 }
 
 MINIMAX_T2A_REQUIRED_FIELDS: Tuple[str, ...] = ("model", "text")
@@ -206,6 +217,9 @@ def build_minimax_t2a_payload(
     if subtitle_enable is not None:
         payload["subtitle_enable"] = subtitle_enable
 
+    # Drift guard, not validation of caller input: every key above is set by
+    # this function from a fixed set, so this cannot fire today. It exists to
+    # catch a later edit that adds a field the endpoint does not accept.
     unknown = set(payload) - set(MINIMAX_T2A_REQUEST_FIELDS)
     if unknown:
         raise ValueError(f"Unknown T2A request fields: {', '.join(sorted(unknown))}")
@@ -218,8 +232,16 @@ def parse_minimax_t2a_response(payload: Dict[str, Any]) -> bytes:
     The transport can return HTTP 200 with a failure in `base_resp`, so the
     envelope is checked before the audio is read.
     """
-    base_resp = payload.get("base_resp") or {}
-    status_code = base_resp.get("status_code", MINIMAX_BASE_RESP_OK)
+    base_resp = payload.get("base_resp")
+    if not isinstance(base_resp, dict) or "status_code" not in base_resp:
+        # An unreadable envelope must not resolve to the confident answer: with
+        # no `status_code` the outcome cannot be established, so it is a failure
+        # rather than a default of OK.
+        raise RuntimeError(
+            "T2A response carried no base_resp.status_code, "
+            "so the request outcome could not be established"
+        )
+    status_code = base_resp["status_code"]
     if status_code != MINIMAX_BASE_RESP_OK:
         status_msg = base_resp.get("status_msg") or "no status message"
         raise RuntimeError(f"T2A request failed (status_code={status_code}): {status_msg}")

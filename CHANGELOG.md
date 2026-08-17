@@ -36,12 +36,15 @@ failure against a key that is perfectly good.
 ⚠ **A 200 can still carry a failure.** `base_resp.status_code` is checked before
 the audio is read, and `data` is nullable even on an otherwise successful
 envelope — so auth failures, rate limits and the invalid-character rejection all
-surface as errors rather than as zero bytes of audio.
+surface as errors rather than as zero bytes of audio. A response with no
+readable `base_resp.status_code` at all is an error too, rather than defaulting
+to success.
 
-⚠ Only the synchronous HTTP operation is wired up. The async-create/query and
-WebSocket operations are declared in `MINIMAX_T2A_OPERATIONS` for callers that
-want them, but nothing here polls a task id or opens a socket, and the module
-docstring says so rather than leaving the gap to be discovered.
+⚠ Only the synchronous HTTP operation is wired up, and it is the only entry in
+`MINIMAX_T2A_IMPLEMENTED_OPERATIONS`. The async-create/query and WebSocket
+operations are recorded in `MINIMAX_T2A_UNIMPLEMENTED_OPERATIONS` so the surface
+stays discoverable without a declared operation being mistaken for a working
+one; nothing here polls a task id or opens a socket.
 
 ⚠ `tests/test_groq_minimax_tts.py` (40). The two call-site tests are the ones
 that matter: one asserts the default client is never contacted once the backend
