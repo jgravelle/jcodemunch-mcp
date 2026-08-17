@@ -140,22 +140,28 @@ def speak(cfg: GcmConfig, text: str, verbose: bool = False) -> None:
     import numpy as np
     import sounddevice as sd
 
-    client = _get_client(cfg)
+    from . import tts
 
     t0 = time.perf_counter()
-    response = client.audio.speech.create(
-        model=TTS_MODEL,
-        voice=TTS_VOICE,
-        input=text,
-        response_format="wav",
-    )
+
+    # A configured alternative backend returns the WAV bytes directly; None
+    # means none is configured, so the default endpoint below is used.
+    audio_bytes = tts.synthesize(text, audio_format="wav")
+    if audio_bytes is None:
+        client = _get_client(cfg)
+        response = client.audio.speech.create(
+            model=TTS_MODEL,
+            voice=TTS_VOICE,
+            input=text,
+            response_format="wav",
+        )
+        audio_bytes = response.content if hasattr(response, "content") else response.read()
 
     if verbose:
         elapsed = time.perf_counter() - t0
         print(f"  [tts] audio generated ({elapsed:.2f}s)", file=sys.stderr)
 
     # Read WAV response and play
-    audio_bytes = response.content if hasattr(response, "content") else response.read()
     buf = io.BytesIO(audio_bytes)
 
     with wave.open(buf, "rb") as wf:

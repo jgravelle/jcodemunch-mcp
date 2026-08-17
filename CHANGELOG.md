@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### The voice pipelines can speak through a T2A endpoint, and the format field that looks right is the wrong one
+
+`gcm --voice` and `gcm explain` both synthesized speech by calling one
+hardcoded audio endpoint, with the model and voice as module constants in
+`groq/voice.py` and the request built twice — once in `voice.speak`, once again
+in `explainer._render_tts`, which re-implemented the client rather than reusing
+`_get_client`. There was no provider seam to extend, so this adds one:
+`groq/tts.py` owns the MiniMax T2A backend and both call sites now ask it first,
+falling back to the existing endpoint when nothing is configured.
+
+Selected with `JCODEMUNCH_TTS_PROVIDER=minimax`. Both regional endpoints are
+supported (`global_en`, `cn_zh`), the full `speech-2.8`/`2.6`/`02`/`01` model
+family is accepted with `speech-2.8-hd` as the default, and `MINIMAX_API_KEY` —
+already a recognised credential — carries the bearer token.
+
+⚠⚠ **`output_format` is NOT the audio container format, and reading it as one
+produces MP3 bytes that every consumer here treats as WAV.** It selects how the
+response *carries* the audio (`hex` inlines it in `data.audio`, `url` returns a
+link that expires); the container lives in `audio_setting.format`, whose default
+is `mp3`. Both call sites read a WAV header — `speak` takes the sample rate,
+channel count and sample width from it, and `_render_tts` derives every slide's
+duration from the frame count — so a silently-MP3 response would not have
+errored at the request, it would have surfaced as a `wave.Error` deep in
+playback, or worse, as a video whose slide timing is wrong. The backend
+therefore always sends `audio_setting.format` explicitly and requests `hex`.
+
+⚠ **An unknown region raises instead of falling back to the default.** The two
+regions are separate deployments and a key issued for one is not valid on the
+other, so a typo'd region resolving to the global endpoint would read as an auth
+failure against a key that is perfectly good.
+
+⚠ **A 200 can still carry a failure.** `base_resp.status_code` is checked before
+the audio is read, and `data` is nullable even on an otherwise successful
+envelope — so auth failures, rate limits and the invalid-character rejection all
+surface as errors rather than as zero bytes of audio.
+
+⚠ Only the synchronous HTTP operation is wired up. The async-create/query and
+WebSocket operations are declared in `MINIMAX_T2A_OPERATIONS` for callers that
+want them, but nothing here polls a task id or opens a socket, and the module
+docstring says so rather than leaving the gap to be discovered.
+
+⚠ `tests/test_groq_minimax_tts.py` (40). The two call-site tests are the ones
+that matter: one asserts the default client is never contacted once the backend
+answers, and `_render_tts` had **zero** coverage before this, which is how a
+duplicated request builder went unnoticed.
+
 ### The package twin is retired, and the guard that could not see it now can
 
 Fourteen test modules imported the package as `src.jcodemunch_mcp`. That is a

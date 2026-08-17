@@ -211,6 +211,10 @@ Tree-sitter grammar lacks clean named fields for these — custom regex extracto
 | `JCODEMUNCH_USE_AI_SUMMARIES` | auto | AI summarization mode: `auto` (detect provider), `true` (use explicit config), `false`/`0`/`no`/`off` (disable) |
 | `JCODEMUNCH_SUMMARIZER_PROVIDER` | — | Explicit summarizer provider: `anthropic`, `gemini`, `openai`, `minimax`, `glm`, `openrouter`, `none` |
 | `JCODEMUNCH_SUMMARIZER_MODEL` | — | Model name override for the selected summarizer provider |
+| `JCODEMUNCH_TTS_PROVIDER` | — | TTS backend for `gcm --voice` / `gcm explain`: `minimax`, or unset for the default audio endpoint |
+| `JCODEMUNCH_MINIMAX_T2A_REGION` | `global_en` | T2A region: `global_en` or `cn_zh` (separate deployments; a key is valid on one only) |
+| `JCODEMUNCH_MINIMAX_T2A_MODEL` | `speech-2.8-hd` | T2A model override (`speech-2.8`/`2.6`/`02`/`01`, `-hd` or `-turbo`) |
+| `JCODEMUNCH_MINIMAX_T2A_VOICE` | — | T2A `voice_id`; omitted entirely when unset so the endpoint default applies |
 | `JCODEMUNCH_TRUSTED_FOLDERS` | — | Roots trusted for index_folder; whitelist mode by default |
 | `JCODEMUNCH_EXTRA_IGNORE_PATTERNS` | — | Always-on gitignore patterns (comma-sep or JSON array) |
 | `JCODEMUNCH_PATH_MAP` | — | Cross-platform path remapping; format: `orig1=new1,orig2=new2` |

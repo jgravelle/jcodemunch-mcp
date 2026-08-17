@@ -225,19 +225,26 @@ def _generate_narration_script(cfg: GcmConfig, repo_info: dict, verbose: bool = 
 
 def _render_tts(cfg: GcmConfig, text: str, output_path: str, verbose: bool = False) -> float:
     """Render TTS for a text segment. Returns duration in seconds."""
-    from openai import OpenAI
-
-    client = OpenAI(api_key=cfg.groq_api_key, base_url=cfg.base_url)
+    from . import tts
 
     t0 = time.perf_counter()
-    response = client.audio.speech.create(
-        model=TTS_MODEL,
-        voice=TTS_VOICE,
-        input=text,
-        response_format="wav",
-    )
 
-    audio_bytes = response.content if hasattr(response, "content") else response.read()
+    # A configured alternative backend returns the WAV bytes directly; None
+    # means none is configured, so the default endpoint below is used.
+    audio_bytes = tts.synthesize(text, audio_format="wav")
+    if audio_bytes is None:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=cfg.groq_api_key, base_url=cfg.base_url)
+
+        response = client.audio.speech.create(
+            model=TTS_MODEL,
+            voice=TTS_VOICE,
+            input=text,
+            response_format="wav",
+        )
+
+        audio_bytes = response.content if hasattr(response, "content") else response.read()
 
     with open(output_path, "wb") as f:
         f.write(audio_bytes)

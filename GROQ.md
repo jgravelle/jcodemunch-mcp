@@ -330,4 +330,25 @@ gcm explain --repo facebook/react -v
 
 Pipeline: repo structure → LLM narration script → Orpheus TTS → Pillow slides → FFmpeg MP4. Requires FFmpeg on PATH.
 
+### Choosing a TTS backend
+
+Both `gcm --voice` and `gcm explain` use the default audio endpoint unless a TTS
+backend is configured. Set `JCODEMUNCH_TTS_PROVIDER=minimax` to synthesize
+speech through the MiniMax T2A endpoint instead:
+
+```bash
+export JCODEMUNCH_TTS_PROVIDER=minimax
+export MINIMAX_API_KEY=...
+
+# Optional — defaults shown
+export JCODEMUNCH_MINIMAX_T2A_REGION=global_en   # or cn_zh
+export JCODEMUNCH_MINIMAX_T2A_MODEL=speech-2.8-hd
+export JCODEMUNCH_MINIMAX_T2A_VOICE=...          # voice_id; endpoint default if unset
+```
+
+The `global_en` and `cn_zh` regions are separate deployments and an API key is
+valid on one of them only, so an unrecognised region is rejected rather than
+quietly resolved to the default. Available models are `speech-2.8`, `speech-2.6`,
+`speech-02` and `speech-01`, each in an `-hd` and a `-turbo` variant.
+
 ---
