@@ -69,7 +69,7 @@ def test_summarizer(timeout_ms: int = 15000) -> dict[str, Any]:
         result["error"] = (
             "No summarizer provider detected. "
             "Set an API key (ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_BASE, "
-            "MINIMAX_API_KEY, ZHIPUAI_API_KEY, OPENROUTER_API_KEY) "
+            "MINIMAX_API_KEY, ZHIPUAI_API_KEY, OPENROUTER_API_KEY, ORCAROUTER_API_KEY) "
             "or configure summarizer_provider in your config file."
         )
         return result
@@ -95,6 +95,7 @@ def test_summarizer(timeout_ms: int = 15000) -> dict[str, Any]:
             "minimax": "minimax",
             "glm": "zhipu",
             "openrouter": "openai",
+            "orcarouter": "openai",
         }
         extra = _pip_extras.get(provider, provider)
         result["status"] = "misconfigured"

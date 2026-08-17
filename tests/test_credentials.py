@@ -138,6 +138,7 @@ class TestRecognisedEnvVars:
             "MINIMAX_API_KEY",
             "ZHIPUAI_API_KEY",
             "OPENROUTER_API_KEY",
+            "ORCAROUTER_API_KEY",
             "GROQ_API_KEY",
             "JCODEMUNCH_HTTP_TOKEN",
         }

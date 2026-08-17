@@ -2561,7 +2561,7 @@ def generate_template() -> str:
   // "use_ai_summaries": "auto",
 
   // AI summarizer provider to use when use_ai_summaries is true.
-  // Valid values: "anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"
+  // Valid values: "anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "orcarouter", "none"
   // Leave empty ("") to auto-detect from available API keys.
   // "summarizer_provider": "",
 
@@ -2569,7 +2569,7 @@ def generate_template() -> str:
   // Leave empty ("") to use the provider's default model.
   // Examples: "claude-haiku-4-5-20251001" (anthropic), "gemini-2.5-flash-lite" (gemini),
   //           "gpt-4o-mini" (openai), "minimax-m2.7" (minimax), "glm-5" (glm),
-  //           "meta-llama/llama-3.3-70b-instruct:free" (openrouter)
+  //           "meta-llama/llama-3.3-70b-instruct:free" (openrouter), "openai/gpt-4o-mini" (orcarouter)
   // "summarizer_model": "",
   // "embed_model": "",
   //   Sentence-transformers model name for local (free) semantic embeddings.
@@ -2580,7 +2580,7 @@ def generate_template() -> str:
   //   Default false blocks non-local summarization.
   // "allow_paid_summaries": false,
   //   Allow AUTO-detected PAID cloud providers (anthropic/gemini/minimax/glm/
-  //   openrouter, or remote OpenAI) to summarize just because their API key is
+  //   openrouter/orcarouter, or remote OpenAI) to summarize just because their API key is
   //   present in the environment. Default false so a stray cloud key never
   //   silently bills during indexing. Naming a provider explicitly via
   //   "summarizer_provider" is always honored and does NOT need this flag.

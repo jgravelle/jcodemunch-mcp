@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **OrcaRouter provider** — New provider via `ORCAROUTER_API_KEY` using the OpenAI-compatible API at `api.orcarouter.ai/v1`. Default model: `openai/gpt-4o-mini`. Auto-detect priority: last in chain (after OpenRouter). Explicit selection: `summarizer_provider: "orcarouter"` or `JCODEMUNCH_SUMMARIZER_PROVIDER=orcarouter`. `jcodemunch-mcp config` now shows an active OrcaRouter section. Like other paid-cloud providers, auto-selection from a bare `ORCAROUTER_API_KEY` requires the `allow_paid_summaries` opt-in.
+
 ### One telemetry database spent another's trim ([#476](https://github.com/jgravelle/jcodemunch-mcp/issues/476))
 
 Reported by [@rknighton](https://github.com/rknighton), who pinned the cause to

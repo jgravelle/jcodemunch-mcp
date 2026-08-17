@@ -22,8 +22,9 @@ _AUTO_DETECT_ORDER = [
     ("MINIMAX_API_KEY", "minimax"),
     ("ZHIPUAI_API_KEY", "glm"),
     ("OPENROUTER_API_KEY", "openrouter"),
+    ("ORCAROUTER_API_KEY", "orcarouter"),
 ]
-_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "none"}
+_VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrouter", "orcarouter", "none"}
 
 # Providers that bill a remote cloud account per call. A bare env key for any of
 # these must NEVER auto-enable summarization — that silently spends real money
@@ -31,7 +32,7 @@ _VALID_PROVIDERS = {"anthropic", "gemini", "openai", "minimax", "glm", "openrout
 # this). Paid-cloud auto-selection requires explicit opt-in; see
 # _paid_summaries_allowed. "openai" is handled separately because OPENAI_API_BASE
 # may point at a free local endpoint (Ollama / LM Studio).
-_PAID_CLOUD_PROVIDERS = frozenset({"anthropic", "gemini", "minimax", "glm", "openrouter"})
+_PAID_CLOUD_PROVIDERS = frozenset({"anthropic", "gemini", "minimax", "glm", "openrouter", "orcarouter"})
 _WARNED_SUPPRESSED_PAID: set[str] = set()
 
 
@@ -824,6 +825,17 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
         except ValueError:
             return None
         return s if s.client else None
+    if name == "orcarouter":
+        try:
+            s = _make_openai_compat(
+                api_key=os.environ.get("ORCAROUTER_API_KEY"),
+                base_url="https://api.orcarouter.ai/v1",
+                model=model_override or "openai/gpt-4o-mini",
+                repo=repo,
+            )
+        except ValueError:
+            return None
+        return s if s.client else None
     return None
 
 
@@ -831,7 +843,7 @@ def get_provider_name(repo: Optional[str] = None) -> Optional[str]:
     """Return the active summarizer provider name, or None if disabled/unset.
 
     Priority: summarizer_provider config key > JCODEMUNCH_SUMMARIZER_PROVIDER env var > auto-detect by key.
-    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5 > OpenRouter.
+    Auto-detect order: Anthropic > Gemini > OpenAI-compatible > MiniMax > GLM-5 > OpenRouter > OrcaRouter.
 
     `repo` routes the config read through the project-aware path so a
     `summarizer_provider` set in `.jcodemunch.jsonc` is honored (#304).
@@ -924,7 +936,7 @@ def summarize_symbols(
     """Full three-tier summarization.
 
     Tier 1: Docstring extraction (free)
-    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, OpenAI, MiniMax, GLM-5)
+    Tier 2: AI batch summarization (Claude Haiku, Gemini Flash, OpenAI, MiniMax, GLM-5, OpenRouter, OrcaRouter)
     Tier 3: Signature fallback (always works)
 
     Provider selection (Tier 2 priority):
@@ -934,6 +946,7 @@ def summarize_symbols(
       4. MINIMAX_API_KEY set or provider=minimax     → MiniMax M2.7
       5. ZHIPUAI_API_KEY set or provider=glm         → GLM-5
       6. OPENROUTER_API_KEY set or provider=openrouter → OpenRouter
+      7. ORCAROUTER_API_KEY set or provider=orcarouter → OrcaRouter
       - None set               → skip to Tier 3
 
     `repo` (absolute path of the index source_root) routes config reads

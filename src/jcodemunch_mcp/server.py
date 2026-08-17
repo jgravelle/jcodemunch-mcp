@@ -8231,11 +8231,16 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         print(f"  Active provider:  {green('OpenRouter')}  ({suffix})")
         row("  OPENAI_API_BASE", "https://openrouter.ai/api/v1", "default")
         row("  OPENAI_MODEL", _sm_effective or "meta-llama/llama-3.3-70b-instruct:free", _detect_source("summarizer_model", "") if _sm_effective else "default")
+    elif provider_name == "orcarouter":
+        suffix = _provider_pinned_by("orcarouter") if provider == "orcarouter" else "ORCAROUTER_API_KEY set"
+        print(f"  Active provider:  {green('OrcaRouter')}  ({suffix})")
+        row("  OPENAI_API_BASE", "https://api.orcarouter.ai/v1", "default")
+        row("  OPENAI_MODEL", _sm_effective or "openai/gpt-4o-mini", _detect_source("summarizer_model", "") if _sm_effective else "default")
     elif provider == "none":
         print(f"  Active provider:  {yellow('none')} — explicitly disabled, signature fallback active")
     else:
         print(f"  Active provider:  {yellow('none')} — no API key set, signature fallback active")
-        print(f"  {dim('Set ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_BASE, MINIMAX_API_KEY, ZHIPUAI_API_KEY, or OPENROUTER_API_KEY to enable')}")
+        print(f"  {dim('Set ANTHROPIC_API_KEY, GOOGLE_API_KEY, OPENAI_API_BASE, MINIMAX_API_KEY, ZHIPUAI_API_KEY, OPENROUTER_API_KEY, or ORCAROUTER_API_KEY to enable')}")
 
     allow_remote = _cfg.get("allow_remote_summarizer", False)
     allow_label = str(allow_remote).lower()

@@ -211,7 +211,7 @@ def test_gemini_summarizer_with_mock_client():
 
 def test_get_provider_name_explicit_values(monkeypatch):
     """Explicit provider selection should win over auto-detect."""
-    for provider in ("anthropic", "gemini", "openai", "minimax", "glm"):
+    for provider in ("anthropic", "gemini", "openai", "minimax", "glm", "orcarouter"):
         monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", provider)
         assert get_provider_name() == provider
 
@@ -225,7 +225,7 @@ def test_get_provider_name_none_disables(monkeypatch):
 
 def test_get_provider_name_unknown_falls_back_to_auto(monkeypatch):
     """Unknown explicit values should fall back to auto-detection."""
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "unknown-provider")
     monkeypatch.setenv("MINIMAX_API_KEY", "test-key")
@@ -289,11 +289,29 @@ def test_get_provider_name_auto_detect_openrouter(monkeypatch):
         "OPENAI_API_BASE",
         "MINIMAX_API_KEY",
         "ZHIPUAI_API_KEY",
+        "ORCAROUTER_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")  # paid auto-detect is opt-in (v1.108.128)
     assert get_provider_name() == "openrouter"
+
+
+def test_get_provider_name_auto_detect_orcarouter(monkeypatch):
+    """OrcaRouter should be detected when it is the only configured provider."""
+    for key in (
+        "JCODEMUNCH_SUMMARIZER_PROVIDER",
+        "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY",
+        "OPENAI_API_BASE",
+        "MINIMAX_API_KEY",
+        "ZHIPUAI_API_KEY",
+        "OPENROUTER_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("ORCAROUTER_API_KEY", "sk-orca-test")
+    monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")  # paid auto-detect is opt-in (v1.108.128)
+    assert get_provider_name() == "orcarouter"
 
 
 def test_create_summarizer_explicit_provider_missing_key_returns_none(monkeypatch):
@@ -308,6 +326,10 @@ def test_create_summarizer_explicit_provider_missing_key_returns_none(monkeypatc
 
     monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "openrouter")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    assert _create_summarizer() is None
+
+    monkeypatch.setenv("JCODEMUNCH_SUMMARIZER_PROVIDER", "orcarouter")
+    monkeypatch.delenv("ORCAROUTER_API_KEY", raising=False)
     assert _create_summarizer() is None
 
 
@@ -811,6 +833,62 @@ def test_openai_summarizer_openrouter_provider_defaults():
     assert symbols[0].summary == "Uses the OpenRouter endpoint."
 
 
+def test_openai_summarizer_orcarouter_provider_defaults():
+    """OrcaRouter should use its fixed API base and default model."""
+    from jcodemunch_mcp import config as _cfg_module
+
+    _sentinel = object()
+    _orig = _cfg_module._GLOBAL_CONFIG.get("allow_remote_summarizer", _sentinel)
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "choices": [{"message": {"content": "1. Uses the OrcaRouter endpoint."}}]
+    }
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_response
+
+    with patch.dict(
+        "os.environ",
+        {
+            "ORCAROUTER_API_KEY": "sk-orca-test",
+            "JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER": "1",
+        },
+        clear=True,
+    ):
+        try:
+            _cfg_module._GLOBAL_CONFIG["allow_remote_summarizer"] = True
+            with patch.object(OpenAIBatchSummarizer, "_init_client"):
+                summarizer = OpenAIBatchSummarizer(
+                    model="openai/gpt-4o-mini",
+                    api_base="https://api.orcarouter.ai/v1",
+                    api_key="sk-orca-test",
+                )
+            summarizer.client = mock_client
+        finally:
+            if _orig is _sentinel:
+                _cfg_module._GLOBAL_CONFIG.pop("allow_remote_summarizer", None)
+            else:
+                _cfg_module._GLOBAL_CONFIG["allow_remote_summarizer"] = _orig
+
+    symbols = [
+        Symbol(
+            id="test::orcarouter",
+            file="test.py",
+            name="orcarouter",
+            qualified_name="orcarouter",
+            kind="function",
+            language="python",
+            signature="def orcarouter():",
+        )
+    ]
+    summarizer.summarize_batch(symbols)
+
+    mock_client.post.assert_called_once()
+    assert mock_client.post.call_args[0][0] == "https://api.orcarouter.ai/v1/chat/completions"
+    assert mock_client.post.call_args[1]["json"]["model"] == "openai/gpt-4o-mini"
+    assert symbols[0].summary == "Uses the OrcaRouter endpoint."
+
+
 def test_openai_summarizer_remote_endpoint_requires_allow_flag():
     """Non-localhost OpenAI endpoints are ignored without the allow flag."""
     from jcodemunch_mcp import config as _cfg_module
@@ -1152,7 +1230,7 @@ def test_create_summarizer_disabled_when_string_false(falsy_val):
 
 def test_create_summarizer_auto_mode_no_providers(monkeypatch):
     """_create_summarizer() with use_ai_summaries='auto' returns None when no providers configured."""
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     with patch(
         "jcodemunch_mcp.summarizer.batch_summarize._config.get",
@@ -1163,7 +1241,7 @@ def test_create_summarizer_auto_mode_no_providers(monkeypatch):
 
 def test_create_summarizer_auto_mode_detects_provider(monkeypatch):
     """_create_summarizer() with use_ai_summaries='auto' picks up auto-detected provider."""
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("ZHIPUAI_API_KEY", "test-key")
     monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")  # paid auto-detect is opt-in (v1.108.128)
@@ -1195,7 +1273,7 @@ def test_create_summarizer_auto_mode_detects_provider(monkeypatch):
 
 def test_create_summarizer_model_override_applied_to_glm(monkeypatch):
     """summarizer_model config override is applied to the created GLM summarizer."""
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("ZHIPUAI_API_KEY", "test-key")
     monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")  # paid auto-detect is opt-in (v1.108.128)
@@ -1226,7 +1304,7 @@ def test_create_summarizer_model_override_applied_to_glm(monkeypatch):
 def test_create_summarizer_explicit_true_no_provider_warns_and_autodetects(monkeypatch, caplog):
     """use_ai_summaries=True with no summarizer_provider logs warning and falls back to auto-detect."""
     import logging
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     with patch(
         "jcodemunch_mcp.summarizer.batch_summarize._config.get",
@@ -1310,7 +1388,7 @@ def test_gemini_model_override_via_config():
 def test_openai_model_override_via_config(monkeypatch):
     """summarizer_model config is applied to _create_summarizer() for the OpenAI provider."""
     monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:11434/v1")
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
     with patch(
@@ -1331,7 +1409,7 @@ def test_openai_model_override_via_config(monkeypatch):
 def test_minimax_model_override_via_config(monkeypatch):
     """summarizer_model config is applied to _create_summarizer() for the MiniMax provider."""
     monkeypatch.setenv("MINIMAX_API_KEY", "mm-test-key")
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("JCODEMUNCH_ALLOW_PAID_SUMMARIES", "1")  # paid auto-detect is opt-in (v1.108.128)
 
@@ -1366,7 +1444,7 @@ def test_summarizer_model_config_beats_openai_model_env(monkeypatch):
     """summarizer_model config takes priority over OPENAI_MODEL env var in OpenAI provider."""
     monkeypatch.setenv("OPENAI_API_BASE", "http://localhost:11434/v1")
     monkeypatch.setenv("OPENAI_MODEL", "env-model-should-lose")
-    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY"):
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY", "ORCAROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
     with patch(
@@ -1636,6 +1714,7 @@ class TestProjectAwareSummarizer:
         monkeypatch.setattr(_P, "home", classmethod(lambda cls: tmp_path))
         for k in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_BASE",
                   "MINIMAX_API_KEY", "ZHIPUAI_API_KEY", "OPENROUTER_API_KEY",
+                  "ORCAROUTER_API_KEY",
                   "OPENAI_MODEL", "ANTHROPIC_MODEL", "GOOGLE_MODEL",
                   "JCODEMUNCH_SUMMARIZER_PROVIDER",
                   "JCODEMUNCH_SUMMARIZER_MODEL"):
