@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.jcodemunch_mcp.cli import init as init_module
+from jcodemunch_mcp.cli import init as init_module
 
 
 @pytest.fixture

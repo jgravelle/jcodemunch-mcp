@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from src.jcodemunch_mcp.config import (
+from jcodemunch_mcp.config import (
     apply_share_savings,
     generate_template,
     set_bool_key,
@@ -123,7 +123,7 @@ class TestTelemetrySelfCorrecting:
     is recovered by the next one instead of permanently undercounting."""
 
     def _capture(self, monkeypatch):
-        from src.jcodemunch_mcp.storage import token_tracker as tt
+        from jcodemunch_mcp.storage import token_tracker as tt
         sent: list = []
         monkeypatch.setattr(
             tt, "_share_savings",

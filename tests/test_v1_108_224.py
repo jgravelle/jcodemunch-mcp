@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-from src.jcodemunch_mcp.tools.get_symbol import (
+from jcodemunch_mcp.tools.get_symbol import (
     _normalize_eol,
     _verify_against_git_sha as _verify_impl,
 )

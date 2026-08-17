@@ -21,7 +21,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.jcodemunch_mcp import credentials as _creds
+from jcodemunch_mcp import credentials as _creds
 
 
 @pytest.fixture(autouse=True)

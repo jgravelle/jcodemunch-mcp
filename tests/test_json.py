@@ -1,7 +1,11 @@
 """Tests for JSON symbol extraction."""
 
-from src.jcodemunch_mcp.parser.extractor import parse_file, _parse_json_symbols
-from src.jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
+# ⚠ Import via `jcodemunch_mcp`, NEVER `src.jcodemunch_mcp` — see the note in
+# tests/test_css.py. The two spellings are two module objects with two configs;
+# conftest resets only the canonical one, so the `src.` twin reads the
+# developer's real `~/.code-index/config.jsonc` and gates `json` out.
+from jcodemunch_mcp.parser.extractor import parse_file, _parse_json_symbols
+from jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------

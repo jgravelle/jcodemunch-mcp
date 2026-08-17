@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - A string test cannot finish enumerating the ways a name is absolute
+## [Unreleased]
 
 ### `install-pack` extracted drive-absolute archive members outside the install directory ([#447](https://github.com/jgravelle/jcodemunch-mcp/issues/447))
 
@@ -32,6 +32,177 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+
+### The package twin is retired, and the guard that could not see it now can
+
+Fourteen test modules imported the package as `src.jcodemunch_mcp`. That is a
+**different module object** from `jcodemunch_mcp` — `src.jcodemunch_mcp.config
+is jcodemunch_mcp.config` is `False` — carrying its own `_GLOBAL_CONFIG` that
+conftest's `_reset_global_config` never resets. The twin therefore lazily loaded
+the developer's real `~/.code-index/config.jsonc`, and every protection in
+`tests/test_config_isolation_guard.py` was bypassed by a spelling.
+
+All 140 references are converted, and `tests/test_config_isolation_guard.py`
+now fails on the spelling.
+
+⚠⚠ **The guard already existed and a different import path walked around it** —
+which is the same shape as the defect that file was written for, where the guard
+existed and the CALL SITES walked around the reset. That is why the new check
+lives in that file rather than a new one.
+
+⚠ **Two of the fourteen were the live defect; the rest were unfired.**
+`test_css.py` and `test_json.py` returned `[]` from `parse_file` because
+`is_language_enabled` consulted the twin's config, where the real `languages`
+allowlist omits `scss` and `json` (fixed in #482). `test_al.py` and
+`test_blade.py` are the identical defect and passed only because `al` and
+`blade` happen to be in this box's allowlist. **On a contributor's machine with
+a narrower list they fail the same way** — which is the "passes on two machines,
+fails on a third" shape the original guard was written for.
+
+⚠⚠ **The `patch("src.jcodemunch_mcp...")` form fails the OTHER way and is worse
+for it.** Two such targets existed. They patch an attribute on the twin while
+the test exercises the canonical module, so the patch does nothing and the test
+passes **without testing what it names** — a false green rather than a false
+red. Converting the imports without converting these would have left exactly
+that.
+
+⚠ The detector matches a string only when it STARTS with the twin root, which is
+the shape of a `patch()` target, and skips docstrings — so prose naming the
+hazard is not itself a violation, asserted by name in
+`test_the_twin_guard_can_fail`. ⚠ `_TWIN_ROOT` is assembled from two literals so
+the guard **does not exempt itself**; written as one string it flags its own
+source line, and both alternatives (exempting the file, special-casing its name)
+stop it policing itself.
+
+⚠ Proven non-vacuous against the REAL pre-fix tree, not only synthetic fixtures:
+restoring `tests/test_al.py` from `HEAD` turns the guard red naming lines 6-7.
+`TWIN_EXEMPT` is **empty**, and its parametrize-over-nothing SKIP is the ratchet
+at rest — it re-arms the moment anyone adds an entry.
+
+### The dispatcher ate its caller's `format` argument ([#482](https://github.com/jgravelle/jcodemunch-mcp/pull/482))
+
+`call_tool` extracts `format` because it belongs to no tool's schema, and did it
+with `arguments.pop("format")` — on the caller's own dict. A caller that reuses
+one args object got JSON on its first call and whatever `server_output` resolves
+to on every call after. The dispatcher now pops from its own copy.
+
+⚠⚠ **The first call proving the argument works is what makes this expensive.**
+Nothing errors and nothing warns; the response is still valid, just encoded
+differently from what was asked for. A caller that checked the first response and
+moved on would never look again.
+
+⚠ **Over the wire this is invisible** — every MCP request arrives as a freshly
+parsed dict, so no remote client can hit it. The exposed callers are in-process:
+the Counter front door re-dispatching into `call_tool`, and the test suite.
+
+⚠⚠ **It presented as an environment quirk, and that is the part worth
+remembering.** The second call falls back to `auto`, where the **15% encoding
+gate decides per response** — and the response carries `timing_ms`. Coverage
+instrumentation slows the call, changes that number, changes the byte count, and
+tips the gate. So the same defect was red on ubuntu 3.10/3.11/3.12, green on
+ubuntu 3.13, green on all four Windows legs, green locally without `--cov` and
+red locally with it. **Chasing the platforms would have found nothing; the
+argument dict is the same everywhere.**
+
+⚠ `tests/test_dispatcher_arg_mutation.py` (3) asserts on the ARGUMENT DICT, not
+on the response encoding, precisely so it does not inherit the gate's
+environment-sensitivity. Reverting the fix turns 2 of the 3 red; the third is the
+control that `format` is still honoured and passes both sides.
+
+### The test suite runs in parallel, and doing it found a test that only passed because of the file that ran before it
+
+The suite is 7,859 tests and took 599 seconds. It now runs under `pytest-xdist`
+at `-n 4 --dist loadfile`. Measured on a 24-core box: **599s serial vs 183s
+parallel**, both collecting the same 7,859. CI runs the same flags; with coverage
+instrumentation the local run of CI's exact command is 258s.
+
+⚠ **`--dist loadfile` is load-bearing, not tuning.** It keeps a whole file on one
+worker, which preserves within-file ordering. The default `--dist load` spreads
+individual tests across workers and would break any file whose tests share
+module-level state.
+
+⚠ **Worker isolation is STRONGER than the serial run, not weaker.** Everything
+`conftest.py` resets per test — `_GLOBAL_CONFIG`, the index cache, perf-DB
+handles — is process-global, and each xdist worker is its own process. What
+parallelism takes away is the accidental cross-FILE ordering the serial run
+provided for free, and one test was living on it.
+
+⚠⚠ **The two failures the parallel run produced were NOT caused by parallelism —
+they reproduce serially in isolation, and they had been latent for as long as the
+files existed.** `tests/test_css.py` and `tests/test_json.py` imported through
+`src.jcodemunch_mcp`, which is a **different module object** from
+`jcodemunch_mcp` (`is` → `False`). The twin carries its own
+`config._GLOBAL_CONFIG` that conftest never resets, so it lazily loaded the
+developer's real `~/.code-index/config.jsonc`; `is_language_enabled` gated the
+language out of any `languages` allowlist that omits it, and `parse_file`
+returned `[]` while the direct extractor returned 10 symbols.
+
+⚠ **The mechanism is confirmed by which half failed.** `test_css.py` exercises
+both `css` and `scss` through `parse_file` and only the `scss` assertion broke —
+`css` is in the allowlist, `scss` is not. They passed in the full serial run only
+because `test_config.py` (also `src.`-prefixed) overwrote the twin's config
+earlier in alphabetical order.
+
+⚠ **This is Maintenance Practice #8's class in a spelling the guard cannot see.**
+`tests/test_config_isolation_guard.py` has no knowledge of the `src.` prefix.
+**Fourteen test files still import through the twin**, and two are the same defect
+unfired: `test_al.py` and `test_blade.py` both reach `parse_file` that way and
+pass only because `al` and `blade` happen to be in this box's config. On a
+contributor's box with a narrower allowlist they fail exactly as `scss` did.
+Not fixed here; the two live failures are.
+
+⚠ **CI is pinned to `-n 4`, not `-n auto`.** GitHub's standard runners are 4-core
+so `auto` resolves to 4 today and would jump silently if they are resized. More
+workers is not free: tests that do not isolate their storage contend on the same
+`~/.code-index` process-lock scopes, and that contention is the documented cause
+of the 47-minute outlier on the 1.108.261 run. Raise it only with a measurement.
+
+⚠⚠ **Adding the dependency required a re-lock, and the local-uv hazard in
+`test.yml`'s comment fired in its third direction.** A local uv 0.12.1 against
+the CI pin of 0.9.5 produced 76 insertions / 52 deletions: beyond the known
+nvidia marker widening it **stripped `python_full_version` guards off the
+google-api deps and `typing-extensions`**, changing what installs on 3.10 versus
+3.14, on a change whose only intent was adding a test runner. Re-locked via
+`uvx --from uv==0.9.5 uv lock` — 24 insertions, zero deletions, `execnet` and
+`pytest-xdist` only. **Check `git diff --stat uv.lock` after every lock, not just
+after version bumps.**
+
+### Relative storage paths are resolved before they become cache keys ([#475](https://github.com/jgravelle/jcodemunch-mcp/issues/475))
+
+Reported and fixed by [@mikemikimike](https://github.com/jgravelle/jcodemunch-mcp/pull/479).
+
+`SQLiteIndexStore` keyed `_VERIFIED_PATHS` and `_initialized_dbs` on the spelling
+it was handed. A relative `storage_path` names a different directory after the
+process changes working directory while that key stays the same, so the second
+store inherits the first one's initialization state and skips the `mkdir` and the
+schema/migration setup it needs. `IndexStore` now resolves its base path once and
+hands the resolved path to its SQLite backend.
+
+⚠ **The same defect v1.108.280 fixed, one layer up.** That release resolved the
+perf-db path where it is *built*, because a cache keyed on a spelling is keyed on
+the caller's working directory. This is the index store making that assumption
+about its own keys. Absolute paths and the default `~/.code-index` store are
+unaffected — `resolve()` returns them unchanged.
+
+⚠ **The `expanduser()` half is a second fix and it moves one existing case.** A
+`storage_path` written with a literal `~` (an MCP client config passing
+`CODE_INDEX_PATH: "~/foo"` does not go through a shell) built a directory
+*named* `~` under the working directory here, while `process_registry` and
+`transcript_roots` expanded the same value against the real home. Anyone in that
+state has been running split across two locations; they now get the home one, and
+the tilde directory they accumulated is not migrated.
+
+⚠ **The fix turned four tests red and every one of them was already wrong.**
+`patch("...Path.resolve", return_value=X)` replaces `resolve` on the `Path`
+*class*, so it answered for every path in the process, including the storage path
+the store resolves on construction. Four tests in `test_tools.py` get past the
+breadth guard, and each then created its index directory at the faked location: a
+local run left an empty `C:\work\project` behind, and CI died in `mkdir` at
+`/workspaces/myrepo` and `\\server\share\`. ⚠⚠ **Nothing in the suite could have
+reported that, because the writes landed where no assertion was looking.** The
+mocks are narrow now — `_resolve_only` in `tests/__init__.py`, with
+`autospec=True` so `self` reaches it. The other fifteen patch sites were
+converted as well; none of them were correct either, only inert.
 ## [1.108.282] - 2026-08-16 - Half the tool descriptions never said what the tool would not do
 
 Scored every description this server emits against the rubric in

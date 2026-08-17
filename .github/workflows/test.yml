@@ -84,7 +84,26 @@ jobs:
         run: uv sync --locked --group dev --extra watch
 
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --cov-fail-under=74
+        # `-n 4 --dist loadfile` — parallel across processes, whole file per
+        # worker. Measured 2026-08-16 on a 24-core box: 599s serial vs 183s
+        # parallel, both collecting 7859.
+        #
+        # ⚠⚠ `--dist loadfile` is load-bearing. The default `--dist load` spreads
+        # individual tests across workers and breaks any file whose tests share
+        # module-level state. Keeping a file whole preserves within-file order,
+        # which is the only ordering guarantee the serial run actually gave us.
+        #
+        # ⚠ Pinned to 4, NOT `-n auto`. GitHub's standard runners are 4-core, so
+        # `auto` resolves to 4 today and would silently jump if GitHub resizes
+        # them. More workers is not free here: tests that do not isolate their
+        # storage contend on the same `~/.code-index` process-lock scopes, and
+        # that contention is the documented cause of the 47-minute outlier on
+        # the 1.108.261 run. Raise this only with a measurement attached.
+        #
+        # ⚠ `-v` is deliberately dropped: under xdist it interleaves output from
+        # 4 workers, which is less readable than the default progress line, not
+        # more. `--tb=short` still gives full tracebacks on failure.
+        run: uv run pytest tests/ -n 4 --dist loadfile --tb=short --cov=src --cov-report=term-missing --cov-fail-under=74
 
       - name: Verify sdist contains no sensitive paths
         if: runner.os == 'Linux'

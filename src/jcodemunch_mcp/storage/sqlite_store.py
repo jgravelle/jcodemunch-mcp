@@ -785,7 +785,7 @@ class SQLiteIndexStore:
             base_path: Base directory for storage. Defaults to ~/.code-index/
         """
         if base_path:
-            self.base_path = Path(base_path)
+            self.base_path = Path(base_path).expanduser().resolve()
         else:
             self.base_path = Path.home() / ".code-index"
         _key = str(self.base_path)

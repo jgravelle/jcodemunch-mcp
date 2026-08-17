@@ -13,8 +13,8 @@ import os
 
 import pytest
 
-from src.jcodemunch_mcp import config as C
-from src.jcodemunch_mcp import server as S
+from jcodemunch_mcp import config as C
+from jcodemunch_mcp import server as S
 
 
 def _effective(storage_dir):

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests import _platform_path, _platform_path_str
-from src.jcodemunch_mcp.config import _strip_jsonc
+from jcodemunch_mcp.config import _strip_jsonc
 
 
 class TestJSONCParser:
@@ -126,7 +126,7 @@ class TestConfigDefaults:
     ])
     def test_default_values(self, key, expected):
         """Should have correct default values."""
-        from src.jcodemunch_mcp.config import DEFAULTS
+        from jcodemunch_mcp.config import DEFAULTS
         assert DEFAULTS[key] == expected
 
     @pytest.mark.parametrize("key,expected_type", [
@@ -146,12 +146,12 @@ class TestConfigDefaults:
     ])
     def test_default_types(self, key, expected_type):
         """Config types should match expected types."""
-        from src.jcodemunch_mcp.config import CONFIG_TYPES
+        from jcodemunch_mcp.config import CONFIG_TYPES
         assert CONFIG_TYPES[key] is expected_type
 
     def test_default_use_ai_summaries(self):
         """use_ai_summaries should default to 'auto'."""
-        from src.jcodemunch_mcp.config import DEFAULTS, CONFIG_TYPES
+        from jcodemunch_mcp.config import DEFAULTS, CONFIG_TYPES
         assert DEFAULTS["use_ai_summaries"] == "auto"
         assert CONFIG_TYPES["use_ai_summaries"] == (bool, str)
 
@@ -161,7 +161,7 @@ class TestConfigLoading:
 
     def test_auto_creates_default_config_if_missing(self, tmp_path):
         """load_config() should create default config.jsonc if it doesn't exist."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         storage_path = str(tmp_path)
@@ -185,7 +185,7 @@ class TestConfigLoading:
 
     def test_missing_file_uses_defaults(self, monkeypatch):
         """Should use defaults when config file doesn't exist."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         # Clear any existing config
         _GLOBAL_CONFIG.clear()
@@ -202,7 +202,7 @@ class TestConfigLoading:
 
     def test_loads_valid_config(self, monkeypatch):
         """Should load valid JSONC config."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -232,7 +232,7 @@ class TestConfigLoading:
     )
     def test_server_output_normalizes_aliases(self, configured, expected):
         """server_output should normalize legacy aliases to user-facing values."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -249,7 +249,7 @@ class TestConfigLoading:
     ], ids=["null", "empty_list", "partial_list"])
     def test_meta_fields_config_values(self, value, expected):
         """meta_fields should handle null, empty list, and partial list values."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -261,7 +261,7 @@ class TestConfigLoading:
 
     def test_meta_fields_absent_uses_default(self):
         """meta_fields absent from config uses default ([] = no metadata)."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -276,7 +276,7 @@ class TestConfigLoading:
 
     def test_type_mismatch_logs_warning_and_uses_default(self, monkeypatch, caplog):
         """Should log warning and use default on type mismatch."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
         import logging
 
         _GLOBAL_CONFIG.clear()
@@ -297,7 +297,7 @@ class TestConfigLoading:
     def test_unknown_language_logs_warning(self, monkeypatch, caplog):
         """Unknown language in config should log warning and be filtered."""
         import logging
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         caplog.set_level(logging.WARNING)
         _GLOBAL_CONFIG.clear()
@@ -321,7 +321,7 @@ class TestProjectConfig:
 
     def test_load_all_project_configs_at_startup(self, tmp_path, monkeypatch):
         """load_all_project_configs() should load .jcodemunch.jsonc for all local repos."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, load_all_project_configs, get, _GLOBAL_CONFIG, _PROJECT_CONFIGS
         )
         import unittest.mock
@@ -348,7 +348,7 @@ class TestProjectConfig:
         load_config(str(tmp_path))
 
         with unittest.mock.patch(
-            "src.jcodemunch_mcp.config._list_repos_for_config", return_value=mock_repos
+            "jcodemunch_mcp.config._list_repos_for_config", return_value=mock_repos
         ):
             load_all_project_configs()
 
@@ -361,7 +361,7 @@ class TestProjectConfig:
 
     def test_project_config_merges_over_global(self):
         """Should merge project config over global config."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, load_project_config, get,
             _GLOBAL_CONFIG, _PROJECT_CONFIGS
         )
@@ -397,7 +397,7 @@ class TestConfigGetters:
 
     def test_is_tool_disabled(self):
         """Should return True if tool is in disabled_tools."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, is_tool_disabled, _GLOBAL_CONFIG
         )
 
@@ -415,7 +415,7 @@ class TestConfigGetters:
 
     def test_is_language_enabled_all_enabled(self):
         """Should return True for all languages when languages is None."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, is_language_enabled, _GLOBAL_CONFIG, DEFAULTS
         )
 
@@ -427,7 +427,7 @@ class TestConfigGetters:
 
     def test_is_language_enabled_filtered(self):
         """Should return False for disabled languages."""
-        from src.jcodemunch_mcp.config import load_config, is_language_enabled, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, is_language_enabled, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -447,12 +447,12 @@ class TestTemplateGeneration:
 
     def test_generate_template_returns_valid_jsonc(self):
         """Should generate valid JSONC template."""
-        from src.jcodemunch_mcp.config import generate_template
+        from jcodemunch_mcp.config import generate_template
 
         template = generate_template()
 
         # Should be parseable after stripping comments
-        from src.jcodemunch_mcp.config import _strip_jsonc
+        from jcodemunch_mcp.config import _strip_jsonc
         stripped = _strip_jsonc(template)
         parsed = json.loads(stripped)
 
@@ -462,9 +462,9 @@ class TestTemplateGeneration:
 
     def test_template_languages_synced_from_registry(self):
         """Should include all languages from LANGUAGE_REGISTRY as active entries."""
-        from src.jcodemunch_mcp.config import generate_template
-        from src.jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
-        from src.jcodemunch_mcp.config import _strip_jsonc
+        from jcodemunch_mcp.config import generate_template
+        from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+        from jcodemunch_mcp.config import _strip_jsonc
         import json
 
         template = generate_template()
@@ -476,8 +476,8 @@ class TestTemplateGeneration:
 
     def test_template_all_tools_matches_canonical(self):
         """all_tools in generate_template must include every canonical tool."""
-        from src.jcodemunch_mcp.config import generate_template
-        from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
+        from jcodemunch_mcp.config import generate_template
+        from jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
 
         template = generate_template()
 
@@ -486,7 +486,7 @@ class TestTemplateGeneration:
 
     def test_template_documents_server_output_controls(self):
         """Template should document server_output and threshold keys."""
-        from src.jcodemunch_mcp.config import generate_template
+        from jcodemunch_mcp.config import generate_template
 
         template = generate_template()
         assert '"server_output": "adaptive"' in template
@@ -498,7 +498,7 @@ class TestGetDescriptions:
 
     def test_returns_descriptions_dict(self):
         """Should return descriptions dict from config."""
-        from src.jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -520,7 +520,7 @@ class TestGetDescriptions:
 
     def test_returns_empty_dict_when_absent(self):
         """Should return empty dict when descriptions key absent."""
-        from src.jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG, DEFAULTS
+        from jcodemunch_mcp.config import load_config, get_descriptions, _GLOBAL_CONFIG, DEFAULTS
 
         _GLOBAL_CONFIG.clear()
         _GLOBAL_CONFIG.update(DEFAULTS)  # descriptions = {}
@@ -534,7 +534,7 @@ class TestEnvVarFallback:
 
     def test_env_var_used_when_config_key_absent(self, monkeypatch, caplog):
         """Should use env var value when config key not set."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
         import logging
 
         _GLOBAL_CONFIG.clear()
@@ -556,7 +556,7 @@ class TestEnvVarFallback:
 
     def test_warning_logged_once_per_deprecated_var(self, monkeypatch, caplog):
         """Should log one warning per deprecated env var found."""
-        from src.jcodemunch_mcp.config import load_config, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
+        from jcodemunch_mcp.config import load_config, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
         import logging
 
         _GLOBAL_CONFIG.clear()
@@ -583,7 +583,7 @@ class TestEnvVarFallback:
 
     def test_no_warning_when_config_key_present(self, monkeypatch, caplog):
         """Should NOT log warning when config key is present."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
         import logging
 
         _GLOBAL_CONFIG.clear()
@@ -609,7 +609,7 @@ class TestEnvVarFallback:
         self, monkeypatch, caplog
     ):
         """Should use trusted_folders env var fallback when config key not set."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             get,
             _GLOBAL_CONFIG,
@@ -633,7 +633,7 @@ class TestEnvVarFallback:
 
     def test_trusted_folders_config_wins_over_env_var(self, monkeypatch, caplog):
         """Explicit trusted_folders config should take precedence over env fallback."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             get,
             _GLOBAL_CONFIG,
@@ -672,7 +672,7 @@ class TestEnvVarFallback:
         self, monkeypatch, caplog, env_key, env_value, expected_key, expected_value
     ):
         """Legacy encoding env vars should map through config fallback."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, _DEPRECATED_ENV_VARS_LOGGED
         import logging
 
         _GLOBAL_CONFIG.clear()
@@ -698,7 +698,7 @@ class TestTrustedFoldersConfig:
     ], ids=["relative_entry", "non_string_entry"])
     def test_validate_trusted_folders_rejects(self, tmp_path, text, check):
         """validate_config should reject invalid trusted_folders entries."""
-        from src.jcodemunch_mcp.config import validate_config
+        from jcodemunch_mcp.config import validate_config
 
         config_path = tmp_path / "config.jsonc"
         config_path.write_text(text)
@@ -711,7 +711,7 @@ class TestTrustedFoldersConfig:
     ], ids=["valid_single"])
     def test_load_config_trusted_folders(self, tmp_path, input_folders, expected_count):
         """load_config should keep valid trusted_folders."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -732,7 +732,7 @@ class TestTrustedFoldersConfig:
     ], ids=["expand_dot_slash", "reject_escape", "allow_normalized"])
     def test_project_config_dot_slash_resolution(self, tmp_path, folders_json, expected):
         """Project config './' entries should expand from project root with escape detection."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -761,7 +761,7 @@ class TestTrustedFoldersConfig:
 
     def test_load_config_raises_for_relative_trusted_folders(self, tmp_path):
         """Non-rooted trusted_folders entries should raise during config load."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, DEFAULTS
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, DEFAULTS
 
         _GLOBAL_CONFIG.clear()
 
@@ -779,7 +779,7 @@ class TestTrustedFoldersConfig:
     ], ids=["dot_resolves", "implicit_relative", "implicit_escape"])
     def test_project_config_path_resolution(self, tmp_path, folders_json, expected):
         """Project config paths should resolve relative to project root."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -808,7 +808,7 @@ class TestTrustedFoldersConfig:
 
     def test_project_config_implicit_relative_escape_rejected(self, tmp_path):
         """Project config '../outside' (without ./ prefix) should be rejected."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -837,7 +837,7 @@ class TestTrustedFoldersConfig:
 
     def test_project_config_multiple_mixed_entries(self, tmp_path):
         """Project config can have multiple entries of different types."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -874,7 +874,7 @@ class TestTrustedFoldersConfig:
 
     def test_project_config_overrides_global_trusted_folders(self, tmp_path):
         """Project trusted_folders should override global config, not merge."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -907,7 +907,7 @@ class TestTrustedFoldersConfig:
 
     def test_project_config_empty_list_overrides_global(self, tmp_path):
         """Empty project trusted_folders should clear the setting for that project."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -939,7 +939,7 @@ class TestTrustedFoldersConfig:
     ], ids=["global_dedup"])
     def test_global_config_deduplicates(self, tmp_path, folders_json, expected_count):
         """Global config should deduplicate identical trusted_folders entries."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -957,7 +957,7 @@ class TestTrustedFoldersConfig:
     ], ids=["project_equiv_dedup", "project_absolute_dedup"])
     def test_project_config_deduplicates(self, tmp_path, folders_json, expected_count):
         """Project config should deduplicate equivalent and absolute duplicate entries."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config,
             load_project_config,
             get,
@@ -994,7 +994,7 @@ class TestConfigValidation:
 
     def test_validate_valid_config_returns_empty(self):
         """Should return no issues for a valid config."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1011,7 +1011,7 @@ class TestConfigValidation:
     ], ids=["invalid_json", "type_mismatch", "unknown_key"])
     def test_validate_errors_and_warnings(self, text, check):
         """Should report parse errors, type mismatches, and unknown keys."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1026,7 +1026,7 @@ class TestConfigValidation:
 
     def test_validate_missing_file_returns_error(self):
         """Should report when config file is missing."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1040,7 +1040,7 @@ class TestConfigValidation:
     ], ids=["bool_true", "bool_false", "str_true", "str_false", "str_auto", "str_auto_upper"])
     def test_validate_use_ai_summaries_valid_values(self, value):
         """Valid use_ai_summaries values should pass validation."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1055,7 +1055,7 @@ class TestConfigValidation:
     ], ids=["maybe", "yes"])
     def test_validate_use_ai_summaries_rejected_values(self, value):
         """Invalid use_ai_summaries values should be rejected."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1068,7 +1068,7 @@ class TestConfigValidation:
 
     def test_validate_use_ai_summaries_string_yes_rejected(self):
         """"yes" should be rejected as invalid use_ai_summaries value."""
-        from src.jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import validate_config, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1087,7 +1087,7 @@ class TestServerConfigCheck:
 
     def test_run_config_check_reports_config_parse_error(self, capsys, monkeypatch):
         """Should report config file parse errors in --check output."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1097,7 +1097,7 @@ class TestServerConfigCheck:
 
             monkeypatch.setenv("CODE_INDEX_PATH", tmpdir)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             with pytest.raises(SystemExit) as exc_info:
                 _run_config(check=True)
             assert exc_info.value.code == 1
@@ -1109,7 +1109,7 @@ class TestServerConfigCheck:
 
     def test_run_config_check_reports_type_error(self, capsys, monkeypatch):
         """Should report config type errors in --check output."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1119,7 +1119,7 @@ class TestServerConfigCheck:
 
             monkeypatch.setenv("CODE_INDEX_PATH", tmpdir)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             with pytest.raises(SystemExit) as exc_info:
                 _run_config(check=True)
             assert exc_info.value.code == 1
@@ -1130,7 +1130,7 @@ class TestServerConfigCheck:
 
     def test_run_config_check_passes_for_valid_config(self, capsys, monkeypatch):
         """Should pass checks when config is valid."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -1142,7 +1142,7 @@ class TestServerConfigCheck:
 
             # Provide a CLAUDE.md that mentions all canonical tools so the
             # drift check passes without flagging the test as an issue.
-            from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
+            from jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
             claude_dir = Path(tmpdir) / ".claude"
             claude_dir.mkdir()
             (claude_dir / "CLAUDE.md").write_text(
@@ -1150,7 +1150,7 @@ class TestServerConfigCheck:
             )
             monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path(tmpdir)))
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=True)
 
             captured = capsys.readouterr().out
@@ -1170,7 +1170,7 @@ class TestServerConfigCheckStorageProbe:
 
     def _setup_valid_env(self, tmpdir, monkeypatch):
         """Valid config + isolated home so only the storage probe varies."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG
         _GLOBAL_CONFIG.clear()
         config_path = Path(tmpdir) / "config.jsonc"
         config_path.write_text('{"max_folder_files": 5000}')
@@ -1184,7 +1184,7 @@ class TestServerConfigCheckStorageProbe:
         with tempfile.TemporaryDirectory() as tmpdir:
             self._setup_valid_env(tmpdir, monkeypatch)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=True)  # no SystemExit
 
             captured = capsys.readouterr().out
@@ -1206,7 +1206,7 @@ class TestServerConfigCheckStorageProbe:
 
             monkeypatch.setattr(Path, "write_text", fake_write_text)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             with pytest.raises(SystemExit) as exc_info:
                 _run_config(check=True)
             assert exc_info.value.code == 1
@@ -1231,7 +1231,7 @@ class TestServerConfigCheckStorageProbe:
 
             monkeypatch.setattr(Path, "write_text", fake_write_text)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=True)  # no SystemExit
 
             captured = capsys.readouterr().out
@@ -1256,7 +1256,7 @@ class TestServerConfigCheckStorageProbe:
 
             monkeypatch.setattr(Path, "write_text", fake_write_text)
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=True)
 
             captured = capsys.readouterr().out.lower()
@@ -1272,7 +1272,7 @@ class TestConfigDisplayHonorsProjectOverride:
     """
 
     def test_project_override_visible_in_config_output(self, capsys, monkeypatch):
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
         _GLOBAL_CONFIG.clear()
         _PROJECT_CONFIGS.clear()
 
@@ -1296,7 +1296,7 @@ class TestConfigDisplayHonorsProjectOverride:
             monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp))
             monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=False)
 
             captured = capsys.readouterr().out
@@ -1321,7 +1321,7 @@ class TestConfigDisplayHonorsProjectOverride:
             )
 
     def test_check_section_reports_project_config_loaded(self, capsys, monkeypatch):
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
         _GLOBAL_CONFIG.clear()
         _PROJECT_CONFIGS.clear()
 
@@ -1342,13 +1342,13 @@ class TestConfigDisplayHonorsProjectOverride:
             monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
 
             # Skip CLAUDE.md drift check noise by writing the canonical tool list.
-            from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
+            from jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
             (tmp / ".claude").mkdir()
             (tmp / ".claude" / "CLAUDE.md").write_text(
                 "\n".join(_CANONICAL_TOOL_NAMES), encoding="utf-8"
             )
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=True)
 
             captured = capsys.readouterr().out
@@ -1360,7 +1360,7 @@ class TestConfigDisplayHonorsProjectOverride:
     def test_no_project_file_keeps_global_only_behavior(self, capsys, monkeypatch):
         """When cwd has no .jcodemunch.jsonc, output is unchanged from
         pre-fix behavior — global values, no [project] tags."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
         _GLOBAL_CONFIG.clear()
         _PROJECT_CONFIGS.clear()
 
@@ -1380,7 +1380,7 @@ class TestConfigDisplayHonorsProjectOverride:
             monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp))
             monkeypatch.setattr(Path, "cwd", classmethod(lambda cls: project))
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=False)
 
             captured = capsys.readouterr().out
@@ -1394,7 +1394,7 @@ class TestConfigReportGrouping:
     grouped, self-documenting config screen)."""
 
     def test_every_entry_has_group_and_description(self):
-        from src.jcodemunch_mcp.config import config_report
+        from jcodemunch_mcp.config import config_report
         report = config_report()
         assert report, "config_report should not be empty"
         for entry in report:
@@ -1411,7 +1411,7 @@ class TestConfigReportGrouping:
         so jcm emitted them as Other/no-description and the Console showed blank
         rows. Fails loudly if a future key is added to DEFAULTS without a
         matching template entry."""
-        from src.jcodemunch_mcp.config import config_report
+        from jcodemunch_mcp.config import config_report
         offenders = [
             e["key"] for e in config_report()
             if e["group"] == "Other" or not e["description"]
@@ -1423,7 +1423,7 @@ class TestConfigReportGrouping:
         )
 
     def test_known_keys_map_to_expected_sections(self):
-        from src.jcodemunch_mcp.config import config_report, _config_meta, generate_template
+        from jcodemunch_mcp.config import config_report, _config_meta, generate_template
         groups = {e["key"]: e["group"] for e in config_report()}
         # report groups agree with a direct parse of the template
         meta = _config_meta(generate_template())
@@ -1434,13 +1434,13 @@ class TestConfigReportGrouping:
         assert all(g for g in groups.values())
 
     def test_descriptions_present_where_template_documents_them(self):
-        from src.jcodemunch_mcp.config import config_report
+        from jcodemunch_mcp.config import config_report
         descs = {e["key"]: e["description"] for e in config_report()}
         # use_ai_summaries carries an inline comment in the template
         assert "summaries" in descs["use_ai_summaries"].lower()
 
     def test_config_meta_parses_sections_and_comments(self):
-        from src.jcodemunch_mcp.config import _config_meta
+        from jcodemunch_mcp.config import _config_meta
         template = (
             "{\n"
             "  // === Indexing ===\n"
@@ -1460,7 +1460,7 @@ class TestConfigReportGrouping:
         attach to the key they follow, not bleed onto the next one. A blank
         line ends a block, so a subsequent comment is a lead block for the
         next key."""
-        from src.jcodemunch_mcp.config import _config_meta
+        from jcodemunch_mcp.config import _config_meta
         template = (
             "{\n"
             "  // === Section ===\n"
@@ -1485,7 +1485,7 @@ class TestConfigReportGrouping:
         """The reported bug: embed_model / allow_remote_summarizer / path_map
         are documented with below-key blocks in the real template and were
         each mis-described with the *next* key's comment."""
-        from src.jcodemunch_mcp.config import _config_meta, generate_template
+        from jcodemunch_mcp.config import _config_meta, generate_template
         meta = _config_meta(generate_template())
         assert "sentence-transformers" in meta["embed_model"][1].lower()
         assert "remote llm" in meta["allow_remote_summarizer"][1].lower()
@@ -1501,7 +1501,7 @@ class TestSummarizerModelDisplay:
     """
 
     def _setup(self, monkeypatch, tmp, project_config: dict, env_vars: dict):
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG, _PROJECT_CONFIGS
         _GLOBAL_CONFIG.clear()
         _PROJECT_CONFIGS.clear()
 
@@ -1540,7 +1540,7 @@ class TestSummarizerModelDisplay:
                 json.dumps({"summarizer_model": "Qwen3.6-Plus"}), encoding="utf-8"
             )
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=False)
 
             captured = capsys.readouterr().out
@@ -1567,7 +1567,7 @@ class TestSummarizerModelDisplay:
                 env_vars={},
             )
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=False)
 
             captured = capsys.readouterr().out
@@ -1601,7 +1601,7 @@ class TestSummarizerModelDisplay:
                 json.dumps({"summarizer_model": "Qwen3.6-Plus"}), encoding="utf-8"
             )
 
-            from src.jcodemunch_mcp.server import _run_config
+            from jcodemunch_mcp.server import _run_config
             _run_config(check=False)
 
             captured = capsys.readouterr().out
@@ -1623,7 +1623,7 @@ class TestClaudeMdDriftCheck:
 
     def _run_check(self, monkeypatch, tmpdir, claude_md_content=None):
         """Helper: set up temp dir and run config --check."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG
         _GLOBAL_CONFIG.clear()
 
         config_path = Path(tmpdir) / "config.jsonc"
@@ -1636,12 +1636,12 @@ class TestClaudeMdDriftCheck:
         if claude_md_content is not None:
             (claude_dir / "CLAUDE.md").write_text(claude_md_content, encoding="utf-8")
 
-        from src.jcodemunch_mcp.server import _run_config
+        from jcodemunch_mcp.server import _run_config
         return _run_config
 
     def test_check_passes_when_all_tools_present(self, capsys, monkeypatch):
         """check should pass when CLAUDE.md mentions all canonical tools."""
-        from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
+        from jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES
         with tempfile.TemporaryDirectory() as tmpdir:
             fn = self._run_check(monkeypatch, tmpdir,
                                  claude_md_content="\n".join(_CANONICAL_TOOL_NAMES))
@@ -1700,7 +1700,7 @@ class TestClaudeMdGenerate:
 
     def test_generate_full_snippet(self, capsys, monkeypatch):
         """--generate outputs all canonical tool names."""
-        from src.jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
+        from jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
         _run_claude_md(generate=True, fmt="full")
         out = capsys.readouterr().out
         for tool in _CANONICAL_TOOL_NAMES:
@@ -1708,7 +1708,7 @@ class TestClaudeMdGenerate:
 
     def test_generate_append_reports_missing(self, monkeypatch, tmp_path, capsys):
         """--format=append outputs only tools absent from the existing CLAUDE.md."""
-        from src.jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
+        from jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "CLAUDE.md").write_text("list_repos search_symbols", encoding="utf-8")
@@ -1724,7 +1724,7 @@ class TestClaudeMdGenerate:
 
     def test_generate_append_silent_when_current(self, monkeypatch, tmp_path, capsys):
         """--format=append prints nothing to stdout when CLAUDE.md is up to date."""
-        from src.jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
+        from jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
         claude_dir = tmp_path / ".claude"
         claude_dir.mkdir()
         (claude_dir / "CLAUDE.md").write_text(
@@ -1745,7 +1745,7 @@ class TestClaudeMdGenerate:
         (e.g. test_summarizer, which is disabled by default) — that's fine.
         The reverse (a built tool absent from the canonical list) is the error.
         """
-        import src.jcodemunch_mcp.config as cfg_mod
+        import jcodemunch_mcp.config as cfg_mod
         monkeypatch.setattr(cfg_mod, "get", lambda key, default=None: (
             [] if key == "disabled_tools" else
             "full" if key == "tool_profile" else
@@ -1753,7 +1753,7 @@ class TestClaudeMdGenerate:
             None if key in ("languages", "meta_fields", "descriptions") else
             default
         ))
-        from src.jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES, _build_tools_list
+        from jcodemunch_mcp.server import _CANONICAL_TOOL_NAMES, _build_tools_list
         built_names = {t.name for t in _build_tools_list()}
         canonical = set(_CANONICAL_TOOL_NAMES)
         missing_from_canonical = built_names - canonical
@@ -1771,7 +1771,7 @@ class TestLoadConfigWiredIntoMain:
     @pytest.mark.asyncio
     async def test_main_calls_load_config_for_serve_command(self, monkeypatch, tmp_path):
         """load_config should be called when serve subcommand starts."""
-        from src.jcodemunch_mcp.config import _GLOBAL_CONFIG, DEFAULTS
+        from jcodemunch_mcp.config import _GLOBAL_CONFIG, DEFAULTS
 
         _GLOBAL_CONFIG.clear()
         _GLOBAL_CONFIG.update(DEFAULTS)
@@ -1785,7 +1785,7 @@ class TestLoadConfigWiredIntoMain:
         call_count = 0
 
         # Import fresh — need to get the original reference before patching
-        import src.jcodemunch_mcp.config as cfg_module
+        import jcodemunch_mcp.config as cfg_module
         real_load = cfg_module.load_config
 
         def tracked_load(*args, **kwargs):
@@ -1807,12 +1807,12 @@ class TestLoadConfigWiredIntoMain:
         monkeypatch.setattr("asyncio.run", fake_asyncio_run)
 
         # Also patch the MCP server.run to prevent actual startup
-        import src.jcodemunch_mcp.server as server_module
+        import jcodemunch_mcp.server as server_module
         async def fake_server_run(*args, **kwargs):
             pass
         monkeypatch.setattr(server_module.server, "run", fake_server_run)
 
-        from src.jcodemunch_mcp.server import main
+        from jcodemunch_mcp.server import main
         main(["serve"])
 
         # After main() runs, config should reflect the file (not just defaults)
@@ -1823,7 +1823,7 @@ class TestLoadConfigWiredIntoMain:
     async def test_config_loaded_before_list_tools(self, monkeypatch, tmp_path):
         """After main() starts, config should be loaded and usable by list_tools."""
         # Use the SAME module object that server.py imports
-        import src.jcodemunch_mcp.config as cfg_module
+        import jcodemunch_mcp.config as cfg_module
         cfg_module._GLOBAL_CONFIG.clear()
         cfg_module._GLOBAL_CONFIG.update({"max_folder_files": 2000})  # default
 
@@ -1841,12 +1841,12 @@ class TestLoadConfigWiredIntoMain:
 
         monkeypatch.setattr("asyncio.run", fake_asyncio_run)
 
-        import src.jcodemunch_mcp.server as server_module
+        import jcodemunch_mcp.server as server_module
         async def fake_server_run(*args, **kwargs):
             pass
         monkeypatch.setattr(server_module.server, "run", fake_server_run)
 
-        from src.jcodemunch_mcp.server import main
+        from jcodemunch_mcp.server import main
         main(["serve"])
 
         # After main() runs, config should reflect the file (not just defaults)
@@ -1854,7 +1854,7 @@ class TestLoadConfigWiredIntoMain:
 
     def test_load_all_project_configs_called_at_startup(self, monkeypatch, tmp_path):
         """Server startup should call load_all_project_configs()."""
-        from src.jcodemunch_mcp import config as config_module
+        from jcodemunch_mcp import config as config_module
 
         load_calls = []
         load_all_calls = []
@@ -1879,7 +1879,7 @@ class TestLoadConfigWiredIntoMain:
         old_argv = sys.argv
         sys.argv = ["jcodemunch-mcp"]
         try:
-            from src.jcodemunch_mcp.server import main
+            from jcodemunch_mcp.server import main
             main([])
         finally:
             sys.argv = old_argv
@@ -1893,7 +1893,7 @@ class TestLoadConfigWiredIntoMain:
 
 def test_parse_env_value_list_comma_separated_fallback():
     """_parse_env_value list type falls back to comma-separated on parse failure (E4)."""
-    from src.jcodemunch_mcp.config import _parse_env_value
+    from jcodemunch_mcp.config import _parse_env_value
 
     # Legacy comma-separated format (*.log,*.tmp) should parse as list
     result = _parse_env_value("*.log,*.tmp,*.cache", list)
@@ -1921,7 +1921,7 @@ def test_parse_env_value_list_comma_separated_fallback():
 
 def test_parse_env_value_use_ai_summaries_preserves_string():
     """_parse_env_value returns raw string for use_ai_summaries to preserve 'auto'."""
-    from src.jcodemunch_mcp.config import _parse_env_value
+    from jcodemunch_mcp.config import _parse_env_value
 
     # "auto" must be preserved as a string, not coerced to False by bool parsing
     assert _parse_env_value("auto", (bool, str), key="use_ai_summaries") == "auto"
@@ -2040,7 +2040,7 @@ class TestConfigTypeValidation:
     ])
     def test_type_mismatch_uses_default(self, key, bad_value, expected_default):
         """Type mismatch should fall back to default."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -2052,7 +2052,7 @@ class TestConfigTypeValidation:
 
     def test_int_type_mismatch_negative_accepted(self):
         """Negative int should be accepted (no range validation)."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -2070,7 +2070,7 @@ class TestConfigTypeValidation:
     ], ids=["languages_null", "empty_string"])
     def test_optional_and_string_types(self, key, value, expected):
         """Null for optional types and empty string for string types should be accepted."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -2086,7 +2086,7 @@ class TestProjectConfigEdgeCases:
 
     def test_project_config_invalid_syntax(self):
         """Invalid project config should fall back to global."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, load_project_config, get,
             _GLOBAL_CONFIG, _PROJECT_CONFIGS
         )
@@ -2116,7 +2116,7 @@ class TestProjectConfigEdgeCases:
 
     def test_project_config_type_mismatch(self):
         """Project config with type mismatch should use global value."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, load_project_config, get,
             _GLOBAL_CONFIG, _PROJECT_CONFIGS
         )
@@ -2146,7 +2146,7 @@ class TestProjectConfigEdgeCases:
 
     def test_project_config_unknown_key_ignored(self):
         """Project config with unknown key should ignore it."""
-        from src.jcodemunch_mcp.config import (
+        from jcodemunch_mcp.config import (
             load_config, load_project_config, get,
             _GLOBAL_CONFIG, _PROJECT_CONFIGS
         )
@@ -2181,7 +2181,7 @@ class TestConfigFileEncoding:
 
     def test_utf8_bom_handled(self):
         """UTF-8 BOM should be handled correctly."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -2195,7 +2195,7 @@ class TestConfigFileEncoding:
 
     def test_utf8_with_bom_and_comments(self):
         """UTF-8 BOM with comments should work."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
 
@@ -2222,7 +2222,7 @@ class TestAllConfigKeys:
     ])
     def test_all_string_keys(self, key):
         """Test all string-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2240,7 +2240,7 @@ class TestAllConfigKeys:
             "int_port", "int_rate_limit", "int_watch_debounce", "int_stats_interval", "int_summarizer_concurrency"])
     def test_all_int_keys(self, key):
         """Test all int-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2256,7 +2256,7 @@ class TestAllConfigKeys:
             "bool_allow_remote_summarizer", "bool_watch"])
     def test_all_bool_keys(self, key):
         """Test all bool-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2270,7 +2270,7 @@ class TestAllConfigKeys:
     ], ids=["list_disabled_tools", "list_extra_ignore_patterns", "list_meta_fields"])
     def test_all_list_keys(self, key):
         """Test all list-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2281,7 +2281,7 @@ class TestAllConfigKeys:
 
     def test_all_list_keys_trusted_folders(self, tmp_path):
         """trusted_folders requires absolute paths and is normalized on load."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         trusted1 = tmp_path / "trusted1"
@@ -2300,7 +2300,7 @@ class TestAllConfigKeys:
 
     def test_all_list_keys_languages(self):
         """Test languages list-typed config key with valid language names."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2314,7 +2314,7 @@ class TestAllConfigKeys:
     ], ids=["dict_extra_extensions", "dict_descriptions"])
     def test_all_dict_keys(self, key):
         """Test all dict-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2329,7 +2329,7 @@ class TestAllConfigKeys:
     ], ids=["float_claude_poll_interval", "float_server_output_threshold"])
     def test_all_float_keys(self, key, value):
         """Test all float-typed config keys."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG
 
         _GLOBAL_CONFIG.clear()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2340,7 +2340,7 @@ class TestAllConfigKeys:
 
     def test_all_nullable_keys(self):
         """Test all nullable config keys accept null."""
-        from src.jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, CONFIG_TYPES
+        from jcodemunch_mcp.config import load_config, get, _GLOBAL_CONFIG, CONFIG_TYPES
 
         # Find all keys with tuple types that include None
         nullable_keys = [k for k, v in CONFIG_TYPES.items()
@@ -2360,7 +2360,7 @@ class TestConfigInit:
 
     def test_config_init_creates_template(self, tmp_path, monkeypatch, capsys):
         """config --init should create config.jsonc template."""
-        from src.jcodemunch_mcp.server import main
+        from jcodemunch_mcp.server import main
 
         storage_path = str(tmp_path)
         monkeypatch.setenv("CODE_INDEX_PATH", storage_path)
@@ -2374,14 +2374,14 @@ class TestConfigInit:
         assert config_path.exists()
 
         content = config_path.read_text()
-        from src.jcodemunch_mcp.config import _strip_jsonc
+        from jcodemunch_mcp.config import _strip_jsonc
         stripped = _strip_jsonc(content)
         parsed = json.loads(stripped)
         assert "languages" in parsed
 
     def test_config_init_refuses_overwrite(self, tmp_path, monkeypatch, capsys):
         """config --init should refuse to overwrite existing file."""
-        from src.jcodemunch_mcp.server import main
+        from jcodemunch_mcp.server import main
 
         storage_path = str(tmp_path)
         monkeypatch.setenv("CODE_INDEX_PATH", storage_path)

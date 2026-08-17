@@ -157,6 +157,22 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.0.0",
+    # Parallel test execution. Measured 2026-08-16 on a 24-core box: the serial
+    # suite is 599s, `-n auto --dist loadfile` is 183s, both collecting 7859.
+    #
+    # ⚠⚠ `--dist loadfile` is REQUIRED, not a tuning choice. It keeps a whole
+    # file on one worker, preserving within-file order. The default `--dist load`
+    # spreads individual tests and would break any file whose tests share
+    # module-level state.
+    #
+    # ⚠ Worker isolation is STRONGER than the serial run, not weaker: everything
+    # conftest resets per test (`_GLOBAL_CONFIG`, the index cache, perf-DB
+    # handles) is process-global, and each xdist worker is its own process. What
+    # parallelism removes is the accidental cross-FILE ordering the serial run
+    # provides for free -- which is how it surfaced the test_css/test_json
+    # config-twin defect that had been latent on any box with a `languages`
+    # allowlist.
+    "pytest-xdist>=3.6.0",
     "hypothesis>=6.0.0",
     "ruff>=0.6.0",
     # Not a package dependency: the benchmark harnesses in benchmarks/ import it.

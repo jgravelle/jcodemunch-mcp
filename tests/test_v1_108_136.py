@@ -18,7 +18,7 @@ import pytest
 
 @pytest.fixture()
 def tracker(monkeypatch):
-    from src.jcodemunch_mcp.storage import token_tracker as tt
+    from jcodemunch_mcp.storage import token_tracker as tt
 
     monkeypatch.setattr(tt, "_share_savings", lambda *a, **k: None)
     monkeypatch.setattr(tt._config, "get", lambda key, default=None, repo=None: default)

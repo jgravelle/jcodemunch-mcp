@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from src.jcodemunch_mcp.tools.get_symbol import (
+from jcodemunch_mcp.tools.get_symbol import (
     _verify_against_git_sha as _verify_impl,
 )
 
@@ -156,7 +156,7 @@ class TestGitShaVerification:
         # subject — the DEVNULL redirect — is untouched and still asserted.
         fake = mock.MagicMock(returncode=0, stdout=b"def hello():\n    return 'world'\n")
         with mock.patch(
-            "src.jcodemunch_mcp.tools.get_symbol.subprocess.run", return_value=fake
+            "jcodemunch_mcp.tools.get_symbol.subprocess.run", return_value=fake
         ) as run:
             _verify_against_git_sha(
                 cached_source="def hello():\n    return 'world'",

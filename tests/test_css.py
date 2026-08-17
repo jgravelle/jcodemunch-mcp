@@ -2,8 +2,16 @@
 
 import pytest
 
-from src.jcodemunch_mcp.parser.extractor import parse_file, _parse_css_symbols, _parse_scss_symbols
-from src.jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
+# ⚠ Import via `jcodemunch_mcp`, NEVER `src.jcodemunch_mcp`. The two spellings
+# produce two DISTINCT module objects, each with its own `config._GLOBAL_CONFIG`.
+# conftest's `_reset_global_config` resets only the canonical one, so a
+# `src.`-prefixed `parse_file` consults the developer's real
+# `~/.code-index/config.jsonc` — and `is_language_enabled` there gates `scss`
+# out of any allowlist that omits it, making `parse_file` return []. These tests
+# then passed only because `test_config.py` (also `src.`-prefixed) happened to
+# overwrite the twin's config earlier in the serial run.
+from jcodemunch_mcp.parser.extractor import parse_file, _parse_css_symbols, _parse_scss_symbols
+from jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------

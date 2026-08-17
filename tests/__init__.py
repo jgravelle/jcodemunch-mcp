@@ -16,6 +16,35 @@ def _platform_path(unix_path: str) -> Path:
     return Path(unix_path)
 
 
+def _resolve_only(target, resolved: Path):
+    """Build a ``Path.resolve`` side effect that answers for ONE path.
+
+    ⚠ Narrow, NOT a blanket ``return_value``. ``patch`` replaces ``resolve`` on
+    the ``Path`` CLASS, so a blanket value answers for every path in the
+    process — including the storage path ``IndexStore`` resolves when it is
+    constructed. A test that gets past the breadth guard then creates its index
+    directory at the faked location, or dies there (``FileNotFoundError``,
+    #479). Every other path keeps the real ``resolve``.
+
+    Patch with ``autospec=True`` so ``self`` reaches this side effect; a plain
+    ``patch`` installs a ``MagicMock`` on the class, which is not a descriptor
+    and so is called with no arguments at all.
+    """
+    real_resolve = Path.resolve
+    wanted = {str(target), str(resolved)}
+
+    def _side_effect(self, *args, **kwargs):
+        # ``resolved`` answers for itself because real ``resolve`` is
+        # idempotent, and the folder is resolved more than once on the way in
+        # (``index_folder`` then ``resolve_index_identity``). Sending the
+        # second call to the real one stats a path that does not exist.
+        if str(self) in wanted:
+            return resolved
+        return real_resolve(self, *args, **kwargs)
+
+    return _side_effect
+
+
 def _platform_path_str(unix_path: str) -> str:
     """Convert Unix-style path to platform-appropriate path string for config files.
 

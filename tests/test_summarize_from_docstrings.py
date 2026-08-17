@@ -14,9 +14,9 @@ removes the indirect-prompt-injection surface F-04 identified.
 
 import pytest
 
-from src.jcodemunch_mcp import config as _config
-from src.jcodemunch_mcp.parser.symbols import Symbol
-from src.jcodemunch_mcp.summarizer.batch_summarize import (
+from jcodemunch_mcp import config as _config
+from jcodemunch_mcp.parser.symbols import Symbol
+from jcodemunch_mcp.summarizer.batch_summarize import (
     summarize_symbols_simple,
 )
 

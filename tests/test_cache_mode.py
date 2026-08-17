@@ -20,9 +20,9 @@ from unittest.mock import patch
 
 import pytest
 
-from src.jcodemunch_mcp import config as _config
-from src.jcodemunch_mcp.config import apply_share_savings, set_bool_key
-from src.jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
+from jcodemunch_mcp import config as _config
+from jcodemunch_mcp.config import apply_share_savings, set_bool_key
+from jcodemunch_mcp.storage.sqlite_store import SQLiteIndexStore
 
 
 class TestCacheModeGate:

@@ -5357,6 +5357,20 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         # `format` controls compact-output encoding (see .encoding package).
         _requested_format = None
         if isinstance(arguments, dict) and "format" in arguments:
+            # ⚠⚠ COPY BEFORE POPPING. `pop` on the caller's own dict strips
+            # `format` from it, so a caller that reuses one args object gets
+            # JSON on the first call and whatever `server_output` resolves to
+            # on every call after — silently, because the first call proves the
+            # argument works. Over the wire each call arrives as a fresh dict
+            # and nothing shows; the exposed callers are in-process ones, which
+            # includes the Counter front door re-dispatching through here.
+            #
+            # Found via #482: two tests reusing one `args` dict got a MUNCH
+            # payload on their second call and failed in `json.loads` at char 0.
+            # ⚠ It only surfaced on 3 of 8 CI legs, because the second call
+            # lands on `auto` and the 15% encoding gate then decides per
+            # response — so the same defect reads as an environment quirk.
+            arguments = dict(arguments)
             _requested_format = arguments.pop("format")
         # Coerce stringified booleans/integers/numbers before routing
         schema = (await _ensure_tool_schemas()).get(name)

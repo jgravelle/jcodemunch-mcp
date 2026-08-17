@@ -35,7 +35,7 @@ from pathlib import Path
 
 import pytest
 
-from src.jcodemunch_mcp.tools.get_symbol import _verify_against_git_sha
+from jcodemunch_mcp.tools.get_symbol import _verify_against_git_sha
 
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not on PATH")

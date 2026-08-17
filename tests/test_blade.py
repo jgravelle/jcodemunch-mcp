@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 
-from src.jcodemunch_mcp.parser.extractor import parse_file
-from src.jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
+from jcodemunch_mcp.parser.extractor import parse_file
+from jcodemunch_mcp.parser.languages import get_language_for_path, LANGUAGE_EXTENSIONS
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "blade" / "sample.blade.php"

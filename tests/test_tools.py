@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch
 
-from tests import _platform_path
+from tests import _platform_path, _resolve_only
 from jcodemunch_mcp.tools.index_repo import (
     parse_github_url,
     discover_source_files,
@@ -358,7 +358,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work"),
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "broad", _platform_path("/work")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -400,7 +401,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work"),
+                autospec=True,
+                side_effect=_resolve_only(broad_root, _platform_path("/work")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -437,7 +439,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work2"),
+                autospec=True,
+                side_effect=_resolve_only(sibling_root, _platform_path("/work2")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -475,7 +478,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work/project"),
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "project", _platform_path("/work/project")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -518,7 +522,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/project/src"),
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "project" / "src", _platform_path("/project/src")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -596,7 +601,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/project/src"),
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "project" / "src", _platform_path("/project/src")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -745,7 +751,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=broad_root.resolve(),
+                autospec=True,
+                side_effect=_resolve_only(broad_root, broad_root.resolve()),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -869,7 +876,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work"),
+                autospec=True,
+                side_effect=_resolve_only(broad_root, _platform_path("/work")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -910,7 +918,8 @@ class TestTrustedFolders:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/work"),
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "work", _platform_path("/work")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -958,7 +967,8 @@ class TestContainerDetection:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/workspace"),
+                autospec=True,
+                side_effect=_resolve_only(shallow_root, _platform_path("/workspace")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -996,7 +1006,8 @@ class TestContainerDetection:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/workspaces/myrepo"),
+                autospec=True,
+                side_effect=_resolve_only(shallow_root, _platform_path("/workspaces/myrepo")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -1032,7 +1043,8 @@ class TestContainerDetection:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/"),
+                autospec=True,
+                side_effect=_resolve_only(shallow_root, _platform_path("/")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -1074,7 +1086,8 @@ class TestContainerDetection:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=_platform_path("/workspace"),
+                autospec=True,
+                side_effect=_resolve_only(shallow_root, _platform_path("/workspace")),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -1171,7 +1184,8 @@ class TestWindowsUNCPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=unc_repo,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "repo", unc_repo),
             ),
             # ⚠ Narrow, NOT return_value=True. A blanket True convinces
             # detect_framework that composer.json / package.json / pyproject.toml
@@ -1226,7 +1240,8 @@ class TestWindowsUNCPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=unc_share_root,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "share", unc_share_root),
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.exists",
@@ -1279,7 +1294,8 @@ class TestWindowsDriveRootPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=drive_root_repo,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "repo", drive_root_repo),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -1318,7 +1334,8 @@ class TestWindowsDriveRootPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=drive_root,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "drive", drive_root),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
@@ -1350,7 +1367,8 @@ class TestWindowsDriveRootPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=shallow_directory,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "users", shallow_directory),
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.exists",
@@ -1402,7 +1420,8 @@ class TestWindowsDriveRootPathSafety:
             ),
             patch(
                 "jcodemunch_mcp.tools.index_folder.Path.resolve",
-                return_value=share_root,
+                autospec=True,
+                side_effect=_resolve_only(tmp_path / "share", share_root),
             ),
             patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),

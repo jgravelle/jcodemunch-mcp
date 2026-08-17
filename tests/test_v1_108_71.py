@@ -15,7 +15,7 @@ import threading
 
 import pytest
 
-from src.jcodemunch_mcp.storage import token_tracker as tt
+from jcodemunch_mcp.storage import token_tracker as tt
 
 
 _WORKER_NAME = "jcodemunch-telemetry"
