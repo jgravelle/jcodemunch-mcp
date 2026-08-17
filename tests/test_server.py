@@ -137,7 +137,11 @@ async def test_call_tool_defaults_index_repo_incremental_true():
     mock_index_repo.assert_awaited_once_with(
         url="owner/repo",
         use_ai_summaries=True,
-        storage_path=None,
+        # storage_path is ANY because conftest pins CODE_INDEX_PATH for the run
+        # and `call_tool` resolves it (server.py:5348). Asserting None here only
+        # ever passed because the variable happened to be unset -- an implicit
+        # dependency on the developer's environment, not a forwarding contract.
+        storage_path=ANY,
         incremental=True,
         extra_ignore_patterns=None,
         progress_cb=ANY,
@@ -157,7 +161,7 @@ async def test_call_tool_defaults_index_folder_incremental_true():
     mock_index_folder.assert_called_once_with(
         path="/tmp/project",
         use_ai_summaries=True,
-        storage_path=None,
+        storage_path=ANY,
         extra_ignore_patterns=None,
         follow_symlinks=False,
         incremental=True,
@@ -210,7 +214,7 @@ async def test_call_tool_forwards_search_text_context_lines():
         max_results=20,
         context_lines=3,
         is_regex=False,
-        storage_path=None,
+        storage_path=ANY,
     )
 
 
@@ -250,7 +254,7 @@ async def test_call_tool_forwards_get_file_content_bounds():
         file_path="src/main.py",
         start_line=5,
         end_line=8,
-        storage_path=None,
+        storage_path=ANY,
     )
 
 

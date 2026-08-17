@@ -1,6 +1,49 @@
 """Shared pytest fixtures for jcodemunch-mcp tests."""
 
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _pin_code_index_path(tmp_path_factory):
+    """Point `CODE_INDEX_PATH` at a per-worker temp store for the whole run.
+
+    ⚠⚠ Without this, any test calling `index_folder()` or constructing an
+    `IndexStore` WITHOUT an explicit `storage_path` / `base_path` writes the
+    DEVELOPER'S REAL `~/.code-index`. That was tolerable serially and is not
+    under `pytest-xdist`: four workers index into one store, contend on the
+    same `indexwrite` / `watcher` process-lock scopes, and produce failures
+    that do not reproduce in isolation. `test_v1_108_2.py::
+    test_probe_runs_when_identity_true` failed exactly once on a Linux CI leg
+    on 2026-08-17, passed on a re-run of the identical tree, and survived all
+    14 bisect pairings -- the signature of contention rather than a defect.
+
+    ⚠ **SESSION-scoped, deliberately, not `tmp_path`.** Some fixtures are
+    module-scoped and index once for several tests -- `served_repo` in
+    `test_blast_radius_package_granular_verdict.py` indexes "where the SERVER
+    looks", because `server.call_tool` hands `IndexStore` no `base_path`. A
+    per-test pin would move the store out from under that write and turn a
+    real assertion into a not-found path. One store per session keeps
+    write-then-read fixtures working while still isolating from the real one.
+
+    ⚠ Under xdist each worker is a separate process with its own
+    `tmp_path_factory` base, so workers cannot collide with each other either.
+
+    ⚠ A test that sets `CODE_INDEX_PATH` itself still wins: `monkeypatch`
+    applies over this and restores to it, so per-test isolation composes on
+    top rather than fighting it.
+    """
+    store = tmp_path_factory.mktemp("code-index")
+    previous = os.environ.get("CODE_INDEX_PATH")
+    os.environ["CODE_INDEX_PATH"] = str(store)
+    try:
+        yield store
+    finally:
+        if previous is None:
+            os.environ.pop("CODE_INDEX_PATH", None)
+        else:
+            os.environ["CODE_INDEX_PATH"] = previous
 
 
 @pytest.fixture(autouse=True)

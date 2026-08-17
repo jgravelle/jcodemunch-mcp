@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from .sqlite_store import _default_base_path
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _path_hash(target: str) -> str:
 
 def _lock_dir(storage_path: Optional[str]) -> Path:
     """Return the directory for lock files, creating it if needed."""
-    base = Path(storage_path) if storage_path else Path.home() / ".code-index"
+    base = Path(storage_path) if storage_path else _default_base_path()
     base.mkdir(parents=True, exist_ok=True)
     return base
 

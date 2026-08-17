@@ -158,9 +158,9 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.284](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.284)** (2026-08-17) — A documented setting the storage layer never read
 - **[v1.108.283](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.283)** (2026-08-17) — A config in the wrong shape is a client that reports success and registers nothing
 - **[v1.108.282](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.282)** (2026-08-16) — Half the tool descriptions never said what the tool would not do
-- **[v1.108.281](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.281)** (2026-08-15) — A declared pattern with no implementation reads as a language without constants
 <!-- WHATSNEW:END -->
 
 ---

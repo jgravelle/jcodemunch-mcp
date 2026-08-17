@@ -34,6 +34,82 @@ were a security property.
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
 
+## [1.108.284] - 2026-08-17 - A documented setting the storage layer never read
+
+### `CODE_INDEX_PATH` now moves the index store and the lock directory
+
+The env table documents `CODE_INDEX_PATH` as "Index storage location", and
+`config.py`, `process_registry.py`, `install_pack.py`, `receipt.py` and two
+`server.py` sites all read it. `IndexStore`, `SQLiteIndexStore` and
+`process_locks._lock_dir` hardcoded `Path.home() / ".code-index"` and ignored
+it — so anyone who set the variable got their **config from one directory and
+their indexes and locks in another.**
+
+⚠⚠ **Nothing errored, which is why it survived: an index written to the wrong
+root is a successful write.** Same shape as #428, where a declared
+`constant_patterns` entry with no branch behind it was indistinguishable from a
+language that has no constants. The fingerprint was already in the tree — two
+`server.py` call sites pass `os.environ.get("CODE_INDEX_PATH")` **by hand**, so
+someone hit this and patched their own call site instead of the default.
+
+⚠ **If you set `CODE_INDEX_PATH`, your indexes move to it on next use.** They
+are not migrated. Anything previously written to `~/.code-index` stays there;
+point the variable at that directory, or re-index. Installs that never set the
+variable are unaffected, because the fallback is unchanged.
+
+⚠ `CODE_INDEX_PATH=` (empty) is treated as unset rather than as `.`. `Path("")`
+is the current directory, so a bare export would otherwise put every index
+wherever the server happened to start — the CWD-dependence v1.108.280 removed
+from the perf-db cache key.
+
+### The test suite could reach your real `~/.code-index`, and under xdist that mattered
+
+`tests/conftest.py` now pins `CODE_INDEX_PATH` to a per-worker temp store for
+the session. Any test calling `index_folder()` without an explicit
+`storage_path` was writing the developer's real store — tolerable serially, and
+not under `pytest-xdist`, where four workers share one store and its
+`indexwrite` and `watcher` process-lock scopes. That is the mechanism behind
+`test_v1_108_2.py::test_probe_runs_when_identity_true` failing once on a Linux
+CI leg, passing on a re-run of the identical tree, and surviving all fourteen
+bisect pairings.
+
+⚠ The fixture is **session**-scoped, not `tmp_path`. Module-scoped fixtures
+index once and read later — `served_repo` in
+`test_blast_radius_package_granular_verdict.py` deliberately indexes "where the
+SERVER looks", because `call_tool` hands `IndexStore` no `base_path` — and a
+per-test pin would move the store out from under that write.
+
+⚠⚠ **The obvious fix was tried first and failed informatively.** Pinning
+`storage_path=` on the twelve unpinned `index_folder()` call sites produced
+**eight failures**: the tests wrote to the pinned store and read back through a
+loader still using the default. **No single knob moved both, and that was the
+bug.** Every test edit was reverted; the fix is three source lines.
+
+⚠⚠ **`token_tracker`'s six sites were routed the same way and then REVERTED.**
+`test_v1_108_188.py::test_no_base_path_still_uses_the_default` sets
+`CODE_INDEX_PATH` to the NAMED store and asserts a no-argument call lands in the
+DEFAULT — v1.108.188's contract, which this change makes self-contradictory,
+since the variable then *is* the default. **A test written to pin
+default-versus-named could no longer express the distinction.** Telemetry
+routing is what .188 and .280 pinned deliberately and it is not the flake, so
+`_savings.json` and `session_stats.json` still resolve to home. Disclosed rather
+than left to be discovered.
+
+⚠ Four `storage_path=None` assertions in `test_server.py` became `ANY`. They
+passed only because `CODE_INDEX_PATH` happened to be unset — `call_tool`
+resolves it at `server.py:5348` — so anyone who set the variable had four red
+tests and no explanation. Same class as the `src.jcodemunch_mcp` twin reading
+the real config, and as #411.
+
+`tests/test_code_index_path_is_honoured.py` (9). Non-vacuity: reverting both
+defaults turns exactly the two env-var tests red; the other seven pass on both
+sides as controls.
+
+⚠ **Not claimed: that the flake is gone.** It was seen once. The contention
+mechanism it pointed at is removed — measured on a full run, the real store
+gains nothing and no `_watcher_*.signal` appears. That is a different and
+weaker statement, and it is the one the evidence supports.
+
 ## [1.108.283] - 2026-08-17 - A config in the wrong shape is a client that reports success and registers nothing
 
 ### `init` learns five more clients, and four of them needed their own schema
@@ -5078,10 +5154,21 @@ headline is the clean-subset figure, not the flattering aggregate.
 around it; a real agent re-queries and self-corrects, so effective recall is
 better than the raw number. Do not read it as a failure rate.
 
-## [Unreleased] - benchmarks: one measurement path, no estimates
+## Benchmarks — one measurement path, no estimates
 
-No shipped-package changes. Benchmark harnesses, their committed reports, and the
-published numbers that mirror them.
+**Unversioned: no shipped-package changes.** Benchmark harnesses, their committed
+reports, and the published numbers that mirror them. The work landed 2026-07-29
+and first went out with 1.108.200 the following day.
+
+⚠ **This block was headed `## [Unreleased]` until 2026-08-17**, two weeks after
+it shipped, in a file that should carry exactly one. Nothing broke — `whatsnew`'s
+parser requires `[\d.]+` for the version and skipped it, and the rotation gate's
+predicates match `## [\d+.\d+.\d+]` — but every count of "how many Unreleased
+headings are there" returned 2, so a real duplicate would have been
+indistinguishable from this one. It cost a round of verification against both
+parents during the v1.108.283 release, resolving a contributor merge that had
+produced exactly that defect once before. **A heading that is wrong but harmless
+still spends the signal a check exists to give.**
 
 ### The comparison harnesses divided a fresh number by a stale one
 

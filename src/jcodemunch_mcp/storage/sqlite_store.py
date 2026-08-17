@@ -767,6 +767,31 @@ def _unlink_retry(path: Path, retries: int = 3, delay: float = 0.1) -> bool:
     return False  # unreachable, but satisfies type checkers
 
 
+
+def _default_base_path() -> Path:
+    """Storage root when a caller names none: `CODE_INDEX_PATH`, else `~/.code-index`.
+
+    ⚠⚠ This env var was DOCUMENTED and only half implemented. `config.py`,
+    `process_registry.py`, `install_pack.py`, `receipt.py` and two `server.py`
+    sites honoured `CODE_INDEX_PATH`; the two storage classes hardcoded
+    `Path.home() / ".code-index"` and ignored it. A user who set it therefore got
+    their CONFIG from one directory and their INDEXES in another -- split state
+    produced by a knob the env table calls "Index storage location".
+
+    ⚠ That is the #428 shape: a declared capability with nothing behind it,
+    which errors nowhere and so reads as working. The two `server.py` sites that
+    pass `os.environ.get("CODE_INDEX_PATH")` by hand are the fingerprint --
+    someone hit this and patched their own call site instead of the default.
+
+    ⚠ Resolved exactly as an explicit `base_path` is, so the two entry points
+    cannot disagree about what one spelling of a directory means (v1.108.280).
+    """
+    env = os.environ.get("CODE_INDEX_PATH")
+    if env:
+        return Path(env).expanduser().resolve()
+    return Path.home() / ".code-index"
+
+
 class SQLiteIndexStore:
     """Storage backend using SQLite WAL for code indexes.
 
@@ -787,7 +812,7 @@ class SQLiteIndexStore:
         if base_path:
             self.base_path = Path(base_path).expanduser().resolve()
         else:
-            self.base_path = Path.home() / ".code-index"
+            self.base_path = _default_base_path()
         _key = str(self.base_path)
         if _key not in _VERIFIED_PATHS:
             self.base_path.mkdir(parents=True, exist_ok=True)

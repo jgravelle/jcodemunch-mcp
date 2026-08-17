@@ -15,7 +15,7 @@ from typing import Callable, Optional
 from .. import config as _config
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
-from .sqlite_store import SQLiteIndexStore, _VERIFIED_PATHS
+from .sqlite_store import SQLiteIndexStore, _VERIFIED_PATHS, _default_base_path
 
 logger = logging.getLogger(__name__)
 
@@ -388,7 +388,7 @@ class IndexStore:
         if base_path:
             self.base_path = Path(base_path).expanduser().resolve()
         else:
-            self.base_path = Path.home() / ".code-index"
+            self.base_path = _default_base_path()
 
         _key = str(self.base_path)
         if _key not in _VERIFIED_PATHS:
