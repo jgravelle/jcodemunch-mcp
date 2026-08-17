@@ -33,6 +33,100 @@ were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
 
+
+## [1.108.283] - 2026-08-17 - A config in the wrong shape is a client that reports success and registers nothing
+
+### `init` learns five more clients, and four of them needed their own schema
+
+`jcodemunch-mcp init` went from 5 auto-configured clients to 10: **Codex CLI**,
+**opencode**, **Gemini CLI**, **Cline** and **VS Code / GitHub Copilot** join
+Claude Code, Claude Desktop, Cursor, Windsurf and Continue.
+
+⚠⚠ **The reason this is four writers rather than five table rows is that no
+schema mismatch here produces an error.** Write the wrong key and the host
+parses the file, registers nothing, and reports success — the user gets an
+agent with no jCodeMunch tools and nothing to suspect. Every shape below was
+read out of vendor documentation rather than inferred, which is the same
+lesson #378's TOML left-recursion defect cost us.
+
+- **Codex** reads TOML at `~/.codex/config.toml`. Its rmcp transport is strict
+  about the first JSON-RPC frame on stdout and uvx's cold-run install chatter
+  poisons the handshake; the documented symptom is a **silent multi-hour hang**,
+  not an error. So `init` resolves a real binary or **DECLINES**, naming
+  `uv tool install jcodemunch-mcp` — a uvx fallback would look like a successful
+  install and then hang on first use.
+- **opencode** uses top-level `mcp` (not `mcpServers`), requires an explicit
+  `"type": "local"`, and takes `command` as one ARRAY carrying executable and
+  arguments together.
+- **VS Code / Copilot** uses top-level `servers`, not `mcpServers`.
+- **Gemini CLI** and **Cline** take the generic shape, so their risk is
+  detection rather than schema.
+
+⚠ **Codex paths are written as TOML LITERAL strings.** A Windows path inside a
+basic string makes `\U` an invalid unicode escape, so a parser either rejects
+the file or mangles the path. The writer also APPENDS rather than
+round-tripping: `config.toml` is user-owned, and Python ships no stdlib TOML
+*writer* at any version this package supports, so serialising would drop the
+user's comments and reorder their keys.
+
+⚠ **`~/.gemini` is shared with Antigravity, which reads a different file**
+(`~/.gemini/config/mcp_config.json`). Detection keys on `settings.json` itself
+or the `gemini` executable — a directory check would offer to configure Gemini
+CLI on a machine that only has Antigravity, and write a file nothing reads.
+
+⚠ **Cline's IDE-extension settings path is not documented per-platform, so it
+is deliberately not guessed at.** `init` writes the documented CLI config
+(`~/.cline/mcp.json`); CLIENTS.md points extension users at the marketplace UI
+and says why.
+
+⚠ **VS Code registration requires an existing `.vscode/` directory rather than
+`code` on `PATH`.** The executable is present on most developer machines, so
+PATH detection would CREATE `.vscode/mcp.json` in whatever directory `init` ran
+from — a file the user might commit without meaning to. VS Code's user-level
+MCP config is reached through an editor command rather than a documented path
+and moves with the active profile, so `init` does not write it at all.
+
+⚠ **`CONFIGURE_METHODS` is new and replaces three copies of the method list** —
+a comment on `MCPClient.method`, the `configure_client` dispatch chain, and a
+hardcoded tuple inside `test_detect_clients_returns_list`. That test caught the
+first new method precisely BECAUSE it carried its own copy. A new test
+parametrizes over the set to assert every declared method actually dispatches;
+without it a method with no branch returns `"unknown method for X"` at runtime,
+which reads as a client we support.
+
+⚠ `servers["jcodemunch"] = _MCP_ENTRY` would have aliased the module-level dict
+every other client writes, so one later mutation would silently change what
+every subsequent client receives. Copied instead. **Found by writing the test,
+not by reading the line.**
+
+`tests/test_init_client_schemas.py` (29). Non-vacuity proven by falsifying six
+behaviours across two passes.
+
+### The install instructions led with the one command that makes people think about Python
+
+`README.md` now opens with `uv tool install jcodemunch-mcp`; `uvx`, `pipx` and
+`pip` move into a collapsed table.
+
+**The zero-friction path already existed and was buried.** `_MCP_ENTRY` has
+always written `{"command": "uvx", "args": ["jcodemunch-mcp"]}` into every
+client config, and both one-click badges use it — so for most setups nothing is
+installed persistently at all. The human-readable instruction still said
+`pip install`, with `uvx` appearing once, as a PEP 668 footnote for Debian users.
+
+⚠ **It leads with `uv tool install` rather than bare `uvx`, and there are two
+independent reasons.** `_hook_invocation` resolves the executable with
+`shutil.which` because Claude Code spawns hooks through a minimal-PATH subshell;
+under `uvx` there is no persistent binary to find, so a uvx-first README would
+write a hook command that fails at spawn — silently, since hooks are optional
+and most users never enable them. And Codex cannot use `uvx` at all (above).
+`uv tool install` is still one command, no virtualenv, and no PEP 668 refusal.
+
+jdocmunch-mcp and jdatamunch-mcp got the same treatment. ⚠ **jdata's was a
+different fix, checked rather than copied**: it has no `cli/` package, so no
+hooks and no `shutil.which`, and `uvx` leads outright there. Its README opened
+with a `pip install` that did nothing — the server has no CLI subcommands and
+its own setup line already used `uvx`.
+
 ### One telemetry database spent another's trim ([#476](https://github.com/jgravelle/jcodemunch-mcp/issues/476))
 
 Reported by [@rknighton](https://github.com/rknighton), who pinned the cause to

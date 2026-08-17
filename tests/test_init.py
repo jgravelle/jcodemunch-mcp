@@ -9,6 +9,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from jcodemunch_mcp.cli.init import (
+    CONFIGURE_METHODS,
     MCPClient,
     _detect_clients,
     _has_jcodemunch_entry,
@@ -410,7 +411,7 @@ def test_detect_clients_returns_list():
     for c in result:
         assert isinstance(c, MCPClient)
         assert c.name
-        assert c.method in ("cli", "json_patch")
+        assert c.method in CONFIGURE_METHODS
 
 
 # ---------------------------------------------------------------------------

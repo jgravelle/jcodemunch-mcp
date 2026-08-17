@@ -235,13 +235,24 @@ _WINDSURF_RULES_CONTENT = _CLAUDE_MD_POLICY
 # Client detection
 # ---------------------------------------------------------------------------
 
+# Every configuration method `configure_client` knows how to dispatch.
+# ⚠ This is the ONE list. It used to be a comment on MCPClient.method plus a
+# hardcoded tuple inside a test, and adding a method meant remembering both --
+# `test_detect_clients_returns_list` caught `toml_codex` precisely because it
+# had its own copy. A declared method with no dispatch branch would otherwise
+# return "unknown method for X" at runtime, which reads as a client we support.
+CONFIGURE_METHODS = frozenset(
+    {"cli", "json_patch", "toml_codex", "json_opencode", "json_vscode"}
+)
+
+
 class MCPClient:
     """Represents a detected MCP client and how to configure it."""
 
     def __init__(self, name: str, config_path: Optional[Path], method: str):
         self.name = name
         self.config_path = config_path
-        self.method = method  # "cli" | "json_patch"
+        self.method = method  # one of CONFIGURE_METHODS
 
     def __repr__(self) -> str:
         if self.config_path:
@@ -296,6 +307,41 @@ def _detect_clients() -> list[MCPClient]:
     if continue_dir.exists():
         clients.append(MCPClient("Continue", continue_dir / "config.json", "json_patch"))
 
+    # Codex CLI. Detected by its config directory OR the executable: `codex`
+    # can be on PATH before ~/.codex exists on a fresh install, and the
+    # directory can exist without the binary on a machine it was removed from.
+    if (Path.home() / ".codex").exists() or _find_executable("codex"):
+        clients.append(MCPClient("Codex", _codex_config_path(), "toml_codex"))
+
+    # opencode
+    if (Path.home() / ".config" / "opencode").exists() or _find_executable("opencode"):
+        clients.append(MCPClient("opencode", _opencode_config_path(), "json_opencode"))
+
+    # Gemini CLI. ⚠ Keyed on settings.json / the executable, NOT on ~/.gemini
+    # existing: Antigravity shares that directory but reads a DIFFERENT file
+    # (~/.gemini/config/mcp_config.json), so a directory check would offer to
+    # configure Gemini CLI on a machine that only has Antigravity and write a
+    # settings.json nothing reads.
+    gemini_settings = Path.home() / ".gemini" / "settings.json"
+    if gemini_settings.exists() or _find_executable("gemini"):
+        clients.append(MCPClient("Gemini CLI", gemini_settings, "json_patch"))
+
+    # Cline. ⚠ The documented path is the CLI's ~/.cline/mcp.json. The VS Code
+    # extension keeps its own settings under an editor globalStorage directory
+    # that Cline does not document per-platform, so it is deliberately NOT
+    # guessed at here -- CLIENTS.md points extension users at the marketplace UI.
+    cline_config = Path.home() / ".cline" / "mcp.json"
+    if cline_config.exists() or _find_executable("cline"):
+        clients.append(MCPClient("Cline", cline_config, "json_patch"))
+
+    # VS Code / GitHub Copilot. Workspace-scoped, so this requires an existing
+    # .vscode/ directory rather than merely finding `code` on PATH: the latter
+    # is true on most developer machines and would CREATE .vscode/mcp.json in
+    # whatever directory init happened to run in.
+    vscode_dir = Path.cwd() / ".vscode"
+    if vscode_dir.exists():
+        clients.append(MCPClient("VS Code (Copilot)", vscode_dir / "mcp.json", "json_vscode"))
+
     return clients
 
 
@@ -347,6 +393,185 @@ def _patch_mcp_config(path: Path, *, backup: bool = True, dry_run: bool = False)
     return f"  added jcodemunch to {path}"
 
 
+# ---------------------------------------------------------------------------
+# Codex CLI (~/.codex/config.toml)
+# ---------------------------------------------------------------------------
+
+def _codex_config_path() -> Path:
+    """Return the Codex CLI MCP config path."""
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _toml_string(value: str) -> str:
+    """Render a path as a TOML string.
+
+    Prefers a LITERAL string (single quotes), which performs no escape
+    processing at all — the point being Windows paths, where a basic string
+    would turn ``C:\\Users\\j`` into an invalid escape sequence and a parser
+    would either reject the file or silently mangle the path. Falls back to a
+    basic string only when the value contains a single quote, which a literal
+    string cannot represent.
+    """
+    if "'" not in value:
+        return f"'{value}'"
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _codex_command() -> Optional[str]:
+    """Resolve the jcodemunch-mcp binary for a Codex server entry.
+
+    ⚠⚠ Returns None rather than falling back to ``uvx``, and that refusal is
+    the whole point of this function. Codex's rmcp transport is strict about
+    the first JSON-RPC frame on stdout, and uvx's install chatter on a cold
+    run poisons the handshake — the documented symptom is a SILENT multi-hour
+    hang, not an error (see CLIENTS.md). Every other client in this module
+    gets ``_MCP_ENTRY``'s ``uvx`` form; Codex must not, so a caller that
+    cannot resolve a real binary has to say so instead of writing a config
+    that appears to work.
+    """
+    return shutil.which("jcodemunch-mcp")
+
+
+def _has_codex_entry(text: str) -> bool:
+    """True when config.toml already declares the jcodemunch server."""
+    return re.search(r"^\s*\[mcp_servers\.jcodemunch\]", text, re.MULTILINE) is not None
+
+
+def _patch_codex_config(
+    path: Path, *, backup: bool = True, dry_run: bool = False
+) -> str:
+    """Append an ``[mcp_servers.jcodemunch]`` block to Codex's config.toml.
+
+    APPENDS rather than parse-and-rewrite. config.toml is a user-owned file
+    holding unrelated Codex settings; round-tripping it through a serialiser
+    would drop their comments and reorder their keys, and Python has no TOML
+    *writer* in the stdlib at any version this package supports.
+    """
+    existing = ""
+    if path.exists():
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"  could not read {path}: {exc}"
+
+    if _has_codex_entry(existing):
+        return f"  already configured in {path}"
+
+    exe = _codex_command()
+    if not exe:
+        return (
+            "  skipped — Codex needs a resolved binary, not uvx "
+            "(uvx's first-run output breaks its handshake). "
+            "Run `uv tool install jcodemunch-mcp`, then re-run init."
+        )
+
+    if dry_run:
+        return f"  would add [mcp_servers.jcodemunch] to {path} (command = {exe})"
+
+    if backup and path.exists():
+        shutil.copy2(path, path.with_suffix(".toml.bak"))
+
+    block = (
+        "\n[mcp_servers.jcodemunch]\n"
+        f"command = {_toml_string(exe)}\n"
+    )
+    # Keep exactly one blank line between our block and whatever precedes it.
+    prefix = "" if (not existing or existing.endswith("\n")) else "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(existing + prefix + block, encoding="utf-8")
+    return f"  added [mcp_servers.jcodemunch] to {path}"
+
+
+# ---------------------------------------------------------------------------
+# VS Code / GitHub Copilot (.vscode/mcp.json)
+# ---------------------------------------------------------------------------
+
+def _vscode_mcp_config_path() -> Path:
+    """Return the workspace MCP config VS Code reads for Copilot.
+
+    Workspace-scoped on purpose. VS Code's USER-level MCP file is reached
+    through an editor command ("MCP: Open User Configuration") rather than a
+    documented path, and it moves with the active profile, so an installer
+    that guessed at it would write somewhere the editor may never read.
+    `.vscode/mcp.json` is the documented, stable target.
+    """
+    return Path.cwd() / ".vscode" / "mcp.json"
+
+
+def _patch_vscode_mcp_config(
+    path: Path, *, backup: bool = True, dry_run: bool = False
+) -> str:
+    """Add jcodemunch to VS Code's MCP config for Copilot.
+
+    ⚠ The top-level key is `servers`, NOT `mcpServers`. That is the third
+    distinct schema in this module (generic `mcpServers`, opencode's `mcp`,
+    and this), and like opencode's it fails silently: VS Code reads a file
+    whose servers live under the wrong key, finds none, and reports nothing.
+    Per-server fields are `command`/`args` as usual -- `type` defaults to
+    "stdio" for a local server, so it is left off rather than asserted.
+    """
+    data = _read_json(path)
+    servers = data.get("servers")
+    if isinstance(servers, dict) and "jcodemunch" in servers:
+        return f"  already configured in {path}"
+
+    if dry_run:
+        return f"  would add jcodemunch to {path}"
+
+    if not isinstance(servers, dict):
+        servers = {}
+    servers["jcodemunch"] = dict(_MCP_ENTRY)
+    data["servers"] = servers
+    _write_json(path, data, backup=backup)
+    return f"  added jcodemunch to {path}"
+
+
+# ---------------------------------------------------------------------------
+# opencode (~/.config/opencode/opencode.json)
+# ---------------------------------------------------------------------------
+
+def _opencode_config_path() -> Path:
+    """Return the opencode global config path.
+
+    opencode documents a hardcoded ``~/.config/opencode/`` for the global
+    config on every platform and does not document XDG_CONFIG_HOME support,
+    so this deliberately does NOT consult that variable — following a spec the
+    tool does not implement would write a file it never reads.
+    """
+    return Path.home() / ".config" / "opencode" / "opencode.json"
+
+
+def _patch_opencode_config(
+    path: Path, *, backup: bool = True, dry_run: bool = False
+) -> str:
+    """Add jcodemunch to opencode's config.
+
+    ⚠ opencode's schema is NOT the `mcpServers` shape every other JSON client
+    in this module uses. The top-level key is `mcp`, each server needs an
+    explicit `"type": "local"`, and `command` is a single ARRAY carrying the
+    executable and its arguments rather than separate `command`/`args` keys.
+    Writing `_MCP_ENTRY` here produces a file opencode parses and ignores.
+    """
+    data = _read_json(path)
+    servers = data.get("mcp")
+    if isinstance(servers, dict) and "jcodemunch" in servers:
+        return f"  already configured in {path}"
+
+    if dry_run:
+        return f"  would add jcodemunch to {path}"
+
+    if not isinstance(servers, dict):
+        servers = {}
+    servers["jcodemunch"] = {
+        "type": "local",
+        "command": ["uvx", "jcodemunch-mcp"],
+        "enabled": True,
+    }
+    data["mcp"] = servers
+    _write_json(path, data, backup=backup)
+    return f"  added jcodemunch to {path}"
+
+
 def _claude_cli_exe() -> Optional[str]:
     """Resolve the `claude` executable, or None if unavailable.
 
@@ -390,6 +615,12 @@ def configure_client(client: MCPClient, *, backup: bool = True, dry_run: bool = 
         return _configure_claude_code(dry_run=dry_run)
     elif client.method == "json_patch" and client.config_path:
         return _patch_mcp_config(client.config_path, backup=backup, dry_run=dry_run)
+    elif client.method == "toml_codex" and client.config_path:
+        return _patch_codex_config(client.config_path, backup=backup, dry_run=dry_run)
+    elif client.method == "json_opencode" and client.config_path:
+        return _patch_opencode_config(client.config_path, backup=backup, dry_run=dry_run)
+    elif client.method == "json_vscode" and client.config_path:
+        return _patch_vscode_mcp_config(client.config_path, backup=backup, dry_run=dry_run)
     return f"  unknown method for {client.name}"
 
 
