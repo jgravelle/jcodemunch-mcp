@@ -13,6 +13,76 @@ from ..storage.git_root import resolve_index_identity
 logger = logging.getLogger(__name__)
 
 
+def _dotgit_kind(directory: Path) -> Optional[str]:
+    """Classify a ``.git`` entry: "repo", "submodule", "worktree", or None.
+
+    A ``.git`` DIRECTORY is an independent repository. A ``.git`` FILE carries a
+    ``gitdir:`` pointer, and where it points is the whole distinction #372 drew:
+    ``.git/worktrees/<name>`` is a linked worktree, ``.git/modules/<name>`` is a
+    submodule. Anything else pointing outside both is a ``--separate-git-dir``
+    clone, which is independent.
+    """
+    dotgit = directory / ".git"
+    try:
+        if dotgit.is_dir():
+            return "repo"
+        if not dotgit.is_file():
+            return None
+        text = dotgit.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    target = Path(text[len("gitdir:"):].strip())
+    if not target.is_absolute():
+        target = directory / target
+    parent_name = target.parent.name
+    if parent_name == "worktrees":
+        return "worktree"
+    if parent_name == "modules":
+        return "submodule"
+    return "repo"
+
+
+def _independent_repo_between(p_resolved: Path, source_root: Path) -> Optional[Path]:
+    """Root of an independent git repository between a path and a source root.
+
+    Returns the deepest such root, or None when the path really does belong to
+    ``source_root``'s repository.
+
+    ⚠⚠ Containment is a statement about the FILESYSTEM; the caller wants one
+    about the REPOSITORY. A nested independent clone inside an indexed parent
+    satisfies the first and fails the second, and before #493's sibling #492 the
+    resolver returned the parent as ``indexed: true`` for it, binding the caller
+    to a corpus from a different checkout with a different history.
+
+    ⚠ Submodules deliberately do NOT count. Their content IS indexed into the
+    parent, which is the boundary #372 drew when it excluded linked worktrees
+    without changing submodule behaviour. Linked worktrees are left alone here
+    too: fast path 2 already answers for them via ``canonical_candidates``, and
+    diverting them into this branch would change #303's answer.
+
+    ⚠ Stats only, no subprocess — fast path 1 exists to avoid the
+    ``resolve_index_identity`` walk that can hang (#303), so a correctness guard
+    on it must not reintroduce a process spawn.
+    """
+    try:
+        candidates = [p_resolved, *p_resolved.parents]
+    except (OSError, ValueError):
+        return None
+    for directory in candidates:
+        if directory == source_root:
+            return None  # reached the indexed root without crossing a boundary
+        try:
+            if not directory.is_relative_to(source_root):
+                return None
+        except (OSError, ValueError, AttributeError):
+            return None
+        if _dotgit_kind(directory) == "repo":
+            return directory
+    return None
+
+
 def _compute_repo_id(folder_path: Path, store: Optional[IndexStore] = None) -> str:
     """Compute the repo ID that index_folder would use for a directory path."""
     decision = resolve_index_identity(str(folder_path), mode="config", store=store)
@@ -266,10 +336,21 @@ def _resolve_repo_impl(path: str, storage_path: Optional[str] = None) -> dict:
                 return built
         else:
             try:
-                if p_resolved.is_relative_to(sr_path):
-                    containment_hits.append((len(str(sr_path)), entry))
+                if not p_resolved.is_relative_to(sr_path):
+                    continue
             except (OSError, ValueError, AttributeError):
                 continue
+            # #492: containment is a filesystem fact, not a repository one. An
+            # independent clone nested inside an indexed parent is contained by
+            # it and belongs to neither its corpus nor its history.
+            boundary = _independent_repo_between(p_resolved, sr_path)
+            if boundary is not None:
+                logger.debug(
+                    "resolve_repo: %s is inside independent repo %s, not %s",
+                    p_resolved, boundary, sr_path,
+                )
+                continue
+            containment_hits.append((len(str(sr_path)), entry))
 
     if containment_hits:
         # Deepest source_root wins (most specific match).

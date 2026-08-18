@@ -32,6 +32,164 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### `resolve_repo` no longer answers a repository question with a filesystem fact (#492, @rknighton)
+
+Fast path 1 matched on `source_root` containment alone, so a path inside an
+**independent git repository nested in an indexed parent** came back as the
+parent index with `found: true`, `indexed: true`, `loadable: true` and
+`match_path: source_root_containment`. Nothing in that branch consulted git
+identity. The caller was bound to a corpus built from a different checkout with
+a different history.
+
+⚠⚠ **Whether it looks wrong depends on something irrelevant to the defect.**
+When the nested repository is gitignored by the parent, the read fails and
+returns `absent` — correct for the corpus that was searched, and the reason it
+reads as a normal empty result. When the parent's walk absorbed the nested
+files, the same wrong repository is returned and **the read succeeds with
+`state: ok`**. The mis-resolution is identical; only the symptom differs. Both
+cases change here.
+
+The guard is a `.git` stat between the requested path and the matched
+`source_root`. ⚠ **A subprocess would have been the wrong fix at the right
+place**: fast path 1 exists precisely to avoid the `resolve_index_identity`
+walk that can hang in large agent-worktree environments (#303), so a
+correctness guard on it must not reintroduce a process spawn. A test asserts no
+`subprocess.run` on the ordinary containment path.
+
+⚠ **Classify by where `.git` POINTS, not by whether it is a file.** A `.git`
+directory is an independent repository; a `.git` file carries a `gitdir:`
+pointer, and `.git/worktrees/<name>` versus `.git/modules/<name>` is exactly the
+distinction #372 drew. **Submodules deliberately still resolve to the parent** —
+their content is indexed into it, and #372 excluded linked worktrees without
+changing that. Linked worktrees are also left alone: fast path 2 already answers
+for them via `canonical_candidates`, and diverting them here would change #303's
+answer. `git clone --separate-git-dir` leaves a `.git` file pointing at neither,
+and counts as independent — a file/directory test would have read it as a
+submodule.
+
+⚠ **A file outside the parent's corpus still resolves to the parent.** Being
+gitignored, oversize or in a skipped directory is not the same condition as
+belonging to another repository, and only the second changes which repository is
+returned.
+
+⚠ `tests/test_resolve_repo_nested_repo_boundary.py` (11). Seven are red against
+`b85ef61`; the remaining four are the boundary tests above and pass on both
+sides by design.
+
+
+### A single-file refresh no longer certifies a corpus it never re-read (#493, @rknighton)
+
+`index_file` wrote live HEAD as the repository's stored SHA. `repo_is_stale` is
+defined as "index SHA differs from live HEAD", so refreshing one file out of a
+two-file commit **cleared the staleness signal for the file that was never
+refreshed**. `get_file_content` on that file then served commit-A content
+reporting `channels.index: fresh`, against a clean working tree.
+
+⚠⚠ **The write is not the defect; what has been proven before it is.**
+`index_folder`'s `_refresh_git_head_if_advanced` performs the *identical* write
+on a no-change run (#330), and it is correct there — that run walked the corpus
+and established that nothing indexed had changed, so the corpus really does
+correspond to the new head. `index_file` established something far weaker, that
+one requested file now matches, and advanced the repository-level head anyway.
+**Two calls, one write, opposite correctness, and the difference is entirely in
+what came before.**
+
+The head now advances only when refreshing this one file is what brought the
+corpus into line: every other path that moved between the stored head and live
+HEAD must be one the index does not carry and would not index. That is one
+`git diff --name-only --relative` against the stored head — no walk, no
+per-file work.
+
+⚠ **Unknown resolves to "do not advance".** A head left behind reads `stale` for
+a repository that may match, costing a re-index; a head advanced without proof
+reads `fresh` for one that does not, costing a wrong answer with no signal
+attached. Same asymmetry as v1.108.209's rule that `classify()` must never
+answer `fresh` for a comparison it could not make. `_paths_changed_between`
+returns `None` for "could not ask" and never an empty set, so a failed git call
+cannot read as a clean diff.
+
+⚠ **`--relative` is load-bearing.** It scopes the diff to `source_root`, so a
+monorepo subtree index is not held back by a commit that touched a sibling it
+never indexed.
+
+⚠ **An ADDED source file blocks the advance too**, though it is in no corpus and
+so cannot be "a file we carry that moved". The indexer would take it, so
+advancing would certify a complete index over a corpus missing a file — an
+absence claim with nothing behind it.
+
+⚠ **A no-change `index_folder` run still advances the head** (#330 does not
+regress), a full re-index still records it, and a single-file commit refreshed
+by `index_file` still clears staleness. Those three are the constraints on the
+fix, not side effects of it: a guard that simply never advanced would satisfy
+every assertion about the reported bug and leave every repository reading stale
+forever.
+
+⚠ **The branch-delta path is deliberately unchanged.** It writes `branch_meta`
+rather than the repository-level `meta` row, and carries its own `base_head`, so
+it is a different question — the reporter said as much and made no claim about
+it. Recorded rather than swept.
+
+⚠ `tests/test_index_file_head_advance.py` (10). Five are red against `b85ef61`;
+the other five are the constraint tests above and pass on both sides by design.
+
+
+### A cache that announced it was ready one key before it was (#490, @rknighton)
+
+`search_symbols` could raise `KeyError: 'centrality'` — surfacing through the
+dispatcher as `Internal error processing search_symbols` — when a second search
+arrived while the first was still building the lexical corpus.
+
+The BM25 corpus cache is built once per loaded index behind a check-then-build
+guarded on `idf`. It publishes **four** keys, and the statement that looked
+atomic is not:
+
+```python
+cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(index.symbols)
+cache["centrality"] = _compute_centrality(...)
+```
+
+That is four separate `__setitem__` calls. `idf` — the key every reader checked
+before deciding the cache was ready — lands first, and `centrality` lands after
+a full pass over the corpus. A caller arriving between the two passed the
+readiness check, skipped the build, and read a key that did not exist yet.
+
+⚠⚠ **The window is not a narrow one.** It is the entire runtime of
+`_compute_centrality`, which walks every import in the repository. The larger
+the corpus, the wider the window — so the installs most likely to hit it are the
+ones where a rebuild is most expensive.
+
+⚠ **The lock was real and was not the problem.** `_bm25_lock` exists on
+`CodeIndex` and was correctly acquired. The build was single-flight, as
+#370's fix intended; what leaked was the *readiness signal*, which is read
+outside the lock by design and must therefore not be true early.
+
+The build now runs in one shared `ensure_bm25_cache(index)` helper that writes
+`avgdl`, `inverted` and `centrality` first and `idf` last, and whose fast path
+checks all four keys rather than the sentinel alone — so a future edit that
+reorders the writes costs an extra lock acquisition instead of a `KeyError`.
+
+⚠ **The same four-key publish existed in three modules** — `search_symbols`,
+`get_ranked_context` and `plan_turn` — so fixing the reported one would have
+left two. All three now call the helper. `tests/test_bm25_cache_single_flight.py`
+fails if a fourth appears.
+
+⚠ **The `pagerank` and `name_map` blocks were checked and deliberately left
+alone.** Each writes the one key it also checks, so they are atomic by
+construction and share none of this hazard. Their
+`getattr(index, "_bm25_lock", None) or threading.Lock()` fallback is a separate
+and milder weakness — a fresh lock per caller guards nothing, so if an index
+ever arrived without `_bm25_lock` they would duplicate work rather than crash.
+Unreachable today, since both `CodeIndex` and `SelectiveIndexView` carry the
+lock. Recorded rather than swept, so a later pass does not read the silence as
+"already handled". The new helper uses a module-level fallback instead.
+
+⚠⚠ **The first version of the shipped-path test passed against the broken
+source**, which is the part worth keeping. Signalling from inside the build and
+letting the second thread race is not enough on a two-file corpus — the builder
+finishes before the racer arrives. The test holds the build open until the
+second caller is demonstrably inside its call. **A concurrency test that does
+not pin the interleaving is testing its own machine's scheduler.** Seven of the
+eight tests were red against the pre-fix tree without it; all eight are now.
 
 
 ## [1.108.284] - 2026-08-17 - A documented setting the storage layer never read

@@ -10,10 +10,10 @@ from ._utils import index_status_to_tool_error, ledger_base_path as _ledger_base
 from .get_context_bundle import _count_tokens
 from .search_symbols import (
     _tokenize,
-    _compute_bm25,
     _bm25_score,
     _NEGATIVE_EVIDENCE_THRESHOLD,
     BYTES_PER_TOKEN,
+    ensure_bm25_cache,
 )
 
 # Weight for PageRank when strategy="combined"
@@ -297,15 +297,9 @@ def get_ranked_context(
     query_terms = _tokenize(query) or [query.lower()]
     # Guard: empty string in query_terms causes "" to match every filename
     query_terms = [t for t in query_terms if t]
-    cache = index._bm25_cache
-    if "idf" not in cache:
-        # Single-flight: concurrent cold callers must not each build the
-        # full-corpus BM25 state (#370)
-        with getattr(index, "_bm25_lock", None) or threading.Lock():
-            if "idf" not in cache:
-                from .search_symbols import _compute_centrality  # noqa: PLC0415
-                cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(index.symbols)
-                cache["centrality"] = _compute_centrality(index.symbols, index.imports, index.alias_map, getattr(index, "psr4_map", None))
+    # Single-flight: concurrent cold callers must not each build the
+    # full-corpus BM25 state (#370), nor observe a half-published one (#490).
+    cache = ensure_bm25_cache(index)
     idf = cache["idf"]
     avgdl = cache["avgdl"]
     inverted = cache["inverted"]

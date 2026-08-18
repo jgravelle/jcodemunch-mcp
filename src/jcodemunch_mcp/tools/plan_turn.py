@@ -1,16 +1,14 @@
 """Plan the next turn — recommend symbols/files based on query."""
 
 import heapq
-import threading
 import time
 from typing import Optional
 
 from ._utils import load_repo_index_or_error
 from .search_symbols import (
     _tokenize,
-    _compute_bm25,
     _bm25_score,
-    _compute_centrality,
+    ensure_bm25_cache,
 )
 
 # Confidence thresholds
@@ -56,16 +54,9 @@ def plan_turn(
     owner, name = index.owner, index.name
 
     # Get BM25 cache
-    cache = index._bm25_cache
-    if "idf" not in cache:
-        # Single-flight: concurrent cold callers must not each build the
-        # full-corpus BM25 state (#370)
-        with getattr(index, "_bm25_lock", None) or threading.Lock():
-            if "idf" not in cache:
-                cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(index.symbols)
-                cache["centrality"] = _compute_centrality(
-                    index.symbols, index.imports, index.alias_map, getattr(index, "psr4_map", None)
-                )
+    # Single-flight: concurrent cold callers must not each build the
+    # full-corpus BM25 state (#370), nor observe a half-published one (#490).
+    cache = ensure_bm25_cache(index)
     idf = cache["idf"]
     avgdl = cache["avgdl"]
     centrality = cache["centrality"]

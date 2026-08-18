@@ -364,6 +364,59 @@ def _compute_centrality(
     return {f: math.log(1 + c) * _CENTRALITY_WEIGHT for f, c in counts.items()}
 
 
+# The four keys the lexical corpus cache publishes together. ``idf`` is the
+# readiness sentinel every historical call site checked, so it stays the last
+# one written; the fast path below checks all four anyway, so a future edit that
+# reorders the writes degrades to an extra lock acquisition instead of a
+# KeyError (#490).
+_BM25_CORPUS_KEYS = ("avgdl", "inverted", "centrality", "idf")
+
+# Used only if an index arrives without its own lock. A process-wide lock is
+# slower than a per-index one and correct; the `threading.Lock()` this replaces
+# was a NEW lock per caller, i.e. no mutual exclusion at all, which is the
+# failure this whole helper exists to remove.
+_BM25_FALLBACK_LOCK = threading.Lock()
+
+
+def ensure_bm25_cache(index) -> dict:
+    """Populate and return ``index._bm25_cache``'s lexical corpus stats.
+
+    Builds ``idf`` / ``avgdl`` / ``inverted`` / ``centrality`` exactly once per
+    loaded index, under the index's own lock, and returns the cache dict.
+
+    LIMITATION: this covers only the lexical corpus keys. ``pagerank`` and
+    ``name_map`` are built by their own single-key blocks elsewhere; each writes
+    the one key it also checks, so those are atomic by construction and are not
+    routed through here.
+
+    ⚠⚠ The build must never publish a key a reader treats as "cache ready"
+    before the keys that reader will go on to read. Three call sites wrote
+    ``cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(...)`` and
+    then ``cache["centrality"] = ...`` as a separate statement -- four
+    ``__setitem__`` calls behind a check-then-build guarded on ``idf`` alone. A
+    second caller arriving in that window passed the readiness check and raised
+    ``KeyError: 'centrality'`` (#490). The window is not narrow: it is the whole
+    runtime of ``_compute_centrality`` over the corpus.
+    """
+    cache = index._bm25_cache
+    if all(k in cache for k in _BM25_CORPUS_KEYS):
+        return cache
+    with getattr(index, "_bm25_lock", None) or _BM25_FALLBACK_LOCK:
+        if all(k in cache for k in _BM25_CORPUS_KEYS):
+            return cache
+        idf, avgdl, inverted = _compute_bm25(index.symbols)
+        centrality = _compute_centrality(
+            index.symbols, index.imports, index.alias_map,
+            getattr(index, "psr4_map", None),
+        )
+        cache["avgdl"] = avgdl
+        cache["inverted"] = inverted
+        cache["centrality"] = centrality
+        # Sentinel last: see the module note above.
+        cache["idf"] = idf
+    return cache
+
+
 def _identity_score(sym: dict, query_joined: str, raw_query: str = "") -> float:
     """Identity channel: exact, normalised, or prefix match on symbol name/ID.
 
@@ -875,14 +928,9 @@ def search_symbols(
     query_terms = _tokenize(query) or [query.lower()]
     # Guard: empty string in query_terms causes "" to match every filename
     query_terms = [t for t in query_terms if t]
-    cache = index._bm25_cache
-    if "idf" not in cache:
-        # Single-flight: concurrent cold searches must not each build the
-        # full-corpus BM25 state (#370)
-        with getattr(index, "_bm25_lock", None) or threading.Lock():
-            if "idf" not in cache:
-                cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(index.symbols)
-                cache["centrality"] = _compute_centrality(index.symbols, index.imports, index.alias_map, getattr(index, "psr4_map", None))
+    # Single-flight: concurrent cold searches must not each build the
+    # full-corpus BM25 state (#370), nor observe a half-published one (#490).
+    cache = ensure_bm25_cache(index)
     idf = cache["idf"]
     avgdl = cache["avgdl"]
     centrality = cache["centrality"]

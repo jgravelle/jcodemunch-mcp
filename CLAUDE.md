@@ -327,6 +327,47 @@ compaction is near its floor; descriptions are untouched ground.
 a RESUMED conversation counts accumulated context on every step, so the total is
 dominated by how much the agent read early on, which compounds.
 
+**2026-08-17: #490 (@rknighton) FIXED BY US via PR #494 — a cache that
+announced readiness one key early.** The BM25 corpus cache publishes FOUR keys
+behind a check-then-build guarded on `idf` alone, and
+`cache["idf"], cache["avgdl"], cache["inverted"] = _compute_bm25(...)` is THREE
+`__setitem__` calls, with `centrality` a fourth statement after a whole pass
+over the corpus. A second caller passed the readiness check and raised
+`KeyError: 'centrality'` — through the dispatcher, `Internal error processing
+search_symbols`. Unreleased; see CHANGELOG `[Unreleased]`.
+⚠⚠ **The window is the entire runtime of `_compute_centrality`, so it WIDENS
+with corpus size** — the installs most likely to hit it are the ones where the
+rebuild is most expensive. Do not file this shape as "a narrow race".
+⚠ **The lock was real and correctly held; the build WAS single-flight** as #370
+intended. What leaked is the readiness SIGNAL, which is read outside the lock by
+design and therefore must not become true early. **Diagnose which of the two the
+defect is before reaching for the lock.**
+⚠⚠ **THREE modules carried the identical block** (`search_symbols`,
+`get_ranked_context`, `plan_turn`), so fixing the reported one leaves two —
+[[feedback_guard_every_path_that_shares_the_hazard]] again. One
+`ensure_bm25_cache()` helper now serves all three; the fast path checks ALL FOUR
+keys, not the sentinel, so a future reorder costs a lock acquisition instead of
+a KeyError.
+⚠ **`pagerank` and `name_map` were CHECKED and deliberately LEFT** — each writes
+the one key it also checks, atomic by construction. Their
+`getattr(index, "_bm25_lock", None) or threading.Lock()` fallback is a separate,
+milder weakness (a fresh lock per caller guards NOTHING, so a lockless index
+would duplicate work rather than crash); unreachable today because both
+`CodeIndex` and `SelectiveIndexView` carry the lock. **Recorded rather than
+swept**, same treatment as #473's module-level `perf_db_path()`.
+⚠⚠ **THE FIRST SHIPPED-PATH TEST PASSED AGAINST THE BROKEN SOURCE.** Signalling
+from inside the build and letting the second thread race is not enough on a
+two-file corpus: the builder finishes before the racer arrives. Only when the
+build is held open until the second caller is demonstrably INSIDE its call does
+it go red. **A concurrency test that does not pin the interleaving is testing
+its own machine's scheduler**, and the tell is the non-vacuity pass: 7 of 8 red
+first time, 8 of 8 after. [[a-concurrency-test-must-pin-the-interleaving]]
+⚠ His `Event` framing said this in the issue body — "it does not create a
+window" — and the first test ignored it. **Read the reporter's note about their
+own harness; it is usually load-bearing.**
+⚠ Suite: **7902 passed, 17 skipped, 0 failed** + ruff clean. Total 7919 against
+.284's 7911 = exactly the 8 new tests, so nothing else moved.
+
 **2026-08-17: #476 (@rknighton) FIXED BY US — one telemetry db spent another's
 trim.** `_perf_rows_since_trim` was one int on the `_State` process singleton
 while the trim runs on `conn`, so with two stores alternating one `tool_calls`
