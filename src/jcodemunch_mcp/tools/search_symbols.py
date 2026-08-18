@@ -743,8 +743,9 @@ def search_symbols(
             "centrality" = filter by query match, rank by PageRank score.
             "combined" = BM25 + PageRank weighted combination.
         semantic: Enable semantic (embedding-based) search. Requires an embedding
-            provider to be configured (JCODEMUNCH_EMBED_MODEL, GOOGLE_API_KEY +
-            GOOGLE_EMBED_MODEL, or OPENAI_API_KEY + OPENAI_EMBED_MODEL).
+            provider; ``embeddings.advice.PROVIDER_HINT`` is the single source for
+            which ones and which wins (#489 — this docstring used to enumerate
+            them and had gone stale).
             When False (default) there is zero performance impact and no new imports.
         semantic_weight: Weight for semantic score in hybrid ranking (0.0–1.0).
             BM25 receives ``1 - semantic_weight``. Default 0.5.
@@ -914,14 +915,12 @@ def search_symbols(
         from .embed_repo import _detect_provider
         _semantic_provider = _detect_provider()
         if _semantic_provider is None:
+            from ..embeddings.advice import (  # noqa: PLC0415
+                NO_PROVIDER_MESSAGE as _NO_PROVIDER_MESSAGE,
+            )
             return {
                 "error": "no_embedding_provider",
-                "message": (
-                    "No embedding provider is configured. Set one of: "
-                    "JCODEMUNCH_EMBED_MODEL (sentence-transformers, free/local), "
-                    "GOOGLE_API_KEY + GOOGLE_EMBED_MODEL (Gemini), or "
-                    "OPENAI_API_KEY + OPENAI_EMBED_MODEL (OpenAI)."
-                ),
+                "message": _NO_PROVIDER_MESSAGE,
             }
 
     # BM25 corpus stats — cached on CodeIndex, computed once per index load

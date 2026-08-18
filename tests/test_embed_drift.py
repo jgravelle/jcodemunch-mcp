@@ -80,7 +80,14 @@ class TestCaptureCanary:
         monkeypatch.setattr(ed, "_resolve_provider", lambda: (None, None))
         out = ed.capture_canary(base_path=str(tmp_path))
         assert out["captured"] is False
-        assert "No embedding provider configured" in out["error"]
+        # #489: asserts the SHARED advice is served, not one spelling of it.
+        # This used to pin the literal "No embedding provider configured", which
+        # is how this site kept its own copy — one that named the bundled ONNX
+        # encoder LAST, behind two providers that bill per call.
+        from jcodemunch_mcp.embeddings.advice import NO_PROVIDER_MESSAGE
+
+        assert out["error"] == NO_PROVIDER_MESSAGE
+        assert "jcodemunch-mcp[local-embed]" in out["error"]
 
 
 class TestCheckDrift:

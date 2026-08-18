@@ -1,6 +1,12 @@
 {
-  "current": "1.108.284",
+  "current": "1.108.285",
   "entries": [
+    {
+      "version": "1.108.285",
+      "date": "2026-08-18",
+      "title": "Five answers that were asserted, not established",
+      "summary": "Five fixes, each one a place that reported a result it had not checked: a cache that said ready, an index that said fresh, a resolver that said this repository, an opt-out that said applied, and an embedding store that said one model. Three of the five were a comment or docstring describing behaviour the code did not implement."
+    },
     {
       "version": "1.108.284",
       "date": "2026-08-17",
@@ -12,12 +18,6 @@
       "date": "2026-08-17",
       "title": "A config in the wrong shape is a client that reports success and registers nothing",
       "summary": "`jcodemunch-mcp init` went from 5 auto-configured clients to 10: **Codex CLI**, **opencode**, **Gemini CLI**, **Cline** and **VS Code / GitHub Copilot** join Claude Code, Claude Desktop, Cursor, Windsurf and Continue."
-    },
-    {
-      "version": "1.108.282",
-      "date": "2026-08-16",
-      "title": "Half the tool descriptions never said what the tool would not do",
-      "summary": "Scored every description this server emits against the rubric in [arXiv:2602.14878](https://arxiv.org/abs/2602.14878) (Hasan, Li, Rajbahadur, Adams & Hassan, Queen's University), which examined 856 tools across 103 MCP servers and found 97.1% carrying at least one description smell. Their rubric scores six"
     }
   ]
 }

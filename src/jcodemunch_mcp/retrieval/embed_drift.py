@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from ..embeddings.advice import NO_PROVIDER_MESSAGE
+
 logger = logging.getLogger(__name__)
 
 _CANARY_FILE = "embed_canary.json"
@@ -121,11 +123,7 @@ def capture_canary(base_path: Optional[str] = None, *, force: bool = False) -> d
     if not provider or not model:
         return {
             "captured": False,
-            "error": (
-                "No embedding provider configured. Set GOOGLE_API_KEY + "
-                "GOOGLE_EMBED_MODEL, OPENAI_API_KEY + OPENAI_EMBED_MODEL, "
-                "embed_model in config, or install the bundled ONNX model."
-            ),
+            "error": NO_PROVIDER_MESSAGE,
         }
     try:
         vectors = _embed(list(CANARY_STRINGS), provider, model)

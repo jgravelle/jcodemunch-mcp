@@ -21,6 +21,7 @@ from mcp.types import Tool, ToolAnnotations, TextContent, Resource, Prompt, Prom
 
 from . import __version__
 from . import config as config_module
+from .embeddings.advice import PROVIDER_HINT as _PROVIDER_HINT
 from . import runtime_identity
 from .tools import _arg_contract
 # Tool modules are imported lazily inside each call_tool() dispatch branch.
@@ -1839,7 +1840,7 @@ def _build_tools_list() -> list[Tool]:
                     },
                     "semantic": {
                         "type": "boolean",
-                        "description": "Enable semantic (embedding-based) search. Requires an embedding provider: JCODEMUNCH_EMBED_MODEL (sentence-transformers), GOOGLE_API_KEY+GOOGLE_EMBED_MODEL (Gemini), or OPENAI_API_KEY+OPENAI_EMBED_MODEL (OpenAI). When false (default) there is zero performance impact.",
+                        "description": "Enable semantic (embedding-based) search. " + _PROVIDER_HINT + " When false (default) there is zero performance impact.",
                         "default": False
                     },
                     "semantic_weight": {
@@ -3923,8 +3924,7 @@ def _build_tools_list() -> list[Tool]:
                 "Optional warm-up: search_symbols with semantic=true lazily embeds missing "
                 "symbols on first use, but embed_repo warms the cache upfront so the first "
                 "semantic query returns immediately. "
-                "Requires an embedding provider (JCODEMUNCH_EMBED_MODEL, "
-                "GOOGLE_API_KEY+GOOGLE_EMBED_MODEL, or OPENAI_API_KEY+OPENAI_EMBED_MODEL)."
+                + _PROVIDER_HINT
             ),
             inputSchema={
                 "type": "object",

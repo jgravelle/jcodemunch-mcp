@@ -32,6 +32,64 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### The tool schema advertised three paid-ish providers and hid the free one (#489, @pnm-jgb)
+
+Five places tell a caller how to obtain an embedding provider. Exactly one of
+them named the bundled zero-config ONNX encoder — the provider that is
+**priority 0 in `_detect_provider`** and the project's recommended setup. The
+other four listed only `JCODEMUNCH_EMBED_MODEL`, `GOOGLE_API_KEY` and
+`OPENAI_API_KEY`, two of which bill per call.
+
+⚠⚠ **The `semantic` parameter description is the expensive one, and the harm is
+invisible from outside.** It is not documentation a human browses; it is the
+tool schema, and it is the only information an agent has when deciding whether
+to set `semantic: true`. An agent reading "requires one of three env vars"
+against an environment with none of them set correctly concludes semantic search
+is unavailable and never attempts it — **on a machine where it works, for free,
+right now.** There is no error, no warning and no degraded result to notice. The
+capability simply goes unused. It is the inverse of a false positive: the tool
+under-reports its own function.
+
+All five now derive from `embeddings/advice.py`. `_LOCAL_FIRST` leads both
+strings, mirroring `_detect_provider`'s priority order so the advice and the
+resolver cannot disagree about which provider wins.
+
+⚠⚠ **The report named three sites; the ratchet found FIVE.** Two more were only
+visible once a test asserted the property rather than the instances: the
+`embed_repo` TOOL DESCRIPTION (`server.py`) carried the same omission and is
+equally agent-facing, and `retrieval/embed_drift.py` had its own copy that named
+the bundled encoder **last**, behind the two that cost money. A fifth, the
+`semantic` docstring in `search_symbols`, is developer-facing and now points at
+the constant instead of enumerating.
+
+⚠ **`tests/test_embed_drift.py` pinned the literal `"No embedding provider
+configured"`,** which is precisely how that site kept a stale copy: a test keyed
+to one spelling of a sentence guards the spelling, not the behaviour. It now
+asserts the shared message is served. **The first version of this release's own
+ratchet had the same defect** — it matched `"No embedding provider is
+configured"` with the `is`, and caught `embed_drift` only by luck via a
+different clause.
+
+⚠ **No token-budget cost, and that was MEASURED rather than assumed.** The first
+read of this issue assumed the `semantic` description was charged against the
+hard 4,000-token `core_compact` ceiling, which has ten tokens of headroom, and
+would have trimmed a description to make room. `semantic` is in
+`_COMPACT_STRIP_PARAMS`, so it never reaches the compact schema at all: live
+`core_compact` is **3,990 before and after**. A test pins that, so if `semantic`
+ever stops being stripped the budget question comes back visibly.
+
+⚠ `tests/test_embedding_provider_advice.py` (10). Four are red against the
+pre-fix consumers; the rest assert the constants' shape and the budget, and hold
+on both sides. ⚠⚠ **One of the four only became red after it was corrected**:
+`test_the_search_symbols_runtime_error` originally imported the constant and
+asserted the extra was in it, which is true the moment the constant exists,
+whether or not the site uses it. **It checked the fix instead of the site.**
+
+
+## [1.108.285] - 2026-08-18 - Five answers that were asserted, not established
+
+Five fixes, each one a place that reported a result it had not checked: a cache that said ready, an index that said fresh, a resolver that said this repository, an opt-out that said applied, and an embedding store that said one model. Three of the five were a comment or docstring describing behaviour the code did not implement.
+
 ### A model change left the embedding store holding two vector widths (#500)
 
 `embed_repo` carried this comment for four releases:

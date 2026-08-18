@@ -12,6 +12,7 @@ from typing import Callable, Optional
 
 from .. import config as _config
 from ..storage import IndexStore
+from ..embeddings.advice import NO_PROVIDER_MESSAGE
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -286,13 +287,7 @@ def embed_repo(
     if provider_info is None:
         return {
             "error": "no_embedding_provider",
-            "message": (
-                "No embedding provider is configured. Options: "
-                "pip install 'jcodemunch-mcp[local-embed]' (zero-config ONNX, recommended), "
-                "JCODEMUNCH_EMBED_MODEL (sentence-transformers, free/local), "
-                "GOOGLE_API_KEY + GOOGLE_EMBED_MODEL (Gemini), or "
-                "OPENAI_API_KEY + OPENAI_EMBED_MODEL (OpenAI)."
-            ),
+            "message": NO_PROVIDER_MESSAGE,
         }
     provider, model = provider_info
 
