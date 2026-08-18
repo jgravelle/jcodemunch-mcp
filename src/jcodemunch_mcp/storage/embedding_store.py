@@ -100,6 +100,31 @@ class EmbeddingStore:
         finally:
             conn.close()
 
+    def get_model(self) -> Optional[str]:
+        """Return the model name these embeddings were built with, or None.
+
+        ⚠ None means UNKNOWN, never "a different model". Stores written before
+        this key was populated have no row, and `set_dimension` only writes it
+        when given a non-empty name. Callers comparing models must treat None
+        as "cannot tell" and NOT force a rebuild on it (#500).
+
+        ⚠ `evidence/capability.py` has called this since v1.108.221 behind a
+        `type: ignore` and a bare except, so the capability certificate reported
+        `model: "unknown"` for every repo. It resolves now.
+        """
+        try:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key = ?", (_EMBED_MODEL_KEY,)
+                ).fetchone()
+                return str(row[0]) if row and row[0] else None
+            finally:
+                conn.close()
+        except Exception:
+            logger.debug("EmbeddingStore.get_model failed", exc_info=True)
+            return None
+
     def get_task_type(self) -> Optional[str]:
         """Return stored embedding task type, or None if not set."""
         try:

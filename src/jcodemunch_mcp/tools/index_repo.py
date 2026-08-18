@@ -159,6 +159,10 @@ async def fetch_repo_tree(owner: str, repo: str, token: Optional[str] = None) ->
 def should_skip_file(path: str) -> bool:
     """Check if file should be skipped based on path patterns."""
     normalized = path.replace("\\", "/")
+    # ⚠ No `repo=` here, deliberately (#491). A project's `.jcodemunch.jsonc`
+    # is found by walking up from a LOCAL path, and a GitHub tree has none —
+    # there is no local checkout to read it from. Passing the owner/repo id
+    # would imply a lookup that cannot succeed. Global config still applies.
     for pattern in get_skip_patterns():
         if pattern.endswith("/"):
             # Directory pattern: match only complete path segments to avoid
@@ -253,7 +257,7 @@ def discover_source_files(
             continue
 
         # Secret detection
-        if is_secret_file(path):
+        if is_secret_file(path):  # no local project config; see above
             continue
 
         # Binary extension check

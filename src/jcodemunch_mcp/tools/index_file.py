@@ -222,7 +222,7 @@ def index_file(
     # skip and then prune — the flip-flop in #351. is_secret_file already exempts
     # source modules (e.g. secret_redaction.py) after the same-issue fix, so this
     # only refuses actual credential files (.env, *.pem, secrets/db.yaml, …).
-    if is_secret_file(rel_path):
+    if is_secret_file(rel_path, repo=str(source_root)):
         return {
             "success": False,
             "error": (

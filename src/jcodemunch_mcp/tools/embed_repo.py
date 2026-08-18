@@ -315,8 +315,27 @@ def embed_repo(
     db_path = store._sqlite._db_path(owner, name)
     emb_store = EmbeddingStore(db_path)
 
-    # Detect dimension mismatch — if the stored model differs, force a rebuild.
+    # Detect a model change and force a rebuild.
+    #
+    # ⚠⚠ This comment described the behaviour for four releases and the code did
+    # not implement it (#500). `stored_dim` was read and only ever used to seed
+    # `dim`, nothing compared the stored model against the active one, and a
+    # store therefore accumulated vectors of two widths behind a meta row that
+    # still named the first. `EmbeddingMatrix` then infers its dimension from
+    # the FIRST row and drops every row that disagrees, so the symbols embedded
+    # after the change stopped being searchable — silently, and cumulatively.
     stored_dim = emb_store.get_dimension()
+    stored_model = emb_store.get_model()
+    # ⚠ Unknown is NOT a change. A store written before `embed_model` was
+    # persisted has no name, and forcing a re-embed on that would bill every
+    # existing user a full rebuild for a model that may well be identical.
+    model_changed = bool(stored_model) and bool(model) and stored_model != model
+    if not force and model_changed and emb_store.count() > 0:
+        logger.info(
+            "embed_repo: model changed (%r → %r); forcing re-embed",
+            stored_model, model,
+        )
+        force = True
 
     # If the task type changed (e.g. Gemini task-awareness toggled), existing
     # embeddings were built with a different task type and must be regenerated.
@@ -332,6 +351,12 @@ def embed_repo(
     if force:
         emb_store.clear()
         symbols_to_embed = list(index.symbols)
+        # ⚠ The meta row must be re-derived with the vectors. `dim` is seeded
+        # from `stored_dim` below, so leaving it set means the `dim is None`
+        # gate never re-fires and the store keeps advertising the OLD dimension
+        # and model against freshly written vectors. This also repairs the
+        # pre-existing `task_type` force path, which had the same hole.
+        stored_dim = None
     else:
         existing_ids = emb_store.get_all_ids()
         symbols_to_embed = [s for s in index.symbols if s["id"] not in existing_ids]
@@ -389,4 +414,9 @@ def embed_repo(
     }
     if doc_task_type:
         result["task_type"] = doc_task_type
+    if model_changed:
+        # Disclosed, not silent: a forced re-embed is expensive on a large
+        # corpus and the caller did not ask for one.
+        result["model_changed_from"] = stored_model
+        result["rebuild_reason"] = "embedding_model_changed"
     return result

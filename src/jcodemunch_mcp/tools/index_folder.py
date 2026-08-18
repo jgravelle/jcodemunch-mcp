@@ -212,9 +212,13 @@ def _record_coverage(
         )
 
 
-def _build_skip_dirs_regex() -> re.Pattern:
-    """Build regex from config-filtered skip directories (called per-index)."""
-    dirs = get_skip_directories()
+def _build_skip_dirs_regex(repo: Optional[str] = None) -> re.Pattern:
+    """Build regex from config-filtered skip directories (called per-index).
+
+    ``repo`` is the walk root, threaded so a project's
+    ``exclude_skip_directories`` applies (#491).
+    """
+    dirs = get_skip_directories(repo=repo)
     return re.compile("^(" + "|".join(dirs) + ")$")
 
 
@@ -234,7 +238,7 @@ def _maybe_apply_adaptive(folder_path: str, result: dict) -> None:
 
 def get_filtered_files(path: str) -> Generator[str, None, None]:
     """Generator function to filter directories and files"""
-    skip_dirs_regex = _build_skip_dirs_regex()
+    skip_dirs_regex = _build_skip_dirs_regex(repo=path)
     # Use os.walk with followlinks=False to avoid infinite loops caused by
     # NTFS junctions or symlinks pointing back to ancestor directories.
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
@@ -576,7 +580,7 @@ def _should_index_file(
         return False, "extra_ignore", rel_path, None
 
     # 10. Secret-file detection
-    if is_secret_file(rel_path):
+    if is_secret_file(rel_path, repo=str(cfg.root)):
         return False, "secret", rel_path, f"Skipped secret file: {rel_path}"
 
     # 11. Extension filter
@@ -1102,7 +1106,7 @@ def resolve_explicit_paths(
         # The explicit-paths branch must apply the same secret filter the walk
         # does; it intentionally still opts past gitignore/skip-dir so callers
         # can name generated/ignored source files on purpose.
-        if is_secret_file(_rel):
+        if is_secret_file(_rel, repo=str(walk_root)):
             warnings.append(f"Skipped secret file: {_rel}")
             skip_counts["secret"] = skip_counts.get("secret", 0) + 1
             continue
@@ -1241,7 +1245,7 @@ def discover_local_files(
         respect_cachedir_tag=respect_cachedir_tag,
     )
 
-    skip_dirs_regex = _build_skip_dirs_regex()
+    skip_dirs_regex = _build_skip_dirs_regex(repo=str(root))
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
         dpath = Path(dirpath)
         # Prune directories that should always be skipped before descending.
@@ -1740,7 +1744,9 @@ def index_folder(
                 max_size=_fast_max_size,
                 extra_spec=_fast_extra_spec,
                 forced_paths=_fast_forced_paths(),
-                skip_dirs_regex=_build_skip_dirs_regex(),
+                skip_dirs_regex=_build_skip_dirs_regex(
+                    repo=str(Path(walk_root).resolve())
+                ),
                 check_binary=False,
                 check_filename=True,
                 respect_cachedir_tag=get_respect_cachedir_tag(

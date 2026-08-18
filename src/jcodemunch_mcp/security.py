@@ -131,7 +131,7 @@ def _resolve_secret_overrides(excluded: list[str]) -> tuple[set[str], list[str]]
     return disabled, allow
 
 
-def is_secret_file(file_path: str) -> bool:
+def is_secret_file(file_path: str, repo: Optional[str] = None) -> bool:
     """Return True if a path is judged to be a secret/credential file.
 
     Thin boolean wrapper over :func:`secret_classifier.classify_secret_file`,
@@ -145,7 +145,11 @@ def is_secret_file(file_path: str) -> bool:
     flagged; an actual credential file (``.env``, ``*.pem``, ``secrets/db.yaml``,
     ``.aws/credentials``) is.
     """
-    excluded = list(_config.get("exclude_secret_patterns", []) or [])
+    # ⚠ `repo=` is what makes the docstring above true. Without it this reads
+    # global config only, and the project's documented opt-out never applies
+    # (#491). Its sibling `get_respect_cachedir_tag` has threaded it since
+    # v1.108.270; these two were left behind by the #301 audit.
+    excluded = list(_config.get("exclude_secret_patterns", [], repo=repo) or [])
     disabled, allow = _resolve_secret_overrides(excluded)
     return classify_secret_file(
         file_path,
@@ -255,23 +259,40 @@ def get_respect_cachedir_tag(repo: Optional[str] = None) -> bool:
     return False if value is False else True
 
 
-def _excluded_skip_directories() -> set[str]:
-    """Return the set of directory names the user wants to un-skip."""
-    raw = _config.get("exclude_skip_directories", [])
+def _excluded_skip_directories(repo: Optional[str] = None) -> set[str]:
+    """Return the set of directory names the user wants to un-skip.
+
+    ⚠ ``repo`` is not optional in practice, only in signature. The skip list
+    holds ordinary English words that CAN name a real package, which is the
+    whole reason ``exclude_skip_directories`` exists — and a project that ships
+    a ``fixtures/`` or ``archive/`` module declares that in its own
+    ``.jcodemunch.jsonc``, not in global config. Reading without ``repo`` skips
+    the project overlay entirely, so the documented per-project opt-out silently
+    did nothing (#491).
+    """
+    raw = _config.get("exclude_skip_directories", [], repo=repo)
     return set(raw) if isinstance(raw, list) else set()
 
 
-def get_skip_directories() -> list[str]:
-    """Return SKIP_DIRECTORIES with user-excluded entries removed."""
-    excluded = _excluded_skip_directories()
+def get_skip_directories(repo: Optional[str] = None) -> list[str]:
+    """Return SKIP_DIRECTORIES with user-excluded entries removed.
+
+    Pass ``repo`` (a filesystem path) to honour the project's
+    ``exclude_skip_directories``. Omitting it resolves global config only.
+    """
+    excluded = _excluded_skip_directories(repo=repo)
     if not excluded:
         return SKIP_DIRECTORIES
     return [d for d in SKIP_DIRECTORIES if d not in excluded]
 
 
-def get_skip_patterns() -> frozenset[str]:
-    """Return SKIP_PATTERNS with user-excluded directory entries removed."""
-    excluded = _excluded_skip_directories()
+def get_skip_patterns(repo: Optional[str] = None) -> frozenset[str]:
+    """Return SKIP_PATTERNS with user-excluded directory entries removed.
+
+    Pass ``repo`` (a filesystem path) to honour the project's
+    ``exclude_skip_directories``. Omitting it resolves global config only.
+    """
+    excluded = _excluded_skip_directories(repo=repo)
     if not excluded:
         return SKIP_PATTERNS
     excluded_with_slash = {d + "/" for d in excluded}
@@ -605,7 +626,7 @@ def should_exclude_file(
         return "outside_root"
 
     # Secret detection
-    if check_secrets and is_secret_file(rel_path):
+    if check_secrets and is_secret_file(rel_path, repo=str(root)):
         return "secret_file"
 
     # File size

@@ -1795,6 +1795,19 @@ def _search_symbols_semantic(
     # The semantic channel really ran, and the verdict should say so rather than
     # inherit the `off` default from `semantic_requested=False` above.
     meta["verdict"]["channels"]["semantic"] = "ok"
+    # #500: a store written across a model change holds two vector widths, and
+    # the matrix silently excludes whichever width is not the first row's. The
+    # producer is fixed, but stores already in that state stay that way until
+    # the next model change or a forced re-embed — so say so, or a partial
+    # corpus reads as a complete one and short results read as a finding.
+    _skipped_dim = getattr(matrix, "skipped_dim_mismatch", 0) if matrix else 0
+    if _skipped_dim:
+        meta["semantic_partial"] = {
+            "symbols_excluded": _skipped_dim,
+            "reason": "embedding_dimension_mismatch",
+            "remedy": "embed_repo(force=True) rebuilds the store at one width",
+        }
+        meta["verdict"]["channels"]["semantic"] = "partial"
     negative_evidence = _vres["negative_evidence"]
     if negative_evidence is not None:
         result["negative_evidence"] = negative_evidence

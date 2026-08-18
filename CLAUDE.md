@@ -327,6 +327,100 @@ compaction is near its floor; descriptions are untouched ground.
 a RESUMED conversation counts accumulated context on every step, so the total is
 dominated by how much the agent read early on, which compounds.
 
+**2026-08-18: #493 + #492 (@rknighton) FIXED BY US via PRs #496 / #498.**
+Unreleased; see CHANGELOG `[Unreleased]`.
+
+**#493 — `index_file` advanced the repo `git_head` after proving one file.**
+`repo_is_stale` is "index SHA differs from live HEAD", so refreshing one file out
+of a two-file commit CLEARED staleness for the file never refreshed, and
+`get_file_content` served commit-A content reading `channels.index: fresh`
+against a clean tree.
+⚠⚠ **THE WRITE IS NOT THE DEFECT; WHAT HAS BEEN PROVEN BEFORE IT IS.**
+`index_folder._refresh_git_head_if_advanced` makes the IDENTICAL write on a
+no-change run (#330) and is CORRECT there, because that run walked the corpus.
+**Two calls, one write, opposite correctness.** The reporter drew that
+distinction himself and the fix is built on it — a diff of the two functions
+would have shown nothing.
+⚠ Fix is one `git diff --name-only --relative` against the stored head; advance
+only if every other moved path is one the index neither carries nor would index.
+`--relative` is load-bearing (a monorepo subtree must not be held back by a
+sibling commit). **An ADDED source file blocks too** — not in the corpus, so not
+"a file we carry that moved", but advancing would certify a complete index over
+a corpus missing a file.
+⚠ **`_paths_changed_between` returns None for "could not ask", NEVER an empty
+set**, or a failed git call reads as a clean diff. Unknown → do not advance,
+same asymmetry as .209.
+⚠ **Branch-delta path deliberately UNCHANGED** (writes `branch_meta`, own
+`base_head`); the reporter made no claim about it. Recorded, not swept.
+⚠ `tests/test_index_file_head_advance.py` (10): **5 red at `b85ef61`, and the
+other 5 pass on BOTH sides BY DESIGN** — they are the constraint tests (#330
+must not regress, a single-file commit must still clear staleness). **A guard
+that never advanced would satisfy every assertion about the bug and leave every
+repo reading stale forever.** Say so, or a reviewer reads them as vacuous.
+
+**#492 — `resolve_repo` answered a repository question with a filesystem fact.**
+Fast path 1 matched `source_root` containment alone, so a path inside an
+independent nested clone returned the PARENT index as `indexed: true`.
+⚠⚠ **Whether it LOOKS wrong depends on something irrelevant to the defect.**
+Gitignored nested repo → read fails, `absent`, indistinguishable from a normal
+empty result. Absorbed into the parent walk → same wrong repo, read SUCCEEDS,
+`state: ok`. **Two symptoms, one mis-resolution** — and only the second case
+proves it without involving absence semantics at all.
+⚠ Guard is a `.git` stat, **never a subprocess**: fast path 1 exists to avoid
+the `resolve_index_identity` walk that can HANG (#303), so a correctness guard
+that spawned a process would trade the reported bug for the one the fast path
+was built to prevent. Asserted by monkeypatching `subprocess.run` to raise.
+⚠⚠ **Classify by where `.git` POINTS, not by file-vs-directory.**
+`.git/worktrees/` vs `.git/modules/` is #372's distinction; submodules still
+resolve to the parent because their content IS indexed into it. **A
+`--separate-git-dir` clone leaves a `.git` FILE pointing at neither, and a
+file/directory test reads it as a submodule** — tested by name.
+⚠ A file outside the parent's corpus (gitignored/oversize/skipped) still
+resolves to the parent: being outside the corpus and belonging to another
+repository are different conditions.
+⚠ `tests/test_resolve_repo_nested_repo_boundary.py` (11): 7 red at `b85ef61`,
+4 boundary tests pass both sides by design. Submodules and linked worktrees
+tested against REAL git layouts (`git submodule add -c protocol.file.allow=always`,
+`git worktree add`), not fabricated `.git` markers.
+⚠ Suite: **7923 passed, 17 skipped, 0 failed** + ruff clean; +21 over #490's
+7919 decomposes as 10 + 11.
+
+⚠⚠ **PROCESS TRAP, NEW AND CHEAP TO REPEAT: `gh pr merge --delete-branch` on a
+PR that is the BASE of a stacked PR CLOSES the stacked PR.** GitHub normally
+retargets a stacked PR when its base merges; deleting the base branch in the
+same operation closes it instead. **A closed PR's base cannot be changed and it
+cannot be reopened while the base is gone** — `gh pr edit --base` returns
+"Cannot change the base branch of a closed pull request", `gh pr reopen` returns
+"Could not open the pull request". #497 died this way and was recovered as #498
+from the same intact head branch. **Merge a stacked base WITHOUT
+`--delete-branch`**, or retarget the child first.
+⚠⚠ **A PR stacked on a branch base GETS NO TEST MATRIX AND LOOKS CLEAN.**
+`test.yml` is `pull_request: branches: [main]`, so #497 showed 3 green checks
+(radar / retrieval gate / CLA) and `mergeStateStatus: CLEAN` with the matrix
+never run — **the fork-PR "only license/cla ran" hazard wearing a different
+costume, and `CLEAN` is the part that sells it.** Remedy is the workflow's own
+escape hatch: `gh workflow run test.yml --ref <branch>` (all 9 jobs green,
+run `32092744385`). **Count the checks; a green rollup is not a run matrix.**
+
+**2026-08-18: #443's conflict was OURS for the SIXTH time, resolved on their
+branch.** Three of our merges (#490, #492, #493) landed in the same
+`[Unreleased]` block, and a CONFLICTING fork PR has no `refs/pull/N/merge` and
+therefore NO CI. Merged `main` in, resolved to one `## [Unreleased]` with
+elfrost's `#447` section first, pushed to their fork. Suite on the merged tree
+**7929 / 17 / 0**, +6 = exactly their tests; all 11 CI checks green on the merge
+ref; `license/cla` PENDING is the only blocker.
+⚠⚠ **Six is not six incidents, it is one wrong merge order repeated** — and
+this round it was avoidable in a way the earlier ones were not: **all three of
+our merges happened while their PR sat blocked, and we batched none of them.**
+Policy 3b governs ORDER when we have a choice; when the contributor PR is
+BLOCKED and we ship anyway, the remaining lever is **how many separate
+`[Unreleased]` merges we make before resolving once**. Resolve after the LAST
+one, not after each.
+⚠ **The CLA status was erased by our push and came back within ~2 minutes as
+`pending`** — both halves of the documented hazard fired in one push (erases an
+existing status, provokes a missing one). `count=0` was observed and is NOT
+"cleared". Said so on the thread so eleven green checks are not read as done.
+
 **2026-08-17: #490 (@rknighton) FIXED BY US via PR #494 — a cache that
 announced readiness one key early.** The BM25 corpus cache publishes FOUR keys
 behind a check-then-build guarded on `idf` alone, and

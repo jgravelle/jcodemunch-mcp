@@ -32,6 +32,130 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### A model change left the embedding store holding two vector widths (#500)
+
+`embed_repo` carried this comment for four releases:
+
+```python
+# Detect dimension mismatch — if the stored model differs, force a rebuild.
+stored_dim = emb_store.get_dimension()
+```
+
+**It implemented no such detection.** `stored_dim` was read only to seed `dim`,
+nothing compared the stored model against the active one, and `set_dimension`
+fired exclusively when `dim is None` — a first-ever embed. Only `task_type`
+forced a rebuild. So changing the embedding model wrote new-width vectors
+alongside the old ones behind a meta row still naming the first.
+
+⚠⚠ **The consequence is a recall failure that reads as a finding, and it
+compounds.** `EmbeddingMatrix` infers its dimension from the FIRST row and drops
+every row that disagrees. The inferred width follows the majority of
+pre-existing rows, so **every symbol embedded after the change is silently
+excluded from semantic search, and the gap grows with every new file.** Measured
+on a 7-symbol repo: store `{384: 6, 768: 1}`, meta reporting 384, one symbol
+excluded — and nothing anywhere said so.
+
+⚠ **No unusual configuration reaches it.** Installing `[local-embed]` on an
+install that used `embed_model`, uninstalling it, deleting the ONNX model
+directory, changing `embed_model`, or rotating a cloud key with a different
+`*_EMBED_MODEL` all swap the active provider on an existing store.
+
+⚠⚠ **The read path is NOT the defect and was left alone.** Excluding a
+mismatched row reaches the same answer `_cosine_similarity` gave before the
+matrix existed — `embedding_matrix._build` says so in a comment and is right.
+The defect is that a mixed store could come into existence at all. **Fixing the
+consumer would have hidden the producer.**
+
+`EmbeddingStore.get_model()` is added and compared against the active model; a
+difference forces the rebuild, and the result carries `model_changed_from` +
+`rebuild_reason` rather than performing an expensive re-embed silently.
+
+⚠ **Unknown is not a change.** A store written before the model name was
+persisted has no row, and forcing a rebuild on it would bill every existing user
+a full re-embed for a model that may be identical.
+
+⚠ **`stored_dim` is now cleared inside the `force` branch**, which also repairs
+the pre-existing `task_type` rebuild path: it cleared the store and then left
+`dim` seeded from the old value, so the `dim is None` gate never re-fired and
+the meta kept advertising the previous dimension and model against freshly
+written vectors.
+
+⚠ **`skipped_dim_mismatch` was computed, stored on the object and read NOWHERE**
+— `grep -rn skipped_dim_mismatch src/` returned only the three lines defining
+it. Stores already mixed stay mixed until the next model change or a forced
+re-embed, so `search_symbols` now reports `_meta.semantic_partial` and grades
+the semantic channel `partial`. **A count that exists and is discarded is the
+same defect as not counting.**
+
+⚠ **`evidence/capability.py` has called `get_model()` since v1.108.221 behind a
+`type: ignore` and a bare `except`**, so the capability certificate reported
+`model: "unknown"` for every repository. It resolves now — found by adding the
+method, not by reading the call site.
+
+⚠ `tests/test_embedding_model_change.py` (9), 8 red against the pre-fix tree.
+Two of those eight are constraints rather than evidence, red only because
+`get_model()` does not exist there; `test_re_embedding_the_same_model_does_not_rebuild`
+passes on both sides and is the control against turning the common path into a
+full re-embed on every call.
+### The two exclusion opt-outs never read the project config that documents them (#491, @rknighton)
+
+`security.py`'s `exclude_skip_directories` and `exclude_secret_patterns`
+resolvers called `_config.get()` without `repo=`, which skips the project
+overlay entirely. A project declaring either key in its own `.jcodemunch.jsonc`
+got **no effect, no warning, and a successful index** — the files were simply
+absent from the corpus.
+
+⚠⚠ **The comment above the skip list is what makes this a defect rather than a
+missing feature.** It says in as many words that these are ordinary English
+words that can name a real package, "which is why `exclude_skip_directories`
+exists — a project that ships an `archive/` module removes it there
+per-project." `is_secret_file`'s own docstring claims it applies "the project's
+`exclude_secret_patterns` overrides" one line above the global-only read. **Both
+were describing an intent the code did not implement.**
+
+⚠ **Nothing surfaces it.** `discovery_skip_counts` reports `skip_dir: 2` with no
+directory name and no rule name, and the pruned path goes to `logger.debug`. The
+user sets the documented opt-out, sees a green index, and gets a corpus quietly
+missing a module.
+
+The keys themselves were sound — the same values in **global** config worked
+throughout, which isolates the defect to the missing keyword rather than to the
+key, the walk or the parser. `repo=` is now threaded through
+`_excluded_skip_directories`, `get_skip_directories`, `get_skip_patterns` and
+`is_secret_file`, and through every local call site: the three
+`_build_skip_dirs_regex()` sites in `index_folder.py`, both `is_secret_file`
+sites there, the one in `index_file.py`, and the one in `security.py` itself.
+
+⚠ **`index_repo` is exempt BY NAME, not by omission.** A project's
+`.jcodemunch.jsonc` is found by walking up from a local path, and a GitHub tree
+has no local checkout — there is nothing to walk up to. Passing the owner/repo
+identifier would imply a lookup that cannot succeed. Global config still applies
+there, and the exemption is asserted by name in the test rather than left as a
+gap the ratchet happens not to cover.
+
+⚠ **The parameter is optional and defaults to today's behaviour**, so a caller
+with no path to offer resolves global-only exactly as before.
+
+⚠ **This is the fourth report of one bug shape**, after #300
+(`extra_ignore_patterns`), #187 (`languages`) and #304 (`summarizer_model`).
+**#301 audited about forty call sites for exactly this and lists
+`get_extra_ignore_patterns` as fixed while neither exclusion resolver appears in
+it**; v1.108.197 then fixed the three `max_*` resolvers and did not touch them
+either. So the ratchet is the point: `tests/test_security_exclusions_are_project_overridable.py`
+fails on any unthreaded read of either key and on any local call site that drops
+`repo=`. **A third audit would find the fifth instance; a test finds it on the
+commit that introduces it.**
+
+⚠ **Signature-only would have been a false green** — adding the parameter and
+leaving the callers bare changes nothing observable. The call-site check walks
+the AST rather than the signature for that reason.
+
+⚠ `tests/test_security_exclusions_are_project_overridable.py` (13), all red
+against `b85ef61`. Three of those are constraints rather than evidence: they are
+red only because `repo=` is not a parameter there, so each also asserts the
+no-argument form, which runs identically on both sides.
+
+
 ### `resolve_repo` no longer answers a repository question with a filesystem fact (#492, @rknighton)
 
 Fast path 1 matched on `source_root` containment alone, so a path inside an
