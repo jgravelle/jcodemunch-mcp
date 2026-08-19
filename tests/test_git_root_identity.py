@@ -449,6 +449,84 @@ class TestSubdirMerge:
         # source_roots is the full-walk marker.
         assert loaded.source_roots == [""]
 
+    def test_repeat_full_root_walk_takes_the_incremental_no_change_path(self, tmp_path):
+        """#504: a full-root RE-walk must not be treated as a subdir merge.
+
+        The merge carries over files outside `walk_prefix`; a full-root walk has
+        nothing outside it. Assigning `_merge_with_existing` there makes the
+        incremental branch (gated on `_merge_with_existing is None`) unreachable,
+        so every repeat index rebuilt the whole corpus instead of returning
+        "No changes detected".
+
+        `performed_incremental` is #413's field: it reported the substitution
+        correctly the whole time, which is what made this visible at all.
+        """
+        repo = self._make_repo(tmp_path, "kibana", "https://github.com/elastic/kibana.git")
+        (repo / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+        store_path = tmp_path / "store"
+
+        first = index_folder(
+            str(repo), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        assert first["success"] is True
+        # Nothing to diff against yet, so the first walk is a full build.
+        assert first["performed_incremental"] is False
+
+        second = index_folder(
+            str(repo), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        assert second["success"] is True
+        assert second["message"] == "No changes detected"
+        assert second["performed_incremental"] is True
+
+        # Idempotent: still no-change on the third run, not just the second.
+        third = index_folder(
+            str(repo), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        assert third["message"] == "No changes detected"
+        assert third["performed_incremental"] is True
+
+    def test_full_root_walk_after_subdir_rebuilds_once_then_goes_incremental(self, tmp_path):
+        """#504's disclosed migration: one rebuild to establish `source_roots == [""]`.
+
+        A full-corpus incremental diff cannot be layered onto a `source_roots`
+        marker that is still partial, so the first full-root walk over a
+        subdir-only index rebuilds. That is once per index, not once per run —
+        this asserts the run after it is incremental.
+        """
+        repo = self._make_repo(tmp_path, "kibana", "https://github.com/elastic/kibana.git")
+        packages = repo / "packages"
+        packages.mkdir()
+        (packages / "p.py").write_text("def p(): pass\n", encoding="utf-8")
+        (repo / "main.py").write_text("def main(): pass\n", encoding="utf-8")
+        store_path = tmp_path / "store"
+
+        index_folder(
+            str(packages), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        store = IndexStore(base_path=str(store_path))
+        assert store.load_index("elastic", "kibana").source_roots == ["packages"]
+
+        promoted = index_folder(
+            str(repo), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        assert promoted["success"] is True
+        # The migration run itself: a rebuild, and it says so.
+        assert promoted["performed_incremental"] is False
+        assert store.load_index("elastic", "kibana").source_roots == [""]
+
+        settled = index_folder(
+            str(repo), use_ai_summaries=False,
+            storage_path=str(store_path), identity_mode="git",
+        )
+        assert settled["message"] == "No changes detected"
+        assert settled["performed_incremental"] is True
+
     def test_disjoint_subdirs_both_present_after_merge(self, tmp_path):
         repo = self._make_repo(tmp_path, "kibana", "https://github.com/elastic/kibana.git")
         a = repo / "packages" / "alpha"

@@ -3,12 +3,12 @@
   "name": "io.github.jgravelle/jcodemunch-mcp",
   "title": "jCodemunch MCP",
   "description": "Token-efficient code exploration via tree-sitter AST parsing. 70+ languages, 86-99% token savings.",
-  "version": "1.108.286",
+  "version": "1.108.287",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "jcodemunch-mcp",
-      "version": "1.108.286",
+      "version": "1.108.287",
       "transport": {
         "type": "stdio"
       }

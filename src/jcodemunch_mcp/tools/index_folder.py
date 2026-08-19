@@ -2221,8 +2221,44 @@ def index_folder(
                 }
             # Same git_root.  Decide between merge (v1.96 format) and
             # rebuild (v1.95 legacy format).
-            if _existing_source_root == _git_root:
+            #
+            # ⚠⚠ The merge is for a SUBDIR walk only (#504). It exists to carry
+            # over files outside `walk_prefix`, and a full-root walk has nothing
+            # outside it — every indexed file is in this walk. Assigning
+            # `_merge_with_existing` there is not merely redundant: the
+            # incremental branch below is gated on `_merge_with_existing is
+            # None`, so a full-root RE-walk could never reach it and every
+            # repeat index rebuilt the whole corpus. That is invisible from the
+            # outside because the rebuild is correct — just unboundedly more
+            # expensive than the no-change return it replaced, on exactly the
+            # path a scheduled freshness check takes.
+            if _existing_source_root == _git_root and walk_prefix:
                 _merge_with_existing = _existing_for_collision
+            elif _existing_source_root == _git_root and set(
+                getattr(_existing_for_collision, "source_roots", []) or []
+            ) != {""}:
+                # A full-root walk over an index whose `source_roots` is still a
+                # PARTIAL subdir marker cannot use the full-corpus incremental
+                # diff: that diff is computed against the entire stored file
+                # set, and layering it onto a partial marker would leave the
+                # marker claiming less coverage than the index now has. Rebuild
+                # once to establish `source_roots == [""]`; every later root
+                # walk then takes the no-change path.
+                #
+                # ⚠ DISCLOSED MIGRATION: the first full-root index after
+                # upgrading is a rebuild for anyone whose index was last written
+                # by a subdir walk. It happens once per index, not per run.
+                incremental = False
+                logger.info(
+                    "index_folder: full-root walk supersedes partial source_roots "
+                    "for %s/%s; rebuilding once to establish the full-root marker",
+                    owner,
+                    repo_name,
+                )
+            elif _existing_source_root == _git_root:
+                # Full-root re-walk of an index already marked full-root: leave
+                # `_merge_with_existing` unset so the incremental diff runs.
+                pass
             elif _existing_source_root:
                 _v195_legacy_rebuild = True
                 # Drop the legacy index so the full-save path below

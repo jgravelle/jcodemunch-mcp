@@ -32,6 +32,54 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### A full-root re-walk was treated as a subdir merge, so every repeat index rebuilt the corpus (#504, @lsg1103275794)
+
+The v1.96 collision guard assigned `_merge_with_existing` whenever an existing
+index recorded the same `git_root`, with no test for whether this walk was
+actually a subdirectory. The incremental branch is gated on
+`_merge_with_existing is None`, so a **full-root re-walk could never reach it**:
+every repeat `index_folder` on a git root re-parsed and re-saved every file
+instead of returning `No changes detected`.
+
+The merge exists to carry over files outside `walk_prefix`. A full-root walk has
+nothing outside it, so there the merge was never a merge — it was a switch that
+turned the incremental path off.
+
+⚠⚠ **Invisible from the outside, which is why it survived: the rebuild is
+CORRECT.** It produces the same index, just at full cost, and the one field that
+named the substitution — `performed_incremental` (#413) — reads `False`, which
+is also what a legitimate first-ever index reports. The path it degrades is the
+one a scheduled freshness check takes, so the cost is paid every interval,
+forever, by the users least likely to be watching a stopwatch.
+
+Measured by the reporter on 1,132 files / 9,926 symbols, same tree, no edits
+between runs: **~5.0-5.7s of re-parse and re-save per run, against ~1.58s for the
+no-change return** that replaces it. Their machine, not a canonical figure.
+
+⚠ **DISCLOSED MIGRATION — the first full-root index after upgrading may be a
+rebuild, once per index.** A full-corpus incremental diff is computed against the
+entire stored file set and cannot be layered onto a `source_roots` marker that is
+still partial (an index whose last write was a subdir walk). That case rebuilds
+once to establish `source_roots == [""]`; every later root walk is incremental.
+It is once per index, not once per run, and
+`test_full_root_walk_after_subdir_rebuilds_once_then_goes_incremental` pins the
+distinction.
+
+⚠ **`_refresh_git_head_if_advanced` now fires more often**, because no-change
+runs finally happen. That write is correct in `index_folder` precisely because
+this path walked the whole corpus before advancing the head — the distinction
+#493 drew against `index_file` in v1.108.285, which advanced it after proving
+only one file. The behaviour is unchanged; only its frequency is.
+
+⚠ **Not a one-line guard, and the reporter established that before writing the
+patch.** `and walk_prefix` alone turns
+`test_full_root_walk_after_subdir_replaces_everything` red, because it strands
+the partial-marker case with no path to full coverage.
+
+## [1.108.287] - 2026-08-19 - Yesterday's fixes stopped where the reports did
+
+Four defects, all reported within a minute of each other, and every one probes a surface adjacent to something v1.108.286 shipped. A guide section the filter did not reach, a second call site with its own containment check, a keyword threaded onto a path that never loaded what it reads, and a second derivation of the tool list. Each fix is the same sentence — ask the authority instead of reproducing its logic — and each had been applied only where it was reported.
+
 ### Both generated policies reconstructed the tool list instead of asking for it (#507, @rknighton)
 
 `_get_active_tools` rebuilt the active set from `tool_profile` and the baked
