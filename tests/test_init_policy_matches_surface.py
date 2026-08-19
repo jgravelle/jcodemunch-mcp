@@ -22,6 +22,7 @@ import re
 import pytest
 
 from jcodemunch_mcp.cli import init as I
+import jcodemunch_mcp.server as server_module
 
 # Matches the ways the policies name a tool: `name`, `name {`, `name(`.
 _NAMED = re.compile(r"`([a-z_][a-z0-9_]*)[`(\s{]")
@@ -104,16 +105,31 @@ def test_active_tools_ignores_profile_when_the_surface_is_the_front_door(surface
 
 
 def test_full_surface_still_honours_profile(surface, monkeypatch):
+    """A non-full profile must still filter, and to what `tools/list` carries.
+
+    ⚠ #507: this asserted ``active == set(_PROFILE_TIERS["core"])`` — the baked
+    tier table. That was never what the server advertises: `_ALWAYS_PRESENT_TOOLS`
+    survives every tier, and `tool_tier_bundles` can redefine a tier outright.
+    **The test encoded the premise of the defect**, so it could only pass while
+    the helper reconstructed the answer instead of asking for it.
+
+    It also monkeypatched `cfg.get` with a two-argument signature, which the real
+    resolver does not have; setting the config exercises the actual path.
+    """
     surface("full")
     from jcodemunch_mcp import config as cfg
-    monkeypatch.setattr(
-        cfg, "get",
-        lambda k, d=None: "core" if k == "tool_profile" else ([] if k == "disabled_tools" else d),
-    )
+    from jcodemunch_mcp.server import _build_tools_list
+
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "tool_profile", "core")
+    monkeypatch.setitem(cfg._GLOBAL_CONFIG, "disabled_tools", [])
+
     active = I._get_active_tools()
+
     assert active is not None, "a non-full profile must still filter"
-    from jcodemunch_mcp.server import _PROFILE_TIERS
-    assert active == set(_PROFILE_TIERS["core"])
+    assert active == {t.name for t in _build_tools_list()}
+    assert len(active) < len(server_module._CANONICAL_TOOL_NAMES), (
+        "the profile did not narrow anything"
+    )
 
 
 # ── config is loaded before anything is generated ─────────────────────────

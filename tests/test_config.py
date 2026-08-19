@@ -1699,12 +1699,23 @@ class TestClaudeMdGenerate:
     """claude-md --generate subcommand."""
 
     def test_generate_full_snippet(self, capsys, monkeypatch):
-        """--generate outputs all canonical tool names."""
-        from jcodemunch_mcp.server import _run_claude_md, _CANONICAL_TOOL_NAMES
+        """--generate outputs every tool this process will actually dispatch.
+
+        ⚠ #495: this asserted every CANONICAL name appeared, which encoded the
+        defect rather than catching it. `disabled_tools` ships as
+        `["test_summarizer"]`, so a snippet naming every canonical tool names one
+        that `call_tool` rejects before the handler runs. The property wanted is
+        "advertises what it will dispatch", not "advertises everything".
+        """
+        from jcodemunch_mcp.server import _run_claude_md, _build_tools_list
         _run_claude_md(generate=True, fmt="full")
         out = capsys.readouterr().out
-        for tool in _CANONICAL_TOOL_NAMES:
-            assert tool in out, f"Expected tool {tool!r} in snippet"
+        mounted = {t.name for t in _build_tools_list()}
+        for tool in mounted:
+            assert tool in out, f"Expected mounted tool {tool!r} in snippet"
+        assert "test_summarizer" not in out, (
+            "snippet names a tool disabled by default"
+        )
 
     def test_generate_append_reports_missing(self, monkeypatch, tmp_path, capsys):
         """--format=append outputs only tools absent from the existing CLAUDE.md."""

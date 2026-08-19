@@ -7785,6 +7785,64 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+# Quick-start steps as DATA, not literal lines (#506).
+#
+# ⚠⚠ #495 filtered `### All tools` and left this section as six fixed strings
+# that no filter reached, so the guide could still instruct a caller to run a
+# tool `call_tool` rejects. **Fixing the reported section and leaving an
+# adjacent one with the identical defect is the failure mode this project keeps
+# hitting** — the same shape as #495's own "the filtering existed and a second
+# generator walked around it".
+#
+# Each entry is (tools named, text, alternatives). A step whose tool will not
+# dispatch is dropped whole and the remainder RENUMBERED, so the list never
+# shows a gap or an orphaned continuation line.
+_QUICK_START_STEPS: tuple[tuple[tuple[str, ...], str, tuple[tuple[str, str], ...]], ...] = (
+    (
+        ("list_repos",),
+        "`list_repos` — check if the project is indexed.",
+        (("index_folder", "local"), ("index_repo", "GitHub URL")),
+    ),
+    (
+        ("search_symbols",),
+        "`search_symbols` — find functions/classes by name or description.",
+        (),
+    ),
+    (
+        ("get_context_bundle",),
+        "`get_context_bundle` — symbol source + imports in one call.",
+        (),
+    ),
+    (
+        ("search_text",),
+        "`search_text` — full-text/regex search for literals and comments.",
+        (),
+    ),
+)
+
+
+def _quick_start_lines(active: Optional[set]) -> list[str]:
+    """Numbered quick-start steps, restricted to tools that will dispatch.
+
+    ``active`` of ``None`` means no filtering is needed and the output is
+    byte-identical to the pre-#506 literal.
+    """
+    def _ok(name: str) -> bool:
+        return active is None or name in active
+
+    out: list[str] = []
+    step = 0
+    for tools, text, alternatives in _QUICK_START_STEPS:
+        if not all(_ok(t) for t in tools):
+            continue
+        step += 1
+        out.append(f"{step}. {text}")
+        available = [f"`{t}` ({label})" for t, label in alternatives if _ok(t)]
+        if available:
+            out.append("   If not: " + " or ".join(available) + ".")
+    return out
+
+
 def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     """Return the recommended CLAUDE.md prompt-policy snippet.
 
@@ -7822,6 +7880,41 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
             logger.debug("front-door snippet unavailable; using the full one", exc_info=True)
 
     categories = _SNIPPET_TOOL_CATEGORIES
+
+    # #495: filter to what this process will actually dispatch.
+    #
+    # ⚠⚠ `disabled_tools` ships as `["test_summarizer"]`, so at SHIPPED DEFAULTS
+    # this guide advertised a tool `call_tool` then refuses — an agent reads the
+    # name here, calls it, and gets an error before the handler runs. Nothing
+    # about that is configuration-dependent; it was the out-of-the-box state.
+    #
+    # ⚠⚠ The filtering already existed and a SECOND generator walked around it.
+    # Commit e086e9a ("claude-md respects tool_profile and disabled_tools", #242)
+    # added exactly this to `cli/init.py`, which is why the CLI policy path
+    # filters correctly today. This function is the other generator and never
+    # received it. **Reuse `_get_active_tools` rather than writing a third
+    # filter** — a copy is how these two drifted apart in the first place.
+    #
+    # ⚠ Profile is honoured too, not just `disabled_tools`. The registered
+    # description promises the guide "Matches the active tool surface, tier and
+    # disabled_tools", and `tier` is the profile. A profile-hidden tool stays
+    # dispatchable by name, so naming it costs context rather than erroring
+    # (#397) — a weaker harm than the reported one, and the same promise.
+    try:
+        from .cli.init import _get_active_tools
+        _active = _get_active_tools()
+    except Exception:
+        logger.debug("active-tool filter unavailable; listing all", exc_info=True)
+        _active = None
+    if _active is not None:
+        categories = [
+            (cat, [t for t in tools if t in _active])
+            for cat, tools in categories
+        ]
+        # A category emptied by filtering is dropped whole; a bare "**Search:**"
+        # with nothing after it reads as a surface with no tools in it.
+        categories = [(cat, tools) for cat, tools in categories if tools]
+
     from . import __version__ as _ver
     lines = [
         f"## jcodemunch-mcp (v{_ver})",
@@ -7829,11 +7922,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
         "Use jcodemunch-mcp tools instead of Grep/Read/Glob for any indexed repository.",
         "",
         "### Quick start",
-        "1. `list_repos` — check if the project is indexed.",
-        "   If not: `index_folder` (local) or `index_repo` (GitHub URL).",
-        "2. `search_symbols` — find functions/classes by name or description.",
-        "3. `get_context_bundle` — symbol source + imports in one call.",
-        "4. `search_text` — full-text/regex search for literals and comments.",
+        *_quick_start_lines(_active),
         "",
         "### All tools",
     ]

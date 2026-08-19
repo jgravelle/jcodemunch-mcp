@@ -2573,8 +2573,14 @@ def generate_template() -> str:
   // "summarizer_model": "",
   // "embed_model": "",
   //   Sentence-transformers model name for local (free) semantic embeddings.
-  //   Example: "all-MiniLM-L6-v2". Requires sentence-transformers package.
-  //   When set, takes priority over GOOGLE_API_KEY and OPENAI_API_KEY embeddings.
+  //   Example: "all-MiniLM-L6-v2". Requires the sentence-transformers package
+  //   (pip install 'jcodemunch-mcp[semantic]').
+  //   When set, takes priority over GOOGLE_API_KEY and OPENAI_API_KEY
+  //   embeddings AND over the bundled zero-config ONNX encoder. Setting it is
+  //   an explicit choice, so it outranks the default (v1.108.286, #488).
+  //   Leave it empty to use the bundled encoder.
+  //   If the package is not installed the setting is SKIPPED rather than
+  //   honoured into an error, and embed_repo reports it in provider_skipped.
   // "allow_remote_summarizer": false,
   //   Allow remote LLM endpoints for summarization (security risk).
   //   Default false blocks non-local summarization.

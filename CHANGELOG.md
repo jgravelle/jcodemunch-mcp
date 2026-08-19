@@ -32,6 +32,241 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+### Both generated policies reconstructed the tool list instead of asking for it (#507, @rknighton)
+
+`_get_active_tools` rebuilt the active set from `tool_profile` and the baked
+`_PROFILE_TIERS`. `tools/list` is built by `_build_tools_list()` from three
+further inputs it never read:
+
+1. **the session tier override** — `set_tool_tier`, and also `announce_model`
+   via `resolve_model_to_tier`;
+2. **`tool_tier_bundles`**, which lets a user redefine what a tier contains;
+3. **the `languages` gate**, which drops `search_columns` when SQL is off.
+
+Two generators depend on it, so `jcodemunch_guide` and the CLAUDE.md that `init`
+writes could both name tools the server does not carry. Measured on one process:
+**70, 15 and 1** unmounted names for the three cases; all are 0 now.
+
+⚠⚠ **The first case needs no configuration at all.** `announce_model` writes the
+session tier, so an agent that announces a small model and then reads the guide
+arrives there without calling `set_tool_tier` — and `jcodemunch_guide` is in
+`_ALWAYS_PRESENT_TOOLS`, so it stays reachable at every tier. The other two are
+config-only and therefore reach `init`, whose output **is written into the
+user's CLAUDE.md and stays there.**
+
+The helper now asks `_build_tools_list()` rather than reproducing its logic.
+**This is the third instance of that shape in three days** — #495 was a second
+generator carrying its own copy of the filter, #509 a second call site with its
+own containment check, and this a second derivation of the tool set.
+
+⚠ **Filtering is a subtraction, so a wrong answer here removes guidance.** An
+empty or failed build returns `None`, meaning "do not filter": a policy naming a
+few unavailable tools is a smaller harm than a policy with no workflow left in
+it. Same shape as v1.108.209's rule that an unmeasurable comparison never
+answers `fresh`.
+
+⚠⚠ **`test_full_surface_still_honours_profile` asserted
+`active == set(_PROFILE_TIERS["core"])`** — the baked tier table, which was never
+what the server advertises, since `_ALWAYS_PRESENT_TOOLS` survives every tier.
+**It encoded the premise of the defect and could only pass while the helper
+reconstructed the answer.** It now compares against `_build_tools_list()`, and
+sets the config rather than monkeypatching `cfg.get` with a signature the real
+resolver does not have. **Fourth test this cycle found asserting the behaviour it
+should have prevented.**
+
+⚠ `tests/test_generated_policy_matches_tools_list.py` (8), 6 red against the
+pre-fix helper. ⚠ Its source-level guard walks the **AST**: the first version
+matched the literal string `_PROFILE_TIERS` and failed on the comment explaining
+why the helper must not use it — a guard that could not tell prose from code,
+the same fix the `src.` twin-import guard needed.
+
+
+### `index_file` could write a file into another repository's index (#509, #508, @rknighton)
+
+Two defects on one path, both of them the *previous* fix stopping at the call
+site that was reported.
+
+**#509 — containment is not identity.** `index_file` picked the deepest indexed
+`source_root` containing the requested file and never established that the file
+and that index were the same repository. `resolve_repo` stopped doing this in
+#492/v1.108.285; this path still did — and here the consequence is a **write**
+into an index built from a different repository with a different history, not
+merely a wrong read.
+
+⚠ The check is **imported** from `resolve_repo`, not reimplemented. Copying it is
+exactly how the two call sites diverged, and importing it also inherits #492's
+boundary for free: **a path inside a submodule still resolves to the parent**,
+because submodule content is indexed into the parent.
+
+⚠ The refusal names the repository. Falling through to "no indexed folder found
+that contains this path" would have been wrong on the facts — the parent index
+*does* contain it — and would send the caller to `index_folder` on the parent,
+which is the wrong remedy.
+
+**#508 — a keyword that was present and did nothing.** `index_file` passes
+`repo=` to `is_secret_file`, the context-provider gate and the language gate, but
+nothing on that path ever called `load_project_config`. `config.get(..., repo=)`
+reads an overlay only that function populates, so every one of those resolved to
+**global** config and the project's `.jcodemunch.jsonc` was inert.
+
+⚠⚠ **v1.108.286 threaded that keyword through six sites (#491) without checking
+anything loads the overlay it reads.** A parameter that is present and does
+nothing is indistinguishable from the defect it was added to fix.
+
+⚠ Fixed at the entry point rather than by lazy-loading inside `config.get()`.
+`load_project_config` does not cache a *miss*, so a lazy load would re-stat on
+every read for any repo without a project file — on the hottest function in the
+codebase. The entry point loads it once, and the ratchet below guards the rest.
+
+⚠⚠ **`tests/test_path_entry_point_invariants.py` is the point of this entry.**
+Both defects are the same shape reported twice, so the tests are written over
+the *entry points* rather than over the two reported functions: a path in a
+nested independent repository must not be attributed to the enclosing parent by
+**any** entry point, and a project-only setting must apply at **any** entry point
+that accepts a path. `resolve_repo` and `index_folder` are the passing controls
+in each pair, which is what proves the invariant achievable rather than
+aspirational. **A third instance now fails on the commit that introduces it.**
+### `### Quick start` could still recommend a disabled tool (#506, @rknighton)
+
+v1.108.286 filtered the guide's `### All tools` list by `disabled_tools` and
+profile. **`### Quick start` was six fixed strings assembled afterwards, which no
+filter reached**, so with `search_text` disabled the guide still said, as a
+numbered instruction, to call it — and `call_tool` rejected it before the handler
+ran.
+
+⚠⚠ **This is the previous fix being scoped to the section that was reported
+rather than to the property.** #495's own diagnosis was "the filtering existed
+and a second generator walked around it"; #506 is the same sentence one level
+down — the filter existed and a second *section* was not behind it. **Fixing the
+reported instance and leaving an adjacent one with the identical defect is the
+failure mode this project keeps hitting, and it has now happened inside the fix
+for it.**
+
+Quick-start steps are data now, not literal lines. A step naming a tool that will
+not dispatch is dropped whole and the remainder **renumbered**, so the list never
+shows a gap. `index_folder` and `index_repo` share one continuation line and are
+filtered individually: disabling one keeps the other, disabling both drops the
+line rather than leaving a bare "If not:" with nothing to offer.
+
+⚠⚠ **The test helper was scoped the same way and that is the durable half.**
+`_advertised()` split the content at `### All tools` and inspected only what
+followed, so it could not observe this section and would not observe the next one
+either. It now scans the whole document, which satisfies the reporter's fourth
+criterion: **a section added outside that block is covered on the commit that
+adds it.**
+
+⚠ All six names Quick Start uses are parametrized, not just the reported
+`search_text` — none of them is in `_UNDISABLEABLE_TOOLS`, so any can be
+disabled.
+
+⚠ `tests/test_guide_respects_disabled_tools.py` grows to 19; the 8 new
+quick-start cases are red against v1.108.286 with #495's fix still in place, so
+they pin this gap specifically rather than the original defect.
+
+
+## [1.108.286] - 2026-08-18 - Three surfaces that advertised a product we were not running
+
+A config comment describing a precedence the resolver did not use, a tool schema naming three key-requiring embedding providers while hiding the free bundled one, and a guide listing a tool the same process refuses to dispatch. In each case the code was fine and the thing describing it was not.
+
+### An explicit local embedding model now outranks the zero-config default (#488, @pnm-jgb)
+
+`_detect_provider` returned the bundled ONNX encoder at priority 0, so once
+`[local-embed]` was installed every lower branch became unreachable **by
+configuration**. `embed_model` / `JCODEMUNCH_EMBED_MODEL` was read after the
+early return and changed nothing — no warning, no log line, no field in any
+response. **Absence of a setting and an explicit setting are different intents,
+and only the first should get the default.**
+
+The reporter's case is the ordinary one: they run jdocmunch on
+`BAAI/bge-base-en-v1.5` and wanted code and docs on the same model. `embed_model`
+is exactly the knob that appears to offer it. They set it, saw no change, and
+learned why only by reading the resolver.
+
+⚠⚠ **ONLY THE FREE, ON-MACHINE OPTION WAS PROMOTED. Gemini and OpenAI still sit
+BELOW the bundled encoder, and that is the load-bearing half of this change.**
+`tests/test_paid_embeddings_optin.py` exists because jdocmunch's resolver
+auto-selected OpenAI from an ambient key and began **billing a remote account and
+shipping the indexed corpus off the machine**; jcm's second line of defence is
+precisely that ONNX wins before any cloud branch is reached. **`embed_model` is
+free and local, so promoting it costs a re-embed; promoting a cloud provider
+costs money and exfiltrates the corpus.** Those are not the same decision and
+they do not get the same answer. A machine with an ambient `OPENAI_API_KEY` and
+`OPENAI_EMBED_MODEL` still embeds locally.
+
+⚠ **The usability probe decides PRECEDENCE, never selection.**
+`_embed_sentence_transformers` raises `ImportError` without its package, so
+promoting an uninstalled backend over a working ONNX install would trade a
+silently-ignored setting for a hard failure at embed time — the same defect,
+louder. When ONNX is unavailable there is nothing to protect and the setting is
+selected as before, which is what hands the caller the actionable
+`pip install 'jcodemunch-mcp[semantic]'` message rather than a bare `None`.
+**Probing unconditionally broke that on every machine without the package**, and
+33 tests said so.
+
+⚠ `embed_repo` now reports `provider_reason` (`embed_model` / `bundled_default`
+/ `google_api_key` / `openai_api_key` / `none_configured`) and, when an explicit
+setting could not be honoured, `provider_skipped` naming it and the remedy. **An
+explicit setting we cannot use is disclosed, never dropped** — silently ignoring
+it is the reported defect, and silently failing on it is that defect with a
+louder symptom.
+
+⚠ **The config comment is corrected**, which matters because it was the only
+place `embed_model` was documented and it described the opposite precedence:
+"takes priority over GOOGLE_API_KEY and OPENAI_API_KEY embeddings" was true of
+the two it named and silent about the one that outranked it.
+
+⚠ **MIGRATION, stated.** If you have `[local-embed]` installed AND `embed_model`
+set, your next `embed_repo` switches provider — and v1.108.285's #500 fix
+detects that, forces the rebuild, and reports `model_changed_from`. Before .285
+it would have left the store holding two vector widths with the newer half
+silently excluded from search, which is why this change waited for that one.
+
+⚠ `tests/test_explicit_embed_model_wins.py` (12). Six are red against the
+pre-fix resolver, **but only two of those are behavioural** — the other four
+fail because `_detect_provider_detailed` does not exist there. The six that pass
+on both sides are the money-safety class and the wrapper-shape controls, which
+pin what must NOT move.
+
+
+### The guide advertised a tool the same process refuses to run (#495, @rknighton)
+
+`jcodemunch_guide` built its `### All tools` list from a static constant without
+consulting `disabled_tools`. That key ships as `["test_summarizer"]`, so **at
+shipped defaults — no config file, no environment overrides —** the guide named a
+tool `call_tool` then rejected before the handler ran. An agent reads the name,
+calls it, and gets an error.
+
+⚠⚠ **The filtering already existed and a SECOND generator walked around it.**
+Commit `e086e9a` ("claude-md respects tool_profile and disabled_tools", #242)
+added exactly this to `cli/init.py`, which is why the CLI policy path filters
+correctly today. `server.py`'s generator never received it. **The fix reuses
+`_get_active_tools` rather than adding a third copy** — a copy is precisely how
+the two drifted apart, and a third would drift again.
+
+⚠ **Profile is honoured too, not only `disabled_tools`.** The reporter scoped
+their claim to `disabled_tools` deliberately and correctly: a profile-hidden tool
+stays dispatchable by name, so naming it costs context (#397) rather than
+producing a failure. But the tool's own registered description promises the guide
+"Matches the active tool surface, tier and disabled_tools", and `tier` is the
+profile — so filtering by one and not the other leaves the description making a
+claim the code does not keep, which is the defect class this release is full of.
+
+⚠ A category emptied by filtering is dropped whole. A bare `**Search:**` with
+nothing after it reads as a surface with no tools in it.
+
+⚠⚠ **`tests/test_config.py::test_generate_full_snippet` asserted that EVERY
+canonical tool name appears in the snippet, which encoded the defect instead of
+catching it.** `test_summarizer` is canonical and disabled by default, so the
+test could only pass while the bug existed. It now asserts the property actually
+wanted — advertises what it will dispatch — and pins the absence. **That is the
+third test this release found asserting the behaviour it should have prevented.**
+
+⚠ `tests/test_guide_respects_disabled_tools.py` (9), 5 red against the pre-fix
+generator. The other four are constraints: the nothing-disabled control, snippet
+shape, the empty-category rule, and a pin on `DEFAULTS["disabled_tools"]` so the
+issue's premise cannot silently change out from under the case.
+
+
 ### The tool schema advertised three paid-ish providers and hid the free one (#489, @pnm-jgb)
 
 Five places tell a caller how to obtain an embedding provider. Exactly one of

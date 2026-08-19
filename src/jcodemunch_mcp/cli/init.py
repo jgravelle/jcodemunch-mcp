@@ -733,23 +733,39 @@ def _get_active_tools() -> set[str] | None:
     through the tool list.
     """
     try:
-        from ..config import get as cfg_get
-        from ..server import _PROFILE_TIERS, _CANONICAL_TOOL_NAMES
+        from ..server import _build_tools_list
     except Exception:
+        logger.debug("could not import the tool-list builder", exc_info=True)
         return None
 
     if _effective_tool_surface() == "counter":
         return set(_front_door_tool_names())
 
-    profile = cfg_get("tool_profile", "full")
-    tier = _PROFILE_TIERS.get(profile)
-    disabled = set(cfg_get("disabled_tools", []))
+    # ⚠⚠ ASK the builder; do not reconstruct its answer (#507). This used to
+    # rebuild the active set from `tool_profile` + the baked `_PROFILE_TIERS`,
+    # which omits three inputs `tools/list` actually reads:
+    #   1. the SESSION tier override — `set_tool_tier`, and also `announce_model`
+    #      via `resolve_model_to_tier`, so an agent that announces a small model
+    #      and then reads the guide diverges without configuring anything;
+    #   2. `tool_tier_bundles`, which lets a user redefine what a tier contains;
+    #   3. the `languages` gate, which drops `search_columns` when SQL is off.
+    # Measured on one process: 70, 15 and 1 unmounted names respectively, and
+    # the `init` half of the last two is written into the user's CLAUDE.md and
+    # stays there.
+    try:
+        active = {t.name for t in _build_tools_list()}
+    except Exception:
+        logger.debug("tool-list build failed; not filtering", exc_info=True)
+        return None
 
-    if tier is None and not disabled:
-        return None  # full profile, nothing disabled
-
-    active = set(_CANONICAL_TOOL_NAMES) if tier is None else set(tier)
-    active -= disabled
+    # ⚠ An empty answer must not filter the policy down to nothing. `None` means
+    # "no filtering", which is the safe direction: a policy naming a few
+    # unavailable tools is a smaller harm than a policy with no workflow left in
+    # it. Same shape as v1.108.209's rule that an unmeasurable comparison never
+    # answers `fresh`.
+    if not active:
+        logger.debug("tool-list build returned nothing; not filtering")
+        return None
     return active
 
 

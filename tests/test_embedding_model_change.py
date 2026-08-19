@@ -58,6 +58,14 @@ def embedded(tmp_path, monkeypatch):
 
         @staticmethod
         def embed(model, width, **kwargs):
+            # ⚠ Patch the DETAILED resolver: `embed_repo` calls that one, and
+            # `_detect_provider` is now a thin wrapper over it (#488). Patching
+            # the wrapper leaves the real resolver in play and the fake provider
+            # never reaches the code under test.
+            monkeypatch.setattr(
+                er, "_detect_provider_detailed",
+                lambda: (("fake_provider", model), "test_fixture", []),
+            )
             monkeypatch.setattr(
                 er, "_detect_provider", lambda: ("fake_provider", model)
             )

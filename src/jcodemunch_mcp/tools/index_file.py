@@ -14,6 +14,7 @@ from ..security import validate_path, is_secret_file
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
 from ._indexing_pipeline import parse_and_prepare_incremental
+from .resolve_repo import _independent_repo_between
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,9 @@ def index_file(
     repos = store.list_repos()
     best_match: Optional[dict] = None
     best_root_len = -1
+    # Candidates rejected for belonging to a different repository, kept so the
+    # refusal can say WHICH repository rather than "no index contains this".
+    _blocked_by_boundary: list[tuple[str, Path]] = []
 
     for repo_entry in repos:
         source_root = repo_entry.get("source_root", "")
@@ -185,11 +189,24 @@ def index_file(
             continue
         try:
             root_path = Path(source_root).resolve()
-            if file_path.is_relative_to(root_path) and len(str(root_path)) > best_root_len:
-                best_match = repo_entry
-                best_root_len = len(str(root_path))
+            if not file_path.is_relative_to(root_path):
+                continue
         except (ValueError, OSError):
             continue
+        # #509: containment is a FILESYSTEM fact; attribution needs a REPOSITORY
+        # one. `resolve_repo` stopped matching on containment alone in #492 and
+        # this path still did — where the consequence is a WRITE into an index
+        # built from a different repository, not merely a wrong read.
+        #
+        # ⚠ Imported, not reimplemented. Copying the check is exactly how these
+        # two call sites diverged in the first place.
+        _boundary = _independent_repo_between(file_path, root_path)
+        if _boundary is not None:
+            _blocked_by_boundary.append((repo_entry.get("repo", ""), _boundary))
+            continue
+        if len(str(root_path)) > best_root_len:
+            best_match = repo_entry
+            best_root_len = len(str(root_path))
 
     if best_match is None:
         sibling_error = _sibling_checkout_error(file_path, store)
@@ -198,6 +215,20 @@ def index_file(
                 "success": False,
                 "error": sibling_error,
                 "skipped": "different_working_tree",
+            }
+        if _blocked_by_boundary:
+            _enclosing, _repo_root = _blocked_by_boundary[0]
+            return {
+                "success": False,
+                "error": (
+                    f"{path} belongs to the git repository at {_repo_root}, which "
+                    f"has no index of its own. It is inside the indexed folder "
+                    f"for '{_enclosing}', but that is a different repository with "
+                    f"a different history — writing this file into it would "
+                    f"attribute one repository's source to another. Run "
+                    f"index_folder on {_repo_root} first."
+                ),
+                "skipped": "different_repository",
             }
         return {
             "success": False,
@@ -209,6 +240,17 @@ def index_file(
 
     owner, name = best_match["repo"].split("/", 1)
     source_root = Path(best_match["source_root"]).resolve()
+
+    # #508: `config.get(key, repo=...)` reads an overlay that only
+    # `load_project_config` populates, and nothing on this path called it — so
+    # every `repo=` below (is_secret_file, context_providers, language gating)
+    # silently resolved to GLOBAL config and the project's settings were inert.
+    # `index_folder` loads it for the same reason at its own walk root.
+    #
+    # ⚠ A parameter that is present and does nothing is indistinguishable from
+    # the defect it was added to fix (#491 threaded the keyword; this is the
+    # path where it never reached anything).
+    _config.load_project_config(str(source_root))
 
     # Security validation
     if not validate_path(source_root, file_path):
