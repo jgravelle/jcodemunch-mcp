@@ -32,6 +32,41 @@ the base is correct behaviour; pinning it would encode platform trivia as if it
 were a security property.
 
 Reported and fixed by [@elfrost](https://github.com/elfrost).
+
+### `CONFIGURATION.md` gave the wrong default for `disabled_tools` (#515, @rknighton)
+
+The Tools table documented the default as `[]`. The shipped default is
+`["test_summarizer"]`, so a reader following the reference page expected all 91
+canonical tools in the schema and got 90.
+
+Three other surfaces state it correctly — the generated config template writes
+`// Default: test_summarizer disabled` above the key, `config --init` carries the
+same comment, and `test_guide_respects_disabled_tools.py` pins
+`DEFAULTS["disabled_tools"] == ["test_summarizer"]`. The reference table was the
+only one that disagreed, and it is the page a user opens when a tool they
+expected is missing.
+
+The row now spells the value out and names the tool, so the 90-of-91 count is
+explained where it is discovered.
+
+⚠ **`tool_tier_bundles` was wrong the same way and the reporter said so while
+scoping it out**: documented `{}`, ships populated. Nothing observable changed
+because the shipped value is set-identical to the `_TOOL_TIER_CORE` /
+`_TOOL_TIER_STANDARD` fallback the row already described. Fixed here too — a cell
+that is accidentally harmless is still a cell that will be read.
+
+⚠⚠ **The deliverable is `tests/test_configuration_md_defaults.py`, written over
+the TABLE rather than the two reported rows.** It parses every `Default` column
+in the document and compares each cell against `config.DEFAULTS`, so the next key
+someone documents is covered on the commit that documents it. 3 red against the
+pre-fix document, 63 green after.
+
+⚠ **The exemption is load-bearing, not a hole.** `tool_tier_bundles` cannot be
+inlined, so its cell is prose — and the test asserts its repr is genuinely too
+long to fit, which means a small wrong value cannot hide behind the same escape
+hatch, plus it asserts the claim the prose makes (that the bundles carry the
+built-in tier names) rather than trusting it.
+
 ### A full-root re-walk was treated as a subdir merge, so every repeat index rebuilt the corpus (#504, @lsg1103275794)
 
 The v1.96 collision guard assigned `_merge_with_existing` whenever an existing

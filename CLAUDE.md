@@ -553,9 +553,7 @@ means something.**
 touched the `[Unreleased]` block. Same resolution, suite **7961/17/0**, +6 =
 exactly elfrost's tests, all 11 real CI checks green on the merge ref;
 `license/cla` PENDING is the only blocker.
-⚠ **The erase-on-push hazard fired again** (count=0 on the new head, back as
-`pending` within ~2 minutes). Tally now: erased 2, survived 1. **Read the status
-after every push to a fork; it is not predictable.**
+⚠⚠ **CLA erase-on-push tally, measured across five resolutions of #443: ERASED 3 times; RETURNED on its own twice; on 2026-08-19 it did NOT return within 5 minutes and was still absent when we stopped watching.** So the "our push provokes it back" note is a TENDENCY, not a remedy. ⚠ It does not block the CONTRIBUTOR — signing posts a fresh status against the current head — but the PR then shows eleven green checks and NO cla row, which reads as "done, waiting on them" and is the opposite. **Say so on the thread every time**; do not close+reopen to chase it (1 success / 2 failures, and it notifies them for nothing).
 ⚠ **A comment was posted BEFORE CI confirmed it** ("everything green except
 license/cla"). It held, but it was a prediction at the time. Post the claim after
 the run, or say it is expected rather than observed.
