@@ -336,6 +336,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_vue_symbols(source_bytes, filename)
     elif language == "svelte":
         symbols = _parse_svelte_symbols(source_bytes, filename)
+    elif language == "markdown":
+        symbols = _parse_markdown_symbols(source_bytes, filename)
     elif language == "ejs":
         symbols = _parse_ejs_symbols(source_bytes, filename)
     elif language == "verse":
@@ -4653,6 +4655,237 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             continue
         _parse_block(raw_node, _script_lang(script_node))
 
+    return symbols
+
+
+# ---------------------------------------------------------------------------
+# Markdown (.md / .markdown) custom symbol extractor
+# ---------------------------------------------------------------------------
+
+# ATX heading marker node type -> heading level (# = 1 .. ###### = 6).
+_MD_ATX_LEVELS = {f"atx_h{i}_marker": i for i in range(1, 7)}
+
+# Setext (underlined) heading underline node type -> heading level.
+_MD_SETEXT_LEVELS = {"setext_h1_underline": 1, "setext_h2_underline": 2}
+
+# Cap for the heading docstring preview (first paragraph of the section).
+_MD_DOCSTRING_CAP = 200
+
+# Placeholder name for headings with no inline text (`##` alone).
+_MD_UNTITLED = "(untitled)"
+
+
+def _md_inline_text(node, source_bytes: bytes) -> str:
+    """Concatenated text of all ``inline`` descendants, emphasis markers stripped.
+
+    Only ``inline`` nodes are collected — block continuations in quoted
+    headings (``> ``) carry no content. Backticks/asterisks are stripped and
+    whitespace collapsed so ``# **Usage**`` indexes as ``Usage`` (what an
+    agent searches for), without mangling snake_case words.
+    """
+    parts: list[str] = []
+    stack = [node]
+    while stack:
+        cur = stack.pop(0)
+        if cur.type == "inline":
+            parts.append(source_bytes[cur.start_byte:cur.end_byte].decode("utf-8", errors="replace"))
+        else:
+            stack.extend(cur.named_children)
+    text = " ".join(" ".join(p.strip() for p in parts if p.strip()).split())
+    return text.replace("`", "").replace("*", "").strip()
+
+
+def _parse_markdown_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from Markdown files (.md / .markdown).
+
+    Surfaces:
+      - ATX headings (``#`` .. ``######``) and setext (underlined) headings
+        as kind=``heading`` symbols, parented by heading level (an h2 nests
+        under the nearest preceding lower-level heading) — the document
+        outline. The symbol's byte range covers the whole enclosing
+        ``section`` (heading through the end of its body), so
+        get_symbol_source returns the full section text.
+      - Fenced code blocks (``` / ~~~) as kind=``code_block`` child symbols,
+        named by their info-string language (``python``), or ``code`` when
+        the fence has no info string.
+
+    YAML frontmatter (``minus_metadata``) is not a heading and is skipped.
+    Files with no headings/fences return [] and remain indexed for text
+    search (the SASS precedent). Heading docstrings carry the section's
+    first paragraph so search results can disambiguate repeated names.
+    Duplicate heading names within one file are disambiguated inline
+    (``~2``/``~3`` suffixes, mirroring the shared disambiguator's format)
+    so parent ids stay valid.
+    """
+    try:
+        md_parser = get_parser("markdown")
+        tree = md_parser.parse(source_bytes)
+    except Exception:
+        return []
+
+    symbols: list[Symbol] = []
+    # Stack of (level, Symbol) — nearest preceding heading with a lower level.
+    heading_stack: list[tuple[int, Symbol]] = []
+    used_qualified: set[str] = set()
+
+    def _unique_qualified(base: str) -> str:
+        if base not in used_qualified:
+            used_qualified.add(base)
+            return base
+        n = 2
+        while f"{base}~{n}" in used_qualified:
+            n += 1
+        unique = f"{base}~{n}"
+        used_qualified.add(unique)
+        return unique
+
+    def _first_line_text(n) -> str:
+        raw = source_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
+        return raw.split("\n", 1)[0].strip()
+
+    def _heading_extent(n, is_setext: bool) -> tuple[int, int, int]:
+        """(end_byte, end_line) covering the heading's whole section body.
+
+        ATX: the enclosing ``section`` node spans heading + body + nested
+        subsections. Setext headings sit FLAT inside the enclosing section
+        (the grammar does not nest them), so the extent is cut at the next
+        sibling ``setext_heading`` (or the section end).
+        """
+        parent = n.parent
+        if parent is None:
+            return n.end_byte, n.end_point[0] + 1
+        if is_setext:
+            after = False
+            for sib in parent.named_children:
+                if sib.id == n.id:
+                    after = True
+                elif after and sib.type == "setext_heading":
+                    return sib.start_byte, sib.start_point[0]
+            return parent.end_byte, parent.end_point[0] + 1
+        if parent.type == "section":
+            return parent.end_byte, parent.end_point[0] + 1
+        return n.end_byte, n.end_point[0] + 1
+
+    def _section_docstring(parent_node, heading_node) -> str:
+        """First paragraph AFTER the heading among its section siblings.
+
+        Siblings BEFORE the heading are skipped (in flat setext sections a
+        preceding paragraph belongs to the previous heading), and a nested
+        ``section`` (the next heading's subtree) stops the search.
+        """
+        after = False
+        for child in parent_node.named_children:
+            if child.id == heading_node.id:
+                after = True
+                continue
+            if not after:
+                continue
+            if child.type == "section":
+                break
+            if child.type == "paragraph":
+                return _md_inline_text(child, source_bytes)[:_MD_DOCSTRING_CAP]
+        return ""
+
+    def _add_heading(node, level: int, is_setext: bool = False) -> None:
+        name = _md_inline_text(node, source_bytes) or _MD_UNTITLED
+        while heading_stack and heading_stack[-1][0] >= level:
+            heading_stack.pop()
+        parent_sym = heading_stack[-1][1] if heading_stack else None
+        qualified_name = (
+            f"{parent_sym.qualified_name}.{name}" if parent_sym else name
+        )
+        qualified_name = _unique_qualified(qualified_name)
+
+        end_byte, end_line = _heading_extent(node, is_setext)
+        symbol_bytes = source_bytes[node.start_byte:end_byte]
+        sym = Symbol(
+            id=make_symbol_id(filename, qualified_name, "heading"),
+            file=filename,
+            name=name,
+            qualified_name=qualified_name,
+            kind="heading",
+            language="markdown",
+            signature=_first_line_text(node)[:_MD_DOCSTRING_CAP],
+            docstring=_section_docstring(node.parent, node) if node.parent else "",
+            parent=parent_sym.id if parent_sym else None,
+            line=node.start_point[0] + 1,
+            end_line=end_line,
+            byte_offset=node.start_byte,
+            byte_length=end_byte - node.start_byte,
+            content_hash=compute_content_hash(symbol_bytes),
+        )
+        symbols.append(sym)
+        heading_stack.append((level, sym))
+
+    def _add_code_block(node) -> None:
+        lang = "code"
+        for child in node.named_children:
+            if child.type == "info_string":
+                for sub in child.named_children:
+                    if sub.type == "language":
+                        lang = (
+                            source_bytes[sub.start_byte:sub.end_byte]
+                            .decode("utf-8", errors="replace")
+                            .strip()
+                            or "code"
+                        )
+                        break
+                break
+
+        parent_sym = heading_stack[-1][1] if heading_stack else None
+        qualified_name = (
+            f"{parent_sym.qualified_name}.{lang}" if parent_sym else lang
+        )
+        qualified_name = _unique_qualified(qualified_name)
+
+        sym = Symbol(
+            id=make_symbol_id(filename, qualified_name, "code_block"),
+            file=filename,
+            name=lang,
+            qualified_name=qualified_name,
+            kind="code_block",
+            language="markdown",
+            signature=_first_line_text(node)[:_MD_DOCSTRING_CAP],
+            docstring="",
+            parent=parent_sym.id if parent_sym else None,
+            line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            byte_offset=node.start_byte,
+            byte_length=node.end_byte - node.start_byte,
+            content_hash=compute_content_hash(
+                source_bytes[node.start_byte:node.end_byte]
+            ),
+        )
+        symbols.append(sym)
+
+    def _walk(n) -> None:
+        if n.type == "fenced_code_block":
+            _add_code_block(n)
+            return  # never descend: fence content is raw, but stay cheap
+        if n.type == "atx_heading":
+            # The heading node type is uniform (`atx_heading`); the level
+            # lives in its marker child (atx_h1_marker .. atx_h6_marker).
+            level = 1
+            for child in n.named_children:
+                if child.type in _MD_ATX_LEVELS:
+                    level = _MD_ATX_LEVELS[child.type]
+                    break
+            _add_heading(n, level)
+            return
+        if n.type == "setext_heading":
+            level = 2
+            for child in n.named_children:
+                if child.type in _MD_SETEXT_LEVELS:
+                    level = _MD_SETEXT_LEVELS[child.type]
+                    break
+            _add_heading(n, level, is_setext=True)
+            return
+        if n.type == "minus_metadata":
+            return  # YAML frontmatter is not document structure
+        for child in n.named_children:
+            _walk(child)
+
+    _walk(tree.root_node)
     return symbols
 
 

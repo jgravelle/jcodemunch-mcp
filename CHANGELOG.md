@@ -2,6 +2,73 @@
 
 ## [Unreleased]
 
+## [1.108.316] - 2026-09-02 - Markdown (.md / .markdown) files are indexed, not skipped
+
+### Added - a hierarchical heading outline plus fenced code blocks for documentation files
+
+`.md` and `.markdown` files were dropped at discovery as `wrong_extension`; they
+now index via the bundled tree-sitter `markdown` grammar through a custom
+`_parse_markdown_symbols` (registration mirrors the Svelte precedent: extension
+map + `MARKDOWN_SPEC`/LANGUAGE_REGISTRY, auto-flows into the MCP `language`
+enum and config validation).
+
+**`heading` symbols** carry the document outline: ATX (`#`..`######`) and setext
+(underlined) headings, **parented by heading level** -- an h2 nests under the
+nearest preceding lower-level heading. The grammar's own `section` nesting is
+used only for the byte range: a heading's extent covers its whole section, so
+`get_symbol_source` returns the section text; setext headings sit FLAT in the
+grammar, so their extent is cut at the next sibling setext heading. Names are
+emphasis-stripped (`## **Usage**` -> `Usage`), empty headings become
+`(untitled)`, and duplicates are disambiguated INLINE (`~2`) so parent ids
+never dangle. A heading's `docstring` carries the section's first paragraph --
+skipping siblings BEFORE the heading, because flat setext sections put the
+previous heading's paragraph there.
+
+**`code_block` symbols** surface fenced code blocks named by their info-string
+language (`python`; `code` when absent), parented under the enclosing heading --
+"where was that example?" is now a symbol lookup.
+
+⚠ Frontmatter (`minus_metadata`) is skipped; a file with no headings or fences
+returns no symbols and stays indexed for text search only (the SASS
+precedent). ⚠ Doc text produces **no import edges** -- code snippets inside
+docs do not leak into the import graph. ⚠ `.mdx` is deliberately NOT routed:
+the language pack has no JSX-aware markdown grammar.
+
+⚠⚠ **`VALID_KINDS` gains `heading` and `code_block`, and also `field`** -- the
+`search_symbols` `kind=` gate validates against that set, and `field` has been
+emitted by the Python parser since the dataclass-fields change without ever
+being in it, so `search_symbols(kind="field")` errored. The kind enum in the
+`search_symbols` input schema now **derives from `VALID_KINDS`** instead of a
+hardcoded list that had already drifted from it.
+
+⚠⚠ **`find_dead_code` skips doc extensions** (`.md`, `.markdown`): docs are
+consumed by humans and agents, never imported by code -- without the guard
+every indexed `.md` reported `zero_importers` at confidence 1.0 with all of
+its headings listed as dead symbols.
+
+File summaries read `Markdown doc: N sections (top-level names), M code
+blocks` instead of the empty "0 functions" noise the generic counters
+produced.
+
+**NO INDEX_VERSION bump** -- additive; previously-skipped files just gain
+symbols on re-index. No new tool. The schema grew, though, and `core_compact`
+had no room left: upstream's releases since 1.108.113 filled the live budget
+to the ceiling, and the new 10-value `kind` enum measured **4,003 against the
+4,000 hard ceiling** -- caught by CI's live gate, not locally (the cl100k
+tokenizer download is network-gated and this contributor's environment cannot
+reach it). The fix is the mechanism the codebase already had: **`kind` joins
+`language` in `_COMPACT_DEMOTE_ENUM_PARAMS`** -- under compact schemas the
+enum becomes a free-string filter (the runtime gate answers an unknown value
+with the full valid list in-band, which is MORE information than a schema
+rejection), reclaiming ~20 tokens. Full surfaces keep both enums (the
+`language` enum gains one value, the `kind` enum three, inside the 5% drift
+guard).
+
+`tests/test_markdown.py` (18) + `tests/fixtures/markdown/sample.md`, and
+intent-preserving updates to `test_tools`, `test_suggest_queries`,
+`test_v1_108_56`, and `test_server` (whose kind-enum assertion now reads
+`VALID_KINDS` instead of restating a literal).
+
 ## [1.108.315] - 2026-09-01 - A fix for a false positive can install a false negative
 
 ### Fixed - `find_dead_code` published "provably unreachable" over a corpus that could not support it (#566, #569)

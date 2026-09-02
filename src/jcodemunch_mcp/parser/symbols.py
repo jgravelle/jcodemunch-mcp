@@ -42,6 +42,9 @@ VALID_KINDS: frozenset[str] = frozenset({
     "type",       # Type aliases, interfaces, enums, traits, protocols
     "template",   # C++ templates
     "import",     # Import directives (C++ #include, etc.)
+    "field",      # Dataclass / attrs / Pydantic class fields (v1.108.80)
+    "heading",    # Markdown ATX/setext headings (document outline)
+    "code_block", # Markdown fenced code blocks (``` / ~~~)
 })
 
 

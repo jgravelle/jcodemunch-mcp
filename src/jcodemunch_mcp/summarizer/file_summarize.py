@@ -11,6 +11,20 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
     if not symbols:
         return ""
 
+    # Markdown docs: heading/code_block symbols only — describe the outline
+    # instead of reporting "0 functions, 0 classes".
+    headings = [s for s in symbols if s.kind == "heading"]
+    if headings and all(s.kind in ("heading", "code_block") for s in symbols):
+        code_blocks = sum(1 for s in symbols if s.kind == "code_block")
+        top = [s for s in headings if not s.parent]
+        names = ", ".join(s.name for s in top[:3])
+        if len(top) > 3:
+            names += f", +{len(top) - 3} more"
+        desc = f"Markdown doc: {len(headings)} sections ({names})"
+        if code_blocks:
+            desc += f", {code_blocks} code {'block' if code_blocks == 1 else 'blocks'}"
+        return desc
+
     classes = [s for s in symbols if s.kind == "class"]
     functions = [s for s in symbols if s.kind == "function"]
     methods = [s for s in symbols if s.kind == "method"]

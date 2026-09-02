@@ -246,6 +246,9 @@ LANGUAGE_EXTENSIONS = {
     ".yml": "yaml",
     # JSON (compound .openapi.json / .swagger.json checked first via LANGUAGE_EXTENSIONS key order)
     ".json": "json",
+    # Markdown (headings + fenced code blocks; custom _parse_markdown_symbols)
+    ".md": "markdown",
+    ".markdown": "markdown",
     # OpenAPI / Swagger (compound extensions; basenames handled in get_language_for_path)
     ".openapi.yaml": "openapi",
     ".openapi.yml": "openapi",
@@ -1133,6 +1136,28 @@ VUE_SPEC = LanguageSpec(
 # matching the VUE_SPEC / ASTRO_SPEC convention.
 SVELTE_SPEC = LanguageSpec(
     ts_language="svelte",
+    symbol_node_types={},
+    name_fields={},
+    param_fields={},
+    return_type_fields={},
+    docstring_strategy="preceding_comment",
+    decorator_node_type=None,
+    container_node_types=[],
+    constant_patterns=[],
+    type_patterns=[],
+)
+
+
+# Markdown specification
+# NOTE: Symbol extraction is performed by _parse_markdown_symbols() in
+# extractor.py over the bundled tree-sitter ``markdown`` grammar — ATX
+# (`#`-style) and setext (underlined) headings become a hierarchical
+# ``heading`` outline (parented by heading level), and fenced code blocks
+# (``` / ~~~ with an info string) become ``code_block`` child symbols.
+# The empty node-map fields below signal "custom parser", matching the
+# VUE_SPEC / SVELTE_SPEC convention.
+MARKDOWN_SPEC = LanguageSpec(
+    ts_language="markdown",
     symbol_node_types={},
     name_fields={},
     param_fields={},
@@ -2056,6 +2081,7 @@ LANGUAGE_REGISTRY = {
     "nix": NIX_SPEC,
     "vue": VUE_SPEC,
     "svelte": SVELTE_SPEC,
+    "markdown": MARKDOWN_SPEC,
     "ejs": EJS_SPEC,
     "verse": VERSE_SPEC,
     "lua": LUA_SPEC,

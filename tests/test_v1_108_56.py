@@ -104,10 +104,12 @@ class TestNoChangeRefreshesGitHead:
             incremental=True, identity_mode="local")["repo"]}, store_path)
         assert idx.git_head == head_a
 
-        # Commit a change to a NON-indexed file only.
-        (repo / "README.md").write_text("# hello world\n")
+        # Commit a change to a NON-indexed file only. Plain text — NOT .md,
+        # which is an indexed language since v1.108.316 (a .md change would
+        # correctly count as a source-file change now).
+        (repo / "NOTES.txt").write_text("scratch notes\n")
         _git(repo, "add", "-A")
-        _git(repo, "commit", "-m", "docs only")
+        _git(repo, "commit", "-m", "notes only")
         head_b = _head(repo)
         assert head_b != head_a
 

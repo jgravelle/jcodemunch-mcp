@@ -106,7 +106,8 @@ def test_discover_source_files():
     assert "src/engine.cpp" in files
     assert "include/engine.hpp" in files
     assert "node_modules/foo.js" not in files
-    assert "README.md" not in files  # Not a source file
+    # Markdown is an indexed language since v1.108.316 (was: "not a source file")
+    assert "README.md" in files
     assert truncated is False
 
 

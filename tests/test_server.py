@@ -87,9 +87,10 @@ async def test_search_symbols_tool_schema():
     assert "file_pattern" in props
     assert "max_results" in props
 
-    # kind should have enum
+    # kind should have enum — derived from VALID_KINDS (single source of truth)
     assert "enum" in props["kind"]
-    assert set(props["kind"]["enum"]) == {"function", "class", "method", "constant", "type", "template", "import"}
+    from jcodemunch_mcp.parser.symbols import VALID_KINDS as _vk
+    assert set(props["kind"]["enum"]) == set(_vk)
     assert "enum" in props["language"]
     assert "cpp" in props["language"]["enum"]
     assert "razor" in props["language"]["enum"]

@@ -1113,7 +1113,11 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
 # fully usable as a free-string filter (the tool tolerates any language string)
 # while reclaiming the tokens. Keyed by param name so every tool that exposes a
 # `language` enum (search_symbols, search_ast, ...) benefits across all tiers.
-_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language"})
+# `kind` is the same shape: a mechanical filter over VALID_KINDS whose runtime
+# gate answers an unknown value with the full valid list in-band (unlike
+# language, which filters silently), so schema-level rejection adds nothing the
+# error path does not already provide.
+_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language", "kind"})
 
 # Tools eligible for Agent Selector complexity scoring
 _AGENT_SELECTOR_TOOLS = frozenset({
@@ -2111,7 +2115,7 @@ def _build_tools_list(
                     "kind": {
                         "type": "string",
                         "description": "Optional filter by symbol kind",
-                        "enum": ["function", "class", "method", "constant", "type", "template", "import"]
+                        "enum": sorted(VALID_KINDS)
                     },
                     "file_pattern": {
                         "type": "string",

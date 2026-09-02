@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jcodemunch",
   "displayName": "jCodeMunch",
-  "version": "1.108.315",
+  "version": "1.108.316",
   "description": "Token-efficient MCP server for source code exploration via tree-sitter AST parsing",
   "author": {
     "name": "J. Gravelle",

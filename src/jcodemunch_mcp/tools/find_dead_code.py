@@ -75,6 +75,13 @@ _TOOLCHAIN_MANIFESTS = frozenset({
 
 _MAIN_GUARD_RE = re.compile(r'if\s+__name__\s*==\s*["\']__main__["\']')
 
+# Documentation files are consumed by humans/agents, never imported by code —
+# zero importers is their steady state, not a dead-code signal. Markdown is
+# indexed (heading/code_block symbols); without this guard every .md file
+# reports `zero_importers` at confidence 1.0 and all its headings show up as
+# dead symbols.
+_DOC_EXTENSIONS = (".md", ".markdown")
+
 
 def _is_entry_point_filename(file_path: str) -> bool:
     filename = file_path.replace("\\", "/").rsplit("/", 1)[-1]
@@ -394,6 +401,8 @@ def find_dead_code(
         if f in live_roots:
             continue
         if not include_tests and _is_test_file(f):
+            continue
+        if f.lower().endswith(_DOC_EXTENSIONS):
             continue
 
         importers = rev.get(f, [])

@@ -259,3 +259,39 @@ def test_compact_demotes_language_enum_keeps_capability():
                 cfg.pop(k, None)
             else:
                 cfg[k] = v
+
+
+def test_compact_demotes_kind_enum_keeps_capability():
+    """Under compact_schemas, the `kind` enum is demoted to a plain string
+    filter like `language` — same trade: a mechanical filter over VALID_KINDS
+    where the runtime gate answers an unknown value with the full valid list
+    in-band. The full surface keeps the enum. Guards the core_compact-under-
+    4000 headroom: the 10-value enum sat ~20 tokens over an already-full
+    budget (v1.108.316)."""
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.parser.symbols import VALID_KINDS
+    from jcodemunch_mcp.server import _build_tools_list
+
+    cfg = config_module._GLOBAL_CONFIG  # type: ignore[attr-defined]
+    original = {k: cfg.get(k) for k in ("tool_profile", "compact_schemas")}
+    try:
+        cfg["tool_profile"] = "core"
+
+        cfg["compact_schemas"] = True
+        ss = next(t for t in _build_tools_list() if t.name == "search_symbols")
+        kind = ss.inputSchema["properties"]["kind"]
+        assert "enum" not in kind, "kind enum must be demoted under compact"
+        assert kind.get("type") == "string", "demoted kind must remain a string filter"
+        assert kind.get("description"), "demoted kind must keep its description"
+
+        cfg["compact_schemas"] = False
+        ss_full = next(t for t in _build_tools_list() if t.name == "search_symbols")
+        assert set(ss_full.inputSchema["properties"]["kind"].get("enum", [])) == set(VALID_KINDS), (
+            "full surface must keep the kind enum, derived from VALID_KINDS"
+        )
+    finally:
+        for k, v in original.items():
+            if v is None:
+                cfg.pop(k, None)
+            else:
+                cfg[k] = v

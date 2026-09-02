@@ -21,8 +21,9 @@ class TestSuggestQueriesErrors:
         store = tmp_path / "store"
         src.mkdir()
         store.mkdir()
-        # Write a file type the parser ignores (no symbols extracted)
-        (src / "README.md").write_text("# Hello\n")
+        # Write a file type the parser ignores (no symbols extracted).
+        # Plain text — NOT .md, which yields heading symbols since v1.108.316.
+        (src / "NOTES.txt").write_text("plain notes, no structure\n")
         r_idx = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
         # If no symbols were extracted the tool returns an empty-index error
         if r_idx["success"] and r_idx.get("symbols_indexed", 0) == 0:

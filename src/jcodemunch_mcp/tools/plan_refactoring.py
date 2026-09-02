@@ -98,6 +98,8 @@ _IMPORT_PATTERNS = {
     "nix": re.compile(r"^\s*(?:import|with)\s+"),
     "ejs": re.compile(r"<%[=-]?\s*(?:require|import)\s*"),
     "verse": re.compile(r"^\s*(?:using|import)\s+"),
+    # -- Docs: markdown "imports" are relative doc links / anchors --
+    "markdown": re.compile(r"\]\((?!https?://)[^)\s]+\)"),
 }
 
 # Definition patterns per language
@@ -176,6 +178,8 @@ _DEF_PATTERNS = {
     "nix": re.compile(r"^\s*{name}\s*="),
     "ejs": re.compile(r"<%[=-]?\s*(?:function|const\s+{name})"),
     "verse": re.compile(r"^\s*(?:class|function|agent|device)\s+{name}\b"),
+    # -- Docs: a markdown "definition" is a heading naming the symbol --
+    "markdown": re.compile(r"^#{1,6}\s+.*{name}\b", re.IGNORECASE),
     # -- Tier 3: vue, svelte and asm (vue/svelte use JS/TS patterns, asm labels) --
     "vue": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
     "svelte": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
