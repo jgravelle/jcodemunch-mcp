@@ -103,3 +103,7 @@ def running_source_changed_at() -> Optional[float]:
     if not is_source_layout(module_file):
         return None
     return newest_source_mtime(module_file.parent)
+
+
+def _lint_probe():
+    return undefined_name_for_ci_probe
