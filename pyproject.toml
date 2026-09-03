@@ -82,7 +82,7 @@ all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyya
 
 
 [project.scripts]
-jcodemunch-mcp = "jcodemunch_mcp.server:main"
+jcodemunch-mcp = "jcodemunch_mcp.server:main_does_not_exist"
 gcm = "jcodemunch_mcp.groq.cli:main"
 munch-bench = "munch_bench.cli:main"
 
