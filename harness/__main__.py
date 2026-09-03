@@ -206,6 +206,24 @@ _SUMMARY = re.compile(
 )
 
 
+def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
+    """Surface a non-threshold failure (pytest, ruff, corpora) as check annotations.
+
+    A Floor failure carries its own verdict line; a failing TEST or a lint
+    error does not, and the first CI probe showed only "Process completed
+    with exit code 1" in the Checks tab (docs/cicd/VERIFICATION.md). Printed
+    only under GitHub Actions so local runs stay readable.
+    """
+    if not os.environ.get("GITHUB_ACTIONS"):
+        return
+    failed = [ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED ", "ERROR "))]
+    lines = failed[:max_lines] if failed else [ln.strip() for ln in out.strip().splitlines()[-max_lines:]]
+    for ln in lines:
+        print(f"::error title={title}::{ln[:400]}")
+    if len(failed) > max_lines:
+        print(f"::error title={title}::... {len(failed) - max_lines} more; see the log")
+
+
 def _pytest_summary(out: str) -> dict:
     line = ""
     for ln in out.splitlines()[::-1]:
@@ -552,6 +570,8 @@ def tier_fast(result: dict) -> bool:
         ok = False
         for b in bad:
             print("  MISMATCH", b)
+        _annotate_failure("fast tier: corpus checksum", "
+".join(bad))
     else:
         print("  all pinned corpora match harness/corpora.json")
     if not warm_assets():
@@ -566,6 +586,7 @@ def tier_fast(result: dict) -> bool:
     if rc != 0:
         ok = False
         print(out[-4000:])
+        _annotate_failure("fast tier: pytest", out)
     # A skip ceiling here too: a rebuilt .venv without the watch extra took
     # this tier from 7 skips to 112 at exit 0 (2026-09-03, the 08-28 shape).
     print(T.verdict_line("suite.fast_skips_max", summ["skipped"]))
@@ -576,6 +597,8 @@ def tier_fast(result: dict) -> bool:
     print("  ", out2.strip().splitlines()[-1] if out2.strip() else "")
     if rc2 != 0:
         ok = False
+        print(out2[-3000:])
+        _annotate_failure("fast tier: ruff check src/", out2)
     print("== offline thresholds")
     ok3, rows = offline_checks()
     ok = ok and ok3
@@ -621,6 +644,7 @@ def tier_full(result: dict) -> bool:
     ok = rc == 0 and warm_ok
     if rc != 0:
         print(out[-6000:])
+        _annotate_failure("full tier: pytest", out)
     m = re.search(r"^TOTAL\s+\d+\s+\d+\s+(\d+)%", out, re.M)
     cov_obs = int(m.group(1)) if m else None
     if cov_obs is not None:
