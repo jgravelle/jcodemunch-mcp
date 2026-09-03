@@ -323,7 +323,6 @@ jobs:
   # ------------------------------------------------------------- stage 5
   done-changelog:
     name: "done: changelog"
-    needs: [fast-harness]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -338,7 +337,6 @@ jobs:
 
   done-pins:
     name: "done: version pins"
-    needs: [fast-harness]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -353,7 +351,6 @@ jobs:
 
   done-surface:
     name: "done: tool surface documented"
-    needs: [fast-harness]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

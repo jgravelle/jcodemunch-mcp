@@ -28,7 +28,14 @@ MARKER = "<!-- harness-bench-comment -->"
 
 
 def _git_show(ref: str, path: str) -> dict | None:
-    p = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=REPO, text=True, capture_output=True, encoding="utf-8", errors="replace")
+    p = subprocess.run(
+        ["git", "show", f"{ref}:{path}"],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if p.returncode != 0:
         return None
     try:
@@ -50,51 +57,158 @@ def _delta(base, pr):
     return "—"
 
 
-def rows(base_results: dict | None, pr_results: dict, base_ref_json: dict | None, bench: list | None) -> list[list[str]]:
+def rows(
+    base_results: dict | None,
+    pr_results: dict,
+    base_ref_json: dict | None,
+    bench: list | None,
+) -> list[list[str]]:
     out = []
     base_lat = (base_results or {}).get("artifacts", {}).get("self_latency", {}) or {}
     pr_lat = pr_results.get("artifacts", {}).get("self_latency", {}) or {}
     for tid, e in T.load(announce=False).items():
         if tid in pr_lat:
             pv, bv = pr_lat.get(tid), base_lat.get(tid)
-            out.append([f"`{tid}`", str(e["criterion"]), f"{e['comparator']} {e['floor']}", _fmt(bv), _fmt(pv), _delta(bv, pv), "PASS" if T.passes(tid, pv) else "**FAIL**"])
+            out.append(
+                [
+                    f"`{tid}`",
+                    str(e["criterion"]),
+                    f"{e['comparator']} {e['floor']}",
+                    _fmt(bv),
+                    _fmt(pv),
+                    _delta(bv, pv),
+                    "PASS" if T.passes(tid, pv) else "**FAIL**",
+                ]
+            )
     if bench:
-        pr_total = sum(sum(t.get("jmunch_tokens", 0) for t in r.get("tasks", [])) for r in bench if "error" not in r)
+        pr_total = sum(
+            sum(t.get("jmunch_tokens", 0) for t in r.get("tasks", []))
+            for r in bench
+            if "error" not in r
+        )
         base_total = (base_ref_json or {}).get("grand", {}).get("jmunch_tokens")
-        grep_total = sum(sum(t.get("grep_baseline_tokens", 0) for t in r.get("tasks", [])) for r in bench if "error" not in r)
+        grep_total = sum(
+            sum(t.get("grep_baseline_tokens", 0) for t in r.get("tasks", []))
+            for r in bench
+            if "error" not in r
+        )
         ratio = round(grep_total / pr_total, 2) if pr_total else None
         e = T.get("token.grand_ratio_vs_grep")
-        out.append(["`token.grand_ratio_vs_grep`", str(e["criterion"]), f"{e['comparator']} {e['floor']}", "—", _fmt(ratio), "—", "PASS" if ratio is not None and T.passes("token.grand_ratio_vs_grep", ratio) else "**FAIL**"])
-        out.append(["jcm tokens, 15 tasks", "2", "—", _fmt(base_total), _fmt(pr_total), _delta(base_total, pr_total), "info"])
+        out.append(
+            [
+                "`token.grand_ratio_vs_grep`",
+                str(e["criterion"]),
+                f"{e['comparator']} {e['floor']}",
+                "—",
+                _fmt(ratio),
+                "—",
+                "PASS"
+                if ratio is not None and T.passes("token.grand_ratio_vs_grep", ratio)
+                else "**FAIL**",
+            ]
+        )
+        out.append(
+            [
+                "jcm tokens, 15 tasks",
+                "2",
+                "—",
+                _fmt(base_total),
+                _fmt(pr_total),
+                _delta(base_total, pr_total),
+                "info",
+            ]
+        )
         e = T.get("token.per_repo_rise_max")
         for r in bench:
             if "error" in r:
                 continue
             pv = sum(t.get("jmunch_tokens", 0) for t in r.get("tasks", []))
-            bv = ((base_ref_json or {}).get("repos", {}).get(r["repo"]) or {}).get("jmunch_total_tokens")
+            bv = ((base_ref_json or {}).get("repos", {}).get(r["repo"]) or {}).get(
+                "jmunch_total_tokens"
+            )
             rise = round((pv - bv) / bv, 4) if bv else None
-            out.append([f"`token.per_repo_rise_max` {r['repo']}", str(e["criterion"]), f"{e['comparator']} {e['floor']}", _fmt(bv), _fmt(pv), _fmt(rise), "PASS" if rise is not None and T.passes("token.per_repo_rise_max", rise) else ("—" if rise is None else "**FAIL**")])
+            out.append(
+                [
+                    f"`token.per_repo_rise_max` {r['repo']}",
+                    str(e["criterion"]),
+                    f"{e['comparator']} {e['floor']}",
+                    _fmt(bv),
+                    _fmt(pv),
+                    _fmt(rise),
+                    "PASS"
+                    if rise is not None and T.passes("token.per_repo_rise_max", rise)
+                    else ("—" if rise is None else "**FAIL**"),
+                ]
+            )
     return out
 
 
 def render(table: list[list[str]], head_sha: str) -> str:
-    md = [MARKER, f"### Harness bench on `{head_sha[:7]}` (base = committed artifacts)", "",
-          "| threshold | crit | floor | base | PR | delta | verdict |", "|---|---|---|---|---|---|---|"]
+    md = [
+        MARKER,
+        f"### Harness bench on `{head_sha[:7]}` (base = committed artifacts)",
+        "",
+        "| threshold | crit | floor | base | PR | delta | verdict |",
+        "|---|---|---|---|---|---|---|",
+    ]
     md += ["| " + " | ".join(r) + " |" for r in table]
     md.append("")
-    md.append("_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. `latency.*` verdicts are informational until F-19 closes with three CI runs._")
+    md.append(
+        "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. `latency.*` verdicts are informational until F-19 closes with three CI runs._"
+    )
     return "\n".join(md) + "\n"
 
 
 def post(pr: int, body: str) -> None:
     repo = os.environ.get("GITHUB_REPOSITORY", "jgravelle/jcodemunch-mcp")
-    existing = subprocess.run(["gh", "api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq", f'.[] | select(.body | startswith("{MARKER}")) | .id'],
-                              text=True, capture_output=True, encoding="utf-8").stdout.split()
+    existing = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/issues/{pr}/comments",
+            "--paginate",
+            "--jq",
+            f'.[] | select(.body | startswith("{MARKER}")) | .id',
+        ],
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout.split()
     payload = json.dumps({"body": body})
     if existing:
-        subprocess.run(["gh", "api", "--method", "PATCH", f"repos/{repo}/issues/comments/{existing[0]}", "--input", "-"], input=payload, text=True, check=True)
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "PATCH",
+                f"repos/{repo}/issues/comments/{existing[0]}",
+                "--input",
+                "-",
+            ],
+            input=payload,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
     else:
-        subprocess.run(["gh", "api", "--method", "POST", f"repos/{repo}/issues/{pr}/comments", "--input", "-"], input=payload, text=True, check=True)
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                "--method",
+                "POST",
+                f"repos/{repo}/issues/{pr}/comments",
+                "--input",
+                "-",
+            ],
+            input=payload,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
 
 
 def main(argv=None) -> int:
@@ -107,9 +221,24 @@ def main(argv=None) -> int:
     ap.add_argument("--summary")
     a = ap.parse_args(argv)
     pr_results = json.loads(Path(a.results).read_text(encoding="utf-8"))
-    bench = json.loads(Path(a.benchmark).read_text(encoding="utf-8")) if a.benchmark and Path(a.benchmark).exists() else None
-    table = rows(_git_show(a.base_ref, "harness/results/latest.json"), pr_results, _git_show(a.base_ref, "benchmarks/jcm_reference.json"), bench)
-    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    bench = (
+        json.loads(Path(a.benchmark).read_text(encoding="utf-8"))
+        if a.benchmark and Path(a.benchmark).exists()
+        else None
+    )
+    table = rows(
+        _git_show(a.base_ref, "harness/results/latest.json"),
+        pr_results,
+        _git_show(a.base_ref, "benchmarks/jcm_reference.json"),
+        bench,
+    )
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ).strip()
     body = render(table, head)
     print(body)
     if a.summary:

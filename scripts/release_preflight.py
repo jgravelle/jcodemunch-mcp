@@ -309,7 +309,9 @@ def pins_only(a) -> int:
     rc, base_py = _run(["git", "show", f"{a.base_ref}:pyproject.toml"])
     m = re.search(r'^version = "([^"]+)"', base_py, re.M) if rc == 0 else None
     base_version = m.group(1) if m else None
-    lines.append(f"base version {base_version}, head version {pins.get('pyproject.toml')}")
+    lines.append(
+        f"base version {base_version}, head version {pins.get('pyproject.toml')}"
+    )
     labels = {x.strip() for x in a.labels.split(",") if x.strip()}
     moved = good and base_version is not None and base_version != msg
     if moved:
@@ -317,14 +319,20 @@ def pins_only(a) -> int:
         text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
         if not changelog_has(version, text):
             ok = False
-            lines.append(f"FAIL: pins moved to {version} but CHANGELOG.md has no `## [{version}]` heading")
+            lines.append(
+                f"FAIL: pins moved to {version} but CHANGELOG.md has no `## [{version}]` heading"
+            )
         else:
             lines.append(f"CHANGELOG.md has a heading for {version}")
         try:
             wn = json.loads((REPO / "whatsnew.json").read_text(encoding="utf-8"))
-            if wn.get("current") != version or not any(e.get("version") == version for e in wn.get("entries", [])):
+            if wn.get("current") != version or not any(
+                e.get("version") == version for e in wn.get("entries", [])
+            ):
                 ok = False
-                lines.append(f"FAIL: whatsnew.json does not carry {version} as current with an entry")
+                lines.append(
+                    f"FAIL: whatsnew.json does not carry {version} as current with an entry"
+                )
         except Exception as e:
             ok = False
             lines.append(f"FAIL: whatsnew.json unreadable: {e}")
@@ -341,9 +349,15 @@ def pins_only(a) -> int:
         print(ln)
     if a.summary:
         with open(a.summary, "a", encoding="utf-8") as fh:
-            fh.write(f"## done: version pins: {'PASS' if ok else 'FAIL'}\n\n" + "\n".join(f"- {ln}" for ln in lines) + "\n")
+            fh.write(
+                f"## done: version pins: {'PASS' if ok else 'FAIL'}\n\n"
+                + "\n".join(f"- {ln}" for ln in lines)
+                + "\n"
+            )
     if not ok:
-        print("::error title=version pins::see the check summary (Definition of Done 1-2)")
+        print(
+            "::error title=version pins::see the check summary (Definition of Done 1-2)"
+        )
     return 0 if ok else 1
 
 
@@ -356,9 +370,15 @@ def main(argv: list[str] | None = None) -> int:
         "--no-harness", action="store_true", help="skip the fast tier (~50 s)"
     )
     ap.add_argument("--offline", action="store_true", help="skip the PyPI lookup")
-    ap.add_argument("--pins-only", action="store_true", help="PR gate mode: pins agree; if they moved vs --base-ref, CHANGELOG and whatsnew carry the version; the `release` label requires a move")
+    ap.add_argument(
+        "--pins-only",
+        action="store_true",
+        help="PR gate mode: pins agree; if they moved vs --base-ref, CHANGELOG and whatsnew carry the version; the `release` label requires a move",
+    )
     ap.add_argument("--base-ref", default="origin/main")
-    ap.add_argument("--labels", default="", help="comma-separated PR labels (with --pins-only)")
+    ap.add_argument(
+        "--labels", default="", help="comma-separated PR labels (with --pins-only)"
+    )
     ap.add_argument("--summary", help="append the verdict lines to this Markdown file")
     a = ap.parse_args(argv)
     if a.pins_only:
