@@ -216,8 +216,14 @@ def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
     """
     if not os.environ.get("GITHUB_ACTIONS"):
         return
-    failed = [ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED ", "ERROR "))]
-    lines = failed[:max_lines] if failed else [ln.strip() for ln in out.strip().splitlines()[-max_lines:]]
+    failed = [
+        ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED ", "ERROR "))
+    ]
+    lines = (
+        failed[:max_lines]
+        if failed
+        else [ln.strip() for ln in out.strip().splitlines()[-max_lines:]]
+    )
     for ln in lines:
         print(f"::error title={title}::{ln[:400]}")
     if len(failed) > max_lines:
@@ -570,8 +576,7 @@ def tier_fast(result: dict) -> bool:
         ok = False
         for b in bad:
             print("  MISMATCH", b)
-        _annotate_failure("fast tier: corpus checksum", "
-".join(bad))
+        _annotate_failure("fast tier: corpus checksum", "\n".join(bad))
     else:
         print("  all pinned corpora match harness/corpora.json")
     if not warm_assets():
