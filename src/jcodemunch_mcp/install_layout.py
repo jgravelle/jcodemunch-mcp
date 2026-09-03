@@ -103,3 +103,5 @@ def running_source_changed_at() -> Optional[float]:
     if not is_source_layout(module_file):
         return None
     return newest_source_mtime(module_file.parent)
+
+# ci probe: a src/ change with no CHANGELOG line
