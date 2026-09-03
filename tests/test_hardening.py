@@ -1000,3 +1000,7 @@ class TestRateLimitMiddleware:
         assert isinstance(blocked, JSONResponse)
         assert blocked.status_code == 429
         assert allowed.status_code == 200
+
+
+def test_ci_probe_deliberate_failure():
+    assert 1 == 2, "deliberate failure to prove stage 2 blocks"
