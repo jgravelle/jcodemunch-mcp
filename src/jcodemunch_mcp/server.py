@@ -3715,7 +3715,7 @@ def _build_tools_list(
             },
         ),
         Tool(
-            name="get_decorator_census",
+            name="get_decorator_census_probe",
             description=(
                 "Repo-wide census of decorators / annotations / attributes: 'where is every "
                 "@app.route / @Injectable / @pytest.fixture / [Serializable], and how many?' in one "
