@@ -9,7 +9,7 @@
 - **Python:** >=3.10
 - **Tool count:** 91 visible in `full` / 94 in catalog (front door hidden; counts verified 2026-07-30 from `jcodemunch-mcp surface`, which is the only place to get them — do NOT hand-type this; +1 v1.108.111 `get_parity_map`, +1 v1.108.112 `get_decorator_census`, +1 v1.108.113 `get_architecture_metrics`); `tool_surface=counter` exposes a 3-tool front door (`order`/`menu`/`route`) instead
 
-## How work is done here (2026-09-05)
+## How work is done here (2026-09-04)
 
 **Use these; do not improvise the process.** Each one runs the harness at
 the right moments, spawns an independent reviewer, and produces the
@@ -25,7 +25,7 @@ to add one). ⚠ Hooks (`.claude/hooks/`, wired in `.claude/settings.json`)
 refuse a `git commit` that fails the fast tier, a `gh pr create` without a
 full-tier run on THIS tree, and every publish, tag, merge or posting verb;
 those lines are handed to the human in cmd.exe form. ⚠⚠ **`.claude/` is
-TRACKED as of 2026-09-05** except `settings.local.json`, `*.bak` and
+TRACKED as of 2026-09-04** except `settings.local.json`, `*.bak` and
 `state/`; the sdist still excludes all of it (the v0.2.6 vector), asserted by
 `tests/test_build.py`, `tests/test_sdist_exclusions.py` and
 `tests/test_workflows_registered.py`. Open findings: `docs/workflows/FINDINGS.md`.
@@ -819,7 +819,7 @@ cd /d C:\MCPs\jcodemunch-mcp && "C:\Users\j\mcp-publisher.exe" login github && "
 ```
 
 ⚠ The release skill (`.claude/skills/release/SKILL.md`) is TRACKED in this
-repo since 2026-09-05 (DESIGN D1/D2); its publish half is superseded by
+repo since 2026-09-04 (DESIGN D1/D2); its publish half is superseded by
 `release.yml` and says so at the top. Until then it was gitignored and every
 correction to it was machine-local, which is why the rules above live here.
 

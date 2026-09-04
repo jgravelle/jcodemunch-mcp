@@ -5,7 +5,7 @@ description: "Publishing a jMunch release (jcodemunch-mcp, jdocmunch-mcp, jdatam
 
 # Release & PR Workflow
 
-> **REVISED 2026-09-05 (docs/workflows/DESIGN.md section 5).** The PUBLISH
+> **REVISED 2026-09-04 (docs/workflows/DESIGN.md section 5).** The PUBLISH
 > half of this file (steps 4-7 below: local build, `twine upload`, `git tag`,
 > `gh release create`, `mcp-publisher`) is SUPERSEDED by `release.yml`,
 > dispatched per `docs/cicd/RUNBOOK.md` section 1; the `/release` command

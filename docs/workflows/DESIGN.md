@@ -305,7 +305,7 @@ where the deny list overlaps.
 A new first section after `Current State`:
 
 ```
-## How work is done here (2026-09-05)
+## How work is done here (2026-09-04)
 Use these; do not improvise the process. Each one runs the harness at the
 right moments and produces the Definition-of-Done checklist itself.
 /feature <desc> · /fix-issue <n> · /release · /benchmark-compare [ref] ·
