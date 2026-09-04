@@ -1,6 +1,6 @@
 ---
 description: "Fix a GitHub issue — reproduce it as a failing test before touching source (stop if it cannot be reproduced), check ARCHAEOLOGY for the guard that should have caught it, fix minimally, run the tiers, independent review, changelog, PR referencing the issue, machine-produced checklist."
-argument-hint: <issue number>
+argument-hint: "<issue number>"
 ---
 
 <!--
@@ -33,7 +33,7 @@ release policy". `REFUSED: <reason>` and stop when a step cannot complete.
    refuse if the branch has no `.claude/commands/` (the layer is not on
    `main` yet, W-22). Clear `.claude/state/evidence/`. ⚠ The automatic
    hooks follow the session's cwd (W-30); run from the checkout you are
-   fixing in.
+   fixing in. ⚠ After ANY `uv sync` in a worktree, check the six jcodemunch hook paths in `~/.claude/settings.json` still point at this checkout's `.venv` (W-34: a worktree sync re-registered them to the worktree, which was then deleted).
 3. **Reproduce BEFORE touching `src/`.** Write a test from the report. For
    a destructive defect the target must be one the test owns (Practice 8;
    Standing lesson 08-20). Run it:

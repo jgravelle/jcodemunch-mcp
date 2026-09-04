@@ -1,6 +1,6 @@
 ---
 description: "Grade a PR, a ref, or the working tree against the Definition of Done in an isolated reviewer subagent. `--merge-check` adds the contributor-PR gate — trial merge onto origin/main in a scratch worktree, fast tier there, the diff's DELETIONS first, license/cla count on the head SHA. Verdict to chat and .claude/state/evidence/review.md; never posts."
-argument-hint: [pr-number | ref] [--merge-check]
+argument-hint: "[pr-number | ref] [--merge-check]"
 ---
 
 <!--

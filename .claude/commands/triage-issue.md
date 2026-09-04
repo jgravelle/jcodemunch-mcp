@@ -1,6 +1,6 @@
 ---
 description: "Classify a GitHub issue (bug, feature, question, duplicate, security, dependency), recommend labels, propose a split when it carries more than one finding, and draft the response with a timebox and its default. Drafts only; nothing is posted or labelled."
-argument-hint: <issue number>
+argument-hint: "<issue number>"
 ---
 
 <!--

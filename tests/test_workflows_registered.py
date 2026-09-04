@@ -137,3 +137,21 @@ def test_sdist_still_excludes_all_of_claude_dir():
     assert '".claude/"' in sdist
     gitignore = _read(ROOT / ".gitignore")
     assert ".claude/settings.local.json" in gitignore and ".claude/state/" in gitignore
+
+
+@pytest.mark.parametrize(
+    "path",
+    COMMANDS + AGENTS + sorted((CLAUDE_DIR / "skills").glob("*/SKILL.md")),
+    ids=lambda p: p.parent.name if p.name == "SKILL.md" else p.name,
+)
+def test_front_matter_is_valid_yaml(path: Path):
+    """`/review`'s `argument-hint: [pr-number | ref] [--merge-check]` parsed as a flow sequence plus junk, so Claude Code showed `<!--` as its description; a broken header is a command nobody can find."""
+    import yaml  # a runtime dependency (pyproject `pyyaml>=6.0`), so no skip
+
+    text = _read(path)
+    assert text.startswith("---\n"), f"{path.name} has no front matter"
+    front = text.split("---", 2)[1]
+    data = yaml.safe_load(front)
+    assert isinstance(data, dict) and data.get("description"), (
+        f"{path.name}: description missing or unparsed"
+    )

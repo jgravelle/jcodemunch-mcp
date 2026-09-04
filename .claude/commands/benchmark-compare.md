@@ -1,6 +1,6 @@
 ---
 description: "Run the harness bench tier on the working tree and on a ref (default origin/main) in the deterministic configuration, and report per Floor id — Floor, ref value, current value, delta, pass/fail — per row, never per total. Records to harness/results/latest.json only on a clean main; otherwise says where the scratch copy is."
-argument-hint: [ref]
+argument-hint: "[ref]"
 ---
 
 <!--
@@ -38,7 +38,7 @@ here restates a Floor or types a value.
    and the index cache). In the worktree: `uv sync --locked --group dev
    --extra watch --python <the version step 2 printed>` (both sides on
    the same interpreter; the first dry-run got 3.13 against 3.12), then
-   the same bench command
+   the same bench command ⚠ After ANY `uv sync` in a worktree, check the six jcodemunch hook paths in `~/.claude/settings.json` still point at this checkout's `.venv` (W-34: a worktree sync re-registered them to the worktree, which was then deleted).
    with `--summary .claude/state/evidence/bench_ref.md` (absolute path) and
    copy its `harness/results/latest.json` to `evidence/latest_ref.json`.
    `git worktree remove --force` the worktree when done. If the ref has no

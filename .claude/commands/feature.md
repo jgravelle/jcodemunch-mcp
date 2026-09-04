@@ -1,6 +1,6 @@
 ---
 description: "Add a feature the way this repo requires — spec mapped to STANDARD.md, failing tests first, harness tiers, bench delta, independent review, and a machine-produced Definition-of-Done checklist; opens the PR only when nothing is unmet."
-argument-hint: <description of the feature>
+argument-hint: "<description of the feature>"
 ---
 
 <!--

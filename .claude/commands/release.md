@@ -1,6 +1,6 @@
 ---
 description: "Prepare a release the way RUNBOOK section 1 requires — confirm main is green, derive the next version and show the derivation, reconcile the changelog against merged PRs, recompute every published figure and refuse on a disagreement, draft the notes, open the labelled release PR, then STOP. Merging and dispatching are the human's acts; nothing here tags, uploads or publishes."
-argument-hint: [--minor | --major] [reason]
+argument-hint: "[--minor | --major] [reason]"
 ---
 
 <!--
