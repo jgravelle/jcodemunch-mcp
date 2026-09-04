@@ -84,7 +84,16 @@ def tree_id() -> str:
     A full-tier run is valid for exactly this identity, whatever its age (D5).
     """
     head_tree = git("rev-parse", "HEAD^{tree}").strip()
-    diff = git("diff", "HEAD") + git("status", "--porcelain", "--untracked-files=all")
+    # The harness's own footprint (pytest-cov's `.coverage.<host>.<pid>` files
+    # at the root, the hook state) must not move the identity it is measured
+    # against, or no full-tier run can ever stamp `ok` (FINDINGS W-13; the
+    # guard-sampled-after-the-work lesson).
+    status = "\n".join(
+        ln
+        for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()
+        if not (ln[3:].startswith(".coverage") or ln[3:].startswith(".claude/state/"))
+    )
+    diff = git("diff", "HEAD") + status
     return head_tree + ":" + hashlib.sha256(diff.encode("utf-8")).hexdigest()[:16]
 
 
