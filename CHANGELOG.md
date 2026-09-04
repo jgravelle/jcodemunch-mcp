@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added - `scripts/surface_diff.py --descriptions`: a reworded tool description is a surface change the script can now see
+
+The stage-5 surface gate compared tool NAMES between the base ref and the
+working tree and nothing else (`docs/workflows/FINDINGS.md` W-1), so the one
+class of surface change that moves a byte-pinned prefix and the
+`core_compact` ceiling -- a description edit -- passed it as `no surface
+change`. `--descriptions` diffs each tool's description from the same
+`_build_tools_list()` call that already lists the names (one subprocess per
+tree, no second worktree), prints `description changed: <name>` per tool,
+and appends a `## done: tool descriptions` block under `--summary`. It is
+LISTED, never a failure: the exit code still belongs to the name rule alone,
+so `dod_checklist.py` and `surface_guard.py`, which parse the old stdout,
+read it unchanged. `tests/test_surface_diff.py` exercises `verdict()` and
+the description diff on synthetic inputs with a red arm for each and no
+subprocess. No `src/` change.
+
 ## [1.108.317] - 2026-09-04 - CI runs the harness on every change; publishing is a dispatched workflow
 
 ### Changed - CI runs the harness on every change; publishing is a dispatched workflow
