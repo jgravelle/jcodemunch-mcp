@@ -177,7 +177,7 @@ jobs:
           V=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
           uv venv "${RUNNER_TEMP}/pkg" --python 3.12
           if [ "${{ runner.os }}" = "Windows" ]; then B="${RUNNER_TEMP}/pkg/Scripts"; EXE="$B/jcodemunch-mcp.exe"; else B="${RUNNER_TEMP}/pkg/bin"; EXE="$B/jcodemunch-mcp"; fi
-          uv pip install --python "$B/python" dist/*.whl
+          uv pip install --python "${RUNNER_TEMP}/pkg" dist/*.whl   # the venv DIR: "$B/python" has no .exe on windows and uv will not find it
           "$B/python" -c "import jcodemunch_mcp, sys; print('import ok', jcodemunch_mcp.__file__)"
           "$EXE" surface | head -5
           "$B/python" scripts/handshake.py --expect-version "$V" --command "$EXE" \
@@ -191,7 +191,7 @@ jobs:
           V=$(python -c "import re;print(re.search(r'^version = \"([^\"]+)\"', open('pyproject.toml').read(), re.M).group(1))")
           uv venv "${RUNNER_TEMP}/pkg-sdist" --python 3.12
           B="${RUNNER_TEMP}/pkg-sdist/bin"
-          uv pip install --python "$B/python" dist/*.tar.gz
+          uv pip install --python "${RUNNER_TEMP}/pkg-sdist" dist/*.tar.gz
           "$B/python" scripts/handshake.py --expect-version "$V" --command "$B/jcodemunch-mcp" \
             --fixture tests/fixtures/pkg_smoke --expect-languages python,typescript,javascript,go 2>&1 | tail -3 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
