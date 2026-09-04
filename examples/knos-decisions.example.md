@@ -5,8 +5,8 @@
 
 ## Decisions
 
-- **rule 1** - `index_folder` is **synchronous** — dispatched via `asyncio.to_thread()` in server.py to avoid blocking the event loop. _(source: CLAUDE.md)_
-- **rule 2** - `index_repo` is **async** (uses httpx for GitHub API) _(source: CLAUDE.md)_
+- `index_folder` is **synchronous** — dispatched via `asyncio.to_thread()` in server.py to avoid blocking the event loop. _(source: CLAUDE.md)_
+- `index_repo` is **async** (uses httpx for GitHub API) _(source: CLAUDE.md)_
 
 ## Being worked on right now
 
