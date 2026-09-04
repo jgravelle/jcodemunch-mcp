@@ -54,8 +54,15 @@ dmypy.json
 .code-index/
 .ab_bench_idx/
 
-# Claude Code local settings (may contain credentials from allowed commands)
-.claude/
+# Claude Code: the WORKFLOW files (commands, agents, hooks, skills,
+# settings.json) are tracked as of 2026-09-05 (docs/workflows/DESIGN.md D1).
+# Only the local settings (which may carry credentials from allowed commands,
+# the v0.2.6 leak) and per-session state stay out. The sdist still excludes
+# ALL of .claude/ (pyproject [tool.hatch.build.targets.sdist]), asserted by
+# tests/test_build.py and tests/test_sdist_exclusions.py.
+.claude/settings.local.json
+.claude/*.bak
+.claude/state/
 
 # Local working notes (may contain sensitive info)
 prompt.md

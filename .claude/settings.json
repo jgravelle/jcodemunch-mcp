@@ -1,0 +1,90 @@
+{
+  "$comment": "Project-scoped Claude Code settings (docs/workflows/DESIGN.md sections 4 and 6). Tracked. deny wins over every allow, including settings.local.json. Hooks are the workflow hooks H1-H5; the product hooks (hook-pretooluse, hook-posttooluse, ...) stay user-scoped in ~/.claude/settings.json.",
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f *)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git tag*)",
+      "Bash(git push --tags*)",
+      "Bash(git push origin v*)",
+      "Bash(gh release*)",
+      "Bash(gh workflow run*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh pr comment*)",
+      "Bash(gh pr review*)",
+      "Bash(gh pr close*)",
+      "Bash(gh pr edit*)",
+      "Bash(gh issue comment*)",
+      "Bash(gh issue close*)",
+      "Bash(gh issue edit*)",
+      "Bash(gh issue reopen*)",
+      "Bash(gh api --method POST*)",
+      "Bash(gh api --method PATCH*)",
+      "Bash(gh api --method PUT*)",
+      "Bash(gh api --method DELETE*)",
+      "Bash(gh api -X *)",
+      "Bash(twine*)",
+      "Bash(uvx --from twine*)",
+      "Bash(*mcp-publisher*)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git tag*)",
+      "PowerShell(gh release*)",
+      "PowerShell(gh workflow run*)",
+      "PowerShell(gh pr merge*)",
+      "PowerShell(gh pr comment*)",
+      "PowerShell(gh pr review*)",
+      "PowerShell(gh issue comment*)",
+      "PowerShell(gh issue close*)",
+      "PowerShell(*twine*)",
+      "PowerShell(*mcp-publisher*)"
+    ],
+    "allow": [
+      "Bash(uv run python -m harness*)",
+      "Bash(uv run pytest*)",
+      "Bash(uv run ruff*)",
+      "Bash(python scripts/*)",
+      "Bash(python .claude/hooks/*)",
+      "Bash(git worktree*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git status*)",
+      "Bash(git rev-parse*)",
+      "Bash(GITHUB_TOKEN=\"\" gh pr create*)",
+      "Bash(GITHUB_TOKEN=\"\" gh pr diff*)",
+      "Bash(GITHUB_TOKEN=\"\" gh pr view*)",
+      "Bash(GITHUB_TOKEN=\"\" gh pr list*)",
+      "Bash(GITHUB_TOKEN=\"\" gh pr checks*)",
+      "Bash(GITHUB_TOKEN=\"\" gh issue view*)",
+      "Bash(GITHUB_TOKEN=\"\" gh issue list*)",
+      "Bash(GITHUB_TOKEN=\"\" gh label list*)",
+      "Bash(GITHUB_TOKEN=\"\" gh run list*)",
+      "Bash(GITHUB_TOKEN=\"\" gh run view*)",
+      "Bash(GITHUB_TOKEN=\"\" gh run download*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny_guard.py\"", "timeout": 10 },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_commit.py\"", "timeout": 160 },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_pr.py\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/test_edit_guard.py\"", "timeout": 15 },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/surface_guard.py\"", "timeout": 50 }
+        ]
+      }
+    ]
+  }
+}
