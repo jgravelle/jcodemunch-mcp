@@ -56,6 +56,14 @@ def main() -> None:
     if not COMMIT_RE.search(cmd):
         ok()
     staged = git("diff", "--cached", "--name-only").split()
+    # `git add ... && git commit` in ONE command: the hook runs before the add,
+    # so the index is still empty. Then everything modified or untracked is a
+    # candidate (FINDINGS W-11; the first commit of this layer slipped past).
+    if re.search(r"\bgit\s+add\b|\bcommit\b[^|;&]*\s(?:-\S*a\S*|--all)\b", cmd):
+        staged += [
+            ln[3:].strip().strip('"')
+            for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()
+        ]
     if not any(p.startswith(CODE_ROOTS) for p in staged):
         ok()
 

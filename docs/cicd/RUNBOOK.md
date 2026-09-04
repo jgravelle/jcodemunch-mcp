@@ -10,6 +10,12 @@ matters and are written for cmd.exe otherwise. Companion: `DESIGN.md` (why),
 
 The only human acts are the release PR's merge and one dispatch.
 
+0. In a Claude Code session: `/release`. It confirms `main` is green,
+   derives the version and shows the derivation, reconciles `[Unreleased]`
+   against the merged PRs, recomputes every published figure and refuses on
+   a disagreement, drafts the notes, and does step 1 for you, then stops
+   (`docs/workflows/DESIGN.md` §2.3). Steps 2-4 stay yours; the session's
+   deny list refuses them.
 1. Open the release PR: bump the seven pin sites (`pyproject.toml`,
    `server.json` x2, `.claude-plugin/plugin.json`, `uv.lock` name-scoped
    line, `whatsnew.json` current + entry), write the `## [X.Y.Z]` block in
