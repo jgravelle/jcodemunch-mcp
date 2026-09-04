@@ -90,6 +90,7 @@ docs/*
 !docs/standard/
 !docs/harness/
 !docs/cicd/
+!docs/workflows/
 # ...except a spec CLAUDE.md binds a live rule to. `prd-extraction-fingerprint`
 # is cited by the PARSER_GENERATION comment as the thing that ends the
 # manual-bump obligation, so a contributor who is bound by that rule has to be
