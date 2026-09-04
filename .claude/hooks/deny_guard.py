@@ -16,7 +16,7 @@ from _common import block, ok, read_hook_input, tool_command
 
 DENIED = [
     (
-        r"\bgit\s+push\b.*(?:--force|\s-f\b|--force-with-lease)",
+        r"\bgit\s+push\b[^|;&]*(?:--force|(?-i:\s-f\b)|--force-with-lease)",
         "a force-push; RUNBOOK section 6 is the emergency path",
     ),
     (
@@ -24,7 +24,7 @@ DENIED = [
         "a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
-        r"\bgit\s+push\b.*\s(?:--tags|v\d)",
+        r"\bgit\s+push\b[^|;&]*\s(?:--tags|v\d)",
         "pushing a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
