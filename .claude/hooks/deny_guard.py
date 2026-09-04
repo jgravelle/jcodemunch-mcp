@@ -20,7 +20,7 @@ DENIED = [
         "a force-push; RUNBOOK section 6 is the emergency path",
     ),
     (
-        r"\bgit\s+tag\b(?!\s+(?:-l|--list))",
+        r"\bgit\s+tag\b(?![^|;&]*(?:\s-l\b|--list|--sort|--contains|--points-at|--merged|--no-merged))",
         "a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (

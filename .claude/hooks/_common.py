@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -47,6 +48,56 @@ def read_hook_input() -> dict:
 def tool_command(payload: dict) -> str:
     ti = payload.get("tool_input") or {}
     return str(ti.get("command") or "")
+
+
+_HEREDOC_RE = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*$", re.S | re.M)
+
+
+def strip_heredocs(cmd: str) -> str:
+    """Drop heredoc BODIES so prose that mentions a verb is not the verb.
+
+    A FINDINGS entry piped through `python - <<'EOF'` carried the words
+    `git commit` and tripped H1 (W-19). Quoted strings are kept: a commit
+    message naming `git commit` sits beside a real one anyway, and the
+    deny guard deliberately does not strip anything.
+    """
+    return _HEREDOC_RE.sub("<<HEREDOC>>", cmd)
+
+
+def split_segments(cmd: str) -> list[str]:
+    """Split a shell line on `&&`, `||` and `;` OUTSIDE quotes.
+
+    A commit message with a semicolon in it is one segment, not three
+    (the third H1 probe of the day refused its own commit over one).
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(cmd):
+        c = cmd[i]
+        if quote:
+            buf.append(c)
+            if c == quote:
+                quote = None
+            elif c == "\\" and i + 1 < len(cmd):
+                buf.append(cmd[i + 1])
+                i += 1
+        elif c in ("'", '"'):
+            quote = c
+            buf.append(c)
+        elif cmd.startswith(("&&", "||"), i):
+            out.append("".join(buf))
+            buf = []
+            i += 1
+        elif c == ";":
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+        i += 1
+    out.append("".join(buf))
+    return [s.strip() for s in out if s.strip()]
 
 
 def tool_path(payload: dict) -> Path | None:
@@ -163,4 +214,4 @@ def ok() -> None:
 
 
 def budget_warning(hook: str, skipped: str, budget: Budget) -> str:
-    return f"WARNING: {hook} skipped {skipped} (budget {budget.seconds:.0f} s exceeded); nothing passed silently."
+    return f"WARNING: {hook} skipped {skipped}; nothing passed silently (budget {budget.seconds:.0f} s)."

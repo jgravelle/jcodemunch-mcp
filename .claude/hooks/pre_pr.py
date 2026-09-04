@@ -22,6 +22,7 @@ from _common import (
     git,
     ok,
     read_hook_input,
+    strip_heredocs,
     tool_command,
     tree_id,
 )
@@ -32,7 +33,7 @@ CHECKLIST = EVIDENCE / "checklist.md"
 
 
 def main() -> None:
-    cmd = tool_command(read_hook_input())
+    cmd = strip_heredocs(tool_command(read_hook_input()))
     if not PR_RE.search(cmd):
         ok()
     branch = git("rev-parse", "--abbrev-ref", "HEAD").strip()

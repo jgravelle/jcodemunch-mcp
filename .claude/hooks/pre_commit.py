@@ -25,6 +25,8 @@ from _common import (
     ok,
     read_hook_input,
     run_budgeted,
+    split_segments,
+    strip_heredocs,
     tool_command,
     warn,
 )
@@ -52,14 +54,33 @@ def _format_command() -> str | None:
 
 def main() -> None:
     payload = read_hook_input()
-    cmd = tool_command(payload)
+    cmd = strip_heredocs(tool_command(payload))
     if not COMMIT_RE.search(cmd):
         ok()
+    # The hook runs BEFORE the line it is asked about, so it can only judge a
+    # commit whose content already exists. A line that also CREATES or EDITS
+    # files (a printf, a heredoc, `python -`, `sed -i`) hides the commit's
+    # content from every check here: two probes slipped past two earlier
+    # rules this way (FINDINGS W-11, W-15). Such a line is refused outright,
+    # not checked: create and edit first, then commit in a line of its own.
+    segments = split_segments(cmd)
+    provable = all(
+        re.match(
+            r"^(?:cd\s|git\s+(?:add|commit|status|diff|rm|mv|log|show|rev-parse|branch)\b|\{|\}|echo\s)",
+            s,
+        )
+        for s in segments
+    )
+    if not provable:
+        block(
+            "pre_commit: this line does more than add and commit, so the hook cannot see "
+            "what the commit will contain. Make the file changes in their own tool call, "
+            "then run `git add ... && git commit ...` alone (FINDINGS W-15)."
+        )
     staged = git("diff", "--cached", "--name-only").split()
-    # `git add ... && git commit` in ONE command: the hook runs before the add,
-    # so the index is still empty. Then everything modified or untracked is a
-    # candidate (FINDINGS W-11; the first commit of this layer slipped past).
-    if re.search(r"\bgit\s+add\b|\bcommit\b[^|;&]*\s(?:-\S*a\S*|--all)\b", cmd):
+    if re.search(
+        r"\bgit\s+(?:add|rm|mv)\b|\bcommit\b[^|;&]*\s(?:-\S*a\S*|--all)\b", cmd
+    ):
         staged += [
             ln[3:].strip().strip('"')
             for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()

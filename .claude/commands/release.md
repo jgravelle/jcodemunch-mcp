@@ -11,7 +11,7 @@ invokes:  scripts/release_preflight.py; skills version-scheme,
           claude-md-budget, changelog-format; the mirror ratchets
           (tests/test_provenance.py, tests/test_schema_budget.py,
           tests/test_claude_md_size.py, tests/test_claude_md_rotation.py,
-          tests/test_readme_tool_count.py family); jcodemunch-mcp surface;
+          tests/test_tools.py); jcodemunch-mcp surface;
           uv run python -m harness check claude_md.max_chars
 produces: the derivation and reconciliation in .claude/state/runs/release-<UTC>/,
           the notes draft in the scratchpad (never the repo), a branch
@@ -31,38 +31,51 @@ Before anything: is the release being held for something that is not ours
 the `release` skill for the PR and CLA halves; the publish half is
 `docs/cicd/RUNBOOK.md` §1 and this command stops at its step 2.
 
-1. **Main is green.** `git fetch origin`. Run
-   `uv run python scripts/release_preflight.py --version <next> --ci --no-harness`
-   once the version is derived in step 2 (it needs the number); it reads
-   the two `main:` witnesses on `origin/main` HEAD, the pins, the changelog
-   heading, the tag, PyPI, the 3b PRs and lint. `PREFLIGHT PASS` or refuse
-   with its output. (The pins and heading are expected to FAIL before the
-   bump commit exists; run it again after step 6 and require PASS then.)
+1. **Main is green.** `git fetch origin`. The pre-flight reads the
+   CHECKED-OUT HEAD, so run it on a worktree of `origin/main`, with this
+   checkout's interpreter (a fresh worktree has no venv):
+   `git worktree add <scratchpad>/relmain origin/main`, then in it
+   `<repo>/.venv/Scripts/python.exe scripts/release_preflight.py --version <next> --ci --no-harness --dry-run`
+   (derive `<next>` in step 2 first; `--dry-run` because the pins and the
+   heading legitimately lag until step 6). It reads the two `main:`
+   witnesses on that HEAD, the tag, PyPI, the 3b PRs and lint. Refuse on
+   any FAIL other than `pins` and `changelog`; remove the worktree. After
+   step 6 the release PR's own gate and `release.yml` run it for real.
 2. **Version.** Load `version-scheme`. Print the derivation:
-   `git tag --list 'v*' --sort=-v:refname | head -1` and the `version =`
+   `git for-each-ref refs/tags --sort=-v:refname --format='%(refname:short) %(creatordate:iso-strict)' | head -1`
+   (never `git tag …`: the deny guard refuses the creating form and the
+   read form is this one) and the `version =`
    line of `pyproject.toml`. They must be equal; if pyproject is ahead a
    release is already in flight — refuse. Next = patch + 1. `--minor` or
    `--major` in `$ARGUMENTS` needs a stated reason and bumps that field.
 3. **Changelog reconciliation.** `[Unreleased]` must be non-empty. List
    the PRs merged since the last tag's date:
-   `GITHUB_TOKEN="" gh pr list --state merged --search "merged:>=<tag date>" --json number,title,mergedAt,files --limit 100`.
-   Match every `[Unreleased]` bullet to a PR by `#N`, by branch name, or by
+   `GITHUB_TOKEN="" gh pr list --state merged --search "merged:>=<tag date>" --json number,title,mergedAt,files --limit 100`,
+   then DROP every row whose `mergedAt` is not after the tag's
+   `creatordate` (the search is day-granular; eight of nine hits on the
+   first dry-run were inside the previous release). Match every `[Unreleased]` bullet to a PR by `#N`, by branch name, or by
    a file path in the bullet appearing in the PR's files. Write the table
    (bullet → PR, PR → bullet) to the run directory. An unmatched bullet
    describes nothing that merged: refuse. An unmentioned PR that touched
    `src/` is listed as a finding for the human.
 4. **Recompute, never copy.** Run the mirror ratchets:
-   `uv run pytest tests/test_provenance.py tests/test_schema_budget.py tests/test_claude_md_size.py tests/test_claude_md_rotation.py -q`
-   plus every `tests/test_*tool_count*.py`. Recompute the tool counts per
-   profile from `uv run jcodemunch-mcp surface` and compare with CLAUDE.md
-   "Tool count"; the headline benchmark figures from the CI-captured
-   `benchmarks/jcm_reference.json` against README's figures; the language
-   counts from `LANGUAGE_REGISTRY` against README. Write every pair
-   (source value, doc value, agree?) to the run directory. **Any
-   disagreement: report it and refuse.** Never edit the doc to match.
-5. **Notes draft.** Render the CHANGELOG block the way `release.yml` does,
-   with `PYTHONIOENCODING=utf-8`, to the scratchpad. Never write it into
-   the repo (Standing lesson 08-28: a scratch file shipped in the sdist).
+   `uv run pytest tests/test_provenance.py tests/test_schema_budget.py tests/test_claude_md_size.py tests/test_claude_md_rotation.py tests/test_tools.py -q`.
+   Recompute the counts `uv run jcodemunch-mcp surface` prints (visible in
+   the served profile / catalog) and compare with CLAUDE.md "Tool count";
+   every per-repo and grand-total figure in `benchmarks/jcm_reference.json`
+   (CI-captured) against the same figure wherever README states it (the
+   grand total AND the per-repo averages and ratios); `len(LANGUAGE_REGISTRY)`
+   against README's language claim (a floor such as "70+" agrees when the
+   count is at or above it). Write every pair (source value, doc value,
+   agree?) to the run directory. **Any disagreement: report it and
+   refuse.** Never edit the doc to match. (The first dry-run found the
+   README per-repo averages disagreeing with the reference: FINDINGS W-16.)
+5. **Notes draft.** After step 6 has cut the `## [<version>]` block,
+   render it with the same Python `release.yml`'s "release notes" step
+   uses, under `PYTHONIOENCODING=utf-8` on this console, to the scratchpad.
+   Never write it into the repo (Standing lesson 08-28: a scratch file
+   shipped in the sdist). Rendering `[Unreleased]` before the cut yields
+   an empty body; the order is 6 then 5.
 6. **Release PR.** Load `claude-md-budget`; measure CLAUDE.md sections by
    heading BEFORE editing (Practice 5). Branch `release/<version>` from
    `origin/main`. Enumerate the pin sites by grep for the old version
