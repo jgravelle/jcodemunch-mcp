@@ -1,6 +1,6 @@
 ---
 name: observatory
-description: Context for the jcodemunch-observatory weekly scorecard — what it tracks, the Monday 06:00 UTC cron, why scores must be pulled live rather than transcribed, the NestJS grade story, and the workflow's version dispatch input. Load before quoting, interpreting, or editing observatory scores or config.
+description: "Context for the jcodemunch-observatory weekly scorecard — what it tracks, the Monday 06:00 UTC cron, why scores must be pulled live rather than transcribed, the NestJS grade story, and the workflow's version dispatch input. Load before quoting, interpreting, or editing observatory scores or config."
 ---
 
 # Observatory tracking

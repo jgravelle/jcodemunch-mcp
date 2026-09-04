@@ -1722,3 +1722,21 @@ thing they do.
 
 - **Prior (1.108.314):** **A rate written for a FUTURE date is wrong for every day before it.** `receipt`'s `_MODEL_PRICES_USD_PER_MTOK["sonnet"]` read `3.0` from 2026-06-24 commented "Sonnet 5 / 4.6" — **Sonnet 5 has NEVER been $3**: it launched at $2 introductory with the $3 rise SCHEDULED for 2026-09-01, **cancelled the day before it would have applied**. The entry recorded a FUTURE price as the current one and was wrong all 69 days it stood, and **nothing distinguishes that from a stale value** — both read as a plausible number beside a plausible date, and the date makes it look checked. ⚠⚠ **THE PIN AGREED WITH IT**: `_EXPECTED_RATES` restated `3.0`, and a third assertion was a DERIVED `"$0.09"` in rendered text that no search for the rate's NAME can see — so the suite was green against a rate the vendor never charged for the model named beside it. **Re-read the SOURCE when touching a pinned table, never the other copy.** ⚠ Four copies suite-wide and this fixes ONE; ours is right only in `storage/token_tracker.py`, whose key is `claude_sonnet_4_6` — **a key naming a FAMILY inherits whichever member's price someone last looked at.** jmunch/jdoc/jdata still carry it, and **jmunch also has `claude_opus` at the RETIRED $15 (3x) on the block stamped onto LIVE responses** — a self-flattering error, the one direction a savings metric must not drift; work orders written, not fixable from here. ⚠⚠ Also: the published `counter` surface is BYTE-PINNED (`tests/test_counter_surface_stability.py`; 6 tools, **4,184 B**; name+order, per-tool sha, total, whitelist membership, `tool_profile` independence; non-vacuity 5/5) — it sits in the CACHED PREFIX, so **a reworded description is a full-rate cache write for every user**, and it pins the catalog-can-GROW property arXiv:2608.22708 is built around, which the Counter had by construction and nothing asserted. ⚠ And `CLI Subcommands`+`Env Vars` (16.6% of the budget) split to `CLI-AND-ENV.md`: 69 rows moved, 27 stayed, **the ⚠ marker under-selected AGAIN** (9 of 27 keepers). [[a-ratchet-can-pass-against-the-defect-it-names]] [[a-budget-that-names-one-section-licenses-the-rest]]
 
+## Rotated from CLAUDE.md on 2026-09-05 (workflows layer, DESIGN section 7): registry-row measurements
+
+⚠⚠ **The MCP registry API nests each row as `{server: {...}, _meta: {...}}`**
+(schema `2025-12-11`). `name`, `version` and `packages[]` sit under `server`;
+`isLatest` and `publishedAt` sit under
+`_meta["io.modelcontextprotocol.registry/official"]`. **A flat `row["name"]`
+read returns ZERO rows on a publish that completely succeeded** — measured
+minutes after `mcp-publisher` confirmed 1.108.301, where the flat parse found
+0 of 45 rows and the nested parse found all 45 with `isLatest: 1.108.301`.
+
+⚠⚠ **This is a SECOND false negative on top of the known paging trap, and
+unlike that one it SURVIVES `&limit=100`** — so the documented remedy does not
+help and the symptom is indistinguishable from a failed publish. **Never
+re-publish on a zero-row read; fix the parse.** Also confirm
+`server.packages[].version` advanced, not only `server.version` — an entry can
+move one and not the other.
+
+

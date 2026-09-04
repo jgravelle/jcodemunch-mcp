@@ -157,7 +157,7 @@ def main() -> int:
     desc = evidence("surface_descriptions.md")
     if (
         rc == 0
-        and ("no change" in out.lower() or "unchanged" in out.lower())
+        and "no surface change" in out
         and (desc is None or "no description changes" in desc.lower())
     ):
         row(

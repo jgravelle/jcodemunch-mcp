@@ -21,6 +21,15 @@ import sys
 import time
 from pathlib import Path
 
+# Windows consoles default to cp1252; an ARCHAEOLOGY row or a harness verdict
+# carries characters outside it, and a hook that dies encoding its own reason
+# blocks with a traceback instead of the reason (Standing lesson: encoding=).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 STATE = REPO / ".claude" / "state"
@@ -125,6 +134,14 @@ def warn(event: str, message: str) -> None:
             "additionalContext": message.rstrip(),
         }
     }
+    try:  # FINDINGS W-7: a warning the model ignores is invisible to the human
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+        with (EVIDENCE / "hook_warnings.log").open("a", encoding="utf-8") as fh:
+            fh.write(
+                time.strftime("%Y-%m-%dT%H:%M:%S ") + message.splitlines()[0] + "\n"
+            )
+    except OSError:
+        pass
     if event == "PreToolUse":
         out["hookSpecificOutput"]["permissionDecision"] = "allow"
         out["hookSpecificOutput"]["permissionDecisionReason"] = message.splitlines()[0]

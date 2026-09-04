@@ -1,9 +1,19 @@
 ---
 name: release
-description: Publishing a jMunch release (jcodemunch-mcp, jdocmunch-mcp, jdatamunch-mcp, jragmunch-cli), reviewing/merging/closing PRs, and responding to the community. Load before any version bump, PyPI upload, tag, GitHub release, MCP registry publish, or PR merge.
+description: "Publishing a jMunch release (jcodemunch-mcp, jdocmunch-mcp, jdatamunch-mcp, jragmunch-cli), reviewing/merging/closing PRs, and responding to the community. Load before any version bump, PyPI upload, tag, GitHub release, MCP registry publish, or PR merge."
 ---
 
 # Release & PR Workflow
+
+> **REVISED 2026-09-05 (docs/workflows/DESIGN.md section 5).** The PUBLISH
+> half of this file (steps 4-7 below: local build, `twine upload`, `git tag`,
+> `gh release create`, `mcp-publisher`) is SUPERSEDED by `release.yml`,
+> dispatched per `docs/cicd/RUNBOOK.md` section 1; the `/release` command
+> prepares the release PR and stops. Those steps stay here as the record of
+> the retired path and for RUNBOOK section 1a's hand-finish while PyPI
+> persists no publisher (C-15). The PR-workflow and CLA halves are current.
+> This copy is TRACKED in this repo; the suite copy under `C:\MCPs\.claude`
+> serves jdoc and jdata.
 
 ⚠⚠ **THIS FILE MIXES TWO AUDIENCES AND THE SPLIT IS LOAD-BEARING.** Almost every
 command below is run BY THE AGENT through the Bash tool (Git Bash), so bash

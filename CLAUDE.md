@@ -9,6 +9,27 @@
 - **Python:** >=3.10
 - **Tool count:** 91 visible in `full` / 94 in catalog (front door hidden; counts verified 2026-07-30 from `jcodemunch-mcp surface`, which is the only place to get them — do NOT hand-type this; +1 v1.108.111 `get_parity_map`, +1 v1.108.112 `get_decorator_census`, +1 v1.108.113 `get_architecture_metrics`); `tool_surface=counter` exposes a 3-tool front door (`order`/`menu`/`route`) instead
 
+## How work is done here (2026-09-05)
+
+**Use these; do not improvise the process.** Each one runs the harness at
+the right moments, spawns an independent reviewer, and produces the
+Definition-of-Done checklist itself (`.claude/hooks/dod_checklist.py`), so
+a step cannot be skipped by forgetting it.
+`/feature <desc>` · `/fix-issue <n>` · `/release` · `/benchmark-compare [ref]`
+· `/review [pr|ref] [--merge-check]` · `/triage-issue <n>`.
+Authority, never restated in a command: `docs/standard/STANDARD.md` (what
+good means; the Definition of Done), `docs/harness/ARCHAEOLOGY.md` (why every
+test exists), `docs/cicd/RUNBOOK.md` (what a human does),
+`docs/workflows/DESIGN.md` (what each command does, step by step; §8 is how
+to add one). ⚠ Hooks (`.claude/hooks/`, wired in `.claude/settings.json`)
+refuse a `git commit` that fails the fast tier, a `gh pr create` without a
+full-tier run on THIS tree, and every publish, tag, merge or posting verb;
+those lines are handed to the human in cmd.exe form. ⚠⚠ **`.claude/` is
+TRACKED as of 2026-09-05** except `settings.local.json`, `*.bak` and
+`state/`; the sdist still excludes all of it (the v0.2.6 vector), asserted by
+`tests/test_build.py`, `tests/test_sdist_exclusions.py` and
+`tests/test_workflows_registered.py`. Open findings: `docs/workflows/FINDINGS.md`.
+
 ## CI/CD: the harness's judgment on every change (2026-09-04)
 
 **`docs/cicd/DESIGN.md` is the pipeline; `docs/cicd/RUNBOOK.md` is what a
@@ -52,13 +73,7 @@ entry naming the lesson and the replacement assertion**, or
 design.** ⚠⚠ **Never copy a figure** from the standard, the archaeology or
 here: tool counts, ratios, token weights, latencies and test totals are
 recomputed by each block's Method line and stamped with commit and date.
-⚠ **Required status checks on `main` (2026-09-03): `license/cla`, `lint`,
-`Retrieval-quality gate`, `Harness fast tier` and all 8 `test (os, py)` legs.**
-A renamed job name silently stops being required; the protection query in
-policy 3d lists what is enforced, and **`uv run python scripts/release_preflight.py`
-is the release gate**: it reads those contexts against HEAD's check-runs and
-fails on a missing run, so a rename shows up there before it ships on red.
-Run it after the push in release step 3, before anything irreversible. Open findings: `docs/harness/FINDINGS.md`.
+⚠ **Required status checks on `main` are the PR gate's job names** (2026-09-04, RUNBOOK §8 is the one `gh api` call that lists them; the 2026-09-03 list of `lint`/`Retrieval-quality gate`/`test (os, py)` is retired). A renamed job silently stops being required; `uv run python scripts/release_preflight.py` reads the live contexts and fails on a missing run. Open findings: `docs/harness/FINDINGS.md`.
 
 ## Key Files
 
@@ -784,54 +799,36 @@ thing we test is not the thing they do.
 ## Registry verification reads a NESTED row (2026-08-27)
 
 ⚠⚠ **The MCP registry API nests each row as `{server: {...}, _meta: {...}}`**
-(schema `2025-12-11`). `name`, `version` and `packages[]` sit under `server`;
-`isLatest` and `publishedAt` sit under
-`_meta["io.modelcontextprotocol.registry/official"]`. **A flat `row["name"]`
-read returns ZERO rows on a publish that completely succeeded** — measured
-minutes after `mcp-publisher` confirmed 1.108.301, where the flat parse found
-0 of 45 rows and the nested parse found all 45 with `isLatest: 1.108.301`.
-
-⚠⚠ **This is a SECOND false negative on top of the known paging trap, and
-unlike that one it SURVIVES `&limit=100`** — so the documented remedy does not
-help and the symptom is indistinguishable from a failed publish. **Never
-re-publish on a zero-row read; fix the parse.** Also confirm
-`server.packages[].version` advanced, not only `server.version` — an entry can
-move one and not the other.
+(schema `2025-12-11`): `name`, `version`, `packages[]` under `server`;
+`isLatest`, `publishedAt` under `_meta["io.modelcontextprotocol.registry/official"]`.
+**A flat `row["name"]` read returns ZERO rows on a publish that completely
+succeeded**, and unlike the paging trap it SURVIVES `&limit=100`. **Never
+re-publish on a zero-row read; fix the parse.** Confirm
+`server.packages[].version` advanced, not only `server.version`.
+`scripts/registry_verify.py` is the parse (`release.yml` runs it; the
+2026-08-27 measurements are in `ISSUE-HISTORY.md`).
 
 ⚠⚠ **THE PUBLISH LINE IS HANDED OVER IN cmd.exe FORM. ONE FORM, NO MENU.**
-jjg is NEVER at a Bash prompt — stated flatly 2026-09-02 (*"We've danced this
-dance a thousand times"*) after the skill's `/c/...` "default route" was handed
-over and died on "The system cannot find the path specified". Literal paths
-only: no `~`, no `%USERPROFILE%`, no `$env:USERPROFILE`.
+jjg is NEVER at a Bash prompt (stated flatly 2026-09-02). Literal paths only:
+no `~`, no `%USERPROFILE%`, no `$env:USERPROFILE`. The `!` prefix runs Git
+Bash and that is not the rule: **a mechanism is not a habit.** A line that
+must run through `!` is a tool call to make, not a paste to hand over.
 
 ```
 cd /d C:\MCPs\jcodemunch-mcp && "C:\Users\j\mcp-publisher.exe" login github && "C:\Users\j\mcp-publisher.exe" publish
 ```
 
-⚠⚠ **The `!` prefix DOES run Git Bash, and that is not the rule.** The
-2026-09-01 revision reasoned from the mechanism — `!` is bash, so write bash —
-and inverted the practice, because the premise it needed was which prompt jjg
-ACTUALLY USES and nobody had asked. **A mechanism is not a habit.** A line that
-must genuinely run through `!` is a tool call to make, not a paste to hand over.
-⚠ Offering three labelled forms is not thoroughness; it is the indecision that
-picked the wrong one. ⚠ This lives HERE because the skill is gitignored and a
-correction there is gone on a fresh checkout — the same reason the registry note
-below does.
-
-⚠ **The release checklist itself lives at `.claude/skills/release/SKILL.md`,
-which is GITIGNORED** (`.gitignore:58`, the v0.2.6 credential-leak fix, with
-the matching sdist exclusion asserted by `tests/test_sdist_exclusions.py`). So
-corrections there are MACHINE-LOCAL: not in git, not in CI, gone on a fresh
-checkout. That is why this note is here instead. **Do not un-ignore `.claude/`
-to fix that** — it reintroduces the vector that got five releases yanked.
+⚠ The release skill (`.claude/skills/release/SKILL.md`) is TRACKED in this
+repo since 2026-09-05 (DESIGN D1/D2); its publish half is superseded by
+`release.yml` and says so at the top. Until then it was gitignored and every
+correction to it was machine-local, which is why the rules above live here.
 
 ## Reproducing CI's environment (release step 2c)
 
-⚠⚠ **The release checklist lives in `.claude/skills/release/SKILL.md`, which is
-GITIGNORED, so a correction there is machine-local and gone on a fresh
-checkout.** This is the copy that survives, and
-`tests/test_ci_env_reproduce_command.py` binds it to the workflow so the two
-cannot drift apart unnoticed.
+⚠ The full tier (`uv run python -m harness full`) is the command now; this
+block stays because `tests/test_ci_env_reproduce_command.py` binds it to
+`pr-gate.yml`'s install line, and because the lesson below is the one that
+made the tier necessary.
 
 ```bash
 uv sync --locked --group dev --extra watch --python 3.13
