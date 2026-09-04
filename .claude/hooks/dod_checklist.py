@@ -79,6 +79,10 @@ def main() -> int:
     )
     changed = sorted(set(changed))
     diff = git("diff", f"{base}...HEAD") + git("diff")
+    # DoD 7 and 8 are about PRODUCT behaviour: scan additions under src/ only,
+    # or a doc that MENTIONS httpx or a schedule trips them (first run on the
+    # workflows layer itself).
+    src_diff = git("diff", f"{base}...HEAD", "--", "src/") + git("diff", "--", "src/")
     touched = lambda *pre: any(c.startswith(pre) for c in changed)  # noqa: E731
     src_changed = touched("src/")
     tests_deleted = bool(
@@ -221,7 +225,7 @@ def main() -> int:
         )
 
     # 7 background behaviour disclosure
-    if not BACKGROUND_RE.search(diff):
+    if not BACKGROUND_RE.search(src_diff):
         row(7, "n.a.", "no thread/socket/http/scheduled addition in the diff")
     else:
         readme_diff = git("diff", f"{base}...HEAD", "--", "README.md")
@@ -232,11 +236,11 @@ def main() -> int:
         )
 
     # 8 *_basis beside a published rate
-    rates = RATE_KEY_RE.findall(diff)
+    rates = RATE_KEY_RE.findall(src_diff)
     if not rates:
         row(8, "n.a.", "no new rate/share/confidence key in the diff")
     else:
-        basis = "_basis" in diff or "refus" in diff
+        basis = "_basis" in src_diff or "refus" in src_diff
         row(
             8,
             "met" if basis else "unmet",
