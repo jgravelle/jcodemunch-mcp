@@ -78,7 +78,6 @@ def main() -> int:
         + git("diff", "--name-only").split()
     )
     changed = sorted(set(changed))
-    diff = git("diff", f"{base}...HEAD") + git("diff")
     # DoD 7 and 8 are about PRODUCT behaviour: scan additions under src/ only,
     # or a doc that MENTIONS httpx or a schedule trips them (first run on the
     # workflows layer itself).

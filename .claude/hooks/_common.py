@@ -29,7 +29,7 @@ for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
-        pass
+        pass  # a stream with no reconfigure (a pipe replaced by the runner) keeps its encoding
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -258,7 +258,7 @@ def warn(event: str, message: str) -> None:
                 time.strftime("%Y-%m-%dT%H:%M:%S ") + message.splitlines()[0] + "\n"
             )
     except OSError:
-        pass
+        pass  # the log is a courtesy copy (W-7); the warning itself still goes to stdout
     if event == "PreToolUse":
         out["hookSpecificOutput"]["permissionDecision"] = "allow"
         out["hookSpecificOutput"]["permissionDecisionReason"] = message.splitlines()[0]
