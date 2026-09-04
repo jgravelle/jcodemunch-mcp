@@ -26,6 +26,9 @@ STAMP = STATE / "full-tier.json"
 
 def main(argv: list[str]) -> int:
     EVIDENCE.mkdir(parents=True, exist_ok=True)
+    # `--summary` APPENDS; a stale FAIL row from an earlier run would read as
+    # this run failing (FINDINGS W-20). One run, one summary.
+    (EVIDENCE / "full.md").unlink(missing_ok=True)
     tree = tree_id()
     commit = git("rev-parse", "--short", "HEAD").strip()
     stamp = {

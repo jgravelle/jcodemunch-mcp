@@ -91,6 +91,7 @@ def main() -> None:
     budget = Budget(BUDGET_SECONDS)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     summary = EVIDENCE / "fast.md"
+    summary.unlink(missing_ok=True)  # `--summary` appends (W-20)
     skipped: list[str] = []
     failures: list[str] = []
 
