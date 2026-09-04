@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - the test suite rewrote the developer's real `~/.claude/settings.json` (workflows W-34)
+
+Five `run_init(yes=True, no_backup=True)` tests in `tests/test_init.py`
+never redirected `_settings_json_path`, so every full-tier run executed
+`install_enforcement_hooks` against the real Claude Code settings file, and
+`_converge_rule` rewrote all six jcodemunch hook commands to whatever
+`shutil.which("jcodemunch-mcp")` resolved to in that run. Inside a git
+worktree that is the worktree's own `.venv`; the workflows-layer probe
+deleted the worktree minutes later and the next session start failed with
+`No such file` on every product hook. `no_backup=True` is why the June
+`settings.json.bak` sat beside a September `settings.json`, and why the
+finding was first blamed on `uv sync`. On CI the runner has no settings
+file, so the write created one and nothing failed; on a developer box it
+silently repointed hooks. This is Practice 8 (#437) in a new costume: that
+guard is written against `load_config` by name and never saw this path.
+The fix is one layer down, not at the five call sites: an autouse fixture
+in `tests/conftest.py` redirects the four home-derived `cli.init` path
+helpers to a per-test directory, and a tripwire fails the test that changes
+the real `settings.json` or `CLAUDE.md` by any other route. The
+reproduction (`tests/test_init_home_isolation.py`) reruns the offending
+tests in a subprocess whose home it owns and asserts a sentinel settings
+file is byte-identical; against the pre-fix conftest it is rewritten.
+
 ### Fixed - the index-cache TTL tests keep a real clock out of the loop (harness F-22)
 
 `tests/test_v1_108_172.py`'s four TTL tests slept wall-clock time against
