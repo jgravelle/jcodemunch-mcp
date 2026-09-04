@@ -43,6 +43,37 @@ def _clean_cache_and_env(monkeypatch):
     store._index_cache.clear()
 
 
+class _Clock:
+    """A monotonic clock the test advances by hand.
+
+    F-22 (docs/harness/FINDINGS.md): the TTL tests slept real time with a
+    0.2 s margin, and one gap on a loaded windows runner ran past the TTL, so
+    a hot entry read as idle. The cache reads `time.monotonic()` through its
+    module's `time` name; this stands in for that name and forwards every
+    other attribute to the real module. The tests now assert the MECHANISM
+    (last_used is refreshed on a hit) with no wall-clock in the loop.
+    """
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+    def __getattr__(self, name):  # anything but monotonic is the real module
+        return getattr(time, name)
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    c = _Clock()
+    monkeypatch.setattr(store, "time", c)
+    return c
+
+
 # --- TTL ------------------------------------------------------------------
 
 def test_ttl_is_disabled_by_default():
@@ -61,36 +92,38 @@ def test_ttl_parses_a_positive_value(monkeypatch):
     assert store._cache_ttl_seconds() == 900.0
 
 
-def test_disabled_ttl_retains_an_idle_entry(monkeypatch):
+def test_disabled_ttl_retains_an_idle_entry(monkeypatch, clock):
     """Today's behavior, which must be byte-identical for anyone not opting in."""
     monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "0")
     store._cache_put("o", "n", 1, _FakeIndex())
-    time.sleep(0.15)
+    clock.advance(3600.0)
     assert store._cache_get("o", "n", 1) is not None
 
 
-def test_enabled_ttl_evicts_an_idle_entry(monkeypatch):
-    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "0.1")
+def test_enabled_ttl_evicts_an_idle_entry(monkeypatch, clock):
+    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "10")
     store._cache_put("o", "n", 1, _FakeIndex())
     assert store._cache_get("o", "n", 1) is not None, "should be cached immediately"
-    time.sleep(0.25)
+    clock.advance(10.5)
     assert store._cache_get("o", "n", 1) is None, "should be evicted once idle"
 
 
-def test_active_use_keeps_an_entry_alive(monkeypatch):
+def test_active_use_keeps_an_entry_alive(monkeypatch, clock):
     """A hot index must never be evicted by the TTL. Each hit refreshes it."""
-    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "0.3")
+    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "10")
     store._cache_put("o", "n", 1, _FakeIndex())
     for _ in range(6):
-        time.sleep(0.1)
+        clock.advance(9.0)
         assert store._cache_get("o", "n", 1) is not None
-    # Total elapsed (~0.6s) is well past the TTL; only the touching saved it.
+    # 54 s elapsed against a 10 s TTL; only the refresh on each hit saved it.
+    clock.advance(10.5)
+    assert store._cache_get("o", "n", 1) is None, "and it still evicts once idle"
 
 
-def test_ttl_eviction_does_not_disturb_a_recently_used_sibling(monkeypatch):
-    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "0.2")
+def test_ttl_eviction_does_not_disturb_a_recently_used_sibling(monkeypatch, clock):
+    monkeypatch.setenv("JCODEMUNCH_INDEX_CACHE_TTL", "10")
     store._cache_put("old", "n", 1, _FakeIndex())
-    time.sleep(0.25)
+    clock.advance(10.5)
     store._cache_put("new", "n", 1, _FakeIndex())
     assert store._cache_get("new", "n", 1) is not None
     assert store._cache_get("old", "n", 1) is None

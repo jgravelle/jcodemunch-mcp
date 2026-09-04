@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - the index-cache TTL tests keep a real clock out of the loop (harness F-22)
+
+`tests/test_v1_108_172.py`'s four TTL tests slept wall-clock time against
+TTLs of 0.1 to 0.3 s, so `test_active_use_keeps_an_entry_alive` had a 0.2 s
+margin between "touched every 0.1 s" and "idle past 0.3 s". On the PR gate's
+`windows-latest, 3.13` job for #593, a docs-only change, one gap under xdist
+ran past it and a hot entry read as evicted: one failure in 9,349, seven
+sibling jobs green, and the re-run green. That is the shape of every timing
+flake, and the first one the gate has produced. The cache reads
+`time.monotonic()` through its module's `time` name, so the tests now inject
+a clock they advance by hand: 54 simulated seconds against a 10 s TTL with a
+touch every 9, then 10.5 idle to prove it still evicts. No sleeps remain in
+the TTL section; the file runs in under a second instead of ~1.5 s. The
+non-vacuity pass still holds: deleting the refresh-on-hit line in
+`_cache_get` turns the test red.
+
 ### Added - `scripts/surface_diff.py --descriptions`: a reworded tool description is a surface change the script can now see
 
 The stage-5 surface gate compared tool NAMES between the base ref and the
