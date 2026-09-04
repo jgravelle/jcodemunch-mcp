@@ -25,6 +25,13 @@
       "args": [
         "jcodemunch-mcp"
       ]
+    },
+    "knos": {
+      "command": "python",
+      "args": [
+        "-m",
+        "knos.mcp"
+      ]
     }
   }
 }
