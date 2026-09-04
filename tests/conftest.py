@@ -292,18 +292,35 @@ def _isolate_claude_home(request, monkeypatch, tmp_path_factory):
     Two halves, deliberately: the redirect fixes the helpers that exist today;
     the tripwire catches the writer that reaches the real file some other way
     (a new helper, a `Path.home()` inlined at a call site). A test that patches
-    one of these helpers itself still wins -- monkeypatch is last-set.
+    one of these helpers itself still wins -- monkeypatch is last-set. The
+    per-test directory is created LAZILY, inside the redirected helpers, so
+    the ~9,300 tests that never call `run_init` pay nothing.
+    `install_agents_md` writes `Path.cwd()/AGENTS.md` and is NOT redirected:
+    the repo root's tracked AGENTS.md is watched instead.
     """
     from jcodemunch_mcp.cli import init as _init
 
-    home = tmp_path_factory.mktemp("claude_home")
-    monkeypatch.setattr(_init, "_settings_json_path", lambda: home / ".claude" / "settings.json")
-    monkeypatch.setattr(_init, "_claude_md_path", lambda scope: home / ".claude" / "CLAUDE.md")
-    monkeypatch.setattr(_init, "_cursor_rules_path", lambda: home / ".cursor" / "rules" / "jcodemunch.mdc")
-    monkeypatch.setattr(_init, "_windsurf_rules_path", lambda: home / ".windsurfrules")
+    base = tmp_path_factory.getbasetemp() / "claude_home" / request.node.name[:60].replace("/", "_")
 
-    real = Path(os.environ.get("USERPROFILE") or Path.home()) / ".claude"
-    watched = [real / "settings.json", real / "CLAUDE.md"]
+    def _under(*parts: str):
+        base.mkdir(parents=True, exist_ok=True)
+        return base.joinpath(*parts)
+
+    monkeypatch.setattr(_init, "_settings_json_path", lambda: _under(".claude", "settings.json"))
+    monkeypatch.setattr(_init, "_claude_md_path", lambda scope: _under(".claude", "CLAUDE.md"))
+    monkeypatch.setattr(_init, "_cursor_rules_path", lambda: _under(".cursor", "rules", "jcodemunch.mdc"))
+    monkeypatch.setattr(_init, "_windsurf_rules_path", lambda: _under(".windsurfrules"))
+
+    # Same resolution as `_settings_json_path`: USERPROFILE on Windows only.
+    if sys.platform == "win32":
+        real_home = Path(os.environ.get("USERPROFILE", str(Path.home())))
+    else:
+        real_home = Path.home()
+    watched = [
+        real_home / ".claude" / "settings.json",
+        real_home / ".claude" / "CLAUDE.md",
+        Path(__file__).resolve().parents[1] / "AGENTS.md",
+    ]
 
     def _stamp(p: Path):
         try:

@@ -15,9 +15,9 @@ The guard runs the offending tests in a SUBPROCESS whose home is a directory
 this test owns (Practice 8: a destructive defect is executed on the
 non-vacuity pass, against a target the test controls), then asserts the
 sentinel settings file is byte-identical and no CLAUDE.md appeared.
-`test_conftest_tripwire_names_the_writer` checks the second half of the fix:
-the conftest tripwire that fails ANY test which changes the real file, so the
-next `run_init` call site inherits the guard instead of five spellings.
+The second half of the fix, the conftest tripwire that fails ANY test which
+changes the real file, is exercised by the same subprocess: with the redirect
+removed it is the tripwire that reports the writer by name.
 """
 
 from __future__ import annotations
@@ -69,13 +69,3 @@ def test_run_init_tests_leave_the_real_settings_untouched(tmp_path):
     assert not (home / ".claude" / "CLAUDE.md").exists(), "a run_init test wrote ~/.claude/CLAUDE.md"
     assert not (home / ".claude" / "settings.json.bak").exists()
 
-
-def test_conftest_tripwire_names_the_writer():
-    """The mechanism-level half: conftest snapshots the real settings.json and
-    CLAUDE.md around every test. Deleting the tripwire leaves the redirect in
-    place for today's helpers and nothing for the next one."""
-    src = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
-    assert "_isolate_claude_home" in src, "conftest lost the home-isolation fixture (W-34)"
-    assert "W-34" in src
-    for helper in ("_settings_json_path", "_claude_md_path", "_cursor_rules_path", "_windsurf_rules_path"):
-        assert helper in src, f"conftest no longer redirects init.{helper}"
