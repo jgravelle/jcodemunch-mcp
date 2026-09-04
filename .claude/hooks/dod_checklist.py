@@ -140,6 +140,17 @@ def main() -> int:
         row(3, "n.a.", "label no-changelog")
     elif not src_changed:
         row(3, "n.a.", "no change under src/")
+    elif (
+        git("diff", "--name-only", "--", "src/").strip()
+        or git("diff", "--cached", "--name-only", "--", "src/").strip()
+    ):
+        # scripts/dod_changelog.py diffs base...HEAD; an UNCOMMITTED src/ edit is
+        # invisible to it and the row would read met with no entry (W-31).
+        row(
+            3,
+            "unmet",
+            "src/ has uncommitted changes; commit them, then re-run (dod_changelog reads the committed diff)",
+        )
     else:
         rc, out = sh(
             sys.executable,

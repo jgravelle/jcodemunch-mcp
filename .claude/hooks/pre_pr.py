@@ -28,14 +28,15 @@ from _common import (
 )
 
 PR_RE = re.compile(r"\bgh\s+pr\s+create\b")
-STAMP = STATE / "full-tier.json"
-CHECKLIST = EVIDENCE / "checklist.md"
 
 
 def main() -> None:
     cmd = strip_heredocs(tool_command(read_hook_input()))
     if not PR_RE.search(cmd):
         ok()
+    # Resolved after read_hook_input, which may rebind STATE to a worktree (W-30).
+    STAMP = STATE / "full-tier.json"  # noqa: N806
+    CHECKLIST = EVIDENCE / "checklist.md"  # noqa: N806
     branch = git("rev-parse", "--abbrev-ref", "HEAD").strip()
     if branch == "main":
         block(

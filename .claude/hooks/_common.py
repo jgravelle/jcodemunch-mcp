@@ -48,12 +48,52 @@ TIER_PATHS = (
 )
 
 
+def _rebind_repo(cwd: str | None) -> None:
+    """Point REPO/STATE/EVIDENCE at the checkout the SESSION is in.
+
+    Claude Code runs a project hook with `$CLAUDE_PROJECT_DIR` fixed, so a
+    session working in a `git worktree` of this repo got the explicit
+    scripts (run_full.py, dod_checklist.py resolve from their own file)
+    and NONE of the automatic ones: the /fix-issue probe's reintroducing
+    commit passed pre_commit silently (FINDINGS W-30). The payload's `cwd`
+    names the real tree; if it is a checkout of this repo, use it.
+    """
+    global REPO, STATE, EVIDENCE
+    if not cwd:
+        return
+    try:
+        top = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return
+    if not top:
+        return
+    top_path = Path(top).resolve()
+    if top_path == REPO or not (top_path / ".claude" / "hooks").exists():
+        return
+    REPO = top_path
+    STATE = REPO / ".claude" / "state"
+    EVIDENCE = STATE / "evidence"
+    # The hooks import these names at module level; rebind their copies too.
+    main = sys.modules.get("__main__")
+    for name, value in (("REPO", REPO), ("STATE", STATE), ("EVIDENCE", EVIDENCE)):
+        if main is not None and hasattr(main, name):
+            setattr(main, name, value)
+
+
 def read_hook_input() -> dict:
     try:
         raw = sys.stdin.read()
-        return json.loads(raw) if raw.strip() else {}
+        payload = json.loads(raw) if raw.strip() else {}
     except (json.JSONDecodeError, OSError):
         return {}
+    _rebind_repo(payload.get("cwd"))
+    return payload
 
 
 def tool_command(payload: dict) -> str:

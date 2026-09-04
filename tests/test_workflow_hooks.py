@@ -197,3 +197,54 @@ def test_surface_guard_is_silent_when_the_surface_did_not_move():
     )
     assert rc == 0, err
     assert "differs" not in out, out
+
+
+def test_hooks_follow_the_session_cwd_into_a_worktree(tmp_path):
+    """W-30: the MAIN checkout's hook, told the session is in another checkout, reads THAT checkout's state."""
+    clone = tmp_path / "clone"
+    subprocess.run(
+        ["git", "clone", "-q", "--no-hardlinks", str(ROOT), str(clone)], check=True
+    )
+    subprocess.run(["git", "checkout", "-q", "-b", "feat/wt"], cwd=clone, check=True)
+    _working_tree_hooks(clone)
+    # The main checkout may carry a valid stamp; the clone has none.
+    payload = bash('GITHUB_TOKEN="" gh pr ' + "create --title x")
+    payload["cwd"] = str(clone)
+    r = subprocess.run(
+        [sys.executable, str(HOOKS / "pre_pr.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=clone,
+    )
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+    # Red arm: with the clone's stamp present and matching, the same hook passes on the clone's checklist.
+    state = clone / ".claude" / "state"
+    (state / "evidence").mkdir(parents=True)
+    tree = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; sys.path.insert(0, r'%s'); import _common; print(_common.tree_id())"
+            % (clone / ".claude" / "hooks"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=clone,
+    ).stdout.strip()
+    (state / "full-tier.json").write_text(
+        json.dumps({"tree": tree, "ok": True, "date": "x"}), encoding="utf-8"
+    )
+    (state / "evidence" / "checklist.md").write_text(
+        "| 1 | x | met | y |\n", encoding="utf-8"
+    )
+    r = subprocess.run(
+        [sys.executable, str(HOOKS / "pre_pr.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=clone,
+    )
+    assert r.returncode == 0, r.stderr

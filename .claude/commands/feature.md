@@ -52,7 +52,7 @@ under `.claude/state/evidence/`. Authority for every rule is
    file you will touch. Write the failing tests. A new file under `tests/`
    is in the full tier; add it to `harness/tiers.json` `fast` only if it is
    offline and you say so in the PR. Run them and record the red run:
-   `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/red.txt 2>&1`
+   `{ uv run pytest <files> -q --continue-on-collection-errors; echo "EXIT=$?"; } > .claude/state/evidence/red.txt 2>&1`
    — the last line must not be `EXIT=0`. If the tests pass before the
    change, the tests are wrong: refuse.
 5. **Implement.** Use jcodemunch tools for navigation. The hooks

@@ -29,18 +29,27 @@ release policy". `REFUSED: <reason>` and stop when a step cannot complete.
    in the reporter's words. If the issue carries more than one finding,
    say so (policy 1: one issue, one verdict) and fix the first; the split
    is `/triage-issue`'s draft, not this command's action.
-2. **Branch.** Not `main`. `fix/$ARGUMENTS-<slug>` from `origin/main`.
-   Clear `.claude/state/evidence/`.
+2. **Branch.** Not `main`. `fix/$ARGUMENTS-<slug>` from `origin/main`;
+   refuse if the branch has no `.claude/commands/` (the layer is not on
+   `main` yet, W-22). Clear `.claude/state/evidence/`. ⚠ The automatic
+   hooks follow the session's cwd (W-30); run from the checkout you are
+   fixing in.
 3. **Reproduce BEFORE touching `src/`.** Write a test from the report. For
    a destructive defect the target must be one the test owns (Practice 8;
    Standing lesson 08-20). Run it:
-   `{ uv run pytest <file> -q; echo "EXIT=$?"; } > .claude/state/evidence/red.txt 2>&1`.
-   If the last line is `EXIT=0`, write what you tried into ISSUE.md under
+   `{ uv run pytest <file> -q --continue-on-collection-errors; echo "EXIT=$?"; } > .claude/state/evidence/red.txt 2>&1`
+   (`--continue-on-collection-errors` because a pre-existing guard that
+   imports a name the defect removed fails at COLLECTION and would abort
+   the session before your test runs, W-32; a collection ERROR in red.txt
+   is itself evidence and goes in ISSUE.md). If the last line is `EXIT=0`,
+   write what you tried into ISSUE.md under
    "Not reproduced" (commands, platform, versions) and
    `REFUSED: not reproduced`. Do not guess a fix.
 4. **Archaeology.** Grep `docs/harness/ARCHAEOLOGY.md` for the touched
-   module names and the issue's keywords; list the related LOAD-BEARING
-   tests in `evidence/archaeology.md`. If the defect is a regression of a
+   module names and the issue's keywords; write `evidence/archaeology.md`
+   as one table row per hit (`| file | ARCHAEOLOGY line | why related |`)
+   plus the Standing-lesson lines from CLAUDE.md that name the defect
+   class. If the defect is a regression of a
    lesson already encoded there or in CLAUDE.md Standing lessons, say so
    in ISSUE.md and name HOW the guard was bypassed: a second spelling, a
    second call site, a mock that supplied the contract, a guard sampled
@@ -52,24 +61,33 @@ release policy". `REFUSED: <reason>` and stop when a step cannot complete.
    callers)? Add a test per spelling found. Re-run the touched files green:
    `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`.
    If the fix touches a module the failing test does not import, state
-   why in ISSUE.md or refuse.
-6. **Tiers.** `uv run python -m harness fast --summary .claude/state/evidence/fast.md`;
-   `python .claude/hooks/run_full.py`; and if `benchmarks/`, `harness/` or
+   why in ISSUE.md or refuse. Load `changelog-format` and write the
+   `[Unreleased]` entry NOW (it cites `#$ARGUMENTS` and the reporter;
+   what was wrong, why, what is impossible now; numbers only from
+   evidence): the reviewer and the checklist read the CHANGELOG diff, and
+   `scripts/dod_changelog.py` sees only COMMITTED changes (W-31). Then
+   COMMIT the test, the fix and the entry (`git add <files> && git commit
+   -m ...` alone; the hook runs the fast tier and writes `evidence/fast.md`).
+6. **Tiers.** `python .claude/hooks/run_full.py` on the committed tree
+   (the stamp covers the code roots, so the docs edits of step 8 will not
+   invalidate it); and if `benchmarks/`, `harness/` or
    `src/jcodemunch_mcp/server.py` changed,
    `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`.
-   Read the skip-ceiling rows.
-7. **Review.** Spawn the `reviewer` subagent (fresh context) with the diff
-   (deletions first), ISSUE.md, `evidence/*`, `evidence/archaeology.md`,
-   and the diffs of `harness/thresholds.json`, `harness/retired.json`,
-   `docs/*/FINDINGS.md`, `CHANGELOG.md`. Save to `evidence/review.md`.
-   `REQUEST CHANGES`: fix, back to step 6. `BLOCK`: refuse with reasons.
-8. **Record.** `changelog-format`: the `[Unreleased]` entry cites
-   `#$ARGUMENTS` and credits the reporter by login; what was wrong, why,
-   what the fix makes impossible; numbers only from evidence.
-   `python .claude/hooks/dod_checklist.py --base-ref origin/main`.
-   `pr-description`: title `fix: <one line> (#$ARGUMENTS)`, body with
-   `Closes #$ARGUMENTS`, the reproduction, the mechanism answer from step
-   5, and `checklist.md` and the review verdict verbatim.
-9. **Open.** Any `unmet` row: refuse. Else commit, push, `GITHUB_TOKEN=""
-   gh pr create`. Print the URL. Never comment on the issue; GitHub closes
-   it on merge and the close comment is the next layer's.
+   Read the skip-ceiling rows. Then
+   `python .claude/hooks/dod_checklist.py --base-ref origin/main` (writes
+   `evidence/checklist.md` and `evidence/surface.md`, both reviewer inputs).
+7. **Review.** Spawn the `reviewer` subagent (fresh context; if the type
+   is absent, `general-purpose` reading `.claude/agents/reviewer.md`, W-12)
+   with the committed diff `git diff origin/main...HEAD` (deletions
+   first), ISSUE.md, `evidence/*`, and the diffs of
+   `harness/thresholds.json`, `harness/retired.json`, `docs/*/FINDINGS.md`,
+   `CHANGELOG.md`. Save to `evidence/review.md`. `REQUEST CHANGES`: fix,
+   commit, back to step 6. `BLOCK`: refuse with reasons.
+8. **Record.** `pr-description`: title `fix: <one line> (#$ARGUMENTS)`,
+   body to the SCRATCHPAD with `Closes #$ARGUMENTS`, the reproduction, the
+   mechanism answer from step 5, and `checklist.md` and the review
+   verdict verbatim.
+9. **Open.** Any `unmet` row: refuse. Else push and `GITHUB_TOKEN="" gh pr
+   create --body-file <scratchpad path>` as a line of its own. Print the
+   URL. Never comment on the issue; GitHub closes it on merge and the
+   close comment is the next layer's.
