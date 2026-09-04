@@ -666,6 +666,25 @@
       "enforced_by": [
         ".github/workflows/pr-gate.yml"
       ]
+    },
+    {
+      "id": "suite.full_seconds_ci_windows",
+      "criterion": "N1",
+      "metric": "full-tier pytest wall seconds on a GitHub-hosted windows runner (GITHUB_ACTIONS set and sys.platform win32)",
+      "comparator": "<=",
+      "floor": 1033,
+      "unit": "seconds",
+      "set_at": {
+        "commit": "5157b28",
+        "date": "2026-09-04",
+        "reason": "STANDARD N1. A NEW platform-scoped Floor, not a loosening: `suite.full_seconds` (360) was set at 2x this box's median and still governs every non-CI run and the ubuntu legs. The first four windows legs of the PR gate measured 478.7 / 483.55 / 549.12 / 553.55 s on one commit (PR #578, run 33818929448); median 516.3, x2 = 1033 (tolerance rule in docs/harness/DESIGN.md). Tightens only after three more CI runs"
+      },
+      "measured": null,
+      "history": [],
+      "enforced_by": [
+        "harness/__main__.py",
+        ".github/workflows/pr-gate.yml"
+      ]
     }
   ]
 }
