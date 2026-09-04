@@ -35,6 +35,17 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 STATE = REPO / ".claude" / "state"
 EVIDENCE = STATE / "evidence"
+# What the full tier's verdict depends on (tree identity for the D5 stamp).
+TIER_PATHS = (
+    "src",
+    "tests",
+    "harness",
+    "scripts",
+    "benchmarks",
+    "pyproject.toml",
+    "uv.lock",
+    ".github",
+)
 
 
 def read_hook_input() -> dict:
@@ -134,18 +145,24 @@ def tree_id() -> str:
 
     A full-tier run is valid for exactly this identity, whatever its age (D5).
     """
-    head_tree = git("rev-parse", "HEAD^{tree}").strip()
-    # The harness's own footprint (pytest-cov's `.coverage.<host>.<pid>` files
-    # at the root, the hook state) must not move the identity it is measured
-    # against, or no full-tier run can ever stamp `ok` (FINDINGS W-13; the
-    # guard-sampled-after-the-work lesson).
-    status = "\n".join(
+    # The identity covers what the full tier's verdict DEPENDS on: the code
+    # roots, the packaging and the harness. A CHANGELOG line, a PR body draft
+    # or a docs/ edit after the run does not invalidate it; committing the
+    # same content does not either (the first /feature run had to run the
+    # tier twice, W-21). The harness's own footprint (pytest-cov's
+    # `.coverage.<host>.<pid>` files, the hook state) never counts (W-13).
+    # Residual: a doc edit CAN flip a doc-reading test (CLAUDE.md size); the
+    # PR gate is the authority for that, this hook is the early one.
+    tracked = git("ls-tree", "-r", "HEAD", "--", *TIER_PATHS)
+    diff = git("diff", "HEAD", "--", *TIER_PATHS)
+    untracked = "\n".join(
         ln
-        for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()
-        if not (ln[3:].startswith(".coverage") or ln[3:].startswith(".claude/state/"))
+        for ln in git(
+            "status", "--porcelain", "--untracked-files=all", "--", *TIER_PATHS
+        ).splitlines()
+        if ln.startswith("??") and not ln[3:].startswith(".coverage")
     )
-    diff = git("diff", "HEAD") + status
-    return head_tree + ":" + hashlib.sha256(diff.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256((tracked + diff + untracked).encode("utf-8")).hexdigest()[:24]
 
 
 class Budget:

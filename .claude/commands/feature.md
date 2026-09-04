@@ -1,5 +1,5 @@
 ---
-description: Add a feature the way this repo requires — spec mapped to STANDARD.md, failing tests first, harness tiers, bench delta, independent review, and a machine-produced Definition-of-Done checklist; opens the PR only when nothing is unmet.
+description: "Add a feature the way this repo requires — spec mapped to STANDARD.md, failing tests first, harness tiers, bench delta, independent review, and a machine-produced Definition-of-Done checklist; opens the PR only when nothing is unmet."
 argument-hint: <description of the feature>
 ---
 
@@ -28,7 +28,9 @@ under `.claude/state/evidence/`. Authority for every rule is
 
 1. **Branch.** `git rev-parse --abbrev-ref HEAD` must not be `main`. Create
    `feat/<slug>` from `origin/main` if you are not already on a `feat/`
-   branch. Create `.claude/state/runs/feature-<UTC>/` and
+   branch. If the new branch has no `.claude/commands/` (the layer is not
+   on `main` yet), refuse: this command cannot run without its hooks
+   (FINDINGS W-22). Create `.claude/state/runs/feature-<UTC>/` and
    `.claude/state/evidence/`; delete stale files in `evidence/` first.
 2. **Spec.** Load the `standard-axes` skill. Write `SPEC.md` in the run
    directory: the request restated in one paragraph, then acceptance
@@ -39,9 +41,10 @@ under `.claude/state/evidence/`. Authority for every rule is
 3. **Surface impact.** Load `tool-surface-discipline`. Answer in SPEC.md:
    does any tool get added, removed, renamed, gain or lose an argument, or
    change its description or tier? Decide from the design, then verify
-   after implementing with `python scripts/surface_diff.py --base-ref
-   origin/main --summary .claude/state/evidence/surface.md` and the
-   description dump in step 7. If yes: state in SPEC.md that README,
+   after implementing with `uv run python scripts/surface_diff.py
+   --descriptions --base-ref origin/main --summary
+   .claude/state/evidence/surface.md` (the venv's interpreter; the script
+   imports the server). If yes: state in SPEC.md that README,
    CLAUDE.md Key Files or KEY-FILES.md, CHANGELOG and
    `benchmarks/schema_baseline.json` all change in this PR and that stage
    5 (`done: tool surface`) checks it.
@@ -56,38 +59,52 @@ under `.claude/state/evidence/`. Authority for every rule is
    `test_edit_guard` and `surface_guard` will speak if you weaken a test or
    move the surface; act on what they say. After editing, run the same
    files green: `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`.
-6. **Fast and full tiers.** `uv run python -m harness fast --summary
-   .claude/state/evidence/fast.md` (the commit hook runs it too), then
-   `python .claude/hooks/run_full.py` (writes `evidence/full.md` and the
-   tree stamp `pre_pr` requires). Read the skip-ceiling verdict rows in
-   `full.md`, not only the exit code.
+   Then COMMIT the implementation and its tests (`git add <files> && git
+   commit -m ...` as a line of its own; the commit hook runs the fast tier
+   and writes `evidence/fast.md`). Everything after this reviews and
+   records a committed diff; the CHANGELOG and PR body are a second,
+   docs-only commit that does not invalidate the tier stamp (the stamp
+   covers the code roots, W-21).
+6. **Full tier.** `python .claude/hooks/run_full.py` on the committed tree
+   (writes `evidence/full.md` and the tree stamp `pre_pr` requires). Read
+   the skip-ceiling verdict rows in `full.md`, not only the exit code.
 7. **Bench delta.** Load `benchmark-methodology`. If `benchmarks/`,
    `harness/` or `src/jcodemunch_mcp/server.py` changed, run
-   `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`.
-   Then the per-criterion table against main:
-   `python scripts/pr_bench_comment.py --base-ref origin/main --results harness/results/latest.json --summary .claude/state/evidence/bench_table.md`
-   (never `--post`). Dump the descriptions on both sides for DoD 4 (FINDINGS W-1):
-   `uv run python -c "from jcodemunch_mcp.server import _build_tools_list as b; import json; print(json.dumps({t.name: t.description for t in b()}, sort_keys=True))" > .claude/state/evidence/desc_head.json`
-   and the same in a worktree of `origin/main` to `desc_base.json`; write
-   the diff (or the line `no description changes`) to
-   `evidence/surface_descriptions.md`.
-8. **Review.** Spawn the `reviewer` subagent (fresh context, NOT a fork)
-   with: the diff `git diff origin/main...HEAD` with deletions listed
-   first, `SPEC.md`, every file in `evidence/`, the ARCHAEOLOGY rows for
-   touched tests, and the diffs of `harness/thresholds.json`,
-   `harness/retired.json`, `docs/*/FINDINGS.md`, `CHANGELOG.md`. Save its
-   output to `evidence/review.md`. On `REQUEST CHANGES`: fix and return to
-   step 6. On `BLOCK`: refuse with its reasons.
-9. **Record.** Load `changelog-format` and write the `[Unreleased]` entry:
-   what was missing, why it matters, what is now possible or impossible;
-   any number pasted from an evidence file, none typed. Run
+   `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`
+   and then the per-criterion table against main:
+   `uv run python scripts/pr_bench_comment.py --base-ref origin/main --results harness/results/latest.json --summary .claude/state/evidence/bench_table.md`
+   (never `--post`). Otherwise write the one line `bench: not required
+   (no change under benchmarks/, harness/ or server.py)` to
+   `evidence/bench_table.md`; a table of zeros by construction is not
+   evidence. The description half of DoD 4 comes from step 3's
+   `--descriptions` run (`evidence/surface.md` carries the
+   `## done: tool descriptions` block).
+8. **Review.** Spawn the `reviewer` subagent (fresh context, NOT a fork;
+   if the type is absent in this session, `general-purpose` told to read
+   and follow `.claude/agents/reviewer.md`, W-12) with: the committed diff
+   `git diff origin/main...HEAD` plus `git diff` for anything uncommitted,
+   deletions listed first, `SPEC.md`, every file in `evidence/`, the
+   ARCHAEOLOGY rows for touched tests (a NEW test file has no row and
+   needs none; the survey is dated), and the diffs of
+   `harness/thresholds.json`, `harness/retired.json`, `docs/*/FINDINGS.md`,
+   `CHANGELOG.md`. Save its output to `evidence/review.md`. On
+   `REQUEST CHANGES`: fix, commit, return to step 6. On `BLOCK`: refuse
+   with its reasons.
+9. **Record.** Load `changelog-format` and write the `[Unreleased]` entry
+   when the change touches `src/` (that is `scripts/dod_changelog.py`'s
+   rule and DoD 3's; a `scripts/`- or `tests/`-only change may carry one
+   but is not required to, and the `no-changelog` label is for a `src/`
+   change that deliberately has none): what was missing, why it matters,
+   what is now possible or impossible; any number pasted from an evidence
+   file, none typed. Commit it (docs-only; the stamp survives). Run
    `python .claude/hooks/dod_checklist.py --base-ref origin/main` and read
    `evidence/checklist.md`. Load `pr-description` and write the title and
-   body; the body carries `bench_table.md`, `surface.md`,
-   `surface_descriptions.md` and `checklist.md` verbatim, and the review
-   verdict line.
-10. **Open.** Any `unmet` row: refuse and say which. Otherwise commit (the
-    commit hook runs the fast tier), push the branch, and
-    `GITHUB_TOKEN="" gh pr create` with the body from step 9. Print the PR
-    URL. Do not merge, do not comment, do not label beyond what
-    `gh pr create --label` sets at creation.
+   body to the SCRATCHPAD (never the repo); the body carries
+   `bench_table.md`, `surface.md` and `checklist.md` verbatim, and the
+   review verdict line.
+10. **Open.** Any `unmet` row: refuse and say which. Otherwise push the
+    branch and `GITHUB_TOKEN="" gh pr create --body-file <scratchpad path>`
+    as a line of its own (the pre-PR hook checks the stamp against the
+    code roots of THIS tree and the checklist). Print the PR URL. Do not
+    merge, do not comment, do not label beyond what `--label` sets at
+    creation.

@@ -157,19 +157,30 @@ def main() -> int:
         )
 
     # 4 tool surface
-    rc, out = sh(sys.executable, "scripts/surface_diff.py", "--base-ref", base)
-    desc = evidence("surface_descriptions.md")
-    if (
-        rc == 0
-        and "no surface change" in out
-        and (desc is None or "no description changes" in desc.lower())
-    ):
+    has_desc = "--descriptions" in (REPO / "scripts" / "surface_diff.py").read_text(
+        encoding="utf-8"
+    )
+    rc, out = sh(
+        "uv",
+        "run",
+        "python",
+        "scripts/surface_diff.py",
+        *(["--descriptions"] if has_desc else []),
+        "--base-ref",
+        base,
+    )
+    desc_changed = "description changed:" in out
+    if rc == 0 and "no surface change" in out and not desc_changed:
         row(
             4,
             "n.a.",
-            "surface unchanged (names via scripts/surface_diff.py; descriptions via evidence/surface_descriptions.md)"
-            if desc
-            else "surface names unchanged; description diff not captured (FINDINGS W-1)",
+            "surface unchanged (names"
+            + (
+                " and descriptions"
+                if has_desc
+                else "; descriptions not diffed, FINDINGS W-1"
+            )
+            + " via scripts/surface_diff.py)",
         )
     else:
         docs = all(
@@ -179,7 +190,7 @@ def main() -> int:
         row(
             4,
             "met" if rc == 0 and docs and base_touched else "unmet",
-            f"surface_diff rc={rc}; README+CHANGELOG+CLAUDE/KEY-FILES changed={docs}; schema_baseline changed={base_touched}",
+            f"surface_diff rc={rc} desc_changed={desc_changed}; README+CHANGELOG+CLAUDE/KEY-FILES changed={docs}; schema_baseline changed={base_touched}",
         )
 
     # 5 benchmark mirrors

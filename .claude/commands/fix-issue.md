@@ -1,5 +1,5 @@
 ---
-description: Fix a GitHub issue — reproduce it as a failing test before touching source (stop if it cannot be reproduced), check ARCHAEOLOGY for the guard that should have caught it, fix minimally, run the tiers, independent review, changelog, PR referencing the issue, machine-produced checklist.
+description: "Fix a GitHub issue — reproduce it as a failing test before touching source (stop if it cannot be reproduced), check ARCHAEOLOGY for the guard that should have caught it, fix minimally, run the tiers, independent review, changelog, PR referencing the issue, machine-produced checklist."
 argument-hint: <issue number>
 ---
 

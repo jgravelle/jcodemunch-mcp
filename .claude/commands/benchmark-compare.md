@@ -1,5 +1,5 @@
 ---
-description: Run the harness bench tier on the working tree and on a ref (default origin/main) in the deterministic configuration, and report per Floor id — Floor, ref value, current value, delta, pass/fail — per row, never per total. Records to harness/results/latest.json only on a clean main; otherwise says where the scratch copy is.
+description: "Run the harness bench tier on the working tree and on a ref (default origin/main) in the deterministic configuration, and report per Floor id — Floor, ref value, current value, delta, pass/fail — per row, never per total. Records to harness/results/latest.json only on a clean main; otherwise says where the scratch copy is."
 argument-hint: [ref]
 ---
 

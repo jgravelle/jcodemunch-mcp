@@ -16,6 +16,7 @@ import sys
 
 from _common import (
     EVIDENCE,
+    REPO,
     Budget,
     budget_warning,
     ok,
@@ -36,6 +37,12 @@ SURFACE_PATHS = (
 )
 
 
+def _descriptions_flag() -> list[str]:
+    """`--descriptions` once PR #592 (FINDINGS W-1) is on the base; the flag is read from the script, never assumed."""
+    text = (REPO / "scripts" / "surface_diff.py").read_text(encoding="utf-8")
+    return ["--descriptions"] if "--descriptions" in text else []
+
+
 def main() -> None:
     payload = read_hook_input()
     path = tool_path(payload)
@@ -48,6 +55,7 @@ def main() -> None:
         [
             sys.executable,
             "scripts/surface_diff.py",
+            *_descriptions_flag(),
             "--base-ref",
             "HEAD",
             "--summary",
@@ -67,8 +75,7 @@ def main() -> None:
         + "\nDoD 4: README tool reference, CLAUDE.md Key Files (invariant) or KEY-FILES.md (description), "
         "CHANGELOG naming each tool, and the schema baseline regenerated with the token delta stated. "
         "Stage 5 (`done: tool surface`) checks this on the PR. "
-        "A description-only or argument-only change is NOT visible here (docs/workflows/FINDINGS.md W-1); "
-        "the /feature command diffs descriptions itself.",
+        "Description changes are listed above only when the script has `--descriptions` (FINDINGS W-1, PR #592).",
     )
 
 
