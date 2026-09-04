@@ -493,6 +493,7 @@ DELEGATED = {
     "suite.full_seconds": "this runner, full tier wall clock",
     "ci.skips_ubuntu": "this runner / test.yml, pytest summary",
     "ci.skips_windows": "this runner / test.yml, pytest summary",
+    "suite.full_seconds_ci_windows": "harness full tier on a GitHub windows runner",
     "suite.fast_skips_max": "harness fast tier, pytest summary",
 }
 
@@ -562,6 +563,13 @@ def offline_checks(stamp: bool = False) -> tuple[bool, list[dict]]:
 
 def _skips_floor_id() -> str:
     return "ci.skips_windows" if sys.platform.startswith("win") else "ci.skips_ubuntu"
+
+
+def _full_wall_floor_id() -> str:
+    """A GitHub-hosted windows runner is ~3x this box on the full tier (docs/cicd/FINDINGS.md C-9)."""
+    if os.environ.get("GITHUB_ACTIONS") and sys.platform.startswith("win"):
+        return "suite.full_seconds_ci_windows"
+    return "suite.full_seconds"
 
 
 # --------------------------------------------------------------------------- tiers
@@ -659,8 +667,9 @@ def tier_full(result: dict) -> bool:
     if not T.passes(sid, summ["skipped"]):
         ok = False
     wall = time.perf_counter() - t0
-    print(T.verdict_line("suite.full_seconds", round(wall, 2)))
-    if wall > T.floor("suite.full_seconds"):
+    wid = _full_wall_floor_id()
+    print(T.verdict_line(wid, round(wall, 2)))
+    if wall > T.floor(wid):
         ok = False
     result["tiers"]["full"] = {
         "seconds": round(wall, 2),
