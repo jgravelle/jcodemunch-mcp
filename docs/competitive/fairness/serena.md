@@ -82,9 +82,10 @@ latency figure; its evaluation pages compare agent runs, not tool costs.
   and `project_serena_folder_location: "/out/serena-projects/$projectFolderName/.serena"`
   because the corpus mount is read-only and the default is inside the
   project. Trust patterns stay empty: nothing trust-gated is used.
-- **Mode**: `serena start-mcp-server --project /corpus
-  --enable-web-dashboard false --enable-gui-log-window false`, the default
-  context (`desktop-app`, the full toolset) and the default base modes,
+- **Mode**: `serena start-mcp-server --project /corpus` (the dashboard and
+  GUI log window are off through the configuration file above, not flags),
+  the default context (`desktop-app`, the full toolset) and the default
+  base modes,
   because that is the surface a user gets before choosing a client
   context. `tools/list` is therefore the full default surface; a
   client-specific context that excludes tools would weigh less, and a
@@ -95,9 +96,14 @@ latency figure; its evaluation pages compare agent runs, not tool costs.
   adapter records the driver's `initialize` round trip plus the wall time
   of one uncharged `get_current_config` call (the first request after
   the handshake) as the index time: that is what an agent waits for
-  before its first answer. The documented `serena project index` is a
-  separate CLI step an agent does not run; it is not measured. There is
-  no index artefact to count files from; `files_indexed` is not reported.
+  before its first answer. The second session (the follow-up calls) starts
+  the server and the language server again; its own uncharged
+  `get_current_config` absorbs that start, so the restart is charged to no
+  task and to no index row (reviewer round 1: without it, the first body
+  read of the second session carried about ten seconds of language-server
+  start). The documented `serena project index` is a separate CLI step an
+  agent does not run; it is not measured. There is no index artefact to
+  count files from; `files_indexed` is not reported.
 - **Payload**: each tool's DEFAULT output, the JSON text the server
   returns, at `max_answer_chars` default. Citations are read from the
   same JSON (`relative_path`, `body_location.start_line`, LSP 0-based
@@ -120,10 +126,17 @@ latency figure; its evaluation pages compare agent runs, not tool costs.
   - P4 file dependencies: NOT ANSWERED. The README's retrieval table has
     no importers or file-dependency row and the tools take symbol name
     paths; the row is NOT COMPARABLE rather than a zero. If a later probe
-    finds a documented route, it becomes its own configuration.
+    finds a documented route, it becomes its own configuration. This
+    deviates from DESIGN s1.3, whose row lists the tool under P1, P2, P4
+    (written from the field survey before the docs were read); the
+    adapter's categories are P1, P2, T, and the row's T is the pattern
+    search below.
 - **Environment**: `HOME=/out`, `SERENA_HOME=/out/serena-home`,
   `PYRIGHT_PYTHON_GLOBAL_NODE=0`, `PYRIGHT_PYTHON_NODE_VERSION`,
-  `PYRIGHT_PYTHON_ENV_DIR`, `PYRIGHT_PYTHON_CACHE_DIR`; nothing else.
+  `PYRIGHT_PYTHON_ENV_DIR`, `PYRIGHT_PYTHON_CACHE_DIR`; and the driver's
+  own `MCP_DRIVER_TIMEOUT_S=300` (a per-call ceiling above the tool's
+  `tool_timeout: 240`, so a slow answer is the tool's, not the harness's);
+  nothing else.
 
 ## Where the harness may disadvantage it
 
@@ -166,22 +179,24 @@ by the probes (2026-09-05, self corpus, one run each, not results):
   the two earlier MCP rows are re-measured with the new driver in this
   PR's recorded run, so their pinned image digests move with it).
 
-What the third probe found, recorded as the tool's behaviour:
+What the third probe found, recorded as the tool's behaviour (probe
+figures, one run; the recorded rows and their per-task figures are the
+result file FINDINGS CF-28 and CF-29 name):
 
 - **Per-call latency on this box is seconds, not milliseconds**: the
   `find_symbol` and `search_for_pattern` calls of the first session took
-  6 to 12 s each, and in the second session the first call 7.9 s and the
-  next ones about 120 ms. The tool syncs file-system changes before a
+  6 to 12 s each in the probe. The tool syncs file-system changes before a
   symbolic call and polls a change notifier at start; over the Windows
   bind mount (CF-14) that is the cost an agent pays here, and the Linux
-  runner's rows will say whether it is the mount. The latency row is
-  unstable under the 10% rule regardless.
+  runner's rows will say whether it is the mount. The probe also showed
+  the second session's first call carrying the language server's start,
+  which is why that session has an uncharged warm call now (above).
 - **`search_for_pattern` over the alternation of a T query's words
-  returns every match** (1,019 across 277 files for "router|route|handler",
-  around 80 to 115 KB per query), so the token row is dominated by the T
-  tasks. That is the tool's answer to that pattern; an agent might narrow
-  with `paths_include_glob` or a tighter regex, which the harness does not
-  do for anyone. The row is recorded with this caveat.
+  returns every match** (1,019 across 277 files for "router|route|handler"
+  in the probe), so the token row is dominated by the T tasks. That is the
+  tool's answer to that pattern; an agent might narrow with
+  `paths_include_glob` or a tighter regex, which the harness does not do
+  for anyone. The row is recorded with this caveat.
 - **`serverInfo.version` reads `1.28.1`**, the MCP SDK's version, not the
   tool's 1.7.0 (the CF-26 shape); the pin is the wheel hash and the
   adapter's `version()` reports the pin.

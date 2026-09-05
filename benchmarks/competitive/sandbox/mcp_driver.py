@@ -28,7 +28,7 @@ from __future__ import annotations
 import collections
 import json
 import os
-import select
+import queue
 import subprocess
 import sys
 import threading
@@ -41,21 +41,35 @@ class Client:
     def __init__(self, cmd: list[str]) -> None:
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # bytes: the protocol is framed by newlines and decoded per message
         self._id = 0
-        self._buf = b""
-        # stderr is drained continuously into a bounded tail: a server that logs
-        # every tool result to stderr (Serena does) fills the pipe and blocks
-        # mid-call if nobody reads it, which read as a hang of the tool.
+        # Both pipes are read on their own threads. stderr is drained
+        # continuously into a bounded tail: a server that logs every tool
+        # result to stderr (Serena does) fills the pipe and blocks mid-call if
+        # nobody reads it, which read as a hang of the tool. stdout goes
+        # through a queue so a read can wait with a deadline on any platform
+        # (the test runs the driver on Windows, where select() has no pipes).
         self._err = collections.deque(maxlen=64)
+        self._lines: queue.Queue[bytes | None] = queue.Queue()
         self._err_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._out_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._err_thread.start()
+        self._out_thread.start()
 
     def _drain_stderr(self) -> None:
         assert self.proc.stderr is not None
         try:
             for line in iter(self.proc.stderr.readline, b""):
                 self._err.append(line[-400:])
-        except Exception:
-            pass
+        except Exception as e:  # a pipe closed under the reader at shutdown; recorded, never silent
+            self._err.append(f"[driver: stderr drain stopped: {e!r}]\n".encode())
+
+    def _read_stdout(self) -> None:
+        assert self.proc.stdout is not None
+        try:
+            for line in iter(self.proc.stdout.readline, b""):
+                self._lines.put(line)
+        except Exception as e:
+            self._err.append(f"[driver: stdout reader stopped: {e!r}]\n".encode())
+        self._lines.put(None)
 
     def _send(self, msg: dict) -> None:
         data = (json.dumps(msg) + "\n").encode("utf-8")
@@ -64,23 +78,16 @@ class Client:
         self.proc.stdin.flush()
 
     def _readline(self, deadline: float) -> bytes | None:
-        assert self.proc.stdout is not None
-        fd = self.proc.stdout.fileno()
-        while b"\n" not in self._buf:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            r, _, _ = select.select([fd], [], [], min(remaining, 1.0))
-            if not r:
-                if self.proc.poll() is not None:
-                    return None
-                continue
-            chunk = os.read(fd, 65536)
-            if not chunk:
-                return None
-            self._buf += chunk
-        line, _, self._buf = self._buf.partition(b"\n")
-        return line
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        try:
+            line = self._lines.get(timeout=remaining)
+        except queue.Empty:
+            return None
+        if line is None:  # stdout closed: the server exited
+            return None
+        return line.rstrip(b"\n")
 
     def request(self, method: str, params: dict | None = None, timeout: float = TIMEOUT_S) -> tuple[dict | None, float]:
         self._id += 1
@@ -113,6 +120,7 @@ class Client:
         except Exception:
             self.proc.kill()
         self._err_thread.join(timeout=5)
+        self._out_thread.join(timeout=5)
         return b"".join(self._err).decode("utf-8", "replace")[-2000:]
 
 

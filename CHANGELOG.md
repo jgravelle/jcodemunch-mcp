@@ -4,12 +4,12 @@
 
 ### Added - the fourth competitor row, an LSP-backed tool over MCP stdio (FINDINGS CF-27 to CF-30)
 
-The alternative every third-party source names first (FIELD.md, set row
-1) is a measured row. Its wheel, the language-server package it pins and
+The alternative the field survey lists first (FIELD.md, set row 1) is
+a measured row. Its wheel, the language-server package it pins and
 every dependency are pinned by version and hash in a lockfile the image
 installs with `--require-hashes`; the language server is launched from
 the image through the tool's documented `ls_path` setting, so no `uvx`
-download happens at run, and the Node runtime its Python wrapper fetches
+download happens at run time, and the Node runtime its Python wrapper fetches
 on first use is fetched once at build. The tool's global configuration is
 pinned in the tree: the template's values, with the dashboard and GUI log
 window off and per-project data pointed outside the read-only corpus
@@ -23,11 +23,11 @@ run; and the MCP driver read a server's stderr only at exit, so a server
 that logs every tool result there filled the pipe mid-call and read as a
 hang. The driver drains stderr continuously now, and the two earlier MCP
 rows are re-measured with it in this PR's recorded run. The rows
-themselves, their caveats (a per-call latency dominated by the Windows
-bind mount, a token row dominated by a pattern search that returns every
-match), and a second instance of a server reporting its framework's
-version rather than its own, are FINDINGS CF-27 to CF-30 beside the
-result file.
+themselves and their caveats are FINDINGS CF-27 to CF-30 beside the
+result file (`results/2026-09-05-64e59032.json`): a per-call latency
+dominated by the Windows bind mount, a token row dominated by a pattern
+search that returns every match, and a second instance of a server
+reporting its framework's version rather than its own.
 
 ### Added - the third competitor row, over MCP stdio (FINDINGS CF-23 to CF-26)
 

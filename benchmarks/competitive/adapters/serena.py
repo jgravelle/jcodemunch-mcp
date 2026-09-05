@@ -15,7 +15,9 @@ invokes:  the image built from sandbox/serena.Dockerfile (the PyPI wheel,
           initialize round trip is the index time: the language server's
           start and first analysis), then every task's charged calls; a
           second session runs the follow-ups the first session's answers
-          name (source reads, references)
+          name (source reads, references), after its own uncharged
+          get_current_config, so the language server's restart is charged
+          to no task in either session
 produces: IndexReport with the language-server start time and no file
           count (the tool has no index artefact); one Answer per task
           whose payload is the tool's DEFAULT output and whose citations
@@ -129,9 +131,12 @@ class Serena:
                     follow.append({"id": f"{t.id}|refs{i}", "tool": "find_referencing_symbols", "charged": True,
                                    "args": {"name_path": s["name_path"], "relative_path": s["relative_path"]}})
         if follow:
-            res2, d2 = self._session(corpus, out, 2, follow)
+            # the second session restarts the language server; its first request carries that
+            # start (reviewer round 1, PR 2d), so it is an uncharged warm call here as in session 1
+            warm2 = {"id": "warm2", "tool": "get_current_config", "args": {}, "timeout_s": TIMEOUT_S, "charged": False}
+            res2, d2 = self._session(corpus, out, 2, [warm2] + follow)
             if not res2.timed_out and d2 and not d2.get("error"):
-                results.update({c["id"]: c for c in d2["calls"]})
+                results.update({c["id"]: c for c in d2["calls"] if c["id"] != "warm2"})
         answers = {}
         for t in tasks:
             first = {"P1": "fs", "P2": "fs", "T": "sp"}.get(t.category)
