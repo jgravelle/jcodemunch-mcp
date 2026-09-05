@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added - the fifth competitor row, a knowledge-graph tool over MCP stdio with a one-tool default surface (FINDINGS CF-31 to CF-34)
+
+The lane's largest adoption (FIELD.md, set row 4) is a measured row. Its
+release bundle for linux-x64 is verified against the release's published
+checksums and installed the way its install script installs it, without
+running the script; nothing is compiled and nothing is fetched at run.
+The tool keeps its index inside the project root and the corpus mount is
+read-only, so each container indexes a copy on the sandbox's private
+tmpfs, a harness cost timed by nobody and a read path faster than the
+bind mount every other adapter reads through, which the fairness note
+records under advantages. Its documented sandboxed-environment setting
+and its documented off-switch for telemetry and the update check are set;
+its documented watcher-off flag is passed, because nothing changes under
+a measurement.
+
+Two things the probes found shape the adapter and are recorded rather
+than smoothed over: the tool's primary answer tool elides lines it sent
+earlier in a session, so a shared session would make a task's token
+count depend on the tasks before it, and every T task runs in its own
+session; and its file-dependents answer names eight files and a count,
+so its P4 recall is capped by its output shape and the citations are the
+eight it names, never the count. The probes also found a reference the
+self task set's P2 gold omits (a test caller that the tool and a reading
+of the test both confirm); the row is scored against the gold as it is,
+and the gold's gap is a FINDINGS item for the task-set work, not a
+correction applied to one competitor's row. The rows, their caveats and
+the schema weight of both surfaces are FINDINGS CF-31 to CF-34 beside
+the result file.
+
 ### Added - the fourth competitor row, an LSP-backed tool over MCP stdio (FINDINGS CF-27 to CF-30)
 
 The alternative the field survey lists first (FIELD.md, set row 1) is

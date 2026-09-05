@@ -151,4 +151,5 @@ REGISTRY: dict[str, str] = {
     "codebase_memory": "adapters.codebase_memory:make",
     "code_review_graph": "adapters.code_review_graph:make",
     "serena": "adapters.serena:make",
+    "codegraph": "adapters.codegraph:make",
 }
