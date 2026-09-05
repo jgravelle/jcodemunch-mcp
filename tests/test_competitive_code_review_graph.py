@@ -31,6 +31,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 COMPETE = REPO / "benchmarks" / "competitive"
 FIX = json.loads((REPO / "tests" / "fixtures" / "competitive" / "code_review_graph_mcp.json").read_text(encoding="utf-8"))
+if not COMPETE.is_dir():  # excluded from the sdist (pyproject); the tests are meaningless without it
+    pytest.skip("benchmarks/competitive is not in this tree (not shipped in the sdist)", allow_module_level=True)
 sys.path.insert(0, str(COMPETE))
 sys.path.insert(0, str(COMPETE / "sandbox"))
 
