@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added - the sixth competitor row, a pre-written-cards tool over MCP stdio on its deterministic path (FINDINGS CF-35 to CF-38)
+
+The structurally different approach in the lane (FIELD.md, set row 5) is
+a measured row, on the path its docs describe as needing no key and no
+network: the tree-sitter wiring graph and per-file cards its build writes
+to disk, served by its MCP server. Its npm package and every dependency
+are pinned by integrity hash in a lockfile the image installs with `npm
+ci`; the native grammar addons are built at image build; nothing is
+fetched at run. Its graph is written to a context directory outside the
+read-only corpus through the documented global option, with the two files
+it would otherwise write into the repo switched off by its documented
+flags. The LLM layer its headline claims are made for is not built (no
+key), and the fairness note records that as the first disadvantage.
+
+Two of its behaviours shape the rows and are recorded rather than worked
+around: its file-level import edges are unresolved on this corpus, so the
+documented file-dependents route answers with none and points, in its own
+text, at its regex search; the adapter follows that instruction only when
+the tool gives it, in a second container, and cites what the search lists.
+And every answer opens with a token-savings estimate addressed to the
+agent, which is part of what an agent receives and is charged like the
+rest; no row reads the estimate. The probe ran over the pinned corpus
+(the rule CF-32 set). The rows and their caveats are FINDINGS CF-35 to
+CF-38 beside the result file.
+
 ### Added - the fifth competitor row, a knowledge-graph tool over MCP stdio with a one-tool default surface (FINDINGS CF-31 to CF-34)
 
 The lane's largest adoption (FIELD.md, set row 4) is a measured row. Its
