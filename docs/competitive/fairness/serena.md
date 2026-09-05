@@ -98,10 +98,11 @@ latency figure; its evaluation pages compare agent runs, not tool costs.
   the handshake) as the index time: that is what an agent waits for
   before its first answer. The second session (the follow-up calls) starts
   the server and the language server again; its own uncharged
-  `get_current_config` absorbs that start, so the restart is charged to no
-  task and to no index row (reviewer round 1: without it, the first body
-  read of the second session carried about ten seconds of language-server
-  start). The documented `serena project index` is a separate CLI step an
+  `get_current_config` takes the server restart, so that is charged to no
+  task and to no index row (in the result file the first body read of the
+  second session is about 120 ms, as the later ones are; in the run before
+  the warm call it was about 6.5 s). What the uncharged call does NOT
+  absorb is disadvantage 7 below. The documented `serena project index` is a separate CLI step an
   agent does not run; it is not measured. There is no index artefact to
   count files from; `files_indexed` is not reported.
 - **Payload**: each tool's DEFAULT output, the JSON text the server
@@ -160,6 +161,14 @@ latency figure; its evaluation pages compare agent runs, not tool costs.
    measured.
 6. **The Windows bind mount** (CF-14) applies to its language server's
    file reads as to everyone's.
+7. **The first symbolic call of a session costs more than the later ones,
+   and it is charged.** In the result file the first `find_symbol` of
+   session 1 is about 10 s in every run against about 7 s for the ones
+   after it, with the uncharged `get_current_config` already answered:
+   that call is not symbolic and does not trigger whatever the language
+   server does on its first symbolic request. An agent pays the same first
+   call; a warm call shaped like a task would be a charged-shape call made
+   free, so it is recorded here instead of removed.
 
 ## What we could not make work
 

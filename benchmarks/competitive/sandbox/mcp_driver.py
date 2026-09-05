@@ -38,7 +38,9 @@ TIMEOUT_S = float(os.environ.get("MCP_DRIVER_TIMEOUT_S", "120"))
 
 
 class Client:
-    def __init__(self, cmd: list[str]) -> None:
+    def __init__(self, cmd: list[str], drain_stderr: bool = True) -> None:
+        # drain_stderr=False is the pre-change driver (stderr read only at exit); the
+        # test's non-vacuity arm uses it and must time out. Never passed by main().
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # bytes: the protocol is framed by newlines and decoded per message
         self._id = 0
         # Both pipes are read on their own threads. stderr is drained
@@ -51,7 +53,8 @@ class Client:
         self._lines: queue.Queue[bytes | None] = queue.Queue()
         self._err_thread = threading.Thread(target=self._drain_stderr, daemon=True)
         self._out_thread = threading.Thread(target=self._read_stdout, daemon=True)
-        self._err_thread.start()
+        if drain_stderr:
+            self._err_thread.start()
         self._out_thread.start()
 
     def _drain_stderr(self) -> None:
@@ -119,7 +122,8 @@ class Client:
             self.proc.wait(timeout=10)
         except Exception:
             self.proc.kill()
-        self._err_thread.join(timeout=5)
+        if self._err_thread.ident is not None:  # never started when drain_stderr=False
+            self._err_thread.join(timeout=5)
         self._out_thread.join(timeout=5)
         return b"".join(self._err).decode("utf-8", "replace")[-2000:]
 

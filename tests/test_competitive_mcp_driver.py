@@ -7,9 +7,9 @@ server's stderr only at exit, so a server that logs every tool result there
 inside the tool, and every later call read as a hang; the second Serena probe
 timed out at the session ceiling. The stub server here writes more to stderr
 than any pipe buffers BEFORE it answers a call, which is the shape of the
-defect: against the pre-change driver the request times out (verified by
-running this test with the drain disabled); with the drain it answers, and
-the tail the driver keeps is bounded. A driver that could only ever block or
+defect: with the drain disabled (`drain_stderr=False`, the pre-change
+driver's behaviour, an arm of this file) the request times out; with the
+drain it answers, and the tail the driver keeps is bounded. A driver that could only ever block or
 time out can never move a measured number, which is why the tail is all it
 records.
 """
@@ -89,3 +89,15 @@ def test_the_driver_records_the_tail_and_the_calls_through_main(tmp_path):
     assert d["tool_names"] == ["echo"] and json.loads(d["tools_list_json"])[0]["inputSchema"] == {"type": "object"}
     assert d["calls"][0]["result_text"] == 'answer:{"q": 1}' and d["calls"][0]["timed_out"] is False
     assert 0 < len(d["stderr_tail"]) <= 2000
+
+
+def test_without_the_drain_the_same_server_times_out(tmp_path):
+    """The non-vacuity arm: the pre-change driver's behaviour, reproduced on any box."""
+    c = mcp_driver.Client(_stub(tmp_path), drain_stderr=False)
+    try:
+        init, _ = c.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}, timeout=30)
+        assert init is not None and "result" in init  # the handshake writes nothing to stderr and still answers
+        msg, ms = c.request("tools/call", {"name": "echo", "arguments": {"i": 0}}, timeout=6)
+        assert msg is None and ms >= 6_000  # the server is blocked writing stderr; the call never answers
+    finally:
+        c.close()
