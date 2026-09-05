@@ -14,17 +14,14 @@ codebase-memory-mcp drives `code-review-graph serve`; the tool's default
 data dir is inside the repository, which the sandbox mounts read-only, so
 its documented `CRG_DATA_DIR` knob points it at the writable mount.
 
-On the self corpus (FINDINGS CF-23 to CF-26, `results/2026-09-05-95eb4a00.json`,
-three runs): it matches codebase-memory-mcp on definitions and references
-(f1_P1 0.6667, f1_P2 1.0 against our 0.3333 and 0), which makes two
-independent graphs finding the same-file caller our `find_references`
-misses; it answers zero importers for every file at its base install
-(f1_P4 0 against our 0.4324, the first measured lead of ours on a quality
-axis, recorded with the same care as the losses); and its token row
-(324.8 against our 1,656) carries a caveat the report must keep, because
-the tool returns search hits without source bodies and the agent's own
-file read is not charged. Its `serverInfo` reports FastMCP's version, the
-defect our own server shipped until 1.108.292.
+The three-run rows of this configuration are FINDINGS CF-23 to CF-26
+beside the result file (`results/2026-09-05-95eb4a00.json`): an answer
+that is the tool's own at its documented default and not an adapter
+defect (CF-23), a token row that is not like-for-like and must carry its
+caveat wherever it is quoted (CF-24), a second witness for a candidate
+CF-20 already raised (CF-25), and a `serverInfo` field that reports the
+framework's version rather than the tool's, the defect our own server
+shipped until 1.108.292 (CF-26).
 
 ### Added - the second competitor row, codebase-memory-mcp 0.10.8, over MCP stdio
 
