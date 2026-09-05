@@ -86,16 +86,25 @@ def build(tag: str, dockerfile: Path, context: Path, timeout: int = 600) -> Buil
     return BuildResult(tag=tag, digest=digest, seconds=round(secs, 1), dockerfile_sha256=hashlib.sha256(dockerfile.read_bytes()).hexdigest())
 
 
+PRIVATE_TMPFS = ["--tmpfs", "/private:rw,uid=65534,gid=65534,mode=0700,size=1g"]
+"""A tmpfs owned by the sandbox uid, mode 0700, for a tool that refuses a
+world-writable or foreign-owned cache parent (codebase-memory-mcp rejects
+the /out bind mount: "the directory CONTAINING ... is not a usable
+private-directory parent"). Its contents die with the container, which is
+fine: a run is one container. HOME moves there when it is requested."""
+
+
 def run(tag: str, args: list[str], corpus: Path, out: Path, timeout: int, workdir: str = "/corpus",
-        extra_env: Optional[dict[str, str]] = None) -> RunResult:
+        extra_env: Optional[dict[str, str]] = None, private_home: bool = False) -> RunResult:
     """One container. `args` follow the image's ENTRYPOINT. Only HOME and PATH
     reach the tool, plus `extra_env` (which an adapter may use for its own
-    documented knobs; never a host variable)."""
+    documented knobs; never a host variable). `private_home` adds the
+    uid-owned tmpfs above and points HOME at it."""
     out.mkdir(parents=True, exist_ok=True)
-    cmd = ["docker", "run", "--rm", *RUN_FLAGS,
+    cmd = ["docker", "run", "--rm", *RUN_FLAGS, *(PRIVATE_TMPFS if private_home else []),
            "-v", f"{_mount_path(corpus)}:/corpus:ro",
            "-v", f"{_mount_path(out)}:/out:rw",
-           "-w", workdir, "-e", "HOME=/out"]
+           "-w", workdir, "-e", ("HOME=/private" if private_home else "HOME=/out")]
     for k, v in (extra_env or {}).items():
         cmd += ["-e", f"{k}={v}"]
     cmd += [tag, *args]

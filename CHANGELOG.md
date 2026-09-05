@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Added - the second competitor row, codebase-memory-mcp 0.10.8, over MCP stdio
+
+`benchmarks/competitive/sandbox/mcp_driver.py` is a minimal MCP client
+that runs inside a competitor's container: initialize, `tools/list` (the
+schema weight every MCP server pays, counted in the shape the field's
+tool-definition benchmark uses), then each task's `tools/call`, every
+round trip timed. codebase-memory-mcp is driven through it the way its
+own `mcpServers` entry drives it, from the release's portable archive
+verified against its published checksum (the PyPI wheel is a 14 KB
+launcher that fetches the runtime on first run, a network step the sandbox
+forbids after build). The tool refuses a cache it does not own, so the
+sandbox gained one more mount, a uid-owned 0700 tmpfs, pinned in the test
+like every other flag; it refuses the corpus root as "too broad", so the
+adapter indexes each top-level directory as its message asks.
+
+The ground truth moved again before the run, in the competitor's favour
+(FINDINGS CF-19): the tool resolves `from ..storage import x` through the
+package's re-export to the module that defines `x`, and our P4 task had
+counted textual importers only. The truth is the union now, computed from
+source by AST, and on it our `find_importers` finds 8 of 29.
+
+Then the closest peer led on every comparable axis of the self corpus
+(CF-20, all deltas outside the band): 61% of our tokens per task, a
+`tools/list` a fifth the weight of our shipped `full` surface, twice our
+F1 on definitions, 1.0 against our 0 on references, 0.98 against our 0.43
+on importers. Recorded as four `competitive-gap` candidates against us and
+none softened; none is an issue until item 5 exists and the pinned corpora
+agree; none touches product source.
+
 ### Added - the competitive tier's sandbox and its first competitor row: cymbal 0.14.0
 
 Every measured tool, jCodeMunch included, now runs inside a container the

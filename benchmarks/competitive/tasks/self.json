@@ -120,7 +120,79 @@
           0
         ],
         [
+          "src/jcodemunch_mcp/tools/assemble_task_context.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/check_delete_safe.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/check_edit_safe.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/find_implementations.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/find_references.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/find_similar_symbols.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_blast_radius.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_context_bundle.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_file_content.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_file_outline.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_file_tree.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_group_contracts.py",
+          0
+        ],
+        [
           "src/jcodemunch_mcp/tools/get_ranked_context.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_repo_map.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_repo_outline.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_session_stats.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_symbol.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_symbol_importance.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/plan_refactoring.py",
           0
         ],
         [
@@ -134,10 +206,18 @@
         [
           "src/jcodemunch_mcp/tools/search_symbols.py",
           0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/search_text.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/winnow_symbols.py",
+          0
         ]
       ],
       "tolerance_lines": 100000,
-      "source": "authored:claude:2026-09-05, corrected after review round 1 of PR 2a: nine importers, enumerated by grepping src/ for every spelling of an import of storage.token_tracker (the first draft listed four and graded the tool that found all nine down on precision)"
+      "source": "authored:claude:2026-09-05 from source by scratchpad p4_truth.py (ast): 9 files import storage.token_tracker directly and 20 more import from the storage package a name its __init__ re-exports from token_tracker (a resolved dependency, CF-19); the union is the truth so a tool that resolves re-exports is not graded down for it, and a tool that reads only textual imports is not graded up"
     }
   ]
 }

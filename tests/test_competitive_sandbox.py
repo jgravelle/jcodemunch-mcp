@@ -63,6 +63,13 @@ def test_every_run_carries_the_d2_flags_and_no_host_environment(tmp_path, monkey
     assert envs == ["HOME=/out"]
     assert "SECRET_FROM_HOST" not in joined
     assert cmd[-2:] == ["img:1", "/out/run.sh"]
+    # a tool that needs a private home gets a uid-owned 0700 tmpfs, nothing else changes
+    with mock.patch.object(sandbox.subprocess, "run", fake_run):
+        sandbox.run("img:1", ["/out/run.sh"], tmp_path / "corpus", tmp_path / "out", timeout=5, private_home=True)
+    cmd2 = seen["cmd"]
+    assert "/private:rw,uid=65534,gid=65534,mode=0700,size=1g" in cmd2
+    assert [cmd2[i + 1] for i, x in enumerate(cmd2) if x == "-e"] == ["HOME=/private"]
+    assert len([x for x in cmd2 if x == "-v"]) == 2
 
 
 def test_a_timeout_is_reported_not_raised(tmp_path):

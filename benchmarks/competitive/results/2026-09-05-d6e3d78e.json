@@ -1,0 +1,3311 @@
+{
+ "header": {
+  "schema": "jcm-competitive-result/v1",
+  "date": "2026-09-05T14:25:31Z",
+  "jcm_commit": "d6e3d78e",
+  "jcm_version": "1.108.317",
+  "runs": 3,
+  "runner": {
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.12.4",
+   "cpus": 24,
+   "ci": false
+  },
+  "corpora": [
+   {
+    "id": "self@d6e3d78e",
+    "files": 277,
+    "sha256": "c1cecae571a8bf3d09c87b90ffd6c87d83d4a1e7c356b7c3a583bdde432d37d9"
+   }
+  ],
+  "tasks_sha256": "73f7bf2f5e62d636e0b3902bebebe5f6db5cf81f27f088d6702d462ade9e62fd",
+  "sandbox": "docker",
+  "tree_dirty": true,
+  "scorer_sha256": "70a3141cfc1a78e5bdda19eac758ad5cf3392f3db7fcc09870c90f9a7700e139",
+  "pins": [
+   {
+    "name": "null_readall",
+    "registry": "none",
+    "package": "read-all",
+    "version": "baseline-A",
+    "digest": "",
+    "dockerfile_sha256": "",
+    "ran_as": "baseline-A",
+    "interface": "null",
+    "image_digest": null
+   },
+   {
+    "name": "null_grep",
+    "registry": "none",
+    "package": "grep-top-3",
+    "version": "baseline-B",
+    "digest": "",
+    "dockerfile_sha256": "",
+    "ran_as": "baseline-B",
+    "interface": "null",
+    "image_digest": null
+   },
+   {
+    "name": "jcodemunch",
+    "registry": "tree",
+    "package": "jcodemunch-mcp",
+    "version": "d6e3d78e",
+    "digest": "",
+    "dockerfile_sha256": "d4ef62fb762b3b8dc411f3871e4d9db881e29563560b2b7c098885a3a9194fa2",
+    "ran_as": "d6e3d78e",
+    "interface": "python",
+    "image_digest": "sha256:34147a484cf13176c3ee819cdb5be550da1298aa5b1e3df3a9123f928f9f602b"
+   },
+   {
+    "name": "cymbal",
+    "registry": "github-release",
+    "package": "1broseidon/cymbal",
+    "version": "0.14.0",
+    "digest": "bfc951722b773b5f07c3a291530684ea737b012ad866505c6971a92d6bd9810d",
+    "dockerfile_sha256": "a8b99fa24b72c20b6891a268c1c235658fd09846aaf3c2d13e653c284da6b8d8",
+    "ran_as": "0.14.0",
+    "interface": "cli",
+    "image_digest": "sha256:f409ed707f23267e526c90319f5c57a0e82b9405f2a8cc7b12c2902c065afc1f"
+   },
+   {
+    "name": "codebase_memory",
+    "registry": "github-release",
+    "package": "DeusData/codebase-memory-mcp",
+    "version": "0.10.8",
+    "digest": "6eef49652bc0c7820f43114125044d40bf7f4d97c11b2592f6b0f6a307702325",
+    "dockerfile_sha256": "0aa07c6faa98ccdac9de63a7df5460fa9af1dc14e096ecc65c38601084e14f48",
+    "ran_as": "0.10.8",
+    "interface": "mcp-stdio",
+    "image_digest": "sha256:c03957e25e20ee0b86d642865bc2353f2fba964d1d64a54513c3f7f6b27a4005"
+   }
+  ]
+ },
+ "rows": [
+  {
+   "axis": "tokens_per_task",
+   "runs": [
+    1161455,
+    1161455,
+    1161455
+   ],
+   "measured": 1161455,
+   "spread": 0,
+   "jcm": 1655.9,
+   "jcm_spread": 0.0,
+   "delta": 701.4041,
+   "band": 82.795,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "calls_per_task",
+   "runs": [
+    277,
+    277,
+    277
+   ],
+   "measured": 277,
+   "spread": 0,
+   "jcm": 3.4,
+   "jcm_spread": 0.0,
+   "delta": 81.4706,
+   "band": 0.17,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "latency_call_ms",
+   "runs": [
+    31.37,
+    32.17,
+    34.11
+   ],
+   "measured": 32.17,
+   "spread": 2.7399999999999984,
+   "jcm": 49.27,
+   "jcm_spread": 1.7100000000000009,
+   "delta": 0.6529,
+   "band": 8.22,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "index_cold_seconds",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": 15.016470090999974,
+   "jcm_spread": 1.4407159130000053,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tools_list_tokens",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": 23652,
+   "jcm_spread": 0,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P1",
+   "runs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "measured": 0.0,
+   "spread": 0.0,
+   "jcm": 0.3333,
+   "jcm_spread": 0.0,
+   "delta": -0.3333,
+   "band": 0.0167,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P2",
+   "runs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "measured": 0.0,
+   "spread": 0.0,
+   "jcm": 0.0,
+   "jcm_spread": 0.0,
+   "delta": 0.0,
+   "band": 0.0,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P4",
+   "runs": [
+    0.0005,
+    0.0005,
+    0.0005
+   ],
+   "measured": 0.0005,
+   "spread": 0.0,
+   "jcm": 0.4324,
+   "jcm_spread": 0.0,
+   "delta": -0.4319,
+   "band": 0.0216,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P5",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": null,
+   "jcm_spread": null,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_readall",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tokens_per_task",
+   "runs": [
+    118038.4,
+    118038.4,
+    118038.4
+   ],
+   "measured": 118038.4,
+   "spread": 0.0,
+   "jcm": 1655.9,
+   "jcm_spread": 0.0,
+   "delta": 71.2835,
+   "band": 82.795,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "calls_per_task",
+   "runs": [
+    3.6,
+    3.6,
+    3.6
+   ],
+   "measured": 3.6,
+   "spread": 0.0,
+   "jcm": 3.4,
+   "jcm_spread": 0.0,
+   "delta": 1.0588,
+   "band": 0.17,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "latency_call_ms",
+   "runs": [
+    1.18,
+    1.23,
+    1.22
+   ],
+   "measured": 1.22,
+   "spread": 0.050000000000000044,
+   "jcm": 49.27,
+   "jcm_spread": 1.7100000000000009,
+   "delta": 0.0248,
+   "band": 5.13,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "index_cold_seconds",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": 15.016470090999974,
+   "jcm_spread": 1.4407159130000053,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tools_list_tokens",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": 23652,
+   "jcm_spread": 0,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P1",
+   "runs": [
+    0.2299,
+    0.2299,
+    0.2299
+   ],
+   "measured": 0.2299,
+   "spread": 0.0,
+   "jcm": 0.3333,
+   "jcm_spread": 0.0,
+   "delta": -0.1034,
+   "band": 0.0167,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P2",
+   "runs": [
+    0.1818,
+    0.1818,
+    0.1818
+   ],
+   "measured": 0.1818,
+   "spread": 0.0,
+   "jcm": 0.0,
+   "jcm_spread": 0.0,
+   "delta": 0.1818,
+   "band": 0.0,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P4",
+   "runs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "measured": 0.0,
+   "spread": 0.0,
+   "jcm": 0.4324,
+   "jcm_spread": 0.0,
+   "delta": -0.4324,
+   "band": 0.0216,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P5",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": null,
+   "jcm_spread": null,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "null_grep",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tokens_per_task",
+   "runs": [
+    1655.9,
+    1655.9,
+    1655.9
+   ],
+   "measured": 1655.9,
+   "spread": 0.0,
+   "jcm": 1655.9,
+   "jcm_spread": 0.0,
+   "delta": 1.0,
+   "band": 82.795,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "calls_per_task",
+   "runs": [
+    3.4,
+    3.4,
+    3.4
+   ],
+   "measured": 3.4,
+   "spread": 0.0,
+   "jcm": 3.4,
+   "jcm_spread": 0.0,
+   "delta": 1.0,
+   "band": 0.17,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "latency_call_ms",
+   "runs": [
+    49.27,
+    47.97,
+    49.68
+   ],
+   "measured": 49.27,
+   "spread": 1.7100000000000009,
+   "jcm": 49.27,
+   "jcm_spread": 1.7100000000000009,
+   "delta": 1.0,
+   "band": 5.13,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "index_cold_seconds",
+   "runs": [
+    16.425019043999995,
+    14.98430313099999,
+    15.016470090999974
+   ],
+   "measured": 15.016470090999974,
+   "spread": 1.4407159130000053,
+   "jcm": 15.016470090999974,
+   "jcm_spread": 1.4407159130000053,
+   "delta": 1.0,
+   "band": 4.3221,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tools_list_tokens",
+   "runs": [
+    23652,
+    23652,
+    23652
+   ],
+   "measured": 23652,
+   "spread": 0,
+   "jcm": 23652,
+   "jcm_spread": 0,
+   "delta": 1.0,
+   "band": 1182.6,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P1",
+   "runs": [
+    0.3333,
+    0.3333,
+    0.3333
+   ],
+   "measured": 0.3333,
+   "spread": 0.0,
+   "jcm": 0.3333,
+   "jcm_spread": 0.0,
+   "delta": 0.0,
+   "band": 0.0167,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P2",
+   "runs": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "measured": 0.0,
+   "spread": 0.0,
+   "jcm": 0.0,
+   "jcm_spread": 0.0,
+   "delta": 0.0,
+   "band": 0.0,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P4",
+   "runs": [
+    0.4324,
+    0.4324,
+    0.4324
+   ],
+   "measured": 0.4324,
+   "spread": 0.0,
+   "jcm": 0.4324,
+   "jcm_spread": 0.0,
+   "delta": 0.0,
+   "band": 0.0216,
+   "meaningful": false,
+   "stable": true,
+   "note": "",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P5",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": null,
+   "jcm_spread": null,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "jcodemunch",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tokens_per_task",
+   "runs": [
+    880.9,
+    898.6,
+    880.9
+   ],
+   "measured": 880.9,
+   "spread": 17.700000000000045,
+   "jcm": 1655.9,
+   "jcm_spread": 0.0,
+   "delta": 0.532,
+   "band": 82.795,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "calls_per_task",
+   "runs": [
+    2.5,
+    2.5,
+    2.5
+   ],
+   "measured": 2.5,
+   "spread": 0.0,
+   "jcm": 3.4,
+   "jcm_spread": 0.0,
+   "delta": 0.7353,
+   "band": 0.17,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "latency_call_ms",
+   "runs": [
+    662.0,
+    608.0,
+    662.0
+   ],
+   "measured": 662.0,
+   "spread": 54.0,
+   "jcm": 49.27,
+   "jcm_spread": 1.7100000000000009,
+   "delta": 13.4362,
+   "band": 162.0,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "index_cold_seconds",
+   "runs": [
+    1.749,
+    1.704,
+    1.804
+   ],
+   "measured": 1.749,
+   "spread": 0.10000000000000009,
+   "jcm": 15.016470090999974,
+   "jcm_spread": 1.4407159130000053,
+   "delta": 0.1165,
+   "band": 4.3221,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tools_list_tokens",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": 23652,
+   "jcm_spread": 0,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P1",
+   "runs": [
+    0.2606,
+    0.2606,
+    0.2606
+   ],
+   "measured": 0.2606,
+   "spread": 0.0,
+   "jcm": 0.3333,
+   "jcm_spread": 0.0,
+   "delta": -0.0727,
+   "band": 0.0167,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P2",
+   "runs": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "measured": 1.0,
+   "spread": 0.0,
+   "jcm": 0.0,
+   "jcm_spread": 0.0,
+   "delta": 1.0,
+   "band": 0.0,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P4",
+   "runs": [
+    0.4737,
+    0.4737,
+    0.4737
+   ],
+   "measured": 0.4737,
+   "spread": 0.0,
+   "jcm": 0.4324,
+   "jcm_spread": 0.0,
+   "delta": 0.0413,
+   "band": 0.0216,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P5",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": null,
+   "jcm_spread": null,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "cymbal",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tokens_per_task",
+   "runs": [
+    1007.1,
+    1007.1,
+    980.6
+   ],
+   "measured": 1007.1,
+   "spread": 26.5,
+   "jcm": 1655.9,
+   "jcm_spread": 0.0,
+   "delta": 0.6082,
+   "band": 82.795,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "calls_per_task",
+   "runs": [
+    3.2,
+    3.2,
+    3.2
+   ],
+   "measured": 3.2,
+   "spread": 0.0,
+   "jcm": 3.4,
+   "jcm_spread": 0.0,
+   "delta": 0.9412,
+   "band": 0.17,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "latency_call_ms",
+   "runs": [
+    17.37,
+    18.0,
+    17.19
+   ],
+   "measured": 17.37,
+   "spread": 0.8099999999999987,
+   "jcm": 49.27,
+   "jcm_spread": 1.7100000000000009,
+   "delta": 0.3525,
+   "band": 5.13,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "index_cold_seconds",
+   "runs": [
+    6.17264,
+    5.55833,
+    6.19601
+   ],
+   "measured": 6.17264,
+   "spread": 0.6376800000000005,
+   "jcm": 15.016470090999974,
+   "jcm_spread": 1.4407159130000053,
+   "delta": 0.4111,
+   "band": 4.3221,
+   "meaningful": false,
+   "stable": false,
+   "note": "unstable: a spread exceeds 10% of its own median",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "tools_list_tokens",
+   "runs": [
+    4791,
+    4791,
+    4791
+   ],
+   "measured": 4791,
+   "spread": 0,
+   "jcm": 23652,
+   "jcm_spread": 0,
+   "delta": 0.2026,
+   "band": 1182.6,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P1",
+   "runs": [
+    0.6666666666666666,
+    0.6666666666666666,
+    0.6666666666666666
+   ],
+   "measured": 0.6666666666666666,
+   "spread": 0.0,
+   "jcm": 0.3333,
+   "jcm_spread": 0.0,
+   "delta": 0.3334,
+   "band": 0.0167,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P2",
+   "runs": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "measured": 1.0,
+   "spread": 0.0,
+   "jcm": 0.0,
+   "jcm_spread": 0.0,
+   "delta": 1.0,
+   "band": 0.0,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P4",
+   "runs": [
+    0.9825,
+    0.9825,
+    0.9825
+   ],
+   "measured": 0.9825,
+   "spread": 0.0,
+   "jcm": 0.4324,
+   "jcm_spread": 0.0,
+   "delta": 0.5501,
+   "band": 0.0216,
+   "meaningful": true,
+   "stable": true,
+   "note": "",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  },
+  {
+   "axis": "f1_P5",
+   "runs": [
+    null,
+    null,
+    null
+   ],
+   "measured": null,
+   "spread": null,
+   "jcm": null,
+   "jcm_spread": null,
+   "delta": null,
+   "band": null,
+   "meaningful": false,
+   "stable": null,
+   "note": "NOT COMPARABLE",
+   "tool": "codebase_memory",
+   "corpus": "self@d6e3d78e"
+  }
+ ],
+ "runs": [
+  {
+   "null_readall": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 1161455,
+      "calls_per_task": 277,
+      "latency_call_ms": 31.37,
+      "tools_list_tokens": null,
+      "f1_P1": 0.0,
+      "f1_P2": 0.0,
+      "f1_P4": 0.0005,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        30.09
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.27
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.05
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        30.92
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        30.91
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        33.1
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.69
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        33.13
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        30.96
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.87
+       ],
+       "cited": 0,
+       "f1": 0.0005,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "null_grep": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 118038.4,
+      "calls_per_task": 3.6,
+      "latency_call_ms": 1.18,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2299,
+      "f1_P2": 0.1818,
+      "f1_P4": 0.0,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 124437,
+       "calls": 4,
+       "latency_ms": [
+        116.57,
+        1.56,
+        0.41,
+        0.39
+       ],
+       "cited": 260,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 115047,
+       "calls": 4,
+       "latency_ms": [
+        83.61,
+        1.46,
+        0.33,
+        0.37
+       ],
+       "cited": 50,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 256027,
+       "calls": 4,
+       "latency_ms": [
+        100.44,
+        1.91,
+        1.68,
+        0.89
+       ],
+       "cited": 431,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 125240,
+       "calls": 4,
+       "latency_ms": [
+        100.88,
+        1.81,
+        0.48,
+        0.39
+       ],
+       "cited": 210,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 255106,
+       "calls": 4,
+       "latency_ms": [
+        110.4,
+        1.66,
+        1.84,
+        0.83
+       ],
+       "cited": 265,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        85.11,
+        0.29,
+        0.23,
+        0.31
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 43948,
+       "calls": 4,
+       "latency_ms": [
+        84.45,
+        0.14,
+        0.12,
+        0.42
+       ],
+       "cited": 6,
+       "f1": 0.2857,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 114297,
+       "calls": 3,
+       "latency_ms": [
+        84.65,
+        0.13,
+        1.48
+       ],
+       "cited": 8,
+       "f1": 0.2222,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        88.18,
+        0.3,
+        0.32,
+        0.45
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 0,
+       "calls": 1,
+       "latency_ms": [
+        84.1
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "jcodemunch": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 16.425019043999995,
+      "index_ok": true,
+      "files_indexed": 275,
+      "tokens_per_task": 1655.9,
+      "calls_per_task": 3.4,
+      "latency_call_ms": 49.27,
+      "tools_list_tokens": 23652,
+      "f1_P1": 0.3333,
+      "f1_P2": 0.0,
+      "f1_P4": 0.4324,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1857,
+       "calls": 4,
+       "latency_ms": [
+        669.35,
+        49.22,
+        62.49,
+        44.85
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1629,
+       "calls": 4,
+       "latency_ms": [
+        38.0,
+        65.87,
+        52.74,
+        50.81
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1481,
+       "calls": 4,
+       "latency_ms": [
+        63.1,
+        44.39,
+        44.22,
+        49.32
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 2279,
+       "calls": 4,
+       "latency_ms": [
+        41.19,
+        49.69,
+        55.5,
+        44.95
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1346,
+       "calls": 4,
+       "latency_ms": [
+        45.27,
+        109.49,
+        44.45,
+        47.47
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1877,
+       "calls": 4,
+       "latency_ms": [
+        55.89,
+        45.05,
+        104.09,
+        56.54
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 2399,
+       "calls": 4,
+       "latency_ms": [
+        46.46,
+        48.26,
+        80.16,
+        42.16
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 3258,
+       "calls": 4,
+       "latency_ms": [
+        35.96,
+        51.49,
+        41.36,
+        50.41
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 68,
+       "calls": 1,
+       "latency_ms": [
+        12.41
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 365,
+       "calls": 1,
+       "latency_ms": [
+        156.35
+       ],
+       "cited": 8,
+       "f1": 0.4324,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "cymbal": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 1.749,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 880.9,
+      "calls_per_task": 2.5,
+      "latency_call_ms": 662.0,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2606,
+      "f1_P2": 1.0,
+      "f1_P4": 0.4737,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2570,
+       "calls": 4,
+       "latency_ms": [
+        765.0,
+        623.0,
+        626.0,
+        634.0
+       ],
+       "cited": 25,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1021,
+       "calls": 4,
+       "latency_ms": [
+        664.0,
+        709.0,
+        636.0,
+        672.0
+       ],
+       "cited": 4,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 877,
+       "calls": 4,
+       "latency_ms": [
+        659.0,
+        661.0,
+        621.0,
+        684.0
+       ],
+       "cited": 8,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 952,
+       "calls": 4,
+       "latency_ms": [
+        866.0,
+        683.0,
+        672.0,
+        649.0
+       ],
+       "cited": 19,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1396,
+       "calls": 4,
+       "latency_ms": [
+        662.0,
+        633.0,
+        680.0,
+        616.0
+       ],
+       "cited": 22,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 278,
+       "calls": 1,
+       "latency_ms": [
+        697.0
+       ],
+       "cited": 4,
+       "f1": 0.4,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 500,
+       "calls": 1,
+       "latency_ms": [
+        684.0
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 832,
+       "calls": 1,
+       "latency_ms": [
+        619.0
+       ],
+       "cited": 9,
+       "f1": 0.2,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 65,
+       "calls": 1,
+       "latency_ms": [
+        553.0
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 318,
+       "calls": 1,
+       "latency_ms": [
+        675.0
+       ],
+       "cited": 9,
+       "f1": 0.4737,
+       "error": null
+      }
+     ],
+     "index_error": "Indexing /corpus ...\nDone in 1.719s \u2014 277 indexed, 3012 symbols, 0 unchanged\n"
+    }
+   },
+   "codebase_memory": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 6.17264,
+      "index_ok": true,
+      "files_indexed": null,
+      "tokens_per_task": 1007.1,
+      "calls_per_task": 3.2,
+      "latency_call_ms": 17.37,
+      "tools_list_tokens": 4791,
+      "f1_P1": 0.6666666666666666,
+      "f1_P2": 1.0,
+      "f1_P4": 0.9825,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2313,
+       "calls": 4,
+       "latency_ms": [
+        13.73,
+        20.4,
+        20.45,
+        17.64
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1098,
+       "calls": 4,
+       "latency_ms": [
+        13.22,
+        26.82,
+        19.68,
+        19.77
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 716,
+       "calls": 4,
+       "latency_ms": [
+        13.14,
+        22.04,
+        18.55,
+        17.1
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1540,
+       "calls": 4,
+       "latency_ms": [
+        13.26,
+        18.28,
+        20.03,
+        20.55
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1695,
+       "calls": 4,
+       "latency_ms": [
+        13.39,
+        18.52,
+        17.96,
+        18.44
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 989,
+       "calls": 4,
+       "latency_ms": [
+        13.98,
+        17.69,
+        16.31,
+        16.54
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 327,
+       "calls": 2,
+       "latency_ms": [
+        13.36,
+        15.92
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 953,
+       "calls": 4,
+       "latency_ms": [
+        13.78,
+        15.18,
+        16.07,
+        16.14
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 58,
+       "calls": 1,
+       "latency_ms": [
+        12.06
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 382,
+       "calls": 1,
+       "latency_ms": [
+        40.86
+       ],
+       "cited": 28,
+       "f1": 0.9825,
+       "error": null
+      }
+     ],
+     "index_error": "projects ['corpus-src']; get_graph_schema 4403 chars (uncharged); /corpus: /corpus: path is too broad to index as one root; name a project directory below it"
+    }
+   }
+  },
+  {
+   "null_readall": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 1161455,
+      "calls_per_task": 277,
+      "latency_call_ms": 32.17,
+      "tools_list_tokens": null,
+      "f1_P1": 0.0,
+      "f1_P2": 0.0,
+      "f1_P4": 0.0005,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        40.25
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        34.61
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.27
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.74
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.91
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.31
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        33.06
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.03
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.75
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.08
+       ],
+       "cited": 0,
+       "f1": 0.0005,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "null_grep": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 118038.4,
+      "calls_per_task": 3.6,
+      "latency_call_ms": 1.23,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2299,
+      "f1_P2": 0.1818,
+      "f1_P4": 0.0,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 124437,
+       "calls": 4,
+       "latency_ms": [
+        121.55,
+        1.63,
+        0.39,
+        0.37
+       ],
+       "cited": 260,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 115047,
+       "calls": 4,
+       "latency_ms": [
+        87.52,
+        1.53,
+        0.33,
+        0.34
+       ],
+       "cited": 50,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 256027,
+       "calls": 4,
+       "latency_ms": [
+        102.16,
+        1.69,
+        1.89,
+        0.92
+       ],
+       "cited": 431,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 125240,
+       "calls": 4,
+       "latency_ms": [
+        107.08,
+        1.59,
+        0.38,
+        0.37
+       ],
+       "cited": 210,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 255106,
+       "calls": 4,
+       "latency_ms": [
+        102.64,
+        1.68,
+        1.73,
+        0.84
+       ],
+       "cited": 265,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        88.02,
+        0.43,
+        0.27,
+        0.2
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 43948,
+       "calls": 4,
+       "latency_ms": [
+        86.46,
+        0.2,
+        0.14,
+        0.27
+       ],
+       "cited": 6,
+       "f1": 0.2857,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 114297,
+       "calls": 3,
+       "latency_ms": [
+        88.87,
+        0.11,
+        1.63
+       ],
+       "cited": 8,
+       "f1": 0.2222,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        91.13,
+        0.41,
+        0.33,
+        0.44
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 0,
+       "calls": 1,
+       "latency_ms": [
+        93.72
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "jcodemunch": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 14.98430313099999,
+      "index_ok": true,
+      "files_indexed": 275,
+      "tokens_per_task": 1655.9,
+      "calls_per_task": 3.4,
+      "latency_call_ms": 47.97,
+      "tools_list_tokens": 23652,
+      "f1_P1": 0.3333,
+      "f1_P2": 0.0,
+      "f1_P4": 0.4324,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1857,
+       "calls": 4,
+       "latency_ms": [
+        661.64,
+        49.09,
+        66.21,
+        50.11
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1629,
+       "calls": 4,
+       "latency_ms": [
+        41.32,
+        66.36,
+        43.93,
+        49.13
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1481,
+       "calls": 4,
+       "latency_ms": [
+        91.51,
+        42.5,
+        42.3,
+        51.03
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 2279,
+       "calls": 4,
+       "latency_ms": [
+        61.91,
+        51.88,
+        69.26,
+        51.52
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1346,
+       "calls": 4,
+       "latency_ms": [
+        40.84,
+        68.22,
+        44.66,
+        42.82
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1877,
+       "calls": 4,
+       "latency_ms": [
+        47.65,
+        39.16,
+        40.37,
+        56.46
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 2399,
+       "calls": 4,
+       "latency_ms": [
+        43.09,
+        42.38,
+        69.17,
+        39.94
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 3258,
+       "calls": 4,
+       "latency_ms": [
+        30.48,
+        48.28,
+        38.97,
+        42.69
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 68,
+       "calls": 1,
+       "latency_ms": [
+        11.89
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 365,
+       "calls": 1,
+       "latency_ms": [
+        156.65
+       ],
+       "cited": 8,
+       "f1": 0.4324,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "cymbal": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 1.704,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 898.6,
+      "calls_per_task": 2.5,
+      "latency_call_ms": 608.0,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2606,
+      "f1_P2": 1.0,
+      "f1_P4": 0.4737,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2570,
+       "calls": 4,
+       "latency_ms": [
+        840.0,
+        696.0,
+        829.0,
+        634.0
+       ],
+       "cited": 25,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1198,
+       "calls": 4,
+       "latency_ms": [
+        596.0,
+        588.0,
+        579.0,
+        650.0
+       ],
+       "cited": 4,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 877,
+       "calls": 4,
+       "latency_ms": [
+        735.0,
+        591.0,
+        638.0,
+        579.0
+       ],
+       "cited": 8,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 952,
+       "calls": 4,
+       "latency_ms": [
+        601.0,
+        563.0,
+        551.0,
+        608.0
+       ],
+       "cited": 19,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1396,
+       "calls": 4,
+       "latency_ms": [
+        586.0,
+        581.0,
+        665.0,
+        581.0
+       ],
+       "cited": 22,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 278,
+       "calls": 1,
+       "latency_ms": [
+        639.0
+       ],
+       "cited": 4,
+       "f1": 0.4,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 500,
+       "calls": 1,
+       "latency_ms": [
+        578.0
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 832,
+       "calls": 1,
+       "latency_ms": [
+        609.0
+       ],
+       "cited": 9,
+       "f1": 0.2,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 65,
+       "calls": 1,
+       "latency_ms": [
+        715.0
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 318,
+       "calls": 1,
+       "latency_ms": [
+        1462.0
+       ],
+       "cited": 9,
+       "f1": 0.4737,
+       "error": null
+      }
+     ],
+     "index_error": "Indexing /corpus ...\nDone in 1.695s \u2014 277 indexed, 3012 symbols, 0 unchanged\n"
+    }
+   },
+   "codebase_memory": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 5.55833,
+      "index_ok": true,
+      "files_indexed": null,
+      "tokens_per_task": 1007.1,
+      "calls_per_task": 3.2,
+      "latency_call_ms": 18.0,
+      "tools_list_tokens": 4791,
+      "f1_P1": 0.6666666666666666,
+      "f1_P2": 1.0,
+      "f1_P4": 0.9825,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2313,
+       "calls": 4,
+       "latency_ms": [
+        13.51,
+        20.3,
+        19.96,
+        17.65
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1098,
+       "calls": 4,
+       "latency_ms": [
+        13.24,
+        24.01,
+        21.29,
+        18.1
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 716,
+       "calls": 4,
+       "latency_ms": [
+        13.19,
+        21.5,
+        19.95,
+        18.28
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1540,
+       "calls": 4,
+       "latency_ms": [
+        13.38,
+        17.9,
+        18.88,
+        18.61
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1695,
+       "calls": 4,
+       "latency_ms": [
+        13.65,
+        21.0,
+        19.95,
+        18.51
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 989,
+       "calls": 4,
+       "latency_ms": [
+        13.46,
+        18.71,
+        17.7,
+        18.19
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 327,
+       "calls": 2,
+       "latency_ms": [
+        13.1,
+        16.73
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 953,
+       "calls": 4,
+       "latency_ms": [
+        13.27,
+        15.94,
+        16.54,
+        16.53
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 58,
+       "calls": 1,
+       "latency_ms": [
+        11.6
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 382,
+       "calls": 1,
+       "latency_ms": [
+        42.62
+       ],
+       "cited": 28,
+       "f1": 0.9825,
+       "error": null
+      }
+     ],
+     "index_error": "projects ['corpus-src']; get_graph_schema 4403 chars (uncharged); /corpus: /corpus: path is too broad to index as one root; name a project directory below it"
+    }
+   }
+  },
+  {
+   "null_readall": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 1161455,
+      "calls_per_task": 277,
+      "latency_call_ms": 34.11,
+      "tools_list_tokens": null,
+      "f1_P1": 0.0,
+      "f1_P2": 0.0,
+      "f1_P4": 0.0005,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        38.04
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        34.79
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        34.62
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        34.0
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        35.93
+       ],
+       "cited": 0,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        34.22
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.35
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        33.81
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        32.64
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 1161455,
+       "calls": 277,
+       "latency_ms": [
+        31.45
+       ],
+       "cited": 0,
+       "f1": 0.0005,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "null_grep": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": null,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 118038.4,
+      "calls_per_task": 3.6,
+      "latency_call_ms": 1.22,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2299,
+      "f1_P2": 0.1818,
+      "f1_P4": 0.0,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 124437,
+       "calls": 4,
+       "latency_ms": [
+        121.73,
+        1.55,
+        0.39,
+        0.43
+       ],
+       "cited": 260,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 115047,
+       "calls": 4,
+       "latency_ms": [
+        89.71,
+        1.66,
+        0.39,
+        0.39
+       ],
+       "cited": 50,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 256027,
+       "calls": 4,
+       "latency_ms": [
+        105.42,
+        1.47,
+        1.59,
+        0.89
+       ],
+       "cited": 431,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 125240,
+       "calls": 4,
+       "latency_ms": [
+        104.27,
+        1.72,
+        0.37,
+        0.36
+       ],
+       "cited": 210,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 255106,
+       "calls": 4,
+       "latency_ms": [
+        105.99,
+        1.79,
+        1.84,
+        0.97
+       ],
+       "cited": 265,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        114.89,
+        0.75,
+        0.52,
+        0.32
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 43948,
+       "calls": 4,
+       "latency_ms": [
+        85.89,
+        0.15,
+        0.11,
+        0.47
+       ],
+       "cited": 6,
+       "f1": 0.2857,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 114297,
+       "calls": 3,
+       "latency_ms": [
+        85.29,
+        0.11,
+        1.5
+       ],
+       "cited": 8,
+       "f1": 0.2222,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 73141,
+       "calls": 4,
+       "latency_ms": [
+        88.44,
+        0.3,
+        0.33,
+        0.26
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 0,
+       "calls": 1,
+       "latency_ms": [
+        87.34
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "jcodemunch": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 15.016470090999974,
+      "index_ok": true,
+      "files_indexed": 275,
+      "tokens_per_task": 1655.9,
+      "calls_per_task": 3.4,
+      "latency_call_ms": 49.68,
+      "tools_list_tokens": 23652,
+      "f1_P1": 0.3333,
+      "f1_P2": 0.0,
+      "f1_P4": 0.4324,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 1857,
+       "calls": 4,
+       "latency_ms": [
+        664.7,
+        49.82,
+        69.32,
+        51.43
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1629,
+       "calls": 4,
+       "latency_ms": [
+        45.52,
+        58.2,
+        49.26,
+        44.7
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 1481,
+       "calls": 4,
+       "latency_ms": [
+        88.84,
+        39.46,
+        54.75,
+        53.91
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 2279,
+       "calls": 4,
+       "latency_ms": [
+        45.58,
+        41.04,
+        65.97,
+        41.0
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1346,
+       "calls": 4,
+       "latency_ms": [
+        45.56,
+        60.19,
+        45.15,
+        48.39
+       ],
+       "cited": 5,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 1877,
+       "calls": 4,
+       "latency_ms": [
+        46.74,
+        46.65,
+        52.96,
+        49.54
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 2399,
+       "calls": 4,
+       "latency_ms": [
+        66.58,
+        106.56,
+        81.44,
+        68.48
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 3258,
+       "calls": 4,
+       "latency_ms": [
+        33.62,
+        55.44,
+        42.68,
+        40.18
+       ],
+       "cited": 5,
+       "f1": 0.3333,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 68,
+       "calls": 1,
+       "latency_ms": [
+        12.01
+       ],
+       "cited": 0,
+       "f1": 0.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 365,
+       "calls": 1,
+       "latency_ms": [
+        163.54
+       ],
+       "cited": 8,
+       "f1": 0.4324,
+       "error": null
+      }
+     ],
+     "index_error": ""
+    }
+   },
+   "cymbal": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 1.804,
+      "index_ok": true,
+      "files_indexed": 277,
+      "tokens_per_task": 880.9,
+      "calls_per_task": 2.5,
+      "latency_call_ms": 662.0,
+      "tools_list_tokens": null,
+      "f1_P1": 0.2606,
+      "f1_P2": 1.0,
+      "f1_P4": 0.4737,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2570,
+       "calls": 4,
+       "latency_ms": [
+        682.0,
+        563.0,
+        613.0,
+        564.0
+       ],
+       "cited": 25,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1021,
+       "calls": 4,
+       "latency_ms": [
+        608.0,
+        813.0,
+        790.0,
+        642.0
+       ],
+       "cited": 4,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 877,
+       "calls": 4,
+       "latency_ms": [
+        702.0,
+        601.0,
+        623.0,
+        588.0
+       ],
+       "cited": 8,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 952,
+       "calls": 4,
+       "latency_ms": [
+        642.0,
+        605.0,
+        760.0,
+        679.0
+       ],
+       "cited": 19,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1396,
+       "calls": 4,
+       "latency_ms": [
+        682.0,
+        627.0,
+        662.0,
+        593.0
+       ],
+       "cited": 22,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 278,
+       "calls": 1,
+       "latency_ms": [
+        732.0
+       ],
+       "cited": 4,
+       "f1": 0.4,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 500,
+       "calls": 1,
+       "latency_ms": [
+        692.0
+       ],
+       "cited": 10,
+       "f1": 0.1818,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 832,
+       "calls": 1,
+       "latency_ms": [
+        683.0
+       ],
+       "cited": 9,
+       "f1": 0.2,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 65,
+       "calls": 1,
+       "latency_ms": [
+        713.0
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 318,
+       "calls": 1,
+       "latency_ms": [
+        695.0
+       ],
+       "cited": 9,
+       "f1": 0.4737,
+       "error": null
+      }
+     ],
+     "index_error": "Indexing /corpus ...\nDone in 1.795s \u2014 277 indexed, 3012 symbols, 0 unchanged\n"
+    }
+   },
+   "codebase_memory": {
+    "self@d6e3d78e": {
+     "axes": {
+      "index_cold_seconds": 6.19601,
+      "index_ok": true,
+      "files_indexed": null,
+      "tokens_per_task": 980.6,
+      "calls_per_task": 3.2,
+      "latency_call_ms": 17.19,
+      "tools_list_tokens": 4791,
+      "f1_P1": 0.6666666666666666,
+      "f1_P2": 1.0,
+      "f1_P4": 0.9825,
+      "f1_P5": null
+     },
+     "tasks": [
+      {
+       "task": "self-T-router",
+       "category": "T",
+       "tokens": 2313,
+       "calls": 4,
+       "latency_ms": [
+        13.73,
+        22.76,
+        19.26,
+        19.76
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-middleware",
+       "category": "T",
+       "tokens": 1098,
+       "calls": 4,
+       "latency_ms": [
+        12.84,
+        25.22,
+        20.4,
+        18.59
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-error",
+       "category": "T",
+       "tokens": 716,
+       "calls": 4,
+       "latency_ms": [
+        13.73,
+        26.51,
+        18.61,
+        17.39
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-request",
+       "category": "T",
+       "tokens": 1540,
+       "calls": 4,
+       "latency_ms": [
+        13.0,
+        16.96,
+        16.87,
+        18.52
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-T-context",
+       "category": "T",
+       "tokens": 1695,
+       "calls": 4,
+       "latency_ms": [
+        14.39,
+        19.11,
+        20.19,
+        19.32
+       ],
+       "cited": 3,
+       "f1": null,
+       "error": null
+      },
+      {
+       "task": "self-P1-cache_put",
+       "category": "P1",
+       "tokens": 724,
+       "calls": 4,
+       "latency_ms": [
+        13.25,
+        17.24,
+        17.14,
+        22.18
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P1-validate_path",
+       "category": "P1",
+       "tokens": 327,
+       "calls": 2,
+       "latency_ms": [
+        13.92,
+        16.64
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P1-ProgressReporter",
+       "category": "P1",
+       "tokens": 953,
+       "calls": 4,
+       "latency_ms": [
+        12.85,
+        16.78,
+        16.54,
+        16.4
+       ],
+       "cited": 3,
+       "f1": 0.5,
+       "error": null
+      },
+      {
+       "task": "self-P2-cache_put",
+       "category": "P2",
+       "tokens": 58,
+       "calls": 1,
+       "latency_ms": [
+        11.65
+       ],
+       "cited": 1,
+       "f1": 1.0,
+       "error": null
+      },
+      {
+       "task": "self-P4-token_tracker",
+       "category": "P4",
+       "tokens": 382,
+       "calls": 1,
+       "latency_ms": [
+        42.1
+       ],
+       "cited": 28,
+       "f1": 0.9825,
+       "error": null
+      }
+     ],
+     "index_error": "projects ['corpus-src']; get_graph_schema 4403 chars (uncharged); /corpus: /corpus: path is too broad to index as one root; name a project directory below it"
+    }
+   }
+  }
+ ],
+ "capability_only": [],
+ "not_runnable": []
+}

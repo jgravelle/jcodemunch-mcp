@@ -216,7 +216,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
 def _scorer_sha256() -> str:
     """The code that scored this file (CF-9): run.py, score.py, adapter.py, every adapter."""
     h = hashlib.sha256()
-    for p in sorted([HERE / "run.py", HERE / "score.py", HERE / "adapter.py", *(HERE / "adapters").glob("*.py"), *(HERE / "sandbox").glob("*")]):
+    for p in sorted([HERE / "run.py", HERE / "score.py", HERE / "adapter.py", *(HERE / "adapters").glob("*.py"), *(x for x in (HERE / "sandbox").iterdir() if x.is_file())]):
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()
