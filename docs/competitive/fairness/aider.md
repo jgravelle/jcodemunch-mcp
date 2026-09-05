@@ -64,7 +64,8 @@ cache".
 ## What we configured and why
 
 - **Install**: `pip install --require-hashes` from a lockfile that pins
-  `aider-chat==0.86.2` and its 108 dependencies by version and sha256
+  `aider-chat==0.86.2` and its 107 dependencies by version and sha256
+  (108 pinned lines, the package included)
   (compiled with `uv pip compile --generate-hashes` for linux / Python
   3.12 on 2026-09-05), in a `python:3.12-slim-bookworm` image pinned by
   digest, because the package declares `<3.13` and the docs' install
@@ -177,12 +178,14 @@ is re-run on the corrected corpus before the recorded run):
   corpus, 4,178 at the 2048 budget. Three invocations at identical
   settings gave three sizes; the recorded row's spread will say how wide
   that is.
-- The announce block ahead of the preface: 257 to 260 tokens per run,
-  not charged (see "Payload"); it holds the two price-table fetch
-  failures the sandbox causes and, in the first probe, two git-identity
-  hints.
+- The announce block ahead of the preface (fixture, harness tokenizer):
+  257 tokens on the cold run and 215 on each warm run, not charged (see
+  "Payload"); it holds the two price-table fetch failures the sandbox
+  causes, and on the cold run only, two git-identity hints.
 - What the tool writes beside the project copy: `.aider.tags.cache.v4/`
   (1.2 MB, `cache.db`) and `.aider.chat.history.md` (131 KB, written even
   on the `--show-repo-map` path). Both on the tmpfs copy; the read-only
   mount is untouched.
-- Its stderr per run: "Warning: Input is not a terminal (fd=0)." only.
+- Its stderr: "Warning: Input is not a terminal (fd=0)." on every run,
+  plus the "Scanning repo: N%" progress lines on the cold run (the tags
+  scan; the warm runs read the cache and print none).
