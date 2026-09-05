@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier's sandbox and its first competitor row: cymbal 0.14.0
+
+Every measured tool, jCodeMunch included, now runs inside a container the
+tier builds from a pinned Dockerfile (base image by digest, the tool by
+release checksum) and runs with the network removed, a read-only root, no
+capabilities, an unprivileged user and memory and pid ceilings
+(`benchmarks/competitive/sandbox.py`; `tests/test_competitive_sandbox.py`
+pins every flag and that no host variable reaches the tool). jCodeMunch's
+own row moved into the same shape (`sandbox/jcodemunch.Dockerfile`, built
+from what a commit of the working tree would contain, with one worker file
+run identically on the host when there is no Docker), so the sandbox's
+cost is paid on every row and a result file says which sandbox, whether
+the tree was dirty and which scorer wrote it. cymbal is driven per its
+README's agent policy (`investigate`, `search` then `show` on the top 3,
+`refs`, `importers`), with its default output as the payload and an
+uncharged `--json` twin for citations; `docs/competitive/fairness/cymbal.md`
+was written before its first number.
+
+The first three-run result with a competitor on the table found two
+things against us on the self corpus, both recorded in
+`docs/competitive/FINDINGS.md` rather than softened: `find_references` at
+its shipped default returned no references for a symbol whose one caller
+sits in the same file, where cymbal returned exactly that line, which is
+the sverklo-bench P2 zero reproduced with our own methodology (CF-13); and
+cymbal used about half the tokens per task, its single `investigate` call
+against our search plus three sources (CF-16). Neither is an issue yet
+(findings-to-issues is Phase 3 item 5) and neither touches product source.
+A third finding is about the box, not the tool: our cold index costs 16.5 s
+in the container against 3.1 s on the host, which the Linux runner's three
+runs will attribute (CF-14).
+
 ### Added - the competitive tier: the null alternatives and jCodeMunch through one interface
 
 `benchmarks/competitive/` is the first piece of the competitive feedback

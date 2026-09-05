@@ -147,4 +147,5 @@ REGISTRY: dict[str, str] = {
     "null_readall": "adapters.null_readall:make",
     "null_grep": "adapters.null_grep:make",
     "jcodemunch": "adapters.jcodemunch:make",
+    "cymbal": "adapters.cymbal:make",
 }

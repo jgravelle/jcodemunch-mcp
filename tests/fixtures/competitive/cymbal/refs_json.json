@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+      "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+      "line": 1622,
+      "name": "cache_put",
+      "context": [
+        "    \"\"\"Store a tool result in the session LRU cache (max 256 entries).\"\"\"",
+        "    _state.cache_put(tool_name, repo, specific_key, result)",
+        ""
+      ]
+    }
+  ],
+  "version": "0.1"
+}

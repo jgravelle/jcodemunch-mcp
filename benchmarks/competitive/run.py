@@ -7,7 +7,10 @@ invokes:  adapters by name from adapter.REGISTRY; git for the commit; a
           scratch directory per run so every run is cold
 produces: results/<UTC date>-<commit>.json (schema jcm-competitive-result/v1)
           and results/latest.md; optionally results/history.jsonl (--record)
-refuses:  a task file that fails the answerability rule (a task whose
+refuses:  the `docker` sandbox when no Linux daemon answers (a competitor
+          never runs outside it, DESIGN D2; pass --sandbox none for the
+          nulls and jcodemunch alone); a task file that fails the
+          answerability rule (a task whose
           category no null adapter declares, or whose expected file is not
           in the corpus); an adapter that fails adapter.validate; recording
           history from a dirty tree
@@ -18,13 +21,14 @@ fairness: DESIGN s1: same file set (the jcodemunch index's source list,
 
 Usage:
   python benchmarks/competitive/run.py [--corpus ID=PATH ...] [--tasks FILE]
-      [--adapters a,b,c] [--runs 3] [--out-dir DIR] [--record]
+      [--adapters a,b,c] [--runs 3] [--out-dir DIR] [--record] [--sandbox docker|none]
   With no --corpus, the self corpus (this tree's src/) is copied to scratch.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
@@ -43,6 +47,7 @@ sys.path.insert(0, str(HERE))
 
 from adapter import SCHEMA, Corpus, Task, corpus_digest, read_file, validate  # noqa: E402
 from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
+import sandbox  # noqa: E402
 
 DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
 CATEGORY_F1 = {"P1": "f1_P1", "P2": "f1_P2", "P4": "f1_P4", "P5": "f1_P5"}
@@ -52,12 +57,16 @@ def _git(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=REPO, text=True, encoding="utf-8", errors="replace").strip()
 
 
-def load_adapter(name: str):
+def load_adapter(name: str, sandbox_mode: str = "docker"):
     from adapter import REGISTRY
 
     spec = REGISTRY[name]
     mod, fn = spec.split(":")
-    return validate(getattr(importlib.import_module(mod), fn)())
+    factory = getattr(importlib.import_module(mod), fn)
+    try:
+        return validate(factory(sandbox_mode))
+    except TypeError:
+        return validate(factory())  # the nulls take no mode
 
 
 def load_tasks(path: Path) -> list[Task]:
@@ -93,6 +102,15 @@ def discover_files(corpus_path: Path, scratch: Path) -> tuple[str, ...]:
     if proc.returncode != 0 or line is None:
         raise SystemExit(f"discovery failed for {corpus_path}:\n{proc.stdout[-1500:]}\n{proc.stderr[-1500:]}")
     return tuple(json.loads(line[6:]))
+
+
+def _git_init(root: Path) -> None:
+    """A corpus is a git repository: the pinned ones are checkouts, and a tool
+    that keys its index by git root (cymbal) answers nothing otherwise (CF-10)."""
+    if (root / ".git").exists():
+        return
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.email=compete@local", "-c", "user.name=compete", "commit", "-q", "-m", "corpus"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 
 
 def build_corpus(cid: str, path: Path, scratch: Path) -> Corpus:
@@ -168,6 +186,15 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
     return out
 
 
+def _scorer_sha256() -> str:
+    """The code that scored this file (CF-9): run.py, score.py, adapter.py, every adapter."""
+    h = hashlib.sha256()
+    for p in sorted([HERE / "run.py", HERE / "score.py", HERE / "adapter.py", *(HERE / "adapters").glob("*.py"), *(HERE / "sandbox").glob("*")]):
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()
+
+
 def _warm_median(xs: list[float]):
     return round(statistics.median(xs), 2) if xs else None
 
@@ -193,7 +220,9 @@ def render_md(result: dict) -> str:
     lines.append("")
     lines.append("Corpora: " + "; ".join(f"`{c['id']}` {c['files']} files, sha256 `{c['sha256'][:12]}`" for c in h["corpora"]))
     lines.append("")
-    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']})" for p in h["pins"]))
+    lines.append(f"Sandbox: `{h.get('sandbox')}`" + (" (nulls and jcodemunch on the host; no competitor row can appear in a `none` run)" if h.get("sandbox") == "none" else " (every row in the D2 container: --network none, read-only rootfs, no capabilities, uid 65534, 8g, 512 pids)") + f"; tree dirty: {h.get('tree_dirty')}; scorer sha256 `{str(h.get('scorer_sha256'))[:12]}`")
+    lines.append("")
+    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']}" + (f", image `{p['image_digest'][7:19]}`" if p.get('image_digest') else "") + ")" for p in h["pins"]))
     lines.append("")
     tools = [p["name"] for p in h["pins"]]
     corpora = [c["id"] for c in h["corpora"]]
@@ -254,20 +283,26 @@ def main(argv=None) -> int:
     ap.add_argument("--out-dir", default=str(HERE / "results"))
     ap.add_argument("--record", action="store_true", help="append to history.jsonl (clean tree only)")
     ap.add_argument("--keep-scratch", action="store_true")
+    ap.add_argument("--sandbox", choices=("docker", "none"), default="docker",
+                    help="docker: every row in the D2 container (default); none: nulls and jcodemunch on the host, labelled")
     a = ap.parse_args(argv)
 
     if a.record and _git("status", "--porcelain"):
         print("refused: --record on a dirty tree", file=sys.stderr)
         return 2
 
+    if a.sandbox == "docker" and not sandbox.docker_available():
+        print("refused: --sandbox docker but no Linux Docker daemon answers; --sandbox none runs the nulls and jcodemunch on the host, labelled", file=sys.stderr)
+        return 4
     scratch = Path(tempfile.mkdtemp(prefix="jcm-compete-"))
     try:
-        adapters = [load_adapter(n.strip()) for n in a.adapters.split(",") if n.strip()]
+        adapters = [load_adapter(n.strip(), a.sandbox) for n in a.adapters.split(",") if n.strip()]
         commit = _git("rev-parse", "--short", "HEAD")
         corpora: dict[str, Corpus] = {}
         if not a.corpus:
             src = scratch / "self" / "src"
             shutil.copytree(REPO / "src", src)
+            _git_init(src.parent)
             corpora[f"self@{commit}"] = build_corpus(f"self@{commit}", src.parent, scratch / "discover-self")
         for spec in a.corpus:
             cid, _, p = spec.partition("=")
@@ -309,8 +344,12 @@ def main(argv=None) -> int:
             "runner": {"os": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
                        "ci": bool(os.environ.get("GITHUB_ACTIONS"))},
             "corpora": [{"id": c.id, "files": len(c.files), "sha256": c.sha256} for c in corpora.values()],
-            "tasks_sha256": __import__("hashlib").sha256(Path(a.tasks).read_bytes()).hexdigest(),
-            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface} for x in adapters],
+            "tasks_sha256": hashlib.sha256(Path(a.tasks).read_bytes()).hexdigest(),
+            "sandbox": a.sandbox,
+            "tree_dirty": bool(_git("status", "--porcelain")),
+            "scorer_sha256": _scorer_sha256(),
+            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface,
+                      "image_digest": (x.image().digest if hasattr(x, "image") and getattr(x, "_image", None) is not None else None)} for x in adapters],
         }
         result = {"header": header, "rows": aggregate(runs, adapters, corpora), "runs": runs,
                   "capability_only": capability_only, "not_runnable": []}

@@ -6,94 +6,60 @@ purpose:  our own row, driven the way our docs say (ARCHAEOLOGY R27, R28):
           shipped defaults (context providers ON, as index_folder ships them;
           the self-latency harness turns them off and this adapter does not),
           AI summaries off (R28), no config file
-invokes:  a FRESH SUBPROCESS per run that indexes the corpus into a scratch
-          CODE_INDEX_PATH and answers every task (a cold index in-process
-          is not cold: the IndexStore LRU keeps the previous .db open,
-          benchmarks/self_latency/measure.py); `python -m jcodemunch_mcp`'s
-          tool functions from the working tree under PYTHONPATH=src
+invokes:  sandbox/jcm_worker.py, ONE code path in two places: inside the
+          container built from sandbox/jcodemunch.Dockerfile (the D2 shape
+          every competitor runs in) when the sandbox is `docker`, or in a
+          fresh host subprocess under PYTHONPATH=src when it is `none`
+          (tests, a box without Docker). Either way a run is cold: a new
+          store per run. The image's build context is `git ls-files
+          --cached --others --exclude-standard`, i.e. what a commit would
+          contain, so a dirty tree builds too and is stamped `tree_dirty`
+          in the result header (CF-9)
 produces: IndexReport (cold index wall seconds) and one Answer per task
           whose payload is the serialised JSON of every tool response, the
-          shape an agent receives (R15, R17: _meta kept)
+          shape an agent receives (R15, R17: _meta kept); tools_list_tokens
+          measured LIVE from server._build_tools_list in the worker (CF-6)
 refuses:  a corpus the index step did not index completely; a task category
           outside its set
-pinned:   registry "tree", the working tree's commit (the tier measures
-          the checkout, like every bench-tier harness)
-fairness: DESIGN s1.4. ⚠ Runs in-process on the runner in this PR, not in
-          the D2 container: docs/competitive/FINDINGS.md CF-3.
+pinned:   registry "tree", HEAD's commit
+fairness: DESIGN s1.4; the same sandbox flags as every competitor when the
+          sandbox is `docker`; a `none` run is labelled in the result header
+          and a competitor adapter refuses that mode, so the two never share
+          a file.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from adapter import Answer, Corpus, IndexReport, Pin, Task, count_tokens
+import sandbox
 
 REPO = Path(__file__).resolve().parents[3]
-SEARCH_MAX_RESULTS = 5
-SYMBOLS_FETCHED = 3
+WORKER = REPO / "benchmarks" / "competitive" / "sandbox" / "jcm_worker.py"
+TAG_PREFIX = "jcm-compete/jcodemunch:"
 
-_WORKER = r'''
-import json, sys, time
-from jcodemunch_mcp.tools.index_folder import index_folder
-corpus, store, tasks_json = sys.argv[1], sys.argv[2], sys.argv[3]
-tasks = json.loads(open(tasks_json, encoding="utf-8").read())
-t = time.perf_counter()
-r = index_folder(path=corpus, use_ai_summaries=False, storage_path=store)
-idx = {"secs": time.perf_counter() - t, "repo": r.get("repo"), "success": r.get("success"),
-       "file_count": r.get("file_count"), "symbol_count": r.get("symbol_count"), "error": r.get("error")}
-out = {"index": idx, "answers": {}}
-if idx["success"] and idx["repo"]:
-    from jcodemunch_mcp.tools.search_symbols import search_symbols
-    from jcodemunch_mcp.tools.get_symbol import get_symbol_source
-    from jcodemunch_mcp.tools.find_references import find_references
-    from jcodemunch_mcp.tools.find_importers import find_importers
-    repo = idx["repo"]
-    def ser(o): return json.dumps(o, separators=(",", ":"), default=str)
-    for task in tasks:
-        cat, q = task["category"], task["query"]
-        payload, lat, cited, err = [], [], [], None
-        try:
-            if cat in ("P1", "T"):
-                t0 = time.perf_counter()
-                s = search_symbols(repo=repo, query=q, max_results=%(k)d, detail_level="standard")
-                lat.append((time.perf_counter() - t0) * 1000); payload.append(ser(s))
-                rows = s.get("results") or s.get("symbols") or []
-                for row in rows:
-                    f, ln = row.get("file") or row.get("file_path"), row.get("line") or row.get("start_line")
-                    if f and ln: cited.append([f, int(ln)])
-                ids = [x.get("id") or x.get("symbol_id") for x in rows if x.get("id") or x.get("symbol_id")][:%(n)d]
-                for sid in ids:
-                    t0 = time.perf_counter()
-                    g = get_symbol_source(repo=repo, symbol_id=sid)
-                    lat.append((time.perf_counter() - t0) * 1000); payload.append(ser(g))
-                    f, ln = g.get("file") or g.get("file_path"), g.get("start_line") or g.get("line")
-                    if f and ln: cited.append([f, int(ln)])
-            elif cat == "P2":
-                t0 = time.perf_counter()
-                s = find_references(repo=repo, identifier=q)
-                lat.append((time.perf_counter() - t0) * 1000); payload.append(ser(s))
-                for key in ("references", "results", "importers"):
-                    for row in (s.get(key) or []):
-                        f, ln = row.get("file") or row.get("file_path") or row.get("path"), row.get("line") or row.get("start_line") or 0
-                        if f: cited.append([f, int(ln or 0)])
-            elif cat == "P4":
-                t0 = time.perf_counter()
-                s = find_importers(repo=repo, file_path=q)
-                lat.append((time.perf_counter() - t0) * 1000); payload.append(ser(s))
-                for row in (s.get("importers") or s.get("results") or []):
-                    f = row.get("file") or row.get("file_path") or row.get("path") or (row if isinstance(row, str) else None)
-                    if f: cited.append([f, 0])
-            else:
-                err = "category not answered by this adapter"
-        except Exception as e:  # the row fails, not the run
-            err = f"{type(e).__name__}: {e}"
-        out["answers"][task["id"]] = {"payload": "".join(payload), "calls": len(lat), "latency_ms": lat, "cited": cited, "error": err}
-print("JCMCOMPETE " + json.dumps(out))
-'''
+
+def _build_context() -> Path:
+    """What a commit of the working tree would contain: tracked files plus
+    untracked-not-ignored ones. Never .venv, never .git, never state."""
+    ctx = Path(tempfile.mkdtemp(prefix="jcm-image-ctx-"))
+    files = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=REPO).decode("utf-8").split("\0")
+    for rel in files:
+        if not rel or rel == ".dockerignore":  # the repo's own ignore file would prune benchmarks/ from the context
+            continue
+        src = REPO / rel
+        if src.is_file():
+            dst = ctx / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+    return ctx
 
 
 class JCodeMunch:
@@ -101,40 +67,51 @@ class JCodeMunch:
     interface = "python"
     categories = frozenset({"P1", "P2", "P4", "T"})
 
-    def __init__(self) -> None:
+    def __init__(self, sandbox_mode: str = "docker") -> None:
+        self.sandbox_mode = sandbox_mode
         commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, text=True, encoding="utf-8").strip()
         self.pin = Pin(registry="tree", package="jcodemunch-mcp", version=commit)
         self._cache: dict[tuple[str, str], dict] = {}
+        self._image = None
 
-    # The subprocess does index + every answer in one go, so `index` runs it
-    # and `answer` reads the cache; both are keyed by (corpus, scratch).
+    def image(self) -> sandbox.BuildResult:
+        if self._image is None:
+            ctx = _build_context()
+            df = REPO / "benchmarks" / "competitive" / "sandbox" / "jcodemunch.Dockerfile"
+            try:
+                self._image = sandbox.build(TAG_PREFIX + self.pin.version, df, ctx, timeout=1800)
+            finally:
+                shutil.rmtree(ctx, ignore_errors=True)
+            self.pin = Pin(**{**self.pin.__dict__, "dockerfile_sha256": self._image.dockerfile_sha256})
+        return self._image
+
     def _run(self, corpus: Corpus, scratch: Path, tasks: list[Task]) -> dict:
         key = (corpus.id, str(scratch))
         if key in self._cache:
             return self._cache[key]
-        store = scratch / "jcm-store"
-        store.mkdir(parents=True, exist_ok=True)
-        tasks_json = scratch / "jcm-tasks.json"
-        tasks_json.write_text(json.dumps([{"id": t.id, "category": t.category, "query": t.query} for t in tasks]), encoding="utf-8")
-        env = dict(
-            os.environ,
-            CODE_INDEX_PATH=str(store),
-            PYTHONPATH=str(REPO / "src"),
-            JCODEMUNCH_TRUSTED_FOLDERS=str(corpus.path),
-            JCODEMUNCH_LIVE_JOURNAL="0",
-        )
-        code = _WORKER % {"k": SEARCH_MAX_RESULTS, "n": SYMBOLS_FETCHED}
-        proc = subprocess.run(
-            [sys.executable, "-c", code, str(corpus.path), str(store), str(tasks_json)],
-            env=env, text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=1200,
-        )
-        line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("JCMCOMPETE ")), None)
-        if proc.returncode != 0 or line is None:
-            out = {"index": {"secs": None, "success": False, "error": (proc.stderr or proc.stdout)[-2000:]}, "answers": {}}
+        out = scratch / "jcm-out"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "tasks.json").write_text(json.dumps([{"id": t.id, "category": t.category, "query": t.query} for t in tasks]), encoding="utf-8")
+        if self.sandbox_mode == "docker":
+            self.image()
+            res = sandbox.run(TAG_PREFIX + self.pin.version, ["/corpus", "/out/jcm-store", "/out/tasks.json", "/out/answers.json"],
+                              corpus.path, out, timeout=20 * 60)
+            rc, tail = res.rc, (res.stderr or res.stdout)[-2000:]
         else:
-            out = json.loads(line[len("JCMCOMPETE "):])
-        self._cache[key] = out
-        return out
+            store = out / "jcm-store"
+            store.mkdir(exist_ok=True)
+            env = dict(os.environ, CODE_INDEX_PATH=str(store), PYTHONPATH=str(REPO / "src"),
+                       JCODEMUNCH_TRUSTED_FOLDERS=str(corpus.path), JCODEMUNCH_LIVE_JOURNAL="0")
+            proc = subprocess.run([sys.executable, str(WORKER), str(corpus.path), str(store), str(out / "tasks.json"), str(out / "answers.json")],
+                                  env=env, text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=1200)
+            rc, tail = proc.returncode, (proc.stderr or proc.stdout)[-2000:]
+        ap = out / "answers.json"
+        if rc != 0 or not ap.exists():
+            result = {"index": {"secs": None, "success": False, "error": tail}, "answers": {}}
+        else:
+            result = json.loads(ap.read_text(encoding="utf-8"))
+        self._cache[key] = result
+        return result
 
     def prepare(self, corpus: Corpus, scratch: Path, tasks: list[Task]) -> None:
         self._run(corpus, scratch, tasks)
@@ -151,34 +128,22 @@ class JCodeMunch:
         a = (out.get("answers") or {}).get(task.id)
         if a is None:
             return Answer(payload="", tokens=0, calls=0, latency_ms=[], cited=frozenset(), error="no answer: index failed or task not run")
-        return Answer(
-            payload=a["payload"],
-            tokens=count_tokens(a["payload"]),
-            calls=a["calls"],
-            latency_ms=a["latency_ms"],
-            cited=frozenset((f, int(ln)) for f, ln in a["cited"]),
-            error=a.get("error"),
-        )
+        return Answer(payload=a["payload"], tokens=count_tokens(a["payload"]), calls=a["calls"], latency_ms=a["latency_ms"],
+                      cited=frozenset((f, int(ln)) for f, ln in a["cited"]), error=a.get("error"))
 
     def tools_list_tokens(self):
-        """The shipped default surface's `tools/list` weight, from the
-        committed baseline (never a hand-typed figure, R46/R50)."""
-        try:
-            base = json.loads((REPO / "benchmarks" / "schema_baseline.json").read_text(encoding="utf-8"))
-        except OSError:
-            return None
-        node = base.get("profiles") or base
-        for key in ("full_full", "full"):
-            v = node.get(key)
-            if isinstance(v, dict) and "tokens" in v:
-                return int(v["tokens"])
-            if isinstance(v, (int, float)):
-                return int(v)
+        """LIVE: the worker serialises server._build_tools_list() at the shipped
+        default surface; counted here with cl100k (the zhang-liz shape,
+        DESIGN s2). None until a run has happened."""
+        for out in self._cache.values():
+            tl = out.get("tools_list_json")
+            if tl:
+                return count_tokens(tl)
         return None
 
     def version(self) -> str:
         return self.pin.version
 
 
-def make() -> JCodeMunch:
-    return JCodeMunch()
+def make(sandbox_mode: str = "docker") -> JCodeMunch:
+    return JCodeMunch(sandbox_mode)

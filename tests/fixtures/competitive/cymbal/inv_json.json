@@ -1,0 +1,56 @@
+{
+  "results": {
+    "resolve_scope": "family",
+    "result": {
+      "symbol": {
+        "name": "cache_put",
+        "kind": "function",
+        "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+        "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+        "start_line": 369,
+        "end_line": 376,
+        "parent": "_State",
+        "depth": 1,
+        "signature": "(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None",
+        "language": "python"
+      },
+      "source": "    def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None:\n        \"\"\"Store result in LRU cache. Evicts oldest entry when full. Thread-safe.\"\"\"\n        with self._lock:\n            full_key = (tool_name, repo, specific_key)\n            self._result_cache[full_key] = _isolate(result)\n            self._result_cache.move_to_end(full_key)\n            if len(self._result_cache) \u003e _RESULT_CACHE_MAXSIZE:\n                self._result_cache.popitem(last=False)\n",
+      "investigate_kind": "function",
+      "refs": [
+        {
+          "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+          "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+          "line": 1622,
+          "name": "cache_put"
+        }
+      ],
+      "impact": [
+        {
+          "symbol": "cache_put",
+          "caller": "result_cache_put",
+          "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+          "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+          "line": 1622,
+          "depth": 1
+        },
+        {
+          "symbol": "result_cache_put",
+          "caller": "find_references",
+          "file": "/corpus/src/jcodemunch_mcp/tools/find_references.py",
+          "rel_path": "src/jcodemunch_mcp/tools/find_references.py",
+          "line": 474,
+          "depth": 2
+        },
+        {
+          "symbol": "result_cache_put",
+          "caller": "get_blast_radius",
+          "file": "/corpus/src/jcodemunch_mcp/tools/get_blast_radius.py",
+          "rel_path": "src/jcodemunch_mcp/tools/get_blast_radius.py",
+          "line": 711,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  "version": "0.1"
+}

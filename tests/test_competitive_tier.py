@@ -147,7 +147,7 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     tf.write_text(json.dumps(tasks), encoding="utf-8")
     out = tmp_path / "out"
     proc = subprocess.run(
-        [sys.executable, str(COMPETE / "run.py"), "--corpus", f"tiny@0={root}", "--tasks", str(tf), "--runs", "1", "--out-dir", str(out)],
+        [sys.executable, str(COMPETE / "run.py"), "--corpus", f"tiny@0={root}", "--tasks", str(tf), "--runs", "1", "--out-dir", str(out), "--sandbox", "none"],
         text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=580, cwd=REPO,
     )
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]

@@ -1,0 +1,24 @@
+---
+symbol: cache_put
+kind: function
+investigate: function
+file: src/jcodemunch_mcp/storage/token_tracker.py:369
+resolve_scope: family
+---
+# Source
+    def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
+        """Store result in LRU cache. Evicts oldest entry when full. Thread-safe."""
+        with self._lock:
+            full_key = (tool_name, repo, specific_key)
+            self._result_cache[full_key] = _isolate(result)
+            self._result_cache.move_to_end(full_key)
+            if len(self._result_cache) > _RESULT_CACHE_MAXSIZE:
+                self._result_cache.popitem(last=False)
+
+# Callers (1)
+src/jcodemunch_mcp/storage/token_tracker.py:1622: _state.cache_put(tool_name, repo, specific_key, result)
+
+# Impact (depth 2)
+  [1] result_cache_put → cache_put  src/jcodemunch_mcp/storage/token_tracker.py:1622
+  [2] find_references → result_cache_put  src/jcodemunch_mcp/tools/find_references.py:474
+  [2] get_blast_radius → result_cache_put  src/jcodemunch_mcp/tools/get_blast_radius.py:711

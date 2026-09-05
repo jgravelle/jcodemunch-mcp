@@ -1,0 +1,50 @@
+{
+  "results": [
+    {
+      "name": "cache_put",
+      "kind": "function",
+      "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+      "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+      "start_line": 369,
+      "end_line": 376,
+      "parent": "_State",
+      "depth": 1,
+      "signature": "(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None",
+      "language": "python"
+    },
+    {
+      "name": "_cache_put",
+      "kind": "function",
+      "file": "/corpus/src/jcodemunch_mcp/storage/sqlite_store.py",
+      "rel_path": "src/jcodemunch_mcp/storage/sqlite_store.py",
+      "start_line": 408,
+      "end_line": 417,
+      "depth": 0,
+      "signature": "(owner: str, name: str, mtime_ns: int, code_index: \"CodeIndex\", branch: str = \"\") -\u003e None",
+      "language": "python"
+    },
+    {
+      "name": "result_cache_put",
+      "kind": "function",
+      "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+      "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+      "start_line": 1620,
+      "end_line": 1622,
+      "depth": 0,
+      "signature": "(tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None",
+      "language": "python"
+    },
+    {
+      "name": "_result_cache_put",
+      "kind": "function",
+      "file": "/corpus/src/jcodemunch_mcp/tools/search_symbols.py",
+      "rel_path": "src/jcodemunch_mcp/tools/search_symbols.py",
+      "start_line": 146,
+      "end_line": 168,
+      "depth": 0,
+      "signature": "(key: tuple, value: dict, state: Optional[dict] = None) -\u003e None",
+      "language": "python"
+    }
+  ],
+  "version": "0.1"
+}

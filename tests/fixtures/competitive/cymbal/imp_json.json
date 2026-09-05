@@ -1,0 +1,68 @@
+{
+  "results": [
+    {
+      "file": "/corpus/src/jcodemunch_mcp/retrieval/tuning.py",
+      "rel_path": "src/jcodemunch_mcp/retrieval/tuning.py",
+      "import": "from ..storage import token_tracker as _tt",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/retrieval/regret.py",
+      "rel_path": "src/jcodemunch_mcp/retrieval/regret.py",
+      "import": "from ..storage import token_tracker as _tt",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/storage/__init__.py",
+      "rel_path": "src/jcodemunch_mcp/storage/__init__.py",
+      "import": "from .token_tracker import (\r\n    record_savings, get_total_saved, estimate_savings, cost_avoided, get_session_stats,\r\n    result_cache_get, result_cache_put, result_cache_invalidate, result_cache_stats,\r\n    result_cache_hit_validated,\r\n    write_pulse,\r\n)",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/tools/analyze_perf.py",
+      "rel_path": "src/jcodemunch_mcp/tools/analyze_perf.py",
+      "import": "from ..storage import token_tracker as _tt",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/tools/get_ranked_context.py",
+      "rel_path": "src/jcodemunch_mcp/tools/get_ranked_context.py",
+      "import": "from ..storage.token_tracker import record_ranking_event as _record_ranking_event",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/tools/plan_turn.py",
+      "rel_path": "src/jcodemunch_mcp/tools/plan_turn.py",
+      "import": "from ..storage.token_tracker import (\r\n            _DEFAULT_TOKENS_PER_CALL,\r\n            avg_response_tokens_per_call,\r\n            record_turn_estimate,\r\n        )",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/tools/search_columns.py",
+      "rel_path": "src/jcodemunch_mcp/tools/search_columns.py",
+      "import": "from ..storage.token_tracker import estimate_savings, record_savings, cost_avoided",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/tools/search_symbols.py",
+      "rel_path": "src/jcodemunch_mcp/tools/search_symbols.py",
+      "import": "from ..storage.token_tracker import record_ranking_event as _record_ranking_event",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    },
+    {
+      "file": "/corpus/src/jcodemunch_mcp/server.py",
+      "rel_path": "src/jcodemunch_mcp/server.py",
+      "import": "from .storage.token_tracker import record_response_text",
+      "depth": 1,
+      "parent": "src/jcodemunch_mcp/storage/token_tracker.py"
+    }
+  ],
+  "version": "0.1"
+}
