@@ -2,14 +2,14 @@
 
 ## [Unreleased]
 
-### Added - the second competitor row, codebase-memory-mcp 0.10.8, over MCP stdio
+### Added - the second competitor row, over MCP stdio (FINDINGS CF-19 to CF-22)
 
 `benchmarks/competitive/sandbox/mcp_driver.py` is a minimal MCP client
 that runs inside a competitor's container: initialize, `tools/list` (the
 schema weight every MCP server pays, counted in the shape the field's
 tool-definition benchmark uses), then each task's `tools/call`, every
-round trip timed. codebase-memory-mcp is driven through it the way its
-own `mcpServers` entry drives it, from the release's portable archive
+round trip timed. The tool is driven through it the way its own
+`mcpServers` entry drives it, from the release's portable archive
 verified against its published checksum (the PyPI wheel is a
 launcher that fetches the runtime on first run, a network step the sandbox
 forbids after build). The tool refuses a cache it does not own, so the
@@ -22,12 +22,12 @@ importers now, computed from source by AST (FINDINGS CF-19), because a
 truth only one definition satisfies grades the tool holding the other
 definition down. The three-run rows of this configuration, and the
 `competitive-gap` candidates they raise for item 5, are FINDINGS CF-19 to
-CF-22 beside the result file; the latency and cold-index rows of that run
+CF-22 beside the result file (`results/2026-09-05-73fbd7cf.json`); the latency and cold-index rows of that run
 were unstable under the 10% rule and are not claimed. None is an issue
 until item 5 exists and the pinned corpora agree; none touches product
 source.
 
-### Added - the competitive tier's sandbox and its first competitor row: cymbal 0.14.0
+### Added - the competitive tier's sandbox and its first competitor row (FINDINGS CF-12 to CF-18)
 
 Every measured tool, jCodeMunch included, now runs inside a container the
 tier builds from a pinned Dockerfile (base image by digest, the tool by
@@ -39,11 +39,11 @@ own row moved into the same shape (`sandbox/jcodemunch.Dockerfile`, built
 from what a commit of the working tree would contain, with one worker file
 run identically on the host when there is no Docker), so the sandbox's
 cost is paid on every row and a result file says which sandbox, whether
-the tree was dirty and which scorer wrote it. cymbal is driven per its
+the tree was dirty and which scorer wrote it. The tool is driven per its
 README's agent policy (`investigate`, `search` then `show` on the top 3,
 `refs`, `importers`), with its default output as the payload and an
-uncharged `--json` twin for citations; `docs/competitive/fairness/cymbal.md`
-was written before its first number.
+uncharged `--json` twin for citations; its fairness note under
+`docs/competitive/fairness/` was written before its first number.
 
 The first three-run result with a competitor on the table is recorded
 in `docs/competitive/FINDINGS.md` (CF-12 to CF-18) beside the result file
@@ -51,8 +51,7 @@ it came from. Those rows are one 277-file corpus, ten tasks and the
 loop's first week of methodology, not a product comparison, and each
 entry says what it is evidence of and what it is not. Review round 1
 corrected two places where the first draft favoured the home team (the
-shared file set, CF-5; the P4 ground truth, CF-18), which is the direction
-the loop is built to catch. A timed-out or failed competitor is a
+shared file set, CF-5; the P4 ground truth, CF-18). A timed-out or failed competitor is a
 `not_runnable` row now, never partial means; the jcodemunch image is
 two-stage with dependencies pinned from `uv.lock`; a `show` miss is
 charged what the agent sees, like every other miss.
@@ -65,8 +64,8 @@ jCodeMunch, read-all and grep-top-3 all implement, a runner that puts every
 row through the same corpus, the same tasks and the same tokenizer three
 times, and a result file that carries the raw triple, the median, the
 spread, the band and whether a gap is meaningful. The point of shipping the
-nulls first is that every later competitor row lands on a table that
-already shows what "no tool" costs on the same line. No competitor is
+nulls first is that every later competitor row is measured against a
+table that already shows what "no tool" costs on the same line. No competitor is
 measured yet; nothing here reads a README, and a result file has no field
 a self-reported figure could be typed into.
 
