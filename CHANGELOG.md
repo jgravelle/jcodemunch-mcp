@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Added - the competitive tier's sandbox and its first competitor row: cymbal 0.14.0
+### Added - the competitive tier's sandbox and its first competitor row (FINDINGS CF-12 to CF-18)
 
 Every measured tool, jCodeMunch included, now runs inside a container the
 tier builds from a pinned Dockerfile (base image by digest, the tool by
@@ -14,11 +14,11 @@ own row moved into the same shape (`sandbox/jcodemunch.Dockerfile`, built
 from what a commit of the working tree would contain, with one worker file
 run identically on the host when there is no Docker), so the sandbox's
 cost is paid on every row and a result file says which sandbox, whether
-the tree was dirty and which scorer wrote it. cymbal is driven per its
+the tree was dirty and which scorer wrote it. The tool is driven per its
 README's agent policy (`investigate`, `search` then `show` on the top 3,
 `refs`, `importers`), with its default output as the payload and an
-uncharged `--json` twin for citations; `docs/competitive/fairness/cymbal.md`
-was written before its first number.
+uncharged `--json` twin for citations; its fairness note under
+`docs/competitive/fairness/` was written before its first number.
 
 The first three-run result with a competitor on the table is recorded
 in `docs/competitive/FINDINGS.md` (CF-12 to CF-18) beside the result file
@@ -26,8 +26,7 @@ it came from. Those rows are one 277-file corpus, ten tasks and the
 loop's first week of methodology, not a product comparison, and each
 entry says what it is evidence of and what it is not. Review round 1
 corrected two places where the first draft favoured the home team (the
-shared file set, CF-5; the P4 ground truth, CF-18), which is the direction
-the loop is built to catch. A timed-out or failed competitor is a
+shared file set, CF-5; the P4 ground truth, CF-18). A timed-out or failed competitor is a
 `not_runnable` row now, never partial means; the jcodemunch image is
 two-stage with dependencies pinned from `uv.lock`; a `show` miss is
 charged what the agent sees, like every other miss.
@@ -40,8 +39,8 @@ jCodeMunch, read-all and grep-top-3 all implement, a runner that puts every
 row through the same corpus, the same tasks and the same tokenizer three
 times, and a result file that carries the raw triple, the median, the
 spread, the band and whether a gap is meaningful. The point of shipping the
-nulls first is that every later competitor row lands on a table that
-already shows what "no tool" costs on the same line. No competitor is
+nulls first is that every later competitor row is measured against a
+table that already shows what "no tool" costs on the same line. No competitor is
 measured yet; nothing here reads a README, and a result file has no field
 a self-reported figure could be typed into.
 
