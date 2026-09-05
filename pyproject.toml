@@ -128,6 +128,13 @@ exclude = [
     # questions. `scripts/unstable_modules_diag.py` DOES ship -- it diagnoses a
     # metric a user can see on their own repo.
     "scripts/repair-munch-installs.ps1",
+    # The competitive feedback loop (docs/competitive/DESIGN.md): fairness
+    # notes, result files and adapters that name the tools they measured.
+    # Tracked because the record must be reproducible; excluded because a
+    # PyPI consumer needs none of it and a shipped artifact names no
+    # competitor (the suite contract's framing rule 1).
+    "docs/competitive/",
+    "benchmarks/competitive/",
 ]
 
 [tool.pytest.ini_options]
