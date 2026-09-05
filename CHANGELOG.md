@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier: the null alternatives and jCodeMunch through one interface
+
+`benchmarks/competitive/` is the first piece of the competitive feedback
+loop (`docs/competitive/FIELD.md`, `DESIGN.md`): one adapter interface that
+jCodeMunch, read-all and grep-top-3 all implement, a runner that puts every
+row through the same corpus, the same tasks and the same tokenizer three
+times, and a result file that carries the raw triple, the median, the
+spread, the band and whether a gap is meaningful. The point of shipping the
+nulls first is that every later competitor row lands on a table that
+already shows what "no tool" costs on the same line. No competitor is
+measured yet; nothing here reads a README, and a result file has no field
+a self-reported figure could be typed into.
+
+The first three-run result on the self corpus caught the scoring rule
+mis-stated in DESIGN s5.1: the band was built from three times the larger
+of the two spreads and THEN each row was judged stable against it, so an
+unstable competitor triple (50, 100, 300) widened its own band to 750 and
+read as stable. Stability is judged first now, against the row's own
+median, and an unstable row is never a meaningful gap in either direction.
+`tests/test_competitive_tier.py` pins that pair, the F1 tolerance rule, the
+grep baseline's ranking and whole-file reads (ARCHAEOLOGY R24-R26), and the
+end-to-end result file.
+
 ### Added - the inbound layer: headless triage of issues and PRs, off by default
 
 `docs/inbound/` (AUDIT, POLICY, DESIGN, FINDINGS, VERIFICATION) and the

@@ -1,0 +1,14 @@
+{
+  "schema": "jcm-competitive-tasks/v1",
+  "note": "The proof-of-tier task set (DESIGN s4.1): the five published token queries as category T against this tree's src/ (self@HEAD is rewritten to the commit at run time), plus three P1 tasks whose expected span is a file only (line 0, tolerance wide) so the F1 path is exercised without pinning a line that moves every commit. Tasks with real line-level ground truth arrive with the pinned corpora (Phase 3 item 3).",
+  "tasks": [
+    {"id": "self-T-router", "corpus": "self@HEAD", "category": "T", "query": "router route handler", "source": "jcm-tasks.json"},
+    {"id": "self-T-middleware", "corpus": "self@HEAD", "category": "T", "query": "middleware", "source": "jcm-tasks.json"},
+    {"id": "self-T-error", "corpus": "self@HEAD", "category": "T", "query": "error exception", "source": "jcm-tasks.json"},
+    {"id": "self-T-request", "corpus": "self@HEAD", "category": "T", "query": "request response", "source": "jcm-tasks.json"},
+    {"id": "self-T-context", "corpus": "self@HEAD", "category": "T", "query": "context bind", "source": "jcm-tasks.json"},
+    {"id": "self-P1-cache_put", "corpus": "self@HEAD", "category": "P1", "query": "cache_put", "expected": [["src/jcodemunch_mcp/storage/token_tracker.py", 0]], "tolerance_lines": 100000, "source": "authored:claude:2026-09-05 (file-level; the function lives in token_tracker.py per CLAUDE.md Key Files)"},
+    {"id": "self-P1-validate_path", "corpus": "self@HEAD", "category": "P1", "query": "validate_path", "expected": [["src/jcodemunch_mcp/security.py", 0]], "tolerance_lines": 100000, "source": "authored:claude:2026-09-05 (file-level)"},
+    {"id": "self-P1-ProgressReporter", "corpus": "self@HEAD", "category": "P1", "query": "ProgressReporter", "expected": [["src/jcodemunch_mcp/progress.py", 0]], "tolerance_lines": 100000, "source": "authored:claude:2026-09-05 (file-level)"}
+  ]
+}

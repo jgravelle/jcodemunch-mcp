@@ -131,3 +131,5 @@ benchmarks/rust_fidelity/oracle/Cargo.lock
 # after `relnotes.md` did ship in 1.108.304. Write scratch outside the repo.
 *.log
 !docs/inbound/
+# The competitive feedback loop (2026-09-05): docs/competitive/DESIGN.md D7.
+!docs/competitive/

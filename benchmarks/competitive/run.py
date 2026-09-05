@@ -1,0 +1,330 @@
+"""The competitive tier runner (docs/competitive/DESIGN.md s5, s6).
+
+purpose:  run every adapter on every corpus over every task three times and
+          write the result file and the human summary; nothing here types a
+          number, quotes a README, or moves a Floor
+invokes:  adapters by name from adapter.REGISTRY; git for the commit; a
+          scratch directory per run so every run is cold
+produces: results/<UTC date>-<commit>.json (schema jcm-competitive-result/v1)
+          and results/latest.md; optionally results/history.jsonl (--record)
+refuses:  a task file that fails the answerability rule (a task whose
+          category no null adapter declares, or whose expected file is not
+          in the corpus); an adapter that fails adapter.validate; recording
+          history from a dirty tree
+pinned:   the working tree (jcodemunch) and each adapter's Pin
+fairness: DESIGN s1: same file set (the jcodemunch index's source list,
+          disclosed as the reader every row shares, R22/R34), same tasks,
+          same tokenizer. The null rows are on every table.
+
+Usage:
+  python benchmarks/competitive/run.py [--corpus ID=PATH ...] [--tasks FILE]
+      [--adapters a,b,c] [--runs 3] [--out-dir DIR] [--record]
+  With no --corpus, the self corpus (this tree's src/) is copied to scratch.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib
+import json
+import os
+import platform
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+
+from adapter import SCHEMA, Corpus, Task, corpus_digest, validate  # noqa: E402
+from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
+
+DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
+CATEGORY_F1 = {"P1": "f1_P1", "P2": "f1_P2", "P4": "f1_P4", "P5": "f1_P5"}
+
+
+def _git(*args: str) -> str:
+    return subprocess.check_output(["git", *args], cwd=REPO, text=True, encoding="utf-8", errors="replace").strip()
+
+
+def load_adapter(name: str):
+    from adapter import REGISTRY
+
+    spec = REGISTRY[name]
+    mod, fn = spec.split(":")
+    return validate(getattr(importlib.import_module(mod), fn)())
+
+
+def load_tasks(path: Path) -> list[Task]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    tasks = []
+    for r in raw["tasks"]:
+        tasks.append(Task(
+            id=r["id"], corpus=r["corpus"], category=r["category"], query=r["query"],
+            expected=tuple((f, int(ln)) for f, ln in r.get("expected", [])),
+            tolerance_lines=int(r.get("tolerance_lines", 0)), source=r.get("source", ""),
+            capability_only=bool(r.get("capability_only", False)),
+        ))
+    return tasks
+
+
+def discover_files(corpus_path: Path, scratch: Path) -> tuple[str, ...]:
+    """The shared file set: what jcodemunch's own discovery indexes, so the null
+    rows and ours read byte-identical files (R22, R34). Runs in a subprocess
+    so the discovery is cold and leaves nothing in this process."""
+    code = (
+        "import json,sys\n"
+        "from jcodemunch_mcp.tools.index_folder import index_folder\n"
+        "from jcodemunch_mcp.storage import IndexStore\n"
+        f"r=index_folder(path={str(corpus_path)!r}, use_ai_summaries=False, context_providers=False, storage_path={str(scratch / 'discover')!r})\n"
+        "assert r.get('success'), r\n"
+        f"idx=IndexStore(base_path={str(scratch / 'discover')!r}).load_index(*r['repo'].split('/',1))\n"
+        "print('FILES '+json.dumps(sorted(idx.source_files)))\n"
+    )
+    env = dict(os.environ, CODE_INDEX_PATH=str(scratch / "discover"), PYTHONPATH=str(REPO / "src"),
+               JCODEMUNCH_TRUSTED_FOLDERS=str(corpus_path), JCODEMUNCH_LIVE_JOURNAL="0")
+    proc = subprocess.run([sys.executable, "-c", code], env=env, text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=1200)
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("FILES ")), None)
+    if proc.returncode != 0 or line is None:
+        raise SystemExit(f"discovery failed for {corpus_path}:\n{proc.stdout[-1500:]}\n{proc.stderr[-1500:]}")
+    return tuple(json.loads(line[6:]))
+
+
+def build_corpus(cid: str, path: Path, scratch: Path) -> Corpus:
+    files = discover_files(path, scratch)
+    return Corpus(id=cid, path=path, sha256=corpus_digest(path, files), files=files)
+
+
+def check_tasks(tasks: list[Task], corpora: dict[str, Corpus], adapters: list) -> list[str]:
+    """DESIGN s4.3, the part that needs no competitor: malformed records and
+    expected files absent from the corpus refuse the run."""
+    problems = []
+    null_cats = set()
+    for a in adapters:
+        if a.interface == "null":
+            null_cats |= set(a.categories)
+    for t in tasks:
+        if t.corpus not in corpora:
+            problems.append(f"{t.id}: corpus {t.corpus!r} not in this run")
+            continue
+        if null_cats and t.category not in null_cats:
+            problems.append(f"{t.id}: category {t.category} is not answerable by the null alternative")
+        files = set(corpora[t.corpus].files)
+        for f, _ in t.expected:
+            if f not in files:
+                problems.append(f"{t.id}: expected file {f!r} is not in the corpus")
+        low = t.query.lower()
+        for word in ("search_symbols", "get_symbol_source", "symbol_id", "_meta"):
+            if word in low:
+                problems.append(f"{t.id}: query names a jcodemunch tool or field ({word})")
+    return problems
+
+
+def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scratch: Path) -> dict:
+    """One run: every adapter, every corpus, every task. Returns per-adapter,
+    per-corpus axis values plus per-task detail."""
+    out: dict = {}
+    for a in adapters:
+        out[a.name] = {}
+        for cid, corpus in corpora.items():
+            ts = [t for t in tasks if t.corpus == cid and t.category in a.categories]
+            sc = scratch / a.name / cid.replace("/", "_").replace("@", "_")
+            sc.mkdir(parents=True, exist_ok=True)
+            if hasattr(a, "prepare"):
+                a.prepare(corpus, sc, ts)
+            rep = a.index(corpus, sc)
+            per_task = []
+            for t in ts:
+                ans = a.answer(corpus, t, sc)
+                per_task.append({
+                    "task": t.id, "category": t.category, "tokens": ans.tokens, "calls": ans.calls,
+                    "latency_ms": [round(x, 2) for x in ans.latency_ms], "cited": len(ans.cited),
+                    "f1": f1(ans.cited, t.expected, t.tolerance_lines, ans.cites_all) if t.expected else None,
+                    "error": ans.error,
+                })
+            scored = [p for p in per_task if not p["error"]]
+            axes: dict = {
+                "index_cold_seconds": rep.seconds,
+                "index_ok": rep.ok,
+                "files_indexed": rep.files_indexed,
+                "tokens_per_task": (statistics.mean(p["tokens"] for p in scored) if scored else None),
+                "calls_per_task": (statistics.mean(p["calls"] for p in scored) if scored else None),
+                "latency_warm_ms": _warm_median([x for p in scored for x in p["latency_ms"][1:]] or [x for p in scored for x in p["latency_ms"]]),
+                "tools_list_tokens": a.tools_list_tokens(),
+            }
+            for cat, axis in CATEGORY_F1.items():
+                vals = [p["f1"] for p in scored if p["category"] == cat and p["f1"] is not None]
+                axes[axis] = statistics.mean(vals) if vals else None
+            out[a.name][cid] = {"axes": axes, "tasks": per_task, "index_error": rep.stderr_tail[:500]}
+    return out
+
+
+def _warm_median(xs: list[float]):
+    return round(statistics.median(xs), 2) if xs else None
+
+
+def aggregate(runs: list[dict], adapters: list, corpora: dict[str, Corpus], jcm_name: str = "jcodemunch") -> list[dict]:
+    rows = []
+    axes = list(RATIO_AXES) + list(DIFF_AXES)
+    for a in adapters:
+        for cid in corpora:
+            for axis in axes:
+                tool_vals = [r[a.name][cid]["axes"].get(axis) for r in runs]
+                jcm_vals = [r[jcm_name][cid]["axes"].get(axis) for r in runs] if jcm_name in [x.name for x in adapters] else []
+                row = compare(axis, tool_vals, jcm_vals)
+                row.update({"tool": a.name, "corpus": cid})
+                rows.append(row)
+    return rows
+
+
+def render_md(result: dict) -> str:
+    h = result["header"]
+    lines = [f"# Competitive tier — {h['date']} at {h['jcm_commit']} ({h['jcm_version']})", ""]
+    lines.append("A competitor's README figure is not on this page. Every number below was produced by this run on this corpus with this tokenizer (cl100k_base); `measured` is the median of the runs, `spread` is max minus min, `band` is max(5% of our median, 3x the larger spread); a delta is called meaningful only when both rows are inside the band and the gap exceeds it. ⚠ Runs in this file: " + str(h["runs"]) + (" (fewer than three: no bands, DESIGN s5)" if h["runs"] < 3 else "") + ".")
+    lines.append("")
+    lines.append("Corpora: " + "; ".join(f"`{c['id']}` {c['files']} files, sha256 `{c['sha256'][:12]}`" for c in h["corpora"]))
+    lines.append("")
+    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']})" for p in h["pins"]))
+    lines.append("")
+    tools = [p["name"] for p in h["pins"]]
+    corpora = [c["id"] for c in h["corpora"]]
+    by = {(r["axis"], r["tool"], r["corpus"]): r for r in result["rows"]}
+    for axis in list(RATIO_AXES) + list(DIFF_AXES):
+        if all(by[(axis, t, c)]["measured"] is None for t in tools for c in corpora):
+            continue
+        unit = "ratio vs jcm" if axis in RATIO_AXES else "difference vs jcm"
+        lines.append(f"## {axis} ({unit})")
+        lines.append("")
+        lines.append("| tool | " + " | ".join(corpora) + " |")
+        lines.append("|---|" + "---|" * len(corpora))
+        for t in tools:
+            cells = []
+            for c in corpora:
+                r = by[(axis, t, c)]
+                if r["measured"] is None:
+                    cells.append("NOT COMPARABLE")
+                    continue
+                cell = f"{r['measured']:.4g}"
+                if r["delta"] is not None and t != "jcodemunch":
+                    cell += f" (delta {r['delta']:.3g}"
+                    if r["band"] is not None:
+                        cell += f", band {r['band']:.3g}"
+                    cell += ", MEANINGFUL" if r["meaningful"] else ""
+                    cell += ")"
+                if r["spread"] is not None:
+                    cell += f" spread {r['spread']:.3g}"
+                if r["note"]:
+                    cell += f" [{r['note']}]"
+                cells.append(cell)
+            lines.append(f"| {t} | " + " | ".join(cells) + " |")
+        lines.append("")
+    if result.get("not_runnable"):
+        lines.append("## Not runnable")
+        lines.append("")
+        for nr in result["not_runnable"]:
+            lines.append(f"- `{nr['tool']}`: {nr['reason']}")
+        lines.append("")
+    if result.get("capability_only"):
+        lines.append("## Capability differences (excluded from head-to-head)")
+        lines.append("")
+        for t in result["capability_only"]:
+            lines.append(f"- `{t['task']}` ({t['category']}): answerable by {', '.join(t['answerable_by']) or 'no non-null tool'}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--corpus", action="append", default=[], help="ID=PATH; repeatable")
+    ap.add_argument("--tasks", default=str(HERE / "tasks" / "self.json"))
+    ap.add_argument("--adapters", default=",".join(DEFAULT_ADAPTERS))
+    ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--out-dir", default=str(HERE / "results"))
+    ap.add_argument("--record", action="store_true", help="append to history.jsonl (clean tree only)")
+    ap.add_argument("--keep-scratch", action="store_true")
+    a = ap.parse_args(argv)
+
+    if a.record and _git("status", "--porcelain"):
+        print("refused: --record on a dirty tree", file=sys.stderr)
+        return 2
+
+    scratch = Path(tempfile.mkdtemp(prefix="jcm-compete-"))
+    try:
+        adapters = [load_adapter(n.strip()) for n in a.adapters.split(",") if n.strip()]
+        commit = _git("rev-parse", "--short", "HEAD")
+        corpora: dict[str, Corpus] = {}
+        if not a.corpus:
+            src = scratch / "self" / "src"
+            shutil.copytree(REPO / "src", src)
+            corpora[f"self@{commit}"] = build_corpus(f"self@{commit}", src.parent, scratch / "discover-self")
+        for spec in a.corpus:
+            cid, _, p = spec.partition("=")
+            corpora[cid] = build_corpus(cid, Path(p).resolve(), scratch / ("discover-" + cid.replace("/", "_").replace("@", "_")))
+
+        tasks = load_tasks(Path(a.tasks))
+        tasks = [Task(**{**t.__dict__, "corpus": t.corpus.replace("self@HEAD", f"self@{commit}")}) for t in tasks]
+        problems = check_tasks(tasks, corpora, adapters)
+        if problems:
+            print("refused: task check failed\n  " + "\n  ".join(problems), file=sys.stderr)
+            return 3
+
+        non_null = [x for x in adapters if x.interface != "null"]
+        capability_only = []
+        scored_tasks = []
+        for t in tasks:
+            able = [x.name for x in non_null if t.category in x.categories]
+            if t.capability_only or len(able) < 2 and len(non_null) >= 2:
+                capability_only.append({"task": t.id, "category": t.category, "answerable_by": able})
+            else:
+                scored_tasks.append(t)
+        # With only jcodemunch present (this PR), nothing is capability-only by count.
+
+        runs = []
+        for i in range(a.runs):
+            runs.append(run_once(adapters, corpora, scored_tasks, scratch / f"run{i}"))
+            print(f"run {i + 1}/{a.runs} done", file=sys.stderr)
+
+        version = "unknown"
+        try:
+            import re
+
+            version = re.search(r'^version\s*=\s*"([^"]+)"', (REPO / "pyproject.toml").read_text(encoding="utf-8"), re.M).group(1)
+        except Exception:
+            pass
+        header = {
+            "schema": SCHEMA, "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "jcm_commit": commit,
+            "jcm_version": version, "runs": a.runs,
+            "runner": {"os": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
+                       "ci": bool(os.environ.get("GITHUB_ACTIONS"))},
+            "corpora": [{"id": c.id, "files": len(c.files), "sha256": c.sha256} for c in corpora.values()],
+            "tasks_sha256": __import__("hashlib").sha256(Path(a.tasks).read_bytes()).hexdigest(),
+            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface} for x in adapters],
+        }
+        result = {"header": header, "rows": aggregate(runs, adapters, corpora), "runs": runs,
+                  "capability_only": capability_only, "not_runnable": []}
+        out_dir = Path(a.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d", time.gmtime())
+        rf = out_dir / f"{stamp}-{commit}.json"
+        rf.write_text(json.dumps(result, indent=1, default=str), encoding="utf-8")
+        (out_dir / "latest.md").write_text(render_md(result), encoding="utf-8")
+        if a.record:
+            line = {"date": header["date"], "jcm_commit": commit, "jcm_version": version,
+                    "pins": {p["name"]: p["version"] for p in header["pins"]},
+                    "medians": {f"{r['axis']}/{r['tool']}/{r['corpus']}": r["measured"] for r in result["rows"] if r["measured"] is not None}}
+            with open(out_dir / "history.jsonl", "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(line) + "\n")
+        print(f"wrote {rf} and {out_dir / 'latest.md'}")
+        return 0
+    finally:
+        if not a.keep_scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
