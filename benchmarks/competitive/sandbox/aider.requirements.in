@@ -1,0 +1,3 @@
+# docs/competitive/fairness/aider.md; regenerate the lockfile with
+#   uv pip compile aider.requirements.in --generate-hashes --python-platform linux --python-version 3.12 --no-annotate -o aider.requirements.txt
+aider-chat==0.86.2

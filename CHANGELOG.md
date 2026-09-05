@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added - the seventh competitor row, a repo-map tool on the token axis only (FINDINGS CF-40 to CF-42)
+
+The map-shaped approach in the lane (FIELD.md, set row 6; the one a
+third-party review says beats us on cross-file awareness, and the one
+our own whitepaper calls complementary) is a measured row for the first
+time, on the only axis a map can be measured on: what the text it sends
+with every change request costs at the tool's default budget. It is not
+an answer to a question, so no F1 row exists for it and none is
+invented; the adapter answers token tasks only, passes the query
+nowhere because the tool takes none, and cites nothing. Installed with
+pip from a lockfile that pins the package and every dependency by hash,
+on the Python the package declares, with the tokenizer assets cached at
+image build so the offline run fetches nothing.
+
+Two of its behaviours shape the row and are recorded rather than worked
+around: its default budget is not the figure its docs give but a clamp
+on the model's context window, read from its own banner line; and its
+stdout carries a human-facing announce block ahead of the map, so the
+payload is the map after the tool's own preface and the block is kept
+aside. The probe ran over the pinned corpus, and its banner is what
+exposed CF-39. The rows and their caveats are FINDINGS CF-40 to CF-42
+beside the result file.
+
 ### Fixed - the competitive self corpus carried this tree's bytecode, and every recorded row was measured over it (FINDINGS CF-39)
 
 The pinned self corpus is `src/` copied and git-inited, and the copy
