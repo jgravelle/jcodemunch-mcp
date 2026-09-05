@@ -154,4 +154,5 @@ REGISTRY: dict[str, str] = {
     "codegraph": "adapters.codegraph:make",
     "graft": "adapters.graft:make",
     "aider": "adapters.aider:make",
+    "cocoindex": "adapters.cocoindex:make",
 }

@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Added - the eighth competitor row, the embedding representative over MCP stdio with a local model (FINDINGS CF-43 to CF-45)
+
+The last adapter of the set is the one whose retrieval is a vector
+search over AST chunks with a sentence-embedding model run locally on
+the CPU (FIELD.md, set row 8; it replaces the home-made RAG baseline
+as the embedding representative). Installed with pip from a lockfile
+that pins the package with its documented local-model extra and every
+dependency by hash; the default model is downloaded once at image
+build into a cache the offline run reads. Its daemon, which its own
+client starts on first use and talks to over a Unix socket, does not
+trip the sandbox rule: it is spawned inside the container, listens on
+the container's tmpfs and dies with it, and every row pays its start
+inside the index time, which is the tool's own design.
+
+Two things shape the rows and are recorded rather than worked around:
+its search refreshes the index before every answer by default, which is
+most of each call's latency and is charged as an agent pays it; and an
+embedding model asked an identifier ranks by meaning, so the
+definition-lookup row measures a lexical question put to a semantic
+tool, which the fairness note names as the harness's choice of task,
+not the tool's failing. Its docs describe no references or dependents
+tool, so those rows are NOT COMPARABLE by scope, not zero. The probe
+ran over the pinned corpus (CF-32's rule). The rows and their caveats
+are FINDINGS CF-43 to CF-45 beside the result file.
+
 ### Added - the seventh competitor row, a repo-map tool on the token axis only (FINDINGS CF-40 to CF-42)
 
 The map-shaped approach in the lane (FIELD.md, set row 6; the one a
