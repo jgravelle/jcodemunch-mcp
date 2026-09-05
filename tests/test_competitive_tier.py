@@ -29,6 +29,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 COMPETE = REPO / "benchmarks" / "competitive"
+if not COMPETE.is_dir():  # excluded from the sdist (pyproject); the tests are meaningless without it
+    pytest.skip("benchmarks/competitive is not in this tree (not shipped in the sdist)", allow_module_level=True)
 sys.path.insert(0, str(COMPETE))
 
 from adapter import Corpus, Pin, Task, corpus_digest, validate  # noqa: E402

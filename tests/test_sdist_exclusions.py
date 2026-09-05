@@ -45,6 +45,8 @@ EXCLUDED_DIRS = [
     ".claude",
     "vscode-extension/node_modules",
     "vscode-extension/out",
+    "docs/competitive",
+    "benchmarks/competitive",
 ]
 
 # Paths that must SURVIVE the build. Without these the test would pass on a
@@ -55,6 +57,7 @@ REQUIRED_PATHS = [
     "src/jcodemunch_mcp/server.py",
     "vscode-extension/package.json",
     "vscode-extension/src/extension.ts",
+    "benchmarks/tasks.json",
 ]
 
 
