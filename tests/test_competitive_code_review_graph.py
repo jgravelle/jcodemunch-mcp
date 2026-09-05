@@ -93,9 +93,19 @@ def test_a_competitor_refuses_the_none_sandbox():
         crg.make("none")
 
 
+def _take_while_indented(lines):
+    for ln in lines:
+        if not ln.startswith((" ", "\t")):
+            return
+        yield ln
+
+
 def test_the_pinned_wheel_digest_is_the_one_the_lockfile_installs():
     lock = (COMPETE / "sandbox" / "code_review_graph.requirements.txt").read_text(encoding="utf-8")
     i = lock.index("code-review-graph==2.3.8")
-    block = lock[i:lock.index("\n\n", i) if "\n\n" in lock[i:] else len(lock)]
-    assert crg.CodeReviewGraph.pin.digest in block
+    lines = lock[i:].splitlines()
+    block = [lines[0]] + [ln for ln in _take_while_indented(lines[1:])]
+    assert any(crg.CodeReviewGraph.pin.digest in ln for ln in block)
+    # the digest is not merely somewhere later in the file
+    assert crg.CodeReviewGraph.pin.digest not in lock[i + len("\n".join(block)):]
     assert "--require-hashes" in (COMPETE / "sandbox" / "code_review_graph.Dockerfile").read_text(encoding="utf-8")

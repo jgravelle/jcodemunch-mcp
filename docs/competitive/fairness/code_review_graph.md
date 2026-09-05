@@ -99,7 +99,7 @@ recorded as claims; the second is the tool's own statement of what our
 - **Environment**: `HOME=/out`, `CRG_DATA_DIR=/out/crg-data`,
   `CRG_HOME=/out/crg-home`; no other variable reaches the tool.
 
-## Where the harness may disadvantage it, and where it may flatter it
+## Where the harness may disadvantage it
 
 1. **The token row is not like-for-like on P1/T and it favours the
    tool.** Our own P1/T flow charges a search plus three source reads;
@@ -120,8 +120,18 @@ recorded as claims; the second is the tool's own statement of what our
    That is the default an agent gets.
 5. **The Windows bind mount** (CF-14) applies to its build as to
    everyone's.
+6. **P2 citations are the caller node's `line_start`**, while the same
+   reply carries the call site in `edges[].line`. On the self set the
+   tolerance is file-level and nothing moves; on a pinned corpus with a
+   real line tolerance the node start would understate the tool for a
+   long caller. Item 3 switches the citation to `edges[].line` where
+   present before the first pinned-corpus row (review note, PR 2c).
 
-## What the first probe found (2026-09-05, self corpus, one run, not a result)
+## What we could not make work
+
+Nothing was broken. Every planned call ran; the empty P4 answer and the
+empty multi-word searches are the tool's answers, recorded as such. What
+the first probe found (2026-09-05, self corpus, one run, not a result):
 
 - **`importers_of` answers zero for every file of the self corpus** at the
   base install: the build reports `imports_resolved: 98` of
@@ -143,7 +153,3 @@ recorded as claims; the second is the tool's own statement of what our
   (72 s) rather than "No changes detected", so the P2 follow-up session
   calls no build at all; the query tools open the persisted graph.
 
-## What we could not make work
-
-Nothing was broken. Every planned call ran; the empty P4 answer and the
-empty multi-word searches are the tool's answers, recorded as such.

@@ -1,0 +1,3 @@
+# docs/competitive/fairness/code_review_graph.md; regenerate the lockfile with
+#   uv pip compile code_review_graph.requirements.in --generate-hashes --python-platform linux --python-version 3.13 --no-annotate -o code_review_graph.requirements.txt
+code-review-graph==2.3.8
