@@ -135,7 +135,9 @@ build and cache directories, `.gitignore`, files over 1 MB.
    blast-radius summary are others, and an agent might use those. The
    file mode names eight dependents and a `+K more` count, so recall on
    P4 is capped by the tool's own output shape, not by what its graph
-   holds (it says 83); the row records what it returns.
+   holds (the probe over the full checkout said 83; the pinned corpus's
+   count is in the payload, which the result file does not keep); the
+   row records what it returns.
 5. **The README's example allowlist**, not the default surface, is what
    the schema row weighs; the default is lighter (one tool).
 6. **Python only so far**: the tool's other languages and its framework

@@ -1,5 +1,5 @@
 {
- "captured": "2026-09-05, CodeGraph v1.6.0 in the sandbox (probe, self corpus at 89be2fdc); CODEGRAPH_MCP_TOOLS=explore,node,search,callers",
+ "captured": "2026-09-05, CodeGraph v1.6.0 in the sandbox (probe over the FULL working tree of this checkout at 89be2fdc, 1,022 files by the tool's count, tests included; NOT the 277-file pinned self corpus the recorded rows use, see FINDINGS CF-32); CODEGRAPH_MCP_TOOLS=explore,node,search,callers",
  "server_info": {
   "name": "codegraph",
   "version": "1.6.0"
