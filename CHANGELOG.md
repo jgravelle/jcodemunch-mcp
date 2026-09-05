@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Added - the third competitor row, code-review-graph 2.3.8, over MCP stdio
+
+The loudest token claim in the lane ("~65x median token reduction",
+FIELD.md) is now a measured row instead of a quoted one. The PyPI wheel
+and every one of its dependencies are pinned by version and hash in a
+lockfile the image installs with `--require-hashes`; the base install
+only, because the README makes embeddings, communities and Python
+call-resolution optional extras. The same `mcp_driver.py` that drove
+codebase-memory-mcp drives `code-review-graph serve`; the tool's default
+data dir is inside the repository, which the sandbox mounts read-only, so
+its documented `CRG_DATA_DIR` knob points it at the writable mount.
+
+On the self corpus (FINDINGS CF-23 to CF-26, `results/2026-09-05-95eb4a00.json`,
+three runs): it matches codebase-memory-mcp on definitions and references
+(f1_P1 0.6667, f1_P2 1.0 against our 0.3333 and 0), which makes two
+independent graphs finding the same-file caller our `find_references`
+misses; it answers zero importers for every file at its base install
+(f1_P4 0 against our 0.4324, the first measured lead of ours on a quality
+axis, recorded with the same care as the losses); and its token row
+(324.8 against our 1,656) carries a caveat the report must keep, because
+the tool returns search hits without source bodies and the agent's own
+file read is not charged. Its `serverInfo` reports FastMCP's version, the
+defect our own server shipped until 1.108.292.
+
 ### Added - the second competitor row, codebase-memory-mcp 0.10.8, over MCP stdio
 
 `benchmarks/competitive/sandbox/mcp_driver.py` is a minimal MCP client
