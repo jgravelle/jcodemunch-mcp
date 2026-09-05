@@ -17,7 +17,10 @@ What each test pins, and why (for docs/harness/ARCHAEOLOGY.md):
 - the index report is the build's wall time and its own "parsed: N of M"
   line; the captured tools/list is the six documented tools in the
   name/description/inputSchema shape; a competitor refuses the `none`
-  sandbox; the lockfile pins the package by the integrity the adapter names.
+  sandbox; the lockfile pins the package by the integrity the adapter names,
+  and that integrity is the pin's digest (not a hash nothing verifies);
+- a follow-up session that fails marks the P4 answer with an error (UNKNOWN
+  is never rendered as a quieter answer).
 """
 
 from __future__ import annotations
@@ -116,3 +119,37 @@ def test_a_competitor_refuses_the_none_sandbox_and_the_lockfile_pins_the_named_i
     assert len(base64.b64decode(integrity[7:])) == 64  # a real sha512, not a truncated one
     df = (COMPETE / "sandbox" / "graft.Dockerfile").read_text(encoding="utf-8")
     assert "npm ci" in df and "DO_NOT_TRACK=1" in df and "CI=1" in df and "graft.package-lock.json" in df
+
+
+def test_the_pin_digest_is_the_integrity_npm_ci_enforces():
+    lock = json.loads((COMPETE / "sandbox" / "graft.package-lock.json").read_text(encoding="utf-8"))
+    assert graft.Graft.pin.digest == lock["packages"]["node_modules/@nanonets/graft"]["integrity"]
+    assert graft.Graft.pin.digest.startswith("sha512-")
+
+
+def test_a_follow_up_session_that_fails_marks_the_p4_answer_unknown(tmp_path, monkeypatch):
+    """Review round 1, finding 4: a timed-out follow-up used to drop silently and the
+    P4 row read as the first call alone with no error; UNKNOWN is never a quieter answer."""
+    from adapter import Corpus  # noqa: E402
+    from sandbox import RunResult  # noqa: E402
+
+    trace = _call("trace_p4")
+    assert graft.NO_CALLERS in trace["result_text"]
+    sessions = []
+
+    def fake_session(self, corpus, out, n, calls):
+        sessions.append(n)
+        if n == 0:
+            return RunResult(rc=0, stdout="", stderr="", seconds=1.0), {"calls": [{**trace, "id": "t|trace"}], "tools_list_json": FIX["tools_list_json"]}
+        return RunResult(rc=1, stdout="", stderr="", seconds=1.0, timed_out=True), None
+
+    monkeypatch.setattr(graft.Graft, "_session", fake_session)
+    monkeypatch.setattr(graft.Graft, "image", lambda self: None)
+    g = graft.Graft.__new__(graft.Graft)
+    g._cache = {}
+    task = Task(id="t", corpus="self@x", category="P4", query="src/jcodemunch_mcp/storage/token_tracker.py")
+    corpus = Corpus(id="self@x", path=tmp_path, sha256="0" * 64, files=())
+    g.prepare(corpus, tmp_path, [task])
+    a = g.answer(corpus, task, tmp_path)
+    assert sessions == [0, 1] and a.calls == 1 and a.cited == frozenset()
+    assert a.error is not None and "follow-up session timed out" in a.error

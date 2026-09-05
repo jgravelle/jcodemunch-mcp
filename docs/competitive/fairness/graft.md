@@ -60,7 +60,8 @@ the anonymous `install` event" unless `CI` is set.
 ## What we configured and why
 
 - **Install**: `npm ci` from a lockfile that pins `@nanonets/graft` 0.16.0
-  by integrity hash and its 45 dependencies the same way (generated with
+  by integrity hash (the sha512 that is also the row's recorded pin
+  digest) and its 45 dependencies the same way (generated with
   `npm install --package-lock-only` on 2026-09-05 from the README's
   package name at that version), in a Node 20 image pinned by digest;
   `bin/graft` linked onto PATH, which is what `npm install -g` does. The
@@ -113,7 +114,9 @@ the anonymous `install` event" unless `CI` is set.
     what the tool's own answer says: `graft_find_all(pattern=<module
     name>, fixed=true)` in a second container (build again, uncharged),
     charged, one citation per file it lists. The follow-up exists only
-    when the tool asks for it; an answer with dependents gets none.
+    when the tool asks for it; an answer with dependents gets none. A
+    follow-up session that times out or errors is recorded as the task's
+    error, not as the first answer alone.
 - Every call is charged; nothing is called uncharged.
 
 ## Where the harness may disadvantage it

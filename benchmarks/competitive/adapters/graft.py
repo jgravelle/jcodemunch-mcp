@@ -51,12 +51,15 @@ SERVER = ("s=$(date +%s%N); " + BUILD + " > /out/{n}-build.log 2>&1; rc=$?; e=$(
           "python3 /opt/mcp_driver.py /out/{n}-mcp.json /out/{n}-calls.json -- graft --dir /private/graft mcp /corpus")
 
 
+INTEGRITY = "sha512-L3E5F1aDYJDCARgfR7O2VaMt8xwO1XNYyHiW2n1WhKnj87gPqoxoZJGNbGXfw6XeA9JSJX3naA36RZ+jDf4AcQ=="
+
+
 class Graft:
     name = "graft"
     interface = "mcp-stdio"
     categories = frozenset({"P1", "P2", "P4", "T"})
     pin = Pin(registry="npm", package="@nanonets/graft", version="0.16.0",
-              digest="84771e6417e41a46e76f2cb3886ddeb3814d9efa7ebc15bd7aba41f342b2b9c4")
+              digest=INTEGRITY)  # the sha512 `npm ci` enforces from the lockfile, not a hash nothing checks
 
     def __init__(self, sandbox_mode: str = "docker") -> None:
         if sandbox_mode != "docker":
@@ -116,10 +119,14 @@ class Graft:
             return
         results = {c["id"]: c for c in d["calls"]}
         follow = [c for t in tasks for c in self._follow_up(t, results.get(f"{t.id}|trace", {}))]
+        follow_err = None
+        wanted = {c["id"] for c in follow}
         if follow:
             res2, d2 = self._session(corpus, out, 1, follow)
             if not res2.timed_out and d2 and not d2.get("error"):
                 results.update({c["id"]: c for c in d2["calls"]})
+            else:  # the follow-up the tool asked for did not run: UNKNOWN, never a quieter answer
+                follow_err = "follow-up session " + ("timed out" if res2.timed_out else f"failed: {((d2 or {}).get('error') or res2.stderr[-200:])!s}")
         answers = {}
         for t in tasks:
             chain = [results[cid] for cid in (f"{t.id}|find", f"{t.id}|trace", f"{t.id}|grep") if cid in results]
@@ -133,7 +140,8 @@ class Graft:
                         cited.append(row)
             answers[t.id] = {"payload": "".join(c["result_text"] for c in chain), "calls": len(chain),
                              "latency_ms": [c["ms"] for c in chain], "cited": cited,
-                             "error": (chain[0]["result_text"][:200] if chain[0]["is_error"] else None)}
+                             "error": (chain[0]["result_text"][:200] if chain[0]["is_error"]
+                                       else follow_err if (f"{t.id}|grep" in wanted and f"{t.id}|grep" not in results) else None)}
         self._cache[key] = {"index": index, "answers": answers, "timed_out": False, "tools_list_json": tl}
 
     def timed_out(self, corpus: Corpus, scratch: Path) -> bool:
