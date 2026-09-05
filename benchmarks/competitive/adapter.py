@@ -149,4 +149,5 @@ REGISTRY: dict[str, str] = {
     "jcodemunch": "adapters.jcodemunch:make",
     "cymbal": "adapters.cymbal:make",
     "codebase_memory": "adapters.codebase_memory:make",
+    "code_review_graph": "adapters.code_review_graph:make",
 }
