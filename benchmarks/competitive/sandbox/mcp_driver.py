@@ -8,7 +8,9 @@ purpose:  measure what an MCP client pays: `initialize`, `tools/list` (the
 invokes:  the server command given on the command line, over stdio,
           JSON-RPC 2.0 with the MCP 2025-06-18 handshake; nothing else
 produces: /out/mcp.json: {tools_list_json, calls: [{id, tool, args, ms,
-          result_text, is_error}], stderr_tail}
+          result_text, is_error}], stderr_tail}; stderr is drained
+          continuously (a server that logs every result there would
+          otherwise block on a full pipe and read as a hang)
 refuses:  a server that does not answer `initialize` within the timeout
           (recorded as an error, the adapter maps it to not_runnable)
 pinned:   n/a (stdlib only; copied into each mcp-stdio image)
@@ -23,11 +25,13 @@ Usage: python mcp_driver.py <out.json> <calls.json> -- <server command...>
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import select
 import subprocess
 import sys
+import threading
 import time
 
 TIMEOUT_S = float(os.environ.get("MCP_DRIVER_TIMEOUT_S", "120"))
@@ -38,6 +42,20 @@ class Client:
         self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # bytes: the protocol is framed by newlines and decoded per message
         self._id = 0
         self._buf = b""
+        # stderr is drained continuously into a bounded tail: a server that logs
+        # every tool result to stderr (Serena does) fills the pipe and blocks
+        # mid-call if nobody reads it, which read as a hang of the tool.
+        self._err = collections.deque(maxlen=64)
+        self._err_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._err_thread.start()
+
+    def _drain_stderr(self) -> None:
+        assert self.proc.stderr is not None
+        try:
+            for line in iter(self.proc.stderr.readline, b""):
+                self._err.append(line[-400:])
+        except Exception:
+            pass
 
     def _send(self, msg: dict) -> None:
         data = (json.dumps(msg) + "\n").encode("utf-8")
@@ -94,13 +112,8 @@ class Client:
             self.proc.wait(timeout=10)
         except Exception:
             self.proc.kill()
-        err = b""
-        try:
-            if self.proc.stderr:
-                err = self.proc.stderr.read()
-        except Exception:
-            pass
-        return err.decode("utf-8", "replace")[-2000:]
+        self._err_thread.join(timeout=5)
+        return b"".join(self._err).decode("utf-8", "replace")[-2000:]
 
 
 def result_text(msg: dict | None) -> tuple[str, bool]:
