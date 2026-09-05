@@ -17,21 +17,15 @@ sandbox gained one more mount, a uid-owned 0700 tmpfs, pinned in the test
 like every other flag; it refuses the corpus root as "too broad", so the
 adapter indexes each top-level directory as its message asks.
 
-The ground truth moved again before the run, in the competitor's favour
-(FINDINGS CF-19): the tool resolves `from ..storage import x` through the
-package's re-export to the module that defines `x`, and our P4 task had
-counted textual importers only. The truth is the union now, computed from
-source by AST, and on it our `find_importers` finds 8 of 29.
-
-Then the closest peer led on every quality and token axis of the self
-corpus (CF-20, `results/2026-09-05-73fbd7cf.json`, each of those deltas
-outside the band; the latency and cold-index rows of every tool were
-unstable in that run and are not claimed): 59% of our tokens per task, a
-`tools/list` a fifth the weight of our shipped `full` surface, twice our
-F1 on definitions, 1.0 against our 0 on references, 0.98 against our 0.43
-on importers. Recorded as four `competitive-gap` candidates against us and
-none softened; none is an issue until item 5 exists and the pinned corpora
-agree; none touches product source.
+The P4 ground truth is the union of textual and re-export-resolved
+importers now, computed from source by AST (FINDINGS CF-19), because a
+truth only one definition satisfies grades the tool holding the other
+definition down. The three-run rows of this configuration, and the
+`competitive-gap` candidates they raise for item 5, are FINDINGS CF-19 to
+CF-22 beside the result file; the latency and cold-index rows of that run
+were unstable under the 10% rule and are not claimed. None is an issue
+until item 5 exists and the pinned corpora agree; none touches product
+source.
 
 ### Added - the competitive tier's sandbox and its first competitor row: cymbal 0.14.0
 
