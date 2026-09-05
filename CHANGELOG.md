@@ -24,7 +24,7 @@ that logs every tool result there filled the pipe mid-call and read as a
 hang. The driver drains stderr continuously now, and the two earlier MCP
 rows are re-measured with it in this PR's recorded run. The rows
 themselves and their caveats are FINDINGS CF-27 to CF-30 beside the
-result file (`results/2026-09-05-64e59032.json`): a per-call latency
+result file (`results/2026-09-05-dc9c2da2.json`): a per-call latency
 dominated by the Windows bind mount, a token row dominated by a pattern
 search that returns every match, and a second instance of a server
 reporting its framework's version rather than its own.
