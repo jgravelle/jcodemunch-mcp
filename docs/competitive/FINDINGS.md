@@ -6,6 +6,16 @@ Phase 3 rules). A need in any of those is written here for the human who
 owns that layer. `CF-n` numbering; a row is closed by naming the commit
 that met it.
 
+**Scope of every measurement row below.** The numbers are the loop's own
+runs of the tools named, at their documented default install, on the
+corpora and tasks the row names (so far one 277-file corpus and ten
+tasks), three runs each, in the same container, counted by the same
+tokenizer. They exist to find work for jCodeMunch and to keep the loop
+honest about its own methodology; they are not a product comparison and
+they are not a recommendation. A row's caveats (a task the tool cannot
+answer, an axis that is not like-for-like, an unstable triple) are part of
+the row, and quoting a number without them misreads it.
+
 | # | Finding | Where | Status |
 |---|---|---|---|
 | CF-1 | The tier is invoked as `python benchmarks/competitive/run.py`, not `python -m harness compete` as DESIGN D7 wanted: registering a tier means editing `harness/__main__.py` and `harness/tiers.json`, which the build rules leave to the harness owner. Until then the runner writes its own result file and the harness's `latest.json` does not carry a `compete` entry. | `harness/__main__.py` (a `tier_compete` beside `tier_bench`), `harness/tiers.json` (a `compete` list with one step) | OPEN, human |

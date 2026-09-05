@@ -51,30 +51,16 @@ README's agent policy (`investigate`, `search` then `show` on the top 3,
 uncharged `--json` twin for citations; `docs/competitive/fairness/cymbal.md`
 was written before its first number.
 
-The first three-run result with a competitor on the table found two
-things against us on the self corpus, both recorded in
-`docs/competitive/FINDINGS.md` rather than softened: `find_references` at
-its shipped default returned no references for a symbol whose one caller
-sits in the same file, where cymbal returned exactly that line, which is
-the sverklo-bench P2 zero reproduced with our own methodology (CF-13); and
-cymbal used about half the tokens per task, its single `investigate` call
-against our search plus three sources (CF-16). Neither is an issue yet
-(findings-to-issues is Phase 3 item 5) and neither touches product source.
-A third finding is about the box, not the tool: our cold index costs 18.3 s
-in the container against 3.1 s on the host, which the Linux runner's three
-runs will attribute (CF-14).
-
-Review round 1 found the first draft flattering the home team twice more
-and both are fixed: the shared file set was what OUR discovery admits, so
-our shipped size cap withheld `server.py` from every row including the
-ground truth of a task the competitor answered correctly (the set is the
-corpus's tracked text files now, CF-5); and the P4 ground truth listed four
-importers where the source has nine, grading the tool that found all nine
-down on precision (CF-18). With both corrected, `find_importers` returns
-eight of nine on our own tree, the missing one being `server.py`, which our
-index withholds at shipped defaults (CF-15). A timed-out or failed
-competitor is a `not_runnable` row now, never partial means; the jcodemunch
-image is two-stage with dependencies pinned from `uv.lock`; a `show` miss is
+The first three-run result with a competitor on the table is recorded
+in `docs/competitive/FINDINGS.md` (CF-12 to CF-18) beside the result file
+it came from. Those rows are one 277-file corpus, ten tasks and the
+loop's first week of methodology, not a product comparison, and each
+entry says what it is evidence of and what it is not. Review round 1
+corrected two places where the first draft favoured the home team (the
+shared file set, CF-5; the P4 ground truth, CF-18), which is the direction
+the loop is built to catch. A timed-out or failed competitor is a
+`not_runnable` row now, never partial means; the jcodemunch image is
+two-stage with dependencies pinned from `uv.lock`; a `show` miss is
 charged what the agent sees, like every other miss.
 
 ### Added - the competitive tier: the null alternatives and jCodeMunch through one interface
