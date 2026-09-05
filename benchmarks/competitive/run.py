@@ -41,7 +41,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
-from adapter import SCHEMA, Corpus, Task, corpus_digest, validate  # noqa: E402
+from adapter import SCHEMA, Corpus, Task, corpus_digest, read_file, validate  # noqa: E402
 from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
 
 DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
@@ -81,7 +81,7 @@ def discover_files(corpus_path: Path, scratch: Path) -> tuple[str, ...]:
         "import json,sys\n"
         "from jcodemunch_mcp.tools.index_folder import index_folder\n"
         "from jcodemunch_mcp.storage import IndexStore\n"
-        f"r=index_folder(path={str(corpus_path)!r}, use_ai_summaries=False, context_providers=False, storage_path={str(scratch / 'discover')!r})\n"
+        f"r=index_folder(path={str(corpus_path)!r}, use_ai_summaries=False, storage_path={str(scratch / 'discover')!r})\n"
         "assert r.get('success'), r\n"
         f"idx=IndexStore(base_path={str(scratch / 'discover')!r}).load_index(*r['repo'].split('/',1))\n"
         "print('FILES '+json.dumps(sorted(idx.source_files)))\n"
@@ -129,6 +129,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
     """One run: every adapter, every corpus, every task. Returns per-adapter,
     per-corpus axis values plus per-task detail."""
     out: dict = {}
+    corpus_lines = {cid: sum(read_file(c, rel).count("\n") + 1 for rel in c.files) for cid, c in corpora.items()}
     for a in adapters:
         out[a.name] = {}
         for cid, corpus in corpora.items():
@@ -144,7 +145,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 per_task.append({
                     "task": t.id, "category": t.category, "tokens": ans.tokens, "calls": ans.calls,
                     "latency_ms": [round(x, 2) for x in ans.latency_ms], "cited": len(ans.cited),
-                    "f1": f1(ans.cited, t.expected, t.tolerance_lines, ans.cites_all) if t.expected else None,
+                    "f1": f1(ans.cited, t.expected, t.tolerance_lines, ans.cites_all, corpus_lines[cid]) if t.expected else None,
                     "error": ans.error,
                 })
             scored = [p for p in per_task if not p["error"]]
@@ -154,7 +155,10 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 "files_indexed": rep.files_indexed,
                 "tokens_per_task": (statistics.mean(p["tokens"] for p in scored) if scored else None),
                 "calls_per_task": (statistics.mean(p["calls"] for p in scored) if scored else None),
-                "latency_warm_ms": _warm_median([x for p in scored for x in p["latency_ms"][1:]] or [x for p in scored for x in p["latency_ms"]]),
+                # median over EVERY call of every task: what an agent waits per call.
+                # The operations differ by tool (a symbol fetch vs a whole-file read),
+                # so the ratio is a wait ratio, not a like-for-like operation (DESIGN s5.1).
+                "latency_call_ms": _warm_median([x for p in scored for x in p["latency_ms"]]),
                 "tools_list_tokens": a.tools_list_tokens(),
             }
             for cat, axis in CATEGORY_F1.items():
@@ -199,6 +203,9 @@ def render_md(result: dict) -> str:
             continue
         unit = "ratio vs jcm" if axis in RATIO_AXES else "difference vs jcm"
         lines.append(f"## {axis} ({unit})")
+        if axis == "latency_call_ms":
+            lines.append("")
+            lines.append("Median wall time of ONE call, over every call of every task. The operations differ by tool (a symbol fetch, a whole-file read), so this is what an agent waits per call, not a like-for-like operation.")
         lines.append("")
         lines.append("| tool | " + " | ".join(corpora) + " |")
         lines.append("|---|" + "---|" * len(corpora))

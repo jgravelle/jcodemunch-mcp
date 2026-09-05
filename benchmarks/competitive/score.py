@@ -22,31 +22,40 @@ from __future__ import annotations
 import statistics
 from typing import Iterable, Optional
 
-RATIO_AXES = ("tokens_per_task", "calls_per_task", "latency_warm_ms", "index_cold_seconds", "tools_list_tokens")
+RATIO_AXES = ("tokens_per_task", "calls_per_task", "latency_call_ms", "index_cold_seconds", "tools_list_tokens")
 DIFF_AXES = ("f1_P1", "f1_P2", "f1_P4", "f1_P5")
 UNSTABLE_FRACTION = 0.10  # DESIGN s5.1
 
 
-def f1(cited: Iterable[tuple[str, int]], expected: Iterable[tuple[str, int]], tolerance: int, cites_all: bool = False) -> Optional[float]:
+def f1(cited: Iterable[tuple[str, int]], expected: Iterable[tuple[str, int]], tolerance: int,
+       cites_all: bool = False, corpus_lines: int = 0) -> Optional[float]:
+    """ONE-TO-ONE matching (DESIGN s5.1): each expected line is matched to the
+    nearest still-unmatched cited line within the tolerance, so two citations
+    beside one expected line count as one hit and one stray, and one citation
+    cannot credit two expected lines. Many-to-many matching (the first draft)
+    paid a tool for citing densely near a hit, which grep does by construction
+    (review, finding 2). A read-all answer cites every line of the corpus:
+    recall 1, precision = expected over corpus lines."""
     exp = list(expected)
     if not exp:
         return None
     if cites_all:
-        # The payload is the corpus: recall 1, precision = expected lines over corpus lines is
-        # not computable here; report the floor the design names (DESIGN s1.2).
-        return 0.0
+        if corpus_lines <= 0:
+            return 0.0
+        precision = min(1.0, len(exp) / corpus_lines)
+        return round(2 * precision / (precision + 1.0), 4)
     cit = set(cited)
     if not cit:
         return 0.0
-    matched_exp = 0
-    matched_cit: set[tuple[str, int]] = set()
+    free = set(cit)
+    matched = 0
     for ef, el in exp:
-        hit = [c for c in cit if c[0] == ef and abs(c[1] - el) <= tolerance]
-        if hit:
-            matched_exp += 1
-            matched_cit.update(hit)
-    precision = len(matched_cit) / len(cit)
-    recall = matched_exp / len(exp)
+        candidates = sorted((abs(c[1] - el), c) for c in free if c[0] == ef and abs(c[1] - el) <= tolerance)
+        if candidates:
+            free.discard(candidates[0][1])
+            matched += 1
+    precision = matched / len(cit)
+    recall = matched / len(exp)
     if precision + recall == 0:
         return 0.0
     return round(2 * precision * recall / (precision + recall), 4)

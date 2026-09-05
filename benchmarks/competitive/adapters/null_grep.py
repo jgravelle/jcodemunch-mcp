@@ -12,7 +12,10 @@ pinned:   registry "none"
 fairness: every modelling choice favours this baseline (R25): paths-only
           grep cost, ranking the agent does not get, case-insensitive
           substring on ANY term. Files are read WHOLE (R26) with no
-          line-range estimator.
+          line-range estimator. The payload is the bare `rg -l` list plus the
+          bare files, exactly what run_benchmark.py::measure_grep_baseline
+          counts; no header line is charged to the baseline (review, finding 4).
+          `match_lines_tokens` (the larger rg-with-lines cost) is not reported here.
 """
 
 from __future__ import annotations
@@ -59,7 +62,7 @@ class NullGrep:
         cited: set[tuple[str, int]] = set()
         for rel in top:
             t1 = time.perf_counter()
-            payload += f"### {rel}\n{read_file(corpus, rel)}\n"
+            payload += read_file(corpus, rel)  # bare, as run_benchmark.py counts it
             latencies.append((time.perf_counter() - t1) * 1000)
             cited.update((rel, n) for n in hits_by_file[rel])
         return Answer(

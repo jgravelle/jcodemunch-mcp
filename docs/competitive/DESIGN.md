@@ -261,7 +261,13 @@ For each `(axis, tool, corpus)`: `measured` = median over three runs;
 `spread` = max minus min over the three; `jcm` = our median on the same
 row; `delta` = ratio for tokens, latency and index time (tool over jcm, so
 below 1.0 is the competitor ahead), difference for F1 (tool minus jcm, so
-above 0 is the competitor ahead); `stable` = each row's own spread is within
+above 0 is the competitor ahead); F1 matches ONE-TO-ONE: each expected line
+takes the nearest still-unmatched cited line within the tolerance, so a
+dense citer (grep returns every matching line) is not paid twice for one
+hit; a read-all answer scores recall 1 and precision = expected over corpus
+lines. `latency_call_ms` is the median wall time of one call over every
+call of every task; the operations differ by tool, so it is the wait per
+call, not a like-for-like operation. `stable` = each row's own spread is within
 10% of its own median, judged first, so a row's instability cannot widen
 the band it is then measured against (Phase 3 item 1 found the first
 draft doing exactly that); `band` per harness DESIGN §5: max(5% of our

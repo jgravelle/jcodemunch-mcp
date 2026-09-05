@@ -1,8 +1,8 @@
 {
  "header": {
   "schema": "jcm-competitive-result/v1",
-  "date": "2026-09-05T12:08:43Z",
-  "jcm_commit": "fd4d5bf",
+  "date": "2026-09-05T12:26:53Z",
+  "jcm_commit": "cdc6542",
   "jcm_version": "1.108.317",
   "runs": 3,
   "runner": {
@@ -13,7 +13,7 @@
   },
   "corpora": [
    {
-    "id": "self@fd4d5bf",
+    "id": "self@cdc6542",
     "files": 275,
     "sha256": "b70fbed3c3a34a384b5e578eefd6d52716195a46dff788ece89e5fa4301d25f9"
    }
@@ -44,10 +44,10 @@
     "name": "jcodemunch",
     "registry": "tree",
     "package": "jcodemunch-mcp",
-    "version": "fd4d5bf",
+    "version": "cdc6542",
     "digest": "",
     "dockerfile_sha256": "",
-    "ran_as": "fd4d5bf",
+    "ran_as": "cdc6542",
     "interface": "python"
    }
   ]
@@ -56,21 +56,21 @@
   {
    "axis": "tokens_per_task",
    "runs": [
-    944076,
-    944076,
-    944076
+    940128,
+    940128,
+    940128
    ],
-   "measured": 944076,
+   "measured": 940128,
    "spread": 0,
    "jcm": 2025.875,
    "jcm_spread": 0.0,
-   "delta": 466.009,
+   "delta": 464.0602,
    "band": 101.2938,
    "meaningful": true,
    "stable": true,
    "note": "",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "calls_per_task",
@@ -89,26 +89,26 @@
    "stable": true,
    "note": "",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
-   "axis": "latency_warm_ms",
+   "axis": "latency_call_ms",
    "runs": [
-    28.94,
-    28.73,
-    29.07
+    35.96,
+    35.27,
+    40.64
    ],
-   "measured": 28.94,
-   "spread": 0.33999999999999986,
-   "jcm": 21.73,
-   "jcm_spread": 0.08999999999999986,
-   "delta": 1.3318,
-   "band": 1.0865,
-   "meaningful": true,
-   "stable": true,
-   "note": "",
+   "measured": 35.96,
+   "spread": 5.369999999999997,
+   "jcm": 22.88,
+   "jcm_spread": 0.7399999999999984,
+   "delta": 1.5717,
+   "band": 16.11,
+   "meaningful": false,
+   "stable": false,
+   "note": "unstable: a spread exceeds 10% of its own median",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "index_cold_seconds",
@@ -119,15 +119,15 @@
    ],
    "measured": null,
    "spread": null,
-   "jcm": 2.5563368999864906,
-   "jcm_spread": 0.07559769996441901,
+   "jcm": 3.1060083999764174,
+   "jcm_spread": 0.19294420001097023,
    "delta": null,
    "band": null,
    "meaningful": false,
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "tools_list_tokens",
@@ -146,7 +146,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P1",
@@ -157,15 +157,15 @@
    ],
    "measured": 0.0,
    "spread": 0.0,
-   "jcm": 0.6349,
+   "jcm": 0.3333,
    "jcm_spread": 0.0,
-   "delta": -0.6349,
-   "band": 0.0317,
+   "delta": -0.3333,
+   "band": 0.0167,
    "meaningful": true,
    "stable": true,
    "note": "",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P2",
@@ -184,7 +184,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P4",
@@ -203,7 +203,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P5",
@@ -222,26 +222,26 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_readall",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "tokens_per_task",
    "runs": [
-    36670.25,
-    36670.25,
-    36670.25
+    36632.625,
+    36632.625,
+    36632.625
    ],
-   "measured": 36670.25,
+   "measured": 36632.625,
    "spread": 0.0,
    "jcm": 2025.875,
    "jcm_spread": 0.0,
-   "delta": 18.1009,
+   "delta": 18.0824,
    "band": 101.2938,
    "meaningful": true,
    "stable": true,
    "note": "",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "calls_per_task",
@@ -260,26 +260,26 @@
    "stable": true,
    "note": "",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
-   "axis": "latency_warm_ms",
+   "axis": "latency_call_ms",
    "runs": [
-    0.16,
-    0.15,
-    0.15
+    0.4,
+    0.34,
+    0.29
    ],
-   "measured": 0.15,
-   "spread": 0.010000000000000009,
-   "jcm": 21.73,
-   "jcm_spread": 0.08999999999999986,
-   "delta": 0.0069,
-   "band": 1.0865,
-   "meaningful": true,
-   "stable": true,
-   "note": "",
+   "measured": 0.34,
+   "spread": 0.11000000000000004,
+   "jcm": 22.88,
+   "jcm_spread": 0.7399999999999984,
+   "delta": 0.0149,
+   "band": 2.22,
+   "meaningful": false,
+   "stable": false,
+   "note": "unstable: a spread exceeds 10% of its own median",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "index_cold_seconds",
@@ -290,15 +290,15 @@
    ],
    "measured": null,
    "spread": null,
-   "jcm": 2.5563368999864906,
-   "jcm_spread": 0.07559769996441901,
+   "jcm": 3.1060083999764174,
+   "jcm_spread": 0.19294420001097023,
    "delta": null,
    "band": null,
    "meaningful": false,
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "tools_list_tokens",
@@ -317,26 +317,26 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P1",
    "runs": [
-    0.6538333333333334,
-    0.6538333333333334,
-    0.6538333333333334
+    0.26693333333333336,
+    0.26693333333333336,
+    0.26693333333333336
    ],
-   "measured": 0.6538333333333334,
+   "measured": 0.26693333333333336,
    "spread": 0.0,
-   "jcm": 0.6349,
+   "jcm": 0.3333,
    "jcm_spread": 0.0,
-   "delta": 0.0189,
-   "band": 0.0317,
-   "meaningful": false,
+   "delta": -0.0664,
+   "band": 0.0167,
+   "meaningful": true,
    "stable": true,
    "note": "",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P2",
@@ -355,7 +355,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P4",
@@ -374,7 +374,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P5",
@@ -393,7 +393,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "null_grep",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "tokens_per_task",
@@ -412,7 +412,7 @@
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "calls_per_task",
@@ -431,45 +431,45 @@
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
-   "axis": "latency_warm_ms",
+   "axis": "latency_call_ms",
    "runs": [
-    21.77,
-    21.68,
-    21.73
+    22.41,
+    22.88,
+    23.15
    ],
-   "measured": 21.73,
-   "spread": 0.08999999999999986,
-   "jcm": 21.73,
-   "jcm_spread": 0.08999999999999986,
+   "measured": 22.88,
+   "spread": 0.7399999999999984,
+   "jcm": 22.88,
+   "jcm_spread": 0.7399999999999984,
    "delta": 1.0,
-   "band": 1.0865,
+   "band": 2.22,
    "meaningful": false,
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "index_cold_seconds",
    "runs": [
-    2.5563368999864906,
-    2.630688500008546,
-    2.555090800044127
+    3.1060083999764174,
+    3.092178500024602,
+    3.285122700035572
    ],
-   "measured": 2.5563368999864906,
-   "spread": 0.07559769996441901,
-   "jcm": 2.5563368999864906,
-   "jcm_spread": 0.07559769996441901,
+   "measured": 3.1060083999764174,
+   "spread": 0.19294420001097023,
+   "jcm": 3.1060083999764174,
+   "jcm_spread": 0.19294420001097023,
    "delta": 1.0,
-   "band": 0.2268,
+   "band": 0.5788,
    "meaningful": false,
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "tools_list_tokens",
@@ -488,26 +488,26 @@
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P1",
    "runs": [
-    0.6349,
-    0.6349,
-    0.6349
+    0.3333,
+    0.3333,
+    0.3333
    ],
-   "measured": 0.6349,
+   "measured": 0.3333,
    "spread": 0.0,
-   "jcm": 0.6349,
+   "jcm": 0.3333,
    "jcm_spread": 0.0,
    "delta": 0.0,
-   "band": 0.0317,
+   "band": 0.0167,
    "meaningful": false,
    "stable": true,
    "note": "",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P2",
@@ -526,7 +526,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P4",
@@ -545,7 +545,7 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   },
   {
    "axis": "f1_P5",
@@ -564,20 +564,20 @@
    "stable": null,
    "note": "NOT COMPARABLE",
    "tool": "jcodemunch",
-   "corpus": "self@fd4d5bf"
+   "corpus": "self@cdc6542"
   }
  ],
  "runs": [
   {
    "null_readall": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 944076,
+      "tokens_per_task": 940128,
       "calls_per_task": 275,
-      "latency_warm_ms": 28.94,
+      "latency_call_ms": 35.96,
       "tools_list_tokens": null,
       "f1_P1": 0.0,
       "f1_P2": null,
@@ -588,10 +588,10 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.34
+        34.19
        ],
        "cited": 0,
        "f1": null,
@@ -600,10 +600,10 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.33
+        36.1
        ],
        "cited": 0,
        "f1": null,
@@ -612,10 +612,10 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        30.08
+        32.91
        ],
        "cited": 0,
        "f1": null,
@@ -624,10 +624,10 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        27.92
+        35.82
        ],
        "cited": 0,
        "f1": null,
@@ -636,10 +636,10 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.5
+        36.12
        ],
        "cited": 0,
        "f1": null,
@@ -648,10 +648,10 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.5
+        37.46
        ],
        "cited": 0,
        "f1": 0.0,
@@ -660,10 +660,10 @@
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.7
+        34.53
        ],
        "cited": 0,
        "f1": 0.0,
@@ -672,10 +672,10 @@
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.17
+        38.42
        ],
        "cited": 0,
        "f1": 0.0,
@@ -686,16 +686,16 @@
     }
    },
    "null_grep": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 36670.25,
+      "tokens_per_task": 36632.625,
       "calls_per_task": 3.75,
-      "latency_warm_ms": 0.16,
+      "latency_call_ms": 0.4,
       "tools_list_tokens": null,
-      "f1_P1": 0.6538333333333334,
+      "f1_P1": 0.26693333333333336,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -704,13 +704,13 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 16993,
+       "tokens": 16948,
        "calls": 4,
        "latency_ms": [
-        95.03,
-        0.17,
-        0.14,
-        0.12
+        113.64,
+        0.24,
+        0.22,
+        0.23
        ],
        "cited": 211,
        "f1": null,
@@ -719,13 +719,13 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 9455,
+       "tokens": 9412,
        "calls": 4,
        "latency_ms": [
-        67.25,
-        0.11,
-        0.09,
-        0.1
+        83.75,
+        0.33,
+        0.25,
+        0.29
        ],
        "cited": 33,
        "f1": null,
@@ -734,13 +734,13 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 80206,
+       "tokens": 80167,
        "calls": 4,
        "latency_ms": [
-        84.11,
-        0.28,
+        102.61,
+        0.53,
         0.47,
-        0.33
+        0.26
        ],
        "cited": 224,
        "f1": null,
@@ -749,13 +749,13 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 20100,
+       "tokens": 20056,
        "calls": 4,
        "latency_ms": [
-        86.9,
-        0.19,
-        0.14,
-        0.14
+        102.56,
+        0.35,
+        0.17,
+        0.17
        ],
        "cited": 106,
        "f1": null,
@@ -764,13 +764,13 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 45874,
+       "tokens": 45833,
        "calls": 4,
        "latency_ms": [
-        81.42,
-        0.3,
-        0.17,
-        0.14
+        99.75,
+        0.39,
+        0.23,
+        0.16
        ],
        "cited": 140,
        "f1": null,
@@ -779,44 +779,44 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 73181,
+       "tokens": 73141,
        "calls": 4,
        "latency_ms": [
-        69.91,
-        0.26,
-        0.29,
-        0.32
+        81.96,
+        0.54,
+        0.4,
+        0.26
        ],
        "cited": 10,
-       "f1": 0.4615,
+       "f1": 0.1818,
        "error": null
       },
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 43985,
+       "tokens": 43948,
        "calls": 4,
        "latency_ms": [
-        69.39,
-        0.13,
-        0.11,
-        0.29
+        88.42,
+        0.41,
+        0.22,
+        0.52
        ],
        "cited": 6,
-       "f1": 0.5,
+       "f1": 0.2857,
        "error": null
       },
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 3568,
+       "tokens": 3556,
        "calls": 2,
        "latency_ms": [
-        69.44,
-        0.1
+        89.95,
+        0.43
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],
@@ -824,16 +824,16 @@
     }
    },
    "jcodemunch": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
-      "index_cold_seconds": 2.5563368999864906,
+      "index_cold_seconds": 3.1060083999764174,
       "index_ok": true,
       "files_indexed": 275,
       "tokens_per_task": 2025.875,
       "calls_per_task": 4,
-      "latency_warm_ms": 21.77,
+      "latency_call_ms": 22.41,
       "tools_list_tokens": 22741,
-      "f1_P1": 0.6349,
+      "f1_P1": 0.3333,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -845,10 +845,10 @@
        "tokens": 1868,
        "calls": 4,
        "latency_ms": [
-        624.45,
-        23.06,
-        20.5,
-        19.36
+        711.1,
+        25.35,
+        22.03,
+        29.09
        ],
        "cited": 5,
        "f1": null,
@@ -860,10 +860,10 @@
        "tokens": 1639,
        "calls": 4,
        "latency_ms": [
-        4.98,
-        13.78,
-        22.49,
-        17.94
+        6.49,
+        24.6,
+        20.82,
+        18.36
        ],
        "cited": 5,
        "f1": null,
@@ -875,10 +875,10 @@
        "tokens": 1491,
        "calls": 4,
        "latency_ms": [
-        22.85,
-        25.07,
-        22.69,
-        28.11
+        24.05,
+        18.81,
+        17.61,
+        46.46
        ],
        "cited": 5,
        "f1": null,
@@ -890,10 +890,10 @@
        "tokens": 2289,
        "calls": 4,
        "latency_ms": [
-        4.02,
-        50.5,
-        11.25,
-        21.04
+        7.64,
+        23.91,
+        14.72,
+        24.25
        ],
        "cited": 5,
        "f1": null,
@@ -905,10 +905,10 @@
        "tokens": 1356,
        "calls": 4,
        "latency_ms": [
-        3.81,
-        13.14,
-        23.91,
-        27.67
+        5.74,
+        23.79,
+        68.97,
+        35.14
        ],
        "cited": 5,
        "f1": null,
@@ -920,13 +920,13 @@
        "tokens": 1887,
        "calls": 4,
        "latency_ms": [
-        9.53,
-        2.04,
-        30.56,
-        12.44
+        22.29,
+        12.1,
+        33.33,
+        22.54
        ],
        "cited": 5,
-       "f1": 0.5714,
+       "f1": 0.3333,
        "error": null
       },
       {
@@ -935,10 +935,10 @@
        "tokens": 2409,
        "calls": 4,
        "latency_ms": [
-        7.97,
-        23.76,
-        40.21,
-        2.34
+        13.48,
+        23.71,
+        52.94,
+        2.49
        ],
        "cited": 5,
        "f1": 0.3333,
@@ -950,13 +950,13 @@
        "tokens": 3268,
        "calls": 4,
        "latency_ms": [
-        3.04,
-        26.76,
-        2.23,
-        2.1
+        2.92,
+        29.62,
+        2.32,
+        2.36
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],
@@ -966,14 +966,14 @@
   },
   {
    "null_readall": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 944076,
+      "tokens_per_task": 940128,
       "calls_per_task": 275,
-      "latency_warm_ms": 28.73,
+      "latency_call_ms": 35.27,
       "tools_list_tokens": null,
       "f1_P1": 0.0,
       "f1_P2": null,
@@ -984,10 +984,10 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.76
+        36.1
        ],
        "cited": 0,
        "f1": null,
@@ -996,10 +996,10 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.18
+        35.94
        ],
        "cited": 0,
        "f1": null,
@@ -1008,10 +1008,10 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        30.37
+        34.61
        ],
        "cited": 0,
        "f1": null,
@@ -1020,10 +1020,10 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.54
+        33.67
        ],
        "cited": 0,
        "f1": null,
@@ -1032,10 +1032,10 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        30.76
+        34.59
        ],
        "cited": 0,
        "f1": null,
@@ -1044,10 +1044,10 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.57
+        44.89
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1056,10 +1056,10 @@
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.9
+        37.48
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1068,10 +1068,10 @@
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        27.98
+        34.16
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1082,16 +1082,16 @@
     }
    },
    "null_grep": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 36670.25,
+      "tokens_per_task": 36632.625,
       "calls_per_task": 3.75,
-      "latency_warm_ms": 0.15,
+      "latency_call_ms": 0.34,
       "tools_list_tokens": null,
-      "f1_P1": 0.6538333333333334,
+      "f1_P1": 0.26693333333333336,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -1100,13 +1100,13 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 16993,
+       "tokens": 16948,
        "calls": 4,
        "latency_ms": [
-        95.55,
-        0.15,
-        0.13,
-        0.12
+        122.83,
+        0.28,
+        0.17,
+        0.15
        ],
        "cited": 211,
        "f1": null,
@@ -1115,13 +1115,13 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 9455,
+       "tokens": 9412,
        "calls": 4,
        "latency_ms": [
-        68.09,
-        0.1,
-        0.09,
-        0.12
+        88.57,
+        0.2,
+        0.13,
+        0.15
        ],
        "cited": 33,
        "f1": null,
@@ -1130,13 +1130,13 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 80206,
+       "tokens": 80167,
        "calls": 4,
        "latency_ms": [
-        84.72,
-        0.31,
-        0.52,
-        0.22
+        102.19,
+        1.15,
+        1.13,
+        0.52
        ],
        "cited": 224,
        "f1": null,
@@ -1145,13 +1145,13 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 20100,
+       "tokens": 20056,
        "calls": 4,
        "latency_ms": [
-        83.73,
-        0.23,
-        0.15,
-        0.15
+        115.47,
+        0.35,
+        0.25,
+        0.22
        ],
        "cited": 106,
        "f1": null,
@@ -1160,13 +1160,13 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 45874,
+       "tokens": 45833,
        "calls": 4,
        "latency_ms": [
-        81.84,
-        0.29,
-        0.17,
-        0.1
+        111.92,
+        0.49,
+        0.23,
+        0.13
        ],
        "cited": 140,
        "f1": null,
@@ -1175,44 +1175,44 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 73181,
+       "tokens": 73141,
        "calls": 4,
        "latency_ms": [
-        71.09,
-        0.3,
-        0.21,
-        0.25
+        85.93,
+        0.34,
+        0.28,
+        0.27
        ],
        "cited": 10,
-       "f1": 0.4615,
+       "f1": 0.1818,
        "error": null
       },
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 43985,
+       "tokens": 43948,
        "calls": 4,
        "latency_ms": [
-        70.5,
-        0.13,
-        0.11,
-        0.27
+        86.69,
+        0.4,
+        0.22,
+        0.72
        ],
        "cited": 6,
-       "f1": 0.5,
+       "f1": 0.2857,
        "error": null
       },
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 3568,
+       "tokens": 3556,
        "calls": 2,
        "latency_ms": [
-        67.77,
+        78.05,
         0.13
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],
@@ -1220,16 +1220,16 @@
     }
    },
    "jcodemunch": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
-      "index_cold_seconds": 2.630688500008546,
+      "index_cold_seconds": 3.092178500024602,
       "index_ok": true,
       "files_indexed": 275,
       "tokens_per_task": 2025.875,
       "calls_per_task": 4,
-      "latency_warm_ms": 21.68,
+      "latency_call_ms": 22.88,
       "tools_list_tokens": 22741,
-      "f1_P1": 0.6349,
+      "f1_P1": 0.3333,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -1241,10 +1241,10 @@
        "tokens": 1868,
        "calls": 4,
        "latency_ms": [
-        634.88,
-        23.31,
-        22.63,
-        24.47
+        761.92,
+        25.68,
+        21.94,
+        27.91
        ],
        "cited": 5,
        "f1": null,
@@ -1256,10 +1256,10 @@
        "tokens": 1639,
        "calls": 4,
        "latency_ms": [
-        3.79,
-        13.89,
-        17.38,
-        19.24
+        5.29,
+        25.41,
+        21.3,
+        19.77
        ],
        "cited": 5,
        "f1": null,
@@ -1271,10 +1271,10 @@
        "tokens": 1491,
        "calls": 4,
        "latency_ms": [
-        19.89,
-        27.33,
-        21.82,
-        69.58
+        22.91,
+        25.96,
+        16.94,
+        42.38
        ],
        "cited": 5,
        "f1": null,
@@ -1286,10 +1286,10 @@
        "tokens": 2289,
        "calls": 4,
        "latency_ms": [
-        4.78,
-        29.41,
-        13.81,
-        22.08
+        10.06,
+        23.51,
+        22.85,
+        26.41
        ],
        "cited": 5,
        "f1": null,
@@ -1301,10 +1301,10 @@
        "tokens": 1356,
        "calls": 4,
        "latency_ms": [
-        4.28,
-        18.53,
-        21.53,
-        32.29
+        10.42,
+        21.16,
+        27.84,
+        24.7
        ],
        "cited": 5,
        "f1": null,
@@ -1316,13 +1316,13 @@
        "tokens": 1887,
        "calls": 4,
        "latency_ms": [
-        15.26,
-        2.15,
-        32.84,
-        12.39
+        27.66,
+        9.64,
+        105.69,
+        21.47
        ],
        "cited": 5,
-       "f1": 0.5714,
+       "f1": 0.3333,
        "error": null
       },
       {
@@ -1331,10 +1331,10 @@
        "tokens": 2409,
        "calls": 4,
        "latency_ms": [
-        9.95,
-        19.03,
-        35.81,
-        2.3
+        15.77,
+        27.67,
+        44.41,
+        12.82
        ],
        "cited": 5,
        "f1": 0.3333,
@@ -1346,13 +1346,13 @@
        "tokens": 3268,
        "calls": 4,
        "latency_ms": [
-        2.88,
-        27.22,
-        1.85,
-        1.81
+        13.48,
+        37.88,
+        9.09,
+        9.5
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],
@@ -1362,14 +1362,14 @@
   },
   {
    "null_readall": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 944076,
+      "tokens_per_task": 940128,
       "calls_per_task": 275,
-      "latency_warm_ms": 29.07,
+      "latency_call_ms": 40.64,
       "tools_list_tokens": null,
       "f1_P1": 0.0,
       "f1_P2": null,
@@ -1380,10 +1380,10 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        30.29
+        69.92
        ],
        "cited": 0,
        "f1": null,
@@ -1392,10 +1392,10 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        30.9
+        49.97
        ],
        "cited": 0,
        "f1": null,
@@ -1404,10 +1404,10 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.05
+        72.01
        ],
        "cited": 0,
        "f1": null,
@@ -1416,10 +1416,10 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.38
+        43.5
        ],
        "cited": 0,
        "f1": null,
@@ -1428,10 +1428,10 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        29.31
+        35.86
        ],
        "cited": 0,
        "f1": null,
@@ -1440,10 +1440,10 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        27.63
+        34.19
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1452,10 +1452,10 @@
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        28.84
+        32.83
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1464,10 +1464,10 @@
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 944076,
+       "tokens": 940128,
        "calls": 275,
        "latency_ms": [
-        27.94
+        37.77
        ],
        "cited": 0,
        "f1": 0.0,
@@ -1478,16 +1478,16 @@
     }
    },
    "null_grep": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
       "index_cold_seconds": null,
       "index_ok": true,
       "files_indexed": 275,
-      "tokens_per_task": 36670.25,
+      "tokens_per_task": 36632.625,
       "calls_per_task": 3.75,
-      "latency_warm_ms": 0.15,
+      "latency_call_ms": 0.29,
       "tools_list_tokens": null,
-      "f1_P1": 0.6538333333333334,
+      "f1_P1": 0.26693333333333336,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -1496,13 +1496,13 @@
       {
        "task": "self-T-router",
        "category": "T",
-       "tokens": 16993,
+       "tokens": 16948,
        "calls": 4,
        "latency_ms": [
-        94.8,
+        116.95,
+        0.23,
         0.15,
-        0.12,
-        0.11
+        0.24
        ],
        "cited": 211,
        "f1": null,
@@ -1511,13 +1511,13 @@
       {
        "task": "self-T-middleware",
        "category": "T",
-       "tokens": 9455,
+       "tokens": 9412,
        "calls": 4,
        "latency_ms": [
-        70.84,
-        0.1,
-        0.09,
-        0.11
+        88.57,
+        0.13,
+        0.11,
+        0.12
        ],
        "cited": 33,
        "f1": null,
@@ -1526,13 +1526,13 @@
       {
        "task": "self-T-error",
        "category": "T",
-       "tokens": 80206,
+       "tokens": 80167,
        "calls": 4,
        "latency_ms": [
-        81.33,
-        0.32,
-        0.46,
-        0.21
+        102.79,
+        0.49,
+        0.5,
+        0.34
        ],
        "cited": 224,
        "f1": null,
@@ -1541,13 +1541,13 @@
       {
        "task": "self-T-request",
        "category": "T",
-       "tokens": 20100,
+       "tokens": 20056,
        "calls": 4,
        "latency_ms": [
-        85.04,
-        0.16,
-        0.12,
-        0.1
+        95.19,
+        0.2,
+        0.15,
+        0.11
        ],
        "cited": 106,
        "f1": null,
@@ -1556,13 +1556,13 @@
       {
        "task": "self-T-context",
        "category": "T",
-       "tokens": 45874,
+       "tokens": 45833,
        "calls": 4,
        "latency_ms": [
-        83.45,
-        0.29,
-        0.2,
-        0.12
+        105.42,
+        0.43,
+        0.23,
+        0.19
        ],
        "cited": 140,
        "f1": null,
@@ -1571,44 +1571,44 @@
       {
        "task": "self-P1-cache_put",
        "category": "P1",
-       "tokens": 73181,
+       "tokens": 73141,
        "calls": 4,
        "latency_ms": [
-        71.99,
-        0.42,
-        0.23,
-        0.21
+        85.4,
+        0.37,
+        0.25,
+        0.23
        ],
        "cited": 10,
-       "f1": 0.4615,
+       "f1": 0.1818,
        "error": null
       },
       {
        "task": "self-P1-validate_path",
        "category": "P1",
-       "tokens": 43985,
+       "tokens": 43948,
        "calls": 4,
        "latency_ms": [
-        70.22,
-        0.15,
-        0.12,
-        0.28
+        100.26,
+        0.31,
+        0.17,
+        0.35
        ],
        "cited": 6,
-       "f1": 0.5,
+       "f1": 0.2857,
        "error": null
       },
       {
        "task": "self-P1-ProgressReporter",
        "category": "P1",
-       "tokens": 3568,
+       "tokens": 3556,
        "calls": 2,
        "latency_ms": [
-        70.31,
-        0.11
+        85.57,
+        0.27
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],
@@ -1616,16 +1616,16 @@
     }
    },
    "jcodemunch": {
-    "self@fd4d5bf": {
+    "self@cdc6542": {
      "axes": {
-      "index_cold_seconds": 2.555090800044127,
+      "index_cold_seconds": 3.285122700035572,
       "index_ok": true,
       "files_indexed": 275,
       "tokens_per_task": 2025.875,
       "calls_per_task": 4,
-      "latency_warm_ms": 21.73,
+      "latency_call_ms": 23.15,
       "tools_list_tokens": 22741,
-      "f1_P1": 0.6349,
+      "f1_P1": 0.3333,
       "f1_P2": null,
       "f1_P4": null,
       "f1_P5": null
@@ -1637,10 +1637,10 @@
        "tokens": 1868,
        "calls": 4,
        "latency_ms": [
-        616.58,
-        22.7,
-        21.66,
-        21.49
+        766.94,
+        23.57,
+        22.8,
+        23.13
        ],
        "cited": 5,
        "f1": null,
@@ -1652,10 +1652,10 @@
        "tokens": 1639,
        "calls": 4,
        "latency_ms": [
-        4.65,
-        14.64,
-        19.57,
-        19.36
+        5.52,
+        22.36,
+        23.22,
+        23.02
        ],
        "cited": 5,
        "f1": null,
@@ -1667,10 +1667,10 @@
        "tokens": 1491,
        "calls": 4,
        "latency_ms": [
-        13.05,
-        25.61,
-        17.45,
-        26.46
+        20.37,
+        26.28,
+        24.36,
+        39.39
        ],
        "cited": 5,
        "f1": null,
@@ -1682,10 +1682,10 @@
        "tokens": 2289,
        "calls": 4,
        "latency_ms": [
-        3.59,
-        23.63,
-        44.84,
-        21.8
+        5.94,
+        29.04,
+        73.38,
+        27.86
        ],
        "cited": 5,
        "f1": null,
@@ -1697,10 +1697,10 @@
        "tokens": 1356,
        "calls": 4,
        "latency_ms": [
-        3.88,
-        13.3,
-        23.2,
-        24.64
+        5.34,
+        22.24,
+        23.97,
+        36.88
        ],
        "cited": 5,
        "f1": null,
@@ -1712,13 +1712,13 @@
        "tokens": 1887,
        "calls": 4,
        "latency_ms": [
-        10.74,
-        2.02,
-        28.05,
-        22.55
+        23.17,
+        5.9,
+        30.5,
+        16.62
        ],
        "cited": 5,
-       "f1": 0.5714,
+       "f1": 0.3333,
        "error": null
       },
       {
@@ -1727,10 +1727,10 @@
        "tokens": 2409,
        "calls": 4,
        "latency_ms": [
-        8.62,
-        20.28,
-        38.48,
-        1.9
+        13.49,
+        23.6,
+        27.44,
+        3.7
        ],
        "cited": 5,
        "f1": 0.3333,
@@ -1742,13 +1742,13 @@
        "tokens": 3268,
        "calls": 4,
        "latency_ms": [
-        2.57,
-        27.12,
-        1.98,
-        1.92
+        4.75,
+        24.97,
+        2.5,
+        2.42
        ],
        "cited": 5,
-       "f1": 1.0,
+       "f1": 0.3333,
        "error": null
       }
      ],

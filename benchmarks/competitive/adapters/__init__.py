@@ -1,2 +1,9 @@
-"""Adapters of the competitive tier. One module per tool; `make()` returns the
-adapter. See ../adapter.py for the interface and docs/competitive/DESIGN.md s1."""
+"""Adapters of the competitive tier: one module per tool, `make()` returns it.
+
+purpose:  the package the runner imports adapters from, by name (adapter.REGISTRY)
+invokes:  nothing
+produces: nothing
+refuses:  nothing
+pinned:   n/a
+fairness: each module carries its own header; docs/competitive/DESIGN.md s1
+"""

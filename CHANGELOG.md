@@ -21,6 +21,14 @@ of the two spreads and THEN each row was judged stable against it, so an
 unstable competitor triple (50, 100, 300) widened its own band to 750 and
 read as stable. Stability is judged first now, against the row's own
 median, and an unstable row is never a meaningful gap in either direction.
+The reviewer then found two more places the first draft leaned our way
+without saying so: our own adapter indexed with context providers OFF
+while its header said "shipped defaults" (they ship ON; the adapter runs
+them now), and F1 matched cited lines to expected lines many-to-many, so a
+tool that cites every matching line, which grep does by construction, was
+paid once per citation for a single hit. Matching is one-to-one now and the
+read-all row scores a real precision (expected over corpus lines) instead
+of a floor typed as 0.0.
 `tests/test_competitive_tier.py` pins that pair, the F1 tolerance rule, the
 grep baseline's ranking and whole-file reads (ARCHAEOLOGY R24-R26), and the
 end-to-end result file.

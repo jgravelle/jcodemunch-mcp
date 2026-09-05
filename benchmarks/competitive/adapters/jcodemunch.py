@@ -3,7 +3,9 @@
 purpose:  our own row, driven the way our docs say (ARCHAEOLOGY R27, R28):
           search_symbols(max_results=5) then get_symbol_source on the top 3
           for P1 and T; find_references for P2; find_importers for P4;
-          shipped defaults, AI summaries off, no config file
+          shipped defaults (context providers ON, as index_folder ships them;
+          the self-latency harness turns them off and this adapter does not),
+          AI summaries off (R28), no config file
 invokes:  a FRESH SUBPROCESS per run that indexes the corpus into a scratch
           CODE_INDEX_PATH and answers every task (a cold index in-process
           is not cold: the IndexStore LRU keeps the previous .db open,
@@ -40,7 +42,7 @@ from jcodemunch_mcp.tools.index_folder import index_folder
 corpus, store, tasks_json = sys.argv[1], sys.argv[2], sys.argv[3]
 tasks = json.loads(open(tasks_json, encoding="utf-8").read())
 t = time.perf_counter()
-r = index_folder(path=corpus, use_ai_summaries=False, context_providers=False, storage_path=store)
+r = index_folder(path=corpus, use_ai_summaries=False, storage_path=store)
 idx = {"secs": time.perf_counter() - t, "repo": r.get("repo"), "success": r.get("success"),
        "file_count": r.get("file_count"), "symbol_count": r.get("symbol_count"), "error": r.get("error")}
 out = {"index": idx, "answers": {}}

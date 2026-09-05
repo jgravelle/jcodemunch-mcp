@@ -65,8 +65,8 @@ def test_null_grep_ranks_by_match_count_then_path_and_reads_whole_files(tmp_path
     a = null_grep.make()
     ans = a.answer(c, Task(id="t", corpus=c.id, category="P2", query="alpha"), tmp_path)
     # b.py has 3 matching lines, a.py has 1, c.py none: list then the two files whole
-    assert ans.payload.startswith("b.py\na.py\n### b.py\n")
-    assert "### a.py\n" in ans.payload and "### c.py" not in ans.payload
+    assert ans.payload.startswith("b.py\na.py\nfrom a import alpha\n")  # list, then b.py bare
+    assert "def alpha():" in ans.payload and "x = 1" not in ans.payload  # a.py read, c.py not
     assert ans.calls == 3  # the grep plus two files (only two matched)
     assert ("b.py", 3) in ans.cited and ("a.py", 1) in ans.cited
     again = a.answer(c, Task(id="t", corpus=c.id, category="P2", query="alpha"), tmp_path)
@@ -78,7 +78,7 @@ def test_null_readall_pays_the_whole_corpus_and_cites_everything(tmp_path):
     ans = null_readall.make().answer(c, Task(id="t", corpus=c.id, category="T", query="x"), tmp_path)
     assert ans.cites_all and ans.calls == 3
     for rel in c.files:
-        assert f"### {rel}\n" in ans.payload
+        assert (c.path / rel).read_text(encoding="utf-8") in ans.payload
 
 
 def test_f1_counts_an_expected_hit_once_and_a_stray_citation_against_precision():
@@ -88,7 +88,12 @@ def test_f1_counts_an_expected_hit_once_and_a_stray_citation_against_precision()
     assert f1([("a.py", 10), ("z.py", 1)], exp, tolerance=0) == pytest.approx(0.6667, abs=1e-3)
     assert f1([], exp, tolerance=0) == 0.0
     assert f1([("a.py", 10)], [], tolerance=0) is None
-    assert f1([], exp, tolerance=0, cites_all=True) == 0.0
+    assert f1([], exp, tolerance=0, cites_all=True) == 0.0  # no corpus size: floor
+    assert f1([], exp, tolerance=0, cites_all=True, corpus_lines=100) == pytest.approx(2 * 0.01 / 1.01, abs=1e-4)
+    # ONE-TO-ONE: two citations beside one expected line are one hit and one stray;
+    # one citation cannot credit two expected lines (the many-to-many draft gave 1.0 to both)
+    assert f1([("a.py", 10), ("a.py", 11)], exp, tolerance=2) == pytest.approx(0.6667, abs=1e-3)
+    assert f1([("a.py", 10)], [("a.py", 9), ("a.py", 11)], tolerance=2) == pytest.approx(0.6667, abs=1e-3)
 
 
 def test_band_and_meaningful_follow_the_harness_rule():

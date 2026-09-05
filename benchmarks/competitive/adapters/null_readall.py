@@ -6,8 +6,9 @@ invokes:  the corpus files through adapter.read_file
 produces: an Answer whose payload is the whole corpus, cites_all=True
 refuses:  nothing; it answers every category by construction
 pinned:   registry "none", the tree itself
-fairness: DESIGN s1.2. Its F1 is the precision floor and is reported, not
-          scored against anyone.
+fairness: DESIGN s1.2. Its F1 is scored like every row: recall 1 by
+          construction, precision = expected lines over corpus lines, so it
+          is the floor every tool must clear and it sits on every table.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ class NullReadAll:
 
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer:
         t0 = time.perf_counter()
-        payload = "".join(f"### {rel}\n{read_file(corpus, rel)}\n" for rel in corpus.files)
+        payload = "".join(read_file(corpus, rel) for rel in corpus.files)  # bare, as run_benchmark.py counts it
         ms = (time.perf_counter() - t0) * 1000
         return Answer(
             payload=payload,
