@@ -23,8 +23,10 @@ package's re-export to the module that defines `x`, and our P4 task had
 counted textual importers only. The truth is the union now, computed from
 source by AST, and on it our `find_importers` finds 8 of 29.
 
-Then the closest peer led on every comparable axis of the self corpus
-(CF-20, all deltas outside the band): 61% of our tokens per task, a
+Then the closest peer led on every quality and token axis of the self
+corpus (CF-20, `results/2026-09-05-73fbd7cf.json`, each of those deltas
+outside the band; the latency and cold-index rows of every tool were
+unstable in that run and are not claimed): 59% of our tokens per task, a
 `tools/list` a fifth the weight of our shipped `full` surface, twice our
 F1 on definitions, 1.0 against our 0 on references, 0.98 against our 0.43
 on importers. Recorded as four `competitive-gap` candidates against us and
