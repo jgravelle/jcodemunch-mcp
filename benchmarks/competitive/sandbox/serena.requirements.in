@@ -1,0 +1,4 @@
+# docs/competitive/fairness/serena.md; regenerate the lockfile with
+#   uv pip compile serena.requirements.in --generate-hashes --python-platform linux --python-version 3.13 --no-annotate -o serena.requirements.txt
+serena-agent==1.7.0
+pyright==1.1.403
