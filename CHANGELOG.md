@@ -10,7 +10,7 @@ schema weight every MCP server pays, counted in the shape the field's
 tool-definition benchmark uses), then each task's `tools/call`, every
 round trip timed. codebase-memory-mcp is driven through it the way its
 own `mcpServers` entry drives it, from the release's portable archive
-verified against its published checksum (the PyPI wheel is a 14 KB
+verified against its published checksum (the PyPI wheel is a
 launcher that fetches the runtime on first run, a network step the sandbox
 forbids after build). The tool refuses a cache it does not own, so the
 sandbox gained one more mount, a uid-owned 0700 tmpfs, pinned in the test

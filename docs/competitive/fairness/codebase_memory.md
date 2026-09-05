@@ -40,7 +40,7 @@ tokens vs ~412,000 via file-by-file search" (a claim, recorded as one).
 
 - **Install**: the `linux-amd64-portable` release archive, verified against
   the published `checksums.txt` (`6eef4965…`) at image build, the binary
-  copied to `/usr/local/bin`. Not the PyPI package: its wheel is 14 KB and
+  copied to `/usr/local/bin`. Not the PyPI package: its wheel is a launcher and
   fetches the native runtime on first run, a network step this sandbox
   forbids after build. Not the non-portable archive: it needs glibc 2.38
   and the pinned base is bookworm (2.36). The installer script is not run
@@ -48,8 +48,8 @@ tokens vs ~412,000 via file-by-file search" (a claim, recorded as one).
 - **Mode**: the MCP server over stdio, driven by `mcp_driver.py` inside the
   container, because that is the documented primary integration (the
   `mcpServers` entry) and because the CLI mode starts a temporary daemon
-  per command that its own hint says costs seconds (measured: about 1.3 s
-  of startup per CLI command, 4 s when it indexes). The daemon it starts
+  per command that its own hint says costs seconds (seen in a hand probe in the sandbox, seconds per command and more
+  when it indexes; no result row measures it). The daemon it starts
   lives and dies inside the container. Per-call latency is a stdio round
   trip, the same thing an agent waits for.
 - **Private home**: the tool refuses a cache under a directory it does not

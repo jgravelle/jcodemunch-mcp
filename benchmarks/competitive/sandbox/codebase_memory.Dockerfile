@@ -16,14 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && echo "${CBM_SHA256}  /tmp/cbm.tar.gz" | sha256sum -c - \
     && mkdir -p /tmp/cbm && tar -xzf /tmp/cbm.tar.gz -C /tmp/cbm \
     && ls -la /tmp/cbm \
-    && install -m 0755 "$(find /tmp/cbm -type f -name 'codebase-memory-mcp*' ! -name '*.sh' ! -name '*.ps1' ! -name '*.md' | head -1)" /usr/local/bin/codebase-memory-mcp \
+    && install -m 0755 "$(find /tmp/cbm -type f -perm /111 -name 'codebase-memory-mcp*' ! -name '*.sh' ! -name '*.ps1' | head -1)" /usr/local/bin/codebase-memory-mcp \
     && rm -rf /tmp/cbm /tmp/cbm.tar.gz \
     && apt-get purge -y curl && apt-get autoremove -y
 COPY mcp_driver.py /opt/mcp_driver.py
 # The run mounts the corpus read-only at /corpus, one writable /out and a
 # uid-owned 0700 tmpfs at /private (sandbox.run private_home=True): the tool
 # refuses a cache whose parent it does not own, which the /out bind mount is. HOME
-# points at /out so its cache (~/.cache/codebase-memory-mcp) lands there.
+# and CBM_CACHE_DIR point at /private so the cache is written there (CF-21).
 ENV HOME=/private CBM_CACHE_DIR=/private/cbm-cache
 USER 65534:65534
 WORKDIR /corpus
