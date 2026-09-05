@@ -96,10 +96,15 @@ answer a task pays for every call, as an agent would (R17's spirit).
   files. This is the agent-with-its-own-tools alternative and it is the row
   every competitor must beat to be worth installing.
 
-Both reuse `run_benchmark.py`'s reader so the file set is identical to the
-published benchmark (R22, R34). Item 1 proves the tier end to end with only
-these two and jCodeMunch: the result file exists, the schema validates, the
-three-run spread is recorded.
+Both read the corpus's tracked text files (`git ls-files`, binaries
+skipped): what an agent with no tool could open. Not the index's file
+list that `run_benchmark.py` shares with the RAG comparators (R22, R34):
+PR 2a found that our own size cap withheld `server.py` from every row,
+the competitor's ground truth included (FINDINGS CF-5), so the null rows
+here are larger than the published benchmark's and say so. Each tool
+indexes what it wants and reports `files_indexed`. Item 1 proves the tier
+end to end with only these two and jCodeMunch: the result file exists,
+the schema validates, the three-run spread is recorded.
 
 ### 1.3 The eight adapters (Phase 3 item 2, one PR each)
 
