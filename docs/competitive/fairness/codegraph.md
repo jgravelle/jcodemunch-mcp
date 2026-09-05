@@ -149,25 +149,28 @@ build and cache directories, `.gitignore`, files over 1 MB.
 
 ## What we could not make work
 
-Nothing of the tool's is broken. Probe figures (2026-09-05, self corpus,
-one container each, not results):
+Nothing of the tool's is broken. Probe figures (2026-09-05, the FULL
+working tree of this checkout, not the 277-file pinned corpus the rows
+use; one container each, not results):
 
-- `codegraph init --yes` on the tmpfs copy: exit 0 in 4.08 s wall; its
+- `codegraph init --yes` on the tmpfs copy of the full tree: exit 0 in 4.08 s wall; its
   own log "Indexed 1,022 files ... 22,999 nodes, 57,032 edges in 1.4s"
   and `status` "Files: 1,022" (it indexes tests, benchmarks and YAML the
   corpus digest also covers; `files_indexed` reports the tool's count).
 - `initialize` 108.8 ms; `serverInfo` reads `codegraph 1.6.0`, the tool's
   own version (the CF-26/CF-30 shape does not recur here).
 - `tools/list` under the README's example allowlist: 4 tools, 1,523
-  tokens (the row). The default surface: 1 tool, 392 tokens (not a row).
+  tokens on the full tree (the row's figure is the pinned corpus's; the
+  primary tool's description is scaled to the indexed file count). The
+  default surface: 1 tool, 392 tokens (not a row).
 - Per-call latency in the probe: search 1.6 ms, node 2.0 ms, callers
   2.2 ms, node file mode 4.5 ms, explore 130 to 135 ms.
-- `codegraph_callers(cache_put)` names two callers: the same-file
-  `result_cache_put` and `_fill` in `tests/test_cache_hit_rate_basis.py`,
-  which does call it. The self task set's P2 gold lists one. The second
-  is a real reference the gold omits, so the P2 row scores the tool
-  against an incomplete gold; recorded in FINDINGS for item 3, and the
-  row is recorded as measured.
+- `codegraph_callers(cache_put)` over the full tree names two callers:
+  the same-file `result_cache_put` and `_fill` in
+  `tests/test_cache_hit_rate_basis.py`, which does call it. The pinned
+  corpus carries no tests, the recorded run cites the same-file caller
+  alone, and the gold is complete for that corpus (CF-32: the probe's
+  corpus was the wrong one, and the rule that follows).
 - `explore` for a T query returned 24.9 KB (109 symbols across 7 files,
   with source); that is the tool's answer and the token row's shape.
 - A call to a tool outside the allowlist answers `Error: Tool

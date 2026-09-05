@@ -23,13 +23,12 @@ earlier in a session, so a shared session would make a task's token
 count depend on the tasks before it, and every T task runs in its own
 session; and its file-dependents answer names eight files and a count,
 so its P4 recall is capped by its output shape and the citations are the
-eight it names, never the count. The probes also found a reference the
-self task set's P2 gold omits (a test caller that the tool and a reading
-of the test both confirm); the row is scored against the gold as it is,
-and the gold's gap is a FINDINGS item for the task-set work, not a
-correction applied to one competitor's row. The rows, their caveats and
-the schema weight of both surfaces are FINDINGS CF-31 to CF-34 beside
-the result file.
+eight it names, never the count. A probe over the full checkout rather
+than the pinned corpus produced a draft finding about the task set that
+the recorded run did not support; it is recorded as a method finding
+with the rule that closes it. The rows, their caveats and the schema
+weight of both surfaces are FINDINGS CF-31 to CF-34 beside the result
+file.
 
 ### Added - the fourth competitor row, an LSP-backed tool over MCP stdio (FINDINGS CF-27 to CF-30)
 
