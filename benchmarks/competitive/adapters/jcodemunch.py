@@ -48,7 +48,10 @@ TAG_PREFIX = "jcm-compete/jcodemunch:"
 
 def _build_context() -> Path:
     """What a commit of the working tree would contain: tracked files plus
-    untracked-not-ignored ones. Never .venv, never .git, never state."""
+    untracked-not-ignored ones. Never .venv, never .git, never state
+    (settings.local.json, .claude/state/ and *.bak are gitignored). The tree
+    is a layer of the image's BUILD stage only; the final image holds the
+    wheel, the pinned requirements and the worker."""
     ctx = Path(tempfile.mkdtemp(prefix="jcm-image-ctx-"))
     files = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=REPO).decode("utf-8").split("\0")
     for rel in files:
@@ -59,6 +62,9 @@ def _build_context() -> Path:
             dst = ctx / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+    # The runtime dependency set, pinned from uv.lock (DESIGN s9.3): the image
+    # installs exactly these, never a fresh resolution.
+    subprocess.run(["uv", "export", "--frozen", "--no-dev", "--no-emit-project", "--no-hashes", "-q", "-o", str(ctx / "requirements.txt")], cwd=REPO, check=True)
     return ctx
 
 

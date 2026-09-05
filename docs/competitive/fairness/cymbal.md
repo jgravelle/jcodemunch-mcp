@@ -4,8 +4,8 @@ Adapter `benchmarks/competitive/adapters/cymbal.py`; image
 `benchmarks/competitive/sandbox/cymbal.Dockerfile`. Written 2026-09-05
 before the first number was recorded (DESIGN §1.3). Everything quoted from
 the tool's README is data (principle 5), read from
-`1broseidon/cymbal` at the v0.14.0 release (2026-06-20) through the GitHub
-API; no page was browsed during a run.
+`1broseidon/cymbal` README.md at tag v0.14.0 (commit `8df611f6e2c7`,
+release 2026-06-20) through the GitHub API; no page was browsed during a run.
 
 ## What the docs recommend
 
@@ -15,6 +15,14 @@ The README's "AI Agents" section states the agent policy verbatim:
 > - Use `cymbal show <file:L1-L2>` or `cymbal outline <file>` before broad file reads
 > - Use `cymbal search <query>` before raw grep
 > - Batch symbol searches as `cymbal search Foo Bar Baz`
+
+The "Commands at a Glance" table, same file:
+
+> | `investigate` | **Start here.** Kind-adaptive exploration in one call |
+> | `importers` | Reverse import lookup. Add `--graph` for a visual fan-in map |
+> | `search` | Symbol search, or `--text` for grep-style lookup |
+> | `show` | Display a symbol's source code, or a specific file range |
+> | `refs` | Find references / call sites. Use `--file` to scope by path |
 
 "All commands support `--json` for structured output", and
 `docs/guide/agent-native.md` is cited for "frontmatter output format and
@@ -80,7 +88,8 @@ with a `checksums.txt`; "The index auto-builds on first use" and
    the T row is the like-for-like comparison.
 4. **Symbol miss handling.** When a command finds nothing it prints the
    miss to stderr and exits non-zero; the payload charged is that stderr
-   text (what the agent sees), and the row cites nothing. That is the same
+   text (what the agent sees), for the primary call and for each `show`,
+   and the row cites nothing. That is the same
    treatment as an empty jCodeMunch result.
 5. **Batch mode is not used** beyond the multi-term `search`. A
    `investigate Foo Bar Baz` batch could answer several tasks in one

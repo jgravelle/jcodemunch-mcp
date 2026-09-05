@@ -15,9 +15,10 @@ refuses:  the `docker` sandbox when no Linux daemon answers (a competitor
           in the corpus); an adapter that fails adapter.validate; recording
           history from a dirty tree
 pinned:   the working tree (jcodemunch) and each adapter's Pin
-fairness: DESIGN s1: same file set (the jcodemunch index's source list,
-          disclosed as the reader every row shares, R22/R34), same tasks,
-          same tokenizer. The null rows are on every table.
+fairness: DESIGN s1: same file set (the corpus's tracked text files, what
+          an agent with no tool could open; NOT our discovery's admitted
+          set, CF-5), same tasks, same tokenizer. The null rows are on
+          every table.
 
 Usage:
   python benchmarks/competitive/run.py [--corpus ID=PATH ...] [--tasks FILE]
@@ -83,9 +84,9 @@ def load_tasks(path: Path) -> list[Task]:
 
 
 def discover_files(corpus_path: Path, scratch: Path) -> tuple[str, ...]:
-    """The shared file set: what jcodemunch's own discovery indexes, so the null
-    rows and ours read byte-identical files (R22, R34). Runs in a subprocess
-    so the discovery is cold and leaves nothing in this process."""
+    """What jcodemunch's own discovery admits for a corpus; reported, never the
+    shared file set (see build_corpus). Runs in a subprocess so the discovery
+    is cold and leaves nothing in this process."""
     code = (
         "import json,sys\n"
         "from jcodemunch_mcp.tools.index_folder import index_folder\n"
@@ -114,7 +115,25 @@ def _git_init(root: Path) -> None:
 
 
 def build_corpus(cid: str, path: Path, scratch: Path) -> Corpus:
-    files = discover_files(path, scratch)
+    """The shared file set is the corpus's own tracked files (`git ls-files`),
+    text files only: what an agent with no tool could open. It is NOT what
+    jcodemunch's discovery admits (the first draft used that, and our own
+    size cap withheld `server.py` from every row, including the truth for a
+    task cymbal answered correctly: review round 1 of PR 2a, CF-5 rewritten).
+    Each tool indexes what it wants and reports `files_indexed`."""
+    if not (path / ".git").exists():
+        raise SystemExit(f"refused: corpus {cid} at {path} is not a git repository (CF-10); the pinned corpora are checkouts")
+    listed = subprocess.check_output(["git", "ls-files", "-z"], cwd=path).decode("utf-8").split("\0")
+    files = []
+    for rel in listed:
+        p = path / rel
+        if not rel or not p.is_file():
+            continue
+        with open(p, "rb") as fh:
+            if b"\0" in fh.read(8192):
+                continue  # binary: no agent reads it, no tool indexes it
+        files.append(rel)
+    files = tuple(sorted(files))
     return Corpus(id=cid, path=path, sha256=corpus_digest(path, files), files=files)
 
 
@@ -158,6 +177,14 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 a.prepare(corpus, sc, ts)
             rep = a.index(corpus, sc)
             per_task = []
+            if not rep.ok:
+                # DESIGN s1.3/s9.2: a tool whose index step failed or timed out is a
+                # `not_runnable` row with its reason, never partial means over the
+                # tasks that happened to finish (review round 1, finding 2).
+                out[a.name][cid] = {"axes": {ax: None for ax in ("index_cold_seconds", "tokens_per_task", "calls_per_task", "latency_call_ms", "tools_list_tokens", *CATEGORY_F1.values())} | {"index_ok": False, "files_indexed": rep.files_indexed},
+                                    "tasks": [], "index_error": rep.stderr_tail[:500],
+                                    "not_runnable": ("timeout" if getattr(a, "timed_out", lambda *_: False)(corpus, sc) else "index failed: " + (rep.stderr_tail[:200] or "no output"))}
+                continue
             for t in ts:
                 ans = a.answer(corpus, t, sc)
                 per_task.append({
@@ -351,8 +378,10 @@ def main(argv=None) -> int:
             "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface,
                       "image_digest": (x.image().digest if hasattr(x, "image") and getattr(x, "_image", None) is not None else None)} for x in adapters],
         }
+        not_runnable = sorted({(a.name, cid, r[a.name][cid].get("not_runnable")) for r in runs for a in adapters for cid in corpora if r[a.name][cid].get("not_runnable")})
         result = {"header": header, "rows": aggregate(runs, adapters, corpora), "runs": runs,
-                  "capability_only": capability_only, "not_runnable": []}
+                  "capability_only": capability_only,
+                  "not_runnable": [{"tool": t, "corpus": c, "reason": why} for t, c, why in not_runnable]}
         out_dir = Path(a.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y-%m-%d", time.gmtime())

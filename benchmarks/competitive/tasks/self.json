@@ -100,7 +100,7 @@
       "query": "src/jcodemunch_mcp/storage/token_tracker.py",
       "expected": [
         [
-          "src/jcodemunch_mcp/storage/__init__.py",
+          "src/jcodemunch_mcp/retrieval/regret.py",
           0
         ],
         [
@@ -108,16 +108,36 @@
           0
         ],
         [
-          "src/jcodemunch_mcp/retrieval/regret.py",
+          "src/jcodemunch_mcp/server.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/storage/__init__.py",
           0
         ],
         [
           "src/jcodemunch_mcp/tools/analyze_perf.py",
           0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/get_ranked_context.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/plan_turn.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/search_columns.py",
+          0
+        ],
+        [
+          "src/jcodemunch_mcp/tools/search_symbols.py",
+          0
         ]
       ],
       "tolerance_lines": 100000,
-      "source": "authored:claude:2026-09-05 (file-level: four importers read from the source, `from .token_tracker import` / `from ..storage import token_tracker`)"
+      "source": "authored:claude:2026-09-05, corrected after review round 1 of PR 2a: nine importers, enumerated by grepping src/ for every spelling of an import of storage.token_tracker (the first draft listed four and graded the tool that found all nine down on precision)"
     }
   ]
 }

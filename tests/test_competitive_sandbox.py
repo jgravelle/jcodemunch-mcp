@@ -52,8 +52,11 @@ def test_every_run_carries_the_d2_flags_and_no_host_environment(tmp_path, monkey
     cmd = seen["cmd"]
     joined = " ".join(cmd)
     for flag in ("--network none", "--read-only", "--cap-drop ALL", "--security-opt no-new-privileges",
-                 "--user 65534:65534", "--memory 8g", "--pids-limit 512"):
+                 "--user 65534:65534", "--memory 8g", "--pids-limit 512", "--tmpfs /tmp:rw,size=512m"):
         assert flag in joined, flag
+    # the whole list, so a flag added to RUN_FLAGS is pinned here or this goes red
+    assert sandbox.RUN_FLAGS == ["--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                                 "--user", "65534:65534", "--memory", "8g", "--pids-limit", "512", "--tmpfs", "/tmp:rw,size=512m"]
     mounts = [cmd[i + 1] for i, x in enumerate(cmd) if x == "-v"]
     assert len(mounts) == 2 and mounts[0].endswith(":/corpus:ro") and mounts[1].endswith(":/out:rw")
     envs = [cmd[i + 1] for i, x in enumerate(cmd) if x == "-e"]
@@ -82,6 +85,9 @@ def test_cymbal_citations_come_from_rel_path_and_lines_of_its_real_json():
     imps = cymbal._cite((FIX / "imp_json.json").read_text(encoding="utf-8"))
     assert ["src/jcodemunch_mcp/retrieval/tuning.py", 0] in imps
     assert cymbal._cite("not json") == []
+    # `show --json` carries only the absolute container path plus per-line rows: file at its first line
+    shown = cymbal._cite((FIX / "show_json.json").read_text(encoding="utf-8"))
+    assert shown == [["src/jcodemunch_mcp/storage/token_tracker.py", 369]]
     # the absolute `file` field is never used: only rel_path, so no /corpus prefix leaks
     assert all(not f.startswith("/") for f, _ in inv + search + refs + imps)
 
@@ -105,6 +111,42 @@ def test_a_competitor_refuses_the_none_sandbox_and_the_runner_refuses_docker_wit
     assert rc == 4
 
 
+def test_a_failed_or_timed_out_index_is_a_not_runnable_row_never_partial_means(tmp_path):
+    """DESIGN s1.3 / s9.2 (review round 1, finding 2)."""
+    import run as runner
+    from adapter import Corpus, IndexReport, Pin, Task, corpus_digest
+
+    root = tmp_path / "c"
+    root.mkdir()
+    (root / "a.py").write_text("x = 1\n", encoding="utf-8")
+    c = Corpus(id="t@0", path=root, sha256=corpus_digest(root, ("a.py",)), files=("a.py",))
+
+    class Broken:
+        name = "broken"
+        interface = "cli"
+        categories = frozenset({"T"})
+        pin = Pin(registry="none", package="broken", version="0")
+
+        def index(self, corpus, scratch):
+            return IndexReport(seconds=None, ok=False, stderr_tail="timeout")
+
+        def timed_out(self, corpus, scratch):
+            return True
+
+        def answer(self, corpus, task, scratch):
+            raise AssertionError("a task must never run on a failed index")
+
+        def tools_list_tokens(self):
+            return None
+
+        def version(self):
+            return "0"
+
+    out = runner.run_once([Broken()], {c.id: c}, [Task(id="t", corpus=c.id, category="T", query="x")], tmp_path / "s")
+    row = out["broken"][c.id]
+    assert row["not_runnable"] == "timeout" and row["tasks"] == [] and row["axes"]["tokens_per_task"] is None
+
+
 def test_the_jcodemunch_worker_is_one_file_run_in_both_modes():
     src = (COMPETE / "adapters" / "jcodemunch.py").read_text(encoding="utf-8")
     assert "jcm_worker.py" in src and "_WORKER = " not in src
@@ -113,6 +155,10 @@ def test_the_jcodemunch_worker_is_one_file_run_in_both_modes():
     assert "jcm_worker.py" in df and not any("--network" in ln for ln in run_lines)
     cy = (COMPETE / "sandbox" / "cymbal.Dockerfile").read_text(encoding="utf-8")
     assert "sha256sum -c" in cy and "@sha256:" in cy.splitlines()[2]
+    # the jcodemunch image installs the lock's pins and never the tree as a final layer
+    assert "requirements.txt" in df and "AS build" in df and "COPY --from=build" in df
+    src2 = (COMPETE / "adapters" / "jcodemunch.py").read_text(encoding="utf-8")
+    assert "uv\", \"export\", \"--frozen" in src2
 
 
 def test_the_result_header_stamps_sandbox_tree_and_scorer(tmp_path):

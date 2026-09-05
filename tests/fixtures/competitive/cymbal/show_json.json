@@ -1,0 +1,52 @@
+{
+  "results": {
+    "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+    "lines": [
+      {
+        "line": 369,
+        "content": "    def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None:"
+      },
+      {
+        "line": 370,
+        "content": "        \"\"\"Store result in LRU cache. Evicts oldest entry when full. Thread-safe.\"\"\""
+      },
+      {
+        "line": 371,
+        "content": "        with self._lock:"
+      },
+      {
+        "line": 372,
+        "content": "            full_key = (tool_name, repo, specific_key)"
+      },
+      {
+        "line": 373,
+        "content": "            self._result_cache[full_key] = _isolate(result)"
+      },
+      {
+        "line": 374,
+        "content": "            self._result_cache.move_to_end(full_key)"
+      },
+      {
+        "line": 375,
+        "content": "            if len(self._result_cache) \u003e _RESULT_CACHE_MAXSIZE:"
+      },
+      {
+        "line": 376,
+        "content": "                self._result_cache.popitem(last=False)"
+      }
+    ],
+    "symbol": {
+      "name": "cache_put",
+      "kind": "function",
+      "file": "/corpus/src/jcodemunch_mcp/storage/token_tracker.py",
+      "rel_path": "src/jcodemunch_mcp/storage/token_tracker.py",
+      "start_line": 369,
+      "end_line": 376,
+      "parent": "_State",
+      "depth": 1,
+      "signature": "(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -\u003e None",
+      "language": "python"
+    }
+  },
+  "version": "0.1"
+}

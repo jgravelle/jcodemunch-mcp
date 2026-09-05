@@ -139,6 +139,8 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     root.mkdir()
     (root / "svc.py").write_text("def router_handler(req):\n    return req\n\nclass Middleware:\n    pass\n", encoding="utf-8")
     (root / "util.py").write_text("from svc import router_handler\n\ndef bind_context(ctx):\n    return router_handler(ctx)\n", encoding="utf-8")
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
     tasks = {"schema": "jcm-competitive-tasks/v1", "tasks": [
         {"id": "T1", "corpus": "tiny@0", "category": "T", "query": "router handler"},
         {"id": "P1a", "corpus": "tiny@0", "category": "P1", "query": "bind_context", "expected": [["util.py", 3]], "tolerance_lines": 3},

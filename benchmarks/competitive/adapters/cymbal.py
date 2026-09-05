@@ -95,9 +95,10 @@ class Cymbal:
                 lines.append(f"LABEL={shlex.quote(base + '.json')}; ms {shlex.join(cmd + ['--json'])} > /out/{shlex.quote(base)}.json 2>/dev/null")
                 if t.category == "T":
                     # top-3 names from the JSON twin, then `show` each (charged) + its JSON twin
-                    lines.append(
-                        f"NAMES=$(python3 -c 1 2>/dev/null; sed -n 's/^ *\"name\": \"\\([^\"]*\\)\",*$/\\1/p' /out/{shlex.quote(base)}.json | head -{SHOW_TOP})")
-                    lines.append(f"J=0; for n in $NAMES; do LABEL={shlex.quote(base)}.show$J; ms cymbal show \"$n\" > /out/{shlex.quote(base)}.show$J.txt 2>/dev/null; "
+                    # top-3 result names read with jq (installed at image build), never a
+                    # regex over nested `name` keys (review round 1, finding 10)
+                    lines.append(f"J=0; jq -r '.results[:{SHOW_TOP}][].name' /out/{shlex.quote(base)}.json 2>/dev/null | while IFS= read -r n; do "
+                                 f"LABEL={shlex.quote(base)}.show$J; ms cymbal show \"$n\" > /out/{shlex.quote(base)}.show$J.txt 2>/out/{shlex.quote(base)}.show$J.err; "
                                  f"LABEL={shlex.quote(base)}.show$J.json; ms cymbal show \"$n\" --json > /out/{shlex.quote(base)}.show$J.json 2>/dev/null; J=$((J+1)); done")
         (out / "run.sh").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         res = sandbox.run(TAG, ["/out/run.sh"], corpus.path, out, timeout=TIMEOUT_S)
@@ -129,14 +130,20 @@ class Cymbal:
                     payload[-1] = _read(out / f"{base}.err")  # what the agent sees on a miss
                 j = 0
                 while (out / f"{base}.show{j}.txt").exists():
-                    _, sms = timings.get(f"{base}.show{j}", (1, None))
+                    src_, sms = timings.get(f"{base}.show{j}", (1, None))
                     if sms is not None:
                         lat.append(float(sms))
-                    payload.append(_read(out / f"{base}.show{j}.txt"))
+                    shown = _read(out / f"{base}.show{j}.txt")
+                    if src_ != 0 and not shown.strip():
+                        shown = _read(out / f"{base}.show{j}.err")  # a miss charges what the agent sees, same as the primary call
+                    payload.append(shown)
                     cited.extend(_cite(_read(out / f"{base}.show{j}.json")))
                     j += 1
             answers[t.id] = {"payload": "".join(payload), "calls": len(lat), "latency_ms": lat, "cited": cited, "error": err}
         self._cache[key] = {"index": index, "answers": answers, "timed_out": res.timed_out}
+
+    def timed_out(self, corpus: Corpus, scratch: Path) -> bool:
+        return bool(self._cache.get((corpus.id, str(scratch)), {}).get("timed_out"))
 
     def index(self, corpus: Corpus, scratch: Path) -> IndexReport:
         idx = self._cache[(corpus.id, str(scratch))]["index"]
@@ -165,7 +172,9 @@ def _read(p: Path) -> str:
 
 def _cite(text: str) -> list[list]:
     """(rel_path, line) pairs from cymbal's --json output: `rel_path` with
-    `start_line` (symbols) or `line` (refs); importers carry rel_path only."""
+    `start_line` (symbols) or `line` (refs); importers carry rel_path only;
+    `show --json` carries the absolute `/corpus/...` path and per-line rows,
+    so its citation is the file at its first line."""
     try:
         doc = json.loads(text)
     except (json.JSONDecodeError, ValueError):
@@ -175,9 +184,14 @@ def _cite(text: str) -> list[list]:
     def walk(o):
         if isinstance(o, dict):
             rp = o.get("rel_path")
+            if rp is None and isinstance(o.get("file"), str) and o["file"].startswith("/corpus/"):
+                rp = o["file"][len("/corpus/"):]  # `show --json` carries only the absolute container path
             if isinstance(rp, str):
                 ln = o.get("start_line") if o.get("start_line") is not None else o.get("line", 0)
                 found.append([rp, int(ln or 0)])
+            first = o.get("lines")
+            if isinstance(rp, str) and isinstance(first, list) and first and isinstance(first[0], dict) and "line" in first[0]:
+                found[-1][1] = int(first[0]["line"] or 0)
             for v in o.values():
                 walk(v)
         elif isinstance(o, list):
@@ -185,7 +199,13 @@ def _cite(text: str) -> list[list]:
                 walk(v)
 
     walk(doc)
-    return found
+    seen: set[tuple[str, int]] = set()
+    unique = []
+    for f, ln in found:  # `show --json` names the file once at the top and again under `symbol`
+        if (f, ln) not in seen:
+            seen.add((f, ln))
+            unique.append([f, ln])
+    return unique
 
 
 def make(sandbox_mode: str = "docker") -> Cymbal:
