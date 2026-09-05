@@ -9,7 +9,7 @@ that met it.
 **Scope of every measurement row below.** The numbers are the loop's own
 runs of the tools named, at their documented default install, on the
 corpora and tasks the row names (so far one 277-file corpus and ten
-tasks), three runs each, in the same container, counted by the same
+tasks). Each is three runs in the same container, counted by the same
 tokenizer. They exist to find work for jCodeMunch and to keep the loop
 honest about its own methodology; they are not a product comparison and
 they are not a recommendation. A row's caveats (a task the tool cannot
