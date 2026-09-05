@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed - the competitive self corpus carried this tree's bytecode, and every recorded row was measured over it (FINDINGS CF-39)
+
+The pinned self corpus is `src/` copied and git-inited, and the copy
+was a plain `copytree`: every `__pycache__` the host interpreter had
+left behind rode along and was committed, so the repository each tool
+was told to index held three compiled files for every source file. The
+shared file set the scorer uses was never touched (it is text files off
+`git ls-files`), so no F1 or token row read them; what did is every
+tool's own index step, which saw a repository three times the size it
+should have, and one tool's own banner printed the count. The copy now
+excludes bytecode by directory name and by suffix, the property is
+asserted over `git ls-files` of a built corpus, and the whole set was
+re-recorded on the corrected corpus; what moved per tool, and what did
+not, is CF-39 beside the two result files.
+
 ### Added - the sixth competitor row, a pre-written-cards tool over MCP stdio on its deterministic path (FINDINGS CF-35 to CF-38)
 
 The structurally different approach in the lane (FIELD.md, set row 5) is

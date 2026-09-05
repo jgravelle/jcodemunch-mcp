@@ -105,6 +105,16 @@ def discover_files(corpus_path: Path, scratch: Path) -> tuple[str, ...]:
     return tuple(json.loads(line[6:]))
 
 
+def copy_source_tree(src: Path, dst: Path) -> None:
+    """The self corpus is this tree's `src/` WITHOUT its bytecode: `__pycache__`
+    directories and `*.pyc`/`*.pyo` files are what an interpreter left behind
+    on the host, not source, and a plain copytree carried 816 of them into a
+    git repository every tool was told to index (FINDINGS CF-39: "Git repo:
+    .git with 1,093 files" for 277 sources). Ignored by name AND by suffix, so
+    a stray compiled file outside the cache dir is excluded too."""
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
+
+
 def _git_init(root: Path) -> None:
     """A corpus is a git repository: the pinned ones are checkouts, and a tool
     that keys its index by git root (cymbal) answers nothing otherwise (CF-10)."""
@@ -328,7 +338,7 @@ def main(argv=None) -> int:
         corpora: dict[str, Corpus] = {}
         if not a.corpus:
             src = scratch / "self" / "src"
-            shutil.copytree(REPO / "src", src)
+            copy_source_tree(REPO / "src", src)
             _git_init(src.parent)
             corpora[f"self@{commit}"] = build_corpus(f"self@{commit}", src.parent, scratch / "discover-self")
         for spec in a.corpus:

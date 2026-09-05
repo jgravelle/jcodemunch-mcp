@@ -16,6 +16,9 @@ What each test pins, and why (for docs/harness/ARCHAEOLOGY.md):
   query names a jcodemunch tool (DESIGN s4.3);
 - end to end on a tiny corpus: the result file validates, every adapter has
   every axis row, the null rows exist, nothing in it is a `claims` field.
+- the self corpus is `src/` without its bytecode: `__pycache__` and `*.pyc`
+  never reach the git repository the tools index (CF-39: 816 compiled
+  files rode along as 'source' for every recorded row before 2026-09-05).
 """
 
 from __future__ import annotations
@@ -181,3 +184,21 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     md = (out / "latest.md").read_text(encoding="utf-8")
     assert "A competitor's README figure is not on this page" in md
     assert "| null_grep |" in md and "| null_readall |" in md
+
+
+def test_the_self_corpus_carries_no_bytecode(tmp_path):
+    """CF-39: a plain copytree of src/ carried every __pycache__ into the corpus
+    git repo; the property is 'no compiled file is tracked', by name and suffix."""
+    import run
+
+    src = tmp_path / "src"
+    (src / "pkg" / "__pycache__").mkdir(parents=True)
+    (src / "pkg" / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    (src / "pkg" / "__pycache__" / "mod.cpython-312.pyc").write_bytes(b"\x00")
+    (src / "pkg" / "stray.pyc").write_bytes(b"\x00")
+    dst = tmp_path / "corpus" / "src"
+    run.copy_source_tree(src, dst)
+    run._git_init(dst.parent)
+    tracked = subprocess.run(["git", "ls-files"], cwd=dst.parent, check=True, capture_output=True, text=True).stdout.split()
+    assert tracked == ["src/pkg/mod.py"], tracked
+
