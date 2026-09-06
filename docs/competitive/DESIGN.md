@@ -441,10 +441,12 @@ the end of the job. Cost: zero model spend by construction (D1).
 ## 10. Phase 4 hooks, so the design is testable as written
 
 Each Phase 4 line maps to a script flag or a test: three runs on one commit
-→ the result file's raw triples and `spread`; misconfigured adapter → a
-fairness-note field the reviewer diffs against the Dockerfile and the
-adapter's config dict, plus `task_check`'s `cited`-empty rule catching a
-tool that was silently not called; fabricated README → the feed and build
+→ the result file's raw triples and `spread`; misconfigured adapter → the
+adapter's fairness note (`docs/competitive/fairness/<tool>.md`, named in
+its module header), which the reviewer diffs against the Dockerfile and
+the adapter's call plan on that adapter's PR (Phase 4 found no such FIELD
+on a pin or in a result file, CF-62), plus `task_check`'s `cited`-empty
+rule catching a tool that was silently not called; fabricated README → the feed and build
 paths with a fixture README; jcm-only task → `capability_only` exclusion
 test; inside/outside band → `findings.py` unit tests over synthetic result
 files; de-dup → a fixture open-issue list with the fingerprint; kill switch

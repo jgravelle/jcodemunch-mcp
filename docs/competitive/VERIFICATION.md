@@ -5,12 +5,15 @@ to a script flag or a test, and the skeptical-competitor review is written
 by hand per axis, each argument either changing DESIGN.md or entering
 FINDINGS.md as a known limitation. Branch `competitive/phase4-verify`,
 stacked on `competitive/item7-command` (#619). Box: Windows 11 10.0.26200,
-Python 3.12.4, 24 logical CPUs, Docker Desktop (WSL 2). Every number below
-is read from a file named beside it; nothing here is typed from memory.
+24 logical CPUs, Docker Desktop (WSL 2); the recorded run's header says
+`runner.python` 3.10.11, the dry run's 3.12.4 (each result file names its
+own). Every number below is read from a file named beside it; nothing
+here is typed from memory.
 
 The tests named below: `uv run pytest tests/test_competitive_*.py -q` on
-this tree, `147 passed, 1 skipped` (the skip is the sandbox-timeout test that
-needs a docker daemon, `test_competitive_checks.py:296`).
+this tree, `147 passed, 1 skipped` (`.claude/state/evidence/green.txt`;
+the skip is the sandbox-timeout test that needs a docker daemon,
+`test_competitive_checks.py:296`).
 
 ## 1. Three runs on one commit → the result file's raw triples and `spread`
 
@@ -57,16 +60,23 @@ values per row on a real run of the nulls and jcodemunch).
 
 ## 2. Misconfigured adapter → the fairness note and the `cited`-empty rule
 
-Every adapter's module header names `docs/competitive/fairness/<tool>.md`,
-and the note is the thing the reviewer diffs against the Dockerfile and
-the adapter's call plan on each adapter PR (the adapter PRs, #614 and its
-stack, each reviewed to APPROVE with the note in the diff; the
-round-1 findings on those PRs were fairness-note items: a follow-up call
-uncharged, a default the README does not document).
+Each of the eight competitor adapters' module header names its note,
+`docs/competitive/fairness/<tool>.md` (eight files; the two nulls and the
+jcodemunch adapter have none, because a null is a baseline by
+construction and jcodemunch is the thing measured), and the note is what
+the reviewer diffs against the Dockerfile and the adapter's call plan on
+that adapter's PR (#614 and its stack, each reviewed to APPROVE with the
+note in the diff; the round-1 findings on those PRs were fairness-note
+items: a follow-up call uncharged, a default the README does not
+document). DESIGN §10 as written named "a fairness-note field"; there is
+no such field on `Pin` or `Adapter` and no result file carries the note,
+so a run cannot say which note it ran under. DESIGN §10 now names the
+file and the PR diff, the mechanism that exists; the missing field is
+CF-62.
 
 The second half catches the tool that was silently not called:
-`run.py` lists every adapter whose `cited` set is empty on every P task
-of a corpus under `tools_not_called`, the row is `NOT COMPARABLE` there,
+`task_check.py::tools_not_called` (called by `run.py`) lists every adapter
+whose `cited` set is empty on every P task of a corpus, the row is `NOT COMPARABLE` there,
 and `findings.py`'s first hypothesis for such a row is `tool_not_called`,
 never a gap. The recorded run has 9 such entries. It caught our own
 adapter first: CF-51 (our P2 answer asks the import-graph tool, which
@@ -75,8 +85,12 @@ review, which found the first FINDINGS draft counting those rows as wins
 (CF-46's correction).
 
 Tests: `test_competitive_checks.py::test_tools_not_called_names_only_the_silent_tool`;
-per adapter, `test_competitive_<tool>.py` ("the call plan follows the
-fairness note with every call charged"); `test_competitive_tier.py::test_every_shipped_adapter_satisfies_the_interface`.
+per competitor adapter, the call plan against its note ("every call
+charged"): `test_competitive_aider.py`, `test_competitive_cocoindex.py`,
+`test_competitive_code_review_graph.py`, `test_competitive_codebase_memory.py`,
+`test_competitive_codegraph.py`, `test_competitive_graft.py`,
+`test_competitive_serena.py`, and cymbal's inside
+`test_competitive_sandbox.py`; `test_competitive_tier.py::test_every_shipped_adapter_satisfies_the_interface`.
 
 ## 3. Fabricated README → the feed and build paths over a fixture
 
@@ -219,8 +233,8 @@ whether an absolute floor in ms belongs beside it is answered from three
 runs on a Linux runner, not here. *Disposition: FINDINGS CF-8, CF-14
 (open, Phase 4 on a runner: CF-53); no DESIGN change.*
 
-**index_cold_seconds.** *"Your container makes you 6x slower than your own
-host; the number is the box's."* CF-14 says exactly that, from our own
+**index_cold_seconds.** *"Your container makes you 5.9x slower than your
+own host; the number is the box's."* CF-14 says exactly that, from our own
 row; every row of the axis is unstable in the recorded run and none is
 read as a finding for or against anyone. *Disposition: FINDINGS CF-14; no
 DESIGN change.*
