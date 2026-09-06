@@ -60,7 +60,9 @@ row, a summary and a draft are written by scripts (`findings.py`,
 review finding. ⚠⚠ **A competitor's README figure is never a measurement
 and competitor code runs only in the sandbox**; a release title is the
 only competitor text quoted, as `data`. ⚠ Losses are recorded unsoftened
-(CF-20, CF-51: our own P2 is 0 on every corpus, the adapter's fault). The
+(CF-20; CF-51: our P2 is 0 on every corpus, a harness mapping defect and
+a real loss at once, since a user reaching for the same tool gets the
+same answer). The
 three scheduled jobs are OFF until a human sets `COMPETITIVE_POST_ENABLED`
 and creates the four labels (CF-57); nothing here touches marketing.
 Open findings: `docs/competitive/FINDINGS.md`.
