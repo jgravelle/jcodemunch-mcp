@@ -54,8 +54,12 @@ competitive tier; nothing here restates a threshold, a corpus, or a value.
    put the filter in the table's `--note`.
 4. **Ref tree.** `git worktree add <scratchpad>/competitive-ref <REF>`
    (never `git checkout` in the working tree). In the worktree, `uv sync
-   --locked --group dev --extra watch --python <the version the current
-   tree's uv run prints>`, then the same `run.py` line with `--out-dir
+   --locked --group dev --extra watch --python <X.Y.Z>` where `X.Y.Z` is
+   the FULL version `uv run python -c "import sys;
+   print(sys.version.split()[0])"` prints in the current tree (a
+   major.minor pin lets uv pick another patch release, and the two
+   headers then disagree on the interpreter: CF-59), then the same
+   `run.py` line with `--out-dir
    <absolute path to .claude/state/evidence/competitive_ref>`. ⚠ After ANY
    `uv sync` in a worktree, check the six jcodemunch hook paths in
    `~/.claude/settings.json` still point at this checkout's `.venv`
@@ -75,8 +79,13 @@ competitive tier; nothing here restates a threshold, a corpus, or a value.
    `flipped`, `widened`, `narrowed`; `no band recorded` when the current
    row has none). A value absent on either side is `n/a`, never 0. Per
    row, never per total (F-13). The header names both jcm commits, the
-   corpora and their SHAs, the runs, the tools, and the fairness line.
-   Print the page; retype none of it.
+   corpora and their SHAs, the runs, the tools, and the fairness line,
+   and before the first number each side's scorer sha256 and interpreter
+   from its own header, with a warning line when they differ (a ref
+   that predates a change to run.py, score.py, an adapter or the sandbox
+   was scored by different code). Under the tables, counts of rows.
+   Print the page; retype none of it. A FINDINGS row for the run, when
+   one is due, is `--findings-row <id>` on the same line, never typed.
 6. **Drafts.** `uv run python benchmarks/competitive/findings.py
    <competitive_cur/*.json> --history benchmarks/competitive/results/history.jsonl
    --out .claude/state/competitive/drafts --open-issues <a file holding []>`
