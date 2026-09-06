@@ -170,7 +170,10 @@ directory and the issue templates, was added when the design placed the
 prompts there.)
 
 plus repository settings, secrets, variables, environments, labels other
-than the `inbound:*`/`agent:*`/`needs-human` set, and any branch but the
+than the `inbound:*`/`agent:*`/`needs-human` set (and, for the competitive
+post job only, `competitive-gap`/`competitive-watch`/`competitive-idea`/
+`standard-proposal`, docs/competitive/DESIGN.md s7.3; amended 2026-09-06),
+and any branch but the
 job's own `inbound/*` branch. The list is generated into the self-check
 (DESIGN §5) from this block; a PR labelled `agent-authored` that touches
 any path here fails the self-check whatever the review said.
@@ -282,6 +285,7 @@ offline about 1 minute; a full-corpus bench is unmeasured on a runner).
 | runtime ceiling, dependency evaluation | 45 min (90 for grammar or parser) | `timeout-minutes` |
 | runtime ceiling, fix attempt | 60 min | `timeout-minutes` |
 | runtime ceiling, sweep and digest | 15 min | `timeout-minutes` |
+| runtime ceiling, competitive run / feed / post | 240 min / 15 min / 15 min (docs/competitive/DESIGN.md s9.2; no model) | `timeout-minutes` |
 | turns, triage | 12 | `--max-turns` |
 | turns, fix attempt | 60 | `--max-turns` |
 | turns, dependency evaluation | 30 | `--max-turns` |
@@ -289,7 +293,7 @@ offline about 1 minute; a full-corpus bench is unmeasured on a runner).
 | cost per run | 5 USD triage, 25 USD fix, 10 USD dependency, 2 USD digest, 0 for the model-free jobs | read from the result; a run over its ceiling is `failed` in the ledger and counts double against the day |
 | concurrent headless jobs | 1 fix attempt at a time; 2 of any other kind | workflow `concurrency` groups |
 | agent-authored PRs open at once | 3 (drafts count) | pre-flight query; the fix job declines when reached |
-| runs per day | 20 triage, 3 fix attempts, 4 dependency evaluations, 4 full-corpus benches, 1 sweep, 1 digest | pre-flight count of the day's ledger records and of workflow runs by name |
+| runs per day | 20 triage, 3 fix attempts, 4 dependency evaluations, 4 full-corpus benches, 1 sweep, 1 digest, 1 competitive run, 1 competitive feed, 1 competitive post | pre-flight count of the day's ledger records and of workflow runs by name |
 | cost per day, all jobs | 60 USD | pre-flight sum over the day's ledger |
 
 A job that would exceed a budget writes a `skipped` record with the budget
@@ -298,6 +302,8 @@ the digest with the count of declined runs. Budgets move only by editing
 this table, in a PR a human merges. (Amended 2026-09-04: the digest turns and
 cost and the full-corpus bench count were in `budget.py` and not here; the
 reviewer of the plumbing PR caught the second copy.)
+(Amended 2026-09-06 by the competitive loop's Phase 3 item 6: the three
+`competitive-*` rows, model-free, zero cost; DESIGN s9.2 is their source.)
 
 ## 8. Kill switch
 

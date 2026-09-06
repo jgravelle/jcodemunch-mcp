@@ -1,0 +1,117 @@
+# purpose:  post the competitive drafts a human approved on the ledger
+#           branch (docs/competitive/DESIGN.md s7.3): one issue per
+#           `approved: true` draft, exactly its label plus needs-human,
+#           the issue number written back into the draft
+# invokes:  killswitch.py, budget.py (row competitive-post), post.py with
+#           the App token; git on the ledger checkout
+# produces: issues labelled competitive-* + needs-human; the drafts on
+#           inbound-ledger rewritten with `posted: #<n>`; an audit record
+# refuses:  to run unless BOTH INBOUND_ENABLED and COMPETITIVE_POST_ENABLED
+#           read exactly "true" (re-read before the first write; Phase 3
+#           ships with COMPETITIVE_POST_ENABLED absent, so this cannot
+#           run); to post a draft the App approved (a human edit on the
+#           ledger is the only approval); to post a draft twice; to write
+#           anywhere but inbound-ledger and the issues it creates
+name: competitive post
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # daily 07:00 UTC, after the inbound sweep
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: competitive-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REPO: ${{ github.repository }}
+      APP_LOGIN: jcodemunch-inbound[bot]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+      - name: switch-reading token (App; the only token that can read a repository variable, VERIFICATION 7.1)
+        id: switchtok
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.INBOUND_APP_ID }}
+          private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+      - name: both switches and the budget (INBOUND_ENABLED, then COMPETITIVE_POST_ENABLED by the same reader)
+        id: gate
+        env:
+          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-post --record "$RUNNER_TEMP/audit/record.json"; k=$?
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-post --variable COMPETITIVE_POST_ENABLED --record "$RUNNER_TEMP/audit/record.json"; p=$?
+          python .github/inbound/budget.py --job competitive-post --repo "$REPO"; b=$?
+          set -e
+          if [ "$k" != "0" ] || [ "$p" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: App token (DESIGN D2)
+        if: steps.gate.outputs.go == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.INBOUND_APP_ID }}
+          private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+      - name: check out the ledger branch beside the tree
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: inbound-ledger
+          path: ledger-branch
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: re-read both switches before the first write
+        if: steps.gate.outputs.go == 'true'
+        env:
+          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-post --record "$RUNNER_TEMP/audit/record.json"
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-post --variable COMPETITIVE_POST_ENABLED --record "$RUNNER_TEMP/audit/record.json"
+      - name: post the approved drafts (the App token; nothing else in this job writes)
+        if: steps.gate.outputs.go == 'true'
+        id: post
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          python benchmarks/competitive/post.py --drafts ledger-branch/competitive/drafts --repo "$REPO" --apply --summary "$RUNNER_TEMP/audit/post-summary.json"
+          cd ledger-branch
+          git config user.name "$APP_LOGIN"
+          git config user.email "inbound@users.noreply.github.com"
+          git add -A competitive/drafts
+          git diff --cached --quiet || git commit -q -m "competitive post: $(date -u +%Y-%m-%d)"
+          git push origin HEAD:inbound-ledger
+          echo "done=true" >> "$GITHUB_OUTPUT"
+      - name: audit record
+        if: always()
+        env:
+          DONE: ${{ steps.post.outputs.done }}
+        run: |
+          if [ -f "$RUNNER_TEMP/audit/record.json" ]; then exit 0; fi
+          if [ "$DONE" = "true" ]; then OUTCOME=acted; DECISION="approved drafts posted; see post-summary.json"; else OUTCOME=failed; DECISION="post or ledger push failed"; fi
+          python .github/inbound/ledger.py write "$RUNNER_TEMP/audit/record.json" \
+            --field job=competitive-post --field item=post --field outcome="$OUTCOME" --field decision="$DECISION" \
+            --field kill_switch_state=true --field model=null --field prompt_file=null --field prompt_version=null --field prompt_sha256=null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: competitive-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/audit/
+          retention-days: 90

@@ -2,29 +2,29 @@
   "depeval": {
     "body_sha256": "cdc86e99de6be8ca3e62afdf565e50d15b294ca15d41954b1266e53ce446bf45",
     "model": "claude-sonnet-5",
-    "policy_sha256": "b6e93ef20e6dfe301f5008a38e0e09e5e39e595abf475c722cbe026420be2f0d",
-    "sha256": "da9ce9154a551fe615c8172e626d4588bc887cd436c5a2d642ecd57ec8f59843",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "988604e5736339f88ef9fd82756082e2973a24bd1126b3abc56265fe894a8751",
     "version": 2
   },
   "digest": {
     "body_sha256": "1164ebe5132832de2df450105171917624ae78749dcb706e968d84f0eaed4d7d",
     "model": "claude-sonnet-5",
-    "policy_sha256": "b6e93ef20e6dfe301f5008a38e0e09e5e39e595abf475c722cbe026420be2f0d",
-    "sha256": "cdcb12c5f0fa7d24b48addc7b0dc834bdb171c8171af074086bcdfa40a3edc8b",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "393a4509a64500a462151c8e5a887be74d0d634ecee556d916662e60ea3e8279",
     "version": 3
   },
   "fix": {
     "body_sha256": "1d1ff80d57d498fc0171d3462057716771d967e37d038e95073bcd9883611112",
     "model": "claude-opus-5",
-    "policy_sha256": "b6e93ef20e6dfe301f5008a38e0e09e5e39e595abf475c722cbe026420be2f0d",
-    "sha256": "f74f84cbfe9e7c9d042cd219dbf5722e3e0617290423aa7a8e0ade152a7ebeb8",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "a333d80b393bddd82b5717759c215c1ac7e50a7683f0e0a030ed15431f0384c7",
     "version": 2
   },
   "triage": {
     "body_sha256": "00d987e516c7996a07cecd5546304d74e18dd20ac64598c1ee1bb803e0c54e43",
     "model": "claude-sonnet-5",
-    "policy_sha256": "b6e93ef20e6dfe301f5008a38e0e09e5e39e595abf475c722cbe026420be2f0d",
-    "sha256": "d94f6bfeb2935b5223d9a62651975664d2f2b11b90217d431fe1ddea0fef16a3",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "60a1e47f07e217ad9cfba731510503287c2db2e8bd5de85bf5bed0822acb412a",
     "version": 1
   }
 }

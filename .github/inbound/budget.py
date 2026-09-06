@@ -60,6 +60,25 @@ BUDGETS = {
         "turns": 8,
         "timeout_min": 15,
     },
+    # The competitive loop (docs/competitive/DESIGN.md s9.2): no model, no cost.
+    "competitive-run": {
+        "runs_per_day": 1,
+        "cost_per_run_usd": 0.0,
+        "turns": 0,
+        "timeout_min": 240,
+    },
+    "competitive-feed": {
+        "runs_per_day": 1,
+        "cost_per_run_usd": 0.0,
+        "turns": 0,
+        "timeout_min": 15,
+    },
+    "competitive-post": {
+        "runs_per_day": 1,
+        "cost_per_run_usd": 0.0,
+        "turns": 0,
+        "timeout_min": 15,
+    },
 }
 DAILY_COST_USD = 60.0
 MAX_OPEN_AGENT_PRS = 3

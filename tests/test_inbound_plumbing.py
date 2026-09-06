@@ -92,7 +92,7 @@ def test_gh_failure_reads_as_off(monkeypatch):
 def test_budget_table_matches_policy_section_7():
     text = (ROOT / "docs" / "inbound" / "POLICY.md").read_text(encoding="utf-8")
     assert (
-        "| runs per day | 20 triage, 3 fix attempts, 4 dependency evaluations, 4 full-corpus benches, 1 sweep, 1 digest |"
+        "| runs per day | 20 triage, 3 fix attempts, 4 dependency evaluations, 4 full-corpus benches, 1 sweep, 1 digest, 1 competitive run, 1 competitive feed, 1 competitive post |"
         in text
     )
     assert "| turns, digest | 8 |" in text

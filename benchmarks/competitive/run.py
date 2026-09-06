@@ -311,7 +311,7 @@ def main(argv=None) -> int:
     ap.add_argument("--set", default=str(HERE / "corpora.json"), help="the pinned corpus set (corpora.json); fetched into the cache by SHA; 'none' = the self corpus plus --corpus extras only: the corpus check is RECORDED, not enforced, and --record refuses on a failing one (a smoke run is never a recorded one)")
     ap.add_argument("--only", default="", help="comma-separated corpus ids from the set to run (the check still judges the whole set)")
     ap.add_argument("--tasks", default=str(HERE / "tasks"), help="a task file, or a directory of them (every *.json)")
-    ap.add_argument("--adapters", default=",".join(DEFAULT_ADAPTERS))
+    ap.add_argument("--adapters", default=",".join(DEFAULT_ADAPTERS), help="comma-separated adapter names, or `all` for every adapter.REGISTRY entry (the scheduled job's roster, never a copy)")
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out-dir", default=str(HERE / "results"))
     ap.add_argument("--record", action="store_true", help="append to history.jsonl (clean tree only)")
@@ -329,7 +329,10 @@ def main(argv=None) -> int:
         return 4
     scratch = Path(tempfile.mkdtemp(prefix="jcm-compete-"))
     try:
-        adapters = [load_adapter(n.strip(), a.sandbox) for n in a.adapters.split(",") if n.strip()]
+        from adapter import REGISTRY
+
+        names = list(REGISTRY) if a.adapters.strip() == "all" else [n.strip() for n in a.adapters.split(",") if n.strip()]
+        adapters = [load_adapter(n, a.sandbox) for n in names]
         commit = _git("rev-parse", "--short", "HEAD")
         corpora: dict[str, Corpus] = {}
         domains: dict[str, str] = {}

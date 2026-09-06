@@ -116,7 +116,6 @@ def gap_drafts(result: dict) -> list[dict]:
         pin = _pin(result, tool)
         fp = fingerprint("competitive-gap", axis, tool, r["corpus"])
         body = [
-            f"competitive-id: {fp}", "approved: false", "",
             f"On `{r['corpus']}`, axis `{axis}`" + (f" (task category {AXIS_CATEGORY[axis]})" if axis in AXIS_CATEGORY else "") + f", jcodemunch is behind `{tool}` and the gap is meaningful (both rows stable, the gap outside the band).",
             "",
             f"- ours: median {r['jcm']} (spread {r['jcm_spread']})",
@@ -150,7 +149,6 @@ def watch_drafts(result: dict, history: list[dict]) -> list[dict]:
             continue
         fp = fingerprint("competitive-watch", axis, tool, corpus)
         body = [
-            f"competitive-id: {fp}", "approved: false", "",
             f"jcodemunch is ahead of `{tool}` on `{axis}` over `{corpus}`, and the gap narrowed on two consecutive recorded runs.",
             "",
             f"- deltas: now {m['delta_now']}, previous {m['delta_prev']}, before that {b['delta_prev']}",
@@ -199,7 +197,6 @@ def standard_drafts(result: dict, history: list[dict], standard_text: str) -> li
         proposed = round(r["measured"], 2)
         body = [
             "The standard is edited only by a human; this is a proposal, and it proposes a Target, never a Floor.",
-            f"competitive-id: {fp}", "approved: false", "",
             f"STANDARD.md criterion {crit}, current Target line verbatim:", "", f"> {line}", "",
             f"- competitor `{tool}` ({pin.get('package', '?')}@{pin.get('version', '?')}) on the self corpus: median {r['measured']} (spread {r['spread']}) on this run, {prev_val} on the previous recorded run; both under the Target of {target}",
             f"- ours: median {r['jcm']} (spread {r['jcm_spread']})",
@@ -235,7 +232,7 @@ def write_drafts(drafts: list[dict], out: Path, date: str) -> list[Path]:
     written = []
     for d in drafts:
         path = out / _fname(d["fingerprint"])
-        head = f"title: {d['title']}\nlabels: {d['label']}, needs-human\n"
+        head = f"title: {d['title']}\nlabels: {d['label']}, needs-human\ncompetitive-id: {d['fingerprint']}\napproved: false\n"
         if d.get("existing_open"):
             note = f"existing-issue: #{d['existing_open']} (open; this draft updates it in place, no new issue)\n"
         elif d.get("existing_closed"):
