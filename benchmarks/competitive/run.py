@@ -366,6 +366,7 @@ def main(argv=None) -> int:
             # A checkpoint per run: a process killed mid-run (CF-49) keeps every run it finished.
             # Not a result file (no rows, no band); `--record` never reads it.
             ck = Path(a.out_dir) / f"checkpoint-{commit}.json"
+            ck.parent.mkdir(parents=True, exist_ok=True)
             ck.write_text(json.dumps({"schema": "jcm-competitive-checkpoint/v1", "commit": commit, "runs_done": len(runs), "runs": runs}), encoding="utf-8")
         ck.unlink(missing_ok=True)  # every run finished: the result file below is the record
 

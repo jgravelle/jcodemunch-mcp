@@ -38,6 +38,18 @@ guard killed the runner, discarding everything measured (CF-49).
 Containers are named and killed on timeout now, with a test that leaks
 one against the pre-fix code, and a checkpoint of finished runs is
 written after every run.
+The recorded run of this PR covers the self corpus and the two corpora
+with third-party tasks; the whole set does not fit the design's
+four-hour budget on a workstation (one pass alone ran past two hours,
+CF-53), which sizes the scheduled job rather than trimming the set. The
+run found two things worth more than its rows: our own adapter answers
+the reference-finding category with the import-graph tool, and that
+tool's reply says which tool to use instead, so our row there is zero on
+every corpus until the adapter is corrected (CF-51, a loss recorded as
+one); and one competitor's image lacks the runtime its JavaScript
+language server needs, so its rows on that corpus are not comparable
+rather than lost (CF-52). Neither is fixed here: adapters change one per
+PR.
 
 ### Added - the eighth competitor row, the embedding representative over MCP stdio with a local model (FINDINGS CF-43 to CF-45)
 
