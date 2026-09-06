@@ -11,6 +11,8 @@ produces: a list of problems (empty = pass) and a verdict dict the result
           rule a set met and by how much
 refuses:  a policy file without every threshold (no default lives here:
           DESIGN says each threshold is written once and read from the file)
+pinned:   corpus_policy.json's six thresholds (read, never restated); the
+          corpus set it judges is corpora.json's, pinned by SHA
 fairness: judged over the set, never one corpus; the three pinned by
           benchmarks/tasks.json fail (a)-(d) alone and stay (DESIGN s3.4);
           the additional set is what makes the set pass

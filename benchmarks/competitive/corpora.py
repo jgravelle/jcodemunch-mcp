@@ -11,6 +11,7 @@ produces: {corpus id: Path} for run.py; `python corpora.py` fetches and
           verifies from the command line
 refuses:  a corpora.json entry without a full 40-hex sha; a checkout whose
           HEAD differs from the pin (it is re-fetched, never used as is)
+pinned:   corpora.json (every entry a full 40-hex SHA)
 fairness: every corpus is a git repository at a recorded SHA (CF-10); the
           set is what corpus_check.py judges, not any one member
 """

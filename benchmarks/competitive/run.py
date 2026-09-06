@@ -354,6 +354,7 @@ def main(argv=None) -> int:
         if corpus_problems:
             print("corpus check FAILED (recorded, not enforced under --set none):\n  " + "\n  ".join(corpus_problems), file=sys.stderr)
 
+        t_wall = time.perf_counter()  # CF-53: the run's wall time belongs in the header
         task_paths = sorted(Path(a.tasks).glob("*.json")) if Path(a.tasks).is_dir() else [Path(a.tasks)]
         tasks = [t for tp in task_paths for t in load_tasks(tp)]
         tasks = [Task(**{**t.__dict__, "corpus": t.corpus.replace("self@HEAD", f"self@{commit}")}) for t in tasks]
@@ -391,6 +392,7 @@ def main(argv=None) -> int:
             "corpora": [{"id": c.id, "files": len(c.files), "sha256": c.sha256} for c in corpora.values()],
             "tasks_sha256": hashlib.sha256(b"".join(tp.read_bytes() for tp in task_paths)).hexdigest(),
             "task_files": [tp.name for tp in task_paths],
+            "wall_seconds": round(time.perf_counter() - t_wall, 1),
             "corpus_check": corpus_verdict,
             "sandbox": a.sandbox,
             "tree_dirty": bool(_git("status", "--porcelain")),

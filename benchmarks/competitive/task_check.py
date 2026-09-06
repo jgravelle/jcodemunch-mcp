@@ -15,6 +15,8 @@ refuses:  a task whose category no null adapter answers (a malformed
           record: null_grep answers every category by construction); a
           task whose expected file is absent from its corpus at its SHA; a
           query that names a jCodeMunch tool, a symbol id or a `_meta` field
+pinned:   nothing of its own: it reads the task files and corpora.json's
+          set as pinned there
 fairness: symmetric by construction; nothing here reads a competitor's text
 """
 
