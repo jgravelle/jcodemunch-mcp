@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier drafts its findings as issues, and posts none of them (FINDINGS CF-56)
+
+`benchmarks/competitive/findings.py` reads a recorded result file and
+the history and writes one draft per finding to a scratch directory, in
+the issue-template shape with a fingerprint line, `approved: false` and
+the `needs-human` label: a gap where a competitor is meaningfully ahead
+(with our median and spread, theirs, the band, the competitor's pinned
+release and image digest, the run file, and a first hypothesis from a
+fixed list chosen by rule, never a fix); a watch where we are ahead and
+the gap narrowed on two consecutive recorded runs; a standard proposal
+where a competitor beat a STANDARD.md Target on two runs, quoting the
+Target verbatim and proposing a Target in the same units, never a Floor,
+and saying in its first line that the standard is edited only by a
+human. Duplicates are ruled out by reading the tracker's `competitive-*`
+issues for the fingerprint: an open one is updated in place, a closed one
+is named, and a tracker that cannot be read refuses the whole run rather
+than risk a second issue. The module's only tracker verb is `issue list`,
+asserted by a test. The first run over three corpora drafts more than
+eighty gaps, and the ones worth reading first are those where a null
+baseline is ahead of us (CF-56); the release-feed drafts wait for the
+scheduled job.
+
 ### Added - the competitive tier's trend tracking: the summary says how every gap moved, and whose release was beside it (FINDINGS CF-54, CF-55)
 
 A recorded run used to leave one line of medians in the history file
