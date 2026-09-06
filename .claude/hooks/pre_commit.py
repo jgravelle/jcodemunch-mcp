@@ -7,7 +7,9 @@ invokes:  `uv run python -m harness fast --summary`, the format check with
           when pyright is importable
 produces: .claude/state/evidence/fast.md
 refuses:  a `git commit` when any of the three FAILS (exit 2 with the
-          verdict lines); docs-only commits are not checked at all
+          verdict lines); docs-only commits are not checked at all, except
+          one that stages CLAUDE.md, whose size is a Floor the fast tier
+          judges (`claude_md.max_chars`; FINDINGS W-39)
 budget:   150 s; past it, WARNING naming what was skipped, commit allowed
 """
 
@@ -40,7 +42,17 @@ CODE_ROOTS = (
     "benchmarks/harness/",
     ".github/",
 )
+# A docs file whose content is a Floor: CLAUDE.md's size is judged by the
+# fast tier, so a commit that stages it is not a free docs commit (W-39: a
+# docs-only PR reached pre_pr with a stamp two commits stale while the one
+# Floor it moved went unmeasured).
+TIER_TRIGGERS = CODE_ROOTS + ("CLAUDE.md",)
 COMMIT_RE = re.compile(r"\bgit\s+(?:-\S+\s+)*commit\b")
+
+
+def tier_needed(staged: list[str]) -> bool:
+    """Does this commit's content reach anything the fast tier judges?"""
+    return any(p.startswith(TIER_TRIGGERS) for p in staged)
 
 
 def _format_command() -> str | None:
@@ -85,7 +97,7 @@ def main() -> None:
             ln[3:].strip().strip('"')
             for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()
         ]
-    if not any(p.startswith(CODE_ROOTS) for p in staged):
+    if not tier_needed(staged):
         ok()
 
     budget = Budget(BUDGET_SECONDS)
