@@ -137,3 +137,224 @@ Median wall time of ONE call, over every call of every task. The operations diff
 | graft | 0.4286 (delta -0.0038, band 0.0216) spread 0 | 0.6004 (delta -0.234, band 0.0417, MEANINGFUL) spread 0 | 0.5048 (delta -0.248, band 0.0377, MEANINGFUL) spread 0 |
 | aider | NOT COMPARABLE | NOT COMPARABLE | NOT COMPARABLE |
 | cocoindex | NOT COMPARABLE | NOT COMPARABLE | NOT COMPARABLE |
+
+## Tools not called (DESIGN s10: an adapter that cited nothing on every P task of a corpus)
+
+- `jcodemunch` P2 on `lodash/lodash@f299b52` (30 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `jcodemunch` P2 on `self@0e3a1706` (3 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `cymbal` P4 on `lodash/lodash@f299b52` (12 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `codebase_memory` P2 on `lodash/lodash@f299b52` (30 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `codebase_memory` P4 on `lodash/lodash@f299b52` (12 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `codebase_memory` P4 on `psf/requests@0e322af` (15 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `code_review_graph` P4 on `lodash/lodash@f299b52` (12 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `code_review_graph` P4 on `psf/requests@0e322af` (15 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+- `code_review_graph` P4 on `self@0e3a1706` (3 tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `tool_not_called`
+
+## Movement
+
+Per row: the delta now, on the previous recorded run, and on the first (11 earlier line(s) in history.jsonl); the gap's movement judged against this run's band; the competitor's release on each of the three runs beside it. A release beside a movement is a fact on the same line, not an attribution. A row marked `our improvement`/`our regression` is one where jcm's own value moved past the band while the competitor's release did not.
+
+| axis | tool | corpus | now | previous | first | movement | release now / previous / first | jcm |
+|---|---|---|---|---|---|---|---|---|
+| calls_per_task | aider | lodash/lodash@f299b52 | 0.4091 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| calls_per_task | aider | psf/requests@0e322af | 0.4179 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| calls_per_task | aider | self | 0.2941 | 0.2941 | n/a | unchanged | 0.86.2 / 0.86.2 / n/a |  |
+| calls_per_task | cocoindex | lodash/lodash@f299b52 | 0.4091 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| calls_per_task | cocoindex | psf/requests@0e322af | 0.4179 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| calls_per_task | cocoindex | self | 0.2941 | 0.2941 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| calls_per_task | code_review_graph | lodash/lodash@f299b52 | 0.4848 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| calls_per_task | code_review_graph | psf/requests@0e322af | 0.5672 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| calls_per_task | code_review_graph | self | 0.3235 | 0.3235 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| calls_per_task | codebase_memory | lodash/lodash@f299b52 | 3.349 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| calls_per_task | codebase_memory | psf/requests@0e322af | 2.537 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| calls_per_task | codebase_memory | self | 0.9412 | 0.9412 | 0.9412 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| calls_per_task | codegraph | lodash/lodash@f299b52 | 0.5606 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| calls_per_task | codegraph | psf/requests@0e322af | 0.5672 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| calls_per_task | codegraph | self | 0.3824 | 0.3824 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| calls_per_task | cymbal | lodash/lodash@f299b52 | 0.5455 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| calls_per_task | cymbal | psf/requests@0e322af | 0.5522 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| calls_per_task | cymbal | self | 0.7353 | 0.7353 | 0.7353 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| calls_per_task | graft | lodash/lodash@f299b52 | 0.472 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| calls_per_task | graft | psf/requests@0e322af | 0.4925 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| calls_per_task | graft | self | 0.3235 | 0.3235 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| calls_per_task | null_grep | lodash/lodash@f299b52 | 1.53 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| calls_per_task | null_grep | psf/requests@0e322af | 1.448 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| calls_per_task | null_grep | self | 1.059 | 1.059 | 1.059 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| calls_per_task | null_readall | lodash/lodash@f299b52 | 37.23 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| calls_per_task | null_readall | psf/requests@0e322af | 50.57 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| calls_per_task | null_readall | self | 81.47 | 81.47 | 81.47 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| calls_per_task | serena | lodash/lodash@f299b52 | 0.4091 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| calls_per_task | serena | psf/requests@0e322af | 1.69 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| calls_per_task | serena | self | 0.4248 | 0.4248 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| f1_P1 | cocoindex | lodash/lodash@f299b52 | -0.34 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| f1_P1 | cocoindex | psf/requests@0e322af | -0.3566 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| f1_P1 | cocoindex | self | -0.3333 | -0.3333 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| f1_P1 | code_review_graph | lodash/lodash@f299b52 | 0.1267 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P1 | code_review_graph | psf/requests@0e322af | 0.11 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P1 | code_review_graph | self | 0.3334 | 0.3334 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P1 | codebase_memory | lodash/lodash@f299b52 | -0.34 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P1 | codebase_memory | psf/requests@0e322af | -0.3566 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P1 | codebase_memory | self | 0.3334 | 0.3334 | 0.3334 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P1 | codegraph | lodash/lodash@f299b52 | 0.11 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P1 | codegraph | psf/requests@0e322af | 0.1334 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P1 | codegraph | self | 0.1667 | 0.1667 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P1 | cymbal | lodash/lodash@f299b52 | -0.2368 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P1 | cymbal | psf/requests@0e322af | -0.0075 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P1 | cymbal | self | -0.0727 | -0.0727 | -0.0727 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P1 | graft | lodash/lodash@f299b52 | -0.05 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P1 | graft | psf/requests@0e322af | -0.06 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P1 | graft | self | 0 | 0 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P1 | null_grep | lodash/lodash@f299b52 | -0.3319 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P1 | null_grep | psf/requests@0e322af | -0.3414 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P1 | null_grep | self | -0.1034 | -0.1034 | -0.1034 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| f1_P1 | null_readall | lodash/lodash@f299b52 | -0.34 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P1 | null_readall | psf/requests@0e322af | -0.3565 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P1 | null_readall | self | -0.3333 | -0.3333 | -0.3333 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| f1_P1 | serena | psf/requests@0e322af | 0.2569 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| f1_P1 | serena | self | 0.6667 | 0.6667 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| f1_P2 | code_review_graph | lodash/lodash@f299b52 | 0.0125 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P2 | code_review_graph | psf/requests@0e322af | 0 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P2 | code_review_graph | self | 1 | 1 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P2 | codebase_memory | lodash/lodash@f299b52 | 0 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P2 | codebase_memory | psf/requests@0e322af | 0 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P2 | codebase_memory | self | 1 | 1 | 1 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P2 | codegraph | lodash/lodash@f299b52 | 0.0158 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P2 | codegraph | psf/requests@0e322af | 0.0187 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P2 | codegraph | self | 1 | 1 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P2 | cymbal | lodash/lodash@f299b52 | 0.1109 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P2 | cymbal | psf/requests@0e322af | 0.0806 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P2 | cymbal | self | 1 | 1 | 1 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P2 | graft | lodash/lodash@f299b52 | 0.0067 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P2 | graft | psf/requests@0e322af | 0.0282 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P2 | graft | self | 1 | 1 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P2 | null_grep | lodash/lodash@f299b52 | 0.1024 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P2 | null_grep | psf/requests@0e322af | 0.028 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P2 | null_grep | self | 0.1818 | 0.1818 | 0.1818 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| f1_P2 | null_readall | lodash/lodash@f299b52 | 0.0005 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P2 | null_readall | psf/requests@0e322af | 0.0019 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P2 | null_readall | self | 0 | 0 | 0 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| f1_P2 | serena | psf/requests@0e322af | 0.0346 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| f1_P2 | serena | self | 1 | 1 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| f1_P4 | code_review_graph | lodash/lodash@f299b52 | -0.8341 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P4 | code_review_graph | psf/requests@0e322af | -0.7532 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P4 | code_review_graph | self | -0.4324 | -0.4324 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| f1_P4 | codebase_memory | lodash/lodash@f299b52 | -0.8341 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P4 | codebase_memory | psf/requests@0e322af | -0.7532 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P4 | codebase_memory | self | 0.5501 | 0.5501 | 0.5501 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| f1_P4 | codegraph | lodash/lodash@f299b52 | -0.7785 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P4 | codegraph | psf/requests@0e322af | -0.3221 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P4 | codegraph | self | -0.3783 | -0.3783 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| f1_P4 | cymbal | lodash/lodash@f299b52 | -0.8341 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P4 | cymbal | psf/requests@0e322af | -0.028 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P4 | cymbal | self | 0.0413 | 0.0413 | 0.0413 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| f1_P4 | graft | lodash/lodash@f299b52 | -0.2337 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P4 | graft | psf/requests@0e322af | -0.2485 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P4 | graft | self | -0.0038 | -0.0038 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| f1_P4 | null_grep | lodash/lodash@f299b52 | -0.8341 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P4 | null_grep | psf/requests@0e322af | -0.7532 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| f1_P4 | null_grep | self | -0.4324 | -0.4324 | -0.4324 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| f1_P4 | null_readall | lodash/lodash@f299b52 | -0.834 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P4 | null_readall | psf/requests@0e322af | -0.7531 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| f1_P4 | null_readall | self | -0.4319 | -0.4319 | -0.4319 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| index_cold_seconds | aider | lodash/lodash@f299b52 | 2.215 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| index_cold_seconds | aider | psf/requests@0e322af | 1.034 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| index_cold_seconds | aider | self | 0.3846 | 0.3217 | n/a | unchanged | 0.86.2 / 0.86.2 / n/a |  |
+| index_cold_seconds | cocoindex | lodash/lodash@f299b52 | 31.51 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| index_cold_seconds | cocoindex | psf/requests@0e322af | 6.866 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| index_cold_seconds | cocoindex | self | 10.89 | 10.26 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| index_cold_seconds | code_review_graph | lodash/lodash@f299b52 | 8.491 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| index_cold_seconds | code_review_graph | psf/requests@0e322af | 5.04 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| index_cold_seconds | code_review_graph | self | 3.31 | 3.425 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| index_cold_seconds | codebase_memory | lodash/lodash@f299b52 | 5.349 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| index_cold_seconds | codebase_memory | psf/requests@0e322af | 3.068 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| index_cold_seconds | codebase_memory | self | 0.3431 | 0.3217 | 0.6901 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| index_cold_seconds | codegraph | lodash/lodash@f299b52 | 0.4883 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| index_cold_seconds | codegraph | psf/requests@0e322af | 0.187 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| index_cold_seconds | codegraph | self | 0.1013 | 0.0855 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| index_cold_seconds | cymbal | lodash/lodash@f299b52 | 0.5089 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| index_cold_seconds | cymbal | psf/requests@0e322af | 0.1448 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| index_cold_seconds | cymbal | self | 0.1129 | 0.0952 | 0.0891 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| index_cold_seconds | graft | lodash/lodash@f299b52 | 1.243 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| index_cold_seconds | graft | psf/requests@0e322af | 0.4369 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| index_cold_seconds | graft | self | 0.5252 | 0.4571 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| index_cold_seconds | serena | lodash/lodash@f299b52 | 0.6803 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| index_cold_seconds | serena | psf/requests@0e322af | 0.9281 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| index_cold_seconds | serena | self | 0.2707 | 0.2493 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| latency_call_ms | aider | lodash/lodash@f299b52 | 168.2 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| latency_call_ms | aider | psf/requests@0e322af | 70.6 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| latency_call_ms | aider | self | 90.65 | 93.09 | n/a | unchanged | 0.86.2 / 0.86.2 / n/a |  |
+| latency_call_ms | cocoindex | lodash/lodash@f299b52 | 7.163 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| latency_call_ms | cocoindex | psf/requests@0e322af | 5.519 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| latency_call_ms | cocoindex | self | 8.502 | 8.805 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| latency_call_ms | code_review_graph | lodash/lodash@f299b52 | 3.11 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| latency_call_ms | code_review_graph | psf/requests@0e322af | 2.279 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| latency_call_ms | code_review_graph | self | 2.403 | 2.268 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| latency_call_ms | codebase_memory | lodash/lodash@f299b52 | 0.3598 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| latency_call_ms | codebase_memory | psf/requests@0e322af | 0.2813 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| latency_call_ms | codebase_memory | self | 0.3528 | 0.3809 | 0.3623 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| latency_call_ms | codegraph | lodash/lodash@f299b52 | 0.0447 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| latency_call_ms | codegraph | psf/requests@0e322af | 0.0237 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| latency_call_ms | codegraph | self | 0.0777 | 0.0831 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| latency_call_ms | cymbal | lodash/lodash@f299b52 | 10.8 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| latency_call_ms | cymbal | psf/requests@0e322af | 6.608 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| latency_call_ms | cymbal | self | 13.53 | 13.34 | 13.45 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| latency_call_ms | graft | lodash/lodash@f299b52 | 3.825 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| latency_call_ms | graft | psf/requests@0e322af | 5.49 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| latency_call_ms | graft | self | 21.91 | 17.79 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| latency_call_ms | null_grep | lodash/lodash@f299b52 | 0.0348 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| latency_call_ms | null_grep | psf/requests@0e322af | 0.0048 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| latency_call_ms | null_grep | self | 0.0225 | 0.0267 | 0.0242 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| latency_call_ms | null_readall | lodash/lodash@f299b52 | 0.4499 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| latency_call_ms | null_readall | psf/requests@0e322af | 0.9016 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| latency_call_ms | null_readall | self | 0.6054 | 0.6753 | 0.6579 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| latency_call_ms | serena | lodash/lodash@f299b52 | 373 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| latency_call_ms | serena | psf/requests@0e322af | 21.92 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| latency_call_ms | serena | self | 58.09 | 59.51 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| tokens_per_task | aider | lodash/lodash@f299b52 | 6.035 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| tokens_per_task | aider | psf/requests@0e322af | 5.958 | n/a | n/a | first run | 0.86.2 / 0.86.2 / n/a |  |
+| tokens_per_task | aider | self | 5.188 | 5.213 | n/a | unchanged | 0.86.2 / 0.86.2 / n/a |  |
+| tokens_per_task | cocoindex | lodash/lodash@f299b52 | 1.369 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| tokens_per_task | cocoindex | psf/requests@0e322af | 1.232 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| tokens_per_task | cocoindex | self | 0.7824 | 0.7824 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| tokens_per_task | code_review_graph | lodash/lodash@f299b52 | 0.624 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| tokens_per_task | code_review_graph | psf/requests@0e322af | 0.6554 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| tokens_per_task | code_review_graph | self | 0.1961 | 0.1961 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| tokens_per_task | codebase_memory | lodash/lodash@f299b52 | 0.2704 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tokens_per_task | codebase_memory | psf/requests@0e322af | 0.2474 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tokens_per_task | codebase_memory | self | 0.5922 | 0.5922 | 0.5922 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tokens_per_task | codegraph | lodash/lodash@f299b52 | 0.5847 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| tokens_per_task | codegraph | psf/requests@0e322af | 0.6114 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| tokens_per_task | codegraph | self | 1.884 | 1.884 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| tokens_per_task | cymbal | lodash/lodash@f299b52 | 0.3783 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| tokens_per_task | cymbal | psf/requests@0e322af | 0.3239 | n/a | n/a | first run | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| tokens_per_task | cymbal | self | 0.532 | 0.5319 | 0.532 | unchanged | 0.14.0 / 0.14.0 / 0.14.0 |  |
+| tokens_per_task | graft | lodash/lodash@f299b52 | 0.5238 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| tokens_per_task | graft | psf/requests@0e322af | 0.6308 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| tokens_per_task | graft | self | 0.8947 | 0.8947 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| tokens_per_task | null_grep | lodash/lodash@f299b52 | 317.3 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| tokens_per_task | null_grep | psf/requests@0e322af | 22.86 | n/a | n/a | first run | baseline-B / baseline-B / baseline-B |  |
+| tokens_per_task | null_grep | self | 71.28 | 71.28 | 71.28 | unchanged | baseline-B / baseline-B / baseline-B |  |
+| tokens_per_task | null_readall | lodash/lodash@f299b52 | 1002 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| tokens_per_task | null_readall | psf/requests@0e322af | 1728 | n/a | n/a | first run | baseline-A / baseline-A / baseline-A |  |
+| tokens_per_task | null_readall | self | 701.4 | 701.4 | 701.4 | unchanged | baseline-A / baseline-A / baseline-A |  |
+| tokens_per_task | serena | lodash/lodash@f299b52 | 10.83 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| tokens_per_task | serena | psf/requests@0e322af | 1.73 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| tokens_per_task | serena | self | 7.116 | 7.116 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |
+| tools_list_tokens | cocoindex | lodash/lodash@f299b52 | 0.0168 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| tools_list_tokens | cocoindex | psf/requests@0e322af | 0.0168 | n/a | n/a | first run | 0.2.41 / 0.2.41 / n/a |  |
+| tools_list_tokens | cocoindex | self | 0.0168 | 0.0168 | n/a | unchanged | 0.2.41 / 0.2.41 / n/a |  |
+| tools_list_tokens | code_review_graph | lodash/lodash@f299b52 | 0.3253 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| tools_list_tokens | code_review_graph | psf/requests@0e322af | 0.3253 | n/a | n/a | first run | 2.3.8 / 2.3.8 / n/a |  |
+| tools_list_tokens | code_review_graph | self | 0.3253 | 0.3253 | n/a | unchanged | 2.3.8 / 2.3.8 / n/a |  |
+| tools_list_tokens | codebase_memory | lodash/lodash@f299b52 | 0.2026 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tools_list_tokens | codebase_memory | psf/requests@0e322af | 0.2026 | n/a | n/a | first run | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tools_list_tokens | codebase_memory | self | 0.2026 | 0.2026 | 0.2026 | unchanged | 0.10.8 / 0.10.8 / 0.10.8 |  |
+| tools_list_tokens | codegraph | lodash/lodash@f299b52 | 0.0547 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| tools_list_tokens | codegraph | psf/requests@0e322af | 0.0547 | n/a | n/a | first run | 1.6.0 / 1.6.0 / n/a |  |
+| tools_list_tokens | codegraph | self | 0.0547 | 0.0547 | n/a | unchanged | 1.6.0 / 1.6.0 / n/a |  |
+| tools_list_tokens | graft | lodash/lodash@f299b52 | 0.0322 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| tools_list_tokens | graft | psf/requests@0e322af | 0.0322 | n/a | n/a | first run | 0.16.0 / 0.16.0 / n/a |  |
+| tools_list_tokens | graft | self | 0.0322 | 0.0322 | n/a | unchanged | 0.16.0 / 0.16.0 / n/a |  |
+| tools_list_tokens | serena | lodash/lodash@f299b52 | 0.2738 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| tools_list_tokens | serena | psf/requests@0e322af | 0.2738 | n/a | n/a | first run | 1.7.0 / 1.7.0 / n/a |  |
+| tools_list_tokens | serena | self | 0.2738 | 0.2738 | n/a | unchanged | 1.7.0 / 1.7.0 / n/a |  |

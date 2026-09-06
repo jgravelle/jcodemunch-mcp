@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier's trend tracking: the summary says how every gap moved, and whose release was beside it (FINDINGS CF-54, CF-55)
+
+A recorded run used to leave one line of medians in the history file
+and nothing read it back. `benchmarks/competitive/trend.py` now writes
+the line with the band and the gap per row and renders a *Movement*
+section at the end of every summary: per row, the delta on this run,
+the previous recorded run and the first, the movement judged against
+this run's band (`unchanged` inside it, `flipped` on a sign change,
+`widened` or `narrowed` on magnitude, `no band recorded` rather than a
+band invented for an older line), and the competitor's release on each
+of the three runs beside it, stated as a fact on the same line and
+never as a cause. A row where our own value moved past the band while
+their release did not is named our regression or our improvement, by
+the axis's direction. The self corpus's history key is normalised to
+`self` because its id carries the running commit, which made every self
+row a first run forever on the first render (CF-55). The summary also
+lists the tools-not-called rows and labels a variant adapter under its
+default; the jcm `counter` variant the design asks for has no producer
+yet and is recorded as open (CF-54).
+
 ### Added - the competitive tier's corpus and task fairness checks, and the corpus set it needed to pass them (FINDINGS CF-46 to CF-48)
 
 A comparison over one language, one domain and small modular repositories
