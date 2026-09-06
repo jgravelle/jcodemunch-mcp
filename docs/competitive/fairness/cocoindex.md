@@ -110,6 +110,10 @@ saving by 70%."
   output where it gives a file count.
 - **Server**: `ccc mcp` in the project copy, the documented launch; the
   driver speaks MCP over stdio to it. `tools/list` is its one tool.
+- **Interface label**: DESIGN §1.3 lists this row as "cli + mcp"; the
+  adapter uses the CLI for `init`, `index` and `status` (the index step)
+  and MCP for every answer, so the result file's `interface` reads
+  `mcp-stdio`, the surface the rows measure.
 - **Commands per task category** (DESIGN §4.1):
   - P1 definition lookup: `search(query=<name>)` at the defaults (`limit`
     5, `refresh_index` true), charged; each result's `file_path` and
@@ -197,10 +201,11 @@ results; the capture is `tests/fixtures/competitive/cocoindex_mcp.json`):
   with `content`, `start_line`, `end_line`, `score`); `file_path` is
   relative to the project. The corpus files carry CRLF line endings (the
   checkout's), which the chunks reproduce; every row sees the same bytes.
-- `search("cache_put")` returns five chunks of tool-name lists in
-  `config.py`, `server.py` and a hook file, not the method
-  `_State.cache_put`; the same for `validate_path` and `ProgressReporter`
-  (lists that mention the name, ranked above the definition). An
+- `search("cache_put")` returns five chunks of tool-name lists, four in
+  `config.py` and one in `cli/hooks/briefing.py`, not the method
+  `_State.cache_put`; the same shape for `validate_path` and
+  `ProgressReporter` (lists in `server.py`, `config.py` and others that
+  mention the name, ranked above the definition; fixture calls `p1_*`). An
   embedding model asked an identifier ranks by meaning (disadvantage 4);
   recorded as the tool's answer, cited as returned.
 - Its stderr through the driver: empty.
