@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier's scheduled jobs, switched off until a human turns them on (FINDINGS CF-57, CF-58)
+
+Three workflows in the inbound layer's shape: a monthly run of every
+adapter over the pinned set in the container, its result and drafts
+pushed to the ledger branch by the App; a weekly release feed that reads
+registries on a read-only token, drafts an idea when a release title
+names a capability (the title quoted as data under the inbound preamble,
+the body matched and discarded) and dispatches a re-run when a release
+names a measured axis; and a daily post job that turns a draft a human
+marked approved into one labelled issue and writes the number back.
+Every write follows a kill-switch read with the App token in the same
+job; the job that runs competitor code holds no App token and writes
+nothing; the only push target is the ledger branch; each job has a
+budget row (model-free, zero cost) and the policy table names them.
+The post job needs a second variable that does not exist, so nothing can
+post; the labels do not exist either. A test file holds the workflows to
+those properties, the inbound workflow tests being the template.
+
 ### Added - the competitive tier drafts its findings as issues, and posts none of them (FINDINGS CF-56)
 
 `benchmarks/competitive/findings.py` reads a recorded result file and

@@ -1,0 +1,147 @@
+# purpose:  the weekly release feed (docs/competitive/DESIGN.md s9.1): read
+#           each set member's latest release through registries on a
+#           read-only token, apply s7.1's two release rules, put any
+#           competitive-idea draft on the ledger, and dispatch a re-run
+#           when a release names a measured axis
+# invokes:  killswitch.py, budget.py (row competitive-feed), feed.py,
+#           ledger.py; `gh workflow run competitive-run.yml` with the App
+#           token (the one write besides the ledger push)
+# produces: competitive/feed/<date>.json and competitive/drafts/*.md on
+#           inbound-ledger; artifacts competitive-feed-<run> and
+#           competitive-audit-<run>
+# refuses:  to run when INBOUND_ENABLED is not "true" or the day's budget
+#           is spent; to quote any release text but the title (inside a
+#           fenced `data` block under the inbound preamble); to fetch a URL
+#           a release names; to write anywhere but inbound-ledger; to
+#           dispatch more than one re-run per feed run
+name: competitive feed
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"   # Sundays 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: competitive-feed
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REPO: ${{ github.repository }}
+      APP_LOGIN: jcodemunch-inbound[bot]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.12"
+      - name: switch-reading token (App; the only token that can read a repository variable, VERIFICATION 7.1)
+        id: switchtok
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.INBOUND_APP_ID }}
+          private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+      - name: kill switch and budget
+        id: gate
+        env:
+          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-feed --record "$RUNNER_TEMP/audit/record.json"; k=$?
+          python .github/inbound/budget.py --job competitive-feed --repo "$REPO"; b=$?
+          set -e
+          if [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: read the registries (read-only token; titles are the only competitor text kept)
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python benchmarks/competitive/feed.py --out "$RUNNER_TEMP/feed"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always() && steps.gate.outputs.go == 'true'
+        with:
+          name: competitive-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/feed/
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: re-read the kill switch before the first write
+        if: steps.gate.outputs.go == 'true'
+        env:
+          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-feed --record "$RUNNER_TEMP/audit/record.json"
+      - name: App token (DESIGN D2)
+        if: steps.gate.outputs.go == 'true'
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.INBOUND_APP_ID }}
+          private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+      - name: check out the ledger branch beside the tree
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          ref: inbound-ledger
+          path: ledger-branch
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: true
+          fetch-depth: 0
+      - name: the feed record and any idea draft onto the ledger (an existing draft is never overwritten)
+        if: steps.gate.outputs.go == 'true'
+        id: copy
+        run: |
+          mkdir -p ledger-branch/competitive/feed ledger-branch/competitive/drafts
+          cp "$RUNNER_TEMP/feed/feed.json" "ledger-branch/competitive/feed/$(date -u +%Y-%m-%d).json"
+          for f in "$RUNNER_TEMP"/feed/*.md; do
+            [ -f "$f" ] || continue
+            b=$(basename "$f")
+            [ -f "ledger-branch/competitive/drafts/$b" ] || cp "$f" "ledger-branch/competitive/drafts/$b"
+          done
+          cd ledger-branch
+          git config user.name "$APP_LOGIN"
+          git config user.email "inbound@users.noreply.github.com"
+          git add -A competitive/
+          git diff --cached --quiet || git commit -q -m "competitive feed: $(date -u +%Y-%m-%d)"
+          git push origin HEAD:inbound-ledger
+          echo "done=true" >> "$GITHUB_OUTPUT"
+      - name: schedule a re-run when a release names a measured axis (one dispatch at most; the reason names the release)
+        if: steps.gate.outputs.go == 'true'
+        id: rerun
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          REASON=$(python -c "import json,sys; r=json.load(open(sys.argv[1])); print(r[0]['reason'] if r else '')" "$RUNNER_TEMP/feed/rerun.json")
+          if [ -n "$REASON" ]; then
+            gh workflow run competitive-run.yml -R "$REPO" -f "reason=$REASON"
+            echo "dispatched=$REASON" >> "$GITHUB_OUTPUT"
+          else
+            echo "dispatched=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: audit record
+        if: always()
+        env:
+          DONE: ${{ steps.copy.outputs.done }}
+          DISPATCHED: ${{ steps.rerun.outputs.dispatched }}
+        run: |
+          if [ -f "$RUNNER_TEMP/audit/record.json" ]; then exit 0; fi
+          if [ "$DONE" = "true" ]; then OUTCOME=acted; DECISION="feed recorded; re-run dispatched: ${DISPATCHED:-none}"; else OUTCOME=failed; DECISION="feed read or ledger push failed"; fi
+          python .github/inbound/ledger.py write "$RUNNER_TEMP/audit/record.json" \
+            --field job=competitive-feed --field item=feed --field outcome="$OUTCOME" --field decision="$DECISION" \
+            --field kill_switch_state=true --field model=null --field prompt_file=null --field prompt_version=null --field prompt_sha256=null
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always()
+        with:
+          name: competitive-audit-${{ github.run_id }}
+          path: ${{ runner.temp }}/audit/
+          retention-days: 90
