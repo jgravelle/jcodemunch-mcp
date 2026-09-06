@@ -24,6 +24,7 @@ import hashlib
 import shutil
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -94,6 +95,13 @@ private-directory parent"). Its contents die with the container, which is
 fine: a run is one container. HOME moves there when it is requested."""
 
 
+def kill_container(name: str) -> bool:
+    """`docker kill` by name; True when a container by that name was killed.
+    Called on every timeout, and safe when the container already exited."""
+    proc = subprocess.run(["docker", "kill", name], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    return proc.returncode == 0
+
+
 def run(tag: str, args: list[str], corpus: Path, out: Path, timeout: int, workdir: str = "/corpus",
         extra_env: Optional[dict[str, str]] = None, private_home: bool = False) -> RunResult:
     """One container. `args` follow the image's ENTRYPOINT. Only HOME and PATH
@@ -101,7 +109,12 @@ def run(tag: str, args: list[str], corpus: Path, out: Path, timeout: int, workdi
     documented knobs; never a host variable). `private_home` adds the
     uid-owned tmpfs above and points HOME at it."""
     out.mkdir(parents=True, exist_ok=True)
-    cmd = ["docker", "run", "--rm", *RUN_FLAGS, *(PRIVATE_TMPFS if private_home else []),
+    # Named, so a timeout can KILL THE CONTAINER: subprocess's timeout kills the
+    # docker CLIENT only, and the container ran on (CF-49: two 8 GB embedding
+    # containers alive at once, the second started after the first "timed out",
+    # took the host down mid-run on 2026-09-06).
+    name = f"jcm-compete-{uuid.uuid4().hex[:12]}"
+    cmd = ["docker", "run", "--rm", "--name", name, *RUN_FLAGS, *(PRIVATE_TMPFS if private_home else []),
            "-v", f"{_mount_path(corpus)}:/corpus:ro",
            "-v", f"{_mount_path(out)}:/out:rw",
            "-w", workdir, "-e", ("HOME=/private" if private_home else "HOME=/out")]
@@ -112,6 +125,7 @@ def run(tag: str, args: list[str], corpus: Path, out: Path, timeout: int, workdi
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except subprocess.TimeoutExpired as e:
+        kill_container(name)
         return RunResult(rc=124, stdout=(e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or ""),
                          stderr="timeout", seconds=round(time.perf_counter() - t0, 1), timed_out=True)
     return RunResult(rc=proc.returncode, stdout=proc.stdout, stderr=proc.stderr, seconds=round(time.perf_counter() - t0, 1))

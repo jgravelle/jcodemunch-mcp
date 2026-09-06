@@ -31,6 +31,13 @@ the same rules, never typed. One author wrote every adapter and every
 task, which the design's independence rule forbids and one agent cannot
 meet; it is recorded, not softened (CF-47). `run.py` takes `--set`,
 `--only`, a `--tasks` directory, and `--corpus ID=PATH|DOMAIN`.
+The first run over the whole set found a harness defect: the sandbox's
+timeout killed the docker client and not the container, so a "timed
+out" container kept running beside the next one and the host's memory
+guard killed the runner, discarding everything measured (CF-49).
+Containers are named and killed on timeout now, with a test that leaks
+one against the pre-fix code, and a checkpoint of finished runs is
+written after every run.
 
 ### Added - the eighth competitor row, the embedding representative over MCP stdio with a local model (FINDINGS CF-43 to CF-45)
 

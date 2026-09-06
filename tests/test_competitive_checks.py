@@ -20,7 +20,11 @@ What each test pins, and why (for docs/harness/ARCHAEOLOGY.md):
   carries the definition (a moved line would grade every tool against a
   wrong answer), and every generated P task's expected files are inside
   the task's own corpus at the SHA (asserted over the committed task files
-  without the checkouts: file shapes, ids, categories, tolerances).
+  without the checkouts: file shapes, ids, categories, tolerances);
+- a sandbox timeout KILLS THE CONTAINER (CF-49: subprocess's timeout kills
+  the docker client only; two 8 GB containers ran at once and took the host
+  down on 2026-09-06), asserted against a live container when docker is
+  present and by the named-container contract otherwise.
 """
 
 from __future__ import annotations
@@ -266,3 +270,56 @@ def test_tools_not_called_names_only_the_silent_tool():
         {"tool": "quiet", "corpus": "c", "category": "P1", "tasks": 1, "hypothesis": "tool_not_called"},
         {"tool": "quiet", "corpus": "c", "category": "P2", "tasks": 1, "hypothesis": "tool_not_called"},
     ]  # T is not a P category; an errored task is not a silent one; a null is never listed
+
+
+# --- the sandbox's timeout -----------------------------------------------
+
+def _docker_available() -> bool:
+    import shutil
+    import subprocess
+    if not shutil.which("docker"):
+        return False
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=20).returncode == 0
+    except Exception:
+        return False
+
+
+def test_sandbox_timeout_kills_the_container(tmp_path):
+    """Non-vacuity: a container told to sleep past the timeout is GONE after
+    run() returns. Before the fix `docker ps` still listed it."""
+    import subprocess
+
+    import sandbox
+
+    if not _docker_available():
+        pytest.skip("docker is not available here (the CI matrix has no daemon)")
+    (tmp_path / "c").mkdir()
+    before = set(subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True, encoding="utf-8").stdout.split())
+    res = sandbox.run("alpine:3.20", ["sleep", "60"], tmp_path / "c", tmp_path / "out", timeout=3)
+    assert res.timed_out and res.rc == 124
+    after = set(subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True, encoding="utf-8").stdout.split())
+    assert after - before == set(), "the timed-out container is still running"
+
+
+def test_sandbox_names_the_container_and_kills_it_on_timeout(monkeypatch, tmp_path):
+    """The contract without a daemon: run() passes --name, and TimeoutExpired
+    reaches kill_container with that same name."""
+    import subprocess
+
+    import sandbox
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ["docker", "run"]:
+            seen["name"] = cmd[cmd.index("--name") + 1]
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        if cmd[:2] == ["docker", "kill"]:
+            seen["killed"] = cmd[2]
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(sandbox.subprocess, "run", fake_run)
+    res = sandbox.run("img", ["x"], tmp_path, tmp_path / "out", timeout=1)
+    assert res.timed_out and seen["killed"] == seen["name"] and seen["name"].startswith("jcm-compete-")
