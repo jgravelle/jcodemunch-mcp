@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added - `/competitive-compare [tool] [ref]`, the competitive tier's interactive form
+
+A session that changed retrieval can ask how the change moved every
+competitive row before opening a PR: the tier runs on the working tree
+and in a worktree of a ref (one adapter or all, three repetitions, in the
+container, the corpus and task checks refusing before scoring), and one
+table shows each row's ref and current values, the band, and the
+movement between them, with our own rows first. Drafts go to a state
+directory the ledger never reads, nothing is recorded into the tree's
+results, and nothing here types a number.
+
 ### Added - the competitive tier's scheduled jobs, switched off until a human turns them on (FINDINGS CF-57, CF-58)
 
 Three workflows in the inbound layer's shape: a monthly run of every

@@ -16,7 +16,8 @@ the right moments, spawns an independent reviewer, and produces the
 Definition-of-Done checklist itself (`.claude/hooks/dod_checklist.py`), so
 a step cannot be skipped by forgetting it.
 `/feature <desc>` · `/fix-issue <n>` · `/release` · `/benchmark-compare [ref]`
-· `/review [pr|ref] [--merge-check]` · `/triage-issue <n>`.
+· `/review [pr|ref] [--merge-check]` · `/triage-issue <n>` ·
+`/competitive-compare [tool] [ref]` (the competitive tier against a ref; drafts to `.claude/state/competitive/`, never the ledger).
 Authority, never restated in a command: `docs/standard/STANDARD.md` (what
 good means; the Definition of Done), `docs/harness/ARCHAEOLOGY.md` (why every
 test exists), `docs/cicd/RUNBOOK.md` (what a human does),

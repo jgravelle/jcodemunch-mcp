@@ -32,6 +32,7 @@ Definition of Done (STANDARD.md) requires that was missing at the time.
 | 8 | Review a PR | 257 PRs | 64% merged with zero reviews (164) | — | 164 | `/review` |
 | 9 | CLAUDE.md rotation / split | 5 | 60% (3 wrong turns) | — | 3 | a skill, not a command (§2.9) |
 | 10 | Retire or skip a test | 3 deletions, 60 skip-mark commits | one incident hid 209 tests | — | — | a hook (§2.10) |
+| 11 | Ask how a retrieval change moved the competitive rows | 0 (the tier is new, 2026-09-05) | — | — | — | `/competitive-compare` (workflows DESIGN §2.7; competitive DESIGN s9.1) |
 
 Build order for Phase 3, within the fixed sequence (hooks, review subagent,
 commands, skills, CLAUDE.md): `/release`, `/review`, `/feature`,
