@@ -270,3 +270,28 @@ def test_h1_runs_the_tier_when_claude_md_is_staged_and_stays_free_for_other_docs
     assert mod.tier_needed([]) is False
     # the trigger is the file the Floor reads, not every root-level markdown file
     assert "CLAUDE.md" in mod.TIER_TRIGGERS and "README.md" not in mod.TIER_TRIGGERS
+
+
+def test_h1_triggers_on_every_file_the_harness_reads_for_a_floor():
+    """W-39, the property rather than the spelling: every path literal harness/__main__.py reads
+    from the tree for a Floor (`REPO / "a" / "b"`) is covered by the hook's trigger list, so a
+    commit that regenerates a frozen artifact alone cannot be a free commit with a moved Floor."""
+    import importlib.util
+    import re
+
+    spec = importlib.util.spec_from_file_location("pre_commit_under_test2", HOOKS / "pre_commit.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(HOOKS))
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(str(HOOKS))
+    src = (ROOT / "harness" / "__main__.py").read_text(encoding="utf-8")
+    chains = re.findall(r'REPO((?:\s*/\s*"[^"]+")+)', src)
+    paths = sorted({"/".join(re.findall(r'"([^"]+)"', c)) for c in chains})
+    read_from_tree = [p for p in paths if p not in ("src",)]
+    assert read_from_tree, "the harness reads nothing from the tree? the regex no longer matches"
+    assert any(p == "CLAUDE.md" for p in read_from_tree)
+    # a literal may name a directory (`benchmarks/route_recall`); a file under it must trigger
+    uncovered = [p for p in read_from_tree if not (mod.tier_needed([p]) or mod.tier_needed([p + "/x"]))]
+    assert not uncovered, f"a Floor input the hook does not trigger on: {uncovered}"
