@@ -167,6 +167,10 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     dumped = json.dumps(result)
     assert str(tmp_path) not in dumped and str(Path.home()) not in dumped
     assert set(result["header"]["runner"]) == {"os", "python", "cpus", "ci"}
+    # the header carries each corpus's code-file count (findings.py's index_missing_files reads it):
+    # the tiny corpus is two .py files; every entry's count is at most its file count
+    tiny = next(c for c in result["header"]["corpora"] if c["id"] == "tiny@0")
+    assert tiny["code_files"] == 2 and all(0 < c["code_files"] <= c["files"] for c in result["header"]["corpora"])
     # --set none: the corpus check is recorded on the tiny corpus, and NOT enforced (a smoke run)
     assert result["header"]["corpus_check"]["ok"] is False and result["header"]["corpus_check"]["enforced"] is False
     tools = {p["name"] for p in result["header"]["pins"]}

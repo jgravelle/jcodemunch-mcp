@@ -400,7 +400,7 @@ def main(argv=None) -> int:
             "jcm_version": version, "runs": a.runs,
             "runner": {"os": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
                        "ci": bool(os.environ.get("GITHUB_ACTIONS"))},
-            "corpora": [{"id": c.id, "files": len(c.files), "sha256": c.sha256} for c in corpora.values()],
+            "corpora": [{"id": c.id, "files": len(c.files), "code_files": sum(1 for f in c.files if corpus_check._language(f)), "sha256": c.sha256} for c in corpora.values()],
             "tasks_sha256": hashlib.sha256(b"".join(tp.read_bytes() for tp in task_paths)).hexdigest(),
             "task_files": [tp.name for tp in task_paths],
             "wall_seconds": round(time.perf_counter() - t_wall, 1),
