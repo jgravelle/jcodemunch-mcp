@@ -143,4 +143,5 @@ def test_summary_labels_variants_and_lists_tools_not_called():
     assert "| jcodemunch_counter (variant of jcodemunch) |" in md
     assert "## Tools not called" in md and "`x` P2 on `self@c` (3 tasks" in md
     assert "## Movement" in md
-    assert "claims" not in json.dumps(result)
+    assert "claims" not in md  # D4 over the PRODUCED summary, not the fixture (a check over the input cannot fail against the producer)
+    assert "claims" not in json.dumps(trend.line_from_result(result))  # and over the history line --record writes
