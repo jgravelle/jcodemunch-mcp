@@ -1,0 +1,84 @@
+{
+ "policy": {
+  "min_languages": 4,
+  "language_min_share": 0.02,
+  "big_file_min_lines": 5000,
+  "big_corpus_min_files": 2000,
+  "max_language_share": 0.6,
+  "same_domain_is_failure": true
+ },
+ "languages_counted": [
+  "go",
+  "javascript",
+  "python"
+ ],
+ "language_shares": {
+  "go": 0.0555,
+  "javascript": 0.0941,
+  "python": 0.8473,
+  "shell": 0.003
+ },
+ "longest_file": {
+  "corpus": "self@101aa9e1",
+  "file": "src/jcodemunch_mcp/parser/extractor.py",
+  "lines": 12158
+ },
+ "largest_corpus": {
+  "corpus": "fastapi/fastapi@a64dfbb",
+  "files": 3127
+ },
+ "domains": {
+  "code intelligence server": 1,
+  "web framework": 3
+ },
+ "problems": [
+  "(a) 3 language(s) at or above 2% of the set's code files (go, javascript, python); the policy needs 4",
+  "(e) python is 85% of the set's code files; the policy caps a language at 60%"
+ ],
+ "ok": false,
+ "note": "corpus_check over the three benchmarks/tasks.json corpora plus this tree's src/ (git ls-files file sets, the self corpus copied without bytecode); written by the PR 3a round-1 generator on 2026-09-06; reproduce with corpus_check.py's CLI",
+ "descriptions": [
+  {
+   "id": "self@101aa9e1",
+   "files": 277,
+   "languages": {
+    "python": 277
+   },
+   "longest_file": "src/jcodemunch_mcp/parser/extractor.py",
+   "longest_lines": 12158,
+   "domain": "code intelligence server"
+  },
+  {
+   "id": "expressjs/express@1faf228",
+   "files": 232,
+   "languages": {
+    "javascript": 152
+   },
+   "longest_file": "test/res.sendFile.js",
+   "longest_lines": 1412,
+   "domain": "web framework"
+  },
+  {
+   "id": "fastapi/fastapi@a64dfbb",
+   "files": 3127,
+   "languages": {
+    "javascript": 4,
+    "python": 1127,
+    "shell": 5
+   },
+   "longest_file": "tests/test_include_router_defaults_overrides.py",
+   "longest_lines": 7304,
+   "domain": "web framework"
+  },
+  {
+   "id": "gin-gonic/gin@75ccf94",
+   "files": 120,
+   "languages": {
+    "go": 92
+   },
+   "longest_file": "context_test.go",
+   "longest_lines": 2713,
+   "domain": "web framework"
+  }
+ ]
+}

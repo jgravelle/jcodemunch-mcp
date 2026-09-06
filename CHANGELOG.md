@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier's corpus and task fairness checks, and the corpus set it needed to pass them (FINDINGS CF-46 to CF-48)
+
+A comparison over one language, one domain and small modular repositories
+flatters symbol search, so `benchmarks/competitive/corpus_check.py` now
+judges the SET of corpora before anything is scored, criterion by
+criterion, with every threshold read from `corpus_policy.json` and the
+verdict recorded in the result header; a failing set stops the run (exit
+5) instead of producing a table. The three corpora pinned by
+`benchmarks/tasks.json` plus this tree's own `src/` fail it on two
+criteria (the language count and one language's share), not the four the
+design predicted (CF-46), so `corpora.json` pins five more by full SHA
+(a utility library, an HTTP client library, a TypeScript monorepo and two
+repositories over 10,000 files in different languages; one alone puts its
+language over the cap, which is why there are two) and `corpora.py`
+fetches them by SHA into a cache OUTSIDE the tree, because `benchmarks/`
+ships in the sdist. `task_check.py` refuses a malformed or unanswerable
+task and keeps a task only one side can answer out of every head-to-head
+table, symmetrically; after a run it names a tool that cited nothing on
+every P task of a corpus, the shape of an adapter silently not called.
+The tasks themselves: for three corpora a third party's rules
+(sverklo-bench, CC-BY-4.0, pinned by commit) reproduced by
+`tasks/from_sverklo.py`, each hand-verified definition line re-verified
+at our SHA so a moved line refuses the generator and the three tasks that
+do not exist at our SHAs are dropped with the reason (CF-48); for the
+other three, symbols chosen by one author with expected sets computed by
+the same rules, never typed. One author wrote every adapter and every
+task, which the design's independence rule forbids and one agent cannot
+meet; it is recorded, not softened (CF-47). `run.py` takes `--set`,
+`--only`, a `--tasks` directory, and `--corpus ID=PATH|DOMAIN`.
+The first run over the whole set found a harness defect: the sandbox's
+timeout killed the docker client and not the container, so a "timed
+out" container kept running beside the next one and the host's memory
+guard killed the runner, discarding everything measured (CF-49).
+Containers are named and killed on timeout now, with a test that leaks
+one against the pre-fix code, and a checkpoint of finished runs is
+written after every run.
+The recorded run of this PR covers the self corpus and the two corpora
+with third-party tasks; the whole set does not fit the design's
+four-hour budget on a workstation (one pass alone ran past two hours,
+CF-53), which sizes the scheduled job rather than trimming the set. The
+run found two things worth more than its rows: our own adapter answers
+the reference-finding category with the import-graph tool, and that
+tool's reply says which tool to use instead, so our row there is zero on
+every corpus until the adapter is corrected (CF-51, a loss recorded as
+one); and one competitor's image lacks the runtime its JavaScript
+language server needs, so its rows on that corpus are not comparable
+rather than lost (CF-52). Neither is fixed here: adapters change one per
+PR.
+
 ### Added - the eighth competitor row, the embedding representative over MCP stdio with a local model (FINDINGS CF-43 to CF-45)
 
 The last adapter of the set is the one whose retrieval is a vector

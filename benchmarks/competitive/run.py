@@ -48,7 +48,10 @@ sys.path.insert(0, str(HERE))
 
 from adapter import SCHEMA, Corpus, Task, corpus_digest, read_file, validate  # noqa: E402
 from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
+import corpora as corpora_mod  # noqa: E402
+import corpus_check  # noqa: E402
 import sandbox  # noqa: E402
+import task_check  # noqa: E402
 
 DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
 CATEGORY_F1 = {"P1": "f1_P1", "P2": "f1_P2", "P4": "f1_P4", "P5": "f1_P5"}
@@ -148,28 +151,8 @@ def build_corpus(cid: str, path: Path, scratch: Path) -> Corpus:
 
 
 def check_tasks(tasks: list[Task], corpora: dict[str, Corpus], adapters: list) -> list[str]:
-    """DESIGN s4.3, the part that needs no competitor: malformed records and
-    expected files absent from the corpus refuse the run."""
-    problems = []
-    null_cats = set()
-    for a in adapters:
-        if a.interface == "null":
-            null_cats |= set(a.categories)
-    for t in tasks:
-        if t.corpus not in corpora:
-            problems.append(f"{t.id}: corpus {t.corpus!r} not in this run")
-            continue
-        if null_cats and t.category not in null_cats:
-            problems.append(f"{t.id}: category {t.category} is not answerable by the null alternative")
-        files = set(corpora[t.corpus].files)
-        for f, _ in t.expected:
-            if f not in files:
-                problems.append(f"{t.id}: expected file {f!r} is not in the corpus")
-        low = t.query.lower()
-        for word in ("search_symbols", "get_symbol_source", "symbol_id", "_meta"):
-            if word in low:
-                problems.append(f"{t.id}: query names a jcodemunch tool or field ({word})")
-    return problems
+    """DESIGN s4.3: lives in task_check.py (item 3); kept as the name the tests call."""
+    return task_check.check(tasks, corpora, adapters)
 
 
 def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scratch: Path) -> dict:
@@ -313,8 +296,10 @@ def render_md(result: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--corpus", action="append", default=[], help="ID=PATH; repeatable")
-    ap.add_argument("--tasks", default=str(HERE / "tasks" / "self.json"))
+    ap.add_argument("--corpus", action="append", default=[], help="ID=PATH|DOMAIN; repeatable; added to the set")
+    ap.add_argument("--set", default=str(HERE / "corpora.json"), help="the pinned corpus set (corpora.json); fetched into the cache by SHA; 'none' = the self corpus plus --corpus extras only: the corpus check is RECORDED, not enforced, and --record refuses on a failing one (a smoke run is never a recorded one)")
+    ap.add_argument("--only", default="", help="comma-separated corpus ids from the set to run (the check still judges the whole set)")
+    ap.add_argument("--tasks", default=str(HERE / "tasks"), help="a task file, or a directory of them (every *.json)")
     ap.add_argument("--adapters", default=",".join(DEFAULT_ADAPTERS))
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--out-dir", default=str(HERE / "results"))
@@ -336,37 +321,61 @@ def main(argv=None) -> int:
         adapters = [load_adapter(n.strip(), a.sandbox) for n in a.adapters.split(",") if n.strip()]
         commit = _git("rev-parse", "--short", "HEAD")
         corpora: dict[str, Corpus] = {}
-        if not a.corpus:
-            src = scratch / "self" / "src"
-            copy_source_tree(REPO / "src", src)
-            _git_init(src.parent)
-            corpora[f"self@{commit}"] = build_corpus(f"self@{commit}", src.parent, scratch / "discover-self")
+        domains: dict[str, str] = {}
+        src = scratch / "self" / "src"
+        copy_source_tree(REPO / "src", src)
+        _git_init(src.parent)
+        corpora[f"self@{commit}"] = build_corpus(f"self@{commit}", src.parent, scratch / "discover-self")
+        domains[f"self@{commit}"] = "code intelligence server"
+        set_entries = [] if a.set == "none" else corpora_mod.load(Path(a.set))
+        only = {x.strip() for x in a.only.split(",") if x.strip()}
+        checked: list[dict] = [corpus_check.describe(f"self@{commit}", src.parent, corpora[f"self@{commit}"].files, domains[f"self@{commit}"])]
+        for entry in set_entries:
+            path = corpora_mod.fetch(entry, log=lambda m: print(m, file=sys.stderr))
+            c = build_corpus(entry["id"], path, scratch / ("discover-" + entry["id"].replace("/", "_").replace("@", "_")))
+            checked.append(corpus_check.describe(entry["id"], path, c.files, entry.get("domain", "unknown")))
+            if not only or entry["id"] in only:
+                corpora[entry["id"]] = c
+                domains[entry["id"]] = entry.get("domain", "unknown")
         for spec in a.corpus:
-            cid, _, p = spec.partition("=")
+            cid, _, rest = spec.partition("=")
+            p, _, dom = rest.partition("|")
             corpora[cid] = build_corpus(cid, Path(p).resolve(), scratch / ("discover-" + cid.replace("/", "_").replace("@", "_")))
+            domains[cid] = dom or "unknown"
+            checked.append(corpus_check.describe(cid, Path(p).resolve(), corpora[cid].files, domains[cid]))
+        corpus_problems, corpus_verdict = corpus_check.check(checked, corpus_check.load_policy())
+        corpus_verdict["enforced"] = a.set != "none"
+        if corpus_problems and corpus_verdict["enforced"]:
+            print("refused: corpus check failed (DESIGN s3.3)\n  " + "\n  ".join(corpus_problems), file=sys.stderr)
+            return 5
+        if corpus_problems and a.record:
+            print("refused: --record with --set none and a failing corpus check (DESIGN s3.3): a smoke run is not a recorded one", file=sys.stderr)
+            return 5
+        if corpus_problems:
+            print("corpus check FAILED (recorded, not enforced under --set none):\n  " + "\n  ".join(corpus_problems), file=sys.stderr)
 
-        tasks = load_tasks(Path(a.tasks))
+        t_wall = time.perf_counter()  # CF-53: the run's wall time belongs in the header
+        task_paths = sorted(Path(a.tasks).glob("*.json")) if Path(a.tasks).is_dir() else [Path(a.tasks)]
+        tasks = [t for tp in task_paths for t in load_tasks(tp)]
         tasks = [Task(**{**t.__dict__, "corpus": t.corpus.replace("self@HEAD", f"self@{commit}")}) for t in tasks]
+        tasks = [t for t in tasks if t.corpus in corpora]  # a task for a set member left out by --only is not a problem
         problems = check_tasks(tasks, corpora, adapters)
         if problems:
             print("refused: task check failed\n  " + "\n  ".join(problems), file=sys.stderr)
             return 3
 
-        non_null = [x for x in adapters if x.interface != "null"]
-        capability_only = []
-        scored_tasks = []
-        for t in tasks:
-            able = [x.name for x in non_null if t.category in x.categories]
-            if t.capability_only or len(able) < 2 and len(non_null) >= 2:
-                capability_only.append({"task": t.id, "category": t.category, "answerable_by": able})
-            else:
-                scored_tasks.append(t)
-        # With only jcodemunch present (this PR), nothing is capability-only by count.
+        scored_tasks, capability_only = task_check.split(tasks, adapters)
 
         runs = []
         for i in range(a.runs):
             runs.append(run_once(adapters, corpora, scored_tasks, scratch / f"run{i}"))
-            print(f"run {i + 1}/{a.runs} done", file=sys.stderr)
+            print(f"run {i + 1}/{a.runs} done", file=sys.stderr, flush=True)
+            # A checkpoint per run: a process killed mid-run (CF-49) keeps every run it finished.
+            # Not a result file (no rows, no band); `--record` never reads it.
+            ck = Path(a.out_dir) / f"checkpoint-{commit}.json"
+            ck.parent.mkdir(parents=True, exist_ok=True)
+            ck.write_text(json.dumps({"schema": "jcm-competitive-checkpoint/v1", "commit": commit, "runs_done": len(runs), "runs": runs}), encoding="utf-8")
+        ck.unlink(missing_ok=True)  # every run finished: the result file below is the record
 
         version = "unknown"
         try:
@@ -381,7 +390,10 @@ def main(argv=None) -> int:
             "runner": {"os": platform.platform(), "python": platform.python_version(), "cpus": os.cpu_count(),
                        "ci": bool(os.environ.get("GITHUB_ACTIONS"))},
             "corpora": [{"id": c.id, "files": len(c.files), "sha256": c.sha256} for c in corpora.values()],
-            "tasks_sha256": hashlib.sha256(Path(a.tasks).read_bytes()).hexdigest(),
+            "tasks_sha256": hashlib.sha256(b"".join(tp.read_bytes() for tp in task_paths)).hexdigest(),
+            "task_files": [tp.name for tp in task_paths],
+            "wall_seconds": round(time.perf_counter() - t_wall, 1),
+            "corpus_check": corpus_verdict,
             "sandbox": a.sandbox,
             "tree_dirty": bool(_git("status", "--porcelain")),
             "scorer_sha256": _scorer_sha256(),
@@ -391,6 +403,7 @@ def main(argv=None) -> int:
         not_runnable = sorted({(a.name, cid, r[a.name][cid].get("not_runnable")) for r in runs for a in adapters for cid in corpora if r[a.name][cid].get("not_runnable")})
         result = {"header": header, "rows": aggregate(runs, adapters, corpora), "runs": runs,
                   "capability_only": capability_only,
+                  "tools_not_called": task_check.tools_not_called(runs, adapters),
                   "not_runnable": [{"tool": t, "corpus": c, "reason": why} for t, c, why in not_runnable]}
         out_dir = Path(a.out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)

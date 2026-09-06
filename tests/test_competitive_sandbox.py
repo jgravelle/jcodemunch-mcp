@@ -76,6 +76,8 @@ def test_every_run_carries_the_d2_flags_and_no_host_environment(tmp_path, monkey
 
 def test_a_timeout_is_reported_not_raised(tmp_path):
     def slow(cmd, **kw):
+        if cmd[:2] == ["docker", "kill"]:  # the timeout's own kill (CF-49) is answered, never timed out
+            return subprocess.CompletedProcess(cmd, 0, "", "")
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 1))
 
     with mock.patch.object(sandbox.subprocess, "run", slow):

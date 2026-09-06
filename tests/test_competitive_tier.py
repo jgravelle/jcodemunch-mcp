@@ -154,7 +154,7 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     tf.write_text(json.dumps(tasks), encoding="utf-8")
     out = tmp_path / "out"
     proc = subprocess.run(
-        [sys.executable, str(COMPETE / "run.py"), "--corpus", f"tiny@0={root}", "--tasks", str(tf), "--runs", "1", "--out-dir", str(out), "--sandbox", "none"],
+        [sys.executable, str(COMPETE / "run.py"), "--corpus", f"tiny@0={root}", "--set", "none", "--tasks", str(tf), "--runs", "1", "--out-dir", str(out), "--sandbox", "none"],
         text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=580, cwd=REPO,
     )
     assert proc.returncode == 0, proc.stdout[-2000:] + proc.stderr[-2000:]
@@ -167,6 +167,8 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     dumped = json.dumps(result)
     assert str(tmp_path) not in dumped and str(Path.home()) not in dumped
     assert set(result["header"]["runner"]) == {"os", "python", "cpus", "ci"}
+    # --set none: the corpus check is recorded on the tiny corpus, and NOT enforced (a smoke run)
+    assert result["header"]["corpus_check"]["ok"] is False and result["header"]["corpus_check"]["enforced"] is False
     tools = {p["name"] for p in result["header"]["pins"]}
     assert tools == {"null_readall", "null_grep", "jcodemunch"}
     rows = {(r["axis"], r["tool"]) for r in result["rows"]}

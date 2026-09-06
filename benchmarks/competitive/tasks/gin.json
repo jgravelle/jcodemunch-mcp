@@ -1,0 +1,42 @@
+{
+  "schema": "jcm-competitive-tasks/v1",
+  "note": "The five published token queries (benchmarks/tasks.json) as category T over gin-gonic/gin@75ccf94, the corpus they were published on; no P task: no third party wrote line-level ground truth for it and the authored set stops at the corpora corpus_check needs (tasks/authored.py).",
+  "corpus": "gin-gonic/gin@75ccf94",
+  "tasks": [
+    {
+      "id": "gin-T-1",
+      "corpus": "gin-gonic/gin@75ccf94",
+      "category": "T",
+      "query": "router route handler",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "gin-T-2",
+      "corpus": "gin-gonic/gin@75ccf94",
+      "category": "T",
+      "query": "middleware",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "gin-T-3",
+      "corpus": "gin-gonic/gin@75ccf94",
+      "category": "T",
+      "query": "error exception",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "gin-T-4",
+      "corpus": "gin-gonic/gin@75ccf94",
+      "category": "T",
+      "query": "request response",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "gin-T-5",
+      "corpus": "gin-gonic/gin@75ccf94",
+      "category": "T",
+      "query": "context bind",
+      "source": "jcm-tasks.json"
+    }
+  ]
+}
