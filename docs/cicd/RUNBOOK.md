@@ -241,3 +241,73 @@ Write, Maintain and Admin repository roles, mode `always`). ⚠ Leaving
 `main` inside it makes every human merge need `--admin` and stops
 auto-merge (FINDINGS IN-19); `main` is protected by branch protection
 already. `docs/inbound/VERIFICATION.md` row 1.10 tracks it.
+
+## 10. The competitive loop (the tier that measures us against the field)
+
+`docs/competitive/DESIGN.md` is the loop; `POLICY.md` section 4.4 and
+section 7 (the inbound contract) govern its three jobs. This section is the
+human's part. Nothing in it can run before the steps below.
+
+**Turn it on.** The loop inherits `INBOUND_ENABLED` (section 9) for all
+three jobs, and the post job also needs a second variable. Only the exact
+string `true` is on; absent is off.
+
+```
+gh variable set COMPETITIVE_POST_ENABLED --body true
+gh variable set COMPETITIVE_POST_ENABLED --body false
+```
+
+**Create the labels (once).** The post job applies exactly one of these
+plus `needs-human`; they do not exist and only a human creates them
+(POLICY 4.4 lists labels as never-touch; the post job is the one exception,
+for these four).
+
+```
+gh label create competitive-gap --description "a competitor ahead on a comparable axis, meaningful, from a recorded run"
+gh label create competitive-watch --description "we lead and the gap narrowed on two consecutive runs"
+gh label create competitive-idea --description "a set member's release names a capability (title quoted as data)"
+gh label create standard-proposal --description "a competitor past a STANDARD Target on two runs; a human edits the standard or declines"
+```
+
+**Run it.** Monthly on the first Sunday 03:00 UTC (`competitive-run.yml`),
+or by hand with a reason and an optional tool:
+
+```
+gh workflow run competitive-run.yml -f reason="first run on a runner (CF-53)"
+gh workflow run competitive-run.yml -f reason="serena release" -f tool=serena
+```
+
+The first dispatched run is the measurement FINDINGS CF-53 is waiting for
+(the full set did not fit the 240-minute budget on a workstation) and the
+three-run Linux baseline CF-8 and CF-14 need before `latency_call_ms` and
+`index_cold_seconds` are read at all. Read its summary from the
+`competitive-result-<run id>` artifact or `competitive/latest.md` on
+`inbound-ledger`; the header says which runner it ran on.
+
+**Approve a draft.** Drafts are files under `competitive/drafts/` on
+`inbound-ledger`, one per fingerprint (`competitive-id:` line), with
+`approved: false` in the head. Edit the file on that branch and set
+`approved: true` in a commit of your own; the next post run (daily 07:00
+UTC) opens the issue, applies the label, and writes `posted: #<n>` back.
+An App-authored approval never posts. A `standard-proposal` draft's first
+line says the standard is edited only by a human; approving it opens the
+issue, nothing more.
+
+**Read a finding.** A gap draft names the axis, corpus, category, both
+medians and spreads, the band, the competitor's pinned release and image
+digest, the run file, and one hypothesis from the fixed list. Two rows
+travel with caveats the draft must carry: a token row where the tool
+returns hits and the body is read elsewhere (CF-24), and a token row where
+the harness chose the pattern (CF-29). A `tool_not_called` hypothesis is
+the adapter's fault before it is the tool's; ours was first (CF-51).
+
+**Weekly feed.** Sundays 04:00 UTC (`competitive-feed.yml`) reads each set
+member's latest release through registries on a read-only token, drafts a
+`competitive-idea` when a title carries a capability word, and dispatches
+one re-run when a release names a measured axis. It reads the ledger first
+so one release is re-run once.
+
+**Something looks wrong.** Flip `INBOUND_ENABLED` off (all three jobs stop
+within one step); read the run's audit record (`competitive-audit-<run
+id>` artifact). A container that outlived its run is named
+`jcm-compete-<hex>`; `docker ps` shows it and `docker kill` ends it.
