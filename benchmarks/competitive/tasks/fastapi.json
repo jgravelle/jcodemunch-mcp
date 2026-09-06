@@ -1,0 +1,42 @@
+{
+  "schema": "jcm-competitive-tasks/v1",
+  "note": "The five published token queries (benchmarks/tasks.json) as category T over fastapi/fastapi@a64dfbb, the corpus they were published on; no P task: no third party wrote line-level ground truth for it and the authored set stops at the corpora corpus_check needs (tasks/authored.py).",
+  "corpus": "fastapi/fastapi@a64dfbb",
+  "tasks": [
+    {
+      "id": "fastapi-T-1",
+      "corpus": "fastapi/fastapi@a64dfbb",
+      "category": "T",
+      "query": "router route handler",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "fastapi-T-2",
+      "corpus": "fastapi/fastapi@a64dfbb",
+      "category": "T",
+      "query": "middleware",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "fastapi-T-3",
+      "corpus": "fastapi/fastapi@a64dfbb",
+      "category": "T",
+      "query": "error exception",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "fastapi-T-4",
+      "corpus": "fastapi/fastapi@a64dfbb",
+      "category": "T",
+      "query": "request response",
+      "source": "jcm-tasks.json"
+    },
+    {
+      "id": "fastapi-T-5",
+      "corpus": "fastapi/fastapi@a64dfbb",
+      "category": "T",
+      "query": "context bind",
+      "source": "jcm-tasks.json"
+    }
+  ]
+}

@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added - the competitive tier's corpus and task fairness checks, and the corpus set it needed to pass them (FINDINGS CF-46 to CF-48)
+
+A comparison over one language, one domain and small modular repositories
+flatters symbol search, so `benchmarks/competitive/corpus_check.py` now
+judges the SET of corpora before anything is scored, criterion by
+criterion, with every threshold read from `corpus_policy.json` and the
+verdict recorded in the result header; a failing set stops the run (exit
+5) instead of producing a table. The three corpora pinned by
+`benchmarks/tasks.json` plus this tree's own `src/` fail it on two
+criteria (the language count and one language's share), not the four the
+design predicted (CF-46), so `corpora.json` pins five more by full SHA
+(a utility library, an HTTP client library, a TypeScript monorepo and two
+repositories over 10,000 files in different languages; one alone puts its
+language over the cap, which is why there are two) and `corpora.py`
+fetches them by SHA into a cache OUTSIDE the tree, because `benchmarks/`
+ships in the sdist. `task_check.py` refuses a malformed or unanswerable
+task and keeps a task only one side can answer out of every head-to-head
+table, symmetrically; after a run it names a tool that cited nothing on
+every P task of a corpus, the shape of an adapter silently not called.
+The tasks themselves: for three corpora a third party's rules
+(sverklo-bench, CC-BY-4.0, pinned by commit) reproduced by
+`tasks/from_sverklo.py`, each hand-verified definition line re-verified
+at our SHA so a moved line refuses the generator and the three tasks that
+do not exist at our SHAs are dropped with the reason (CF-48); for the
+other three, symbols chosen by one author with expected sets computed by
+the same rules, never typed. One author wrote every adapter and every
+task, which the design's independence rule forbids and one agent cannot
+meet; it is recorded, not softened (CF-47). `run.py` takes `--set`,
+`--only`, a `--tasks` directory, and `--corpus ID=PATH|DOMAIN`.
+
 ### Added - the eighth competitor row, the embedding representative over MCP stdio with a local model (FINDINGS CF-43 to CF-45)
 
 The last adapter of the set is the one whose retrieval is a vector

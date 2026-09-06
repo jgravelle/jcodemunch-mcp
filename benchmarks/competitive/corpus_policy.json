@@ -1,0 +1,10 @@
+{
+  "schema": "jcm-competitive-corpus-policy/v1",
+  "note": "docs/competitive/DESIGN.md s3.3: each threshold is written there once and read here by corpus_check.py. These are NOT Floors and do not go in harness/thresholds.json. A language counts toward (a) when its share of the set's code files is at least language_min_share; shares for (a) and (e) are over code files (extensions in corpus_check.LANGUAGES), across the whole set.",
+  "min_languages": 4,
+  "language_min_share": 0.02,
+  "big_file_min_lines": 5000,
+  "big_corpus_min_files": 2000,
+  "max_language_share": 0.60,
+  "same_domain_is_failure": true
+}

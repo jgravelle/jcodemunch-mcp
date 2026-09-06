@@ -1,0 +1,68 @@
+{
+  "schema": "jcm-competitive-corpora/v1",
+  "description": "The competitive tier's corpus set (docs/competitive/DESIGN.md s3.4): the three pinned by benchmarks/tasks.json stay for continuity with every published jcm number; the five additional ones are where the set is expected to lose. Every corpus is a checkout at a full commit SHA; the SHA was recorded before any tool ran on it (2026-09-06). The self corpus (this tree's src/) is added by run.py at the running commit and is not listed here.",
+  "cache": "Checkouts live OUTSIDE the tree (corpora.py: $JCM_COMPETE_CORPORA or ~/.cache/jcm-compete/corpora) because benchmarks/ ships in the sdist and a checked-out corpus under it would ship too.",
+  "corpora": [
+    {
+      "id": "expressjs/express@1faf228",
+      "repo": "expressjs/express",
+      "sha": "1faf228935aa0a13111f92c28ee795be64ce3f0f",
+      "domain": "web framework",
+      "description": "Express.js, Node.js web framework (benchmarks/tasks.json pin)"
+    },
+    {
+      "id": "fastapi/fastapi@a64dfbb",
+      "repo": "fastapi/fastapi",
+      "sha": "a64dfbbd21a445288ff583d58e1f646fe6baf3af",
+      "domain": "web framework",
+      "description": "FastAPI, Python async web framework (benchmarks/tasks.json pin)"
+    },
+    {
+      "id": "gin-gonic/gin@75ccf94",
+      "repo": "gin-gonic/gin",
+      "sha": "75ccf94d605a05fe24817fc2f166f6f2959d5cea",
+      "domain": "web framework",
+      "description": "Gin, Go HTTP web framework (benchmarks/tasks.json pin)"
+    },
+    {
+      "id": "lodash/lodash@f299b52",
+      "repo": "lodash/lodash",
+      "sha": "f299b52f39486275a9e6483b60a410e06520c538",
+      "tag": "4.17.21",
+      "domain": "utility library",
+      "description": "lodash 4.17.21, a single 17k-line UMD file plus fp/ helpers; sverklo-bench's corpus, its tasks apply as written"
+    },
+    {
+      "id": "psf/requests@0e322af",
+      "repo": "psf/requests",
+      "sha": "0e322af87745eff34caffe4df68456ebc20d9068",
+      "tag": "v2.32.3",
+      "domain": "HTTP client library",
+      "description": "requests 2.32.3, a Python library, not a framework; sverklo-bench's corpus, its tasks apply as written"
+    },
+    {
+      "id": "nestjs/nest@6494a6c",
+      "repo": "nestjs/nest",
+      "sha": "6494a6c27400547ea6cd9b78da07b2e9c2547ca0",
+      "tag": "v12.0.0",
+      "domain": "application framework (TypeScript, monorepo)",
+      "description": "NestJS 12.0.0, a TypeScript monorepo of 2,301 tracked files (1,821 .ts): the 2,000-5,000-file TypeScript bucket, chosen by corpus_check's criteria on 2026-09-06"
+    },
+    {
+      "id": "spring-projects/spring-framework@82a6b40",
+      "repo": "spring-projects/spring-framework",
+      "sha": "82a6b40b9366ec181ededdad282b307ee5381a52",
+      "tag": "v7.0.9",
+      "domain": "application framework (Java)",
+      "description": "Spring Framework 7.0.9, 11,362 tracked files (9,210 .java): the over-10,000-file bucket the ROADMAP said it would most like to leave out"
+    },
+    {
+      "id": "angular/angular@468b65b",
+      "repo": "angular/angular",
+      "sha": "468b65b74566537456c192ac4281795c5a1e1a5e",
+      "tag": "v22.1.5",
+      "domain": "application framework (TypeScript, monorepo, Bazel)",
+      "description": "Angular 22.1.5, 10,527 tracked files (5,988 .ts): a second over-10,000-file corpus, added on 2026-09-06 because one alone puts its language over corpus_policy's 60% cap (corpus_check (e)); with it Java and TypeScript each stay under the cap"
+    }
+  ]
+}
