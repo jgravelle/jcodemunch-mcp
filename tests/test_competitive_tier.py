@@ -184,6 +184,7 @@ def test_end_to_end_writes_a_valid_result_file_with_null_rows(tmp_path):
     # on top of both files, R25): the baseline is not tuned to lose.
     assert readall_t["tokens"] > 0 and grep_t["tokens"] > 0 and readall_t["calls"] == 2
     md = (out / "latest.md").read_text(encoding="utf-8")
+    assert "## Movement" in md  # DESIGN s6: on every summary, recorded or not
     assert "A competitor's README figure is not on this page" in md
     assert "| null_grep |" in md and "| null_readall |" in md
 

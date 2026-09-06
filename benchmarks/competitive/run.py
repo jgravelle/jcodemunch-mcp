@@ -52,6 +52,7 @@ import corpora as corpora_mod  # noqa: E402
 import corpus_check  # noqa: E402
 import sandbox  # noqa: E402
 import task_check  # noqa: E402
+import trend  # noqa: E402
 
 DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
 CATEGORY_F1 = {"P1": "f1_P1", "P2": "f1_P2", "P4": "f1_P4", "P5": "f1_P5"}
@@ -233,7 +234,7 @@ def aggregate(runs: list[dict], adapters: list, corpora: dict[str, Corpus], jcm_
     return rows
 
 
-def render_md(result: dict) -> str:
+def render_md(result: dict, history: list[dict] | None = None) -> str:
     h = result["header"]
     lines = [f"# Competitive tier — {h['date']} at {h['jcm_commit']} ({h['jcm_version']})", ""]
     lines.append("A competitor's README figure is not on this page. Every number below was produced by this run on this corpus with this tokenizer (cl100k_base); `measured` is the median of the runs, `spread` is max minus min, `band` is max(5% of our median, 3x the larger spread); a delta is called meaningful only when both rows are inside the band and the gap exceeds it. ⚠ Runs in this file: " + str(h["runs"]) + (" (fewer than three: no bands, DESIGN s5)" if h["runs"] < 3 else "") + ".")
@@ -252,6 +253,7 @@ def render_md(result: dict) -> str:
             continue
         unit = "ratio vs jcm" if axis in RATIO_AXES else "difference vs jcm"
         lines.append(f"## {axis} ({unit})")
+        variants = {p["name"]: p["variant_of"] for p in h["pins"] if p.get("variant_of")}
         if axis == "latency_call_ms":
             lines.append("")
             lines.append("Median wall time of ONE call, over every call of every task. The operations differ by tool (a symbol fetch, a whole-file read), so this is what an agent waits per call, not a like-for-like operation.")
@@ -277,7 +279,8 @@ def render_md(result: dict) -> str:
                 if r["note"]:
                     cell += f" [{r['note']}]"
                 cells.append(cell)
-            lines.append(f"| {t} | " + " | ".join(cells) + " |")
+            label = f"{t} (variant of {variants[t]})" if t in variants else t
+            lines.append(f"| {label} | " + " | ".join(cells) + " |")
         lines.append("")
     if result.get("not_runnable"):
         lines.append("## Not runnable")
@@ -291,6 +294,14 @@ def render_md(result: dict) -> str:
         for t in result["capability_only"]:
             lines.append(f"- `{t['task']}` ({t['category']}): answerable by {', '.join(t['answerable_by']) or 'no non-null tool'}")
         lines.append("")
+    if result.get("tools_not_called"):
+        lines.append("## Tools not called (DESIGN s10: an adapter that cited nothing on every P task of a corpus)")
+        lines.append("")
+        for t in result["tools_not_called"]:
+            lines.append(f"- `{t['tool']}` {t['category']} on `{t['corpus']}` ({t['tasks']} tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `{t['hypothesis']}`")
+        lines.append("")
+    history = history or []
+    lines.append(trend.render(trend.movement(history, trend.line_from_result(result)), len(history)))
     return "\n".join(lines)
 
 
@@ -397,7 +408,7 @@ def main(argv=None) -> int:
             "sandbox": a.sandbox,
             "tree_dirty": bool(_git("status", "--porcelain")),
             "scorer_sha256": _scorer_sha256(),
-            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface,
+            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface, "variant_of": getattr(x, "variant_of", None),
                       "image_digest": (x.image().digest if hasattr(x, "image") and getattr(x, "_image", None) is not None else None)} for x in adapters],
         }
         not_runnable = sorted({(a.name, cid, r[a.name][cid].get("not_runnable")) for r in runs for a in adapters for cid in corpora if r[a.name][cid].get("not_runnable")})
@@ -410,13 +421,11 @@ def main(argv=None) -> int:
         stamp = time.strftime("%Y-%m-%d", time.gmtime())
         rf = out_dir / f"{stamp}-{commit}.json"
         rf.write_text(json.dumps(result, indent=1, default=str), encoding="utf-8")
-        (out_dir / "latest.md").write_text(render_md(result), encoding="utf-8")
+        history = trend.load(out_dir / "history.jsonl")
+        (out_dir / "latest.md").write_text(render_md(result, history), encoding="utf-8")
         if a.record:
-            line = {"date": header["date"], "jcm_commit": commit, "jcm_version": version,
-                    "pins": {p["name"]: p["version"] for p in header["pins"]},
-                    "medians": {f"{r['axis']}/{r['tool']}/{r['corpus']}": r["measured"] for r in result["rows"] if r["measured"] is not None}}
             with open(out_dir / "history.jsonl", "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(line) + "\n")
+                fh.write(json.dumps(trend.line_from_result(result)) + "\n")
         print(f"wrote {rf} and {out_dir / 'latest.md'}")
         return 0
     finally:
