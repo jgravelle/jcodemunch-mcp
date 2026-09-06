@@ -297,7 +297,7 @@ def render_md(result: dict) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--corpus", action="append", default=[], help="ID=PATH|DOMAIN; repeatable; added to the set")
-    ap.add_argument("--set", default=str(HERE / "corpora.json"), help="the pinned corpus set (corpora.json); fetched into the cache by SHA; 'none' for the self corpus alone (the corpus check then judges what is given)")
+    ap.add_argument("--set", default=str(HERE / "corpora.json"), help="the pinned corpus set (corpora.json); fetched into the cache by SHA; 'none' = the self corpus plus --corpus extras only: the corpus check is RECORDED, not enforced, and --record refuses on a failing one (a smoke run is never a recorded one)")
     ap.add_argument("--only", default="", help="comma-separated corpus ids from the set to run (the check still judges the whole set)")
     ap.add_argument("--tasks", default=str(HERE / "tasks"), help="a task file, or a directory of them (every *.json)")
     ap.add_argument("--adapters", default=",".join(DEFAULT_ADAPTERS))
@@ -344,9 +344,15 @@ def main(argv=None) -> int:
             domains[cid] = dom or "unknown"
             checked.append(corpus_check.describe(cid, Path(p).resolve(), corpora[cid].files, domains[cid]))
         corpus_problems, corpus_verdict = corpus_check.check(checked, corpus_check.load_policy())
-        if corpus_problems:
+        corpus_verdict["enforced"] = a.set != "none"
+        if corpus_problems and corpus_verdict["enforced"]:
             print("refused: corpus check failed (DESIGN s3.3)\n  " + "\n  ".join(corpus_problems), file=sys.stderr)
             return 5
+        if corpus_problems and a.record:
+            print("refused: --record with --set none and a failing corpus check (DESIGN s3.3): a smoke run is not a recorded one", file=sys.stderr)
+            return 5
+        if corpus_problems:
+            print("corpus check FAILED (recorded, not enforced under --set none):\n  " + "\n  ".join(corpus_problems), file=sys.stderr)
 
         task_paths = sorted(Path(a.tasks).glob("*.json")) if Path(a.tasks).is_dir() else [Path(a.tasks)]
         tasks = [t for tp in task_paths for t in load_tasks(tp)]
