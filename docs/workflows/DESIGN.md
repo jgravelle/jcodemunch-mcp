@@ -172,6 +172,20 @@ request the three profile queries of policy 3c. Hands the draft to the
 `spokesperson` agent for the outward-bound pass. Posts nothing; writes
 `runs/<run>/TRIAGE.md`.
 
+### 2.7 `/competitive-compare [tool] [ref]`
+
+No branch. The competitive loop's interactive form (docs/competitive/DESIGN.md s9.1); LOOPS §2.11.
+
+| Step | Does |
+|---|---|
+| 1 arguments | `tool` a key of `benchmarks/competitive/adapter.REGISTRY` or `all` (default); `ref` default `origin/main`, `git rev-parse --verify` or refuse; `docker info` or refuse (a `--sandbox none` run has no competitor row) |
+| 2 current | `run.py --runs 3 --adapters <the nulls, jcodemunch, the tool or all> --sandbox docker --out-dir evidence/competitive_cur` on the working tree; the corpus and task checks refuse inside it before scoring; never `--record` (the tree's `results/` is the scheduled job's) |
+| 3 ref | `git worktree add <scratch>/competitive-ref <ref>`, same line there with `--out-dir evidence/competitive_ref`; worktree removed after. Never `git checkout` in the working tree. A ref without `run.py` prints `n/a` for its cells. |
+| 4 table | `compare_ref.py --cur … --ref … --out evidence/competitive_compare.md`: per `(axis, tool, corpus)` row in either result file, ref measured and delta, current measured and delta, the current band, and `trend.classify` over the two gaps; the jcm rows first with the signed difference (our movement). `n/a` for an absent side, never 0. Per row, never per total (F-13). The script writes the page; the command retypes none of it. |
+| 5 drafts | `findings.py` over the current file with an empty issue list, to `.claude/state/competitive/drafts/`; counts by label under the table; nothing posted, nothing on the ledger |
+
+Refuses: a ref that does not resolve; an unknown tool; no docker; recording into `benchmarks/competitive/results/`; any write to the ledger.
+
 ## 3. The review subagent (`.claude/agents/reviewer.md`)
 
 **Isolation:** spawned with `subagent_type: reviewer` (fresh context, not
@@ -309,6 +323,7 @@ A new first section after `Current State`:
 Use these; do not improvise the process. Each one runs the harness at the
 right moments and produces the Definition-of-Done checklist itself.
 /feature <desc> · /fix-issue <n> · /release · /benchmark-compare [ref] ·
+/competitive-compare [tool] [ref] ·
 /review [pr|ref] · /triage-issue <n>
 Authority: docs/standard/STANDARD.md (what good means, Definition of Done),
 docs/harness/ARCHAEOLOGY.md (why every test exists), docs/cicd/RUNBOOK.md
