@@ -2,29 +2,29 @@
   "depeval": {
     "body_sha256": "cdc86e99de6be8ca3e62afdf565e50d15b294ca15d41954b1266e53ce446bf45",
     "model": "claude-sonnet-5",
-    "policy_sha256": "126dce80ac5416dde1d63a14f865c676bd35df01ea991e63df6919e7ad969b00",
-    "sha256": "86c40231ac5c45f0d8360d8edc55be97c532623e6dd4fc44d713060651a09998",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "988604e5736339f88ef9fd82756082e2973a24bd1126b3abc56265fe894a8751",
     "version": 2
   },
   "digest": {
     "body_sha256": "1164ebe5132832de2df450105171917624ae78749dcb706e968d84f0eaed4d7d",
     "model": "claude-sonnet-5",
-    "policy_sha256": "126dce80ac5416dde1d63a14f865c676bd35df01ea991e63df6919e7ad969b00",
-    "sha256": "bc08ecc4baf1f0eecb03afa12a1f0e97eec676e28a0bb5b2a07386912e4e189b",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "393a4509a64500a462151c8e5a887be74d0d634ecee556d916662e60ea3e8279",
     "version": 3
   },
   "fix": {
     "body_sha256": "1d1ff80d57d498fc0171d3462057716771d967e37d038e95073bcd9883611112",
     "model": "claude-opus-5",
-    "policy_sha256": "126dce80ac5416dde1d63a14f865c676bd35df01ea991e63df6919e7ad969b00",
-    "sha256": "0c1868b0a89a96fadd1cf79ec064096b64ffa9f60e1b9b7e2dd716424ba7506e",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "a333d80b393bddd82b5717759c215c1ac7e50a7683f0e0a030ed15431f0384c7",
     "version": 2
   },
   "triage": {
     "body_sha256": "00d987e516c7996a07cecd5546304d74e18dd20ac64598c1ee1bb803e0c54e43",
     "model": "claude-sonnet-5",
-    "policy_sha256": "126dce80ac5416dde1d63a14f865c676bd35df01ea991e63df6919e7ad969b00",
-    "sha256": "b29ae4bb700f8eaf82e109ba86b38cd81914870c2eb2eee9764fde0504300b84",
+    "policy_sha256": "da902ae2628af3fc552ecb317c12aa967b4624f41e3f3cd109c348eb15159420",
+    "sha256": "60a1e47f07e217ad9cfba731510503287c2db2e8bd5de85bf5bed0822acb412a",
     "version": 1
   }
 }

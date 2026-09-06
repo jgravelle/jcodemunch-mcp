@@ -47,7 +47,7 @@ NEVER_TOUCH = (".github/workflows", ".github/inbound", ".github/dependabot.yml",
                "docs/standard/", "docs/inbound/POLICY.md", "docs/inbound/DESIGN.md", "harness/thresholds.json", "harness/retired.json",
                "docs/harness/ARCHAEOLOGY.md", "SECURITY.md", "LICENSE", "CONTRIBUTING.md", "pyproject.toml", "server.json", ".claude-plugin/",
                "whatsnew.json", ".github/ISSUE_TEMPLATE", "harness/corpora.json", "benchmarks/tasks.json", "README.md", "benchmarks/results.md", "benchmarks/jcm_reference.json")
-WRITE = re.compile(r"git push|gh workflow run|gh (issue|pr) (create|edit|comment|close)|gh api .*-X (POST|PATCH|PUT|DELETE)|gh api .* -f ")
+WRITE = re.compile(r"git push|gh workflow run|gh (issue|pr) (create|edit|comment|close)|gh api .*-X (POST|PATCH|PUT|DELETE)|gh api .* -f |post\.py .*--apply")
 
 
 def _load(name: str):
@@ -127,6 +127,8 @@ def test_the_competitor_job_holds_no_app_token_and_writes_nothing():
     assert "needs.gate.outputs.go == 'true'" in str(run.get("if"))
     assert run["timeout-minutes"] == budget.BUDGETS["competitive-run"]["timeout_min"]
     assert "--sandbox docker" in text and "--record" not in text  # the ledger is the record in CI, never the tree
+    steps_text = " ".join(s.get("run") or "" for s in run["steps"])
+    assert 'ADAPTERS="all"' in steps_text  # the roster is adapter.REGISTRY read by run.py, never a copy in the workflow
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
@@ -149,6 +151,59 @@ def test_timeouts_match_the_budget_rows(path: Path):
     for name, job in doc["jobs"].items():
         assert job.get("timeout-minutes", 0) <= row["timeout_min"], (path.name, name)
     assert path.stem in json.dumps(doc), "the budget row is read by name"
+
+
+def test_the_ledger_job_re_reads_the_switch_before_the_artifact_download():
+    doc = _wf(WF / "competitive-run.yml")
+    runs = _runs(doc["jobs"]["ledger"])
+    kill = [i for i, r, _ in runs if "killswitch.py" in r]
+    dl = [i for i, r, _ in runs if "download-artifact" in r]
+    assert kill and dl and kill[0] < dl[0], "a failed run with no artifact must still reach the second read"
+
+
+def test_run_py_all_is_the_registry():
+    import run as runner
+    from adapter import REGISTRY
+
+    src = (COMPETE / "run.py").read_text(encoding="utf-8")
+    assert 'a.adapters.strip() == "all"' in src and "list(REGISTRY)" in src
+    assert set(runner.DEFAULT_ADAPTERS) < set(REGISTRY)
+
+
+def test_ledger_merge_keeps_a_humans_head_and_appends_a_dated_block(tmp_path):
+    import ledger_merge
+
+    src = tmp_path / "src"
+    led = tmp_path / "ledger"
+    src.mkdir()
+    (led / "posted").mkdir(parents=True)
+    (src / "a.md").write_text("title: t\nlabels: competitive-gap, needs-human\ncompetitive-id: x\napproved: false\n\n## 2026-10-06\n\nnew values\n", encoding="utf-8")
+    (src / "b.md").write_text("title: b\nlabels: competitive-gap, needs-human\ncompetitive-id: y\napproved: false\n\n## 2026-10-06\n\nfirst\n", encoding="utf-8")
+    (src / "c.md").write_text("title: c\n", encoding="utf-8")
+    (led / "a.md").write_text("title: t\nlabels: competitive-gap, needs-human\ncompetitive-id: x\napproved: true\n\n## 2026-09-06\n\nold values\n", encoding="utf-8")
+    (led / "posted" / "c.md").write_text("posted", encoding="utf-8")
+    out = ledger_merge.merge(src, led)
+    assert out == {"added": ["b.md"], "appended": ["a.md"], "skipped": ["c.md"]}
+    a = (led / "a.md").read_text(encoding="utf-8")
+    assert a.startswith("title: t\n") and "approved: true" in a and "approved: false" not in a  # the human's head survives
+    assert a.count("## 2026-") == 2 and "## 2026-10-06\n\nnew values" in a  # the dated heading is kept (round 1: awk dropped it)
+    assert (led / "b.md").exists() and not (led / "c.md").exists()
+
+
+def test_feed_does_not_redispatch_a_rerun_an_earlier_feed_recorded(tmp_path):
+    fx = tmp_path / "fx"
+    fx.mkdir()
+    (fx / "cymbal.json").write_text(json.dumps({"release": {"tag_name": "v9.9.9", "name": "v9.9.9", "body": "lower latency"}, "registry_latest": None}), encoding="utf-8")
+    seen = tmp_path / "seen"
+    seen.mkdir()
+    out1 = tmp_path / "o1"
+    assert feed.main(["--out", str(out1), "--fixture", str(fx), "--only", "cymbal", "--date", "2026-09-06", "--seen", str(seen)]) == 0
+    assert json.loads((out1 / "rerun.json").read_text(encoding="utf-8"))[0]["reason"] == "release:cymbal@9.9.9"
+    (seen / "2026-09-06.json").write_text((out1 / "feed.json").read_text(encoding="utf-8"), encoding="utf-8")
+    out2 = tmp_path / "o2"
+    assert feed.main(["--out", str(out2), "--fixture", str(fx), "--only", "cymbal", "--date", "2026-09-13", "--seen", str(seen)]) == 0
+    assert json.loads((out2 / "rerun.json").read_text(encoding="utf-8")) == []
+    assert json.loads((out2 / "feed.json").read_text(encoding="utf-8"))["rerun_already_dispatched"] == ["release:cymbal@9.9.9"]
 
 
 def test_post_reads_both_switches_before_the_gate_and_before_the_write():

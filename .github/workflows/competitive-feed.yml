@@ -62,26 +62,7 @@ jobs:
           set -e
           if [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
 
-      - name: read the registries (read-only token; titles are the only competitor text kept)
-        if: steps.gate.outputs.go == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python benchmarks/competitive/feed.py --out "$RUNNER_TEMP/feed"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        if: always() && steps.gate.outputs.go == 'true'
-        with:
-          name: competitive-feed-${{ github.run_id }}
-          path: ${{ runner.temp }}/feed/
-          retention-days: 90
-          if-no-files-found: ignore
-
-      - name: re-read the kill switch before the first write
-        if: steps.gate.outputs.go == 'true'
-        env:
-          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-feed --record "$RUNNER_TEMP/audit/record.json"
-      - name: App token (DESIGN D2)
+      - name: App token (DESIGN D2; the ledger checkout only, so the feed can read what earlier feeds dispatched)
         if: steps.gate.outputs.go == 'true'
         id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
@@ -97,17 +78,34 @@ jobs:
           token: ${{ steps.app.outputs.token }}
           persist-credentials: true
           fetch-depth: 0
-      - name: the feed record and any idea draft onto the ledger (an existing draft is never overwritten)
+      - name: read the registries (read-only token; titles are the only competitor text kept; a re-run already dispatched for a release is not dispatched again)
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ledger-branch/competitive/feed
+          python benchmarks/competitive/feed.py --out "$RUNNER_TEMP/feed" --seen ledger-branch/competitive/feed
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: always() && steps.gate.outputs.go == 'true'
+        with:
+          name: competitive-feed-${{ github.run_id }}
+          path: ${{ runner.temp }}/feed/
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: re-read the kill switch before the first write
+        if: steps.gate.outputs.go == 'true'
+        env:
+          SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job competitive-feed --record "$RUNNER_TEMP/audit/record.json"
+      - name: "the feed record and any idea draft onto the ledger (ledger_merge.py: a draft already there keeps its head)"
         if: steps.gate.outputs.go == 'true'
         id: copy
         run: |
           mkdir -p ledger-branch/competitive/feed ledger-branch/competitive/drafts
           cp "$RUNNER_TEMP/feed/feed.json" "ledger-branch/competitive/feed/$(date -u +%Y-%m-%d).json"
-          for f in "$RUNNER_TEMP"/feed/*.md; do
-            [ -f "$f" ] || continue
-            b=$(basename "$f")
-            [ -f "ledger-branch/competitive/drafts/$b" ] || cp "$f" "ledger-branch/competitive/drafts/$b"
-          done
+          python benchmarks/competitive/ledger_merge.py --src "$RUNNER_TEMP/feed" --ledger-drafts ledger-branch/competitive/drafts
           cd ledger-branch
           git config user.name "$APP_LOGIN"
           git config user.email "inbound@users.noreply.github.com"

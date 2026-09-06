@@ -14,10 +14,13 @@ invokes:  registries only, never a README: the GitHub releases API for a
           releases of that repository. All reads on a read-only token
           (`GH_TOKEN`), or handed in as files (`--fixture DIR`) for tests.
 produces: `<out>/feed.json` (per tool: pin, latest, whether a release is
-          new, the rules that fired), `<out>/<fingerprint>.md` per
-          `competitive-idea` draft, `<out>/rerun.json` naming the tools
-          whose release text names a measured axis (the workflow reads it
-          and dispatches `competitive-run.yml` with `reason=release:<tool>@<version>`)
+          new, the rules that fired; the re-runs this feed dispatches and
+          the ones an earlier feed already did), `<out>/<fingerprint>.md`
+          per `competitive-idea` draft, `<out>/rerun.json` naming the
+          re-runs to dispatch now (the workflow reads it and dispatches
+          `competitive-run.yml` with `reason=release:<tool>@<version>`);
+          `--seen` is the ledger's earlier feed records, so one release is
+          re-run once, not every week until the pin moves
 refuses:  to print any release text beyond the title; to draft on a body
           match (the body is fetched and matched, never quoted); to reach
           a URL the release names; to treat a registry read failure as
@@ -205,11 +208,30 @@ def read_tool(name: str, pin: adapter.Pin, fixture: Path | None) -> tuple[dict |
     return (release if isinstance(release, dict) else None), latest_version(pin, reg)
 
 
-def write(out: Path, records: list[dict], drafts: list[dict], date: str) -> None:
+def seen_reruns(seen_dir: Path | None) -> set[str]:
+    """The `reason` strings earlier feeds recorded as dispatched (their
+    feed.json `rerun` lists): a release is re-run once, not every Sunday
+    until the pin moves (review round 1, finding 3)."""
+    out: set[str] = set()
+    if seen_dir is None or not seen_dir.exists():
+        return out
+    for f in sorted(seen_dir.glob("*.json")):
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        out |= {r.get("reason") for r in doc.get("rerun", []) if r.get("reason")}
+    return out
+
+
+def write(out: Path, records: list[dict], drafts: list[dict], date: str, seen: set[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    (out / "feed.json").write_text(json.dumps({"date": date, "tools": records}, indent=1) + "\n", encoding="utf-8")
-    rerun = [{"tool": r["tool"], "version": r["latest"], "reason": f"release:{r['tool']}@{r['latest']}", "words": r["rules"]["axis_words"]}
-             for r in records if r["new"] and r["rules"]["axis_words"]]
+    seen = seen or set()
+    rerun_all = [{"tool": r["tool"], "version": r["latest"], "reason": f"release:{r['tool']}@{r['latest']}", "words": r["rules"]["axis_words"]}
+                 for r in records if r["new"] and r["rules"]["axis_words"]]
+    rerun = [r for r in rerun_all if r["reason"] not in seen]
+    already = [r["reason"] for r in rerun_all if r["reason"] in seen]
+    (out / "feed.json").write_text(json.dumps({"date": date, "tools": records, "rerun": rerun, "rerun_already_dispatched": already}, indent=1) + "\n", encoding="utf-8")
     (out / "rerun.json").write_text(json.dumps(rerun, indent=1) + "\n", encoding="utf-8")
     for d in drafts:
         name = re.sub(r"[^A-Za-z0-9_.@-]+", "__", d["fingerprint"]) + ".md"
@@ -222,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fixture", help="a directory of <tool>.json {release, registry_latest} instead of the registries (tests)")
     ap.add_argument("--only", default="", help="comma-separated tool names")
     ap.add_argument("--date", default=None)
+    ap.add_argument("--seen", help="a directory of earlier feed.json files (the ledger's competitive/feed); a re-run they recorded is not dispatched again")
     a = ap.parse_args(argv)
     import time
 
@@ -241,10 +264,11 @@ def main(argv: list[str] | None = None) -> int:
         d = idea_draft(rec, pre)
         if d:
             drafts.append(d)
-    write(Path(a.out), records, drafts, date)
+    write(Path(a.out), records, drafts, date, seen_reruns(Path(a.seen) if a.seen else None))
     new = [r["tool"] for r in records if r["new"]]
     unknown = [r["tool"] for r in records if r["status"] == "unknown"]
-    print(f"feed: {len(records)} tools read; new releases {new or 'none'}; unreadable {unknown or 'none'}; idea drafts {len(drafts)}; re-runs {sum(1 for r in records if r['new'] and r['rules']['axis_words'])}", file=sys.stderr)
+    rerun = json.loads((Path(a.out) / "rerun.json").read_text(encoding="utf-8"))
+    print(f"feed: {len(records)} tools read; new releases {new or 'none'}; unreadable {unknown or 'none'}; idea drafts {len(drafts)}; re-runs to dispatch {len(rerun)}", file=sys.stderr)
     return 0
 
 

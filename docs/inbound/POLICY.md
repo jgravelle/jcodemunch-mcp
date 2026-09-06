@@ -170,7 +170,10 @@ directory and the issue templates, was added when the design placed the
 prompts there.)
 
 plus repository settings, secrets, variables, environments, labels other
-than the `inbound:*`/`agent:*`/`needs-human` set, and any branch but the
+than the `inbound:*`/`agent:*`/`needs-human` set (and, for the competitive
+post job only, `competitive-gap`/`competitive-watch`/`competitive-idea`/
+`standard-proposal`, docs/competitive/DESIGN.md s7.3; amended 2026-09-06),
+and any branch but the
 job's own `inbound/*` branch. The list is generated into the self-check
 (DESIGN §5) from this block; a PR labelled `agent-authored` that touches
 any path here fails the self-check whatever the review said.
