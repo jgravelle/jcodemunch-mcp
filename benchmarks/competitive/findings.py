@@ -85,12 +85,13 @@ def hypothesis(axis: str, row: dict, result: dict) -> str:
         for t in result.get("tools_not_called", []):
             if t["tool"] == JCM and t["corpus"] == corpus and t["category"] == cat:
                 return "tool_not_called"
-        # our index reported fewer files than the corpus has: what we never read we cannot cite
+        # our index reported fewer files than the corpus has CODE files (the header's
+        # `code_files`, recorded from PR 3c on; absent = the rule cannot fire): what we
+        # never read we cannot cite. `files_indexed` is what run.py writes into `axes`.
         rec = (result.get("runs") or [{}])[0].get(JCM, {}).get(corpus, {})
-        idx = str(rec.get("index_error") or "")
-        m = re.search(r"file_count[=: ]+(\d+)", idx)
-        files = next((c["files"] for c in result["header"]["corpora"] if c["id"] == corpus), None)
-        if m and files and int(m.group(1)) < files:
+        indexed = (rec.get("axes") or {}).get("files_indexed")
+        code_files = next((c.get("code_files") for c in result["header"]["corpora"] if c["id"] == corpus), None)
+        if isinstance(indexed, int) and isinstance(code_files, int) and indexed < code_files:
             return "index_missing_files"
         return "ranking" if cat in ("P1", "P2") else "coverage"
     if axis in ("tokens_per_task", "tools_list_tokens"):

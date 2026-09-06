@@ -85,9 +85,15 @@ def test_hypothesis_rule_from_the_fixed_list():
     assert findings.hypothesis("f1_P4", _row("f1_P4", "other", "self@c", 0.5, 0.3), r) == "coverage"
     assert findings.hypothesis("tokens_per_task", _row("tokens_per_task", "other", "self@c", 1.0, 2.0), r) == "payload_shape"
     assert findings.hypothesis("latency_call_ms", _row("latency_call_ms", "other", "self@c", 1.0, 2.0), r) == "unknown"
-    # an index that reported fewer files than the corpus has, before ranking
-    r2 = _result([], runs=[{"jcodemunch": {"self@c": {"index_error": "ok file_count=4"}}}])
+    # an index that reported fewer files than the corpus has code files, before ranking:
+    # the record is shaped like run.py's (`axes.files_indexed`), the count like the header's (`code_files`)
+    r2 = _result([], runs=[{"jcodemunch": {"self@c": {"axes": {"index_ok": True, "files_indexed": 4}, "tasks": [], "index_error": ""}}}])
+    r2["header"]["corpora"][0]["code_files"] = 6
     assert findings.hypothesis("f1_P1", _row("f1_P1", "other", "self@c", 0.5, 0.3), r2) == "index_missing_files"
+    r2["header"]["corpora"][0]["code_files"] = 4  # every code file indexed: not this hypothesis
+    assert findings.hypothesis("f1_P1", _row("f1_P1", "other", "self@c", 0.5, 0.3), r2) == "ranking"
+    del r2["header"]["corpora"][0]["code_files"]  # a header from before the field: the rule cannot fire
+    assert findings.hypothesis("f1_P1", _row("f1_P1", "other", "self@c", 0.5, 0.3), r2) == "ranking"
     assert set(findings.HYPOTHESES) == {"tool_not_called", "ranking", "coverage", "payload_shape", "index_missing_files", "unknown"}
 
 
@@ -175,8 +181,23 @@ def test_cli_refuses_when_the_tracker_is_unreadable_and_no_list_is_given(tmp_pat
 
 
 def test_module_never_posts():
+    """Over the AST, not a spelling: every list literal whose first element is
+    "gh" is exactly `gh issue list ...`; no `api` verb, no field/method flag,
+    no HTTP client import anywhere in the module."""
+    import ast
+
     src = (COMPETE / "findings.py").read_text(encoding="utf-8")
-    verbs = re.findall(r'"gh",\s*"(\w+)",\s*"(\w+)"', src)
-    assert verbs == [("issue", "list")]
-    for word in ("issue create", "issue comment", "issue edit", "api -X POST", "--method POST", "pr create"):
-        assert word not in src
+    tree = ast.parse(src)
+    gh_calls = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.List) and node.elts and isinstance(node.elts[0], ast.Constant) and node.elts[0].value == "gh":
+            gh_calls.append([e.value if isinstance(e, ast.Constant) else "<expr>" for e in node.elts])
+    assert gh_calls, "the tracker read exists"
+    for argv in gh_calls:
+        assert argv[:3] == ["gh", "issue", "list"], argv
+        assert not any(str(a).startswith(("-X", "--method", "-f", "-F", "--field", "--input")) for a in argv), argv
+    strings = {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert not any(s in ("api", "create", "comment", "edit", "close", "POST", "PATCH", "PUT", "DELETE") for s in strings)
+    imports = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names} | {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert not imports & {"requests", "urllib", "http", "httpx", "socket"}
+    assert len(re.findall(r"subprocess\.run\(", src)) == 1
