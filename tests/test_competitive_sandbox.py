@@ -181,3 +181,119 @@ def test_the_result_header_stamps_sandbox_tree_and_scorer(tmp_path):
                                       "sandbox": "none", "tree_dirty": True, "scorer_sha256": "ab" * 32}, "rows": []})
     assert "Sandbox: `none`" in md and "tree dirty: True" in md and "scorer sha256 `abababababab`" in md
     json.dumps(md)
+
+
+# check_references' singular reply on a fresh index of benchmarks/competitive (this tree,
+# 2026-09-06), captured from a live call; the shape the worker's P2 branch reads (CF-51).
+_CHECK_REFERENCES_REPLY = {
+    "repo": "jgravelle/jcodemunch-mcp",
+    "identifier": "norm_key",
+    "is_referenced": True,
+    "import_count": 1,
+    "import_references": [
+        {
+            "file": "benchmarks/competitive/compare_ref.py",
+            "matches": [
+                {
+                    "specifier": "trend",
+                    "names": [
+                        "JCM",
+                        "classify",
+                        "norm_key"
+                    ],
+                    "match_type": "named"
+                },
+                {
+                    "specifier": "trend.norm_key",
+                    "names": [
+                        "norm_key"
+                    ],
+                    "match_type": "named"
+                }
+            ]
+        }
+    ],
+    "content_count": 3,
+    "content_references": [
+        {
+            "file": "benchmarks/competitive/compare_ref.py",
+            "matches": [
+                {
+                    "line": 16,
+                    "text": "          trend.py's `classify`/`norm_key`"
+                },
+                {
+                    "line": 45,
+                    "text": "from trend import JCM, classify, norm_key"
+                },
+                {
+                    "line": 64,
+                    "text": "    return {norm_key(f\"{r['axis']}/{r['tool']}/{r['corpus']}\"): r for r in result[\"rows\"]}"
+                }
+            ]
+        },
+        {
+            "file": "benchmarks/competitive/findings.py",
+            "matches": [
+                {
+                    "line": 65,
+                    "text": "    return f\"{label}/{axis}/{tool}/{trend.norm_key(f'{axis}/{tool}/{corpus}').split('/', 2)[2]}\""
+                }
+            ]
+        },
+        {
+            "file": "benchmarks/competitive/trend.py",
+            "matches": [
+                {
+                    "line": 50,
+                    "text": "            out[field] = {norm_key(k): v for k, v in line[field].items()}"
+                },
+                {
+                    "line": 69,
+                    "text": "        key = norm_key(f\"{r['axis']}/{r['tool']}/{r['corpus']}\")"
+                }
+            ]
+        }
+    ],
+    "_meta": {
+        "timing_ms": 100.0
+    }
+}
+
+
+def _worker_module():
+    import importlib.util
+
+    path = COMPETE / "sandbox" / "jcm_worker.py"
+    spec = importlib.util.spec_from_file_location("jcm_worker_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_jcodemunch_p2_branch_asks_check_references_and_cites_every_content_line():
+    """CF-51: P2 (where is this name USED) is check_references at its defaults, never the
+    import-graph tool that answered 0 on every corpus; every content match's line is a
+    citation and every import-graph file is cited at line 0."""
+    src = (COMPETE / "sandbox" / "jcm_worker.py").read_text(encoding="utf-8")
+    p2 = src[src.index('elif cat == "P2"'):src.index('elif cat == "P4"')]
+    assert "check_references(repo=repo, identifier=q)" in p2
+    assert "find_references" not in p2
+    assert "max_content_results" not in src, "the cap is the tool's shipped default, never raised for a gold"
+    mod = _worker_module()
+    cited = mod.cite_references(_CHECK_REFERENCES_REPLY)
+    expected_lines = [[r["file"], m["line"]] for r in _CHECK_REFERENCES_REPLY["content_references"] for m in r["matches"]]
+    assert expected_lines and all(c in cited for c in expected_lines)
+    import_files = [[r["file"], 0] for r in _CHECK_REFERENCES_REPLY["import_references"]]
+    assert import_files and all(c in cited for c in import_files)
+    assert len(cited) == len(expected_lines) + len(import_files)
+    # a reply with nothing in it cites nothing, and an import row without a line is line 0
+    assert mod.cite_references({"content_references": [], "import_references": []}) == []
+    assert mod.cite_references({"import_references": [{"file": "a.py", "matches": []}]}) == [["a.py", 0]]
+
+
+def test_our_fairness_note_exists_and_argues_the_p2_mapping():
+    note = (COMPETE.parent.parent / "docs" / "competitive" / "fairness" / "jcodemunch.md").read_text(encoding="utf-8")
+    assert "check_references" in note and "CF-51" in note and "20 FILES" in note
+    header = (COMPETE / "adapters" / "jcodemunch.py").read_text(encoding="utf-8")
+    assert "fairness/jcodemunch.md" in header

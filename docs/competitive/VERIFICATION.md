@@ -61,9 +61,10 @@ values per row on a real run of the nulls and jcodemunch).
 ## 2. Misconfigured adapter → the fairness note and the `cited`-empty rule
 
 Each of the eight competitor adapters' module header names its note,
-`docs/competitive/fairness/<tool>.md` (eight files; the two nulls and the
-jcodemunch adapter have none, because a null is a baseline by
-construction and jcodemunch is the thing measured), and the note is what
+`docs/competitive/fairness/<tool>.md` (eight files when this was
+written; the two nulls have none, because a null is a baseline by
+construction; `jcodemunch.md` was added with CF-51's fix, because our own
+row's mapping had to be argued somewhere the reviewer diffs), and the note is what
 the reviewer diffs against the Dockerfile and the adapter's call plan on
 that adapter's PR (#614 and its stack, each reviewed to APPROVE with the
 note in the diff; the round-1 findings on those PRs were fairness-note

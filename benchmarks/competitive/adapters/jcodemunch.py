@@ -2,7 +2,9 @@
 
 purpose:  our own row, driven the way our docs say (ARCHAEOLOGY R27, R28):
           search_symbols(max_results=5) then get_symbol_source on the top 3
-          for P1 and T; find_references for P2; find_importers for P4;
+          for P1 and T; check_references at its defaults for P2 (CF-51;
+          argued in docs/competitive/fairness/jcodemunch.md); find_importers
+          for P4;
           shipped defaults (context providers ON, as index_folder ships them;
           the self-latency harness turns them off and this adapter does not),
           AI summaries off (R28), no config file
@@ -22,7 +24,8 @@ produces: IndexReport (cold index wall seconds) and one Answer per task
 refuses:  a corpus the index step did not index completely; a task category
           outside its set
 pinned:   registry "tree", HEAD's commit
-fairness: DESIGN s1.4; the same sandbox flags as every competitor when the
+fairness: docs/competitive/fairness/jcodemunch.md; DESIGN s1.4; the same
+          sandbox flags as every competitor when the
           sandbox is `docker`; a `none` run is labelled in the result header
           and a competitor adapter refuses that mode, so the two never share
           a file.

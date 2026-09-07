@@ -8,7 +8,12 @@ purpose:  index /corpus into CODE_INDEX_PATH and answer every task in
 invokes:  index_folder with its shipped defaults (AI summaries off, R28),
           search_symbols(max_results=5, detail_level="standard") +
           get_symbol_source on the top 3 (R27) for P1 and T,
-          find_references for P2, find_importers for P4; the live
+          check_references(identifier=<query>) at its shipped defaults for
+          P2 (CF-51: find_references is the IMPORT-graph tool and answered
+          0 on every corpus; the usage-site question is check_references'
+          own description, imports plus file content, definition spans
+          excluded, capped at 20 FILES, and the cap is the tool's, never
+          raised for the gold), find_importers for P4; the live
           tools/list weight from server._build_tools_list (CF-6)
 produces: /out/answers.json {index, answers, tools_list_chars}
 refuses:  nothing; a task that raises is recorded as an error on its row
@@ -26,6 +31,25 @@ import time
 
 SEARCH_MAX_RESULTS = 5
 SYMBOLS_FETCHED = 3
+
+
+def cite_references(s: dict) -> list:
+    """The (file, line) citations in a check_references reply: every content
+    match's line, and every import-graph file at line 0 (an import edge has
+    no line in the reply). The singular shape is read; a batch `results`
+    list is not what the worker asks for."""
+    cited: list = []
+    for row in s.get("content_references") or []:
+        f = row.get("file")
+        for m in row.get("matches") or []:
+            ln = m.get("line") if isinstance(m, dict) else None
+            if f and ln:
+                cited.append([f, int(ln)])
+    for row in s.get("import_references") or []:
+        f = row.get("file") if isinstance(row, dict) else row
+        if f:
+            cited.append([f, 0])
+    return cited
 
 
 def ser(o) -> str:
@@ -53,7 +77,7 @@ def main(argv: list[str]) -> int:
     if idx["success"] and idx["repo"]:
         from jcodemunch_mcp.tools.search_symbols import search_symbols
         from jcodemunch_mcp.tools.get_symbol import get_symbol_source
-        from jcodemunch_mcp.tools.find_references import find_references
+        from jcodemunch_mcp.tools.check_references import check_references
         from jcodemunch_mcp.tools.find_importers import find_importers
 
         repo = idx["repo"]
@@ -82,15 +106,10 @@ def main(argv: list[str]) -> int:
                             cited.append([f, int(ln)])
                 elif cat == "P2":
                     t0 = time.perf_counter()
-                    s = find_references(repo=repo, identifier=q)
+                    s = check_references(repo=repo, identifier=q)
                     lat.append((time.perf_counter() - t0) * 1000)
                     payload.append(ser(s))
-                    for key in ("references", "results", "importers"):
-                        for row in s.get(key) or []:
-                            f = row.get("file") or row.get("file_path") or row.get("path")
-                            ln = row.get("line") or row.get("start_line") or 0
-                            if f:
-                                cited.append([f, int(ln or 0)])
+                    cited.extend(cite_references(s))
                 elif cat == "P4":
                     t0 = time.perf_counter()
                     s = find_importers(repo=repo, file_path=q)
