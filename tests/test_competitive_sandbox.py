@@ -284,12 +284,18 @@ def test_the_jcodemunch_p2_branch_asks_check_references_and_cites_every_content_
     cited = mod.cite_references(_CHECK_REFERENCES_REPLY)
     expected_lines = [[r["file"], m["line"]] for r in _CHECK_REFERENCES_REPLY["content_references"] for m in r["matches"]]
     assert expected_lines and all(c in cited for c in expected_lines)
-    import_files = [[r["file"], 0] for r in _CHECK_REFERENCES_REPLY["import_references"]]
-    assert import_files and all(c in cited for c in import_files)
-    assert len(cited) == len(expected_lines) + len(import_files)
-    # a reply with nothing in it cites nothing, and an import row without a line is line 0
+    # the import file in the captured reply is also a content file: cited by its lines, not twice
+    import_files = [r["file"] for r in _CHECK_REFERENCES_REPLY["import_references"]]
+    content_files = {r["file"] for r in _CHECK_REFERENCES_REPLY["content_references"]}
+    assert import_files and all(f in content_files for f in import_files)
+    assert not any(c[1] == 0 for c in cited)
+    assert len(cited) == len(expected_lines)
+    # a reply with nothing in it cites nothing; an import file with no content line is cited once, at 0
     assert mod.cite_references({"content_references": [], "import_references": []}) == []
     assert mod.cite_references({"import_references": [{"file": "a.py", "matches": []}]}) == [["a.py", 0]]
+    both = {"content_references": [{"file": "a.py", "matches": [{"line": 3, "text": "x"}]}],
+            "import_references": [{"file": "a.py", "matches": []}, {"file": "b.py", "matches": []}]}
+    assert mod.cite_references(both) == [["a.py", 3], ["b.py", 0]]
 
 
 def test_our_fairness_note_exists_and_argues_the_p2_mapping():

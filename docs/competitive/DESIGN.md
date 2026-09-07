@@ -139,12 +139,15 @@ is visible.
 `adapters/jcodemunch.py`: runs `python -m jcodemunch_mcp` from the mounted
 checkout in the same container base, `CODE_INDEX_PATH` on `/out`, config
 file absent (shipped defaults), AI summaries off. P1 = `search_symbols` +
-`get_symbol_source` on the top 3; P2 = `find_references` (+
-`include_call_chain=true` only if the fairness note argues the README
-recommends it for the task; the sverklo run did not, and the CHANGELOG said
-the description was the problem, so the first run uses the default and a
-second configuration is reported as a labelled variant, never silently
-substituted); P4 = `get_dependency_graph` / `find_importers`. Our
+`get_symbol_source` on the top 3; P2 = `check_references` at its shipped
+defaults (since 2026-09-06, CF-51: the tier's first runs asked
+`find_references`, the IMPORT-graph tool, and scored 0 on every corpus;
+`check_references` is the tool whose own description is the usage-site
+question, and its 20-file content cap stays, never raised for a gold;
+`docs/competitive/fairness/jcodemunch.md` argues it). A second
+configuration of ours (`include_call_chain=true`, the `counter` surface) is
+reported as a labelled variant, never silently substituted (CF-54); P4 =
+`get_dependency_graph` / `find_importers`. Our
 `tools_list_tokens` is the `full` profile because that is the shipped
 default (D3), with the `counter` figure reported beside it as a variant.
 

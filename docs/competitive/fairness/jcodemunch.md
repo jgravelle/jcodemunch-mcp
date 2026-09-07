@@ -38,3 +38,10 @@ OUR movement, which it is.
 3. `find_importers` cites files at line 0; a gold that carries import lines
    is matched at file level only, which the scorer's tolerance allows for
    P4 by construction.
+4. The P2 reply's import-graph rows are files, not lines. The worker cites
+   such a file at line 0 only when none of its lines is already a content
+   citation (a file that imports X contains the text X, so the two halves
+   of the reply name the same file); citing both would be the worker's
+   own duplicate, not the tool's, and would cost precision on every task.
+   The first draft did that, and review round 1 of CF-51 caught it before
+   a number was recorded.

@@ -35,19 +35,25 @@ SYMBOLS_FETCHED = 3
 
 def cite_references(s: dict) -> list:
     """The (file, line) citations in a check_references reply: every content
-    match's line, and every import-graph file at line 0 (an import edge has
-    no line in the reply). The singular shape is read; a batch `results`
-    list is not what the worker asks for."""
+    match's line, and an import-graph file at line 0 (an import edge has no
+    line in the reply) ONLY when no content line already cites that file: a
+    file that imports X also contains the text X, so citing the import row
+    too would be a second citation of a cited file, a precision penalty
+    the worker's reading would add and the tool's reply does not (review
+    round 1 of CF-51). The singular shape is read; a batch `results` list
+    is not what the worker asks for."""
     cited: list = []
+    content_files: set = set()
     for row in s.get("content_references") or []:
         f = row.get("file")
         for m in row.get("matches") or []:
             ln = m.get("line") if isinstance(m, dict) else None
             if f and ln:
                 cited.append([f, int(ln)])
+                content_files.add(f)
     for row in s.get("import_references") or []:
         f = row.get("file") if isinstance(row, dict) else row
-        if f:
+        if f and f not in content_files:
             cited.append([f, 0])
     return cited
 
