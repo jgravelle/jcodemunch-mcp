@@ -7,7 +7,10 @@ invokes:  `uv run python -m harness fast --summary`, the format check with
           when pyright is importable
 produces: .claude/state/evidence/fast.md
 refuses:  a `git commit` when any of the three FAILS (exit 2 with the
-          verdict lines); docs-only commits are not checked at all
+          verdict lines); docs-only commits are not checked at all, except
+          one that stages a file a Floor's Method READS (CLAUDE.md, whose
+          size is `claude_md.max_chars`; the frozen benchmark artifacts the
+          fidelity, schema and goldset Floors read; FINDINGS W-39)
 budget:   150 s; past it, WARNING naming what was skipped, commit allowed
 """
 
@@ -40,7 +43,28 @@ CODE_ROOTS = (
     "benchmarks/harness/",
     ".github/",
 )
+# Files a Floor's Method READS, outside the code roots: a commit that stages
+# one is not a free docs commit, because the fast tier's verdict moves with
+# it (W-39: a docs-only PR reached pre_pr with a stamp two commits stale
+# while the one Floor it moved, CLAUDE.md's size, went unmeasured). The
+# benchmark entries are the frozen artifacts harness/__main__.py reads for
+# the fidelity, schema and goldset Floors; tests/test_workflow_hooks.py
+# reads that module's path literals and fails when one is not covered here.
+FLOOR_INPUTS = (
+    "CLAUDE.md",
+    "benchmarks/schema_baseline.json",
+    "benchmarks/rust_fidelity/",
+    "benchmarks/racket_fidelity/",
+    "benchmarks/provenance/",
+    "benchmarks/route_recall/",
+)
+TIER_TRIGGERS = CODE_ROOTS + FLOOR_INPUTS
 COMMIT_RE = re.compile(r"\bgit\s+(?:-\S+\s+)*commit\b")
+
+
+def tier_needed(staged: list[str]) -> bool:
+    """Does this commit's content reach anything the fast tier judges?"""
+    return any(p.startswith(TIER_TRIGGERS) for p in staged)
 
 
 def _format_command() -> str | None:
@@ -85,7 +109,7 @@ def main() -> None:
             ln[3:].strip().strip('"')
             for ln in git("status", "--porcelain", "--untracked-files=all").splitlines()
         ]
-    if not any(p.startswith(CODE_ROOTS) for p in staged):
+    if not tier_needed(staged):
         ok()
 
     budget = Budget(BUDGET_SECONDS)
