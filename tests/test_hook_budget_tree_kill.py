@@ -83,3 +83,26 @@ def test_a_killed_hook_leaves_the_sentinel_and_the_checklist_reads_it_unmet(comm
     finally:
         sys.path.remove(str(HOOKS))
     assert dod.harness_pass(summary.read_text(encoding="utf-8")) is False
+
+
+def test_the_runner_backstop_covers_the_budget_and_the_kill_path(common):
+    """settings.json's timeout is the budget + the kill ceiling + 10 s (DESIGN section 4).
+
+    Nothing bound it before: 160 s over a 150 s budget looked right and left no
+    room for the kill path, which is how the runner got to kill the hook.
+    """
+    import json
+
+    settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    hooks = [
+        h
+        for group in settings["hooks"]["PreToolUse"]
+        for h in group["hooks"]
+        if "pre_commit.py" in h["command"]
+    ]
+    assert len(hooks) == 1, hooks
+    src = (HOOKS / "pre_commit.py").read_text(encoding="utf-8")
+    import re
+
+    budget = int(re.search(r"^BUDGET_SECONDS = (\d+)", src, re.M).group(1))
+    assert hooks[0]["timeout"] >= budget + common.KILL_CEILING + 10, (hooks[0]["timeout"], budget)

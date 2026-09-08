@@ -246,11 +246,11 @@ def run_budgeted(
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
-            p.communicate(timeout=3)
+            p.communicate(timeout=DRAIN_TIMEOUT)
         except subprocess.TimeoutExpired:
             # Practice 2: a tree that outlives the kill must be visible.
             sys.stderr.write(
-                f"run_budgeted: pid {p.pid} still holds its pipes 3 s after the tree kill\n"
+                f"run_budgeted: pid {p.pid} still holds its pipes {DRAIN_TIMEOUT} s after the tree kill\n"
             )
         return None, ""
     return p.returncode, (out or "") + (err or "")
@@ -261,7 +261,7 @@ def _kill_tree(p: subprocess.Popen) -> None:
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(p.pid)],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=KILL_TIMEOUT,
         )
     else:
         import signal
@@ -271,6 +271,13 @@ def _kill_tree(p: subprocess.Popen) -> None:
         except (ProcessLookupError, PermissionError):
             p.kill()
 
+
+# The kill path's ceiling, past the budget: the tree kill's own timeout plus
+# the post-kill drain. The runner's backstop in settings.json must cover
+# budget + KILL_CEILING + 10 (DESIGN section 4; W-42).
+KILL_TIMEOUT = 5
+DRAIN_TIMEOUT = 3
+KILL_CEILING = KILL_TIMEOUT + DRAIN_TIMEOUT
 
 PENDING_MARK = "NOT RUN"
 
