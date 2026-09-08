@@ -503,12 +503,15 @@ def is_binary_content(data: bytes, check_size: int = 8192) -> bool:
     return b"\x00" in sample
 
 
-def is_binary_file(file_path: Path, check_size: int = 8192) -> bool:
+def is_binary_file(
+    file_path: Path, check_size: int = 8192, *, raise_on_error: bool = False,
+) -> bool:
     """Check if a file is binary using extension check + content sniffing.
 
     Args:
         file_path: Path to the file.
         check_size: Bytes to read for content check.
+        raise_on_error: Propagate read errors instead of treating them as binary.
 
     Returns:
         True if the file appears to be binary.
@@ -523,6 +526,8 @@ def is_binary_file(file_path: Path, check_size: int = 8192) -> bool:
             data = f.read(check_size)
         return is_binary_content(data, check_size)
     except OSError:
+        if raise_on_error:
+            raise
         return True  # Can't read -> skip
 
 

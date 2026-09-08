@@ -602,8 +602,11 @@ def _should_index_file(
         return False, "too_large", rel_path, None
 
     # 13. Binary detection (opt-out for callers that read the file separately)
-    if cfg.check_binary and is_binary_file(file_path):
-        return False, "binary", rel_path, f"Skipped binary file: {rel_path}"
+    try:
+        if cfg.check_binary and is_binary_file(file_path, raise_on_error=True):
+            return False, "binary", rel_path, f"Skipped binary file: {rel_path}"
+    except OSError:
+        return False, "unreadable", rel_path, None
 
     return True, "", rel_path, None
 

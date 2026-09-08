@@ -8,7 +8,8 @@ import sqlite3
 import pytest
 
 from jcodemunch_mcp.storage import IndexStore
-from jcodemunch_mcp.tools.index_folder import index_folder
+from jcodemunch_mcp.security import is_binary_file
+from jcodemunch_mcp.tools.index_folder import discover_local_files, index_folder
 
 
 @pytest.fixture
@@ -62,7 +63,7 @@ def test_initial_empty_folder_remains_an_error(tmp_path, incremental):
     assert result == {"success": False, "error": "No source files found"}
 
 
-@pytest.mark.parametrize("failure", ["root_scan", "child_scan", "unreadable", "exception"])
+@pytest.mark.parametrize("failure", ["root_scan", "child_scan", "exception"])
 def test_failed_discovery_preserves_persisted_symbols(indexed_tree, monkeypatch, failure):
     root, kwargs, database = indexed_tree
     before = persisted_symbols(database)
@@ -77,9 +78,6 @@ def test_failed_discovery_preserves_persisted_symbols(indexed_tree, monkeypatch,
             return original_scandir(path)
 
         monkeypatch.setattr(os, "scandir", scandir)
-    elif failure == "unreadable":
-        monkeypatch.setattr(module, "_should_index_file",
-                            lambda *args: (False, "unreadable", "", None))
     else:
         def discover(*args, **kwargs):
             raise OSError("discovery failed")
@@ -89,3 +87,55 @@ def test_failed_discovery_preserves_persisted_symbols(indexed_tree, monkeypatch,
     assert result["success"] is False, result
     assert "error" in result
     assert persisted_symbols(database) == before
+
+
+def test_unreadable_sources_preserve_persisted_symbols(indexed_tree):
+    root, kwargs, database = indexed_tree
+    before = persisted_symbols(database)
+    assert len(before) == 2
+    modes = {source: source.stat().st_mode for source in root.rglob("*.py")}
+    try:
+        for source in modes:
+            source.chmod(0)
+            assert source.stat().st_size > 0
+            try:
+                with source.open("rb") as stream:
+                    stream.read(1)
+            except PermissionError:
+                pass
+            else:
+                pytest.skip("File permissions do not enforce read denial")
+            assert is_binary_file(source) is True
+
+        result = index_folder(**kwargs)
+        assert result["success"] is False, result
+        assert persisted_symbols(database) == before
+        files, _, counts = discover_local_files(root)
+        assert files == []
+        assert counts["unreadable"] == 2
+        assert counts["binary"] == 0
+    finally:
+        for source, mode in modes.items():
+            source.chmod(mode)
+
+
+def test_binary_sources_allow_empty_index_reconciliation(indexed_tree):
+    root, kwargs, database = indexed_tree
+    assert len(persisted_symbols(database)) == 2
+    for source in root.rglob("*.py"):
+        source.write_bytes(b"def former_source(): pass\n\x00")
+    files, _, counts = discover_local_files(root)
+    assert files == []
+    assert counts["binary"] == 2
+    assert counts["unreadable"] == 0
+    result = index_folder(**kwargs)
+    assert result["success"], result
+    assert result["deleted"] == 2
+    assert persisted_symbols(database) == []
+
+
+def test_binary_file_read_errors_are_opt_in(tmp_path):
+    missing = tmp_path / "missing.py"
+    assert is_binary_file(missing, 16) is True
+    with pytest.raises(FileNotFoundError):
+        is_binary_file(missing, 16, raise_on_error=True)
