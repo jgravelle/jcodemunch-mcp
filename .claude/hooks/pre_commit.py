@@ -28,10 +28,12 @@ from _common import (
     ok,
     read_hook_input,
     run_budgeted,
+    settle_summary,
     split_segments,
     strip_heredocs,
     tool_command,
     warn,
+    write_pending_summary,
 )
 
 BUDGET_SECONDS = 150
@@ -115,7 +117,10 @@ def main() -> None:
     budget = Budget(BUDGET_SECONDS)
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     summary = EVIDENCE / "fast.md"
-    summary.unlink(missing_ok=True)  # `--summary` appends (W-20)
+    # W-42: written BEFORE the run, so a hook the runner kills leaves a summary
+    # that reads as FAIL. `--summary` appends (W-20); the settle below drops the
+    # pending block once a verdict sits beneath it.
+    write_pending_summary(summary, "pre_commit")
     skipped: list[str] = []
     failures: list[str] = []
 
@@ -124,8 +129,11 @@ def main() -> None:
         budget,
     )
     if rc is None:
+        # The pending summary stays: the checklist reads it unmet, not silent.
         skipped.append("the fast tier")
-    elif rc != 0:
+    else:
+        settle_summary(summary)
+    if rc is not None and rc != 0:
         tail = [
             ln for ln in out.splitlines() if " FAIL" in ln or "failed" in ln.lower()
         ][-12:]

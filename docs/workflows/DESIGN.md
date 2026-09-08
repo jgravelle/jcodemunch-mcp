@@ -236,9 +236,9 @@ Glob, Bash (read-only git; the settings deny list applies).
 
 All hooks are Python, run as `python .claude/hooks/<name>.py`, read the
 hook JSON on stdin, and implement the budget themselves with
-`subprocess.run(timeout=)` so that a timeout degrades (D7) instead of the
+a deadline that kills the whole process TREE (`_common.run_budgeted`: `taskkill /T` on Windows, the process group elsewhere; W-42) so that a timeout degrades (D7) instead of the
 runner killing the hook silently. `timeout` in settings is set to budget
-plus 10 s as the backstop.
+plus 10 s as the backstop. A `subprocess.run(timeout=)` is not enough: it kills the child and then waits on pipes the grandchild still holds, and the hook overran the backstop twice on 2026-09-08. H1 also writes `fast.md` BEFORE its run as a block that reads as FAIL (`NOT RUN`), replaced once the run appends a verdict, so a hook killed from outside leaves the checklist unmet rather than silent.
 
 | Hook | Event / matcher | Budget | Exact command run | Blocks? |
 |---|---|---|---|---|
