@@ -67,7 +67,7 @@
         "matcher": "Bash|PowerShell",
         "hooks": [
           { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny_guard.py\"", "timeout": 10 },
-          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_commit.py\"", "timeout": 160 },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_commit.py\"", "timeout": 170 },
           { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_pr.py\"", "timeout": 15 }
         ]
       }

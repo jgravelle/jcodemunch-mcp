@@ -246,9 +246,12 @@ def run_budgeted(
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
-            p.communicate(timeout=5)
+            p.communicate(timeout=3)
         except subprocess.TimeoutExpired:
-            pass
+            # Practice 2: a tree that outlives the kill must be visible.
+            sys.stderr.write(
+                f"run_budgeted: pid {p.pid} still holds its pipes 3 s after the tree kill\n"
+            )
         return None, ""
     return p.returncode, (out or "") + (err or "")
 
@@ -258,7 +261,7 @@ def _kill_tree(p: subprocess.Popen) -> None:
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(p.pid)],
-            capture_output=True, timeout=15,
+            capture_output=True, timeout=5,
         )
     else:
         import signal

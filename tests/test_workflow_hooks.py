@@ -145,6 +145,19 @@ def test_pre_pr_refuses_without_a_stamp_and_passes_unrelated_commands(
     (state / "full-tier.json").write_text(
         json.dumps({"tree": tree, "ok": True, "date": "x"}), encoding="utf-8"
     )
+    # W-42 remedy (3): the fast summary is read directly, ahead of the checklist,
+    # because a checklist generated before a killed pre_commit can still read 12/12.
+    rc, err = run()
+    assert rc == 2 and "no fast-tier verdict" in err and "killed" not in err
+    (evidence / "fast.md").write_text(
+        "## harness fast: NOT RUN\n\npre_commit started x.\n\nHARNESS FAIL\n", encoding="utf-8"
+    )
+    rc, err = run()
+    assert rc == 2 and "killed before it wrote one" in err
+    (evidence / "fast.md").write_text("## harness fast: FAIL\n\nHARNESS FAIL\n", encoding="utf-8")
+    rc, err = run()
+    assert rc == 2 and "fast tier on this box FAILED" in err
+    (evidence / "fast.md").write_text("## harness fast: PASS\n\nHARNESS PASS\n", encoding="utf-8")
     rc, err = run()
     assert rc == 2 and "checklist" in err
     (evidence / "checklist.md").write_text("| 1 | x | unmet | y |\n", encoding="utf-8")
@@ -249,6 +262,10 @@ def test_hooks_follow_the_session_cwd_into_a_worktree(tmp_path):
     )
     (state / "evidence" / "checklist.md").write_text(
         "| 1 | x | met | y |\n", encoding="utf-8"
+    )
+    # W-42: pre_pr reads the fast summary too, in the same rebound state dir.
+    (state / "evidence" / "fast.md").write_text(
+        "## harness fast: PASS\n\nHARNESS PASS\n", encoding="utf-8"
     )
     r = subprocess.run(
         [sys.executable, str(HOOKS / "pre_pr.py")],

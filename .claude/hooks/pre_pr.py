@@ -16,6 +16,7 @@ import json
 import re
 
 from _common import (
+    PENDING_MARK,
     EVIDENCE,
     STATE,
     block,
@@ -59,6 +60,19 @@ def main() -> None:
             f"(stamped {stamp.get('tree', '?')[:12]} at {stamp.get('date')}, now {now[:12]}). "
             "The tree changed after the run; run `python .claude/hooks/run_full.py` again."
         )
+    # W-42 remedy (3): a pre_commit the runner killed leaves `fast.md` as its
+    # pending block, and a checklist generated earlier can still read 12/12.
+    FAST = EVIDENCE / "fast.md"  # noqa: N806
+    fast_text = FAST.read_text(encoding="utf-8") if FAST.exists() else None
+    if fast_text is None or PENDING_MARK in fast_text:
+        block(
+            "pre_pr: no fast-tier verdict on this box"
+            + (" (the last pre_commit was killed before it wrote one)" if fast_text else "")
+            + ". Run `uv run python -m harness fast --summary .claude/state/evidence/fast.md`, "
+            "then the checklist again."
+        )
+    if "HARNESS FAIL" in fast_text or "**FAIL**" in fast_text:
+        block("pre_pr: the last fast tier on this box FAILED; fix, then run it again.")
     if not CHECKLIST.exists():
         block(
             "pre_pr: no Definition-of-Done checklist. Run `python .claude/hooks/dod_checklist.py` and paste it into the PR body."
