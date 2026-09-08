@@ -90,6 +90,11 @@ def edit(path: Path) -> dict:
         ("gh api graphql -f query='mutation { createRef(input: {name: \"refs/heads/feat\", oid: \"x\"}) { clientMutationId } }'", False),
         ("gh api graphql -f query='query { repository(owner: \"x\", name: \"y\") { id } }'", False),
         ("gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"hi\"}) { clientMutationId } }'", False),
+        ("gh api graphql -f query='mutation { " + "enablePullRequestAutoMerge(input: {pullRequestId: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { " + "deleteDiscussion(input: {id: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { " + "deleteProjectV2(input: {projectId: \"x\"}) { clientMutationId } }'", True),
+        # flags between `api` and `graphql` (review round 1: adjacency was a spelling)
+        ("gh api -H 'Accept: application/vnd.github+json' graphql -f query='mutation { " + "mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'", True),
         ("gh repo " + "delete x/y --yes", True),
         ("gh repo view x/y", False),
     ],

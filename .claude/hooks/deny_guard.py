@@ -60,7 +60,9 @@ DENIED = [
         # release and a dispatch are REST-only): a merge or auto-merge, a ref
         # deletion, an issue, discussion or project deletion, and a ref
         # CREATED under refs/tags/ (a tag push by another spelling).
-        r"\bgh\s+api\s+graphql\b.*\bmutation\b.*(?:\b(?:mergePullRequest|enablePullRequestAutoMerge"
+        # `graphql` may sit after flags (`gh api -H ... graphql`), as the REST
+        # rule's path may; adjacency was a spelling (review round 1).
+        r"\bgh\s+api\b(?=.*\bgraphql\b).*\bmutation\b.*(?:\b(?:mergePullRequest|enablePullRequestAutoMerge"
         r"|deleteRef|deleteIssue|deleteDiscussion|deleteProjectV2)\b|refs/tags/)",
         "an irreversible act through a GraphQL mutation (merge, ref deletion, a deletion, or a tag ref); the human runs it",
     ),
