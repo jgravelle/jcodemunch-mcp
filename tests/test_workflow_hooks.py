@@ -81,6 +81,17 @@ def edit(path: Path) -> dict:
         ("gh api --method DELETE repos/x/y/issues/comments/1", True),
         ("uvx --from " + "twine twine upload dist/*", True),
         ('"C:\\Users\\j\\mcp-' + 'publisher.exe" publish', True),
+        # W-41: a GraphQL mutation reaches the same irreversible acts with no
+        # --method on the line, and `gh repo delete` was in neither list.
+        ("gh api graphql -f query='mutation { " + "mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { " + "deleteIssue(input: {issueId: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { " + "deleteRef(input: {refId: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { createRef(input: {name: \"refs/" + "tags/v1\", oid: \"x\"}) { clientMutationId } }'", True),
+        ("gh api graphql -f query='mutation { createRef(input: {name: \"refs/heads/feat\", oid: \"x\"}) { clientMutationId } }'", False),
+        ("gh api graphql -f query='query { repository(owner: \"x\", name: \"y\") { id } }'", False),
+        ("gh api graphql -f query='mutation { addComment(input: {subjectId: \"x\", body: \"hi\"}) { clientMutationId } }'", False),
+        ("gh repo " + "delete x/y --yes", True),
+        ("gh repo view x/y", False),
     ],
 )
 def test_deny_guard_refuses_exactly_the_forbidden_verbs(command, expect_block):

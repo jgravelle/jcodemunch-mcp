@@ -54,6 +54,20 @@ DENIED = [
         r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method\s+DELETE|\s-X\s*DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
     ),
+    (
+        # W-41: the rule above is gated on --method/-X, and a GraphQL mutation
+        # carries neither. The same acts by the mutation names GraphQL has (a
+        # release and a dispatch are REST-only): a merge or auto-merge, a ref
+        # deletion, an issue, discussion or project deletion, and a ref
+        # CREATED under refs/tags/ (a tag push by another spelling).
+        r"\bgh\s+api\s+graphql\b.*\bmutation\b.*(?:\b(?:mergePullRequest|enablePullRequestAutoMerge"
+        r"|deleteRef|deleteIssue|deleteDiscussion|deleteProjectV2)\b|refs/tags/)",
+        "an irreversible act through a GraphQL mutation (merge, ref deletion, a deletion, or a tag ref); the human runs it",
+    ),
+    (
+        r"\bgh\s+repo\s+delete\b",
+        "deleting a repository, which no page undoes; the human does it",
+    ),
     (r"\btwine\b", "a PyPI upload; RUNBOOK section 1a is the human's hand-finish"),
     (r"mcp-publisher", "a registry publish; release.yml publishes"),
 ]

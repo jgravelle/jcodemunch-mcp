@@ -21,6 +21,7 @@
       "Bash(gh workflow run*)",
       "Bash(gh pr merge*)",
       "Bash(gh issue delete*)",
+      "Bash(gh repo delete*)",
       "Bash(twine*)",
       "Bash(uvx --from twine*)",
       "Bash(*mcp-publisher*)",
@@ -34,6 +35,7 @@
       "PowerShell(gh workflow run*)",
       "PowerShell(gh pr merge*)",
       "PowerShell(gh issue delete*)",
+      "PowerShell(gh repo delete*)",
       "PowerShell(*twine*)",
       "PowerShell(*mcp-publisher*)"
     ],

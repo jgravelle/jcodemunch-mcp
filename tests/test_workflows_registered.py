@@ -114,6 +114,7 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
         "gh workflow run",
         "gh pr merge",
         "gh issue delete",
+        "gh repo delete",  # W-41
         "twine",
         "mcp-publisher",
     ):
