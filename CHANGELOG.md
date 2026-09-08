@@ -42,6 +42,12 @@ directory censuses, but directory events can still require full incremental
 indexing. See [`_safe_awatch`](src/jcodemunch_mcp/watcher.py) for backend
 selection and registration safety invariants.
 
+Moving a subtree outside the watched root now removes its indexed descendants,
+including on native recursive backends that report only the directory event.
+Native recursive watches also re-arm when the root's filesystem identity
+changes, so Windows does not keep watching a renamed root instead of its
+replacement. This checks only the root, not the whole directory tree.
+
 Edits in indexed dot-directories such as `.github/` now reach the indexer rather
 than being discarded by a second hidden-path filter. Discovery remains the
 indexing authority; symlink configuration is documented in

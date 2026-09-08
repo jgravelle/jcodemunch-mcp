@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -109,6 +110,7 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
     recursive = sys.platform != "linux" and not force_polling
     directories = None if recursive else await asyncio.to_thread(_watch_directories, folder_path)
     while recursive or directories:
+        root_identity = os.stat(folder_path) if recursive else None
         rescan = True
         checked_at = time.monotonic()
         stream = awatch(
@@ -124,8 +126,14 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
         try:
             async with aclosing(stream):
                 async for changes in stream:
-                    if recursive and not os.path.isdir(folder_path):
-                        raise FileNotFoundError(f"Watched directory disappeared: {folder_path}")
+                    if root_identity is not None:
+                        current_root = os.stat(folder_path)
+                        if not stat.S_ISDIR(current_root.st_mode):
+                            raise FileNotFoundError(f"Watched directory disappeared: {folder_path}")
+                        # Windows keeps the old directory handle after a root rename.
+                        # Checking one inode also covers replacement during registration.
+                        if not os.path.samestat(root_identity, current_root):
+                            break
                     if directories is not None:
                         topology_changed = any(
                             change in (Change.added, Change.deleted)
@@ -539,11 +547,20 @@ async def _watch_single(
             # Map watchfiles Change enum to WatcherChange objects with old_hash from memory cache
             _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
             watcher_changes: list[WatcherChange] = []
+            needs_discovery = False
             for ct, p in relevant:
                 change_type_str = _change_map[ct]
+                cached_rel = Path(p).relative_to(folder_path).as_posix()
+                if not needs_discovery and (p == folder_path or os.path.isdir(p)):
+                    needs_discovery = True
                 if ct == Change.deleted:
-                    # For deletions, old_hash comes from our memory cache
-                    old_hash = _hash_cache.get(Path(p).relative_to(folder_path).as_posix(), "")
+                    # A moved-out directory no longer satisfies isdir(). Its indexed
+                    # descendants still need removal; known file deletes stay O(1).
+                    if not needs_discovery and cached_rel not in _hash_cache and any(
+                        path.startswith(cached_rel + "/") for path in _hash_cache
+                    ):
+                        needs_discovery = True
+                    old_hash = _hash_cache.get(cached_rel, "")
                 elif ct == Change.modified:
                     # Use memory cache as the source of truth for old_hash.
                     # Do NOT fall back to reading the file: by the time watchfiles
@@ -553,7 +570,6 @@ async def _watch_single(
                     # Sentinel "__cache_miss__" keeps use_memory_hash_cache=True (fast
                     # path active, no full-index disk load) while guaranteeing the file
                     # is re-parsed rather than skipped.
-                    cached_rel = Path(p).relative_to(folder_path).as_posix()
                     old_hash = _hash_cache.get(cached_rel, "") or "__cache_miss__"
                 else:
                     # For additions, no old hash
@@ -570,12 +586,8 @@ async def _watch_single(
                 extra_ignore_patterns=extra_ignore_patterns,
                 follow_symlinks=follow_symlinks,
                 incremental=True,
-                # Directory/root events require discovery: a moved-in tree
-                # may contain files for which no individual event was emitted.
-                changed_paths=(
-                    None if any(p == folder_path or os.path.isdir(p) for _, p in relevant)
-                    else watcher_changes
-                ),
+                # Trees may move in or out without individual file events.
+                changed_paths=None if needs_discovery else watcher_changes,
             )
             if result.get("success"):
                 duration = result.get("duration_seconds", "?")
