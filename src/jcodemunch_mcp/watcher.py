@@ -85,38 +85,37 @@ def _watch_directories(folder_path: str) -> dict[str, tuple[int, int]]:
             dirs[:] = []
             continue
         directories[current] = (stat.st_dev, stat.st_ino)
-        dirs[:] = [
-            name for name in dirs
-            if not skip_dirs.match(name)
-            and not os.path.islink(os.path.join(current, name))
-        ]
+        dirs[:] = [name for name in dirs if not skip_dirs.match(name)]
     return directories
 
 
 async def _safe_awatch(folder_path: str, debounce_ms: int):
-    """Watch explicit directories non-recursively; refresh changed topology.
+    """Use native recursion where safe; bound Linux/polling to real directories.
 
-    watchfiles 1.2.0 does not expose notify's follow_symlinks option. Its
-    recursive registration follows directory links BEFORE watch_filter runs.
-    In workspace dependency graphs notify retains a PathBuf per alias, even
-    when inotify returns the same watch descriptor: potentially GB of native
-    heap without ever delivering an event. Filtering events cannot fix this.
+    watchfiles 1.1.1 (locked) and 1.2.0 (incident) do not expose notify's
+    follow_symlinks option. Linux and polling traverse links before filtering,
+    retaining a pathname per alias. macOS/Windows native recursion avoids that
+    walk, and avoids installing thousands of separate native watches.
 
-    Periodic reconciliation also catches new/moved-in trees, missed directory
-    events and same-path replacements. After re-arming, a root event requests
-    a full incremental scan to cover files created before registration and
-    edits during the close/reopen gap. Ordinary edits keep the fast path.
+    A post-arm census closes registration gaps before the root reconciliation
+    requests an incremental index. The timer recovers missed directory events;
+    it does not recover lost file-only events when topology is unchanged.
     """
     from watchfiles import awatch, Change
+    from watchfiles.main import _default_force_polling
 
-    directories = await asyncio.to_thread(_watch_directories, folder_path)
-    rescan = True
-    while directories:
+    # Ask watchfiles: e.g. WATCHFILES_FORCE_POLLING=0 means TRUE, and WSL polls.
+    force_polling = _default_force_polling(None)
+    recursive = sys.platform != "linux" and not force_polling
+    directories = None if recursive else await asyncio.to_thread(_watch_directories, folder_path)
+    while recursive or directories:
+        rescan = True
         checked_at = time.monotonic()
         stream = awatch(
-            *directories,
+            *([folder_path] if directories is None else directories),
             debounce=debounce_ms,
-            recursive=False,
+            recursive=recursive,
+            force_polling=force_polling,
             step=200,
             poll_delay_ms=_watch_poll_delay_ms(),
             rust_timeout=1000,
@@ -125,26 +124,31 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
         try:
             async with aclosing(stream):
                 async for changes in stream:
-                    # The first yield (including a timeout) proves the native
-                    # watcher has been installed before we reconcile the index.
+                    if recursive and not os.path.isdir(folder_path):
+                        raise FileNotFoundError(f"Watched directory disappeared: {folder_path}")
+                    if directories is not None:
+                        topology_changed = any(
+                            change in (Change.added, Change.deleted)
+                            and (path in directories or os.path.isdir(path))
+                            for change, path in changes
+                        )
+                        # First yield proves registration is complete. Re-census
+                        # before reconciling: a new directory in the arm gap has
+                        # no watch, even if a full index would find its files.
+                        # ponytail: one census/minute recovers lost topology events;
+                        # use a native rescan signal if watchfiles exposes one.
+                        if rescan or topology_changed or time.monotonic() - checked_at >= 60.0:
+                            current = await asyncio.to_thread(_watch_directories, folder_path)
+                            checked_at = time.monotonic()
+                            if current != directories:
+                                directories = current
+                                # Re-arm before indexing; the root reconciliation
+                                # covers this whole batch and the registration gap.
+                                break
+                            del current  # do not retain a duplicate census while idle
                     if rescan:
                         rescan = False
                         yield {(Change.modified, folder_path)}
-                    topology_changed = any(
-                        path in directories or os.path.isdir(path) for _, path in changes
-                    )
-                    # Directory events reconcile promptly. The slower fallback
-                    # catches lost events without walking large repos every second.
-                    if topology_changed or time.monotonic() - checked_at >= 60.0:
-                        current = await asyncio.to_thread(_watch_directories, folder_path)
-                        checked_at = time.monotonic()
-                        if current != directories:
-                            directories = current
-                            rescan = True
-                            # The full scan after re-arming covers this entire
-                            # batch, including edits in unchanged directories.
-                            break
-                        del current  # do not retain a duplicate census while idle
                     if changes:
                         yield changes
                 else:
@@ -152,11 +156,12 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
         except FileNotFoundError:
             # A child can vanish after enumeration but before native registration.
             # Retry only when a fresh census can repair the watch set.
+            if recursive:
+                raise
             current = await asyncio.to_thread(_watch_directories, folder_path)
             if folder_path not in current or current == directories:
                 raise
             directories = current
-            rescan = True
     raise FileNotFoundError(f"Watched directory disappeared: {folder_path}")
 
 
@@ -506,10 +511,6 @@ async def _watch_single(
             (change_type, path)
             for change_type, path in changes
             if change_type in (Change.added, Change.modified, Change.deleted)
-            and not any(
-                part.startswith(".")
-                for part in Path(path).relative_to(folder_path).parts
-            )
         ]
 
         if not relevant:

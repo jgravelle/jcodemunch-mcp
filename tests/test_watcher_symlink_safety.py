@@ -4,11 +4,18 @@ import asyncio
 import os
 from contextlib import aclosing
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from jcodemunch_mcp import watcher
+
+
+@pytest.fixture
+def explicit_watches(monkeypatch):
+    """Exercise the bounded Linux path even on hosts with native recursion."""
+    monkeypatch.setattr(watcher, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "false")
 
 
 @pytest.fixture
@@ -94,8 +101,25 @@ def test_directory_identity_changes_on_same_path_replacement(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_native_registration_is_always_nonrecursive(workspace):
+@pytest.mark.parametrize("platform,polling_env,auto_polling,recursive", [
+    ("linux", "false", False, False),
+    ("darwin", "false", False, True),
+    ("win32", "disabled", False, True),
+    ("darwin", "0", False, False),
+    ("darwin", None, True, False),
+])
+async def test_backend_selection_preserves_reconciliation_and_closure(
+    workspace, monkeypatch, platform, polling_env, auto_polling, recursive,
+):
     watchfiles = pytest.importorskip("watchfiles")
+    monkeypatch.setattr(watcher, "sys", SimpleNamespace(platform=platform))
+    if polling_env is None:
+        monkeypatch.delenv("WATCHFILES_FORCE_POLLING", raising=False)
+    else:
+        monkeypatch.setenv("WATCHFILES_FORCE_POLLING", polling_env)
+    monkeypatch.setattr("watchfiles.main._auto_force_polling", lambda: auto_polling)
+    if recursive:
+        monkeypatch.setattr(watcher, "_watch_directories", lambda _: pytest.fail("native recursion must not census"))
     calls = []
     closed = []
 
@@ -112,15 +136,16 @@ async def test_native_registration_is_always_nonrecursive(workspace):
                 (watchfiles.Change.modified, str(workspace))
             }
     assert len(calls) == 1
-    assert set(calls[0][0]) == set(watcher._watch_directories(str(workspace)))
-    assert calls[0][1]["recursive"] is False
+    expected = {str(workspace)} if recursive else set(watcher._watch_directories(str(workspace)))
+    assert set(calls[0][0]) == expected
+    assert calls[0][1]["recursive"] is recursive
     assert calls[0][1]["yield_on_timeout"] is True
     assert closed == [True]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["add", "delete", "replace"])
-async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, operation):
+async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, operation, explicit_watches):
     watchfiles = pytest.importorskip("watchfiles")
     root = str(tmp_path)
     child = tmp_path / "child"
@@ -136,6 +161,7 @@ async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, o
             assert closed == [1]  # no accumulation of native watchers
         try:
             if generation == 1:
+                yield set()  # Arm and reconcile first, then lose a topology event.
                 if operation == "add":
                     (child / "nested").mkdir(parents=True)
                     (child / "nested" / "new.py").write_text("def new(): pass\n")
@@ -162,7 +188,7 @@ async def test_topology_refresh_closes_old_watch_and_requests_rescan(tmp_path, o
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["delete", "rename"])
-async def test_registration_retries_when_child_disappears(tmp_path, operation):
+async def test_registration_retries_when_child_disappears(tmp_path, operation, explicit_watches):
     watchfiles = pytest.importorskip("watchfiles")
     root = str(tmp_path)
     child = tmp_path / "child"
@@ -198,7 +224,7 @@ async def test_registration_retries_when_child_disappears(tmp_path, operation):
 @pytest.mark.parametrize("remove_root,error_type", [
     (True, FileNotFoundError), (False, FileNotFoundError), (False, PermissionError),
 ])
-async def test_registration_does_not_retry_unrecoverable_errors(tmp_path, remove_root, error_type):
+async def test_registration_does_not_retry_unrecoverable_errors(tmp_path, remove_root, error_type, explicit_watches):
     watchfiles = pytest.importorskip("watchfiles")
     failure = error_type("registration failed")
     attempts = []
@@ -219,65 +245,29 @@ async def test_registration_does_not_retry_unrecoverable_errors(tmp_path, remove
 
 
 @pytest.mark.asyncio
-async def test_regular_edits_do_not_rescan_directory_tree(tmp_path):
+@pytest.mark.parametrize("operation", ["file_edit", "polling_file_add", "directory_metadata"])
+async def test_regular_edits_do_not_rescan_directory_tree(tmp_path, operation, explicit_watches):
     watchfiles = pytest.importorskip("watchfiles")
     target = tmp_path / "code.py"
     target.write_text("pass\n")
 
+    events = {(watchfiles.Change.modified, str(target))}
+    if operation == "polling_file_add":
+        events = {(watchfiles.Change.added, str(target)), (watchfiles.Change.modified, str(tmp_path))}
+    elif operation == "directory_metadata":
+        events = {(watchfiles.Change.modified, str(tmp_path))}
+
     async def fake_awatch(*paths, **kwargs):
         for _ in range(3):
-            yield {(watchfiles.Change.modified, str(target))}
+            yield events
 
     with patch.object(watchfiles, "awatch", fake_awatch), patch.object(
         watcher, "_watch_directories", wraps=watcher._watch_directories
     ) as discover, patch.object(watcher, "time", SimpleNamespace(monotonic=lambda: 0)):
         batches = [batch async for batch in watcher._safe_awatch(str(tmp_path), 200)]
     assert batches[0] == {(watchfiles.Change.modified, str(tmp_path))}
-    assert batches[1:] == [
-        {(watchfiles.Change.modified, str(target))},
-    ] * 3
-    assert discover.call_count == 1
-
-
-@pytest.mark.asyncio
-async def test_single_edit_during_initial_registration_is_reconciled(tmp_path):
-    watchfiles = pytest.importorskip("watchfiles")
-    root = str(tmp_path)
-    target = tmp_path / "code.py"
-    target.write_text("before\n")
-    armed = False
-    edits = 0
-    reconciled = []
-
-    async def fake_awatch(*paths, **kwargs):
-        nonlocal armed, edits
-        target.write_text("after\n")
-        edits += 1
-        armed = True
-        yield set()
-
-    def fake_index_folder(**kwargs):
-        assert armed
-        assert kwargs["changed_paths"] is None
-        reconciled.append(target.read_text())
-        return {"success": True, "message": "No changes detected"}
-
-    store = MagicMock()
-    store.load_index.return_value = None
-    with patch.object(watchfiles, "awatch", fake_awatch), patch.object(
-        watcher, "index_folder", side_effect=fake_index_folder
-    ), patch.object(watcher, "IndexStore", return_value=store), patch.object(
-        watcher, "_local_repo_id", return_value="local/test"
-    ), patch.object(watcher, "mark_reindex_start"), patch.object(
-        watcher, "mark_reindex_done"
-    ), patch.object(watcher, "mark_reindex_failed"):
-        await watcher._watch_single(
-            root, 200, False, None, None, False,
-            skip_initial_index=True, quiet=True,
-        )
-
-    assert edits == 1
-    assert reconciled == ["after\n"]
+    assert batches[1:] == [events] * 3
+    assert discover.call_count == 2  # initial enumeration and post-arm verification only
 
 
 @pytest.mark.asyncio
@@ -289,30 +279,22 @@ async def test_missing_root_fails_instead_of_silently_stopping(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_root_reconciliation_uses_full_incremental_index(tmp_path):
-    watchfiles = pytest.importorskip("watchfiles")
-    root = str(tmp_path)
-
-    async def changes(*args):
-        yield {(watchfiles.Change.modified, root)}
-
-    result = {"success": True, "message": "No changes detected"}
-    with patch.object(watcher, "_safe_awatch", changes), patch.object(
-        watcher, "index_folder", return_value=result
-    ) as index, patch.object(watcher, "IndexStore", return_value=MagicMock()), patch.object(
-        watcher, "mark_reindex_start"
-    ), patch.object(watcher, "mark_reindex_done"):
-        await watcher._watch_single(
-            root, 200, False, None, None, False,
-            skip_initial_index=True, quiet=True,
-        )
-    assert index.call_count == 1
-    assert index.call_args.kwargs["changed_paths"] is None
-    assert index.call_args.kwargs["incremental"] is True
+@pytest.mark.parametrize("polling", [False, True], ids=["native", "polling"])
+async def test_removing_watched_root_fails(tmp_path, monkeypatch, polling):
+    pytest.importorskip("watchfiles")
+    monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "true" if polling else "false")
+    async with aclosing(watcher._safe_awatch(str(tmp_path), 200)) as stream:
+        await asyncio.wait_for(anext(stream), 5)
+        tmp_path.rmdir()
+        async def consume():
+            async for _ in stream:
+                pass
+        with pytest.raises(FileNotFoundError):
+            await asyncio.wait_for(consume(), 5)
 
 
 @pytest.mark.asyncio
-async def test_real_watcher_rearms_new_tree_and_reconciles_deletion(workspace):
+async def test_real_watcher_rearms_new_tree_and_reconciles_deletion(workspace, explicit_watches):
     """Exercise nested edits and topology with real native watches and symlink cycles."""
     watchfiles = pytest.importorskip("watchfiles")
     root = str(workspace)

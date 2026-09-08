@@ -30,18 +30,26 @@ the cause half did, twice. What is not changed: each loop still tries every
 batch after a shared failure, which the `batches` count now makes visible
 instead of hiding.
 
-### Fixed - watch mode bounds native registration on symlink-heavy workspaces
+### Fixed - watcher registration is bounded without penalizing native recursion
 
-`watch` now registers the real, non-skipped directory tree non-recursively
-instead of asking `watchfiles` to traverse directory symlinks before filters
-run. Directory topology changes re-arm the bounded watch set. A child deleted
-or renamed during registration triggers a retry only if the root remains and
-a fresh directory census differs from the failed watch set; missing roots,
-unchanged watch sets, and other errors still propagate. Failed streams close
-before replacements open. Initial registration and each successful re-arm
-request a full incremental reconciliation to cover edits during registration;
-ordinary file edits retain the changed-path fast path. `watch_follow_symlinks`
-still applies to symlinked files -- directory symlinks are not traversed.
+Native macOS/Windows watching uses one recursive registration, avoiding the
+per-directory startup cost introduced by #629. Linux and forced/automatic
+polling keep the real, non-skipped directory tree non-recursively watched:
+watchfiles 1.1.1 (locked) and 1.2.0 (the incident deployment) both follow links
+before filters in those backends. Polling selection delegates to watchfiles,
+including WSL detection and its environment-variable semantics.
+
+A post-arm census repeats registration until the watch set matches, then a
+root event reconciles edits made during registration. Directory additions and
+deletions trigger a census; metadata-only events do not. The 60-second fallback
+and inode comparison remain to recover missed topology changes, not lost
+file-only events. Directory events can still require full incremental indexing,
+even when they do not require a census. Vanished-child retries remain bounded
+by a changed census and a surviving root; old streams close before re-arming.
+
+Edits in indexed dot-directories such as `.github/` now reach the indexer rather
+than being discarded by a second hidden-path filter. Discovery remains the
+indexing authority. `watch_follow_symlinks` still governs symlinked files.
 ### Fixed - a `<script >` closed with a space before the bracket swallowed the markup after it (Razor and Astro)
 
 The Razor and Astro extractors cut `<script>` and `<style>` blocks out of
