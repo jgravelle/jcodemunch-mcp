@@ -1,0 +1,3 @@
+src/jcodemunch_mcp/storage/token_tracker.py
+  369:	    def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
+  1620-1622 [function result_cache_put] 1622:	    _state.cache_put(tool_name, repo, specific_key, result)

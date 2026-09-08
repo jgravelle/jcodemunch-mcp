@@ -1,0 +1,45 @@
+src/jcodemunch_mcp/server.py
+  5590-5599 [function _record_response_tokens] 5596:	        from .storage.token_tracker import record_response_text
+  5670-5722 [function call_tool]
+    5676:	    from .storage.token_tracker import begin_call_context, end_call_context
+    5714:	            from .storage.token_tracker import record_tool_latency
+  5754-7453 [function _call_tool_impl]
+    5800:	            from .storage import token_tracker as _yield_tracker
+    6349:	            from .storage import token_tracker as _handoff_tracker
+    7363:	            from .storage import token_tracker as _budget_tracker
+    7437:	            from .storage.token_tracker import record_encoding_savings
+src/jcodemunch_mcp/storage/__init__.py
+  4:	from .token_tracker import (
+src/jcodemunch_mcp/tools/search_columns.py
+  10:	from ..storage.token_tracker import estimate_savings, record_savings, cost_avoided
+src/jcodemunch_mcp/tools/search_symbols.py
+  1034-1102 [function search_symbols] 1087:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+  1481-1540 [function _search_symbols_semantic] 1508:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+  1877-1942 [function _search_symbols_fusion] 1912:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+src/jcodemunch_mcp/tools/analyze_perf.py
+  18:	⚠ The per-tool latency shape comes from ``token_tracker.latency_bucket``; this
+  29:	from ..storage import token_tracker as _tt
+  231-311 [function analyze_perf] 278:	            # ⚠ One producer for this shape, in `token_tracker.latency_bucket`.
+src/jcodemunch_mcp/runtime/ingest.py
+  325-366 [function _apply_fifo_eviction] 329:	    batches per the perf-telemetry convention (see token_tracker.py).
+src/jcodemunch_mcp/retrieval/ledger_trust.py
+  42:	# ``token_tracker.ranking_db_query``:
+src/jcodemunch_mcp/tools/get_ranked_context.py
+  552-613 [function get_ranked_context] 572:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+  793-852 [function _get_ranked_context_fusion] 811:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+src/jcodemunch_mcp/retrieval/regret.py
+  9:	``token_tracker.ranking_db_query`` — no new tables, no writes. The output is a
+  20:	Ledger tuple layout (matches the SELECT in ``token_tracker.ranking_db_query``):
+  34:	from ..storage import token_tracker as _tt
+  267:	# carries no token column -- see the schema in `token_tracker` -- so a ratio
+  313-388 [function _detect_inflation] 315:	    ``rows`` are ``token_tracker.ranking_db_inflation_rows`` output: ``None``
+src/jcodemunch_mcp/tools/plan_turn.py
+  224-326 [function plan_turn]
+    261:	        from ..storage.token_tracker import (
+    311:	    from ..storage.token_tracker import record_ranking_event as _record_ranking_event
+src/jcodemunch_mcp/retrieval/tuning.py
+  36:	from ..storage import token_tracker as _tt
+src/jcodemunch_mcp/parser/imports.py
+  260-316 [function _extract_python_imports] 304:	        # `storage/embedding_matrix.py`, `storage/token_tracker.py` and seven
+src/jcodemunch_mcp/cli/receipt.py
+  155:	# package uses (see _BYTES_PER_TOKEN in storage/token_tracker.py).

@@ -1,0 +1,36 @@
+query groups (1):
+Q1 [primary]: cache_put
+hits: 10
+
+#1 matchedBy=fts+vector src/jcodemunch_mcp/storage/token_tracker.py:369-376
+369	def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
+
+#2 matchedBy=fts+vector src/jcodemunch_mcp/storage/token_tracker.py:1620-1622
+1620	def result_cache_put(tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
+
+#3 matchedBy=fts+vector src/jcodemunch_mcp/storage/sqlite_store.py:408-417
+408	def _cache_put(owner: str, name: str, mtime_ns: int, code_index: "CodeIndex", branch: str = "") -> None:
+
+#4 matchedBy=fts+vector src/jcodemunch_mcp/storage/__init__.py:1-18
+1	"""Storage package for index save/load operations."""
+
+#5 matchedBy=fts+vector src/jcodemunch_mcp/storage/token_tracker.py:197-1347
+symbol: class _State
+369	def cache_put(self, tool_name: str, repo: str, specific_key: tuple, result: dict) -> None:
+
+#6 matchedBy=fts+vector src/jcodemunch_mcp/tools/search_symbols.py:146-168
+146	def _result_cache_put(key: tuple, value: dict, state: Optional[dict] = None) -> None:
+
+#7 matchedBy=fts+vector src/jcodemunch_mcp/retrieval/tuning.py:100-108
+100	def _ensure_cache(base_path: Optional[str]) -> dict:
+
+#8 matchedBy=fts+vector src/jcodemunch_mcp/tools/analyze_perf.py:223-406
+symbol: function analyze_perf
+288	# Pick the dataset to rank
+
+#9 matchedBy=fts+vector src/jcodemunch_mcp/tools/package_registry.py:369-373
+369	def invalidate_registry_cache() -> None:
+
+#10 matchedBy=fts+vector src/jcodemunch_mcp/storage/sqlite_store.py:1961-2207
+symbol: function _incremental_save_locked scope: SQLiteIndexStore
+2192	# Keep the returned/cached index consistent with the meta write above.

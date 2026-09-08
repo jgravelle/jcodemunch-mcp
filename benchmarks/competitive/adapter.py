@@ -156,4 +156,5 @@ REGISTRY: dict[str, str] = {
     "graft": "adapters.graft:make",
     "aider": "adapters.aider:make",
     "cocoindex": "adapters.cocoindex:make",
+    "zvec_grep": "adapters.zvec_grep:make",  # set row 9 (FIELD §5.2, 2026-09-07)
 }

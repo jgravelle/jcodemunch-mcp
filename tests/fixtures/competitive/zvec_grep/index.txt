@@ -1,0 +1,9 @@
+tip	Default indexing skips common noise. For large or remote-embedding indexes, inspect this long-lived workspace and choose focused -g/--glob and -t/--type filters.
+Scanning files...
+Preparing local/potion-code-16m-v2
+Indexing complete
+Workspace index
+files	274 scanned, 274 added, 0 modified, 0 retried, 0 unchanged, 0 deleted, 0 failed
+entities	2724
+duration	7s (6537ms)
+roots	/private/project

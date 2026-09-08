@@ -1,0 +1,41 @@
+query groups (1):
+Q1 [primary]: router route handler
+hits: 10
+
+#1 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/express.py:59-238
+symbol: class ExpressProvider
+139	                if target_file:
+
+#2 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/nextjs.py:118-188
+symbol: function _parse_app_router scope: NextjsContextProvider
+133	for src_file in sorted(app_dir.rglob("*")):
+
+#3 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/nextjs.py:75-239
+symbol: class NextjsContextProvider
+147	                except Exception:
+
+#4 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/express.py:97-153
+symbol: function load scope: ExpressProvider
+111	for file_path, rel_path in iter_source_files(folder, _JS_SUFFIXES):
+
+#5 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/express.py:188-213
+188	def _find_router_file(self, router_name: str, from_file: str) -> Optional[str]:
+
+#6 matchedBy=fts+vector src/jcodemunch_mcp/tools/get_endpoint_impact.py:71-122
+symbol: function _collect_endpoints
+72	"""Unify string-dispatch route edges + decorator gateways into endpoint records."""
+
+#7 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/laravel.py:367-489
+symbol: function load scope: LaravelContextProvider
+368	if self._folder is None:
+
+#8 matchedBy=fts+vector src/jcodemunch_mcp/server.py:1543-4830
+symbol: function _build_tools_list
+4448	                    },
+
+#9 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/laravel.py:507-524
+507	def _build_route_imports(self, routes: list[dict], folder_path: Path) -> None:
+
+#10 matchedBy=fts+vector src/jcodemunch_mcp/parser/context/laravel.py:328-779
+symbol: class LaravelContextProvider
+359	        if not (folder_path / "artisan").exists():

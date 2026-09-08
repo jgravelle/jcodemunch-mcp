@@ -106,7 +106,7 @@ indexes what it wants and reports `files_indexed`. Item 1 proves the tier
 end to end with only these two and jCodeMunch: the result file exists,
 the schema validates, the three-run spread is recorded.
 
-### 1.3 The eight adapters (Phase 3 item 2, one PR each)
+### 1.3 The adapters (Phase 3 item 2, one PR each; eight at 2026-09-06, nine since 2026-09-07)
 
 Each adapter ships `adapters/<tool>.py`, `sandbox/<tool>.Dockerfile`
 (base image by digest; install pinned by version and, where the registry
@@ -126,6 +126,7 @@ may disadvantage it*, *What we could not make work* (empty is a claim).
 | Aider RepoMap | cli (`aider --show-repo-map`) | token axis only | the map is one ranked text, not a per-task answer; F1 NOT COMPARABLE; tokens reported as a per-corpus cost with `--map-tokens` at its default |
 | cymbal 0.14.0 | cli | P1, P2 | subprocess per call; its own latency claim is the number to recompute; FTS5 query syntax per its README |
 | CocoIndex Code 0.2.41 | cli + mcp | P1 | embedding model baked into the image at build; its P2/P4 support decided by its docs, not assumed |
+| zvec-grep 0.2.2 (row 9, admitted 2026-09-07, CF-66) | cli (`zg query --mode direct`); its MCP server is HTTP behind a daemon, captured uncharged for the schema weight only | P1, T (indexed hybrid route), P2, P4 (its `--rg` route: the exhaustive one its agent guidance names for exact identifiers) | the index lives inside the workspace, so the corpus is copied to the tmpfs; the local model (`potion-code-16m-v2`, the smallest code model in its catalog) is warmed at build and is NOT the remote Qwen model its published run used (the fairness note says so); P2/P4 through ripgrep measure ripgrep, stated as such |
 
 A tool that cannot be built into an image from its documented install, or
 that opens a listening port or a background process the run does not own,

@@ -1,0 +1,12 @@
+✓ Workspace index is ready
+  ~/project
+
+  Coverage    ████████████████████ 100%  274 / 274 files
+  Entities    2,724
+  Truncated   0 fragments
+  Queue       0 pending · 0 failed
+
+  Embedding   local/potion-code-16m-v2
+              256 dimensions · cosine
+
+  Storage     .zvec-grep/index.zvec

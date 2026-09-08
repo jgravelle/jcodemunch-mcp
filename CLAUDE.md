@@ -53,7 +53,7 @@ steps IN-3/4/6/8; IN-15): `docs/inbound/FINDINGS.md`.
 **`docs/competitive/DESIGN.md` is the loop; `FIELD.md` is who is in the
 set and why; `VERIFICATION.md` is whether the tier can be trusted;
 `docs/cicd/RUNBOOK.md` section 10 is what a human does.** `benchmarks/
-competitive/run.py` runs the nulls, jcodemunch and eight adapters over a
+competitive/run.py` runs the nulls, jcodemunch and nine adapters (the ninth, zvec-grep, 2026-09-07) over a
 pinned corpus set in the D2 container, three runs, the corpus and task
 checks refusing before scoring; `/competitive-compare [tool] [ref]` is the
 interactive form. ⚠⚠ **Every number comes from a result file**: a FINDINGS
