@@ -1305,7 +1305,7 @@ def _search_symbols_semantic(
     missing = [s for s in index.symbols if s["id"] not in embedded_ids]
     # CF-66: a failed top-up batch left its symbols scored lexically only, with
     # the cause in the log and nothing in the response. Same loop as
-    # embed_repo's, same ledger; disclosed under `_meta.semantic_topup`.
+    # embed_repo's, same ledger; disclosed as the body field `semantic_topup`.
     from ..embeddings.failures import FailureLedger
     topup_failures = FailureLedger()
     if missing:
@@ -1493,16 +1493,6 @@ def _search_symbols_semantic(
         "search_mode": "semantic_only" if semantic_only else "hybrid",
         **cost_avoided(tokens_saved, total_saved),
     }
-    if topup_failures:
-        # The symbols in a failed batch were scored WITHOUT the semantic
-        # channel; say how many and why, or a hybrid answer that is lexical for
-        # part of the corpus reads like a full one.
-        topup: dict = {
-            "symbols_unscored": topup_failures.items,
-            "batches_failed": topup_failures.batches,
-        }
-        topup_failures.disclose(topup)
-        meta["semantic_topup"] = topup
     if token_budget is not None:
         # jcm#328: report payload cost, not source-body bytes.
         used_bytes = sum(_packing_cost_bytes(e, detail_level) for e in scored_results)
@@ -1518,6 +1508,19 @@ def _search_symbols_semantic(
         "results": scored_results,
         "_meta": meta,
     }
+    if topup_failures:
+        # The symbols in a failed batch were scored WITHOUT the semantic
+        # channel; say how many and why, or a hybrid answer that is lexical for
+        # part of the corpus reads like a full one. In the BODY, not `_meta`:
+        # `meta_fields: []` is the shipped default and the dispatcher deletes
+        # `_meta` under it (Standing lesson 08-30), so a disclosure there
+        # reaches only those who already opted in.
+        topup: dict = {
+            "symbols_unscored": topup_failures.items,
+            "batches_failed": topup_failures.batches,
+        }
+        topup_failures.disclose(topup)
+        result["semantic_topup"] = topup
     from ..retrieval.confidence import attach_confidence as _attach_confidence
     from ..retrieval.confidence import extract_ledger_features as _ledger_feats
     from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe

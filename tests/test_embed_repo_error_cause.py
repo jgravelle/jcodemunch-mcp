@@ -132,7 +132,7 @@ def test_search_symbols_topup_failure_is_disclosed_in_meta(tmp_path, monkeypatch
         result = search_symbols(repo, "fn", semantic=True, storage_path=str(tmp_path))
 
     assert result.get("error") is None, result
-    topup = result["_meta"]["semantic_topup"]
+    topup = result["semantic_topup"]
     assert topup["symbols_unscored"] == 3
     assert topup["batches_failed"] == 1
     assert topup["error_causes"][0]["type"] == "RuntimeError"
@@ -147,26 +147,67 @@ def test_search_symbols_clean_topup_has_no_meta_entry(tmp_path, monkeypatch):
     ok = lambda t, p, m, task_type=None: [[1.0, 0.0] for _ in t]  # noqa: E731
     with patch("jcodemunch_mcp.tools.embed_repo.embed_texts", side_effect=ok):
         result = search_symbols(repo, "fn", semantic=True, storage_path=str(tmp_path))
-    assert "semantic_topup" not in result["_meta"]
+    assert "semantic_topup" not in result
 
 
 def test_the_compact_encoder_keeps_semantic_topup():
-    """A dict left off _META_JSON is silently dropped by the encoder (v1.108.169)."""
+    """An undeclared body dict is silently dropped by the compact encoder (v1.108.169)."""
     from jcodemunch_mcp.encoding.schemas import search_symbols as schema
 
     response = {
         "result_count": 0, "results": [], "query": "q", "repo": "r",
-        "_meta": {
-            "timing_ms": 1.0,
-            "semantic_topup": {
-                "symbols_unscored": 3, "batches_failed": 1,
-                "error_causes": [{"type": "RuntimeError", "message": "503", "batches": 1}],
-            },
+        "semantic_topup": {
+            "symbols_unscored": 3, "batches_failed": 1,
+            "error_causes": [{"type": "RuntimeError", "message": "503", "batches": 1}],
         },
+        "_meta": {"timing_ms": 1.0},
     }
     payload, _ = schema.encode("search_symbols", response)
     back = schema.decode(payload)
-    assert back["_meta"]["semantic_topup"] == response["_meta"]["semantic_topup"]
+    assert back["semantic_topup"] == response["semantic_topup"]
+
+
+@pytest.mark.asyncio
+async def test_the_disclosure_survives_the_dispatchers_default_meta_strip(tmp_path, monkeypatch):
+    """`meta_fields: []` is the shipped default and the dispatcher deletes `_meta`
+    under it (Standing lesson 08-30), so a disclosure placed there reaches only
+    those who opted in. This goes through `call_tool` on that default."""
+    import json
+
+    from jcodemunch_mcp import config as config_module
+    from jcodemunch_mcp.server import call_tool
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    (tmp_path / "a.py").write_text(
+        "def fn_one():\n    return 1\n\n\ndef fn_two():\n    return 2\n"
+    )
+    store_path = str(tmp_path / "idx")
+    repo = index_folder(
+        path=str(tmp_path), use_ai_summaries=False, storage_path=store_path,
+        incremental=False, identity_mode="local",
+    )["repo"]
+    monkeypatch.setenv("CODE_INDEX_PATH", store_path)
+    monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "all-MiniLM-L6-v2")
+    original = config_module._GLOBAL_CONFIG.copy()
+    config_module._GLOBAL_CONFIG.clear()
+    config_module._GLOBAL_CONFIG["server_output"] = "raw"
+    config_module._GLOBAL_CONFIG["meta_fields"] = []
+
+    def _query_ok_symbols_fail(texts, provider, model, task_type=None):
+        if len(texts) == 1 and texts[0] == "fn":
+            return [[1.0, 0.0]]
+        raise RuntimeError("503 Service Unavailable")
+
+    try:
+        with patch("jcodemunch_mcp.tools.embed_repo.embed_texts", side_effect=_query_ok_symbols_fail):
+            res = await call_tool("search_symbols", {"repo": repo, "query": "fn", "semantic": True})
+    finally:
+        config_module._GLOBAL_CONFIG.clear()
+        config_module._GLOBAL_CONFIG.update(original)
+    payload = json.loads(res[0].text)
+    assert "_meta" not in payload, "the default strip did not run; the test proves nothing"
+    assert payload["semantic_topup"]["symbols_unscored"] == 2
+    assert payload["semantic_topup"]["error_causes"][0]["type"] == "RuntimeError"
 
 
 # ── The ledger itself ──────────────────────────────────────────────────────

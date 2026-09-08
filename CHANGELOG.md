@@ -17,9 +17,12 @@ field. The review found the same swallow one tool over: `search_symbols`'
 lazy top-up embeds the symbols a store does not hold yet, and a failed
 batch there left them scored lexically only, inside a response labelled
 `hybrid`, with nothing at all reaching the caller. Both loops share one
-ledger now (`embeddings/failures.py`), and `search_symbols` reports
-`_meta.semantic_topup` (symbols unscored, batches failed, the causes),
-declared in its compact encoder so it survives compaction. Found by the
+ledger now (`embeddings/failures.py`), and `search_symbols` reports a body
+field `semantic_topup` (symbols unscored, batches failed, the causes),
+declared in its compact encoder so it survives compaction. In the body,
+because `meta_fields: []` is the shipped default and the dispatcher deletes
+`_meta` under it: the first draft put it there, and the review read the
+Standing lesson back to us. Found by the
 probe a competitor's fix title asked for (zvec-grep #81, `surface embedding
 failures and avoid redundant retries`, recorded in
 `docs/competitive/FINDINGS.md` CF-66): the retry half does not apply here,
