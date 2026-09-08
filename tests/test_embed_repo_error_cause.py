@@ -205,7 +205,17 @@ async def test_the_disclosure_survives_the_dispatchers_default_meta_strip(tmp_pa
         config_module._GLOBAL_CONFIG.clear()
         config_module._GLOBAL_CONFIG.update(original)
     payload = json.loads(res[0].text)
-    assert "_meta" not in payload, "the default strip did not run; the test proves nothing"
+    # The strip ran if the TOOL'S OWN meta is gone. Do not assert `_meta` absent:
+    # after the strip the dispatcher re-adds named carriers from session state
+    # (the turn-economy hint fires once per process after N hop calls, the
+    # delivery ledger marks repeats), so "no `_meta`" depends on which tests
+    # ran before this one in the same worker. It held on seven of eight CI
+    # jobs on PR #640 and failed on the eighth, with the strip working.
+    leftover = payload.get("_meta") or {}
+    assert "timing_ms" not in leftover and "search_mode" not in leftover, (
+        "the default strip did not run; the test proves nothing: " + repr(leftover)
+    )
+    assert "semantic_topup" not in leftover
     assert payload["semantic_topup"]["symbols_unscored"] == 2
     assert payload["semantic_topup"]["error_causes"][0]["type"] == "RuntimeError"
 
