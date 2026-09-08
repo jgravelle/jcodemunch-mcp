@@ -160,5 +160,6 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
         "persisted_symbols_before": before,
         "persisted_symbols_after_registration": reconciled,
         "persisted_symbols_after_one_subsequent_edit": subsequent,
+        "persisted_symbols_final": symbols(),
         "all_native_streams_closed": True,
     }, sort_keys=True))

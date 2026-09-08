@@ -34,22 +34,19 @@ instead of hiding.
 
 Native macOS/Windows watching uses one recursive registration, avoiding the
 per-directory startup cost introduced by #629. Linux and forced/automatic
-polling keep the real, non-skipped directory tree non-recursively watched:
-watchfiles 1.1.1 (locked) and 1.2.0 (the incident deployment) both follow links
-before filters in those backends. Polling selection delegates to watchfiles,
-including WSL detection and its environment-variable semantics.
+polling keep the real, non-skipped directory tree non-recursively watched.
 
-A post-arm census repeats registration until the watch set matches, then a
-root event reconciles edits made during registration. Directory additions and
-deletions trigger a census; metadata-only events do not. The 60-second fallback
-and inode comparison remain to recover missed topology changes, not lost
-file-only events. Directory events can still require full incremental indexing,
-even when they do not require a census. Vanished-child retries remain bounded
-by a changed census and a surviving root; old streams close before re-arming.
+Linux/polling registration now verifies the directory set before reconciling
+edits made during registration. Polling file additions avoid unnecessary
+directory censuses, but directory events can still require full incremental
+indexing. See [`_safe_awatch`](src/jcodemunch_mcp/watcher.py) for backend
+selection and registration safety invariants.
 
 Edits in indexed dot-directories such as `.github/` now reach the indexer rather
 than being discarded by a second hidden-path filter. Discovery remains the
-indexing authority. `watch_follow_symlinks` still governs symlinked files.
+indexing authority; symlink configuration is documented in
+[CONFIGURATION.md](CONFIGURATION.md#watcher).
+
 ### Fixed - a `<script >` closed with a space before the bracket swallowed the markup after it (Razor and Astro)
 
 The Razor and Astro extractors cut `<script>` and `<style>` blocks out of
