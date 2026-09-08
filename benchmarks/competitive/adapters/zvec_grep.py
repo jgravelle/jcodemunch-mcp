@@ -127,8 +127,12 @@ class ZvecGrep:
                     break
                 lat.append(float(ms))
                 text = _read(out / f"{base}.txt")
-                if rc != 0 and not text.strip():
-                    text = _read(out / f"{base}.err")  # what the agent sees on a miss
+                if rc != 0:
+                    # A crash and a miss must not read alike (Standing lesson 08-28:
+                    # a refusal is not a zero): the exit code travels with the row.
+                    err = f"zg exit {rc}: {(_read(out / f'{base}.err') or text)[:200].strip()}"
+                    if not text.strip():
+                        text = _read(out / f"{base}.err")  # what the agent sees on a miss
                 payload.append(text)
                 for row in (_cite_rg(text) if "--rg" in cmd else _cite_indexed(text)):
                     if row not in cited:

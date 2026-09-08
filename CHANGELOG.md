@@ -33,7 +33,30 @@ escaping model and provider names it renders into HTML, and the
 speedreview action passing its inputs to the shell as environment
 variables instead of interpolating them into the script text.
 
-### Added - `/competitive-compare [tool] [ref]`, the competitive tier's interactive form
+### Added - the ninth competitor row, a ripgrep-plus-vector CLI in its in-process mode, with the schema weight of its one-tool MCP surface captured uncharged (FINDINGS CF-66)
+
+zvec-grep entered the comparison set on 2026-09-07 (FIELD.md, set row
+9; #638) on the adoption trigger, two months after its first release,
+and it is the first member whose own benchmark has the shape of our
+Baseline B: an agent's built-in tools against the tool, run by them on
+Claude Code with Opus 5, scored by a model judge, on a remote embedding
+model. The adapter runs its CLI in the mode its docs call `direct`
+(in-process, no daemon, no port), the corpus copied to the container's
+tmpfs because the index lives inside the workspace; P1 and T go through
+its indexed hybrid route, P2 and P4 through its ripgrep route, the one
+its agent guidance names for exact identifiers, and the note says so
+where the number will be read. The model in the image is the one its
+README recommends for code, warmed at build so the run stays offline,
+and it is not the remote model its published run used; the fairness
+note records the difference before the first number. Its MCP server is
+HTTP behind a daemon, so its one-tool surface is measured uncharged by
+starting the server on the container's loopback after the last charged
+call: one tool, 1,531 tokens of schema, where the Counter's three tools
+are 939. The smoke run over the self corpus (one run, never recorded)
+found the definition as hit #1 of ten on P1 and a fixed-string grep
+matching comments on P4; both are the tool's answers, cited as returned.
+One defect was ours: the token file the server reads was passed without
+being written, and the first capture's connection was refused.
 
 A session that changed retrieval can ask how the change moved every
 competitive row before opening a PR: the tier runs on the working tree

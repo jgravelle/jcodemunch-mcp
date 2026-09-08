@@ -86,14 +86,15 @@ def test_the_index_report_reads_the_tools_own_scanned_line_with_colour_stripped(
     assert zg._files_indexed("Chunks: 7205\nEntities: 12") is None
 
 
-def test_the_captured_tools_list_is_the_one_default_tool_or_the_capture_says_why():
+def test_the_captured_tools_list_is_the_one_default_tool():
+    """The fixture is the SECOND capture (the first failed on the token file); a
+    re-capture that fails must be fixed, not shipped, so no branch accepts an
+    error here (review round 1, note 12)."""
     d = json.loads(_fx("tools_list.json"))
-    if d.get("tools_list_json"):
-        tools = json.loads(d["tools_list_json"])
-        assert [t["name"] for t in tools] == ["zvec_grep_search"]
-        assert all(set(t) == {"name", "description", "inputSchema"} for t in tools)
-    else:
-        assert d.get("error"), "neither a tools list nor a reason"
+    assert d.get("tools_list_json"), f"the capture carries no tools list: {d.get('error')}"
+    tools = json.loads(d["tools_list_json"])
+    assert [t["name"] for t in tools] == ["zvec_grep_search"]
+    assert all(set(t) == {"name", "description", "inputSchema"} for t in tools)
 
 
 # ---- the call plan and the script -----------------------------------------------
@@ -124,15 +125,18 @@ def test_prepare_reads_timings_and_files_into_answers(tmp_path, monkeypatch):
     monkeypatch.setattr(a, "image", lambda: None)
     corpus = Corpus(id="self@x", path=tmp_path / "c", sha256="0", files=("a.py",))
     (tmp_path / "c").mkdir()
-    tasks = [_task("P1", "cache_put", "p1"), _task("P2", "cache_put", "p2"), _task("T", "never ran", "t")]
+    tasks = [_task("P1", "cache_put", "p1"), _task("P2", "cache_put", "p2"), _task("T", "never ran", "t"),
+             _task("T", "crashed", "x")]
 
     def fake_run(tag, args, corpus_path, out, timeout, **kw):
         assert tag == zg.TAG and args == ["/out/run.sh"] and kw.get("private_home") is True
         assert set(kw.get("extra_env", {})) == {"ZVEC_GREP_MODE", "ZVEC_GREP_HOME", "ZVEC_GREP_MODEL_CACHE", "ZVEC_GREP_EMBEDDING"}
-        (out / "timings.txt").write_text("index rc=0 ms=4200\np1.0 rc=0 ms=310\np2.0 rc=0 ms=90\n", encoding="utf-8")
+        (out / "timings.txt").write_text("index rc=0 ms=4200\np1.0 rc=0 ms=310\np2.0 rc=0 ms=90\nx.0 rc=1 ms=40\n", encoding="utf-8")
         (out / "index.txt").write_text(_fx("index.txt"), encoding="utf-8")
         (out / "p1.0.txt").write_text(_fx("self-P1-cache_put.0.txt"), encoding="utf-8")
         (out / "p2.0.txt").write_text(_fx("self-P2-cache_put.0.txt"), encoding="utf-8")
+        (out / "x.0.txt").write_text("", encoding="utf-8")
+        (out / "x.0.err").write_text("Error: something the tool said\n", encoding="utf-8")
         (out / "tools_list.json").write_text(json.dumps({"tools_list_json": None, "error": "capture skipped in the test"}), encoding="utf-8")
         return RunResult(rc=0, stdout="", stderr="", seconds=5.0, timed_out=False)
 
@@ -146,6 +150,9 @@ def test_prepare_reads_timings_and_files_into_answers(tmp_path, monkeypatch):
     assert p2.calls == 1 and all(ln == 0 for _, ln in p2.cited)
     never = a.answer(corpus, tasks[2], tmp_path)
     assert never.calls == 0 and never.error and "not run" in never.error
+    crashed = a.answer(corpus, tasks[3], tmp_path)  # a non-zero exit is an error, never a quiet miss (review round 1)
+    assert crashed.calls == 1 and crashed.error and crashed.error.startswith("zg exit 1:") and "something the tool said" in crashed.error
+    assert crashed.payload == "Error: something the tool said\n" and crashed.cited == frozenset()
     assert a.tools_list_tokens() is None
 
 

@@ -86,9 +86,11 @@ Where things live: the workspace index under `<root>/.zvec-grep/`
   The copy is a harness cost, not charged. `ZVEC_GREP_HOME=/private/zg-home`.
 - **Index**: `zg index . --embedding local/potion-code-16m-v2` in the copy,
   timed; that wall is the index time (cold: a new container, the model
-  read from disk). `files_indexed` is the `N scanned` figure of the tool's
-  own `printIndexResult` line (`N scanned, M added, ... `); `zg status`
-  is saved beside it.
+  read from disk). `files_indexed` is the `M added` figure of the tool's
+  own `printIndexResult` line (`N scanned, M added, ...`): the files it
+  indexed on the cold run, where `scanned` is what it looked at before
+  its own skip rules (274 and 274 on the self corpus, so the two agree
+  there); `zg status` is saved beside it.
 - **Commands per task category** (DESIGN §4.1), each a subprocess, each
   charged, the limit and preview at the tool's defaults:
   - P1 definition lookup: `zg query --prefer-symbol <name>`: the indexed
@@ -167,9 +169,12 @@ container, a smoke run, never recorded; the container's files are
 `tests/fixtures/competitive/zvec_grep/`, the result file is the session's
 `zvec_smoke_result.json`):
 
-- Image build (npm ci, the ripgrep and onnxruntime postinstalls, the model
-  warm): inside the run's 4 min 41 s wall (20:57:25 to 21:02:06 local),
-  the run itself being about 90 s of it.
+- The run's wall, image build included (npm ci, the ripgrep and
+  onnxruntime postinstalls, the model warm): 275.5 s (the result file's
+  header, `wall_seconds`). The build is not timed on its own by `run.py`;
+  the container's own work is the 8.091 s index plus the eleven calls in
+  `timings.txt`, about 18 s, so the build is most of the wall (an
+  inference from those two figures, not a measurement of the build).
 - `zg index . --embedding local/potion-code-16m-v2` in direct mode:
   "274 scanned, 274 added, 0 modified, 0 retried, 0 unchanged, 0 deleted,
   0 failed", "entities 2724", the tool's own "duration 7s (6537ms)";
@@ -177,8 +182,8 @@ container, a smoke run, never recorded; the container's files are
   "Coverage 100% 274 / 274 files", "Embedding local/potion-code-16m-v2,
   256 dimensions · cosine", "Storage .zvec-grep/index.zvec". Three of the
   277 tracked files are outside its scan (its default noise skips;
-  CocoIndex's own count is also 274, whether the same three is not
-  established).
+  CocoIndex's own count on the same corpus shape was also 274,
+  `fairness/cocoindex.md`, whether the same three is not established).
 - Per-call latency (each a Node.js process start plus the query): the
   indexed route 1,063 to 1,205 ms over the eight P1 and T calls; the
   `--rg` route 256 ms (P2) and 529 ms (P4). `latency_call_ms` 1,068.5
@@ -188,17 +193,19 @@ container, a smoke run, never recorded; the container's files are
   matchedBy=fts+vector <path>:<start>-<end>` and one anchor source line
   with its number and a tab (the default preview); 10 hits at the default
   limit. `--rg` route: a file path line, then `<line>:` or `<start>-<end>
-  [<kind> <name>]` blocks with the matching lines. Payloads 1,370 to
-  1,721 characters for the indexed route (P1 `cache_put`: 496 tokens),
-  252 (P2) and 3,250 (P4) for ripgrep; `tokens_per_task` 454.1.
+  [<kind> <name>]` blocks with the matching lines. Payloads in the fixture files:
+  1,677 characters for P1 `cache_put` (496 cl100k tokens) and 1,721 for
+  T `router` on the indexed route; 252 (P2) and 3,244 (P4) on ripgrep;
+  `tokens_per_task` 454.1 over the ten tasks in the result file.
 - `cache_put` (P1): the definition `token_tracker.py:369-376` is hit #1;
   the other nine are the name's relatives (`result_cache_put`,
   `_cache_put`, `_result_cache_put`) and files that mention caching, so
   at a file-level expected set the P1 F1 is 0.1818 (one right file among
   the ten cited; disadvantage 2). P2 `--rg -w cache_put`: the two sites
-  in `token_tracker.py`, F1 1.0. P4 `--rg -F token_tracker`: 15 files,
-  F1 0.4286 against the expected importers (the fixed string also matches
-  comments and docstrings that name the module).
+  in `token_tracker.py`, F1 1.0. P4 `--rg -F token_tracker`: 13 files
+  (the fixture's file lines; the result file's `cited` 13), F1 0.4286
+  against the expected importers (the fixed string also matches comments
+  and docstrings that name the module).
 - tools/list (second capture, uncharged, `--mcp-toolset agent` over the
   container's loopback, bearer token from the file the script wrote):
   one tool, `zvec_grep_search`, 6,156 characters, 1,531 cl100k tokens as
