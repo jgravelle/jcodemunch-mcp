@@ -14,6 +14,12 @@ from .. import config as _config
 from ..storage import IndexStore
 from ..embeddings.advice import NO_PROVIDER_MESSAGE
 from ._utils import index_status_to_tool_error, resolve_repo
+from ..redact import _redact_string
+
+# A provider's message can carry the whole request; keep enough to name the
+# cause and no more, and never list more distinct causes than a reader uses.
+_CAUSE_MESSAGE_CHARS = 300
+_CAUSE_LIST_MAX = 10
 
 logger = logging.getLogger(__name__)
 
@@ -465,6 +471,12 @@ def embed_repo(
 
     embedded_count = 0
     error_count = 0
+    # CF-66 (zvec-grep #81's applicable half): the CAUSE of a failed batch used
+    # to reach the caller as a count and the log only, so a bad key, an outage
+    # and an unserved model all read as `symbols_skipped_error: N`. Distinct
+    # (type, message) pairs are kept with how many batches each explains;
+    # the message is scrubbed because a provider echoes the request into it.
+    error_causes: dict[tuple[str, str], int] = {}
     dim: Optional[int] = stored_dim
     batch_size = max(1, min(batch_size, 200))
 
@@ -477,6 +489,10 @@ def embed_repo(
         except Exception as exc:
             logger.warning("embed_repo: batch %d failed: %s", i // batch_size, exc)
             error_count += len(batch)
+            _msg, _ = _redact_string(str(exc)[:_CAUSE_MESSAGE_CHARS])
+            _key = (type(exc).__name__, _msg)
+            if len(error_causes) < _CAUSE_LIST_MAX or _key in error_causes:
+                error_causes[_key] = error_causes.get(_key, 0) + 1
             if progress_cb:
                 progress_cb(min(i + len(batch), _embed_total), _embed_total, "")
             continue
@@ -504,6 +520,11 @@ def embed_repo(
     }
     if doc_task_type:
         result["task_type"] = doc_task_type
+    if error_causes:
+        result["error_causes"] = [
+            {"type": t, "message": m, "batches": n} for (t, m), n in error_causes.items()
+        ]
+        result["all_batches_failed"] = embedded_count == 0
     # #488: name WHY this provider was chosen, so an index is reproducible from
     # the record rather than by re-deriving the resolver's precedence.
     result["provider_reason"] = _provider_reason
