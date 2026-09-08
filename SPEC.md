@@ -1086,13 +1086,21 @@ Representative shape:
 | GitHub rate limited         | returns an error with reset guidance and recommends `GITHUB_TOKEN` |
 | Individual file fetch fails | file is skipped; indexing continues                                |
 | Individual file parse fails | file is skipped; indexing continues                                |
-| No source files found       | returns an error                                                   |
+| No source files found       | returns an error except for deletion-only incremental refreshes described below |
 | Symbol ID not found         | returns an error or per-item error entry                           |
 | Repository not indexed      | returns an error suggesting indexing first                         |
 | AI summarization fails      | falls back to docstring or signature                               |
 | Index version mismatch      | old index is ignored; reindex required                             |
 
 The error model is designed so that partial failures during indexing do not necessarily abort the entire operation.
+
+For `index_folder`, a full incremental scan of an existing index that finds no
+eligible source files reconciles deletions, including removal of every indexed
+file. Initial indexing and non-incremental indexing of an empty folder still
+return an error. Directory traversal failures abort discovery; an empty full
+scan with unreadable files or file-limit truncation fails without clearing the
+persisted index. Legitimate binary exclusions do not count as read failures.
+Explicit-path incremental refreshes also reconcile deleted requested files.
 
 ---
 

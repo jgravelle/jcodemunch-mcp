@@ -98,9 +98,10 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
     retaining a pathname per alias. macOS/Windows native recursion avoids that
     walk, and avoids installing thousands of separate native watches.
 
-    A post-arm census closes registration gaps before the root reconciliation
-    requests an incremental index. The timer recovers missed directory events;
-    it does not recover lost file-only events when topology is unchanged.
+    On Linux/polling, a post-arm census closes registration gaps before the
+    root reconciliation requests an incremental index. The census timer
+    recovers missed directory events; it does not recover lost file-only
+    events when topology is unchanged.
     """
     from watchfiles import awatch, Change
     from watchfiles.main import _default_force_polling

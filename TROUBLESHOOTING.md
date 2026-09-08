@@ -39,14 +39,19 @@ Quote the path if it contains spaces.
 
 ## "No source files found" / Empty Index
 
-**Symptom:** `index_folder` completes but reports 0 files indexed.
+**Symptom:** `index_folder` reports "No source files found" or an unexpectedly
+empty index. See the [empty-discovery contract](SPEC.md#expected-error-behaviors)
+to distinguish an indexing failure from a successful deletion-only refresh.
 
-**Cause:** All files matched a skip pattern (directory name, file extension,
-or `.gitignore` rule).
+**Possible causes:** No supported source files remain, all files matched an
+exclusion (directory name, file extension, or `.gitignore` rule), or discovery
+could not read them.
 
 **Fix:**
-1. Check `discovery_skip_counts` in the response — it breaks down how many
-   files were skipped and why (binary extension, secret filter, gitignore, etc.).
+1. Check response warnings and file/directory read permissions. Successful
+   indexing responses include `discovery_skip_counts`, which breaks down how
+   many files were skipped and why; the early "No source files found" error
+   does not include these counters.
 2. If a directory is being skipped that shouldn't be, check if its name
    matches a built-in skip pattern (node_modules, __pycache__, .git, etc.)
    or a pattern in `JCODEMUNCH_EXTRA_IGNORE_PATTERNS`.
