@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed - `embed_repo` names why a batch failed, and says when every batch did (FINDINGS CF-66)
+### Fixed - a failed embedding batch names its cause in the response, at both loops that had been swallowing it (FINDINGS CF-66)
 
 A provider failure reached the caller as `symbols_skipped_error: N` and
 nothing else: the exception went to the log, so a rejected key, a network
@@ -10,14 +10,22 @@ outage and a model the endpoint does not serve all read as the same count,
 and a run in which every batch failed came back in the success shape with
 `symbols_embedded: 0`. The response carries `error_causes` now, one row per
 distinct exception type and message with the number of batches it explains
-(the message scrubbed by the response redactor, since a provider echoes the
-request into it), and `all_batches_failed` when nothing was embedded; a
-clean run carries neither field. Found by the probe a competitor's fix
-title asked for (zvec-grep #81, `surface embedding failures and avoid
-redundant retries`, recorded in `docs/competitive/FINDINGS.md` CF-66): the
-retry half does not apply here, the cause half did. What is not changed:
-the loop still tries every batch after a shared failure, which the row's
-`batches` count now makes visible instead of hiding.
+(the message scrubbed before it is shortened, since a provider echoes the
+request into it, and a cut list says `causes_omitted`), and
+`all_batches_failed` when nothing was embedded; a clean run carries neither
+field. The review found the same swallow one tool over: `search_symbols`'
+lazy top-up embeds the symbols a store does not hold yet, and a failed
+batch there left them scored lexically only, inside a response labelled
+`hybrid`, with nothing at all reaching the caller. Both loops share one
+ledger now (`embeddings/failures.py`), and `search_symbols` reports
+`_meta.semantic_topup` (symbols unscored, batches failed, the causes),
+declared in its compact encoder so it survives compaction. Found by the
+probe a competitor's fix title asked for (zvec-grep #81, `surface embedding
+failures and avoid redundant retries`, recorded in
+`docs/competitive/FINDINGS.md` CF-66): the retry half does not apply here,
+the cause half did, twice. What is not changed: each loop still tries every
+batch after a shared failure, which the `batches` count now makes visible
+instead of hiding.
 
 ### Fixed - watch mode bounds native registration on symlink-heavy workspaces
 

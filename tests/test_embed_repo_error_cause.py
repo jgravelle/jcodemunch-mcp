@@ -110,3 +110,94 @@ def test_a_secret_in_a_provider_message_is_redacted(tmp_path, monkeypatch):
     msg = result["error_causes"][0]["message"]
     assert "AKIAIOSFODNN7EXAMPLE" not in msg
     assert "REDACTED" in msg
+
+
+# ── The second site: search_symbols' lazy top-up (review round 1) ──────────
+
+def test_search_symbols_topup_failure_is_disclosed_in_meta(tmp_path, monkeypatch):
+    """A failed top-up batch used to leave its symbols lexical-only in silence."""
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "all-MiniLM-L6-v2")
+    repo = _seed(tmp_path)
+
+    def _query_ok_symbols_fail(texts, provider, model, task_type=None):
+        if len(texts) == 1 and texts[0] == "fn":
+            return [[1.0, 0.0]]
+        raise RuntimeError("503 Service Unavailable")
+
+    # search_symbols imports embed_texts from embed_repo at call time, so the
+    # one patch reaches both the query embedding and the top-up loop.
+    with patch("jcodemunch_mcp.tools.embed_repo.embed_texts", side_effect=_query_ok_symbols_fail):
+        result = search_symbols(repo, "fn", semantic=True, storage_path=str(tmp_path))
+
+    assert result.get("error") is None, result
+    topup = result["_meta"]["semantic_topup"]
+    assert topup["symbols_unscored"] == 3
+    assert topup["batches_failed"] == 1
+    assert topup["error_causes"][0]["type"] == "RuntimeError"
+    assert "503" in topup["error_causes"][0]["message"]
+
+
+def test_search_symbols_clean_topup_has_no_meta_entry(tmp_path, monkeypatch):
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "all-MiniLM-L6-v2")
+    repo = _seed(tmp_path)
+    ok = lambda t, p, m, task_type=None: [[1.0, 0.0] for _ in t]  # noqa: E731
+    with patch("jcodemunch_mcp.tools.embed_repo.embed_texts", side_effect=ok):
+        result = search_symbols(repo, "fn", semantic=True, storage_path=str(tmp_path))
+    assert "semantic_topup" not in result["_meta"]
+
+
+def test_the_compact_encoder_keeps_semantic_topup():
+    """A dict left off _META_JSON is silently dropped by the encoder (v1.108.169)."""
+    from jcodemunch_mcp.encoding.schemas import search_symbols as schema
+
+    response = {
+        "result_count": 0, "results": [], "query": "q", "repo": "r",
+        "_meta": {
+            "timing_ms": 1.0,
+            "semantic_topup": {
+                "symbols_unscored": 3, "batches_failed": 1,
+                "error_causes": [{"type": "RuntimeError", "message": "503", "batches": 1}],
+            },
+        },
+    }
+    payload, _ = schema.encode("search_symbols", response)
+    back = schema.decode(payload)
+    assert back["_meta"]["semantic_topup"] == response["_meta"]["semantic_topup"]
+
+
+# ── The ledger itself ──────────────────────────────────────────────────────
+
+def test_ledger_counts_what_it_cuts():
+    from jcodemunch_mcp.embeddings.failures import LIST_MAX, FailureLedger
+
+    ledger = FailureLedger()
+    for i in range(LIST_MAX + 3):
+        ledger.record(RuntimeError(f"cause {i}"), items=2)
+    out: dict = {}
+    ledger.disclose(out)
+    assert len(out["error_causes"]) == LIST_MAX
+    assert out["causes_omitted"] == 3
+    assert ledger.batches == LIST_MAX + 3
+    assert ledger.items == 2 * (LIST_MAX + 3)
+
+
+def test_ledger_redacts_before_it_cuts():
+    """A secret straddling the length cut must not survive as an unmatchable prefix."""
+    from jcodemunch_mcp.embeddings.failures import MESSAGE_CHARS, FailureLedger
+
+    key = "AKIAIOSFODNN7EXAMPLE"
+    # A space before the key: the AWS pattern refuses a key glued to an
+    # identifier character, which is right. The cut falls inside the key.
+    msg = "x" * (MESSAGE_CHARS - 7) + " " + key
+    ledger = FailureLedger()
+    ledger.record(RuntimeError(msg))
+    text = ledger.rows()[0]["message"]
+    assert "AKIA" not in text
+    # The marker itself would be split by the cut, so the cut moves before it.
+    assert "[REDAC" not in text
+    assert text.endswith("...")
+    assert len(text) <= MESSAGE_CHARS + 3

@@ -168,6 +168,18 @@ def _redact_string(text: str) -> tuple[str, int]:
     return text, count
 
 
+def redact_text(text: str) -> str:
+    """Scrub secrets from ONE string and return it; the public single-string form.
+
+    ``redact_dict`` is the response chokepoint. A producer that builds a
+    string from an exception message before the response exists (a provider
+    echoes the request, key included, into its error text) needs the same
+    patterns at the point the string is made, and the private helper had no
+    second consumer until then.
+    """
+    return _redact_string(text)[0]
+
+
 def redact_dict(data: Any, _depth: int = 0) -> tuple[Any, int]:
     """Recursively redact secrets in a dict/list structure.
 

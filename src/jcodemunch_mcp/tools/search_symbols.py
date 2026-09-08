@@ -1303,6 +1303,11 @@ def _search_symbols_semantic(
     embedded_ids = matrix.id_set if matrix is not None else set()
 
     missing = [s for s in index.symbols if s["id"] not in embedded_ids]
+    # CF-66: a failed top-up batch left its symbols scored lexically only, with
+    # the cause in the log and nothing in the response. Same loop as
+    # embed_repo's, same ledger; disclosed under `_meta.semantic_topup`.
+    from ..embeddings.failures import FailureLedger
+    topup_failures = FailureLedger()
     if missing:
         new_emb: dict[str, list[float]] = {}
         for bi in range(0, len(missing), EMBED_BATCH_SIZE):
@@ -1316,6 +1321,7 @@ def _search_symbols_semantic(
                     new_emb[sym["id"]] = vecs[j]
             except Exception as exc:
                 _logger.warning("semantic: embedding batch %d failed: %s", bi // EMBED_BATCH_SIZE, exc)
+                topup_failures.record(exc, items=len(batch))
         if new_emb:
             if emb_store.get_dimension() is None:
                 dim = len(next(iter(new_emb.values())))
@@ -1487,6 +1493,16 @@ def _search_symbols_semantic(
         "search_mode": "semantic_only" if semantic_only else "hybrid",
         **cost_avoided(tokens_saved, total_saved),
     }
+    if topup_failures:
+        # The symbols in a failed batch were scored WITHOUT the semantic
+        # channel; say how many and why, or a hybrid answer that is lexical for
+        # part of the corpus reads like a full one.
+        topup: dict = {
+            "symbols_unscored": topup_failures.items,
+            "batches_failed": topup_failures.batches,
+        }
+        topup_failures.disclose(topup)
+        meta["semantic_topup"] = topup
     if token_budget is not None:
         # jcm#328: report payload cost, not source-body bytes.
         used_bytes = sum(_packing_cost_bytes(e, detail_level) for e in scored_results)
