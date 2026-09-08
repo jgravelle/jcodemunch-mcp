@@ -1297,7 +1297,11 @@ def discover_local_files(
     )
 
     skip_dirs_regex = _build_skip_dirs_regex(repo=str(root))
-    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False):
+
+    def _raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False, onerror=_raise_walk_error):
         dpath = Path(dirpath)
         # Prune directories that should always be skipped before descending.
         # Nested linked worktrees (`.git` FILE → `.git/worktrees/<name>`,
@@ -2290,18 +2294,19 @@ def index_folder(
             warnings.append(gitignore_warning)
 
         if not source_files:
-            # A subset refresh (paths=[...]) whose listed files were all deleted
-            # on disk legitimately yields zero source files. Let it fall through
-            # to the incremental path so those files get pruned, instead of
-            # erroring out and leaving stale symbols behind (#333). Every other
-            # empty-discovery case is still an error.
-            _deletion_only_subset = (
-                paths is not None
-                and bool(requested_rels)
-                and incremental
+            _deletion_only = (
+                incremental
                 and store.has_index(owner, repo_name)
+                and (
+                    bool(requested_rels)
+                    or (
+                        paths is None
+                        and not skip_counts.get("unreadable")
+                        and not skip_counts.get("file_limit")
+                    )
+                )
             )
-            if not _deletion_only_subset:
+            if not _deletion_only:
                 result = {"success": False, "error": "No source files found"}
                 if warnings:
                     result["warnings"] = warnings

@@ -14,7 +14,7 @@ from jcodemunch_mcp import watcher
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("polling", [False, True], ids=["native", "polling"])
-@pytest.mark.parametrize("operation", ["initial", "delete", "rename", "new_tree", "replace", "hidden", "live_tree", "root_replace", "move_out"])
+@pytest.mark.parametrize("operation", ["initial", "delete", "rename", "new_tree", "replace", "hidden", "live_tree", "root_replace", "move_out", "move_out_all"])
 async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch, operation, polling):
     watchfiles = pytest.importorskip("watchfiles")
     monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "true" if polling else "false")
@@ -22,13 +22,16 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
     child = root / "child"
     child.mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
-    target = root / "code.py"
+    source_root = child if operation == "move_out_all" else root
+    target = source_root / "code.py"
+    target_rel = target.relative_to(root).as_posix()
     target.write_text("def before_arm(): pass\n")
     (child / "nested.py").write_text("def nested_symbol(): pass\n")
-    if operation == "move_out":
+    if operation in ("move_out", "move_out_all"):
         (child / "deep").mkdir()
         (child / "deep" / "code.py").write_text("def deep_symbol(): pass\n")
-    hidden = root / ".github" / "hook.py"
+    hidden = source_root / ".github" / "hook.py"
+    hidden_rel = hidden.relative_to(root).as_posix()
     hidden.parent.mkdir()
     hidden.write_text("def hidden_before(): pass\n")
     storage = str(tmp_path / "index")
@@ -47,8 +50,8 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
             return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
 
     before = symbols()
-    assert ("before_arm", "code.py") in before
-    assert ("hidden_before", ".github/hook.py") in before
+    assert ("before_arm", target_rel) in before
+    assert ("hidden_before", hidden_rel) in before
     native_awatch = watchfiles.awatch
     attempts, closed = [], []
 
@@ -84,7 +87,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
         skip_initial_index=True, quiet=True, context_providers=False,
     ))
 
-    async def wait_for_symbol(symbol, file="code.py", present=True):
+    async def wait_for_symbol(symbol, file=target_rel, present=True):
         async def observe():
             while ((symbol, file) in symbols()) != present:
                 if task.done():
@@ -102,7 +105,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
 
     try:
         reconciled = await wait_for_symbol("during_arm")
-        assert ("before_arm", "code.py") not in reconciled
+        assert ("before_arm", target_rel) not in reconciled
         if operation == "delete":
             assert not any(symbol == "nested_symbol" for symbol, _ in reconciled)
         elif operation == "rename":
@@ -119,19 +122,22 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
             await asyncio.sleep(1.1)
         target.write_text("def after_recovery(): pass\n")
         subsequent = await wait_for_symbol("after_recovery")
-        assert ("during_arm", "code.py") not in subsequent
+        assert ("during_arm", target_rel) not in subsequent
         if operation == "new_tree":
             (child / "new" / "nested" / "late.py").write_text("def late_after(): pass\n")
             await wait_for_symbol("late_after", "child/new/nested/late.py")
         elif operation == "hidden":
             hidden.write_text("def hidden_after(): pass\n")
             await wait_for_symbol("hidden_after", ".github/hook.py")
-        elif operation == "move_out":
+        elif operation in ("move_out", "move_out_all"):
             child.rename(tmp_path / "moved_out")
             remaining = await wait_for_symbol("nested_symbol", "child/nested.py", present=False)
             assert ("deep_symbol", "child/deep/code.py") not in remaining
-            assert ("after_recovery", "code.py") in remaining
-            assert ("hidden_before", ".github/hook.py") in remaining
+            if operation == "move_out_all":
+                assert remaining == []
+            else:
+                assert ("after_recovery", "code.py") in remaining
+                assert ("hidden_before", ".github/hook.py") in remaining
         elif operation == "root_replace":
             root.rename(tmp_path / "old_root")
             root.mkdir()
