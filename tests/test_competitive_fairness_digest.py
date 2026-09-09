@@ -30,10 +30,10 @@ NOTES = ROOT / "docs" / "competitive" / "fairness"
 
 @pytest.fixture(scope="module")
 def mods():
+    # Never pop these from sys.modules first (see test_competitive_reindex_one's
+    # fixture): a re-import makes a second `Pin` class behind `adapters.*`.
     sys.path.insert(0, str(COMPETE))
     try:
-        for m in ("adapter", "run", "findings", "trend"):
-            sys.modules.pop(m, None)
         return {m: importlib.import_module(m) for m in ("adapter", "run", "findings", "trend")}
     finally:
         sys.path.remove(str(COMPETE))

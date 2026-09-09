@@ -32,10 +32,12 @@ COMPETE = ROOT / "benchmarks" / "competitive"
 
 @pytest.fixture(scope="module")
 def mods():
+    # Never pop these from sys.modules first: `adapters.*` imported by an earlier
+    # test file hold the `adapter` module that was current THEN, and a re-import
+    # here makes a second `Pin` class, so `validate` (isinstance) fails under one
+    # xdist ordering and passes under the rest (three of eight gate jobs on #651).
     sys.path.insert(0, str(COMPETE))
     try:
-        for m in ("adapter", "score", "run", "findings", "trend"):
-            sys.modules.pop(m, None)
         return {m: importlib.import_module(m) for m in ("adapter", "score", "run")}
     finally:
         sys.path.remove(str(COMPETE))
