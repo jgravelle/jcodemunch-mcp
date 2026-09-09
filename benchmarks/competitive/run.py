@@ -262,9 +262,10 @@ def pin_record(x) -> dict:
             "image_size_bytes": image.size_bytes if image else None,
             # criterion 6's prerequisite count (CF-61): the system packages the
             # Dockerfile installs beyond its base, a proxy labelled as one; a
-            # measured zero is 0, an adapter with no image is None
-            "prerequisites": list(image.prerequisites) if image else None,
-            "prerequisite_count": len(image.prerequisites) if image else None,
+            # measured zero is 0; an adapter with no image, or a Dockerfile
+            # installing through a spelling the parser does not read, is None
+            "prerequisites": list(image.prerequisites) if image and image.prerequisites is not None else None,
+            "prerequisite_count": len(image.prerequisites) if image and image.prerequisites is not None else None,
             "fairness_note": note, "fairness_sha256": digest}
 
 
@@ -301,7 +302,9 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
     corpora = [c["id"] for c in h["corpora"]]
     by = {(r["axis"], r["tool"], r["corpus"]): r for r in result["rows"]}
     for axis in list(RATIO_AXES) + list(DIFF_AXES):
-        if all(by[(axis, t, c)]["measured"] is None for t in tools for c in corpora):
+        # CF-67: a result file written before an axis existed has no row for it;
+        # an absent row is NOT COMPARABLE, never a KeyError
+        if all(by.get((axis, t, c), {}).get("measured") is None for t in tools for c in corpora):
             continue
         unit = "ratio vs jcm" if axis in RATIO_AXES else "difference vs jcm"
         lines.append(f"## {axis} ({unit})")
@@ -323,8 +326,8 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
         for t in tools:
             cells = []
             for c in corpora:
-                r = by[(axis, t, c)]
-                if r["measured"] is None:
+                r = by.get((axis, t, c))
+                if r is None or r["measured"] is None:
                     cells.append("NOT COMPARABLE")
                     continue
                 cell = f"{r['measured']:.4g}"

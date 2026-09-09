@@ -12,6 +12,10 @@ zero stays 0 (an image that installs nothing beyond its base is a real fact,
 the opposite of an unreported one); `latest.md` prints the count beside the
 build line. pip and npm dependencies are the package's own tree and are not
 counted: the proxy is what a user must have installed BEFORE the package.
+A Dockerfile installing through `apk add`, `dnf`/`yum install` or the JSON
+exec form reads as None (review round 1): an unread install would otherwise
+publish as the measured zero only our own image earns. And a result file
+committed before the reindex axis and these fields still renders (CF-67).
 """
 from __future__ import annotations
 
@@ -149,3 +153,58 @@ def test_every_shipped_dockerfile_parses_and_ours_installs_nothing_beyond_its_ba
     counts = {f.name: sandbox.prerequisites(f) for f in files}
     assert counts["jcodemunch.Dockerfile"] == []
     assert any(counts[k] for k in counts if k != "jcodemunch.Dockerfile"), "the parser read nothing from any competitor file"
+    assert None not in counts.values(), "a shipped Dockerfile installs through a spelling the parser does not read"
+
+
+@pytest.mark.parametrize("body", [
+    "FROM alpine:3.20\nRUN apk add --no-cache git\n",
+    "FROM fedora:40\nRUN dnf install -y git\n",
+    'FROM debian:bookworm-slim\nRUN ["apt-get", "install", "-y", "git"]\n',
+])
+def test_a_spelling_the_parser_does_not_read_is_none_never_zero(mods, tmp_path, body):
+    sandbox = mods["sandbox"]
+    df = tmp_path / "x.Dockerfile"
+    df.write_text(body, encoding="utf-8")
+    assert sandbox.prerequisites(df) is None
+
+
+def test_apt_install_and_a_tab_after_run_are_read(mods, tmp_path):
+    sandbox = mods["sandbox"]
+    df = tmp_path / "x.Dockerfile"
+    df.write_text("FROM debian\nRUN\tapt install -y --no-install-recommends git jq\n", encoding="utf-8")
+    assert sandbox.prerequisites(df) == ["git", "jq"]
+
+
+def test_an_unread_dockerfile_reaches_the_pin_record_as_none(mods):
+    run, adapter, sandbox = mods["run"], mods["adapter"], mods["sandbox"]
+
+    class Unread:
+        name = "alpine_tool"
+        pin = adapter.Pin(registry="npm", package="a", version="1")
+        interface = "cli"
+        _image = sandbox.BuildResult(tag="t", digest="sha256:" + "c" * 64, seconds=1.0, dockerfile_sha256="f" * 64, size_bytes=1, prerequisites=None)
+
+        def image(self):
+            return self._image
+
+        def version(self):
+            return "1"
+
+    rec = run.pin_record(Unread())
+    assert rec["prerequisites"] is None and rec["prerequisite_count"] is None
+
+
+def test_a_committed_result_file_from_before_the_fields_and_the_reindex_axis_renders(mods):
+    """CF-67: every result file committed on 2026-09-05 predates the reindex axis
+    (#650) and these fields; `render_md` raised KeyError on the axis's absent
+    rows (found by the CF-61 round-1 reviewer). Read a real file, not a synthetic
+    header with no rows."""
+    import json
+
+    run = mods["run"]
+    files = sorted((COMPETE / "results").glob("2026-09-05-*.json"))
+    assert files, "the committed 2026-09-05 result files are the fixture"
+    result = json.loads(files[0].read_text(encoding="utf-8"))
+    assert "reindex_one_seconds" not in {r["axis"] for r in result["rows"]}
+    md = run.render_md(result)
+    assert "## reindex_one_seconds" not in md and "prerequisite" not in md and "## tokens_per_task" in md
