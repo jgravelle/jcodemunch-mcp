@@ -108,7 +108,7 @@ jobs:
           python benchmarks/competitive/ledger_merge.py --src "$RUNNER_TEMP/feed" --ledger-drafts ledger-branch/competitive/drafts
           cd ledger-branch
           git config user.name "$APP_LOGIN"
-          git config user.email "inbound@users.noreply.github.com"
+          git config user.email "325112034+jcodemunch-inbound[bot]@users.noreply.github.com"
           git add -A competitive/
           git diff --cached --quiet || git commit -q -m "competitive feed: $(date -u +%Y-%m-%d)"
           git push origin HEAD:inbound-ledger

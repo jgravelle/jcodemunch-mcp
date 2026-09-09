@@ -29,16 +29,11 @@ REPO = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml"))
 EMAIL = re.compile(r"""user\.email\s+["']?([^"'\s]+)["']?""")
 OWNED = re.compile(r"^\d+\+[A-Za-z0-9\-]+(\[bot\])?@users\.noreply\.github\.com$")
-# IN-20: the App pushes as a stranger's login; the fix is the App's own numeric address.
-ALLOWED_UNTIL_FIXED = {
-    "inbound@users.noreply.github.com": {
-        "inbound-sweep.yml",
-        "inbound-fix.yml",
-        "competitive-run.yml",
-        "competitive-feed.yml",
-        "competitive-post.yml",
-    },
-}
+# IN-20 (fixed 2026-09-08): the five App-pushing workflows carried
+# `inbound@users.noreply.github.com`, a stranger's login, allowlisted here by
+# site until they moved to the App's own numeric address. Empty now; a new
+# made-up address has nowhere to hide.
+ALLOWED_UNTIL_FIXED: dict[str, set[str]] = {}
 
 
 def _emails(path: Path) -> list[str]:
@@ -79,6 +74,8 @@ def test_the_allowlist_names_only_sites_that_still_carry_the_address():
         ("harness-bot@users.noreply.github.com", False),
         ("release-bot@users.noreply.github.com", False),
         ("inbound@users.noreply.github.com", False),
+        # IN-20: the App's own address, `gh api "users/jcodemunch-inbound[bot]" --jq .id`
+        ("325112034+jcodemunch-inbound[bot]@users.noreply.github.com", True),
         ("12345+some-app[bot]@users.noreply.github.com", True),
         ("noreply@example.com", False),
     ],
