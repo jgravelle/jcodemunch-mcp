@@ -168,6 +168,15 @@ def test_a_spelling_the_parser_does_not_read_is_none_never_zero(mods, tmp_path, 
     assert sandbox.prerequisites(df) is None
 
 
+def test_a_flag_that_takes_an_argument_does_not_count_the_argument(mods, tmp_path):
+    """`-t bookworm` names a release, not a package; a version pin names one package
+    and is kept verbatim (review round 2)."""
+    sandbox = mods["sandbox"]
+    df = tmp_path / "x.Dockerfile"
+    df.write_text("FROM debian\nRUN apt-get install -y -t bookworm --no-install-recommends jq git=1:2.39\n", encoding="utf-8")
+    assert sandbox.prerequisites(df) == ["git=1:2.39", "jq"]
+
+
 def test_apt_install_and_a_tab_after_run_are_read(mods, tmp_path):
     sandbox = mods["sandbox"]
     df = tmp_path / "x.Dockerfile"
@@ -202,9 +211,10 @@ def test_a_committed_result_file_from_before_the_fields_and_the_reindex_axis_ren
     import json
 
     run = mods["run"]
-    files = sorted((COMPETE / "results").glob("2026-09-05-*.json"))
-    assert files, "the committed 2026-09-05 result files are the fixture"
-    result = json.loads(files[0].read_text(encoding="utf-8"))
-    assert "reindex_one_seconds" not in {r["axis"] for r in result["rows"]}
-    md = run.render_md(result)
-    assert "## reindex_one_seconds" not in md and "prerequisite" not in md and "## tokens_per_task" in md
+    files = sorted((COMPETE / "results").glob("*.json"))
+    assert len(files) >= 2, "the committed result files are the fixture"
+    for f in files:  # every one, not the first (review round 2)
+        result = json.loads(f.read_text(encoding="utf-8"))
+        assert "reindex_one_seconds" not in {r["axis"] for r in result["rows"]}, f.name
+        md = run.render_md(result)
+        assert "## reindex_one_seconds" not in md and "prerequisite" not in md and "## tokens_per_task" in md, f.name

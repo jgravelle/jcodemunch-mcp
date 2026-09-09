@@ -55,6 +55,7 @@ class BuildResult:
 _APT_INSTALL = re.compile(r"\bapt(?:-get)?\s+install\b(.*)")
 _OTHER_INSTALLER = re.compile(r"\b(?:apk\s+add|dnf\s+install|microdnf\s+install|yum\s+install|zypper\s+(?:in|install)|pacman\s+-S)\b")
 _RUN_LINE = re.compile(r"^\s*RUN\b\s*(.*)$")
+_FLAGS_WITH_ARGUMENT = {"-t", "--target-release", "-o", "--option", "-c", "--config-file"}
 
 
 def prerequisites(dockerfile: Path) -> list[str] | None:
@@ -87,9 +88,17 @@ def prerequisites(dockerfile: Path) -> list[str] | None:
             m = _APT_INSTALL.search(seg)
             if not m:
                 continue
-            for tok in m.group(1).split():
+            toks = m.group(1).split()
+            skip = False
+            for tok in toks:
+                if skip:
+                    skip = False
+                    continue
+                if tok in _FLAGS_WITH_ARGUMENT:
+                    skip = True  # `-t bookworm`: the release is not a package (review round 2)
+                    continue
                 if not tok.startswith("-"):
-                    found.add(tok)
+                    found.add(tok)  # a version pin (`git=1:2.39`) is kept verbatim: it names one package
     return sorted(found)
 
 
