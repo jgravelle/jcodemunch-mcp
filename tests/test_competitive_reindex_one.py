@@ -235,6 +235,20 @@ def test_the_summary_names_the_mode_beside_the_axis(mods):
     assert "`b.py`" in md and "incremental" in md and "adapter has no reindex_one (CF-61)" in md
 
 
+def test_the_adapters_hold_the_same_pin_class_the_fixture_imported(mods):
+    """F-25's property, not its spelling (review note on #652): whatever a fixture
+    does to `sys.modules`, the `Pin` class `adapters.jcodemunch` bound at its
+    import is the one `adapter.Pin` names now, or `validate`'s isinstance fails
+    under one worker ordering. A scan over `sys.modules.pop` cannot see
+    `importlib.reload` or `sys.modules.clear()`; this can."""
+    sys.path.insert(0, str(COMPETE))
+    try:
+        jcm = importlib.import_module("adapters.jcodemunch")
+    finally:
+        sys.path.remove(str(COMPETE))
+    assert jcm.Pin is mods["adapter"].Pin
+
+
 def test_no_competitive_test_pops_the_tier_modules():
     """F-25: a fixture that pops `adapter`, `run`, `sandbox`, `score`, `findings` or
     `trend` from `sys.modules` and re-imports makes a second `Pin` class behind
