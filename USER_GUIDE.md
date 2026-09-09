@@ -997,7 +997,8 @@ Use `owner/repo` or a full GitHub URL. For private repos, set `GITHUB_TOKEN`.
 
 ## “No source files found”
 
-The repo may not contain supported source files, or everything useful may have been excluded by skip patterns.
+See [empty-index troubleshooting](TROUBLESHOOTING.md#no-source-files-found--empty-index)
+for discovery failures, exclusions, and successful deletion-only refreshes.
 
 ## Rate limiting
 

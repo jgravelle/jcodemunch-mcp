@@ -55,24 +55,15 @@ indexing authority; symlink configuration is documented in
 
 ### Fixed - an empty full incremental scan reconciles deletions instead of refusing, without masking read failures
 
-`index_folder` on an existing index whose full incremental discovery finds no
-eligible source files now removes the indexed files that are gone (every one of
-them when a whole tree moved out), so a watcher that saw only the directory
-event no longer leaves stale symbols behind. Initial indexing and non-incremental
-indexing of an empty folder still return "No source files found". Read failures
-stay distinct from emptiness: a source file that exists but cannot be read is
-counted as `unreadable` rather than `binary` (`security.is_binary_file` gained a
-keyword-only `raise_on_error`, off by default, so existing callers are
-unchanged), a directory `os.walk` cannot enter is counted as `unreadable` and
-named in `warnings` while the rest of the tree is indexed, and an empty full
-scan with any `unreadable`, `file_limit`, or `too_large` count fails and preserves the
-persisted index. Legitimate binary exclusions still allow the reconciliation.
-Because `unreadable` is a withheld reason, one unreadable file or directory
-records the index's coverage as incomplete and refuses absence claims
-(`find_dead_code` caps at the unproven ceiling, `check_delete_safe` reports
-`corpus_inadequate`) until it is readable or excluded and the folder is
-re-indexed; those trees previously claimed complete coverage over files they
-never read.
+`index_folder` now reconciles deletions when full incremental discovery of an
+existing index becomes empty, including when a whole source tree moves out,
+while preserving the index when read failures or indexing limits empty the scan.
+Unreadable files and directories are now classified as withheld coverage;
+successful full-discovery saves mark it incomplete and refuse absence claims
+where those trees previously claimed completeness over files they never read.
+See the [empty-discovery and coverage recovery contract](SPEC.md#expected-error-behaviors)
+for failure conditions and how to restore coverage.
+
 The watcher's moved-out lookup over the hash cache uses one lazy sort per batch
 plus a bisect per unknown deletion until full discovery is required.
 

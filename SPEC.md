@@ -1099,12 +1099,18 @@ eligible source files reconciles deletions, including removal of every indexed
 file. Initial indexing and non-incremental indexing of an empty folder still
 return an error. A directory that cannot be traversed is counted as
 `unreadable`, named in `warnings`, and the rest of the tree is still indexed;
-an empty full scan with unreadable files or directories, or file-limit
-truncation, fails without clearing the persisted index. Legitimate binary
-exclusions do not count as read failures. Any `unreadable` count is withheld
-coverage: the index records `complete: false` and absence claims are refused
-until the path is readable or excluded and the folder is re-indexed.
-Explicit-path incremental refreshes also reconcile deleted requested files.
+an empty full scan with unreadable files or directories (`unreadable`),
+file-count truncation (`file_limit`), or size-limit exclusions (`too_large`)
+fails without clearing the persisted index. Legitimate binary exclusions
+still allow deletion reconciliation. Explicit-path incremental refreshes also
+reconcile deleted requested files.
+
+On a successful save after full discovery, any `unreadable` count marks coverage
+`complete: false`, so absence claims are refused. Failed empty scans preserve
+the previous index and its coverage. After restoring access, adjusting limits,
+or excluding the affected paths, call `index_folder` with `incremental: false`
+and omit `paths` to rebuild a nonempty folder and refresh stored coverage;
+a no-change incremental refresh does not rewrite it.
 
 ---
 
