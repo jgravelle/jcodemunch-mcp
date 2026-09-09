@@ -1,6 +1,7 @@
 """Filesystem watcher — monitors folders and triggers incremental re-indexing."""
 
 import asyncio
+from bisect import bisect_left
 import json
 import logging
 import os
@@ -549,6 +550,7 @@ async def _watch_single(
             _change_map = {Change.added: "added", Change.modified: "modified", Change.deleted: "deleted"}
             watcher_changes: list[WatcherChange] = []
             needs_discovery = False
+            sorted_cached: list[str] | None = None
             for ct, p in relevant:
                 change_type_str = _change_map[ct]
                 cached_rel = Path(p).relative_to(folder_path).as_posix()
@@ -557,10 +559,13 @@ async def _watch_single(
                 if ct == Change.deleted:
                     # A moved-out directory no longer satisfies isdir(). Its indexed
                     # descendants still need removal; known file deletes stay O(1).
-                    if not needs_discovery and cached_rel not in _hash_cache and any(
-                        path.startswith(cached_rel + "/") for path in _hash_cache
-                    ):
-                        needs_discovery = True
+                    if not needs_discovery and cached_rel not in _hash_cache:
+                        if sorted_cached is None:
+                            sorted_cached = sorted(_hash_cache)
+                        prefix = cached_rel + "/"
+                        at = bisect_left(sorted_cached, prefix)
+                        if at < len(sorted_cached) and sorted_cached[at].startswith(prefix):
+                            needs_discovery = True
                     old_hash = _hash_cache.get(cached_rel, "")
                 elif ct == Change.modified:
                     # Use memory cache as the source of truth for old_hash.

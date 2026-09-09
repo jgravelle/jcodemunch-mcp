@@ -53,6 +53,24 @@ than being discarded by a second hidden-path filter. Discovery remains the
 indexing authority; symlink configuration is documented in
 [CONFIGURATION.md](CONFIGURATION.md#watcher).
 
+### Fixed - an empty full incremental scan reconciles deletions instead of refusing, without masking read failures
+
+`index_folder` on an existing index whose full incremental discovery finds no
+eligible source files now removes the indexed files that are gone (every one of
+them when a whole tree moved out), so a watcher that saw only the directory
+event no longer leaves stale symbols behind. Initial indexing and non-incremental
+indexing of an empty folder still return "No source files found". Read failures
+stay distinct from emptiness: a source file that exists but cannot be read is
+counted as `unreadable` rather than `binary` (`security.is_binary_file` gained a
+keyword-only `raise_on_error`, off by default, so existing callers are
+unchanged), a directory `os.walk` cannot enter is counted as `unreadable` and
+named in `warnings` while the rest of the tree is indexed, and an empty full
+scan with any `unreadable` or `file_limit` count fails and preserves the
+persisted index. Legitimate binary exclusions still allow the reconciliation.
+The watcher's moved-out lookup over the hash cache is one sort per batch plus a
+bisect per unknown deletion, so a deletion burst of non-indexed files no longer
+costs a full cache scan per path.
+
 ### Fixed - a `<script >` closed with a space before the bracket swallowed the markup after it (Razor and Astro)
 
 The Razor and Astro extractors cut `<script>` and `<style>` blocks out of

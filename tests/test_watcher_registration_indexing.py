@@ -180,3 +180,91 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
         "persisted_symbols_final": symbols(),
         "all_native_streams_closed": True,
     }, sort_keys=True))
+
+
+@pytest.mark.asyncio
+async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_gone(tmp_path, monkeypatch):
+    watchfiles = pytest.importorskip("watchfiles")
+    monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "false")
+    root = tmp_path / "project"
+    (root / "child" / "deep").mkdir(parents=True)
+    (root / "childish").mkdir()
+    (root / "code.py").write_text("def root_symbol(): pass\n")
+    (root / "child" / "nested.py").write_text("def nested_symbol(): pass\n")
+    (root / "child" / "deep" / "code.py").write_text("def deep_symbol(): pass\n")
+    (root / "childish" / "other.py").write_text("def boundary_symbol(): pass\n")
+    storage = str(tmp_path / "index")
+    result = watcher.index_folder(
+        path=str(root), storage_path=storage, use_ai_summaries=False,
+        context_providers=False, identity_mode="local",
+    )
+    assert result["success"]
+    store = watcher.IndexStore(base_path=storage)
+    owner, name = result["repo"].split("/", 1)
+    database = store.load_index(owner, name)._db_path
+
+    def symbols():
+        with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+            return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+
+    batches: asyncio.Queue = asyncio.Queue()
+
+    async def injected(*paths, **kwargs):
+        while True:
+            yield await batches.get()
+
+    calls: list = []
+    real_index_folder = watcher.index_folder
+
+    def recording_index_folder(**kwargs):
+        result = real_index_folder(**kwargs)
+        calls.append(kwargs["changed_paths"])
+        return result
+
+    monkeypatch.setattr(watchfiles, "awatch", injected)
+    monkeypatch.setattr(watcher, "index_folder", recording_index_folder)
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+
+    async def wait_for_calls(count):
+        async def observe():
+            while len(calls) < count:
+                if task.done():
+                    task.result()
+                    pytest.fail("Watcher stopped before indexing")
+                await asyncio.sleep(0.05)
+        await asyncio.wait_for(observe(), 30)
+
+    deleted = watchfiles.Change.deleted
+    try:
+        await batches.put(set())
+        await wait_for_calls(1)
+        assert calls[0] is None  # root reconciliation after registration
+
+        burst = {(deleted, str(root / "target" / f"{n}.o")) for n in range(20000)}
+        burst |= {(deleted, str(root / "chil")), (deleted, str(root / "childis")),
+                  (deleted, str(root / "child" / "deep" / "missing.o"))}
+        started = asyncio.get_running_loop().time()
+        await batches.put(burst)
+        await wait_for_calls(2)
+        elapsed = asyncio.get_running_loop().time() - started
+        assert isinstance(calls[1], list) and len(calls[1]) == len(burst)
+        assert len(symbols()) == 4
+
+        (root / "child").rename(tmp_path / "moved_out")
+        await batches.put({(deleted, str(root / "child"))})
+        await wait_for_calls(3)
+        assert calls[2] is None
+        remaining = symbols()
+        assert ("nested_symbol", "child/nested.py") not in remaining
+        assert ("deep_symbol", "child/deep/code.py") not in remaining
+        assert ("boundary_symbol", "childish/other.py") in remaining
+        assert ("root_symbol", "code.py") in remaining
+        assert not task.done()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    print(json.dumps({"burst_events": len(burst), "burst_seconds": round(elapsed, 3),
+                      "changed_paths_per_call": [None if c is None else len(c) for c in calls]}))

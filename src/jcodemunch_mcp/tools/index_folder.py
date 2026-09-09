@@ -1301,10 +1301,12 @@ def discover_local_files(
 
     skip_dirs_regex = _build_skip_dirs_regex(repo=str(root))
 
-    def _raise_walk_error(error: OSError) -> None:
-        raise error
+    def _count_walk_error(error: OSError) -> None:
+        skip_counts["unreadable"] += 1
+        failed = os.path.relpath(error.filename or root_str, root_str)
+        warnings.append(f"Could not read directory {failed}: {error.strerror or error}")
 
-    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False, onerror=_raise_walk_error):
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False, onerror=_count_walk_error):
         dpath = Path(dirpath)
         # Prune directories that should always be skipped before descending.
         # Nested linked worktrees (`.git` FILE → `.git/worktrees/<name>`,

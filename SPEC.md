@@ -1097,9 +1097,11 @@ The error model is designed so that partial failures during indexing do not nece
 For `index_folder`, a full incremental scan of an existing index that finds no
 eligible source files reconciles deletions, including removal of every indexed
 file. Initial indexing and non-incremental indexing of an empty folder still
-return an error. Directory traversal failures abort discovery; an empty full
-scan with unreadable files or file-limit truncation fails without clearing the
-persisted index. Legitimate binary exclusions do not count as read failures.
+return an error. A directory that cannot be traversed is counted as
+`unreadable`, named in `warnings`, and the rest of the tree is still indexed;
+an empty full scan with unreadable files or directories, or file-limit
+truncation, fails without clearing the persisted index. Legitimate binary
+exclusions do not count as read failures.
 Explicit-path incremental refreshes also reconcile deleted requested files.
 
 ---

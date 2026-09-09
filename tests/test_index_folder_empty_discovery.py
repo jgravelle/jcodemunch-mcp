@@ -9,6 +9,7 @@ import pytest
 
 from jcodemunch_mcp.storage import IndexStore
 from jcodemunch_mcp.security import is_binary_file
+from jcodemunch_mcp.tools import refresh
 from jcodemunch_mcp.tools.index_folder import discover_local_files, index_folder
 
 
@@ -139,3 +140,34 @@ def test_binary_file_read_errors_are_opt_in(tmp_path):
     assert is_binary_file(missing, 16) is True
     with pytest.raises(FileNotFoundError):
         is_binary_file(missing, 16, raise_on_error=True)
+
+
+def test_unreadable_child_directory_is_counted_and_indexing_continues(indexed_tree):
+    root, kwargs, database = indexed_tree
+    denied = root / "child" / "deep"
+    mode = denied.stat().st_mode
+    try:
+        denied.chmod(0)
+        try:
+            with os.scandir(denied):
+                pass
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("Directory permissions do not enforce traversal denial")
+
+        files, warnings, counts = discover_local_files(root)
+        assert [f.relative_to(root).as_posix() for f in files] == ["child/code.py"]
+        assert counts["unreadable"] == 1
+        assert any("child/deep" in warning for warning in warnings)
+
+        result = index_folder(**kwargs)
+        assert result["success"], result
+        assert result["discovery_skip_counts"]["unreadable"] == 1
+        assert any("child/deep" in warning for warning in result["warnings"])
+        assert ("direct_symbol", "child/code.py") in persisted_symbols(database)
+
+        campaign = refresh.run(str(root), storage_path=kwargs["storage_path"], reset=True)
+        assert campaign["success"], campaign
+    finally:
+        denied.chmod(mode)
