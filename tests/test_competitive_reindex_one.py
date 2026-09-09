@@ -32,10 +32,12 @@ COMPETE = ROOT / "benchmarks" / "competitive"
 
 @pytest.fixture(scope="module")
 def mods():
+    # Never pop these from sys.modules first: `adapters.*` imported by an earlier
+    # test file hold the `adapter` module that was current THEN, and a re-import
+    # here makes a second `Pin` class, so `validate` (isinstance) fails under one
+    # xdist ordering and passes under the rest (five of eight gate jobs on #651's first attempt).
     sys.path.insert(0, str(COMPETE))
     try:
-        for m in ("adapter", "score", "run", "findings", "trend"):
-            sys.modules.pop(m, None)
         return {m: importlib.import_module(m) for m in ("adapter", "score", "run")}
     finally:
         sys.path.remove(str(COMPETE))
@@ -231,3 +233,18 @@ def test_the_summary_names_the_mode_beside_the_axis(mods):
     md = run.render_md({"header": header, "rows": rows, "runs": runs, "capability_only": [], "tools_not_called": [], "not_runnable": []})
     assert "## reindex_one_seconds" in md
     assert "`b.py`" in md and "incremental" in md and "adapter has no reindex_one (CF-61)" in md
+
+
+def test_no_competitive_test_pops_the_tier_modules():
+    """F-25: a fixture that pops `adapter`, `run`, `sandbox`, `score`, `findings` or
+    `trend` from `sys.modules` and re-imports makes a second `Pin` class behind
+    `adapters.*`, and `validate` fails under one xdist ordering out of many. The
+    rule lived in three comments; this is the scan that fails on a reintroduction."""
+    import re
+
+    offenders = []
+    for path in sorted((ROOT / "tests").glob("test_competitive_*.py")):
+        src = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"sys\.modules\.pop\(|del sys\.modules\[", src):
+            offenders.append(f"{path.name}:{src[: m.start()].count(chr(10)) + 1}")
+    assert not offenders, offenders
