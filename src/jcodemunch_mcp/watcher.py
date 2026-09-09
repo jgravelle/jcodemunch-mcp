@@ -82,11 +82,11 @@ def _watch_directories(folder_path: str) -> dict[str, tuple[int, int]]:
             dirs[:] = []
             continue
         try:
-            stat = os.stat(current, follow_symlinks=False)
+            stat_result = os.stat(current, follow_symlinks=False)
         except OSError:
             dirs[:] = []
             continue
-        directories[current] = (stat.st_dev, stat.st_ino)
+        directories[current] = (stat_result.st_dev, stat_result.st_ino)
         dirs[:] = [name for name in dirs if not skip_dirs.match(name)]
     return directories
 
