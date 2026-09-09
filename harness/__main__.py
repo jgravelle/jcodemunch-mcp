@@ -722,8 +722,16 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
         rc, out, secs = _run([PY, *cmd])
         if step.get("self_index"):
             shutil.rmtree(store, ignore_errors=True)
-        tail = "\n".join(out.strip().splitlines()[-3:])
-        print(f"   rc={rc} {secs:.1f}s\n   " + tail.replace("\n", "\n   "))
+        lines = out.strip().splitlines()
+        tail = "\n".join(lines[-3:])
+        # F-24: every Floor verdict the step printed reaches the tee, not only
+        # the three-line tail (measure.py prints its six verdicts last, and the
+        # summary carried two of them). The tail shown excludes the verdicts so
+        # none is printed twice; the record keeps the raw tail for the log.
+        verdicts = [ln for ln in lines if _VERDICT_RE.match(ln.strip())]
+        rest = [ln for ln in lines if not _VERDICT_RE.match(ln.strip())]
+        shown = verdicts + rest[-3:]
+        print(f"   rc={rc} {secs:.1f}s\n   " + "\n   ".join(shown))
         arts[step["name"]] = {"rc": rc, "seconds": round(secs, 2), "tail": tail}
         if rc != 0:
             ok = False
