@@ -67,6 +67,12 @@ unchanged), a directory `os.walk` cannot enter is counted as `unreadable` and
 named in `warnings` while the rest of the tree is indexed, and an empty full
 scan with any `unreadable` or `file_limit` count fails and preserves the
 persisted index. Legitimate binary exclusions still allow the reconciliation.
+Because `unreadable` is a withheld reason, one unreadable file or directory
+records the index's coverage as incomplete and refuses absence claims
+(`find_dead_code` caps at the unproven ceiling, `check_delete_safe` reports
+`corpus_inadequate`) until it is readable or excluded and the folder is
+re-indexed; those trees previously claimed complete coverage over files they
+never read.
 The watcher's moved-out lookup over the hash cache is one sort per batch plus a
 bisect per unknown deletion, so a deletion burst of non-indexed files no longer
 costs a full cache scan per path.

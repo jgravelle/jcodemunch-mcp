@@ -91,6 +91,21 @@ def _watch_directories(folder_path: str) -> dict[str, tuple[int, int]]:
     return directories
 
 
+def _index_key_prefix(folder_path: str, source_root: Optional[str]) -> str:
+    """Prefix that turns a watched-folder-relative path into an index file key.
+
+    ``file_hashes`` is keyed relative to the INDEX root, which is the git root
+    when a subdirectory of a repository is indexed or watched.
+    """
+    if not source_root:
+        return ""
+    try:
+        prefix = Path(folder_path).resolve().relative_to(Path(source_root).resolve()).as_posix()
+    except (OSError, ValueError):
+        return ""
+    return "" if prefix == "." else prefix
+
+
 async def _safe_awatch(folder_path: str, debounce_ms: int):
     """Use native recursion where safe; bound Linux/polling to real directories.
 
@@ -454,14 +469,18 @@ async def _watch_single(
     # Memory hash cache: rel_path -> content hash (for WatcherChange old_hash passthrough)
     _hash_cache: dict[str, str] = {}
     _hash_cache_built = False
+    _hash_cache_prefix = ""
 
     def _build_hash_cache() -> None:
         """Build the memory hash cache from the on-disk index."""
-        nonlocal _hash_cache_built
+        nonlocal _hash_cache_built, _hash_cache_prefix
         _hash_cache.clear()
         idx = store.load_index(_repo_owner, _repo_store_name)
         if idx and idx.file_hashes:
             _hash_cache.update(idx.file_hashes)
+        _hash_cache_prefix = _index_key_prefix(
+            folder_path, remap(getattr(idx, "source_root", "") or "", _pairs)
+        )
         _hash_cache_built = True
 
     # Do an initial incremental index to ensure the index is current.
@@ -554,6 +573,8 @@ async def _watch_single(
             for ct, p in relevant:
                 change_type_str = _change_map[ct]
                 cached_rel = Path(p).relative_to(folder_path).as_posix()
+                if _hash_cache_prefix:
+                    cached_rel = f"{_hash_cache_prefix}/{cached_rel}"
                 if not needs_discovery and (p == folder_path or os.path.isdir(p)):
                     needs_discovery = True
                 if ct == Change.deleted:

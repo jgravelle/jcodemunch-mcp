@@ -9,7 +9,9 @@ import pytest
 
 from jcodemunch_mcp.storage import IndexStore
 from jcodemunch_mcp.security import is_binary_file
+from jcodemunch_mcp.retrieval.verdict import index_coverage_meta
 from jcodemunch_mcp.tools import refresh
+from jcodemunch_mcp.tools._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from jcodemunch_mcp.tools.index_folder import discover_local_files, index_folder
 
 
@@ -169,5 +171,23 @@ def test_unreadable_child_directory_is_counted_and_indexing_continues(indexed_tr
 
         campaign = refresh.run(str(root), storage_path=kwargs["storage_path"], reset=True)
         assert campaign["success"], campaign
+
+        store = IndexStore(base_path=kwargs["storage_path"])
+        owner, name = result["repo"].split("/", 1)
+        coverage = index_coverage_meta(store.load_index(owner, name))
+        assert coverage["complete"] is False
+        assert coverage["withheld"]["unreadable"] == 1
+        adequacy = assess_corpus(store.load_index(owner, name))
+        assert adequacy.adequate is False
+        assert "withheld_files" in adequacy.blockers
+        assert adequacy.ceiling == UNPROVEN_CEILING
     finally:
         denied.chmod(mode)
+    recovered = index_folder(**kwargs)
+    assert recovered["success"], recovered
+    assert recovered["discovery_skip_counts"]["unreadable"] == 0
+    coverage = index_coverage_meta(store.load_index(owner, name))
+    assert coverage["complete"] is True
+    assert "withheld" not in coverage
+    assert assess_corpus(store.load_index(owner, name)).ceiling == 1.0
+    assert ("nested_symbol", "child/deep/code.py") in persisted_symbols(database)

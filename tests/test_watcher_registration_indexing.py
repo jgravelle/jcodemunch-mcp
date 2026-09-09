@@ -209,9 +209,13 @@ async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_g
 
     batches: asyncio.Queue = asyncio.Queue()
 
-    async def injected(*paths, **kwargs):
+    async def injected(*paths, rust_timeout=None, yield_on_timeout=False, **kwargs):
         while True:
-            yield await batches.get()
+            try:
+                yield await asyncio.wait_for(batches.get(), rust_timeout / 1000)
+            except asyncio.TimeoutError:
+                if yield_on_timeout:
+                    yield set()
 
     calls: list = []
     real_index_folder = watcher.index_folder
@@ -268,3 +272,78 @@ async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_g
         await asyncio.gather(task, return_exceptions=True)
     print(json.dumps({"burst_events": len(burst), "burst_seconds": round(elapsed, 3),
                       "changed_paths_per_call": [None if c is None else len(c) for c in calls]}))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("polling", [False, True], ids=["native", "polling"])
+@pytest.mark.parametrize("layout", ["git_subdir", "git_root", "local"])
+async def test_subdirectory_watch_reconciles_against_index_root_keys(tmp_path, monkeypatch, layout, polling):
+    pytest.importorskip("watchfiles")
+    monkeypatch.setenv("WATCHFILES_FORCE_POLLING", "true" if polling else "false")
+    root = tmp_path / "repo"
+    foo = root / "packages" / "foo"
+    (foo / "child" / "deep").mkdir(parents=True)
+    (root / "packages" / "bar").mkdir()
+    if layout != "local":
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+    target = foo / "code.py"
+    target.write_text("def before_watch(): pass\n")
+    (foo / "child" / "nested.py").write_text("def nested_symbol(): pass\n")
+    (foo / "child" / "deep" / "code.py").write_text("def deep_symbol(): pass\n")
+    (root / "packages" / "bar" / "lib.py").write_text("def sibling_symbol(): pass\n")
+    storage = str(tmp_path / "index")
+    result = watcher.index_folder(
+        path=str(root), storage_path=storage, use_ai_summaries=False, context_providers=False,
+    )
+    assert result["success"]
+    owner, name = result["repo"].split("/", 1)
+    database = watcher.IndexStore(base_path=storage).load_index(owner, name)._db_path
+    watched = foo if layout == "git_subdir" else root
+
+    def symbols():
+        with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+            return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+
+    assert ("before_watch", "packages/foo/code.py") in symbols()
+    task = asyncio.create_task(watcher._watch_single(
+        str(watched), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+
+    async def wait_for(symbol, file, present=True):
+        async def observe():
+            while ((symbol, file) in symbols()) != present:
+                if task.done():
+                    task.result()
+                    pytest.fail("Watcher stopped before updating the index")
+                await asyncio.sleep(0.05)
+        try:
+            await asyncio.wait_for(observe(), 10)
+        except asyncio.TimeoutError as error:
+            raise AssertionError(
+                f"Timed out waiting for {(symbol, file)} present={present}; persisted={symbols()}"
+            ) from error
+        return symbols()
+
+    try:
+        target.write_text("def ready(): pass\n")
+        await wait_for("ready", "packages/foo/code.py")
+        (foo / "child").rename(tmp_path / "moved_out")
+        remaining = await wait_for("nested_symbol", "packages/foo/child/nested.py", present=False)
+        assert ("deep_symbol", "packages/foo/child/deep/code.py") not in remaining
+        assert ("sibling_symbol", "packages/bar/lib.py") in remaining
+        assert ("ready", "packages/foo/code.py") in remaining
+        if polling:
+            await asyncio.sleep(1.1)
+        target.write_text("def after_move(): pass\n")
+        edited = await wait_for("after_move", "packages/foo/code.py")
+        assert ("ready", "packages/foo/code.py") not in edited
+        target.unlink()
+        final = await wait_for("after_move", "packages/foo/code.py", present=False)
+        assert ("sibling_symbol", "packages/bar/lib.py") in final
+        assert not task.done()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    print(json.dumps({"layout": layout, "polling": polling, "watched_is_index_root": watched == root,
+                      "persisted_symbols_final": symbols()}))

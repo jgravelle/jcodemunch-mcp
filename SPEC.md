@@ -1101,7 +1101,9 @@ return an error. A directory that cannot be traversed is counted as
 `unreadable`, named in `warnings`, and the rest of the tree is still indexed;
 an empty full scan with unreadable files or directories, or file-limit
 truncation, fails without clearing the persisted index. Legitimate binary
-exclusions do not count as read failures.
+exclusions do not count as read failures. Any `unreadable` count is withheld
+coverage: the index records `complete: false` and absence claims are refused
+until the path is readable or excluded and the folder is re-indexed.
 Explicit-path incremental refreshes also reconcile deleted requested files.
 
 ---
