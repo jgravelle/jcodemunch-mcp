@@ -267,7 +267,11 @@ argument. *Disposition: DESIGN §2 now marks both "designed, not measured
 (CF-61)"; FINDINGS CF-61 records the gap and what measuring each would
 take. 2026-09-09: criterion 6's build seconds and image size are in
 every pin record (`image_build_seconds`, `image_size_bytes`); its
-prerequisite count and 3(b) stay open under CF-61.*
+prerequisite count stays open under CF-61. Same day, 3(b) is the
+`reindex_one_seconds` axis: measured for our row through the
+incremental path on one file both sides pick by one rule, NOT
+COMPARABLE with the reason named for every competitor adapter until its
+own PR implements `reindex_one`.*
 
 **The set and the box.** *"You chose the competitors."* FIELD.md names the
 selection rule and the eight; a tool outside it is a FIELD edit, not a

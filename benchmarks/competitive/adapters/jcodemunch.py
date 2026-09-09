@@ -46,7 +46,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from adapter import Answer, Corpus, IndexReport, Pin, Task, count_tokens
+from adapter import Answer, Corpus, IndexReport, Pin, ReindexReport, Task, count_tokens, reindex_target
 import sandbox
 
 REPO = Path(__file__).resolve().parents[3]
@@ -108,9 +108,13 @@ class JCodeMunch:
         out = scratch / "jcm-out"
         out.mkdir(parents=True, exist_ok=True)
         (out / "tasks.json").write_text(json.dumps([{"id": t.id, "category": t.category, "query": t.query} for t in tasks]), encoding="utf-8")
+        # 3(b): the worker re-parses this one file after every task (CF-61); the
+        # runner picks the same file by the same rule
+        target = reindex_target(corpus, tasks)
+        extra = [target] if target else []
         if self.sandbox_mode == "docker":
             self.image()
-            res = sandbox.run(TAG_PREFIX + self.pin.version, ["/corpus", "/out/jcm-store", "/out/tasks.json", "/out/answers.json"],
+            res = sandbox.run(TAG_PREFIX + self.pin.version, ["/corpus", "/out/jcm-store", "/out/tasks.json", "/out/answers.json", *extra],
                               corpus.path, out, timeout=20 * 60, extra_env=dict(self.extra_env) or None)
             rc, tail = res.rc, (res.stderr or res.stdout)[-2000:]
         else:
@@ -118,7 +122,7 @@ class JCodeMunch:
             store.mkdir(exist_ok=True)
             env = dict(os.environ, CODE_INDEX_PATH=str(store), PYTHONPATH=str(REPO / "src"),
                        JCODEMUNCH_TRUSTED_FOLDERS=str(corpus.path), JCODEMUNCH_LIVE_JOURNAL="0", **self.extra_env)
-            proc = subprocess.run([sys.executable, str(WORKER), str(corpus.path), str(store), str(out / "tasks.json"), str(out / "answers.json")],
+            proc = subprocess.run([sys.executable, str(WORKER), str(corpus.path), str(store), str(out / "tasks.json"), str(out / "answers.json"), *extra],
                                   env=env, text=True, capture_output=True, encoding="utf-8", errors="replace", timeout=1200)
             rc, tail = proc.returncode, (proc.stderr or proc.stdout)[-2000:]
         ap = out / "answers.json"
@@ -138,6 +142,16 @@ class JCodeMunch:
             raise RuntimeError("jcodemunch.index called before prepare(); the runner calls prepare with the task list")
         idx = out["index"]
         return IndexReport(seconds=idx.get("secs"), ok=bool(idx.get("success")), files_indexed=idx.get("file_count"), stderr_tail=str(idx.get("error") or ""))
+
+    def reindex_one(self, corpus: Corpus, path: str, scratch: Path):
+        """STANDARD 3(b) (CF-61): the worker's measured re-parse of the one file
+        through index_folder(paths=[...], force_reparse=True), the incremental
+        path; None (NOT COMPARABLE) when the worker did not measure it or the
+        re-index failed."""
+        r = (self._cache.get((corpus.id, str(scratch))) or {}).get("reindex_one")
+        if not r or not r.get("success") or r.get("secs") is None:
+            return None
+        return ReindexReport(seconds=r["secs"], path=r.get("path") or path, mode=r.get("mode") or "incremental")
 
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer:
         out = self._cache.get((corpus.id, str(scratch))) or {}

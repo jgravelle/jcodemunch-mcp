@@ -46,7 +46,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
-from adapter import JCM_NAME, SCHEMA, Corpus, Task, corpus_digest, read_file, validate  # noqa: E402
+from adapter import JCM_NAME, SCHEMA, Corpus, Task, corpus_digest, read_file, reindex_target, validate  # noqa: E402
 from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
 import corpora as corpora_mod  # noqa: E402
 import corpus_check  # noqa: E402
@@ -176,7 +176,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 # DESIGN s1.3/s9.2: a tool whose index step failed or timed out is a
                 # `not_runnable` row with its reason, never partial means over the
                 # tasks that happened to finish (review round 1, finding 2).
-                out[a.name][cid] = {"axes": {ax: None for ax in ("index_cold_seconds", "tokens_per_task", "calls_per_task", "latency_call_ms", "tools_list_tokens", *CATEGORY_F1.values())} | {"index_ok": False, "files_indexed": rep.files_indexed},
+                out[a.name][cid] = {"axes": {ax: None for ax in (*RATIO_AXES, *CATEGORY_F1.values())} | {"index_ok": False, "files_indexed": rep.files_indexed},
                                     "tasks": [], "index_error": rep.stderr_tail[:500],
                                     "not_runnable": ("timeout" if getattr(a, "timed_out", lambda *_: False)(corpus, sc) else "index failed: " + (rep.stderr_tail[:200] or "no output"))}
                 continue
@@ -189,8 +189,21 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                     "error": ans.error,
                 })
             scored = [p for p in per_task if not p["error"]]
+            # 3(b) one-file reindex cost (CF-61), AFTER every task so no answer pays
+            # for it. An adapter without the method is NOT COMPARABLE and the row
+            # says so; a tool with no incremental path says `full_reindex`.
+            target = reindex_target(corpus, ts)
+            rr = None
+            if target is None:
+                reindex = {"path": None, "mode": None, "note": "corpus has no file"}
+            elif hasattr(a, "reindex_one"):
+                rr = a.reindex_one(corpus, target, sc)
+                reindex = {"path": target, "mode": rr.mode if rr else None}
+            else:
+                reindex = {"path": target, "mode": None, "note": "adapter has no reindex_one (CF-61)"}
             axes: dict = {
                 "index_cold_seconds": rep.seconds,
+                "reindex_one_seconds": rr.seconds if rr else None,
                 "index_ok": rep.ok,
                 "files_indexed": rep.files_indexed,
                 "tokens_per_task": (statistics.mean(p["tokens"] for p in scored) if scored else None),
@@ -204,7 +217,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
             for cat, axis in CATEGORY_F1.items():
                 vals = [p["f1"] for p in scored if p["category"] == cat and p["f1"] is not None]
                 axes[axis] = statistics.mean(vals) if vals else None
-            out[a.name][cid] = {"axes": axes, "tasks": per_task, "index_error": rep.stderr_tail[:500]}
+            out[a.name][cid] = {"axes": axes, "tasks": per_task, "index_error": rep.stderr_tail[:500], "reindex_one": reindex}
     return out
 
 
@@ -286,6 +299,14 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
         if axis == "latency_call_ms":
             lines.append("")
             lines.append("Median wall time of ONE call, over every call of every task. The operations differ by tool (a symbol fetch, a whole-file read), so this is what an agent waits per call, not a like-for-like operation.")
+        if axis == "reindex_one_seconds":
+            lines.append("")
+            lines.append("Wall seconds of re-indexing ONE file the tool already holds, through its documented incremental path (STANDARD 3(b); CF-61). `full_reindex` is a tool whose only path re-indexes everything, charged as such. Per tool and corpus, the file and the mode from the first run:")
+            for t in tools:
+                for c in corpora:
+                    ri = ((result.get("runs") or [{}])[0].get(t, {}).get(c, {}) or {}).get("reindex_one")
+                    if ri:
+                        lines.append(f"- `{t}` on `{c}`: `{ri.get('path')}`, " + (ri.get("mode") or ri.get("note") or "NOT COMPARABLE"))
         lines.append("")
         lines.append("| tool | " + " | ".join(corpora) + " |")
         lines.append("|---|" + "---|" * len(corpora))

@@ -78,6 +78,33 @@ class Answer:
 
 
 @dataclass
+class ReindexReport:
+    """STANDARD criterion 3(b): the wall seconds of re-indexing ONE file the tool
+    already holds, through its documented incremental path (CF-61). `mode` is
+    `incremental`, or `full_reindex` when the tool's only path re-indexes
+    everything and reports that as its cost (DESIGN s2). An adapter returns
+    None for NOT COMPARABLE (no index step, or a failed one)."""
+    seconds: float
+    path: str
+    mode: str                          # "incremental" | "full_reindex"
+
+
+REINDEX_MODES = ("incremental", "full_reindex")
+
+
+def reindex_target(corpus: "Corpus", tasks: list["Task"]) -> Optional[str]:
+    """The one file `reindex_one` re-indexes on a corpus: the first expected file
+    of the corpus's tasks (a file every tool was asked about), else the corpus's
+    first file; None on an empty corpus. One rule, read by the runner and by our
+    worker, so the two never pick different files (a second copy is the drift
+    this project keeps paying for)."""
+    for t in tasks:
+        if t.corpus == corpus.id and t.expected:
+            return t.expected[0][0]
+    return corpus.files[0] if corpus.files else None
+
+
+@dataclass
 class IndexReport:
     seconds: Optional[float]           # None = NOT COMPARABLE (the tool has no index step)
     ok: bool
@@ -93,13 +120,18 @@ class Adapter(Protocol):
     interface: str                     # "mcp-stdio" | "cli" | "python" | "null"
 
     def index(self, corpus: Corpus, scratch: Path) -> IndexReport: ...
+    def reindex_one(self, corpus: Corpus, path: str, scratch: Path) -> Optional[ReindexReport]: ...
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer: ...
     def tools_list_tokens(self) -> Optional[int]: ...
     def version(self) -> str: ...
 
 
 def validate(adapter: object) -> Adapter:
-    """Refuse an adapter that could produce a row with a hole in it."""
+    """Refuse an adapter that could produce a row with a hole in it. `reindex_one`
+    is not required here: an adapter without it is a NOT COMPARABLE row that
+    SAYS the adapter lacks the method (run.py), which is a different fact from a
+    tool that has no incremental path, and each competitor adapter gains it in
+    its own PR (CF-61)."""
     for attr in ("name", "pin", "categories", "interface", "index", "answer", "tools_list_tokens", "version"):
         if not hasattr(adapter, attr):
             raise TypeError(f"adapter {adapter!r} lacks {attr}")
