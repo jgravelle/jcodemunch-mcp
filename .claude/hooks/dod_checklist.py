@@ -299,7 +299,7 @@ def main() -> int:
         )
 
     # 10 fast; bench when benchmarks/, harness/ or server.py changed
-    needs_bench = touched("benchmarks/", "harness/", "src/jcodemunch_mcp/server.py")
+    needs_bench = touched(*paths_for("bench"))  # W-43: the table's bench column
     bench = evidence("bench.md")
     bp = harness_pass(bench)
     if fp is None:

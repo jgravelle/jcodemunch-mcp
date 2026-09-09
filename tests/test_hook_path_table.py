@@ -77,6 +77,14 @@ def test_the_fast_trigger_is_narrower_than_the_stamp_under_benchmarks(common):
     assert {"stamp", "redgreen"} <= common.PATH_TABLE["benchmarks/"]
 
 
+def test_the_bench_trigger_is_the_tables_bench_column(common, dod):
+    # DoD item 10: the bench tier is required for benchmarks/, harness/ and the
+    # dispatcher; the checklist used to hold that as a fourth list of its own.
+    assert set(common.paths_for("bench")) == {"benchmarks/", "harness/", "src/jcodemunch_mcp/server.py"}
+    src = (HOOKS / "dod_checklist.py").read_text(encoding="utf-8")
+    assert 'touched(*paths_for("bench"))' in src
+
+
 def test_the_packaging_files_move_the_stamp_only(common):
     for p in ("pyproject.toml", "uv.lock"):
         assert common.PATH_TABLE[p] == {"stamp"}, p

@@ -42,21 +42,25 @@ EVIDENCE = STATE / "evidence"
 #   stamp    - the full tier's verdict depends on it (D5 tree identity)
 #   fast     - a commit touching it runs the fast tier first (H1)
 #   redgreen - a change under it needs a red/green pair (checklist row 1)
+#   bench    - a change under it needs the bench tier (checklist row 10)
 # `.claude/hooks/` moves the stamp and needs a pair, and does NOT trigger the
 # fast tier: harness/tiers.json's fast list carries no hook test, so that run
 # would judge nothing about the change; the full tier runs them.
-QUESTIONS = frozenset({"stamp", "fast", "redgreen"})
+QUESTIONS = frozenset({"stamp", "fast", "redgreen", "bench"})
 PATH_TABLE: dict[str, frozenset[str]] = {
     "src/": frozenset({"stamp", "fast", "redgreen"}),
     "tests/": frozenset({"stamp", "fast", "redgreen"}),
-    "harness/": frozenset({"stamp", "fast", "redgreen"}),
+    "harness/": frozenset({"stamp", "fast", "redgreen", "bench"}),
     "scripts/": frozenset({"stamp", "fast", "redgreen"}),
-    "benchmarks/": frozenset({"stamp", "redgreen"}),
+    "benchmarks/": frozenset({"stamp", "redgreen", "bench"}),
     "benchmarks/harness/": frozenset({"fast"}),
     ".github/": frozenset({"stamp", "fast"}),
     "pyproject.toml": frozenset({"stamp"}),
     "uv.lock": frozenset({"stamp"}),
     ".claude/hooks/": frozenset({"stamp", "redgreen"}),
+    # The dispatcher's latency Floors read it; under src/, so stamp/fast/redgreen
+    # already hold through the "src/" row, and this row adds the bench question.
+    "src/jcodemunch_mcp/server.py": frozenset({"bench"}),
 }
 
 
