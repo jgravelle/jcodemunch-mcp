@@ -92,6 +92,19 @@ def test_failed_discovery_preserves_persisted_symbols(indexed_tree, monkeypatch,
     assert persisted_symbols(database) == before
 
 
+def test_size_limited_empty_discovery_preserves_persisted_symbols(indexed_tree):
+    root, kwargs, database = indexed_tree
+    before = persisted_symbols(database)
+    assert len(before) == 2
+    files, _, counts = discover_local_files(root, max_size=1)
+    assert files == []
+    assert counts["too_large"] == 2
+    result = index_folder(**kwargs, max_size=1)
+    assert result["success"] is False, result
+    assert result["error"] == "No source files found"
+    assert persisted_symbols(database) == before
+
+
 def test_unreadable_sources_preserve_persisted_symbols(indexed_tree):
     root, kwargs, database = indexed_tree
     before = persisted_symbols(database)

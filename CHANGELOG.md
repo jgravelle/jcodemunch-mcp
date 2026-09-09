@@ -65,7 +65,7 @@ counted as `unreadable` rather than `binary` (`security.is_binary_file` gained a
 keyword-only `raise_on_error`, off by default, so existing callers are
 unchanged), a directory `os.walk` cannot enter is counted as `unreadable` and
 named in `warnings` while the rest of the tree is indexed, and an empty full
-scan with any `unreadable` or `file_limit` count fails and preserves the
+scan with any `unreadable`, `file_limit`, or `too_large` count fails and preserves the
 persisted index. Legitimate binary exclusions still allow the reconciliation.
 Because `unreadable` is a withheld reason, one unreadable file or directory
 records the index's coverage as incomplete and refuses absence claims
@@ -73,9 +73,8 @@ records the index's coverage as incomplete and refuses absence claims
 `corpus_inadequate`) until it is readable or excluded and the folder is
 re-indexed; those trees previously claimed complete coverage over files they
 never read.
-The watcher's moved-out lookup over the hash cache is one sort per batch plus a
-bisect per unknown deletion, so a deletion burst of non-indexed files no longer
-costs a full cache scan per path.
+The watcher's moved-out lookup over the hash cache uses one lazy sort per batch
+plus a bisect per unknown deletion until full discovery is required.
 
 ### Fixed - a `<script >` closed with a space before the bracket swallowed the markup after it (Razor and Astro)
 

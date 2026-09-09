@@ -2306,8 +2306,7 @@ def index_folder(
                     bool(requested_rels)
                     or (
                         paths is None
-                        and not skip_counts.get("unreadable")
-                        and not skip_counts.get("file_limit")
+                        and not any(skip_counts.get(reason) for reason in WITHHELD_SKIP_REASONS)
                     )
                 )
             )
