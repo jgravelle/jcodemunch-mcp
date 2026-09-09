@@ -76,3 +76,16 @@ def test_the_shipped_self_latency_step_declares_its_artifact():
     step = next(s for s in tiers["bench"] if s["name"] == "self_latency")
     assert step["artifact"] == ARTIFACT
     assert step["cmd"][step["cmd"].index("--out") + 1] == ARTIFACT, "the command's --out must name the declared artifact, or the substitution misses it"
+
+
+def test_every_step_that_declares_an_artifact_names_it_in_its_command_and_writes_under_results():
+    """The substitution is by string equality, so a step whose command spells the
+    path differently would write the tracked file again with every test green
+    (review round 1; Standing lesson 08-18: the ratchet over the property, not the
+    instance). Also: an artifact is a results file, nothing else in the tree."""
+    tiers = json.loads((REPO / "harness" / "tiers.json").read_text(encoding="utf-8"))
+    declared = [s for tier in tiers.values() if isinstance(tier, list) for s in tier if isinstance(s, dict) and s.get("artifact")]
+    assert declared, "the self_latency step declares an artifact; the scan found none"
+    for s in declared:
+        assert s["artifact"] in s["cmd"], (s["name"], s["artifact"], s["cmd"])
+        assert s["artifact"].startswith("harness/results/"), (s["name"], s["artifact"])
