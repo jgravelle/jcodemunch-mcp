@@ -6,10 +6,27 @@ import json
 import shutil
 import sqlite3
 import subprocess
+import time
 
 import pytest
 
 from jcodemunch_mcp import watcher
+
+
+def _persisted_symbols(database):
+    """Persisted rows, not the full-index cache shared with the writer thread.
+
+    The writer commits from a thread while this polls; on Windows the reader
+    can see a transient lock the busy timeout does not absorb, so retry it.
+    """
+    for attempt in range(40):
+        try:
+            with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
+                return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+        except sqlite3.OperationalError as error:
+            if "locked" not in str(error) or attempt == 39:
+                raise
+            time.sleep(0.05)
 
 
 @pytest.mark.asyncio
@@ -45,9 +62,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
     database = store.load_index(owner, name)._db_path
 
     def symbols():
-        # Assert persisted rows, not the full-index cache shared with the writer.
-        with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
-            return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+        return _persisted_symbols(database)
 
     before = symbols()
     assert ("before_arm", target_rel) in before
@@ -204,8 +219,7 @@ async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_g
     database = store.load_index(owner, name)._db_path
 
     def symbols():
-        with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
-            return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+        return _persisted_symbols(database)
 
     batches: asyncio.Queue = asyncio.Queue()
 
@@ -301,8 +315,7 @@ async def test_subdirectory_watch_reconciles_against_index_root_keys(tmp_path, m
     watched = foo if layout == "git_subdir" else root
 
     def symbols():
-        with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as connection:
-            return connection.execute("SELECT name, file FROM symbols ORDER BY name, file").fetchall()
+        return _persisted_symbols(database)
 
     assert ("before_watch", "packages/foo/code.py") in symbols()
     task = asyncio.create_task(watcher._watch_single(
