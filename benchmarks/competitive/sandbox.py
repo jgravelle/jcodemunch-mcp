@@ -21,6 +21,7 @@ fairness: identical flags for every tool including jcodemunch, so the
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import time
@@ -48,6 +49,35 @@ class BuildResult:
     seconds: float
     dockerfile_sha256: str
     size_bytes: int | None = None  # `docker image inspect {{.Size}}`; None when docker reported none (CF-61)
+    prerequisites: tuple[str, ...] = ()  # `prerequisites(dockerfile)`: system packages beyond the base image (CF-61)
+
+
+_APT_INSTALL = re.compile(r"apt-get\s+install\b(.*)")
+
+
+def prerequisites(dockerfile: Path) -> list[str]:
+    """The system packages a Dockerfile installs beyond its base image, sorted,
+    de-duplicated: every package named by an `apt-get install` in a RUN line
+    (flags dropped, backslash continuations joined, the command ending at the
+    next `&&`, `;` or `|`). Criterion 6's prerequisite count, a PROXY for
+    install friction and labelled as one (DESIGN s2, CF-61): pip and npm
+    dependencies are the package's own tree and are not counted, since the
+    proxy is what a user must already have before the package installs.
+    """
+    text = dockerfile.read_text(encoding="utf-8", errors="replace")
+    joined = re.sub(r"\\\r?\n", " ", text)
+    found: set[str] = set()
+    for line in joined.splitlines():
+        if not line.strip().startswith("RUN "):
+            continue
+        for seg in re.split(r"&&|;|\|", line):
+            m = _APT_INSTALL.search(seg)
+            if not m:
+                continue
+            for tok in m.group(1).split():
+                if not tok.startswith("-"):
+                    found.add(tok)
+    return sorted(found)
 
 
 @dataclass
@@ -89,7 +119,8 @@ def build(tag: str, dockerfile: Path, context: Path, timeout: int = 600) -> Buil
     # size is on the same inspect; both ride the pin record. An unreported size is
     # None, never 0 (a zero would read as a free image).
     return BuildResult(tag=tag, digest=digest, seconds=round(secs, 1), dockerfile_sha256=hashlib.sha256(dockerfile.read_bytes()).hexdigest(),
-                       size_bytes=int(size) if size.strip().isdigit() else None)
+                       size_bytes=int(size) if size.strip().isdigit() else None,
+                       prerequisites=tuple(prerequisites(dockerfile)))
 
 
 PRIVATE_TMPFS = ["--tmpfs", "/private:rw,uid=65534,gid=65534,mode=0700,size=1g"]

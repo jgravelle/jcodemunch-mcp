@@ -121,6 +121,10 @@ def test_standard_proposal_reads_the_target_verbatim_and_never_a_floor():
     text = "Floor: [`index.cold_self_seconds`] 2x the median.\nTarget: (b) under 1 s p95; (c) under 20 s cold on the self corpus in CI.\n"
     assert findings.read_target("index_cold_seconds", text) == ("Target: (b) under 1 s p95; (c) under 20 s cold on the self corpus in CI.", 20.0)
     assert findings.read_target("latency_call_ms", text) is None  # a p95 Target is not read against a per-call median
+    # 3(b)'s Target is a p95 too ("under 1 s p95 for a single edited file") and the
+    # reindex_one_seconds axis is a median of three runs, so it maps no row either (CF-61)
+    assert findings.read_target("reindex_one_seconds", text) is None
+    assert "reindex_one_seconds" not in findings.STANDARD_TARGETS
     key = "index_cold_seconds/other/self"
     prev = _line({key: 12.0, "index_cold_seconds/jcodemunch/self": 25.0})
     res = _result([_row("index_cold_seconds", "other", "self@c", 11.0, 25.0)])
