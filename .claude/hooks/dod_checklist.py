@@ -59,7 +59,9 @@ def evidence(name: str) -> str | None:
     return p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
 
 
-# W-38: the roots a red/green pair is REQUIRED for. Row 1 grades a pair that
+# W-38: the roots a red/green pair is REQUIRED for (this list serves row 1
+# only; pre_commit.CODE_ROOTS and _common.TIER_PATHS answer other questions,
+# W-43 names the three). Row 1 grades a pair that
 # exists whatever the path; the roots decide only whether an absent pair is
 # unmet or n.a. Three reviewers in one day graded the row by hand because
 # `.claude/hooks/`, `benchmarks/` and `tests/` were not on the old list.
@@ -75,7 +77,11 @@ def row1_verdict(changed: list[str], red: str | None, green: str | None) -> tupl
             "unmet",
             "evidence/red.txt (touched tests at the base ref, must fail) and evidence/green.txt (at HEAD, must pass) are required",
         )
-    red_fail = "EXIT=0" not in red.splitlines()[-1:] and "failed" in red.lower()
+    # A red run that dies at collection says `error`, not `failed`, and
+    # exits 2 (W-38 review; the remedy named EXIT=1 and EXIT=2 both).
+    red_fail = "EXIT=0" not in red.splitlines()[-1:] and (
+        "failed" in red.lower() or "error" in red.lower()
+    )
     green_ok = "EXIT=0" in green.splitlines()[-1:] or (
         " passed" in green.lower() and "failed" not in green.lower()
     )
@@ -144,10 +150,11 @@ def main() -> int:
     # 3 changelog
     if "no-changelog" in labels:
         row(3, "n.a.", "label no-changelog")
-    elif not src_changed and not touched("benchmarks/"):
-        # W-38: a benchmark change ships a CHANGELOG line like a product one;
-        # a test-only or hooks-only change triggers nothing (dod_changelog).
-        row(3, "n.a.", "no change under src/ or benchmarks/")
+    elif not src_changed:
+        # W-38 review: widening this gate is inert, because the authority it
+        # routes to (scripts/dod_changelog.py) requires an entry for src/ only;
+        # a wider gate here would read `met` with no entry (#508's shape).
+        row(3, "n.a.", "no change under src/")
     elif (
         git("diff", "--name-only", "--", "src/").strip()
         or git("diff", "--cached", "--name-only", "--", "src/").strip()

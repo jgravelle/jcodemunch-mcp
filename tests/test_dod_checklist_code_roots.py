@@ -64,6 +64,13 @@ def test_a_docs_only_change_without_the_pair_is_na(dod):
     assert "code root" in ev
 
 
+def test_a_red_that_dies_at_collection_still_counts_as_red(dod):
+    """pytest exits 2 and says `error`, not `failed`, when the module under test is absent (W-32)."""
+    collection_error = "ERROR tests/test_x.py - ImportError: cannot import name 'y'\n1 error in 0.5s\nEXIT=2\n"
+    verdict, _ = dod.row1_verdict(["src/x.py"], collection_error, GREEN)
+    assert verdict == "met"
+
+
 def test_a_pair_that_does_not_go_red_then_green_is_unmet(dod):
     verdict, _ = dod.row1_verdict(["src/x.py"], "3 passed\nEXIT=0\n", GREEN)
     assert verdict == "unmet"
