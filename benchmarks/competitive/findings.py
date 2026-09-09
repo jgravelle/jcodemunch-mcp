@@ -43,11 +43,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import trend  # noqa: E402
+from adapter import JCM_NAME  # noqa: E402
 from score import RATIO_AXES  # noqa: E402
 
 REPO = HERE.parents[1]
 STANDARD = REPO / "docs" / "standard" / "STANDARD.md"
-JCM = "jcodemunch"
+JCM = JCM_NAME
 HYPOTHESES = ("tool_not_called", "ranking", "coverage", "payload_shape", "index_missing_files", "unknown")
 LABELS = ("competitive-gap", "competitive-watch", "competitive-idea", "standard-proposal")
 FIXED_SENTENCE = "adoption is not implied; the tool-surface discipline (small front door, deep menu) is not moved by this"

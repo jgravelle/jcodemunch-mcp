@@ -71,9 +71,12 @@ note in the diff; the round-1 findings on those PRs were fairness-note
 items: a follow-up call uncharged, a default the README does not
 document). DESIGN §10 as written named "a fairness-note field"; there is
 no such field on `Pin` or `Adapter` and no result file carries the note,
-so a run cannot say which note it ran under. DESIGN §10 now names the
-file and the PR diff, the mechanism that exists; the missing field is
-CF-62.
+so a run could not say which note it ran under. DESIGN §10 now names the
+file and the PR diff, the mechanism that exists; the missing field was
+CF-62, closed 2026-09-08: each pin in the result header carries
+`fairness_note` and `fairness_sha256`, hashed from the note file at run
+time the way `scorer_sha256` hashes the scorer, so two files run under
+different notes read as such.
 
 The second half catches the tool that was silently not called:
 `task_check.py::tools_not_called` (called by `run.py`) lists every adapter

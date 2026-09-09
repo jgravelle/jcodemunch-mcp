@@ -26,6 +26,10 @@ code (reported only), T token task with no expected set (DESIGN s4.1)."""
 
 SCHEMA = "jcm-competitive-result/v1"
 
+JCM_NAME = "jcodemunch"
+"""Our own row's name, the REGISTRY key; run.py, findings.py and trend.py
+read it here rather than typing it (tests/test_competitive_fairness_digest.py)."""
+
 
 @dataclass(frozen=True)
 class Pin:
@@ -146,7 +150,7 @@ REGISTRY: dict[str, str] = {
     # fails its own row, not the run.
     "null_readall": "adapters.null_readall:make",
     "null_grep": "adapters.null_grep:make",
-    "jcodemunch": "adapters.jcodemunch:make",
+    JCM_NAME: "adapters.jcodemunch:make",
     "jcodemunch_counter": "adapters.jcodemunch:make_counter",  # our variant (DESIGN s5.3, CF-54): a row, never a competitor
     "cymbal": "adapters.cymbal:make",
     "codebase_memory": "adapters.codebase_memory:make",

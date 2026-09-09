@@ -453,8 +453,11 @@ Each Phase 4 line maps to a script flag or a test: three runs on one commit
 → the result file's raw triples and `spread`; misconfigured adapter → the
 adapter's fairness note (`docs/competitive/fairness/<tool>.md`, named in
 its module header), which the reviewer diffs against the Dockerfile and
-the adapter's call plan on that adapter's PR (Phase 4 found no such FIELD
-on a pin or in a result file, CF-62), plus `task_check`'s `cited`-empty
+the adapter's call plan on that adapter's PR, and which every result file
+names per pin as `fairness_note` and `fairness_sha256`, the note's bytes at
+run time, so a later edit to a note cannot be read back into an earlier
+file (Phase 4 found no such field, CF-62; `run.py::fairness_note`; a
+variant runs under its parent's note; a null has none), plus `task_check`'s `cited`-empty
 rule catching a tool that was silently not called; fabricated README → the feed and build
 paths with a fixture README; jcm-only task → `capability_only` exclusion
 test; inside/outside band → `findings.py` unit tests over synthetic result

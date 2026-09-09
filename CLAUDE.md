@@ -62,9 +62,12 @@ row, a summary and a draft are written by scripts (`findings.py`,
 review finding. ⚠⚠ **A competitor's README figure is never a measurement
 and competitor code runs only in the sandbox**; a release title is the
 only competitor text quoted, as `data`. ⚠ Losses are recorded unsoftened
-(CF-20; CF-51: our P2 is 0 on every corpus, a harness mapping defect and
-a real loss at once, since a user reaching for the same tool gets the
-same answer). The
+(CF-20; CF-51: our P2 read 0 on every recorded corpus because our own
+adapter asked the import-graph tool for a usage question, a harness
+mapping defect and a real loss at once, since a user reaching for the
+same tool gets the same answer; the adapter asks `check_references`
+since 2026-09-06 and the next recorded run carries it, the product-doc
+half is CF-63). The
 three scheduled jobs are OFF until a human sets `COMPETITIVE_POST_ENABLED`
 and creates the four labels (CF-57); nothing here touches marketing.
 Open findings: `docs/competitive/FINDINGS.md`.

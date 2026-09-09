@@ -29,9 +29,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from adapter import JCM_NAME
 from score import DIFF_AXES, RATIO_AXES
 
-JCM = "jcodemunch"
+JCM = JCM_NAME
 CLASSES = ("widened", "narrowed", "flipped", "unchanged")
 
 
