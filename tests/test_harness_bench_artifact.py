@@ -68,7 +68,9 @@ def test_a_failed_step_copies_nothing(scratch_repo, monkeypatch):
     result: dict = {"tiers": {}}
     assert hm.tier_bench(result, offline=True, write_results=True) is False
     assert not (scratch_repo / ARTIFACT).exists()
-    assert "self_latency" not in result["artifacts"] or "probe" not in result["artifacts"]["self_latency"]
+    # The failed step's own record survives; nothing replaces it with a stale tracked file.
+    assert result["artifacts"]["self_latency"]["rc"] == 3
+    assert "probe" not in result["artifacts"]["self_latency"]
 
 
 def test_the_shipped_self_latency_step_declares_its_artifact():
