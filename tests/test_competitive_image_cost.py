@@ -104,12 +104,18 @@ def test_the_summary_prints_build_seconds_and_size_beside_the_image(mods):
     run = mods["run"]
     pins = [{"name": "cymbal", "registry": "github-release", "package": "cymbal", "version": "0.14.0", "ran_as": "0.14.0",
              "image_digest": "sha256:0123456789abcdef", "image_build_seconds": 41.3, "image_size_bytes": 98765432},
+            {"name": "zero", "registry": "npm", "package": "z", "version": "1", "ran_as": "1",
+             "image_digest": "sha256:fedcba9876543210", "image_build_seconds": 2.0, "image_size_bytes": 0},
+            {"name": "unsized", "registry": "npm", "package": "u", "version": "1", "ran_as": "1",
+             "image_digest": "sha256:aaaaaaaaaaaaaaaa", "image_build_seconds": 3.0, "image_size_bytes": None},
             {"name": "null_grep", "registry": "none", "package": "grep", "version": "0", "ran_as": "0", "image_digest": None}]
     header = {"date": "d", "jcm_commit": "c", "jcm_version": "v", "runs": 3, "corpora": [], "sandbox": "docker",
               "tree_dirty": False, "scorer_sha256": "f" * 64, "pins": pins}
     md = run.render_md({"header": header, "rows": [], "runs": [], "capability_only": [], "tools_not_called": [], "not_runnable": []})
     assert "built in 41.3 s, 94.2 MiB" in md
-    assert md.count("built in") == 1  # the null has no image and no build line
+    # a reported zero and an unreported size are different facts and render differently (review round 1)
+    assert "built in 2.0 s, 0.0 MiB" in md and "built in 3.0 s)" in md
+    assert md.count("built in") == 3  # the null has no image and no build line
 
 
 def test_an_older_result_file_without_the_fields_still_renders(mods):
