@@ -113,7 +113,24 @@ def test_the_runner_records_the_axis_and_says_why_a_row_is_not_comparable(mods, 
     class Absent(Base):
         name = "absent"
 
-    out = run.run_once([Incremental(), Full(), Absent()], {"tiny@0": c}, tasks, tmp_path / "scratch")
+    class NoIndex(Base):
+        name = "noindex"
+
+        def reindex_one(self, corpus, path, scratch):
+            return None
+
+    class Failed(Base):
+        name = "failed"
+
+        def reindex_one(self, corpus, path, scratch):
+            return adapter.ReindexReport(seconds=None, path=path, mode=None, error="re-index raised: boom")
+
+    out = run.run_once([Incremental(), Full(), Absent(), NoIndex(), Failed()], {"tiny@0": c}, tasks, tmp_path / "scratch")
+    # four NOT COMPARABLE causes, four different rows (review round 1)
+    assert out["noindex"]["tiny@0"]["axes"]["reindex_one_seconds"] is None
+    assert out["noindex"]["tiny@0"]["reindex_one"] == {"path": "b.py", "mode": None, "note": "no index step"}
+    assert out["failed"]["tiny@0"]["axes"]["reindex_one_seconds"] is None
+    assert out["failed"]["tiny@0"]["reindex_one"] == {"path": "b.py", "mode": None, "note": "re-index raised: boom"}
     assert Incremental.seen == "b.py"
     assert out["inc"]["tiny@0"]["axes"]["reindex_one_seconds"] == 0.25
     assert out["inc"]["tiny@0"]["reindex_one"] == {"path": "b.py", "mode": "incremental"}
@@ -159,7 +176,8 @@ def test_our_worker_reparses_the_target_through_the_incremental_path(mods, tmp_p
     import subprocess
 
     adapter = mods["adapter"]
-    c = _corpus(adapter, tmp_path / "corpus") if (tmp_path / "corpus").mkdir() is None else None
+    (tmp_path / "corpus").mkdir()
+    c = _corpus(adapter, tmp_path / "corpus")
     store, out = tmp_path / "store", tmp_path / "out"
     store.mkdir()
     out.mkdir()
@@ -185,10 +203,11 @@ def test_our_adapter_reports_the_workers_measurement(mods, tmp_path):
                                        "reindex_one": {"secs": 0.3, "path": "b.py", "success": True, "mode": "incremental", "files_reparsed": 1}}
     r = a.reindex_one(c, "b.py", tmp_path)
     assert r == adapter.ReindexReport(seconds=0.3, path="b.py", mode="incremental")
-    a._cache[(c.id, str(tmp_path))]["reindex_one"] = {"secs": 0.3, "path": "b.py", "success": False, "mode": "incremental", "error": "x"}
-    assert a.reindex_one(c, "b.py", tmp_path) is None
+    # a failed re-index and an unmeasured one each carry their reason to the row (review round 1)
+    a._cache[(c.id, str(tmp_path))]["reindex_one"] = {"secs": 0.3, "path": "b.py", "success": False, "mode": None, "error": "boom"}
+    assert a.reindex_one(c, "b.py", tmp_path) == adapter.ReindexReport(seconds=None, path="b.py", mode=None, error="boom")
     del a._cache[(c.id, str(tmp_path))]["reindex_one"]
-    assert a.reindex_one(c, "b.py", tmp_path) is None
+    assert a.reindex_one(c, "b.py", tmp_path) == adapter.ReindexReport(seconds=None, path="b.py", mode=None, error="worker did not measure")
 
 
 def test_the_summary_names_the_mode_beside_the_axis(mods):

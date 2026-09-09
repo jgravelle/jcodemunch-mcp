@@ -146,11 +146,14 @@ class JCodeMunch:
     def reindex_one(self, corpus: Corpus, path: str, scratch: Path):
         """STANDARD 3(b) (CF-61): the worker's measured re-parse of the one file
         through index_folder(paths=[...], force_reparse=True), the incremental
-        path; None (NOT COMPARABLE) when the worker did not measure it or the
-        re-index failed."""
+        path. A failed re-index or one the worker did not measure is a report
+        with `seconds` None and the worker's error as the reason, so the row
+        says why it is NOT COMPARABLE (review round 1)."""
         r = (self._cache.get((corpus.id, str(scratch))) or {}).get("reindex_one")
-        if not r or not r.get("success") or r.get("secs") is None:
-            return None
+        if not r:
+            return ReindexReport(seconds=None, path=path, mode=None, error="worker did not measure")
+        if not r.get("success") or r.get("secs") is None:
+            return ReindexReport(seconds=None, path=r.get("path") or path, mode=r.get("mode"), error=str(r.get("error") or "re-index failed"))
         return ReindexReport(seconds=r["secs"], path=r.get("path") or path, mode=r.get("mode") or "incremental")
 
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer:

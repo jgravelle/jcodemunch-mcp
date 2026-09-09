@@ -70,7 +70,7 @@ class Adapter(Protocol):
 
     def image(self) -> str                        # build or reuse the pinned image; returns image digest
     def index(self, corpus: Corpus) -> IndexReport  # cold index inside the container; wall seconds, ok, stderr tail
-    def reindex_one(self, corpus, path, scratch) -> ReindexReport | None  # one-file incremental cost (seconds, path, mode incremental|full_reindex); None = NOT COMPARABLE; an adapter WITHOUT it is a NOT COMPARABLE row that says so (CF-61)
+    def reindex_one(self, corpus, path, scratch) -> ReindexReport | None  # one-file incremental cost (seconds, path, mode incremental|full_reindex, error); None = no index step; seconds None + error = failed or unmeasured, the row carries the error; an adapter WITHOUT it is a row that says so (CF-61)
     def answer(self, corpus: Corpus, task: Task) -> Answer
     def tools_list_tokens(self) -> int | None      # MCP servers only; None otherwise
     def version(self) -> str                        # read from the running tool, never from the pin

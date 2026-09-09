@@ -150,7 +150,7 @@ def main(argv: list[str]) -> int:
             out["reindex_one"] = {"secs": time.perf_counter() - t0, "path": reindex_file, "mode": mode,
                                   "success": bool(rr.get("success")), "files_reparsed": reparsed, "error": rr.get("error")}
         except Exception as e:  # the row is NOT COMPARABLE, not the run
-            out["reindex_one"] = {"secs": time.perf_counter() - t0, "path": reindex_file, "mode": "incremental",
+            out["reindex_one"] = {"secs": time.perf_counter() - t0, "path": reindex_file, "mode": None,
                                   "success": False, "files_reparsed": None, "error": f"{type(e).__name__}: {e}"}
     with open(answers_json, "w", encoding="utf-8") as fh:
         json.dump(out, fh)

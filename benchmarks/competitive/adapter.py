@@ -83,10 +83,14 @@ class ReindexReport:
     already holds, through its documented incremental path (CF-61). `mode` is
     `incremental`, or `full_reindex` when the tool's only path re-indexes
     everything and reports that as its cost (DESIGN s2). An adapter returns
-    None for NOT COMPARABLE (no index step, or a failed one)."""
-    seconds: float
+    None only for a tool with NO index step (the nulls); a re-index that failed
+    or was not measured is a report with `seconds` None and `error` naming why,
+    so the row carries the cause (review round 1; the CF-60 shape, an UNKNOWN
+    whose cause is dropped)."""
+    seconds: Optional[float]
     path: str
-    mode: str                          # "incremental" | "full_reindex"
+    mode: Optional[str]                # "incremental" | "full_reindex" | None when it did not run
+    error: Optional[str] = None
 
 
 REINDEX_MODES = ("incremental", "full_reindex")

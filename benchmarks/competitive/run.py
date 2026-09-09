@@ -198,12 +198,17 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 reindex = {"path": None, "mode": None, "note": "corpus has no file"}
             elif hasattr(a, "reindex_one"):
                 rr = a.reindex_one(corpus, target, sc)
-                reindex = {"path": target, "mode": rr.mode if rr else None}
+                if rr is None:
+                    reindex = {"path": target, "mode": None, "note": "no index step"}
+                elif rr.seconds is None:
+                    reindex = {"path": target, "mode": rr.mode, "note": rr.error or "not measured"}
+                else:
+                    reindex = {"path": target, "mode": rr.mode}
             else:
                 reindex = {"path": target, "mode": None, "note": "adapter has no reindex_one (CF-61)"}
             axes: dict = {
                 "index_cold_seconds": rep.seconds,
-                "reindex_one_seconds": rr.seconds if rr else None,
+                "reindex_one_seconds": rr.seconds if rr is not None else None,
                 "index_ok": rep.ok,
                 "files_indexed": rep.files_indexed,
                 "tokens_per_task": (statistics.mean(p["tokens"] for p in scored) if scored else None),
