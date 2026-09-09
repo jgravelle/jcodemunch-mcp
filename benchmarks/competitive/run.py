@@ -235,8 +235,13 @@ def pin_record(x) -> dict:
     its image when it had one, and the fairness note it ran under."""
     variant_of = getattr(x, "variant_of", None)
     note, digest = fairness_note(x.name, variant_of)
+    image = x.image() if hasattr(x, "image") and getattr(x, "_image", None) is not None else None
     return {"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface, "variant_of": variant_of,
-            "image_digest": (x.image().digest if hasattr(x, "image") and getattr(x, "_image", None) is not None else None),
+            "image_digest": image.digest if image else None,
+            # criterion 6, install friction, the measured half (CF-61): what the D2
+            # build cost, once per adapter per process; a header fact, not an axis
+            "image_build_seconds": image.seconds if image else None,
+            "image_size_bytes": getattr(image, "size_bytes", None) if image else None,
             "fairness_note": note, "fairness_sha256": digest}
 
 
@@ -267,7 +272,7 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
     lines.append("")
     lines.append(f"Sandbox: `{h.get('sandbox')}`" + (" (nulls and jcodemunch on the host; no competitor row can appear in a `none` run)" if h.get("sandbox") == "none" else " (every row in the D2 container: --network none, read-only rootfs, no capabilities, uid 65534, 8g, 512 pids)") + f"; tree dirty: {h.get('tree_dirty')}; scorer sha256 `{str(h.get('scorer_sha256'))[:12]}`")
     lines.append("")
-    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']}" + (f", image `{p['image_digest'][7:19]}`" if p.get('image_digest') else "") + (f", fairness `{p['fairness_sha256'][:12]}`" if p.get('fairness_sha256') else "") + ")" for p in h["pins"]))
+    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']}" + (f", image `{p['image_digest'][7:19]}`" if p.get('image_digest') else "") + (f", built in {p['image_build_seconds']} s" + (f", {p['image_size_bytes'] / 2**20:.1f} MiB" if p.get('image_size_bytes') else "") if p.get('image_build_seconds') is not None else "") + (f", fairness `{p['fairness_sha256'][:12]}`" if p.get('fairness_sha256') else "") + ")" for p in h["pins"]))
     lines.append("")
     tools = [p["name"] for p in h["pins"]]
     corpora = [c["id"] for c in h["corpora"]]

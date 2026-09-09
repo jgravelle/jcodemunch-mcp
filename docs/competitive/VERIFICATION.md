@@ -265,7 +265,9 @@ and image build seconds are in the build logs, not in a result file. A
 design that names an axis it does not measure invites exactly this
 argument. *Disposition: DESIGN §2 now marks both "designed, not measured
 (CF-61)"; FINDINGS CF-61 records the gap and what measuring each would
-take.*
+take. 2026-09-09: criterion 6's build seconds and image size are in
+every pin record (`image_build_seconds`, `image_size_bytes`); its
+prerequisite count and 3(b) stay open under CF-61.*
 
 **The set and the box.** *"You chose the competitors."* FIELD.md names the
 selection rule and the eight; a tool outside it is a FIELD edit, not a

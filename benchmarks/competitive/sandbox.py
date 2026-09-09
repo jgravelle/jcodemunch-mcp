@@ -47,6 +47,7 @@ class BuildResult:
     digest: str
     seconds: float
     dockerfile_sha256: str
+    size_bytes: int | None = None  # `docker image inspect {{.Size}}`; None when docker reported none (CF-61)
 
 
 @dataclass
@@ -82,9 +83,13 @@ def build(tag: str, dockerfile: Path, context: Path, timeout: int = 600) -> Buil
     secs = time.perf_counter() - t0
     if proc.returncode != 0:
         raise RuntimeError(f"docker build {tag} failed (rc {proc.returncode}):\n{proc.stderr[-3000:]}")
-    ins = subprocess.run(["docker", "image", "inspect", tag, "--format", "{{.Id}}"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
-    digest = ins.stdout.strip()
-    return BuildResult(tag=tag, digest=digest, seconds=round(secs, 1), dockerfile_sha256=hashlib.sha256(dockerfile.read_bytes()).hexdigest())
+    ins = subprocess.run(["docker", "image", "inspect", tag, "--format", "{{.Id}}|{{.Size}}"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+    digest, _, size = ins.stdout.strip().partition("|")
+    # criterion 6's measured half (CF-61): the seconds were already timed and the
+    # size is on the same inspect; both ride the pin record. An unreported size is
+    # None, never 0 (a zero would read as a free image).
+    return BuildResult(tag=tag, digest=digest, seconds=round(secs, 1), dockerfile_sha256=hashlib.sha256(dockerfile.read_bytes()).hexdigest(),
+                       size_bytes=int(size) if size.strip().isdigit() else None)
 
 
 PRIVATE_TMPFS = ["--tmpfs", "/private:rw,uid=65534,gid=65534,mode=0700,size=1g"]
