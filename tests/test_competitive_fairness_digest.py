@@ -103,10 +103,15 @@ def test_the_summary_names_each_pins_note_digest(mods):
 def test_our_rows_name_is_typed_once(mods):
     adapter, run, findings, trend = (mods[m] for m in ("adapter", "run", "findings", "trend"))
     assert adapter.JCM_NAME == "jcodemunch" and adapter.JCM_NAME in adapter.REGISTRY
-    assert findings.JCM is adapter.JCM_NAME and trend.JCM is adapter.JCM_NAME
-    assert run.DEFAULT_ADAPTERS[-1] is adapter.JCM_NAME
+    assert findings.JCM == adapter.JCM_NAME and trend.JCM == adapter.JCM_NAME
+    assert run.DEFAULT_ADAPTERS[-1] == adapter.JCM_NAME
+    # An `is` check would be vacuous: CPython interns identifier-shaped literals
+    # across modules, so a retyped `"jcodemunch"` IS the constant (review round 1).
+    # The scan is the ratchet: the quoted literal, as a token, in any code line of
+    # the three readers. On main it sat at run.py:57 (a tuple element), :223 (a
+    # default), :271 (a comparison), :304 (a comparison), findings.py:50, trend.py:34.
     for name in ("run.py", "findings.py", "trend.py"):
         src = (COMPETE / name).read_text(encoding="utf-8")
         code = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
-        # a comparison or a default typed against the literal is the second spelling this test refuses
-        assert not re.search(r'(==|!=|=|\bin\b)\s*"jcodemunch"', code), name
+        hits = [ln for ln in code.splitlines() if '"jcodemunch"' in ln or "'jcodemunch'" in ln]
+        assert not hits, (name, hits)
