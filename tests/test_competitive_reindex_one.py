@@ -29,6 +29,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 COMPETE = ROOT / "benchmarks" / "competitive"
 
+# Bound at COLLECTION time, before any fixture in any worker runs, so the
+# identity assertion below holds `Pin` as `adapters.jcodemunch` first saw it
+# under every xdist ordering, not only when the sandbox file ran first (review
+# round 1 of the F-25 identity PR).
+sys.path.insert(0, str(COMPETE))
+try:
+    _JCM_ADAPTER = importlib.import_module("adapters.jcodemunch")
+finally:
+    sys.path.remove(str(COMPETE))
+
 
 @pytest.fixture(scope="module")
 def mods():
@@ -240,13 +250,10 @@ def test_the_adapters_hold_the_same_pin_class_the_fixture_imported(mods):
     does to `sys.modules`, the `Pin` class `adapters.jcodemunch` bound at its
     import is the one `adapter.Pin` names now, or `validate`'s isinstance fails
     under one worker ordering. A scan over `sys.modules.pop` cannot see
-    `importlib.reload` or `sys.modules.clear()`; this can."""
-    sys.path.insert(0, str(COMPETE))
-    try:
-        jcm = importlib.import_module("adapters.jcodemunch")
-    finally:
-        sys.path.remove(str(COMPETE))
-    assert jcm.Pin is mods["adapter"].Pin
+    `importlib.reload` or `sys.modules.clear()`; this can. The adapter is the
+    module-scope `_JCM_ADAPTER`, imported at collection, so the check does not
+    need another file to have imported it first (review round 1)."""
+    assert _JCM_ADAPTER.Pin is mods["adapter"].Pin
 
 
 def test_no_competitive_test_pops_the_tier_modules():
