@@ -361,7 +361,14 @@ class TestTrustedFolders:
                 autospec=True,
                 side_effect=_resolve_only(tmp_path / "broad", _platform_path("/work")),
             ),
-            patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
+            # Narrow, not blanket: a blanket True makes ``store.has_index`` find an
+            # index at the scratch store, and an empty scan then reconciles
+            # against it instead of refusing (same narrowing as the UNC tests).
+            patch(
+                "jcodemunch_mcp.tools.index_folder.Path.exists",
+                autospec=True,
+                side_effect=lambda candidate: candidate == _platform_path("/work"),
+            ),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
             patch.object(
                 index_folder_module, "discover_local_files", return_value=([], [], {})
@@ -481,7 +488,14 @@ class TestTrustedFolders:
                 autospec=True,
                 side_effect=_resolve_only(tmp_path / "project", _platform_path("/work/project")),
             ),
-            patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
+            # Narrow, not blanket: a blanket True makes ``store.has_index`` find an
+            # index at the scratch store, and an empty scan then reconciles
+            # against it instead of refusing (same narrowing as the UNC tests).
+            patch(
+                "jcodemunch_mcp.tools.index_folder.Path.exists",
+                autospec=True,
+                side_effect=lambda candidate: candidate == _platform_path("/work/project"),
+            ),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
             patch.object(
                 index_folder_module, "discover_local_files", return_value=([], [], {})
@@ -921,7 +935,14 @@ class TestTrustedFolders:
                 autospec=True,
                 side_effect=_resolve_only(tmp_path / "work", _platform_path("/work")),
             ),
-            patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
+            # Narrow, not blanket: a blanket True makes ``store.has_index`` find an
+            # index at the scratch store, and an empty scan then reconciles
+            # against it instead of refusing (same narrowing as the UNC tests).
+            patch(
+                "jcodemunch_mcp.tools.index_folder.Path.exists",
+                autospec=True,
+                side_effect=lambda candidate: candidate == _platform_path("/work"),
+            ),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
             patch.object(
                 index_folder_module, "discover_local_files", return_value=([], [], {})
@@ -1297,7 +1318,14 @@ class TestWindowsDriveRootPathSafety:
                 autospec=True,
                 side_effect=_resolve_only(tmp_path / "repo", drive_root_repo),
             ),
-            patch("jcodemunch_mcp.tools.index_folder.Path.exists", return_value=True),
+            # Narrow, not blanket: a blanket True makes ``store.has_index`` find an
+            # index at the scratch store, and an empty scan then reconciles
+            # against it instead of refusing (same narrowing as the UNC tests).
+            patch(
+                "jcodemunch_mcp.tools.index_folder.Path.exists",
+                autospec=True,
+                side_effect=lambda candidate: candidate == drive_root_repo,
+            ),
             patch("jcodemunch_mcp.tools.index_folder.Path.is_dir", return_value=True),
             patch(
                 "jcodemunch_mcp.tools.index_folder.os.path.exists",
