@@ -60,7 +60,8 @@ src/jcodemunch_mcp/
     get_ranked_context.py   # Query-driven budgeted context (BM25 + PageRank)
     resolve_repo.py    # O(1) path→repo-ID lookup
     find_importers.py  # Files that import a given file (import graph); cross_repo param
-    find_references.py # Files that reference a given identifier. v1.108.96: _attach_scip_to_response unions SCIP compiler-verified reference edges (compile-time evidence P1)
+    find_references.py # Files that IMPORT or re-export a given identifier (import graph; who imports this). Not the usage-site tool: a call site is invisible to it, so `check_references.py` (imports + every content match) answers "where is this name used" (CF-51, CF-63, 2026-09-10). v1.108.96: _attach_scip_to_response unions SCIP compiler-verified reference edges (compile-time evidence P1)
+    check_references.py # Where an identifier is USED: import sites plus every file whose content mentions it, in one call; is_referenced (bool) for a quick dead-code check. The tool the usage question routes to on every steering surface since 2026-09-10
     test_summarizer.py # Diagnostic tool: probe AI summarizer, report status (disabled by default)
     package_registry.py # Cross-repo package registry: manifest parsing, registry building, specifier resolution
     get_cross_repo_map.py # Cross-repo dependency map at the package level
