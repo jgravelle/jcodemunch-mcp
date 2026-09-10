@@ -66,8 +66,10 @@ only competitor text quoted, as `data`. ⚠ Losses are recorded unsoftened
 adapter asked the import-graph tool for a usage question, a harness
 mapping defect and a real loss at once, since a user reaching for the
 same tool gets the same answer; the adapter asks `check_references`
-since 2026-09-06 and the next recorded run carries it, the product-doc
-half is CF-63). The
+since 2026-09-06 and the next recorded run carries it; the product half,
+CF-63, shipped 2026-09-10 (#658): seven steering surfaces route the usage
+question to `check_references`, and `tests/test_usage_question_routes_to_usage_tool.py`
+scans `src/` so an eighth inherits the rule). The
 three scheduled jobs are OFF until a human sets `COMPETITIVE_POST_ENABLED`
 and creates the four labels (CF-57); nothing here touches marketing.
 Open findings: `docs/competitive/FINDINGS.md`.
