@@ -334,7 +334,7 @@ _INSTRUCTION_TOOLS_FULL: tuple = (
     ("search_symbols", "a symbol by name; search_text for strings and config."),
     ("get_file_outline", "before opening any file."),
     ("get_symbol_source", "one id, or an array to batch."),
-    ("find_references", "every use of a name, before a rename or delete."),
+    ("find_references", "who imports a name; check_references for where it is used."),
 )
 
 _INSTRUCTION_TOOLS_COUNTER: tuple = (
@@ -2293,7 +2293,7 @@ def _build_tools_list(
         ),
         Tool(
             name="find_references",
-            description="Find all files that import or reference an identifier via the import graph. Answers 'where is this imported / re-exported?'. SCOPE: import sites + dbt `{{ ref() }}` edges + (when `include_call_chain=true`) symbols whose bodies textually mention the identifier. Does NOT exhaustively enumerate every call site across the codebase — for that, combine with search_text or use get_call_hierarchy on the resolved symbol_id. Use `identifiers` for batch queries.",
+            description="Find the files that import or re-export an identifier, via the import graph. Answers 'who imports this?'. SCOPE: import sites + dbt `{{ ref() }}` edges + (when `include_call_chain=true`) symbols whose bodies mention it. NOT the tool for 'where is this used': call sites are invisible to the import graph (a single-file library reports 0), so ask check_references or search_text. Use `identifiers` for batch queries.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2312,7 +2312,7 @@ def _build_tools_list(
         ),
         Tool(
             name="check_references",
-            description="Check if an identifier is referenced anywhere: imports + file content. Combines find_references and search_text into one call. Returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
+            description="Where is an identifier used: import sites plus every file whose content mentions it, in one call (find_references + search_text). Answers 'where is X used / referenced' and returns is_referenced (bool) for quick dead-code detection. Accepts multiple identifiers in one call via identifiers param. Content matches are capped at max_content_results (default 20), and a match inside a comment or string still counts as referenced.",
             inputSchema={
                 "type": "object",
                 "properties": {

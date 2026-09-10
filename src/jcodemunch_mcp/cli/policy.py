@@ -48,8 +48,8 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 
 **Relationships & impact:**
 - what imports this file → `find_importers`
-- where is this name used → `find_references`
-- is this identifier used anywhere → `check_references`
+- who imports this identifier → `find_references`
+- where is this name used (imports + every content match) → `check_references`
 - file dependency graph → `get_dependency_graph`
 - what breaks if I change X → `get_blast_radius`
 - what symbols actually changed since last commit → `get_changed_symbols`

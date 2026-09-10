@@ -489,8 +489,10 @@ _INTENT_RULES: list[tuple[re.Pattern, str, str]] = [
 
     (re.compile(r"\b(who )?calls?\b|\bcallers?\b|\bcall(ed)? by\b|\bcall (graph|hierarchy)\b", re.I),
      "get_call_hierarchy", "Trace callers/callees of a symbol."),
-    (re.compile(r"\bused? (by|where)\b|\breferences?\b|\bwhere is .* used\b", re.I),
-     "find_references", "Find where an identifier is referenced."),
+    (re.compile(r"\bused? (by|where)\b|\breferences?\b|\bwhere is .* used\b|\bis used\b", re.I),
+     "check_references", "Where an identifier is used: import sites plus every content match."),
+    (re.compile(r"\b(who|which files?) imports?\b|\bimported (by|where|or)\b|\bimporters? of\b|\bre-?exported\b", re.I),
+     "find_references", "Who imports an identifier, via the import graph."),
     (re.compile(r"\b(blast|impact|break|breaks?|affect|ripple|what changes)\b", re.I),
      "get_blast_radius", "Show what a change to a symbol would affect."),
     (re.compile(r"\bdead code\b|\bunused\b|\bunreachable\b", re.I),

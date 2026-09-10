@@ -122,7 +122,8 @@ _SEARCH_ROUTES = {
     "Grep": (
         "  - search_text     : same regex/substring scan, ranked + winnowed\n"
         "  - search_symbols  : when hunting a definition (function/class/const/type)\n"
-        "  - find_references / find_importers : 'where is X used / who imports this'"
+        "  - check_references : 'where is X used' (imports + every content match)\n"
+        "  - find_references / find_importers : 'who imports this identifier / file'"
     ),
     "Glob": (
         "  - get_file_tree   : ranked, token-budgeted file listing\n"

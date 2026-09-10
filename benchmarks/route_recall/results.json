@@ -4,12 +4,12 @@
     "catalog_actions": 91,
     "menu_recall": {
       "@1": 47.5,
-      "@3": 66.1,
+      "@3": 67.8,
       "@5": 74.6,
-      "@10": 78.0
+      "@10": 79.7
     },
     "route_recall": {
-      "@1": 71.2,
+      "@1": 72.9,
       "@3": 86.4
     },
     "blind_floor_kset": {
@@ -29,12 +29,12 @@
       }
     },
     "route_vs_floor_pts": {
-      "@1": 66.1,
+      "@1": 67.8,
       "@3": 72.8
     },
     "route_path_split": {
-      "rule": 24,
-      "fallback": 35
+      "rule": 25,
+      "fallback": 34
     },
     "route_misses": [
       "list functions longer than 50 lines with deep nesting in the parser",
@@ -52,7 +52,6 @@
       "find every place we swallow an exception without logging",
       "show me the body of this function",
       "I need this function plus everything it imports",
-      "who calls this",
       "what is the import chain from this file outward",
       "what are the natural modules in this system",
       "how concentrated is this codebase and how deep does it nest",
@@ -63,7 +62,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.133,
-      "mean_desc_overlap": 0.358,
+      "mean_desc_overlap": 0.366,
       "queries_containing_target_name_token": 19,
       "high_leak_queries": [
         "what columns does the orders model have",
@@ -129,8 +128,8 @@
       "route_path": "rule",
       "menu_top3": [
         "find_similar_symbols",
-        "find_references",
-        "find_unused_paths"
+        "find_unused_paths",
+        "find_dead_code"
       ],
       "route_proposed": [
         "search_ast",
@@ -416,19 +415,19 @@
         "find_references",
         "get_call_hierarchy"
       ],
-      "menu_rank": null,
+      "menu_rank": 2,
       "route_rank": 1,
       "route_path": "rule",
       "menu_top3": [
         "check_edit_safe",
-        "get_symbol_provenance",
-        "check_embedding_drift"
+        "find_references",
+        "get_symbol_provenance"
       ],
       "route_proposed": [
         "get_call_hierarchy"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.333
+      "leak_desc": 0.667
     },
     {
       "query": "which files import this module",
@@ -438,17 +437,15 @@
         "find_references"
       ],
       "menu_rank": 2,
-      "route_rank": 2,
-      "route_path": "fallback",
+      "route_rank": 1,
+      "route_path": "rule",
       "menu_top3": [
         "import_runtime_signal",
         "find_importers",
         "get_coupling_metrics"
       ],
       "route_proposed": [
-        "import_runtime_signal",
-        "find_importers",
-        "get_coupling_metrics"
+        "find_references"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.6
@@ -461,19 +458,19 @@
         "check_references",
         "find_references"
       ],
-      "menu_rank": 5,
+      "menu_rank": 8,
       "route_rank": null,
       "route_path": "rule",
       "menu_top3": [
-        "find_unused_paths",
+        "get_parity_map",
         "get_group_contracts",
-        "get_parity_map"
+        "find_unused_paths"
       ],
       "route_proposed": [
         "search_text"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.333
+      "leak_desc": 0.417
     },
     {
       "query": "what does this class inherit from and what extends it",
@@ -506,13 +503,13 @@
       "route_path": "fallback",
       "menu_top3": [
         "get_dependency_cycles",
-        "check_references",
-        "check_rename_safe"
+        "check_rename_safe",
+        "find_references"
       ],
       "route_proposed": [
         "get_dependency_cycles",
-        "check_references",
-        "check_rename_safe"
+        "check_rename_safe",
+        "find_references"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.2
@@ -572,12 +569,12 @@
       "menu_top3": [
         "get_symbol_provenance",
         "get_context_bundle",
-        "check_edit_safe"
+        "get_dependency_cycles"
       ],
       "route_proposed": [
         "get_symbol_provenance",
         "get_context_bundle",
-        "check_edit_safe"
+        "get_dependency_cycles"
       ],
       "leak_name": 0.0,
       "leak_desc": 0.444
@@ -1160,12 +1157,12 @@
       "menu_top3": [
         "index_folder",
         "get_delivery_metrics",
-        "get_repo_map"
+        "find_references"
       ],
       "route_proposed": [
         "index_folder",
         "get_delivery_metrics",
-        "get_repo_map"
+        "find_references"
       ],
       "leak_name": 0.5,
       "leak_desc": 0.1
