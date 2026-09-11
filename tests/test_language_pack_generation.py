@@ -117,8 +117,12 @@ def test_no_loader_site_bypasses_the_wrapper():
         if path.name == "grammar_pack.py":
             continue
         for no, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            if re.search(r"from\s+tree_sitter_language_pack\s+import\s+.*\bget_parser\b", line) or \
-               re.search(r"tree_sitter_language_pack\.get_parser\b", line):
+            # Any spelling of the pack import: `from ... import get_parser`, the
+            # dotted call, or `import tree_sitter_language_pack as X` (the alias
+            # form grammar_pack.py itself uses for cache_dir, so it exists in
+            # the tree; a ratchet that skipped it would pass against the defect).
+            if re.search(r"^\s*(from|import)\s+tree_sitter_language_pack\b", line) or \
+               re.search(r"\btree_sitter_language_pack\.", line):
                 offenders.append(f"{path.relative_to(src_root)}:{no}: {line.strip()}")
     assert not offenders, "\n".join(offenders)
 
