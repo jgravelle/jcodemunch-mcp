@@ -27,11 +27,14 @@ DENIED = [
         # name, or a create/sign/force/delete flag), not any two words after the
         # verb: prose such as "the git tag rule" is not a tag. The read forms
         # (`--list`, `--sort`, `--contains`, ...) fall outside by construction.
-        r"\bgit\s+tag\s+(?:(?:-[asfdm]|--force|--delete|--annotate|--sign|--message)\b|v\d)",
+        # A combined short flag (`-am msg`) is the same act (review round 1).
+        # Residual, recorded in W-44: a lightweight non-`v` name (`git tag foo`)
+        # is refused by neither list, and neither is its push by bare name.
+        r"\bgit\s+tag\s+(?:-[asfdm]\w*|--force\b|--delete\b|--annotate\b|--sign\b|--message\b|v\d)",
         "a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
-        r"\bgit\s+push\b[^|;&]*\s(?:--tags|v\d)",
+        r"\bgit\s+push\b[^|;&]*\s(?:--tags\b|v\d|refs/tags/)",
         "pushing a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
@@ -79,15 +82,18 @@ DENIED = [
     ),
     # W-44: `twine check` is RUNBOOK 1a's own gate line and a grep may carry the
     # word; only the upload is irreversible.
+    # Flags may sit between the binary and its verb (`twine --no-color upload`),
+    # as `settings.json`'s `*twine upload*` glob already admits (review round 1).
     (
-        r"\btwine\s+(?:upload|register)\b",
+        r"\btwine\b(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+(?:upload|register)\b",
         "a PyPI upload; RUNBOOK section 1a is the human's hand-finish",
     ),
     # W-44: `--version`/`--help` and prose naming the binary are not a publish.
     # `login` stays refused: it writes live credential files into the CWD and
-    # is the human's device flow. Optional `.exe"` between name and verb.
+    # is the human's device flow. Optional `.exe"` and flags between name and
+    # verb; `--help`/`-h` anywhere after the verb is a read.
     (
-        r"mcp-publisher(?:\.exe)?[\"']?\s+(?:publish|login)\b(?!\s+(?:--help|-h)\b)",
+        r"mcp-publisher(?:\.exe)?[\"']?(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+(?:publish|login)\b(?!(?:\s+\S+)*\s+(?:--help|-h)\b)",
         "a registry publish; release.yml publishes",
     ),
 ]

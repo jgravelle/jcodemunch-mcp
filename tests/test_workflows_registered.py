@@ -124,8 +124,13 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
     for bare in ("Bash(twine*)", "Bash(uvx --from twine*)", "Bash(*mcp-publisher*)", "Bash(gh release*)",
                  "PowerShell(*twine*)", "PowerShell(*mcp-publisher*)", "PowerShell(gh release*)"):
         assert bare not in deny, f"deny list matches a word, not an act: `{bare}` (W-44)"
-    for act in ("twine upload", "mcp-publisher* publish", "mcp-publisher* login", "gh release create", "gh release delete"):
-        assert act in joined, f"deny list lost the act `{act}` (W-44)"
+    # per shell, not across the joined text: a PowerShell act entry dropping out while its
+    # Bash twin remains must fail (review round 1)
+    for shell in ("Bash", "PowerShell"):
+        for act in ("twine upload", "mcp-publisher* publish", "mcp-publisher* login", "gh release create", "gh release delete"):
+            assert any(e.startswith(f"{shell}(") and act in e for e in deny), (
+                f"deny list lost the act `{act}` on {shell} (W-44)"
+            )
     for verb in ("gh pr comment", "gh pr edit", "gh pr close", "gh issue comment", "gh issue close", "gh api"):
         assert verb not in joined, f"deny list refuses `{verb}` again; posting is the session's (W-40)"
 

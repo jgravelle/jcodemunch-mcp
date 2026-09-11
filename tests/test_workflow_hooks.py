@@ -121,6 +121,16 @@ def edit(path: Path) -> dict:
         ("gh " + "release upload v9 dist/*", True),
         ("gh " + "release -R x/y create v9", True),  # flags before the verb
         ("printf '%s' 'the git tag rule has no read form' > msg.txt", False),  # prose naming the tag rule
+        # review round 1: a combined short flag is the same act; flags between the
+        # binary and its verb are the glob's `*twine upload*` shape; `--help` after
+        # the verb's argument is still a read; a tag pushed by its ref path.
+        ("git " + "tag -am 'msg' v1.0", True),
+        ("git " + "tag -a v1.0 -m msg", True),
+        ("git push origin refs/" + "tags/foo", True),
+        ("mcp-" + "publisher --registry https://x publish", True),
+        ("python -m " + "twine --no-color upload dist/*", True),
+        ("uvx --from " + "twine twine --no-color check dist/*", False),
+        ('"C:\\Users\\j\\mcp-' + 'publisher.exe" login github --help', False),
     ],
 )
 def test_deny_guard_refuses_exactly_the_forbidden_verbs(command, expect_block):
