@@ -65,9 +65,9 @@ then the post-publish smoke from PyPI in a fresh venv
 (`scripts\handshake.py --expect-version X.Y.Z --command <venv>\Scripts\jcodemunch-mcp.exe --fixture testsixtures\pkg_smoke`),
 `gh release create vX.Y.Z dist-ci\* --title ... --notes-file ...` with the
 notes rendered from the CHANGELOG block, and the registry line from
-CLAUDE.md. Re-try the publisher registration on PyPI before each release;
-when it finally lists one, this section is deleted and `~/.pypirc` is
-revoked (§5).
+CLAUDE.md. The publisher is listed on PyPI since 2026-09-11 (FINDINGS C-15);
+the next dispatched run is the proof. When `release: pypi` passes once,
+this section is deleted and `~/.pypirc` is revoked (§5).
 
 ## 2. Read a failed check
 
