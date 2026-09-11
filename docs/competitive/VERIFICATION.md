@@ -71,9 +71,12 @@ note in the diff; the round-1 findings on those PRs were fairness-note
 items: a follow-up call uncharged, a default the README does not
 document). DESIGN §10 as written named "a fairness-note field"; there is
 no such field on `Pin` or `Adapter` and no result file carries the note,
-so a run cannot say which note it ran under. DESIGN §10 now names the
-file and the PR diff, the mechanism that exists; the missing field is
-CF-62.
+so a run could not say which note it ran under. DESIGN §10 now names the
+file and the PR diff, the mechanism that exists; the missing field was
+CF-62, closed 2026-09-08: each pin in the result header carries
+`fairness_note` and `fairness_sha256`, hashed from the note file at run
+time the way `scorer_sha256` hashes the scorer, so two files run under
+different notes read as such.
 
 The second half catches the tool that was silently not called:
 `task_check.py::tools_not_called` (called by `run.py`) lists every adapter
@@ -262,7 +265,15 @@ and image build seconds are in the build logs, not in a result file. A
 design that names an axis it does not measure invites exactly this
 argument. *Disposition: DESIGN §2 now marks both "designed, not measured
 (CF-61)"; FINDINGS CF-61 records the gap and what measuring each would
-take.*
+take. 2026-09-09: criterion 6's build seconds and image size are in
+every pin record (`image_build_seconds`, `image_size_bytes`); its
+prerequisite count followed the same day (`prerequisites`,
+`prerequisite_count`, from the sandbox Dockerfile's apt lines, a proxy
+labelled as one). Same day, 3(b) is the
+`reindex_one_seconds` axis: measured for our row through the
+incremental path on one file both sides pick by one rule, NOT
+COMPARABLE with the reason named for every competitor adapter until its
+own PR implements `reindex_one`.*
 
 **The set and the box.** *"You chose the competitors."* FIELD.md names the
 selection rule and the eight; a tool outside it is a FIELD edit, not a

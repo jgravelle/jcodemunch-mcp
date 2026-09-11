@@ -35,17 +35,44 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 STATE = REPO / ".claude" / "state"
 EVIDENCE = STATE / "evidence"
+# W-43: ONE table of paths, with the questions each answers, from which the
+# three hook lists are projected. The lists grew apart with three memberships
+# (a hooks-only commit skipped the fast tier while the checklist called the
+# same edit a code change, and a hook edit left the D5 stamp valid).
+#   stamp    - the full tier's verdict depends on it (D5 tree identity)
+#   fast     - a commit touching it runs the fast tier first (H1)
+#   redgreen - a change under it needs a red/green pair (checklist row 1)
+#   bench    - a change under it needs the bench tier (checklist row 10)
+# `.claude/hooks/` moves the stamp and needs a pair, and does NOT trigger the
+# fast tier: harness/tiers.json's fast list carries no hook test, so that run
+# would judge nothing about the change; the full tier runs them.
+QUESTIONS = frozenset({"stamp", "fast", "redgreen", "bench"})
+PATH_TABLE: dict[str, frozenset[str]] = {
+    "src/": frozenset({"stamp", "fast", "redgreen"}),
+    "tests/": frozenset({"stamp", "fast", "redgreen"}),
+    "harness/": frozenset({"stamp", "fast", "redgreen", "bench"}),
+    "scripts/": frozenset({"stamp", "fast", "redgreen"}),
+    "benchmarks/": frozenset({"stamp", "redgreen", "bench"}),
+    "benchmarks/harness/": frozenset({"fast"}),
+    ".github/": frozenset({"stamp", "fast"}),
+    "pyproject.toml": frozenset({"stamp"}),
+    "uv.lock": frozenset({"stamp"}),
+    ".claude/hooks/": frozenset({"stamp", "redgreen"}),
+    # The dispatcher's latency Floors read it; under src/, so stamp/fast/redgreen
+    # already hold through the "src/" row, and this row adds the bench question.
+    "src/jcodemunch_mcp/server.py": frozenset({"bench"}),
+}
+
+
+def paths_for(question: str) -> tuple[str, ...]:
+    """The paths that answer one question, in table order."""
+    if question not in QUESTIONS:
+        raise ValueError(f"unknown question {question!r}; one of {sorted(QUESTIONS)}")
+    return tuple(p for p, qs in PATH_TABLE.items() if question in qs)
+
+
 # What the full tier's verdict depends on (tree identity for the D5 stamp).
-TIER_PATHS = (
-    "src",
-    "tests",
-    "harness",
-    "scripts",
-    "benchmarks",
-    "pyproject.toml",
-    "uv.lock",
-    ".github",
-)
+TIER_PATHS = paths_for("stamp")
 
 
 def _rebind_repo(cwd: str | None) -> None:

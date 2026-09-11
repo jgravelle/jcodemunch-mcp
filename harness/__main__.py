@@ -680,7 +680,7 @@ def tier_full(result: dict) -> bool:
     return ok
 
 
-def tier_bench(result: dict, *, offline: bool) -> bool:
+def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> bool:
     t0 = time.perf_counter()
     ok = True
     arts: dict = {}
@@ -690,6 +690,18 @@ def tier_bench(result: dict, *, offline: bool) -> bool:
             arts[step["name"]] = {"skipped": "offline"}
             continue
         cmd = list(step["cmd"])
+        # F-23: a step's tracked artifact is written to scratch and copied into
+        # the tree only under --write-results; a plain run on a branch leaves
+        # the tracked file alone (latest.json was already scratch-first, W-29).
+        scratch_art = None
+        if step.get("artifact"):
+            import tempfile
+
+            scratch_art = (
+                Path(tempfile.mkdtemp(prefix="harness-artifact-"))
+                / Path(step["artifact"]).name
+            )
+            cmd = [str(scratch_art) if c == step["artifact"] else c for c in cmd]
         if step.get("self_index"):
             import shutil
             import tempfile
@@ -710,16 +722,31 @@ def tier_bench(result: dict, *, offline: bool) -> bool:
         rc, out, secs = _run([PY, *cmd])
         if step.get("self_index"):
             shutil.rmtree(store, ignore_errors=True)
-        tail = "\n".join(out.strip().splitlines()[-3:])
-        print(f"   rc={rc} {secs:.1f}s\n   " + tail.replace("\n", "\n   "))
+        lines = out.strip().splitlines()
+        tail = "\n".join(lines[-3:])
+        # F-24: every Floor verdict the step printed reaches the tee, not only
+        # the three-line tail (measure.py prints its six verdicts last, and the
+        # summary carried two of them). The tail shown excludes the verdicts so
+        # none is printed twice; the record keeps the raw tail for the log.
+        verdicts = [ln for ln in lines if _VERDICT_RE.match(ln.strip())]
+        rest = [ln for ln in lines if not _VERDICT_RE.match(ln.strip())]
+        shown = verdicts + rest[-3:]
+        print(f"   rc={rc} {secs:.1f}s\n   " + "\n   ".join(shown))
         arts[step["name"]] = {"rc": rc, "seconds": round(secs, 2), "tail": tail}
         if rc != 0:
             ok = False
         if step.get("restore"):
             subprocess.run(["git", "checkout", "--", *step["restore"]], cwd=REPO)
-    lat = RESULTS_DIR / "self_latency.json"
-    if lat.exists():
-        arts["self_latency"] = json.loads(lat.read_text(encoding="utf-8"))
+        if scratch_art is not None:
+            if rc == 0 and scratch_art.exists():
+                arts[step["name"]] = json.loads(scratch_art.read_text(encoding="utf-8"))
+                if write_results:
+                    dest = REPO / step["artifact"]
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(scratch_art.read_bytes())
+            import shutil
+
+            shutil.rmtree(scratch_art.parent, ignore_errors=True)
     wall = time.perf_counter() - t0
     result["tiers"]["bench"] = {"seconds": round(wall, 2), "ok": ok}
     result["artifacts"] = arts
@@ -838,7 +865,7 @@ def _dispatch(a) -> int:
     if a.command in ("full", "all"):
         ok = tier_full(result) and ok
     if a.command in ("bench", "all"):
-        ok = tier_bench(result, offline=a.offline) and ok
+        ok = tier_bench(result, offline=a.offline, write_results=a.write_results) and ok
     if a.write_results:
         print("results ->", write_results(result))
     print("HARNESS", "PASS" if ok else "FAIL")

@@ -186,6 +186,7 @@
         "--out",
         "harness/results/self_latency.json"
       ],
+      "artifact": "harness/results/self_latency.json",
       "thresholds": [
         "latency.search_symbols_warm_p95_ms",
         "latency.search_text_warm_p95_ms",

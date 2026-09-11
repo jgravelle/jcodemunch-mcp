@@ -94,7 +94,7 @@ jobs:
           python benchmarks/competitive/post.py --drafts ledger-branch/competitive/drafts --repo "$REPO" --apply --summary "$RUNNER_TEMP/audit/post-summary.json"
           cd ledger-branch
           git config user.name "$APP_LOGIN"
-          git config user.email "inbound@users.noreply.github.com"
+          git config user.email "325112034+jcodemunch-inbound[bot]@users.noreply.github.com"
           git add -A competitive/drafts
           git diff --cached --quiet || git commit -q -m "competitive post: $(date -u +%Y-%m-%d)"
           git push origin HEAD:inbound-ledger

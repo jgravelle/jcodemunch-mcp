@@ -206,7 +206,7 @@ jobs:
         run: |
           cd ledger-branch
           git config user.name "$APP_LOGIN"
-          git config user.email "inbound@users.noreply.github.com"
+          git config user.email "325112034+jcodemunch-inbound[bot]@users.noreply.github.com"
           git add -A competitive/
           git diff --cached --quiet || git commit -q -m "competitive run: $(date -u +%Y-%m-%d) ($(cat "$RUNNER_TEMP/out/reason.txt" 2>/dev/null || echo unknown))"
           git push origin HEAD:inbound-ledger

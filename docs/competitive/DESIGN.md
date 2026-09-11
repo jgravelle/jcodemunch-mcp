@@ -70,7 +70,7 @@ class Adapter(Protocol):
 
     def image(self) -> str                        # build or reuse the pinned image; returns image digest
     def index(self, corpus: Corpus) -> IndexReport  # cold index inside the container; wall seconds, ok, stderr tail
-    def reindex_one(self, corpus, path) -> float | None   # one-file incremental cost; None = NOT COMPARABLE
+    def reindex_one(self, corpus, path, scratch) -> ReindexReport | None  # one-file incremental cost (seconds, path, mode incremental|full_reindex, error); None = no index step; seconds None + error = failed or unmeasured, the row carries the error; an adapter WITHOUT it is a row that says so (CF-61)
     def answer(self, corpus: Corpus, task: Task) -> Answer
     def tools_list_tokens(self) -> int | None      # MCP servers only; None otherwise
     def version(self) -> str                        # read from the running tool, never from the pin
@@ -162,12 +162,12 @@ default (D3), with the `counter` figure reported beside it as a variant.
 | 1(b) retrieval quality | **COMPARABLE** as F1 per task category on the shared task set (§4), with the field's line tolerances; MRR/nDCG where a tool returns a ranked list, else F1 only | the axis the field weighs and we have never measured against a product |
 | 1(c) goldset channel recall | NOT COMPARABLE | `find_implementations` channels are ours |
 | 2 tokens per task | **COMPARABLE** | cl100k over `Answer.payload`, per task, per corpus; ratio vs `null_grep` and vs `null_readall` on the same row (R22-R31); tool-call count beside it |
-| 3(b) one-file reindex cost | COMPARABLE where the tool has an incremental path in its docs, else NOT COMPARABLE per tool. **Designed, not measured (CF-61)** | `reindex_one` on the same edited file; a tool whose only path is full re-index reports that as its cost, labelled `full_reindex` |
+| 3(b) one-file reindex cost | COMPARABLE where the tool has an incremental path in its docs, else NOT COMPARABLE per tool. MEASURED as the `reindex_one_seconds` axis for our own row since 2026-09-09; **each competitor adapter gains `reindex_one` in its own PR and reads NOT COMPARABLE, "adapter has no reindex_one", until then (CF-61)** | `reindex_one` on ONE file both the runner and the worker pick by one rule (`adapter.reindex_target`: the first expected file of the corpus's tasks, else its first file), measured AFTER every task so no answer pays for it; a tool whose only path is full re-index reports that as its cost, labelled `full_reindex`. The file is re-parsed through the tool's incremental path, not edited: a pinned corpus is a checkout and the container mounts it read-only, and the cost is the re-parse and the incremental save, not the edit. Ours: `index_folder(paths=[file], force_reparse=True)`, the watcher's and `refresh`'s path, with the tool's own `performed_incremental` naming the mode |
 | 3(c) cold index time | **COMPARABLE** | `index` wall seconds inside the container, same corpus, same CPU limit |
 | 3(a) freshness property | NOT COMPARABLE | a property of our read paths |
 | 4 tool-surface | COMPARABLE for MCP servers (`tools/list` token weight, cl100k, the zhang-liz shape); NOT COMPARABLE for CLI tools (reported as `interface: cli`, 0 schema cost, which is a real advantage and is said so) | our counter/core ceilings stay ours |
 | 5 latency | **COMPARABLE** | per-call cold and warm p50/p95 over the task set, same container, same limits |
-| 6 install friction | PARTIALLY. **Designed, not measured (CF-61)** | image build seconds and image size, and the count of prerequisites the Dockerfile had to install beyond the package (a proxy, labelled as one); the handshake and config-parity halves are ours |
+| 6 install friction | PARTIALLY. Image build seconds and image size MEASURED per pin in the result header (`image_build_seconds`, `image_size_bytes`, from the D2 build and its `docker image inspect`, 2026-09-09; a header fact, once per adapter per process, not a per-corpus axis). The prerequisite count MEASURED per pin since 2026-09-09 (`prerequisites`, `prerequisite_count`: every package the sandbox Dockerfile's `apt-get install` lines name, CF-61) | the count of system packages the Dockerfile had to install beyond its base image (a proxy, labelled as one: the Dockerfiles are ours, it includes what the sandbox needs to fetch a release and build tools purged after use, excludes the package's own pip or npm tree, and reads None for a spelling the parser does not read); the handshake and config-parity halves are ours |
 | 7, 8, 9 | NOT COMPARABLE | properties of a codebase and its release process; the loop reports the pin and licence and nothing else |
 | 10 breadth | REPORTED, not scored | the tool's claimed language count (`claims`, FIELD.md) beside the count of corpus files it actually indexed (`measured`); the second number is the honest one |
 
@@ -453,8 +453,11 @@ Each Phase 4 line maps to a script flag or a test: three runs on one commit
 → the result file's raw triples and `spread`; misconfigured adapter → the
 adapter's fairness note (`docs/competitive/fairness/<tool>.md`, named in
 its module header), which the reviewer diffs against the Dockerfile and
-the adapter's call plan on that adapter's PR (Phase 4 found no such FIELD
-on a pin or in a result file, CF-62), plus `task_check`'s `cited`-empty
+the adapter's call plan on that adapter's PR, and which every result file
+names per pin as `fairness_note` and `fairness_sha256`, the note's bytes at
+run time, so a later edit to a note cannot be read back into an earlier
+file (Phase 4 found no such field, CF-62; `run.py::fairness_note`; a
+variant runs under its parent's note; a null has none), plus `task_check`'s `cited`-empty
 rule catching a tool that was silently not called; fabricated README → the feed and build
 paths with a fixture README; jcm-only task → `capability_only` exclusion
 test; inside/outside band → `findings.py` unit tests over synthetic result

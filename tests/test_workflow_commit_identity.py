@@ -27,22 +27,29 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml"))
-EMAIL = re.compile(r"""user\.email\s+["']?([^"'\s]+)["']?""")
+# Every spelling git accepts for a commit or tag email, not only `git config
+# user.email` (inbound FINDINGS IN-21): `-c user.email=`, the GIT_AUTHOR_EMAIL /
+# GIT_COMMITTER_EMAIL environment, and `--author="Name <email>"`. A guard written
+# against one spelling is fixed for that spelling only (Standing lesson 09-01).
+EMAIL = re.compile(
+    r"""user\.email\s*[=\s]\s*["']?([^"'\s]+)["']?"""
+    r"""|GIT_(?:AUTHOR|COMMITTER)_EMAIL\s*[:=]\s*["']?([^"'\s]+)["']?"""
+    r"""|--author[=\s]+["']?[^<"'\n]*<([^>\s]+)>"""
+)
 OWNED = re.compile(r"^\d+\+[A-Za-z0-9\-]+(\[bot\])?@users\.noreply\.github\.com$")
-# IN-20: the App pushes as a stranger's login; the fix is the App's own numeric address.
-ALLOWED_UNTIL_FIXED = {
-    "inbound@users.noreply.github.com": {
-        "inbound-sweep.yml",
-        "inbound-fix.yml",
-        "competitive-run.yml",
-        "competitive-feed.yml",
-        "competitive-post.yml",
-    },
-}
+# IN-20 (fixed 2026-09-08): the five App-pushing workflows carried
+# `inbound@users.noreply.github.com`, a stranger's login, allowlisted here by
+# site until they moved to the App's own numeric address. Empty now; a new
+# made-up address has nowhere to hide.
+ALLOWED_UNTIL_FIXED: dict[str, set[str]] = {}
+
+
+def _emails_in(text: str) -> list[str]:
+    return [next(g for g in m.groups() if g) for m in EMAIL.finditer(text)]
 
 
 def _emails(path: Path) -> list[str]:
-    return EMAIL.findall(path.read_text(encoding="utf-8"))
+    return _emails_in(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
@@ -79,9 +86,38 @@ def test_the_allowlist_names_only_sites_that_still_carry_the_address():
         ("harness-bot@users.noreply.github.com", False),
         ("release-bot@users.noreply.github.com", False),
         ("inbound@users.noreply.github.com", False),
+        # IN-20: the App's own address, `gh api "users/jcodemunch-inbound[bot]" --jq .id`
+        ("325112034+jcodemunch-inbound[bot]@users.noreply.github.com", True),
         ("12345+some-app[bot]@users.noreply.github.com", True),
         ("noreply@example.com", False),
     ],
 )
 def test_the_owned_form_is_the_numeric_one(email, owned):
     assert bool(OWNED.match(email)) is owned
+
+
+# IN-21: the spellings git accepts besides `git config user.email`, each with a
+# stranger's address the first scanner (user.email followed by whitespace) never
+# saw. None is in .github today; the ratchet is widened before one arrives.
+@pytest.mark.parametrize(
+    "text",
+    [
+        'git config user.email "harness-bot@users.noreply.github.com"',
+        "git config --global user.email harness-bot@users.noreply.github.com",
+        'git -c user.email="harness-bot@users.noreply.github.com" -c user.name=x commit -m m',
+        "git -c user.email=harness-bot@users.noreply.github.com commit -m m",
+        "        GIT_AUTHOR_EMAIL: harness-bot@users.noreply.github.com",
+        '        GIT_COMMITTER_EMAIL: "harness-bot@users.noreply.github.com"',
+        "export GIT_COMMITTER_EMAIL=harness-bot@users.noreply.github.com",
+        'git commit --author="Harness Bot <harness-bot@users.noreply.github.com>" -m m',
+        "git commit --author 'Harness Bot <harness-bot@users.noreply.github.com>' -m m",
+    ],
+    ids=["config", "config-global", "dash-c-quoted", "dash-c-bare", "env-author", "env-committer-quoted", "export-committer", "author-eq", "author-space"],
+)
+def test_every_spelling_of_a_commit_email_is_scanned(text):
+    assert _emails_in(text) == ["harness-bot@users.noreply.github.com"], text
+
+
+def test_a_script_argument_named_author_is_not_a_git_identity():
+    # inbound-intake.yml passes `--author "$AUTHOR"` to our own script; no email, no match
+    assert _emails_in('python x.py --event "$EVENT" --author "$AUTHOR" --labels "$LABELS"') == []

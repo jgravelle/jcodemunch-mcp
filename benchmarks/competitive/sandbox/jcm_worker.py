@@ -15,12 +15,19 @@ invokes:  index_folder with its shipped defaults (AI summaries off, R28),
           excluded, capped at 20 FILES, and the cap is the tool's, never
           raised for the gold), find_importers for P4; the live
           tools/list weight from server._build_tools_list (CF-6)
-produces: /out/answers.json {index, answers, tools_list_chars}
+produces: /out/answers.json {index, answers, tools_list_chars, reindex_one}
+          — `reindex_one` (STANDARD 3(b), CF-61) is the wall seconds of
+          index_folder(paths=[<file>], force_reparse=True) on the ONE file
+          named by the optional fifth argument, measured AFTER every task so
+          no answer pays for it: the watcher's and `refresh`'s incremental
+          path, re-parse plus incremental save, without editing the file
+          (a pinned corpus is a checkout and the container mounts it
+          read-only; the cost is the re-parse, not the edit)
 refuses:  nothing; a task that raises is recorded as an error on its row
 pinned:   the checkout the image was built from
 fairness: DESIGN s1.4; runs under the same sandbox flags as every competitor
 
-Usage: python jcm_worker.py <corpus> <store> <tasks.json> <answers.json>
+Usage: python jcm_worker.py <corpus> <store> <tasks.json> <answers.json> [<reindex file>]
 """
 
 from __future__ import annotations
@@ -64,6 +71,7 @@ def ser(o) -> str:
 
 def main(argv: list[str]) -> int:
     corpus, store, tasks_json, answers_json = argv[1:5]
+    reindex_file = argv[5] if len(argv) > 5 else None
     tasks = json.loads(open(tasks_json, encoding="utf-8").read())
     from jcodemunch_mcp.tools.index_folder import index_folder
 
@@ -130,6 +138,20 @@ def main(argv: list[str]) -> int:
             except Exception as e:  # the row fails, not the run
                 err = f"{type(e).__name__}: {e}"
             out["answers"][task["id"]] = {"payload": "".join(payload), "calls": len(lat), "latency_ms": lat, "cited": cited, "error": err}
+    if idx["success"] and reindex_file:
+        # 3(b): one file, the incremental path, after every task (CF-61)
+        t0 = time.perf_counter()
+        try:
+            rr = index_folder(path=corpus, use_ai_summaries=False, storage_path=store, paths=[reindex_file], force_reparse=True)
+            # the tool says which path it took: `performed_incremental` False is a
+            # full re-index and is charged as one, never relabelled
+            mode = "incremental" if rr.get("performed_incremental") else "full_reindex"
+            reparsed = (rr.get("changed") or 0) + (rr.get("new") or 0) if rr.get("performed_incremental") else rr.get("file_count")
+            out["reindex_one"] = {"secs": time.perf_counter() - t0, "path": reindex_file, "mode": mode,
+                                  "success": bool(rr.get("success")), "files_reparsed": reparsed, "error": rr.get("error")}
+        except Exception as e:  # the row is NOT COMPARABLE, not the run
+            out["reindex_one"] = {"secs": time.perf_counter() - t0, "path": reindex_file, "mode": None,
+                                  "success": False, "files_reparsed": None, "error": f"{type(e).__name__}: {e}"}
     with open(answers_json, "w", encoding="utf-8") as fh:
         json.dump(out, fh)
     return 0

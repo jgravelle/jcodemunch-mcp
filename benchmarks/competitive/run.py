@@ -46,7 +46,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
-from adapter import SCHEMA, Corpus, Task, corpus_digest, read_file, validate  # noqa: E402
+from adapter import JCM_NAME, SCHEMA, Corpus, Task, corpus_digest, read_file, reindex_target, validate  # noqa: E402
 from score import DIFF_AXES, RATIO_AXES, compare, f1  # noqa: E402
 import corpora as corpora_mod  # noqa: E402
 import corpus_check  # noqa: E402
@@ -54,7 +54,8 @@ import sandbox  # noqa: E402
 import task_check  # noqa: E402
 import trend  # noqa: E402
 
-DEFAULT_ADAPTERS = ("null_readall", "null_grep", "jcodemunch")
+DEFAULT_ADAPTERS = ("null_readall", "null_grep", JCM_NAME)
+FAIRNESS_DIR = REPO / "docs" / "competitive" / "fairness"
 CATEGORY_F1 = {"P1": "f1_P1", "P2": "f1_P2", "P4": "f1_P4", "P5": "f1_P5"}
 
 
@@ -175,7 +176,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                 # DESIGN s1.3/s9.2: a tool whose index step failed or timed out is a
                 # `not_runnable` row with its reason, never partial means over the
                 # tasks that happened to finish (review round 1, finding 2).
-                out[a.name][cid] = {"axes": {ax: None for ax in ("index_cold_seconds", "tokens_per_task", "calls_per_task", "latency_call_ms", "tools_list_tokens", *CATEGORY_F1.values())} | {"index_ok": False, "files_indexed": rep.files_indexed},
+                out[a.name][cid] = {"axes": {ax: None for ax in (*RATIO_AXES, *CATEGORY_F1.values())} | {"index_ok": False, "files_indexed": rep.files_indexed},
                                     "tasks": [], "index_error": rep.stderr_tail[:500],
                                     "not_runnable": ("timeout" if getattr(a, "timed_out", lambda *_: False)(corpus, sc) else "index failed: " + (rep.stderr_tail[:200] or "no output"))}
                 continue
@@ -188,8 +189,26 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
                     "error": ans.error,
                 })
             scored = [p for p in per_task if not p["error"]]
+            # 3(b) one-file reindex cost (CF-61), AFTER every task so no answer pays
+            # for it. An adapter without the method is NOT COMPARABLE and the row
+            # says so; a tool with no incremental path says `full_reindex`.
+            target = reindex_target(corpus, ts)
+            rr = None
+            if target is None:
+                reindex = {"path": None, "mode": None, "note": "corpus has no file"}
+            elif hasattr(a, "reindex_one"):
+                rr = a.reindex_one(corpus, target, sc)
+                if rr is None:
+                    reindex = {"path": target, "mode": None, "note": "no index step"}
+                elif rr.seconds is None:
+                    reindex = {"path": target, "mode": rr.mode, "note": rr.error or "not measured"}
+                else:
+                    reindex = {"path": target, "mode": rr.mode}
+            else:
+                reindex = {"path": target, "mode": None, "note": "adapter has no reindex_one (CF-61)"}
             axes: dict = {
                 "index_cold_seconds": rep.seconds,
+                "reindex_one_seconds": rr.seconds if rr is not None else None,
                 "index_ok": rep.ok,
                 "files_indexed": rep.files_indexed,
                 "tokens_per_task": (statistics.mean(p["tokens"] for p in scored) if scored else None),
@@ -203,7 +222,7 @@ def run_once(adapters: list, corpora: dict[str, Corpus], tasks: list[Task], scra
             for cat, axis in CATEGORY_F1.items():
                 vals = [p["f1"] for p in scored if p["category"] == cat and p["f1"] is not None]
                 axes[axis] = statistics.mean(vals) if vals else None
-            out[a.name][cid] = {"axes": axes, "tasks": per_task, "index_error": rep.stderr_tail[:500]}
+            out[a.name][cid] = {"axes": axes, "tasks": per_task, "index_error": rep.stderr_tail[:500], "reindex_one": reindex}
     return out
 
 
@@ -216,11 +235,45 @@ def _scorer_sha256() -> str:
     return h.hexdigest()
 
 
+def fairness_note(name: str, variant_of: str | None = None, notes_dir: Path = FAIRNESS_DIR) -> tuple[str | None, str | None]:
+    """(repo-relative path, sha256 of its bytes at run time) of the fairness note
+    a pin ran under, `docs/competitive/fairness/<tool>.md` (DESIGN s10; CF-62); a
+    variant ran under its parent's. (None, None) when the tool has no note (the
+    nulls, DESIGN s1.2). An edited note changes the digest, so two result files
+    run under different notes read as such."""
+    p = notes_dir / f"{variant_of or name}.md"
+    if not p.is_file():
+        return None, None
+    rel = p.resolve().relative_to(REPO).as_posix() if p.resolve().is_relative_to(REPO) else p.as_posix()
+    return rel, hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def pin_record(x) -> dict:
+    """One `pins` row of the result header: the adapter's Pin, what it ran as,
+    its image when it had one, and the fairness note it ran under."""
+    variant_of = getattr(x, "variant_of", None)
+    note, digest = fairness_note(x.name, variant_of)
+    image = x.image() if hasattr(x, "image") and getattr(x, "_image", None) is not None else None
+    return {"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface, "variant_of": variant_of,
+            "image_digest": image.digest if image else None,
+            # criterion 6, install friction, the measured half (CF-61): what the D2
+            # build cost, once per adapter per process; a header fact, not an axis
+            "image_build_seconds": image.seconds if image else None,
+            "image_size_bytes": image.size_bytes if image else None,
+            # criterion 6's prerequisite count (CF-61): the system packages the
+            # Dockerfile installs beyond its base, a proxy labelled as one; a
+            # measured zero is 0; an adapter with no image, or a Dockerfile
+            # installing through a spelling the parser does not read, is None
+            "prerequisites": list(image.prerequisites) if image and image.prerequisites is not None else None,
+            "prerequisite_count": len(image.prerequisites) if image and image.prerequisites is not None else None,
+            "fairness_note": note, "fairness_sha256": digest}
+
+
 def _warm_median(xs: list[float]):
     return round(statistics.median(xs), 2) if xs else None
 
 
-def aggregate(runs: list[dict], adapters: list, corpora: dict[str, Corpus], jcm_name: str = "jcodemunch") -> list[dict]:
+def aggregate(runs: list[dict], adapters: list, corpora: dict[str, Corpus], jcm_name: str = JCM_NAME) -> list[dict]:
     rows = []
     axes = list(RATIO_AXES) + list(DIFF_AXES)
     for a in adapters:
@@ -243,13 +296,15 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
     lines.append("")
     lines.append(f"Sandbox: `{h.get('sandbox')}`" + (" (nulls and jcodemunch on the host; no competitor row can appear in a `none` run)" if h.get("sandbox") == "none" else " (every row in the D2 container: --network none, read-only rootfs, no capabilities, uid 65534, 8g, 512 pids)") + f"; tree dirty: {h.get('tree_dirty')}; scorer sha256 `{str(h.get('scorer_sha256'))[:12]}`")
     lines.append("")
-    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']}" + (f", image `{p['image_digest'][7:19]}`" if p.get('image_digest') else "") + ")" for p in h["pins"]))
+    lines.append("Pins: " + "; ".join(f"`{p['name']}` {p['registry']}:{p['package']}@{p['version']} (ran as {p['ran_as']}" + (f", image `{p['image_digest'][7:19]}`" if p.get('image_digest') else "") + (f", built in {p['image_build_seconds']} s" + (f", {p['image_size_bytes'] / 2**20:.1f} MiB" if p.get('image_size_bytes') is not None else "") if p.get('image_build_seconds') is not None else "") + (f", {p['prerequisite_count']} prerequisites" + (f" ({', '.join(p['prerequisites'])})" if p.get('prerequisites') else "") if p.get('prerequisite_count') is not None else "") + (f", fairness `{p['fairness_sha256'][:12]}`" if p.get('fairness_sha256') else "") + ")" for p in h["pins"]))
     lines.append("")
     tools = [p["name"] for p in h["pins"]]
     corpora = [c["id"] for c in h["corpora"]]
     by = {(r["axis"], r["tool"], r["corpus"]): r for r in result["rows"]}
     for axis in list(RATIO_AXES) + list(DIFF_AXES):
-        if all(by[(axis, t, c)]["measured"] is None for t in tools for c in corpora):
+        # CF-67: a result file written before an axis existed has no row for it;
+        # an absent row is NOT COMPARABLE, never a KeyError
+        if all(by.get((axis, t, c), {}).get("measured") is None for t in tools for c in corpora):
             continue
         unit = "ratio vs jcm" if axis in RATIO_AXES else "difference vs jcm"
         lines.append(f"## {axis} ({unit})")
@@ -257,18 +312,26 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
         if axis == "latency_call_ms":
             lines.append("")
             lines.append("Median wall time of ONE call, over every call of every task. The operations differ by tool (a symbol fetch, a whole-file read), so this is what an agent waits per call, not a like-for-like operation.")
+        if axis == "reindex_one_seconds":
+            lines.append("")
+            lines.append("Wall seconds of re-indexing ONE file the tool already holds, through its documented incremental path (STANDARD 3(b); CF-61). `full_reindex` is a tool whose only path re-indexes everything, charged as such. Per tool and corpus, the file and the mode from the first run:")
+            for t in tools:
+                for c in corpora:
+                    ri = ((result.get("runs") or [{}])[0].get(t, {}).get(c, {}) or {}).get("reindex_one")
+                    if ri:
+                        lines.append(f"- `{t}` on `{c}`: `{ri.get('path')}`, " + (ri.get("mode") or ri.get("note") or "NOT COMPARABLE"))
         lines.append("")
         lines.append("| tool | " + " | ".join(corpora) + " |")
         lines.append("|---|" + "---|" * len(corpora))
         for t in tools:
             cells = []
             for c in corpora:
-                r = by[(axis, t, c)]
-                if r["measured"] is None:
+                r = by.get((axis, t, c))
+                if r is None or r["measured"] is None:
                     cells.append("NOT COMPARABLE")
                     continue
                 cell = f"{r['measured']:.4g}"
-                if r["delta"] is not None and t != "jcodemunch":
+                if r["delta"] is not None and t != JCM_NAME:
                     cell += f" (delta {r['delta']:.3g}"
                     if r["band"] is not None:
                         cell += f", band {r['band']:.3g}"
@@ -301,7 +364,7 @@ def render_md(result: dict, history: list[dict] | None = None) -> str:
             lines.append(f"- `{t['tool']}` {t['category']} on `{t['corpus']}` ({t['tasks']} tasks, every `cited` set empty): NOT COMPARABLE there; hypothesis `{t['hypothesis']}`")
         lines.append("")
     history = history or []
-    ours = frozenset(p["name"] for p in h["pins"] if p.get("variant_of") == "jcodemunch")
+    ours = frozenset(p["name"] for p in h["pins"] if p.get("variant_of") == JCM_NAME)
     lines.append(trend.render(trend.movement(history, trend.line_from_result(result), skip=ours), len(history)))
     return "\n".join(lines)
 
@@ -412,8 +475,7 @@ def main(argv=None) -> int:
             "sandbox": a.sandbox,
             "tree_dirty": bool(_git("status", "--porcelain")),
             "scorer_sha256": _scorer_sha256(),
-            "pins": [{"name": x.name, **x.pin.__dict__, "ran_as": x.version(), "interface": x.interface, "variant_of": getattr(x, "variant_of", None),
-                      "image_digest": (x.image().digest if hasattr(x, "image") and getattr(x, "_image", None) is not None else None)} for x in adapters],
+            "pins": [pin_record(x) for x in adapters],
         }
         not_runnable = sorted({(a.name, cid, r[a.name][cid].get("not_runnable")) for r in runs for a in adapters for cid in corpora if r[a.name][cid].get("not_runnable")})
         result = {"header": header, "rows": aggregate(runs, adapters, corpora), "runs": runs,

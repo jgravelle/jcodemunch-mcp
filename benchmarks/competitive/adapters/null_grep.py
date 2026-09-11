@@ -37,6 +37,9 @@ class NullGrep:
     def index(self, corpus: Corpus, scratch: Path) -> IndexReport:
         return IndexReport(seconds=None, ok=True, files_indexed=len(corpus.files))
 
+    def reindex_one(self, corpus: Corpus, path: str, scratch: Path):
+        return None  # no index step, so no re-index step: NOT COMPARABLE, like index_cold_seconds (CF-61)
+
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer:
         terms = [t.lower() for t in task.query.split() if t]
         if not terms:

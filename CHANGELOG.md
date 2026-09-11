@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - the question "where is this name used" reaches `check_references` on every surface that steers it, and `find_references` says what it is (FINDINGS CF-51, CF-63)
+
+Our own competitive adapter scored 0 on every reference-finding task of
+the tier's third-party corpora, and it did nothing wrong by the product's
+lights: it asked `find_references` where a name is used, which is what the
+tool's name says, what its description implied, and what the CLAUDE.md
+policy block `jcodemunch-mcp init` writes, the installed skill, the
+PreToolUse steering hook and the Counter's `route` rule all told it to do.
+`find_references` walks the IMPORT graph; a call site is invisible to it,
+and a single-file library has no importers of `map`, so the answer was
+`reference_count 0` with a tip pointing at the tool that would have
+answered. A user reaching for the same tool for the same question got the
+same 0, and the seven surfaces that had sent them there are the defect.
+Names are unchanged (a rename is a wire change with every client's
+transcript behind it). `find_references`' description now leads with who
+imports and hands the usage question to `check_references` or
+`search_text` in the same breath; `check_references` leads with where an
+identifier is used; the policy block, the skill, the steering hook and the
+route rule pair the usage question with `check_references`, and `route`
+gains a who-imports rule so `find_references` stays reachable by the
+question it does answer. What is impossible now: a product surface that
+pairs "used" with `find_references` alone, by any spelling, since the new
+test scans `src/` for the pattern beside the per-surface assertions; the
+scan found the seventh surface (`cli/skills.py`) the spec had listed six
+for. `find_references` is a core-tier tool under the `core_compact`
+ceiling, so its description shrank rather than grew (99 to 97 cl100k
+tokens, `evidence/tokens.txt`); `check_references` is standard-tier.
+`schema_baseline.json` is regenerated, and most of its movement predates
+this change: re-capturing `origin/main`'s own tree on the same box gave
+`core_compact` 3972 against the committed 3885, so the committed baseline
+had been stale within the `schema.drift_tolerance` Floor, and this change is the
+3972 to 3967 of it. The route-recall artifact moved with the rule
+(`route@1` 71.2 to 72.9 on the human corpus; the holdout corpus that
+carries the `route.control_at1` Floor names neither tool and did not move).
+
 ### Fixed - a failed embedding batch names its cause in the response, at both loops that had been swallowing it (FINDINGS CF-66)
 
 A provider failure reached the caller as `symbols_skipped_error: N` and

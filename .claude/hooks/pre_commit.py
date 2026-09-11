@@ -26,6 +26,7 @@ from _common import (
     budget_warning,
     git,
     ok,
+    paths_for,
     read_hook_input,
     run_budgeted,
     settle_summary,
@@ -37,14 +38,8 @@ from _common import (
 )
 
 BUDGET_SECONDS = 150
-CODE_ROOTS = (
-    "src/",
-    "tests/",
-    "harness/",
-    "scripts/",
-    "benchmarks/harness/",
-    ".github/",
-)
+# W-43: projected from _common.PATH_TABLE; the table is where a path is admitted.
+CODE_ROOTS = paths_for("fast")
 # Files a Floor's Method READS, outside the code roots: a commit that stages
 # one is not a free docs commit, because the fast tier's verdict moves with
 # it (W-39: a docs-only PR reached pre_pr with a stamp two commits stale

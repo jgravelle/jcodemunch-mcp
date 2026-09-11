@@ -22,7 +22,7 @@ from __future__ import annotations
 import statistics
 from typing import Iterable, Optional
 
-RATIO_AXES = ("tokens_per_task", "calls_per_task", "latency_call_ms", "index_cold_seconds", "tools_list_tokens")
+RATIO_AXES = ("tokens_per_task", "calls_per_task", "latency_call_ms", "index_cold_seconds", "reindex_one_seconds", "tools_list_tokens")
 DIFF_AXES = ("f1_P1", "f1_P2", "f1_P4", "f1_P5")
 UNSTABLE_FRACTION = 0.10  # DESIGN s5.1
 

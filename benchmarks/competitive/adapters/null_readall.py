@@ -28,6 +28,9 @@ class NullReadAll:
     def index(self, corpus: Corpus, scratch: Path) -> IndexReport:
         return IndexReport(seconds=None, ok=True, files_indexed=len(corpus.files))
 
+    def reindex_one(self, corpus: Corpus, path: str, scratch: Path):
+        return None  # no index step, so no re-index step: NOT COMPARABLE, like index_cold_seconds (CF-61)
+
     def answer(self, corpus: Corpus, task: Task, scratch: Path) -> Answer:
         t0 = time.perf_counter()
         payload = "".join(read_file(corpus, rel) for rel in corpus.files)  # bare, as run_benchmark.py counts it

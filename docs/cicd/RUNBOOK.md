@@ -177,7 +177,8 @@ users need (policy 2), and the gate cannot be repaired in the same PR:
   ⚠ A workflow that commits or tags with `GITHUB_TOKEN` does so as
   `github-actions[bot]` (`41898282+github-actions[bot]@users.noreply.github.com`);
   one that pushes with the App token uses the App's own numeric address
-  (inbound FINDINGS IN-20, open). Never a made-up `<name>@users.noreply.github.com`:
+  (`325112034+jcodemunch-inbound[bot]@users.noreply.github.com`, inbound
+  FINDINGS IN-20, fixed 2026-09-08). Never a made-up `<name>@users.noreply.github.com`:
   that address resolves to whichever account owns the login, `harness-bot`,
   `release-bot` and `inbound` were all real strangers, and CLA Assistant posts
   `not signed` for such an author (C-17). `tests/test_workflow_commit_identity.py`
@@ -254,6 +255,10 @@ the App `jcodemunch-inbound` (repository permissions: Contents, Issues,
 Pull requests read and write; Variables read; Metadata read; no webhook;
 installed on this repository only), store `INBOUND_APP_ID`,
 `INBOUND_APP_PRIVATE_KEY` and `ANTHROPIC_API_KEY` as repository secrets,
+read the App's user id (`gh api "users/jcodemunch-inbound[bot]" --jq .id`)
+and check it against the `user.email` literal the five App-pushing
+workflows carry (IN-20; a re-created App gets a new id, and the ratchet
+reads workflow text, so only this step sees the change),
 add the App AND `github-actions[bot]` to the CLA allowlist at
 cla-assistant.io (the Actions bot authors `main.yml`'s weekly results PR
 and `release.yml`'s tag; without the entry that PR reads `not signed`,

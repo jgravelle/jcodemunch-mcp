@@ -22,7 +22,7 @@ import re
 import subprocess
 import sys
 
-from _common import EVIDENCE, REPO, git
+from _common import EVIDENCE, REPO, git, paths_for
 
 RATE_KEY_RE = re.compile(
     r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
@@ -57,6 +57,38 @@ def dod_items() -> dict[int, str]:
 def evidence(name: str) -> str | None:
     p = EVIDENCE / name
     return p.read_text(encoding="utf-8", errors="replace") if p.exists() else None
+
+
+# W-38: the roots a red/green pair is REQUIRED for (this list serves row 1
+# only; pre_commit.CODE_ROOTS and _common.TIER_PATHS answer other questions,
+# W-43 names the three). Row 1 grades a pair that
+# exists whatever the path; the roots decide only whether an absent pair is
+# unmet or n.a. Three reviewers in one day graded the row by hand because
+# `.claude/hooks/`, `benchmarks/` and `tests/` were not on the old list.
+CODE_ROOTS = paths_for("redgreen")  # W-43: projected from _common.PATH_TABLE
+
+
+def row1_verdict(changed: list[str], red: str | None, green: str | None) -> tuple[str, str]:
+    """Row 1: red then green. Returns (verdict, evidence)."""
+    if red is None or green is None:
+        if not any(c.startswith(CODE_ROOTS) for c in changed):
+            return "n.a.", "no change under a code root (" + ", ".join(CODE_ROOTS) + ") and no red/green pair"
+        return (
+            "unmet",
+            "evidence/red.txt (touched tests at the base ref, must fail) and evidence/green.txt (at HEAD, must pass) are required",
+        )
+    # A red run that dies at collection says `error`, not `failed`, and
+    # exits 2 (W-38 review; the remedy named EXIT=1 and EXIT=2 both).
+    red_fail = "EXIT=0" not in red.splitlines()[-1:] and (
+        "failed" in red.lower() or "error" in red.lower()
+    )
+    green_ok = "EXIT=0" in green.splitlines()[-1:] or (
+        " passed" in green.lower() and "failed" not in green.lower()
+    )
+    return (
+        "met" if red_fail and green_ok else "unmet",
+        f"evidence/red.txt fails={red_fail}; evidence/green.txt passes={green_ok}",
+    )
 
 
 def harness_pass(summary: str | None) -> bool | None:
@@ -97,26 +129,7 @@ def main() -> int:
 
     # 1 red then green
     red, green = evidence("red.txt"), evidence("green.txt")
-    if not src_changed and not touched("harness/", "scripts/"):
-        row(1, "n.a.", "no change under src/, harness/ or scripts/")
-    elif red is None or green is None:
-        row(
-            1,
-            "unmet",
-            "evidence/red.txt (touched tests at the base ref, must fail) and evidence/green.txt (at HEAD, must pass) are required",
-        )
-    else:
-        red_fail = "EXIT=0" not in red.splitlines()[-1:] and "failed" in red.lower()
-        green_ok = (
-            "EXIT=0" in green.splitlines()[-1:]
-            or " passed" in green.lower()
-            and "failed" not in green.lower()
-        )
-        row(
-            1,
-            "met" if red_fail and green_ok else "unmet",
-            f"evidence/red.txt fails={red_fail}; evidence/green.txt passes={green_ok}",
-        )
+    row(1, *row1_verdict(changed, red, green))  # W-38
 
     # 2 fast tier (ruff inside), touched files, full tier with skip verdicts
     fast, full = evidence("fast.md"), evidence("full.md")
@@ -138,6 +151,9 @@ def main() -> int:
     if "no-changelog" in labels:
         row(3, "n.a.", "label no-changelog")
     elif not src_changed:
+        # W-38 review: widening this gate is inert, because the authority it
+        # routes to (scripts/dod_changelog.py) requires an entry for src/ only;
+        # a wider gate here would read `met` with no entry (#508's shape).
         row(3, "n.a.", "no change under src/")
     elif (
         git("diff", "--name-only", "--", "src/").strip()
@@ -283,7 +299,7 @@ def main() -> int:
         )
 
     # 10 fast; bench when benchmarks/, harness/ or server.py changed
-    needs_bench = touched("benchmarks/", "harness/", "src/jcodemunch_mcp/server.py")
+    needs_bench = touched(*paths_for("bench"))  # W-43: the table's bench column
     bench = evidence("bench.md")
     bp = harness_pass(bench)
     if fp is None:
