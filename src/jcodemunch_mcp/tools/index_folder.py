@@ -2827,6 +2827,22 @@ def index_folder(
                     post_discovery_drops=post_discovery_drops,
                 )
 
+            # An empty discovery over an existing index removed every indexed
+            # file (#641). The deletion stands, because a moved-out tree is the
+            # case it exists for and the next scan over a repopulated root
+            # repairs the index in full (unlike `refresh`'s generation stamp,
+            # which cannot be repaired and therefore refuses). It is DISCLOSED,
+            # because the same shape is a bare mount point, a checkout switch
+            # or a tree mid-restore, and the watcher's root reconciliation
+            # reaches here unattended.
+            _full_deletion = not source_files and bool(deleted)
+            if _full_deletion:
+                warnings.append(
+                    f"full_deletion: discovery found no source files under {folder_path} "
+                    f"and every indexed file ({len(deleted)}) was removed from the index. "
+                    "If the tree is a mount point, a checkout mid-switch or a restore in "
+                    "progress, the next index_folder over the repopulated root rebuilds it."
+                )
             result = {
                 "success": True,
                 "repo": f"{owner}/{repo_name}",
@@ -2840,6 +2856,8 @@ def index_folder(
                 "no_symbols_count": len(incremental_no_symbols),
                 "no_symbols_files": incremental_no_symbols[:50],
             }
+            if _full_deletion:
+                result["full_deletion"] = True
             if _is_branch_delta:
                 result["branch"] = _current_branch
                 result["branch_delta"] = True

@@ -1096,7 +1096,11 @@ The error model is designed so that partial failures during indexing do not nece
 
 For `index_folder`, a full incremental scan of an existing index that finds no
 eligible source files reconciles deletions, including removal of every indexed
-file. Initial indexing and non-incremental indexing of an empty folder still
+file; when it removed every indexed file the response carries
+`full_deletion: true` and a `full_deletion:` warning, because the same empty
+root is also a bare mount point, a checkout mid-switch or a restore in
+progress, and the next scan over the repopulated root rebuilds the index in
+full. Initial indexing and non-incremental indexing of an empty folder still
 return an error. A directory that cannot be traversed is counted as
 `unreadable`, named in `warnings`, and the rest of the tree is still indexed;
 an empty full scan with unreadable files or directories (`unreadable`),

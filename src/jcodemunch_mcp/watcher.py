@@ -106,6 +106,31 @@ def _index_key_prefix(folder_path: str, source_root: Optional[str]) -> str:
     return "" if prefix == "." else prefix
 
 
+def _force_polling_default() -> bool:
+    """Whether watchfiles will poll when the caller passes ``force_polling=None``.
+
+    The authority is watchfiles' own ``_default_force_polling``, a PRIVATE name
+    (#641 review, item 4): a watchfiles release may rename it, and the watcher
+    must not fail at its first ``_safe_awatch`` when it does. The fallback is
+    that function's documented rule, in the order it applies it: the
+    ``WATCHFILES_FORCE_POLLING`` environment variable when set (any value but
+    ``false``/``disable``/``disabled`` means poll), else WSL detection.
+    ``tests/test_watcher_polling_default.py`` pins both halves against the
+    installed watchfiles so a divergence shows up as a test, not a hang.
+    """
+    try:
+        from watchfiles.main import _default_force_polling
+    except ImportError:
+        env_var = os.getenv("WATCHFILES_FORCE_POLLING")
+        if env_var:
+            return env_var.lower() not in {"false", "disable", "disabled"}
+        import platform
+
+        uname = platform.uname()
+        return "microsoft-standard" in uname.release.lower() and uname.system.lower() == "linux"
+    return bool(_default_force_polling(None))
+
+
 async def _safe_awatch(folder_path: str, debounce_ms: int):
     """Use native recursion where safe; bound Linux/polling to real directories.
 
@@ -120,10 +145,9 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
     events when topology is unchanged.
     """
     from watchfiles import awatch, Change
-    from watchfiles.main import _default_force_polling
 
     # Ask watchfiles: e.g. WATCHFILES_FORCE_POLLING=0 means TRUE, and WSL polls.
-    force_polling = _default_force_polling(None)
+    force_polling = _force_polling_default()
     recursive = sys.platform != "linux" and not force_polling
     directories = None if recursive else await asyncio.to_thread(_watch_directories, folder_path)
     while recursive or directories:

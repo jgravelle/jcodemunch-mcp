@@ -50,10 +50,50 @@ def test_move_out_all_sources_clears_persisted_index(indexed_tree, tmp_path, pat
     assert result["incremental"] is True
     assert result["deleted"] == 2
     assert result["symbol_count"] == 0
+    # #641 review item 1: a whole-corpus deletion is disclosed, never silent.
+    assert result["full_deletion"] is True
+    assert any(w.startswith("full_deletion:") for w in result["warnings"]), result
     assert persisted_symbols(database) == []
     repeated = index_folder(**kwargs, paths=paths)
     assert repeated["success"], repeated
     assert repeated["deleted"] == 0
+    assert "full_deletion" not in repeated, "nothing was deleted the second time"
+
+
+@pytest.mark.parametrize("paths", [None, ["."]], ids=["full", "explicit-root"])
+def test_transient_empty_root_is_disclosed_and_repaired_by_the_next_scan(indexed_tree, tmp_path, paths):
+    """A bare mount point, a checkout mid-switch or a restore in progress
+    presents as an existing, EMPTY root: discovery finds nothing and every
+    indexed file is removed. That deletion is disclosed (`full_deletion`), and
+    once the tree is back the next scan over the same root rebuilds the index
+    in full, which is what makes keeping the deletion acceptable where
+    `refresh` (an unrepairable stamp) refuses instead."""
+    root, kwargs, database = indexed_tree
+    parked = tmp_path / "parked"
+    (root / "child").rename(parked)
+    emptied = index_folder(**kwargs, paths=paths)
+    assert emptied["success"], emptied
+    assert emptied["full_deletion"] is True
+    assert emptied["deleted"] == 2 and persisted_symbols(database) == []
+    parked.rename(root / "child")
+    restored = index_folder(**kwargs, paths=paths)
+    assert restored["success"], restored
+    assert "full_deletion" not in restored
+    assert restored["symbol_count"] == 2
+    assert persisted_symbols(database) == [
+        ("direct_symbol", "child/code.py"),
+        ("nested_symbol", "child/deep/code.py"),
+    ]
+
+
+def test_full_deletion_is_absent_when_only_some_files_leave(indexed_tree):
+    root, kwargs, database = indexed_tree
+    (root / "child" / "deep").rename(root.parent / "deep_out")
+    result = index_folder(**kwargs)
+    assert result["success"], result
+    assert result["deleted"] == 1
+    assert "full_deletion" not in result
+    assert not any(w.startswith("full_deletion:") for w in result.get("warnings", []))
 
 
 @pytest.mark.parametrize("incremental", [False, True])
