@@ -66,8 +66,9 @@ then the post-publish smoke from PyPI in a fresh venv
 `gh release create vX.Y.Z dist-ci\* --title ... --notes-file ...` with the
 notes rendered from the CHANGELOG block, and the registry line from
 CLAUDE.md. The publisher is listed on PyPI since 2026-09-11 (FINDINGS C-15);
-the next dispatched run is the proof. When `release: pypi` passes once,
-this section is deleted and `~/.pypirc` is revoked (§5).
+the next dispatched run is the proof; if it is refused again, re-enter
+the form before each release. When `release: pypi` passes once, this
+section is deleted and `~/.pypirc` is revoked (§5).
 
 ## 2. Read a failed check
 
