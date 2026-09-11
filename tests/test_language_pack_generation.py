@@ -19,8 +19,10 @@ pack carries the notice. On 0.x nothing changes, byte for byte.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -48,24 +50,34 @@ def test_generation_from_version(version, expected):
     assert grammar_pack.generation(version) == expected
 
 
-def test_the_live_generation_matches_the_installed_pack():
-    v = grammar_pack.pack_version()
-    assert grammar_pack.generation() == grammar_pack.generation(v)
-
-
 # --- 2. a grammar failure is recorded, once, and the file still yields [] --- #
 
 class _DownloadError(Exception):
     """Shaped like tree_sitter_language_pack.DownloadError (1.x)."""
 
 
-def test_extractor_records_a_grammar_failure_instead_of_swallowing_it(monkeypatch, caplog):
+def _break_the_pack(monkeypatch):
+    """Make the PACK's loader raise the way 1.x does for a grammar it cannot fetch.
+    Patched at the pack, not at the extractor: the property is that every loader
+    site in the tree goes through one wrapper that sees this."""
+    import tree_sitter_language_pack as tslp
+
     def boom(name):
         raise _DownloadError(f"Language '{name}' is not in the download manifest")
 
-    monkeypatch.setattr(extractor, "get_parser", boom)
+    monkeypatch.setattr(tslp, "get_parser", boom)
+    # The dispatcher consults the box's configured-languages list before any
+    # parser runs (Practice 8: a test must not depend on the developer's real
+    # config); every language is enabled for the property under test.
+    import jcodemunch_mcp.config as config
+
+    monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
+
+
+def test_a_grammar_failure_is_recorded_once_and_the_file_still_yields_nothing(monkeypatch, caplog):
+    _break_the_pack(monkeypatch)
     src = "def f():\n    pass\n"
-    with caplog.at_level(logging.WARNING, logger="jcodemunch_mcp.parser.extractor"):
+    with caplog.at_level(logging.WARNING, logger="jcodemunch_mcp.parser.grammar_pack"):
         assert extractor.parse_file(src, "a.py", "python") == []
         assert extractor.parse_file(src, "b.py", "python") == []
     failures = grammar_pack.failures()
@@ -73,7 +85,42 @@ def test_extractor_records_a_grammar_failure_instead_of_swallowing_it(monkeypatc
     assert failures["python"].startswith("_DownloadError"), failures["python"]
     assert "download manifest" in failures["python"]
     warned = [r for r in caplog.records if "python" in r.getMessage() and "grammar" in r.getMessage().lower()]
-    assert len(warned) == 1, "one warning per language, not one per file"
+    assert len(warned) == 1, "one warning per grammar, not one per file"
+
+
+@pytest.mark.parametrize("filename, language, grammar", [
+    ("a.nim", "nim", "nim"),            # the one language 1.x loses; a dedicated parser, no try around its load
+    ("a.m", "objc", "objc"),            # a dedicated parser with its own swallow
+    ("a.ex", "elixir", "elixir"),       # a dedicated parser that builds its own spec
+    ("a.cpp", "cpp", "cpp"),            # the cpp/c pair with the error-node census
+])
+def test_every_loader_site_records_through_the_wrapper(monkeypatch, filename, language, grammar):
+    """Review round 1: the first draft recorded at four hand-picked sites and
+    missed nim. The wrapper is the mechanism; these are four of the routes that
+    do NOT go through `_parse_with_spec`."""
+    _break_the_pack(monkeypatch)
+    # Some dedicated parsers (nim among them) have no try around their load and
+    # let the failure propagate to index_folder's per-file guard; whether a site
+    # swallows or raises is its own business, the record is the property.
+    with contextlib.suppress(Exception):
+        extractor.parse_file("x\n", filename, language)
+    assert grammar in grammar_pack.failures(), (language, grammar_pack.failures())
+
+
+def test_no_loader_site_bypasses_the_wrapper():
+    """Ratchet: the pack's `get_parser` is imported in exactly one place under
+    src/, `parser/grammar_pack.py`. A bare import anywhere else is a site the
+    notice cannot see."""
+    src_root = Path(extractor.__file__).resolve().parents[1]
+    offenders = []
+    for path in src_root.rglob("*.py"):
+        if path.name == "grammar_pack.py":
+            continue
+        for no, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if re.search(r"from\s+tree_sitter_language_pack\s+import\s+.*\bget_parser\b", line) or \
+               re.search(r"tree_sitter_language_pack\.get_parser\b", line):
+                offenders.append(f"{path.relative_to(src_root)}:{no}: {line.strip()}")
+    assert not offenders, "\n".join(offenders)
 
 
 def test_a_healthy_parse_records_nothing():

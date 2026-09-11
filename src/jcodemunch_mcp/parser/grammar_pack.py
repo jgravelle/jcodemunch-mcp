@@ -19,7 +19,8 @@ checked). The two generations differ in KIND, not in version number:
 ⚠ The extractor swallowed every grammar failure as `[]` ("indexed for text
 search only"), so on a `download` pack an unavailable grammar, and on an
 airgapped box EVERY grammar, produced zero symbols with no warning anywhere.
-Failures are recorded here per language, once, and every surface that reports
+Failures are recorded here per grammar name, once, by the `get_parser`
+wrapper below that every loader site imports, and every surface that reports
 capability (`index_folder` warnings, the capability certificate,
 `install-status`) reads this module rather than re-deriving the rule.
 
@@ -49,6 +50,7 @@ def pack_version() -> Optional[str]:
     try:
         return md.version(PACKAGE)
     except Exception:
+        logger.debug("%s distribution not readable; reporting absent", PACKAGE, exc_info=True)
         return None
 
 
@@ -80,7 +82,29 @@ def cache_dir() -> Optional[str]:
         fn = getattr(tslp, "cache_dir", None)
         return str(fn()) if callable(fn) else None
     except Exception:
+        logger.debug("grammar pack cache_dir unreadable", exc_info=True)
         return None
+
+
+def get_parser(name: str):
+    """The pack's `get_parser`, with a failure recorded per grammar name before it re-raises.
+
+    ⚠ THE ONE IMPORT SITE for the pack's parser loader (review of #608, round 1):
+    the extractor has some forty `get_parser` calls across its dedicated
+    parsers, and wiring the record at four of them left nim, the one language
+    1.x loses, unrecorded. Every site imports this name instead, so a site
+    written next inherits the rule; `tests/test_language_pack_generation.py`
+    fails on a bare `from tree_sitter_language_pack import get_parser`
+    anywhere else under `src/`. Re-raises unchanged, so every caller's own
+    handling is what it was.
+    """
+    from tree_sitter_language_pack import get_parser as _real  # type: ignore
+
+    try:
+        return _real(name)
+    except Exception as exc:
+        record_failure(name, exc)
+        raise
 
 
 def record_failure(language: str, exc: BaseException) -> None:

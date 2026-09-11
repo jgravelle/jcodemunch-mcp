@@ -14,8 +14,12 @@ turning every grammar it could not load into a file "indexed for text search
 only". No warning anywhere, so an airgapped install on 1.x parsed nothing and
 said nothing, and a user who took the override was left to find the gap
 themselves. What exists now: `parser/grammar_pack.py` derives the pack's
-GENERATION from its version (bundled 0.x, download 1.x, absent) and records a
-grammar-load failure per language, once, where the extractor swallowed it;
+GENERATION from its version (bundled 0.x, download 1.x, absent) and wraps the
+pack's `get_parser` so a load failure is recorded per grammar, once, before it
+re-raises; the extractor's forty-odd loader sites and `search_ast` all import
+the wrapper (the first draft wired four sites by hand and the review found nim,
+the one language that matters, among the unwired), and a test fails on a bare
+import of the pack's loader anywhere else under `src/`;
 every `index_folder` result on a download or absent pack carries a
 `grammar_pack` block and a warning naming the version, the cache directory and
 each language whose grammar failed; the capability certificate carries
@@ -24,8 +28,8 @@ pack a result is byte-identical to before. The override and its costs are in
 README under Security and in SECURITY.md's enumeration, before it ships, which
 is the standing rule for a network behaviour a user can opt into. Measured
 against 1.17.0 on 2026-09-11 (the probe is in the PR): 68 grammars fetched in
-16 s, no offline switch in the pack's config, `test_nim_parsing` failing as it
-did on 1.13.3. And a correction to #382's record, found only by exercising the
+16.3 s, no offline switch in the pack's config, `test_nim_parsing` failing as
+#382 recorded it failing on 1.13.3. And a correction to #382's record, found only by exercising the
 new notice on the live pack: `autohotkey`, `ejs` and `verse` are absent from
 the 1.x manifest, but all three are parsed by our own regex extractors and never
 ask tree-sitter for a grammar, so "bumping drops three languages" was a fact

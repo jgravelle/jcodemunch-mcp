@@ -2239,6 +2239,7 @@ def install_status() -> dict[str, Any]:
             "generation": grammar_pack.generation(), "version": grammar_pack.pack_version(),
         }
     except Exception:
+        logger.debug("grammar pack block unreadable for install-status", exc_info=True)
         report["grammar_pack"] = {"generation": "absent", "version": None}
 
     # Existing installs keep the tool_surface they were created with, because

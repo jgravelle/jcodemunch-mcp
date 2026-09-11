@@ -1110,7 +1110,7 @@ def search_ast(
         files_to_scan.append((fpath, lang_name))
 
     # Run detectors across files
-    from tree_sitter_language_pack import get_parser
+    from ..parser.grammar_pack import get_parser
 
     all_matches: list[dict] = []
     files_scanned = 0
