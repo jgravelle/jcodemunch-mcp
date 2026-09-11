@@ -91,9 +91,11 @@ DENIED = [
     # W-44: `--version`/`--help` and prose naming the binary are not a publish.
     # `login` stays refused: it writes live credential files into the CWD and
     # is the human's device flow. Optional `.exe"` and flags between name and
-    # verb; `--help`/`-h` anywhere after the verb is a read.
+    # verb; `--help`/`-h` anywhere after the verb, within the SAME command, is
+    # a read: the lookahead stops at `|`, `;` and `&` like the push rules, or
+    # `publish && echo --help` would pass (review round 2).
     (
-        r"mcp-publisher(?:\.exe)?[\"']?(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+(?:publish|login)\b(?!(?:\s+\S+)*\s+(?:--help|-h)\b)",
+        r"mcp-publisher(?:\.exe)?[\"']?(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+(?:publish|login)\b(?![^|;&]*\s(?:--help|-h)\b)",
         "a registry publish; release.yml publishes",
     ),
 ]

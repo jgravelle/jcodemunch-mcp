@@ -131,6 +131,9 @@ def edit(path: Path) -> dict:
         ("python -m " + "twine --no-color upload dist/*", True),
         ("uvx --from " + "twine twine --no-color check dist/*", False),
         ('"C:\\Users\\j\\mcp-' + 'publisher.exe" login github --help', False),
+        # review round 2: `--help` in a LATER command is not this command's read
+        ("mcp-" + "publisher publish && echo --help", True),
+        ("mcp-" + "publisher login github; grep -h foo x", True),
     ],
 )
 def test_deny_guard_refuses_exactly_the_forbidden_verbs(command, expect_block):
