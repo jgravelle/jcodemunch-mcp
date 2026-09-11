@@ -35,8 +35,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    # Ceiling measured 2026-09-11 against mcp 2.2.0 (#609): the 2.x low-level Server has no decorator registration, so the six `@server.<handler>()` sites in server.py fail at import and no stdio initialize completes; handlers are constructor kwargs (on_call_tool ...) with a (ctx, params) signature. Moving the pin is a port, not a bump.
-    "mcp>=1.10.0,<2.0.0",  # measured 2026-09-11 vs mcp 2.2.0, #609: decorator registration removed; see the comment above
+    "mcp>=1.10.0,<2.0.0",  # ceiling measured 2026-09-11 against mcp 2.2.0 (#609): the 2.x low-level Server has no decorator registration, so the six @server.<handler>() sites in server.py fail at import and no stdio initialize completes; handlers are constructor kwargs (on_call_tool ...) with a (ctx, params) signature. Moving the pin is a port, not a bump; re-measure and rewrite this reason.
     "httpx>=0.27.0",
     # Ceiling is deliberate, re-verified against 1.13.3 on 2026-07-26 (#382).
     # 1.x stopped bundling grammars: the wheel ships one native module and
