@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.108.318] - 2026-09-11 - the process is code that cannot skip a step, and the field is measured from result files
+
+Three layers ship in this block, every one off by default where it can act: the workflows layer (seven Claude Code commands and the hooks that refuse a commit without the fast tier, a PR without a full-tier run on the tree it describes, and every irreversible verb), the inbound layer (nine headless jobs that draft and never post, the model never holding a token that can write) and the competitive tier (the null alternatives, jCodeMunch and nine competitors over pinned corpora in a sandbox, every recorded number written by a script from a result file). Beside them: the usage-site question reaches the tool that answers it (CF-63), a failed embedding batch names its cause (CF-66), the watcher's startup and its deletion reconciliation (#641, #629, @marcelruhf), a notice for installs on tree-sitter-language-pack 1.x (#608, @kecsap), the CodeQL triage's fixes (#628) and an sdist without `.github/`.
+
 ### Added - an install on tree-sitter-language-pack 1.x says so, and says what it costs (#608, @kecsap)
 
 The dependency is pinned `<1.0.0` and @kecsap asked for a way to opt into 1.x

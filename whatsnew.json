@@ -1,29 +1,23 @@
 {
-  "current": "1.108.317",
+  "current": "1.108.318",
   "entries": [
+    {
+      "version": "1.108.318",
+      "date": "2026-09-11",
+      "title": "the process is code that cannot skip a step, and the field is measured from result files",
+      "summary": "Three layers ship in this block, every one off by default where it can act: the workflows layer (seven Claude Code commands and the hooks that refuse a commit without the fast tier, a PR without a full-tier run on the tree it describes, and every irreversible verb), the inbound layer (nine headless jobs that draft and never post, the model never holding a token that can write) and the competitive tier (the null alternatives, jCodeMunch and nine competitors over pinned corpora in a sandbox, every recorded number written by a script from a result file). Beside them: the usage-site question reaches the tool that answers it (CF-63), a failed embedding batch names its cause (CF-66), the watcher's startup and its deletion reconciliation (#641, #629, @marcelruhf), a notice for installs on tree-sitter-language-pack 1.x (#608, @kecsap), the CodeQL triage's fixes (#628) and an sdist without `.github/`."
+    },
     {
       "version": "1.108.317",
       "date": "2026-09-04",
       "title": "CI runs the harness on every change; publishing is a dispatched workflow",
-      "summary": "The eight workflows are five: a staged PR gate whose every job is a required check on main by name, a merge-to-main witness that opens a regression issue per failing Floor, a nightly drift run, CodeQL, and a dispatch-only release workflow with trusted publishing, Test PyPI first, clean-venv smoke on both OSes and a post-publish handshake. Tied search_symbols scores now rank by symbol id on every platform; the token benchmark reference is captured on CI; two new Floors (pyright ratchet, pip-audit zero); SECURITY.md gains a reporting policy. The first release cut through the pipeline."
+      "summary": "The eight workflows are five: `pr-gate.yml` (five staged jobs, every one a required check on `main` by name), `main.yml` (full witness + online bench after a merge, a `regression` issue per failing Floor, a weekly results PR), `nightly.yml` (the matrix with fresh corpora, `drift` issues),"
     },
     {
       "version": "1.108.316",
       "date": "2026-09-02",
       "title": "A display preference edited the data it was displaying",
-      "summary": "Reported by @rknighton, twice: #570 for the crash and #572 for the cause, with a standard-library reproduction that builds its own repo and needs no fixtures. `cache_put` stored the caller's dict and `cache_get` returned that same dict, so the dispatcher's metadata step — a DISPLAY preference — reached into the session"
-    },
-    {
-      "version": "1.108.315",
-      "date": "2026-09-01",
-      "title": "A fix for a false positive can install a false negative",
-      "summary": "`confidence: 1.0` is documented as **provably unreachable**. That is a claim about the tree, and it was computed from the index with nothing in between."
-    },
-    {
-      "version": "1.108.314",
-      "date": "2026-09-01",
-      "title": "A rate written for a future date is wrong for every day before it",
-      "summary": "`tools` is serialised ahead of system and messages, so every byte of the published tool list sits in the cached prefix -- **4,184 B across six tools**, measured. Changing any of it invalidates that prefix and every turn behind it, for every session on every install. `benchmarks/tier_switch/` priced that at 174"
+      "summary": "Reported by @rknighton, twice: #570 for the crash and #572 for the cause, with a standard-library reproduction that builds its own repo and needs no fixtures. `cache_put` stored the caller's dict and `cache_get` returned that same dict, so the dispatcher's metadata step \u2014 a DISPLAY preference \u2014 reached into the session"
     }
   ]
 }

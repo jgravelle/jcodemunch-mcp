@@ -158,9 +158,9 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.318](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.318)** (2026-09-11) — the process is code that cannot skip a step, and the field is measured from result files
+- **[v1.108.317](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.317)** (2026-09-04) — CI runs the harness on every change; publishing is a dispatched workflow
 - **[v1.108.316](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.316)** (2026-09-02) — A display preference edited the data it was displaying
-- **[v1.108.315](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.315)** (2026-09-01) — A fix for a false positive can install a false negative
-- **[v1.108.314](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.314)** (2026-09-01) — A rate written for a future date is wrong for every day before it
 <!-- WHATSNEW:END -->
 
 ---
