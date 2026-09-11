@@ -2231,6 +2231,15 @@ def install_status() -> dict[str, Any]:
     #   release checklist has eight steps and none of them touch the dev box,
     #   so this is the only place the drift can surface.
     report["source_drift"] = _running_source_drift()
+    try:
+        from ..parser import grammar_pack
+        # #608: the check a user runs after `pip install -U tree-sitter-language-pack`
+        # shows the consequence (grammars fetched over the network, missing languages).
+        report["grammar_pack"] = grammar_pack.notice() or {
+            "generation": grammar_pack.generation(), "version": grammar_pack.pack_version(),
+        }
+    except Exception:
+        report["grammar_pack"] = {"generation": "absent", "version": None}
 
     # Existing installs keep the tool_surface they were created with, because
     # upgrade_config cannot back-inject that key -- so this is one of only two
@@ -2293,6 +2302,13 @@ def print_status(report: Optional[dict[str, Any]] = None, *, as_json: bool = Fal
             info = report["skills"].get(scope, {})
             flag = "[x]" if info.get("present") else "[ ]"
             print(f"  {flag} {scope}  ({info.get('path', '')})")
+
+    pack = report.get("grammar_pack") or {}
+    if pack.get("generation") in ("download", "absent"):
+        from ..parser import grammar_pack as _gp
+        print("\nGrammar pack:")
+        for line in _gp.warnings_for(pack):
+            print(f"  [!] {line}")
 
     drift = report.get("source_drift") or {}
     if drift.get("drifted") is True:

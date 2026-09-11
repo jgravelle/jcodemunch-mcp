@@ -43,10 +43,13 @@ dependencies = [
     # (verified: empty cache -> 67 shared libs while walking our language list).
     # That is undisclosed runtime network + executable-write behavior in a
     # read-only local tool, and it breaks airgapped/offline installs.
-    # Also: autohotkey/ejs/verse do not exist in 1.x at all, and the nim grammar
-    # was swapped for a different upstream (source_file/proc_declaration ->
-    # module/stmt/routine), so our nim extractor yields zero symbols.
-    # Suite on 1.13.3: 5812 passed, 12 skipped, 1 failed (test_nim_parsing).
+    # Also: the nim grammar was swapped for a different upstream
+    # (source_file/proc_declaration -> module/stmt/routine), so our nim
+    # extractor yields zero symbols. (autohotkey/ejs/verse are absent from the
+    # 1.x manifest too, but #608's probe found our own regex extractors parse
+    # those three and never ask tree-sitter, so nim is the one loss.)
+    # Suite on 1.13.3: 5812 passed, 12 skipped, 1 failed (test_nim_parsing);
+    # re-measured 2026-09-11 on 1.17.0: same (#608, parser/grammar_pack.py).
     # We use exactly one symbol from this package (get_parser) -- the blockers
     # are behavioral, not API. Revisit only with grammars vendored or the
     # download made opt-in AND README-disclosed.

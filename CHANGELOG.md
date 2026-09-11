@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Added - an install on tree-sitter-language-pack 1.x says so, and says what it costs (#608, @kecsap)
+
+The dependency is pinned `<1.0.0` and @kecsap asked for a way to opt into 1.x
+without a fork. An extra cannot do it (an extra adds a requirement, it cannot
+loosen one), but the override already worked and nothing checked it: `pip
+install -U tree-sitter-language-pack`, and the server ran on a pack that
+bundles no grammars and fetches each one over the network into a cache
+directory at first parse, with the extractor's `except Exception: return []`
+turning every grammar it could not load into a file "indexed for text search
+only". No warning anywhere, so an airgapped install on 1.x parsed nothing and
+said nothing, and a user who took the override was left to find the gap
+themselves. What exists now: `parser/grammar_pack.py` derives the pack's
+GENERATION from its version (bundled 0.x, download 1.x, absent) and records a
+grammar-load failure per language, once, where the extractor swallowed it;
+every `index_folder` result on a download or absent pack carries a
+`grammar_pack` block and a warning naming the version, the cache directory and
+each language whose grammar failed; the capability certificate carries
+`grammar_source`; `install-status` prints a `Grammar pack` section. On a 0.x
+pack a result is byte-identical to before. The override and its costs are in
+README under Security and in SECURITY.md's enumeration, before it ships, which
+is the standing rule for a network behaviour a user can opt into. Measured
+against 1.17.0 on 2026-09-11 (the probe is in the PR): 68 grammars fetched in
+16 s, no offline switch in the pack's config, `test_nim_parsing` failing as it
+did on 1.13.3. And a correction to #382's record, found only by exercising the
+new notice on the live pack: `autohotkey`, `ejs` and `verse` are absent from
+the 1.x manifest, but all three are parsed by our own regex extractors and never
+ask tree-sitter for a grammar, so "bumping drops three languages" was a fact
+about the manifest, not about this parser. nim is the one registered language
+1.x loses; the pin's comment in `pyproject.toml` says so now. The pin itself is
+unchanged: dropping it needs the offline story first, which the issue rules out
+of scope.
+
 ### Fixed - the question "where is this name used" reaches `check_references` on every surface that steers it, and `find_references` says what it is (FINDINGS CF-51, CF-63)
 
 Our own competitive adapter scored 0 on every reference-finding task of

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 from .. import config as _config
 from ..parser import cached_parse_file as parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
+from ..parser import grammar_pack
 from ..parser.context import discover_providers, enrich_symbols, collect_metadata, collect_extra_imports
 from ..parser.context._route_utils import iter_source_files
 from ..parser.context.framework_profiles import detect_framework, profile_to_meta
@@ -2865,6 +2866,7 @@ def index_folder(
                 result["warnings"] = warnings
             _stamp_incremental_outcome(result, _requested_incremental, True)
             _attach_cap_report(result, _cap_status)
+            grammar_pack.attach(result)
             _attach_provider_skips(result, folder_path)
             _maybe_apply_adaptive(folder_path, result)
             return result
@@ -3226,6 +3228,7 @@ def index_folder(
             result, _requested_incremental, False, rebuild_reason
         )
         _attach_cap_report(result, _cap_status)
+        grammar_pack.attach(result)
         _attach_provider_skips(result, folder_path)
 
         _maybe_apply_adaptive(folder_path, result)

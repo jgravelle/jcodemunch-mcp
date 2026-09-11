@@ -35,6 +35,7 @@ src/jcodemunch_mcp/
   parser/
     languages.py       # LANGUAGE_REGISTRY, extension → language map, LanguageSpec
     extractor.py       # parse_file() dispatch; custom parsers for Erlang, Fortran, SQL, Razor
+    grammar_pack.py    # (#608) Which GENERATION of tree-sitter-language-pack is installed (bundled 0.x / download 1.x / absent) and what that costs; records a grammar-load failure per language, once, where the extractor used to swallow it as `[]`. A leaf that never calls the pack's network API: the unavailable-language list is what the extractor SAW fail, never a manifest lookup. Read by index_folder (warnings + `grammar_pack` block), evidence/capability.py (`grammar_source`) and install-status; on a bundled pack with no failures `notice()` is None so a 0.x result is byte-identical
     fqn.py             # PHP FQN ↔ symbol_id translation (PSR-4); symbol_to_fqn(), fqn_to_symbol()
   encoding/
     __init__.py          # Dispatcher: encode_response(tool, response, format) — auto/compact/json

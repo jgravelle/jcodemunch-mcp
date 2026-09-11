@@ -81,12 +81,21 @@ def parser_fingerprint() -> dict:
     """What this install can parse, and with which grammar build.
 
     ⚠ The versions matter more than the count. #382 measured that
-    ``tree-sitter-language-pack`` 1.x does not bundle grammars, drops three of
-    our registered languages outright, and changed the nim grammar to an
-    upstream our extractor reads as empty. Two installs on different packs have
-    different capability while reporting identical coverage.
+    ``tree-sitter-language-pack`` 1.x does not bundle grammars (fetched over
+    the network at first parse) and changed the nim grammar to an upstream our
+    extractor reads as empty; #608's probe corrected #382's "drops three
+    languages": those three are parsed by our own regex extractors. Two
+    installs on different packs have different capability while reporting
+    identical coverage; ``grammar_source`` names which (#608).
     """
     out: dict = {"languages": None, "extensions": None, "packages": {}}
+    try:
+        from ..parser import grammar_pack
+        # #608: bundled (0.x) / download (1.x, grammars fetched at first parse) / absent.
+        out["grammar_source"] = grammar_pack.generation()
+    except Exception:
+        logger.debug("Grammar pack generation unreadable", exc_info=True)
+        out["grammar_source"] = "absent"
     try:
         from ..parser.languages import LANGUAGE_EXTENSIONS
 

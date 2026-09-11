@@ -6,6 +6,8 @@ import re
 from typing import Any, Optional
 from tree_sitter_language_pack import get_parser
 
+from . import grammar_pack
+
 from .racket_reader import read_racket
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
@@ -449,6 +451,12 @@ def _parse_with_spec(
     """Parse source bytes using one language spec."""
     try:
         parser = get_parser(spec.ts_language)
+    except Exception as exc:
+        # #608: a missing or unfetchable grammar is a capability fact, not a
+        # parse error. Recorded once per language; the file still yields [].
+        grammar_pack.record_failure(language, exc)
+        return []
+    try:
         tree = parser.parse(source_bytes)
     except Exception:
         return []
@@ -478,7 +486,11 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     cpp_error_nodes = 0
     cpp_tree: Any = None
     try:
-        parser = get_parser(cpp_spec.ts_language)
+        try:
+            parser = get_parser(cpp_spec.ts_language)
+        except Exception as exc:
+            grammar_pack.record_failure('cpp', exc)
+            raise
         tree = parser.parse(source_bytes)
         cpp_tree = tree
         cpp_error_nodes = _count_error_nodes(tree.root_node)
@@ -499,7 +511,11 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     c_error_nodes = 10**9
     c_tree: Any = None
     try:
-        c_parser = get_parser(c_spec.ts_language)
+        try:
+            c_parser = get_parser(c_spec.ts_language)
+        except Exception as exc:
+            grammar_pack.record_failure('c', exc)
+            raise
         c_tree_obj = c_parser.parse(source_bytes)
         c_tree = c_tree_obj
         c_error_nodes = _count_error_nodes(c_tree_obj.root_node)
@@ -2127,6 +2143,10 @@ def _parse_elixir_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     spec = LANGUAGE_REGISTRY["elixir"]
     try:
         parser = get_parser(spec.ts_language)
+    except Exception as exc:
+        grammar_pack.record_failure("elixir", exc)
+        return []
+    try:
         tree = parser.parse(source_bytes)
     except Exception:
         return []
