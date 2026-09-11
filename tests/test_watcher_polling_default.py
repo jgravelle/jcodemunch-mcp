@@ -65,8 +65,8 @@ def test_the_guard_is_exercised_not_bypassed(monkeypatch, watchfiles_main):
     """Non-vacuity: the import really raises under the patch, so the fallback
     branch is the one that answered above."""
     _without_the_private_name(monkeypatch)
+    importlib.import_module("watchfiles.main")  # the module still imports ...
     with pytest.raises(ImportError):
-        importlib.import_module("watchfiles.main")  # module import still fine ...
         from watchfiles.main import _default_force_polling  # noqa: F401  ... the NAME is gone
 
 
