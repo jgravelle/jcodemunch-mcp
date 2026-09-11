@@ -119,6 +119,13 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
         "mcp-publisher",
     ):
         assert verb in joined, f"deny list lost `{verb}`"
+    # W-44: the entry names the ACT, never the bare word. A bare-word pattern refuses
+    # `twine check`, the publisher's `--version` and `gh release view`, none of them irreversible.
+    for bare in ("Bash(twine*)", "Bash(uvx --from twine*)", "Bash(*mcp-publisher*)", "Bash(gh release*)",
+                 "PowerShell(*twine*)", "PowerShell(*mcp-publisher*)", "PowerShell(gh release*)"):
+        assert bare not in deny, f"deny list matches a word, not an act: `{bare}` (W-44)"
+    for act in ("twine upload", "mcp-publisher* publish", "mcp-publisher* login", "gh release create", "gh release delete"):
+        assert act in joined, f"deny list lost the act `{act}` (W-44)"
     for verb in ("gh pr comment", "gh pr edit", "gh pr close", "gh issue comment", "gh issue close", "gh api"):
         assert verb not in joined, f"deny list refuses `{verb}` again; posting is the session's (W-40)"
 

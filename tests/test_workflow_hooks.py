@@ -97,6 +97,30 @@ def edit(path: Path) -> dict:
         ("gh api -H 'Accept: application/vnd.github+json' graphql -f query='mutation { " + "mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }'", True),
         ("gh repo " + "delete x/y --yes", True),
         ("gh repo view x/y", False),
+        # W-44: three rules matched a WORD where D8 names an ACT. The seven
+        # read-only spellings refused on 2026-09-11 are allowed; the acts stay
+        # refused by every spelling of flags and paths between verb and object.
+        ("uvx --from " + "twine twine check dist-ci/*", False),  # RUNBOOK 1a's own gate line
+        ("grep -nE '" + "twine|releases' docs/cicd/RUNBOOK.md", False),
+        ("uvx --from " + "twine twine upload --repository testpypi dist/*", True),
+        ("python -m " + "twine upload dist/*", True),
+        ('"C:\\Users\\j\\mcp-' + 'publisher.exe" --version', False),
+        ('"C:\\Users\\j\\mcp-' + 'publisher.exe" login --help', False),
+        # prose in a heredoc that spells the ACT stays refused: W-19 keeps the scan so quoting cannot evade it
+        ("cat >> notes.md <<'EOF'\n`mcp-" + "publisher login github -token`\nEOF", True),
+        ("cat >> notes.md <<'EOF'\nthe mcp-" + "publisher binary is at C:\\Users\\j\nEOF", False),  # prose naming the binary, no act
+        ('"C:\\Users\\j\\mcp-' + 'publisher.exe" login github -token %GITHUB_TOKEN% && "C:\\Users\\j\\mcp-' + 'publisher.exe" publish', True),
+        ("mcp-" + "publisher login github", True),  # login writes live credential files into the CWD
+        ("mcp-" + "publisher publish --registry https://x", True),
+        ("gh " + "release view -R modelcontextprotocol/registry --json tagName", False),
+        ("gh " + "release list -R x/y", False),
+        ("gh " + "release download v1 -R x/y -D dist-ci", False),
+        ("gh " + "release create v9 dist/* --title t", True),
+        ("gh " + "release edit v9 --draft=false", True),
+        ("gh " + "release delete v9 --yes", True),
+        ("gh " + "release upload v9 dist/*", True),
+        ("gh " + "release -R x/y create v9", True),  # flags before the verb
+        ("printf '%s' 'the git tag rule has no read form' > msg.txt", False),  # prose naming the tag rule
     ],
 )
 def test_deny_guard_refuses_exactly_the_forbidden_verbs(command, expect_block):

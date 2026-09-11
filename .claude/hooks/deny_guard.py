@@ -23,7 +23,11 @@ DENIED = [
         "a force-push; RUNBOOK section 6 is the emergency path",
     ),
     (
-        r"\bgit\s+tag\b(?![^|;&]*(?:\s-l\b|--list|--sort|--contains|--points-at|--merged|--no-merged))",
+        # W-44: the creating forms, as `settings.json` lists them (a `v`-prefixed
+        # name, or a create/sign/force/delete flag), not any two words after the
+        # verb: prose such as "the git tag rule" is not a tag. The read forms
+        # (`--list`, `--sort`, `--contains`, ...) fall outside by construction.
+        r"\bgit\s+tag\s+(?:(?:-[asfdm]|--force|--delete|--annotate|--sign|--message)\b|v\d)",
         "a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
@@ -31,7 +35,10 @@ DENIED = [
         "pushing a tag; release.yml tags (RUNBOOK section 1)",
     ),
     (
-        r"\bgh\s+release\b",
+        # W-44: the ACT, never the word. `view`, `list` and `download` are reads
+        # (the hand-finish downloads the CI artifact); flags may sit between
+        # `release` and its verb (`gh release -R x/y create`).
+        r"\bgh\s+release\b(?:\s+-\S+(?:\s+\S+)?)*\s+(?:create|edit|delete|delete-asset|upload)\b",
         "a GitHub release; release.yml creates it (RUNBOOK section 1)",
     ),
     (
@@ -70,8 +77,19 @@ DENIED = [
         r"\bgh\s+repo\s+delete\b",
         "deleting a repository, which no page undoes; the human does it",
     ),
-    (r"\btwine\b", "a PyPI upload; RUNBOOK section 1a is the human's hand-finish"),
-    (r"mcp-publisher", "a registry publish; release.yml publishes"),
+    # W-44: `twine check` is RUNBOOK 1a's own gate line and a grep may carry the
+    # word; only the upload is irreversible.
+    (
+        r"\btwine\s+(?:upload|register)\b",
+        "a PyPI upload; RUNBOOK section 1a is the human's hand-finish",
+    ),
+    # W-44: `--version`/`--help` and prose naming the binary are not a publish.
+    # `login` stays refused: it writes live credential files into the CWD and
+    # is the human's device flow. Optional `.exe"` between name and verb.
+    (
+        r"mcp-publisher(?:\.exe)?[\"']?\s+(?:publish|login)\b(?!\s+(?:--help|-h)\b)",
+        "a registry publish; release.yml publishes",
+    ),
 ]
 
 
