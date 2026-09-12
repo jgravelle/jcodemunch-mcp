@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .. import config as _config_mod
-from ..runtime import VALID_SOURCES, ingest_otel_file, ingest_sql_log_file, ingest_stack_log_file
+from ..runtime import (
+    VALID_SOURCES,
+    ingest_diagnostics_file,
+    ingest_otel_file,
+    ingest_sql_log_file,
+    ingest_stack_log_file,
+)
 from ..storage import IndexStore
 from .resolve_repo import resolve_repo
 
@@ -27,13 +33,18 @@ def import_runtime_signal(
     repo: Optional[str] = None,
     redact_enabled: Optional[bool] = None,
     storage_path: Optional[str] = None,
+    format: Optional[str] = None,
 ) -> dict[str, Any]:
     """Import a runtime trace file into the runtime_* tables for a repo.
 
     Args:
-        source: One of ``{'otel', 'sql_log', 'stack_log', 'apm'}``. Phase 1
-            implemented ``'otel'``; Phase 4 added ``'sql_log'``; Phase 5
-            added ``'stack_log'``; ``'apm'`` is reserved.
+        source: One of ``{'otel', 'sql_log', 'stack_log', 'diagnostics',
+            'apm'}``. Phase 1 implemented ``'otel'``; Phase 4 added
+            ``'sql_log'``; Phase 5 added ``'stack_log'``; ``'diagnostics'``
+            (2026-09) reads a type checker's / linter's own output file
+            (mypy / pyright / tsc / ruff / generic JSONL) into the
+            ``diagnostics`` SNAPSHOT table, replaced per tool; ``'apm'`` is
+            reserved.
         path: Path to the trace file.
         repo: Repo identifier as ``owner/name`` or just ``name``. If
             omitted, defaults to resolving the current working directory
@@ -42,6 +53,10 @@ def import_runtime_signal(
             Defaults to the config value (True). Disable only for offline
             debugging on synthetic data.
         storage_path: Custom storage path (matches other tools).
+        format: ``source='diagnostics'`` only. One of ``mypy`` / ``pyright`` /
+            ``tsc`` / ``ruff`` / ``generic``; default auto-detects from the
+            file's CONTENT. Pass it for an EMPTY file (a clean run is a valid
+            snapshot only when the tool is named).
 
     Returns:
         ``{
@@ -61,12 +76,12 @@ def import_runtime_signal(
             "success": False,
             "error": f"unknown source {source!r}. Valid: {sorted(VALID_SOURCES)}",
         }
-    if source not in ("otel", "sql_log", "stack_log"):
+    if source not in ("otel", "sql_log", "stack_log", "diagnostics"):
         return {
             "success": False,
             "error": (
                 f"source {source!r} is not yet implemented. "
-                "Phases 1+4+5 support source='otel', 'sql_log', and 'stack_log'."
+                "Supported: source='otel', 'sql_log', 'stack_log', 'diagnostics'."
             ),
         }
 
@@ -117,14 +132,25 @@ def import_runtime_signal(
                 redact_enabled=redact_enabled,
                 max_rows=max_rows,
             )
-        else:  # stack_log
+        elif source == "stack_log":
             result = ingest_stack_log_file(
                 db_path=str(db_path),
                 file_path=path,
                 redact_enabled=redact_enabled,
                 max_rows=max_rows,
             )
+        else:  # diagnostics
+            result = ingest_diagnostics_file(
+                db_path=str(db_path),
+                file_path=path,
+                redact_enabled=redact_enabled,
+                max_rows=max_rows,
+                fmt=format or "auto",
+            )
     except FileNotFoundError as e:
+        return {"success": False, "error": str(e)}
+    except ValueError as e:
+        # An unrecognised diagnostics shape: refuse rather than guess lines.
         return {"success": False, "error": str(e)}
 
     return {

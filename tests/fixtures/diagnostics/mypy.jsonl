@@ -1,0 +1,5 @@
+{"file": "pkg\\mod.py", "line": 10, "column": 15, "end_line": 10, "end_column": 18, "message": "Argument 1 to \"add\" has incompatible type \"str\"; expected \"int\"", "hint": null, "code": "arg-type", "severity": "error"}
+{"file": "pkg\\mod.py", "line": 15, "column": 15, "end_line": 15, "end_column": 20, "message": "Incompatible return value type (got \"str\", expected \"int\")", "hint": null, "code": "return-value", "severity": "error"}
+{"file": "pkg\\mod.py", "line": 19, "column": 19, "end_line": 19, "end_column": 21, "message": "Incompatible return value type (got \"int\", expected \"str\")", "hint": null, "code": "return-value", "severity": "error"}
+{"file": "pkg\\mod.py", "line": 26, "column": 4, "end_line": 26, "end_column": 16, "message": "No return value expected", "hint": null, "code": "return-value", "severity": "error"}
+{"file": "pkg\\mod.py", "line": 26, "column": 11, "end_line": 26, "end_column": 12, "message": "Unsupported operand types for + (\"None\" and \"int\")", "hint": "Left operand is of type \"int | None\"", "code": "operator", "severity": "error"}

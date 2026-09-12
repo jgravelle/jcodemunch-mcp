@@ -628,4 +628,40 @@ def get_pr_risk_profile(
         response["runtime_dark_code_introduced"] = runtime_dark_code_introduced
         if dark_code_files:
             response["runtime_dark_code_files"] = dark_code_files
+
+    # Compiler-diagnostics snapshot over the changed set -- REPORTED, NOT
+    # SCORED. A seventh weight moves every published grade and needs its own
+    # measurement (the _count_unstable_modules sign error is the precedent);
+    # the block is the deliverable. None = no data ingested = nothing rendered.
+    from ._diagnostics_consume import (  # noqa: PLC0415
+        diagnostics_currency, diagnostics_snapshot, live_git_head, load_symbol_diagnostics,
+    )
+    diag_map = load_symbol_diagnostics(db_path, changed_symbol_ids)
+    if diag_map is not None:
+        snap = diagnostics_snapshot(db_path) or {}
+        with_errors = []
+        total_err = total_warn = 0
+        for cs in all_changed:
+            d = diag_map.get(cs.get("symbol_id", ""))
+            if d is None:
+                continue
+            total_err += d["errors"]
+            total_warn += d["warnings"]
+            if d["errors"] > 0:
+                with_errors.append({
+                    "symbol_id": cs.get("symbol_id", ""),
+                    "name": cs.get("name", ""),
+                    "file": cs.get("file", ""),
+                    "errors": d["errors"],
+                    "tools": d["tools"],
+                })
+        response["diagnostics"] = {
+            "basis": "reported_not_scored",
+            "errors": total_err,
+            "warnings": total_warn,
+            "changed_symbols_with_errors": with_errors,
+            "tools": snap.get("tools", []),
+            "as_of": snap.get("as_of"),
+            "current": diagnostics_currency(snap.get("as_of"), live_git_head(cwd)),
+        }
     return response

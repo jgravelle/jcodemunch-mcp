@@ -239,8 +239,19 @@ or executes SQL against your repo.
   not a heuristic, and labeled as such in `_meta.confidence_provenance`.
 - **`import-trace`** ingests runtime signal, feeding runtime-coverage and hot-path
   views with what actually ran rather than what statically might.
+- **`import-trace --diagnostics <file>`** ingests a type checker's or linter's own
+  output — `mypy --output json`, `pyright --outputjson`, `tsc --noEmit --pretty false`,
+  `ruff check --output-format json`, or a generic JSON-Lines
+  `{file, line, severity, message, code?, tool?}` — and attaches each finding to
+  the innermost symbol containing its line. The `diagnostics` table is a
+  **snapshot, replaced per tool** on every ingest, because a fixed error must
+  disappear; every consumer (`check_edit_safe`, `get_changed_symbols`,
+  `get_pr_risk_profile`, `get_symbol_provenance`) reports the commit the snapshot
+  was taken at (`as_of`) and a tri-state `current` against HEAD. No data is
+  disclosed as no data; a zero appears only where the checker ran and found
+  nothing. Produce the file in CI or a pre-commit hook and ingest it there.
 
-Both keep the read-only charter intact: the strong evidence enters through a file
+All three keep the read-only charter intact: the strong evidence enters through a file
 you hand the tool, produced by systems you already run, on your terms.
 
 Per-language recipes, the CI ordering that avoids a high `unmapped` count, and

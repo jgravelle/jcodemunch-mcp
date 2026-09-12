@@ -265,6 +265,24 @@ def get_changed_symbols(
     removed_symbols.sort(key=_sort_key)
     changed_symbols.sort(key=_sort_key)
 
+    # Compiler-diagnostics snapshot (docs/prd-compiler-diagnostics.md): each
+    # added/changed entry says whether the checker already flags it. None
+    # means no data was ingested and nothing is rendered; `diagnostics_current`
+    # compares the snapshot's HEAD with until_sha and is tri-state.
+    from ._diagnostics_consume import (  # noqa: PLC0415
+        diagnostics_currency, diagnostics_snapshot, load_symbol_diagnostics,
+    )
+    _db_path = store._sqlite._db_path(owner, name)  # type: ignore[attr-defined]
+    _live_entries = added_symbols + changed_symbols
+    diag_map = load_symbol_diagnostics(_db_path, [e.get("symbol_id", "") for e in _live_entries])
+    diag_snapshot = diagnostics_snapshot(_db_path) if diag_map is not None else None
+    if diag_map is not None:
+        for e in _live_entries:
+            d = diag_map.get(e.get("symbol_id", ""))
+            if d is None:
+                continue
+            e["diagnostics"] = {"errors": d["errors"], "warnings": d["warnings"], "tools": d["tools"]}
+
     elapsed = (time.perf_counter() - start) * 1000
     result: dict = {
         "from_sha": resolved_since[:12],
@@ -280,6 +298,9 @@ def get_changed_symbols(
         "removed_count": len(removed_symbols),
         "changed_count": len(changed_symbols),
     }
+    if diag_snapshot is not None:
+        result["diagnostics_as_of"] = diag_snapshot.get("as_of")
+        result["diagnostics_current"] = diagnostics_currency(diag_snapshot.get("as_of"), resolved_until)
 
     if not suppress_meta:
         result["_meta"] = {

@@ -182,6 +182,25 @@ CREATE TABLE IF NOT EXISTS runtime_stack_events (
 CREATE INDEX IF NOT EXISTS idx_runtime_stack_events_severity ON runtime_stack_events(severity, last_seen);
 CREATE INDEX IF NOT EXISTS idx_runtime_stack_events_symbol ON runtime_stack_events(symbol_id);
 
+-- Compiler / linter diagnostics mapped to symbols (docs/prd-compiler-diagnostics.md).
+-- A SNAPSHOT, not a runtime_* accumulator: an ingest REPLACES every row for the
+-- same tool, because a fixed error must disappear. Created here for new DBs and
+-- by runtime/diagnostics_ingest.ensure_diagnostics_table() for older ones; no
+-- INDEX_VERSION bump, so no existing index is invalidated.
+CREATE TABLE IF NOT EXISTS diagnostics (
+    symbol_id      TEXT NOT NULL,
+    tool           TEXT NOT NULL,
+    severity       TEXT NOT NULL,
+    code           TEXT NOT NULL DEFAULT '',
+    count          INTEGER NOT NULL DEFAULT 0,
+    sample_message TEXT,
+    git_head       TEXT,
+    ingested_at    TEXT,
+    PRIMARY KEY (symbol_id, tool, severity, code)
+);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_tool ON diagnostics(tool);
+CREATE INDEX IF NOT EXISTS idx_diagnostics_severity ON diagnostics(severity);
+
 CREATE TABLE IF NOT EXISTS scip_edges (
     from_symbol_id TEXT NOT NULL,
     to_symbol_id   TEXT NOT NULL,

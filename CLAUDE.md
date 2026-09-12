@@ -189,6 +189,7 @@ src/jcodemunch_mcp/
   runtime/
     redact.py            # Single chokepoint redact_trace_record(record, source) — strips emails, IPv4, SQL literals/numerics, JSON value blocks, Python locals reprs, plus all secret patterns from ../redact.py
     http_routes.py       # Phase 6 Starlette route handlers: POST /runtime/otel, POST /runtime/sql, POST /runtime/stack. Off by default — gated by runtime_ingest_enabled config + JCODEMUNCH_HTTP_TOKEN bearer auth. Per-repo asyncio.Lock serialises writes against the same SQLite DB. Body cap (default 5 MB) checked separately for on-wire and decompressed sizes (gzip-bomb guard). Repo selection via X-JCM-Repo header or ?repo= query. Mounted on both SSE and streamable-http transports.
+    diagnostics_ingest.py # (2026-09, `docs/prd-compiler-diagnostics.md`) `ingest_diagnostics_file` — parse → redact(`message`) → innermost-span `resolve_to_symbol_id` → REPLACE per tool. ⚠⚠ **A SNAPSHOT, not a `runtime_*` upsert-and-add**: `DELETE WHERE tool=?` then insert, or a fixed type error stays forever on a symbol that is now clean; unmapped rows under `source='diagnostics:<tool>'` are replaced the same way. ⚠⚠ **No INDEX_VERSION bump** — `_SCHEMA_SQL` for new DBs, `ensure_diagnostics_table()` at ingest for old ones; a bump invalidates every user's index for a table that stays empty until they ingest. ⚠ Consumers render NO DATA as absent, never zero; `current` is tri-state. ⚠ Found `resolve.py`'s suffix walk capped at 8 segments (deep Windows paths never mapped); the path bounds it now.
     confidence.py        # Phase 2 RuntimeConfidenceProbe + attach_runtime_confidence (symbol-keyed) + attach_runtime_confidence_by_file (file-keyed). Stamps `_runtime_confidence` ∈ {confirmed, declared_only, unmapped} on result entries; emits `_meta.runtime_freshness` summary. Read-only connections use ?mode=ro&immutable=1 so they never bump WAL mtime and invalidate the CodeIndex LRU cache. Zero-cost when runtime_calls is empty.
   evidence/
     receipts.py          # (v1.108.183) #377 Phase 2 P1: the `jcodemunch.evidence/v1` envelope + session store. evidence_id() hashes EXACTLY (subject, effective_search, snapshot) — full sha256, never 12 hex; build_envelope/record_receipt (fail-closed on id reuse over differing content: an id that ever named two receipts names NEITHER after); lookup() returns (envelope, reason) with reason naming never_recorded/evicted/collision; PROOF_KINDS holds the jdoc/jdata halves too so parity attaches to ONE enum; coverage_fingerprint() is the OPAQUE Phase-5 (#385) extension point; envelope_json() is deterministic so repeated resource reads are byte-identical; _absence_links maps a Phase-3 `absent:` token to its receipt. Session-scoped, in memory, bounded at 500 + an evicted set
@@ -217,7 +218,7 @@ constraint whose violation causes a defect, or a rationale.
 |------------|---------|
 | `uninstall [target]` | (v1.105.1) Reverse `init` / `install`. Preserves user-authored hook rules and content outside our policy region; removes files only when empty after stripping. `--keep-claude-md`, `--keep-hooks`, etc. scope what's reversed |
 | `refresh [path]` | (v1.108.259, #395) Re-parse an INDEXED repo in bounded, resumable slices — `--max-seconds` / `--max-files` / `--pause-ms` / `--batch-size` / `--status` / `--reset` / `--ai-summaries` / `--json`. For fleets where a full re-index is a scheduled maintenance event. ⚠ Does NOT build a first index; refuses with the command that does. ⚠ Stamps `parser_generation` only after VERIFIED full-corpus coverage |
-| `import-trace [--otel <path> \| --sql-log <path> \| --stack-log <path>] [--repo <id>] [--no-redact]` | (Phases 1 + 4 + 5) Ingest a runtime trace file into the runtime_* tables. `--otel` takes JSON / JSON-Lines / .gz and maps spans by `(code.filepath, code.lineno, code.function)`; `--sql-log` takes pg_stat_statements CSV or generic SQL JSON-Lines and maps queries by referenced tables + dbt/SQLMesh column metadata; `--stack-log` takes plain-text app log or JSON-Lines record set with Python / JVM / Node.js tracebacks and writes severity-tagged frame counts to runtime_stack_events. Redacts PII at the chokepoint by default. Pass exactly one source flag. |
+| `import-trace [--otel <path> \| --sql-log <path> \| --stack-log <path> \| --diagnostics <path> [--format mypy\|pyright\|tsc\|ruff\|generic]] [--repo <id>] [--no-redact]` | (Phases 1 + 4 + 5) Ingest a runtime trace file into the runtime_* tables. `--otel` takes JSON / JSON-Lines / .gz and maps spans by `(code.filepath, code.lineno, code.function)`; `--sql-log` takes pg_stat_statements CSV or generic SQL JSON-Lines and maps queries by referenced tables + dbt/SQLMesh column metadata; `--stack-log` takes plain-text app log or JSON-Lines record set with Python / JVM / Node.js tracebacks and writes severity-tagged frame counts to runtime_stack_events. Redacts PII at the chokepoint by default. Pass exactly one source flag. ⚠⚠ **`--diagnostics` (2026-09) REPLACES every `diagnostics` row for its tool** — the rule and its reasons are at Key Files `runtime/diagnostics_ingest.py`. Never runs a checker; detects the format by CONTENT; an EMPTY file is a clean run only with `--format` naming the tool. |
 | `hook-precompact` | PreCompact hook: register transcript root before compaction (reads JSON stdin; snapshot delivery is `hook-sessionstart`) |
 | `hook-sessionstart` | (v1.108.255, #420) SessionStart hook: re-inject the PreCompact snapshot into MODEL context on `compact`/`resume`/`fork`. Silent on `startup`/`clear`, because an unrelated session's journal presents stale files as current focus. Also the earliest point a custom-profile transcript root can be learned (#421), so registration runs BEFORE the source gate |
 | `receipt` | Token-economy ledger from Claude transcripts — modeled tokens-saved + dollar value at Fable/Opus/Sonnet/Haiku rates; `--explain`, `--export csv\|json`, `--days` (rolling), `--model`. v1.108.134: `--since`/`--until` for calendar windows (local dates; `--until` exclusive) + `--by-day` for a per-day series in the JSON export. v1.108.135: `--rates` dumps the model price table as JSON (scans nothing) so consumers price from the one table instead of a drifting copy |
@@ -357,19 +358,7 @@ near its floor, descriptions are untouched ground.
 
 ### Tier-switch pricing (`benchmarks/tier_switch/`)
 
-⚠⚠ **A mid-session tier switch is priced, and one of the three tiers is a
-LOSING destination.** `full` -> `standard` needs **174 requests** to repay the
-cache it invalidates (**864** with 100k of history); `full` -> `core` needs
-**4**. Regenerate with `price_tier_switch.py`; weights are read live from
-`_build_tools_list`, so nothing here is hand-typed. `tier_switch_cost.classify`
-refuses the non-paying narrowing at both switch sites and never refuses a
-widening.
-
-⚠ **This EXTENDS the codex_surface finding below, it does not repeat it.** That
-one says `standard` is not a lever (6.7% of the payload). The addition is that
-as a TRANSITION it is negative, for longer than any session lasts -- and that
-the "fewer tokens is better" intuition is correct uncached and wrong cached,
-which is the whole reason it shipped.
+⚠ Numbers and rule: Key Files `tier_switch_cost.py` + Standing lesson 08-30; prose rotated to `ISSUE-HISTORY.md` 2026-09-12. Regenerate with `price_tier_switch.py`.
 
 ⚠⚠ **The published `counter` surface is BYTE-PINNED** (v1.108.314,
 `tests/test_counter_surface_stability.py`): six tools, **4,184 B**, by name AND
@@ -633,17 +622,7 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   byte mass 33.4% overall and up to 2.28x per file. Read their commit TITLES
   against whatever we built the same way; it is minutes, and it finds what our
   own tests were written not to see. See CHANGELOG `[Unreleased]`.
-- **A frozen version string cannot say whether a running process serves current
-  code.** 08-31 (rotated out of Current State with 1.108.313): `__version__` is
-  `importlib.metadata`, fixed at install time and never read from the tree, so
-  the source-drift verdict **false-alarmed forever on an editable install** (the
-  module IS the tree) and was **blind to the copied install**, which was the
-  actual incident. Every process on a source install reports the same number, so
-  the answer comes from `started_at` vs source mtime instead — it caught that
-  session's own server on the first run. ⚠ **Ownership and freshness are
-  different properties**: `verify_package_integrity()` asks which distribution
-  the running module came from and would certify a fourteen-release-old install.
-  [[grep-a-persisted-field-for-its-readers]]
+- **A frozen version string cannot say whether a running process serves current code.** 08-31: `__version__` is install-time metadata, so the drift verdict false-alarmed on every editable install and was blind to the copied one; `started_at` vs source mtime answers it (Key Files `install_layout.py`). Ownership and freshness are different properties. [[grep-a-persisted-field-for-its-readers]]
 - **A gate's exit status is never the left side of a pipe.** 09-04
   (inbound item 6): `python gate.py ... | tee out; rc=$?` records tee's status
   under Actions' default `bash -e`, so every decline the pre-flight computed

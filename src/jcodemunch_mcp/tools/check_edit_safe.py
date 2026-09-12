@@ -45,6 +45,7 @@ _SEVERITY_RUNTIME = 5
 _SEVERITY_CROSS_REPO = 5
 _SEVERITY_SCIP = 5           # compiler-verified caller depends on the contract
 _SEVERITY_EXTERNAL_IMPORT = 4
+_SEVERITY_DIAGNOSTICS = 4    # the checker already says this symbol is broken
 _SEVERITY_COMPLEXITY = 3
 _SEVERITY_INTERNAL_REF = 3
 _SEVERITY_UNTESTED = 2
@@ -285,6 +286,49 @@ def check_edit_safe(
         ),
     }
 
+    # ── Signal: pre-existing compiler / linter diagnostics (snapshot) ──
+    # Read from the `diagnostics` table an `import-trace --diagnostics` run
+    # filled. None means NO DATA (never ingested, or a DB that predates the
+    # table): nothing is rendered, and `diagnostics_data_present` says so --
+    # an absent checker is not a clean checker. A real zero appears only when
+    # the checker ran and found nothing on this symbol.
+    from ._diagnostics_consume import (  # noqa: PLC0415
+        diagnostics_currency, diagnostics_snapshot, live_git_head,
+        load_symbol_diagnostics, summarise,
+    )
+    _db_path = store._sqlite._db_path(owner, name)  # type: ignore[attr-defined]
+    diag_map = load_symbol_diagnostics(_db_path, [target_id])
+    diag_block: Optional[dict] = None
+    diag_note = ""
+    if diag_map is not None:
+        entry = diag_map.get(target_id) or {"errors": 0, "warnings": 0, "infos": 0, "tools": [], "codes": []}
+        snap = diagnostics_snapshot(_db_path) or {}
+        as_of = snap.get("as_of")
+        diag_block = {
+            "errors": entry["errors"],
+            "warnings": entry["warnings"],
+            "tools": entry["tools"],
+            "as_of": as_of,
+            "current": diagnostics_currency(as_of, live_git_head(getattr(index, "source_root", None))),
+        }
+        if entry["errors"] > 0:
+            detail = summarise(entry)
+            blockers.append({
+                "kind": "pre_existing_diagnostics",
+                "detail": detail,
+                "severity": _SEVERITY_DIAGNOSTICS,
+            })
+            if diag_block["current"] is True:
+                staleness = ""
+            elif diag_block["current"] is False:
+                staleness = " (snapshot is behind HEAD)"
+            else:
+                staleness = " (snapshot currency unknown)"
+            diag_note = (
+                f" The checker already reports {entry['errors']} error(s) here: {detail}{staleness}. "
+                "Fix or acknowledge the baseline before editing, or a new error is indistinguishable from an old one."
+            )
+
     # Rank blockers by severity, truncate to top 5
     blockers.sort(key=lambda b: -b.get("severity", 0))
     blockers_out = blockers[:5]
@@ -308,7 +352,7 @@ def check_edit_safe(
             "line": target.get("line", 0),
         },
         "blockers": blockers_out,
-        "recommended_action": actions[verdict],
+        "recommended_action": actions[verdict] + diag_note,
         # Executable stop rule beside the certainty language. `terminal` means
         # no further jcodemunch call moves this verdict; it does NOT mean safe.
         # See tools/_stop_rule.py for why this ships by default.
@@ -342,4 +386,7 @@ def check_edit_safe(
         result["signals"]["runtime_hits"] = runtime_hits
     if include_runtime:
         result["signals"]["runtime_data_present"] = runtime_data_present
+    result["signals"]["diagnostics_data_present"] = diag_block is not None
+    if diag_block is not None:
+        result["signals"]["diagnostics"] = diag_block
     return result

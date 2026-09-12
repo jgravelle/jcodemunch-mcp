@@ -317,7 +317,8 @@ def test_resolve_handles_empty_path(tmp_path):
 
 
 def test_valid_sources_frozen():
-    assert VALID_SOURCES == frozenset({"otel", "sql_log", "stack_log", "apm"})
+    # 'diagnostics' (2026-09): a checker's own output file, the fifth source.
+    assert VALID_SOURCES == frozenset({"otel", "sql_log", "stack_log", "diagnostics", "apm"})
 
 
 # ──────────────────────────────────────────────────────────────────────

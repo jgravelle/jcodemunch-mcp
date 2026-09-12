@@ -1,0 +1,2 @@
+a.ts(5,14): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+a.ts(9,5): error TS2322: Type 'string' is not assignable to type 'number'.

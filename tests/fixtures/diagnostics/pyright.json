@@ -1,0 +1,78 @@
+{
+    "version": "1.1.414",
+    "time": "1789215654844",
+    "generalDiagnostics": [
+        {
+            "file": "C:\\work\\diagfix\\pkg\\mod.py",
+            "severity": "error",
+            "message": "Argument of type \"Literal['x']\" cannot be assigned to parameter \"a\" of type \"int\" in function \"add\"\n  \"Literal['x']\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 9,
+                    "character": 15
+                },
+                "end": {
+                    "line": 9,
+                    "character": 18
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "C:\\work\\diagfix\\pkg\\mod.py",
+            "severity": "error",
+            "message": "Type \"Literal['big']\" is not assignable to return type \"int\"\n  \"Literal['big']\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 14,
+                    "character": 15
+                },
+                "end": {
+                    "line": 14,
+                    "character": 20
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "C:\\work\\diagfix\\pkg\\mod.py",
+            "severity": "error",
+            "message": "Type \"Literal[42]\" is not assignable to return type \"str\"\n  \"Literal[42]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 18,
+                    "character": 19
+                },
+                "end": {
+                    "line": 18,
+                    "character": 21
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "C:\\work\\diagfix\\pkg\\mod.py",
+            "severity": "error",
+            "message": "Operator \"+\" not supported for types \"None\" and \"Literal[1]\"",
+            "range": {
+                "start": {
+                    "line": 25,
+                    "character": 11
+                },
+                "end": {
+                    "line": 25,
+                    "character": 16
+                }
+            },
+            "rule": "reportOperatorIssue"
+        }
+    ],
+    "summary": {
+        "filesAnalyzed": 2,
+        "errorCount": 4,
+        "warningCount": 0,
+        "informationCount": 0,
+        "timeInSec": 0.17
+    }
+}
+

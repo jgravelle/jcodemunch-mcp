@@ -1759,3 +1759,37 @@ Verbatim. The 1.108.317 entry is condensed to a stub in `CLAUDE.md`; this is the
 ### `Tests:` line, the 1.108.316 reconciliation (rotated 2026-09-11)
 
 ⚠ Prior (1.108.316): 9161 passed, 13 skipped, **0 failed** (9174 total **+ `uv run ruff check src/` clean**, measured on the settled tree after the bump and the rotation. ⚠ **9174 TOTAL, +26 over the .315 line's 9148**, and it reconciles EXACTLY: 11 from this release's `tests/test_result_cache_isolation.py`, 2 from @rknighton's merged #570, 7 from #571's `test_kind_enum_is_derived.py`, 5 from `test_savings_usd_basis.py` and 1 from the holdout-artifact gate — four of those five shipped between the two measurements. ⚠ **A delta is only readable when both ends name the same tree**; three commits sat between these two.
+
+## Rotated from CLAUDE.md on 2026-09-12 (compiler-diagnostics feature): tier-switch pricing narrative
+
+Moved verbatim under Maintenance Practice 5 to make room for the `--diagnostics` invariants. The rule survives in CLAUDE.md twice already — Key Files `tier_switch_cost.py` and Standing lesson 08-30 — so this is the duplicate, not the rule.
+
+⚠⚠ **A mid-session tier switch is priced, and one of the three tiers is a
+LOSING destination.** `full` -> `standard` needs **174 requests** to repay the
+cache it invalidates (**864** with 100k of history); `full` -> `core` needs
+**4**. Regenerate with `price_tier_switch.py`; weights are read live from
+`_build_tools_list`, so nothing here is hand-typed. `tier_switch_cost.classify`
+refuses the non-paying narrowing at both switch sites and never refuses a
+widening.
+
+⚠ **This EXTENDS the codex_surface finding below, it does not repeat it.** That
+one says `standard` is not a lever (6.7% of the payload). The addition is that
+as a TRANSITION it is negative, for longer than any session lasts -- and that
+the "fewer tokens is better" intuition is correct uncached and wrong cached,
+which is the whole reason it shipped.
+
+## Rotated from CLAUDE.md Standing lessons on 2026-09-12: the frozen-version-string entry, verbatim
+
+The one-line lesson stays in CLAUDE.md; this is its forensic paragraph.
+
+- **A frozen version string cannot say whether a running process serves current
+  code.** 08-31 (rotated out of Current State with 1.108.313): `__version__` is
+  `importlib.metadata`, fixed at install time and never read from the tree, so
+  the source-drift verdict **false-alarmed forever on an editable install** (the
+  module IS the tree) and was **blind to the copied install**, which was the
+  actual incident. Every process on a source install reports the same number, so
+  the answer comes from `started_at` vs source mtime instead — it caught that
+  session's own server on the first run. ⚠ **Ownership and freshness are
+  different properties**: `verify_package_integrity()` asks which distribution
+  the running module came from and would certify a fourteen-release-old install.
+  [[grep-a-persisted-field-for-its-readers]]

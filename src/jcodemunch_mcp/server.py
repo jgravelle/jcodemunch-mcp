@@ -1759,7 +1759,13 @@ def _build_tools_list(
                 "(per-severity counts: error/warn/info). Returns {records, mapped, "
                 "unmapped, redactions_fired, unmapped_reasons, evicted} plus source-"
                 "specific fields (columns_recorded for sql_log; severity_counts and "
-                "frames for stack_log). PII is redacted at the chokepoint by default. "
+                "frames for stack_log). source='diagnostics' takes a type checker's or "
+                "linter's OWN output file (mypy --output json, pyright --outputjson, "
+                "tsc --pretty false, ruff --output-format json, or generic JSON-Lines "
+                "{file,line,severity,message}), auto-detected by content, and maps each "
+                "finding to the innermost enclosing symbol in the `diagnostics` SNAPSHOT "
+                "table, REPLACED per tool so a fixed error disappears; no checker is "
+                "executed by the server. PII is redacted at the chokepoint by default. "
                 "apm is reserved."
             ),
             inputSchema={
@@ -1767,9 +1773,14 @@ def _build_tools_list(
                 "properties": {
                     "source": {
                         "type": "string",
-                        "enum": ["otel", "sql_log", "stack_log", "apm"],
-                        "description": "Trace source format. Phases 1+4+5 accept 'otel', 'sql_log', and 'stack_log'.",
+                        "enum": ["otel", "sql_log", "stack_log", "diagnostics", "apm"],
+                        "description": "Trace source format: 'otel', 'sql_log', 'stack_log', or 'diagnostics' (checker output).",
                         "default": "otel",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["mypy", "pyright", "tsc", "ruff", "generic"],
+                        "description": "source='diagnostics' only: name the tool instead of auto-detecting from content. Required for an EMPTY file (a clean run is a valid snapshot only when the tool is named).",
                     },
                     "path": {
                         "type": "string",
@@ -5967,6 +5978,7 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     repo=arguments.get("repo"),
                     redact_enabled=arguments.get("redact_enabled"),
                     storage_path=storage_path,
+                    format=arguments.get("format"),
                 )
             )
         elif name == "get_runtime_coverage":
@@ -9504,7 +9516,7 @@ def main(argv: Optional[list[str]] = None):
     # --- import-trace (Phases 1 + 4 + 5: OTel + SQL log + stack log ingest) ---
     import_trace_parser = subparsers.add_parser(
         "import-trace",
-        help="Ingest a runtime trace file (OTel / SQL log / stack log) into the runtime_* tables",
+        help="Ingest a runtime trace file (OTel / SQL log / stack log) into the runtime_* tables, or a checker's diagnostics file into the diagnostics snapshot",
     )
     import_trace_parser.add_argument(
         "--otel",
@@ -9523,6 +9535,23 @@ def main(argv: Optional[list[str]] = None):
         dest="stack_log_path",
         metavar="PATH",
         help="Path to a plain-text app log or JSON-Lines record set with Python / JVM / Node.js stack traces",
+    )
+    import_trace_parser.add_argument(
+        "--diagnostics",
+        dest="diagnostics_path",
+        metavar="PATH",
+        help=(
+            "Path to a type checker's or linter's output: mypy --output json, pyright --outputjson, "
+            "tsc --pretty false, ruff --output-format json, or generic JSON-Lines {file,line,severity,message}. "
+            "Mapped to the innermost enclosing symbol; REPLACES the previous snapshot for the same tool."
+        ),
+    )
+    import_trace_parser.add_argument(
+        "--format",
+        dest="diagnostics_format",
+        choices=["mypy", "pyright", "tsc", "ruff", "generic"],
+        default=None,
+        help="With --diagnostics: name the tool instead of auto-detecting from content (required for an empty file).",
     )
     import_trace_parser.add_argument(
         "--repo",
@@ -10985,16 +11014,17 @@ def main(argv: Optional[list[str]] = None):
         otel_path = getattr(args, "otel_path", None)
         sql_log_path = getattr(args, "sql_log_path", None)
         stack_log_path = getattr(args, "stack_log_path", None)
-        provided = [p for p in (otel_path, sql_log_path, stack_log_path) if p]
+        diagnostics_path = getattr(args, "diagnostics_path", None)
+        provided = [p for p in (otel_path, sql_log_path, stack_log_path, diagnostics_path) if p]
         if not provided:
             print(
-                "jcodemunch-mcp: error: import-trace requires one of --otel / --sql-log / --stack-log <path>",
+                "jcodemunch-mcp: error: import-trace requires one of --otel / --sql-log / --stack-log / --diagnostics <path>",
                 file=sys.stderr,
             )
             sys.exit(2)
         if len(provided) > 1:
             print(
-                "jcodemunch-mcp: error: import-trace accepts exactly one of --otel / --sql-log / --stack-log. "
+                "jcodemunch-mcp: error: import-trace accepts exactly one of --otel / --sql-log / --stack-log / --diagnostics. "
                 "Run the command once per source if you have multiple.",
                 file=sys.stderr,
             )
@@ -11005,15 +11035,19 @@ def main(argv: Optional[list[str]] = None):
         elif sql_log_path:
             source = "sql_log"
             trace_path = sql_log_path
-        else:
+        elif stack_log_path:
             source = "stack_log"
             trace_path = stack_log_path
+        else:
+            source = "diagnostics"
+            trace_path = diagnostics_path
         result = _import_runtime_signal(
             source=source,
             path=trace_path,
             repo=args.repo,
             redact_enabled=not args.no_redact,
             storage_path=os.environ.get("CODE_INDEX_PATH"),
+            format=getattr(args, "diagnostics_format", None),
         )
         print(_json.dumps(result, indent=2))
         if not result.get("success", True):

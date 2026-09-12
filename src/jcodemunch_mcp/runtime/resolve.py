@@ -83,7 +83,10 @@ def resolve_to_symbol_id(
     suffix = file_path.replace("\\", "/").lstrip("/")
     candidates: list[str] = []
     cut = suffix
-    for _ in range(8):
+    # Bounded by the segment count, not a constant: a checker on Windows emits
+    # C:/Users/<u>/AppData/Local/Temp/... paths well past eight segments, and a
+    # cap of 8 left every one of them unmapped (found by the diagnostics ingest).
+    for _ in range(256):
         if not cut:
             break
         rows = conn.execute(
