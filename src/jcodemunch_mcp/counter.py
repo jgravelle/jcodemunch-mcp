@@ -591,11 +591,17 @@ _QUERY_ARG: dict[str, str] = {
 
 
 def classify_intent(task: str, catalog_names: Iterable[str]) -> list[dict]:
-    """Return ranked recommended actions for a task.
+    """Return recommended actions for a task from the curated intent rules ONLY.
 
-    Combines the curated intent rules (high precision) with a catalog-search
-    fallback (high recall), de-duplicated, primary first. Each row is
-    ``{"action", "why"}``. Only actions present in the live catalog survive.
+    Walks ``_INTENT_RULES`` in declaration order (which is load-bearing -- see
+    its block comments) and appends one ``{"action", "why"}`` row per matching
+    rule, de-duplicated by action. Only actions present in the live catalog
+    survive. Returns an empty list when no rule matches.
+
+    ⚠ **The catalog-search fallback is NOT here.** ``_handle_route`` in
+    ``server.py`` calls ``search_catalog`` itself, and only when this function
+    returns nothing -- which is why an action a rule preempted was never
+    scored at all (the ``rule_preempted`` miss class named above).
     """
     names = set(catalog_names)
     out: list[dict] = []
