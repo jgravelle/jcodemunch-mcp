@@ -78,25 +78,8 @@ def resolve_to_symbol_id(
             return row["id"]
 
     # 3. Suffix match on file path — handles absolute trace paths against
-    # repo-relative index paths. Strip leading segments until LIKE matches
-    # something. Cap the iterations to bound worst-case.
-    suffix = file_path.replace("\\", "/").lstrip("/")
-    candidates: list[str] = []
-    cut = suffix
-    # Bounded by the segment count, not a constant: a checker on Windows emits
-    # C:/Users/<u>/AppData/Local/Temp/... paths well past eight segments, and a
-    # cap of 8 left every one of them unmapped (found by the diagnostics ingest).
-    for _ in range(256):
-        if not cut:
-            break
-        rows = conn.execute(
-            "SELECT DISTINCT file FROM symbols WHERE file LIKE ? LIMIT 16",
-            (f"%{cut}",),
-        ).fetchall()
-        candidates = [r["file"] for r in rows]
-        if candidates:
-            break
-        cut = _strip_one_segment(cut)
+    # repo-relative index paths.
+    candidates = suffix_candidates(conn, file_path)
     if not candidates:
         return None
 
@@ -127,6 +110,37 @@ def resolve_to_symbol_id(
             return row["id"]
 
     return None
+
+
+def suffix_candidates(
+    conn: sqlite3.Connection,
+    file_path: str,
+    *,
+    table: str = "symbols",
+    column: str = "file",
+    limit: int = 16,
+) -> list[str]:
+    """Indexed paths that END with ``file_path`` or one of its right-hand
+    suffixes: strip leading segments until ``LIKE '%<cut>'`` matches.
+
+    The walk is bounded by the path's own segment count and by nothing else.
+    It was ``for _ in range(8)`` until 2026-09-12, and a checker on Windows
+    emits ``C:/Users/<u>/AppData/Local/Temp/<tool>/<run>/...`` paths well past
+    eight segments, so every one of them was unmapped. THE ONE copy of this
+    rule: the diagnostics ingest's "is this file indexed at all" question
+    asks it over ``files.path`` instead of carrying its own loop.
+    """
+    cut = file_path.replace("\\", "/").lstrip("/")
+    while cut:
+        rows = conn.execute(
+            f"SELECT DISTINCT {column} FROM {table} WHERE {column} LIKE ? LIMIT ?",
+            (f"%{cut}", limit),
+        ).fetchall()
+        found = [r[0] for r in rows]
+        if found:
+            return found
+        cut = _strip_one_segment(cut)
+    return []
 
 
 def _strip_one_segment(path: str) -> str:

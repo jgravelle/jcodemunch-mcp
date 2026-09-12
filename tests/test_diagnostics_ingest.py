@@ -227,6 +227,46 @@ def test_a_line_outside_every_symbol_is_unmapped_with_a_reason(tmp_path):
     assert n == 2
 
 
+def test_a_deep_absolute_path_resolves_by_suffix(tmp_path):
+    """Windows checkers emit C:/Users/<u>/AppData/Local/Temp/<tool>/<run>/...
+    paths. The resolver's suffix walk was capped at 8 segments, so this
+    twelve-segment path never reached `pkg/mod.py` and was unmapped."""
+    _, _, db_path = _make_repo(tmp_path)
+    deep = "C:\\Users\\u\\AppData\\Local\\Temp\\claude\\C--x\\0123abcd\\scratchpad\\diagfix\\pkg\\mod.py"
+    assert deep.count("\\") >= 11
+    log = tmp_path / "deep.jsonl"
+    log.write_text(
+        json.dumps({"file": deep, "line": 10, "severity": "error", "message": "m", "code": "E1", "tool": "x"}) + "\n"
+        + json.dumps({"file": deep, "line": 1, "severity": "warning", "message": "w", "code": "W1", "tool": "x"}) + "\n",
+        encoding="utf-8",
+    )
+    from jcodemunch_mcp.runtime.diagnostics_ingest import ingest_diagnostics_file
+
+    result = ingest_diagnostics_file(db_path=str(db_path), file_path=str(log))
+    assert result["mapped"] == 1, result
+    # Line 1 is outside every symbol in a file that IS indexed: the reason
+    # must say so, which needs the same suffix walk the resolver uses.
+    assert result["unmapped_reasons"] == {"no_enclosing_symbol": 1}, result
+
+
+def test_suffix_walk_is_bounded_by_the_path_not_a_constant(tmp_path):
+    import sqlite3 as _sqlite3
+
+    from jcodemunch_mcp.runtime.resolve import suffix_candidates
+    from jcodemunch_mcp.storage.generation import connect_readonly
+
+    _, _, db_path = _make_repo(tmp_path)
+    conn = connect_readonly(db_path, isolation_level="")
+    conn.row_factory = _sqlite3.Row
+    try:
+        forty = "/".join(f"seg{i}" for i in range(40)) + "/pkg/mod.py"
+        assert suffix_candidates(conn, forty) == ["pkg/mod.py"]
+        assert suffix_candidates(conn, forty, table="files", column="path", limit=1) == ["pkg/mod.py"]
+        assert suffix_candidates(conn, "/".join(f"seg{i}" for i in range(40)) + "/nope.py") == []
+    finally:
+        conn.close()
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Ingest: snapshot semantics
 # ──────────────────────────────────────────────────────────────────────
@@ -263,6 +303,37 @@ def test_replacing_one_tool_leaves_another_tools_rows_alone(tmp_path):
     ingest_diagnostics_file(db_path=str(db_path), file_path=str(empty), fmt="mypy")
     assert _rows(db_path, "mypy") == []
     assert [(r["symbol_id"], r["code"]) for r in _rows(db_path, "tsc")] == tsc_before
+
+
+def test_unmapped_rows_are_a_snapshot_per_tool_too(tmp_path):
+    """A re-ingest that no longer carries an unmappable line removes its
+    `runtime_unmapped` row; another tool's unmapped rows stay."""
+    _, _, db_path = _make_repo(tmp_path)
+    from jcodemunch_mcp.runtime.diagnostics_ingest import ingest_diagnostics_file
+
+    def _write(name: str, rows: list[dict]) -> str:
+        p = tmp_path / name
+        p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return str(p)
+
+    bad_x = {"file": "nowhere/else.py", "line": 3, "severity": "error", "message": "m", "tool": "x"}
+    bad_y = {"file": "nowhere/else.py", "line": 4, "severity": "error", "message": "m", "tool": "y"}
+    good = {"file": "pkg/mod.py", "line": 10, "severity": "error", "message": "m", "tool": "x"}
+    ingest_diagnostics_file(db_path=str(db_path), file_path=_write("x1.jsonl", [bad_x, good]))
+    ingest_diagnostics_file(db_path=str(db_path), file_path=_write("y1.jsonl", [bad_y]))
+
+    def _unmapped(source: str) -> int:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("SELECT COUNT(*) FROM runtime_unmapped WHERE source = ?", (source,)).fetchone()[0]
+        finally:
+            conn.close()
+
+    assert _unmapped("diagnostics:x") == 1 and _unmapped("diagnostics:y") == 1
+    # x's second run: the unmappable line is gone.
+    ingest_diagnostics_file(db_path=str(db_path), file_path=_write("x2.jsonl", [good]))
+    assert _unmapped("diagnostics:x") == 0
+    assert _unmapped("diagnostics:y") == 1
 
 
 def test_ingest_stamps_git_head_or_none_never_a_guess(tmp_path):

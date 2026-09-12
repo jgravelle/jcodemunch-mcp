@@ -26,7 +26,7 @@ from typing import Any, Optional
 from ..storage.generation import connect_readonly
 from .diagnostics_log import Diagnostic, parse_diagnostics_file
 from .redact import redact_trace_record
-from .resolve import resolve_to_symbol_id
+from .resolve import resolve_to_symbol_id, suffix_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +75,11 @@ def _read_source_root(db_path: Path) -> Optional[str]:
     return str(v) if v else None
 
 
-def _git_head(source_root: Optional[str]) -> Optional[str]:
+def git_head_of(source_root: Optional[str]) -> Optional[str]:
     """HEAD of the source root, or None when it cannot be established. None is
-    UNKNOWN and is never rendered as a value downstream."""
+    UNKNOWN and is never rendered as a value downstream. THE ONE reader of
+    "what is HEAD here" for the diagnostics feature: the ingest stamps with it
+    and ``tools/_diagnostics_consume`` compares against it."""
     if not source_root or not Path(source_root).is_dir():
         return None
     try:
@@ -95,21 +97,9 @@ def _git_head(source_root: Optional[str]) -> Optional[str]:
 
 
 def _file_is_indexed(conn: sqlite3.Connection, file_path: str) -> bool:
-    norm = file_path.replace("\\", "/")
-    row = conn.execute("SELECT 1 FROM files WHERE path = ? LIMIT 1", (norm,)).fetchone()
-    if row is not None:
-        return True
-    suffix = norm.lstrip("/")
-    for _ in range(8):
-        if not suffix:
-            return False
-        row = conn.execute("SELECT 1 FROM files WHERE path LIKE ? LIMIT 1", (f"%{suffix}",)).fetchone()
-        if row is not None:
-            return True
-        if "/" not in suffix:
-            return False
-        suffix = suffix.split("/", 1)[1]
-    return False
+    """Same suffix walk the resolver uses, over ``files.path``, so the
+    unmapped REASON agrees with the resolver about which files exist."""
+    return bool(suffix_candidates(conn, file_path, table="files", column="path", limit=1))
 
 
 def ingest_diagnostics_file(
@@ -135,7 +125,7 @@ def ingest_diagnostics_file(
     tool = diags[0].tool if diags else (fmt_used if fmt_used != "generic" else "generic")
 
     source_root = _read_source_root(db)
-    git_head = _git_head(source_root)
+    git_head = git_head_of(source_root)
     now = _utc_now()
 
     # Resolve on a read-only connection, aggregate in memory.
@@ -245,4 +235,4 @@ def ingest_diagnostics_file(
     }
 
 
-__all__ = ["Diagnostic", "ingest_diagnostics_file", "ensure_diagnostics_table", "DIAGNOSTICS_SCHEMA_SQL"]
+__all__ = ["Diagnostic", "ingest_diagnostics_file", "ensure_diagnostics_table", "DIAGNOSTICS_SCHEMA_SQL", "git_head_of"]

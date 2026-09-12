@@ -20,10 +20,10 @@ Three rules every consumer inherits from here:
 from __future__ import annotations
 
 import sqlite3
-import subprocess
 from pathlib import Path
 from typing import Optional
 
+from ..runtime.diagnostics_ingest import git_head_of
 from ..storage.generation import connect_readonly
 
 
@@ -36,19 +36,9 @@ def diagnostics_currency(as_of: Optional[str], live_head: Optional[str]) -> Opti
 
 
 def live_git_head(source_root: Optional[str]) -> Optional[str]:
-    if not source_root or not Path(source_root).is_dir():
-        return None
-    try:
-        p = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=source_root,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=10, stdin=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if p.returncode != 0:
-        return None
-    return p.stdout.strip() or None
+    """The HEAD the snapshot is compared against — the ingest's own reader,
+    so the two sides of `current` cannot disagree about how HEAD is read."""
+    return git_head_of(source_root)
 
 
 def _open(db_path) -> Optional[sqlite3.Connection]:
