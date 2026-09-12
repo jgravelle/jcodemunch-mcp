@@ -281,10 +281,10 @@ touch a tool description:
 
 - **`core_compact` has a HARD ceiling of 4,000 tokens** (v2 §10). The drift ratchet
   in `tests/test_schema_budget.py` offers "or update the baseline"; the sibling
-  ceiling tests forbid it. Trim the description instead. Measured 2026-09-02 at **3,998 of 4,000** (#571) --
-  TWO tokens, so the next core-tier description edit breaches it. ⚠ The live
-  gate recomputes from `_build_tools_list()`; the frozen-baseline sibling only
-  fails AFTER a regeneration, i.e. after the breach shipped.
+  ceiling tests forbid it. Trim the description instead. ⚠⚠ **Never transcribe the
+  headroom here — read `core_compact` in `benchmarks/schema_baseline.json`** (F-27).
+  ⚠ The live gate recomputes from `_build_tools_list()`; the frozen sibling fails
+  only AFTER a regeneration, i.e. after the breach shipped.
 - **`tests/test_description_smells.py` gates Purpose and Length.** A new tool with a
   one-line description fails it. Two substantive sentences minimum: what it does and
   returns, plus one boundary or usage cue.
