@@ -2,6 +2,60 @@
 
 ## [Unreleased]
 
+### Added - a checker's own output, mapped to the symbol it names (`import-trace --diagnostics`)
+
+The index has always known where every symbol begins and ends and has
+never seen a compiler error. An agent asking "is the function I am about
+to edit already broken" ran the type checker itself, read the raw output
+and grepped for the name, or skipped the question. What exists now:
+`jcodemunch-mcp import-trace --diagnostics <file>` and
+`import_runtime_signal(source="diagnostics")` read the file a checker
+already wrote (`mypy --output json`, `pyright --outputjson`, `tsc --noEmit
+--pretty false`, `ruff check --output-format json`, or a generic JSON-Lines
+`{file, line, severity, message, code?, tool?}`), detect the format from
+the CONTENT rather than the extension, and attach each finding to the
+innermost indexed symbol containing its line: a `return 42` inside an inner
+`def` lands on the inner function, not its parent or its class. Nothing runs
+a checker; the file comes from the user's CI or pre-commit hook, so there is
+no new process and no new trust boundary. Four existing tools read the
+result and no tool was added (the catalog moratorium holds):
+`check_edit_safe` gains a `pre_existing_diagnostics` blocker that names the
+checker and rule (`mypy arg-type`) and says so in `recommended_action`;
+`get_changed_symbols` annotates each added or changed entry;
+`get_pr_risk_profile` carries a `diagnostics` block over the changed set
+that is REPORTED, NOT SCORED (`basis: reported_not_scored`), because a
+seventh weight moves every published grade and needs its own measurement;
+`get_symbol_provenance` adds a section beside `stack_frequency`. Two rules
+hold everywhere. The `diagnostics` table is a SNAPSHOT: an ingest REPLACES
+every row for the same tool, because a fixed type error must disappear or
+the table lies forever about a symbol that is now clean, which is the one
+place the `runtime_*` upsert-and-add semantics are wrong and why the table
+is not named `runtime_*`. And no data is never zero: a consumer omits its
+block when nothing was ingested and states `diagnostics_data_present:
+false`; a real zero appears only where the checker ran and found nothing.
+Every block reports `as_of` (the HEAD at ingest, `None` when it could not
+be read) and a tri-state `current` against the live HEAD. No
+`INDEX_VERSION` bump: the table is in the schema for new databases and
+created at ingest for old ones, so no user's index is invalidated for a
+table that stays empty until they use it. Fixtures are the real tools'
+output over one deliberately broken sample module
+(`tests/fixtures/diagnostics/REGENERATE.md`), not authored from their
+documentation. Building it found that
+`runtime/resolve.py` capped its path-suffix walk at eight segments, so the
+absolute paths pyright and tsc emit on Windows
+(`C:/Users/<u>/AppData/Local/Temp/...`) never resolved and every such
+finding was unmapped; `resolve.suffix_candidates` is the one walk now,
+bounded by the path itself, and the fix reaches the OTel, stack-log and SCIP
+ingests that share `resolve_to_symbol_id`, and the ingest's own "is this
+file indexed" question, which had grown a second copy of the cap. The
+`import_runtime_signal` description and `source` enum changed and it gains
+an optional `format` argument; `benchmarks/schema_baseline.json` moved
+`full_full` 23682 -> 23848 tokens (the tool is in neither `core` nor the
+Counter, so `core_compact` and the byte-pinned front door did not move).
+PRD: `docs/prd-compiler-diagnostics.md`. Provenance: trace-mcp shipped a
+`get_diagnostics` tool on 2026-09-09 that RUNS the checkers inside its
+server; the shape here is the one this project's read-only charter allows.
+
 ## [1.108.318] - 2026-09-11 - the process is code that cannot skip a step, and the field is measured from result files
 
 Three layers ship in this block, every one off by default where it can act: the workflows layer (seven Claude Code commands and the hooks that refuse a commit without the fast tier, a PR without a full-tier run on the tree it describes, and every irreversible verb), the inbound layer (nine headless jobs that draft and never post, the model never holding a token that can write) and the competitive tier (the null alternatives, jCodeMunch and nine competitors over pinned corpora in a sandbox, every recorded number written by a script from a result file). Beside them: the usage-site question reaches the tool that answers it (CF-63), a failed embedding batch names its cause (CF-66), the watcher's startup and its deletion reconciliation (#641, #629, @marcelruhf), a notice for installs on tree-sitter-language-pack 1.x (#608, @kecsap), the CodeQL triage's fixes (#628) and an sdist without `.github/`.
