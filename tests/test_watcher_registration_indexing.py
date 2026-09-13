@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import aclosing, closing
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -27,6 +28,53 @@ def _persisted_symbols(database):
             if "locked" not in str(error) or attempt == 39:
                 raise
             time.sleep(0.05)
+
+
+def rewrite_past_poller_granularity(path, text):
+    """Rewrite *path* so a whole-second-mtime poller is obliged to see it.
+
+    notify's poller compares WHOLE-SECOND mtimes for a file it already knows,
+    so a rewrite landing in the same second as the previous one is invisible to
+    it -- the content changed and the second did not.
+
+    This used to be ``if polling: await asyncio.sleep(1.1)`` before each such
+    rewrite, which is a barrier made of wall-clock: it assumes 1.1 s of sleep
+    buys a second boundary against a poller whose interval this project raises
+    to 1000 ms (``JCODEMUNCH_WATCH_POLL_DELAY_MS``), leaving ~100 ms of margin
+    on a loaded Windows runner. It held on this box and failed four times in
+    three days on CI (FINDINGS F-26, F-28, F-19's neighbours), across three
+    different tests, because a sleep cannot pin an ordering it only outlasts.
+
+    Stamping the mtime removes the timing question entirely: the new mtime is
+    at least two whole seconds past the old one whatever the machine was doing,
+    so the comparison the poller makes has exactly one answer. Applied on BOTH
+    backends deliberately -- a native watch fires on the write and does not care,
+    and two arms that differ only in what they wait for are two code paths.
+    """
+    previous = path.stat().st_mtime if path.exists() else 0.0
+    path.write_text(text)
+    stamp = max(time.time(), previous + 2.0)
+    os.utime(path, (stamp, stamp))
+
+
+def test_rewrite_past_poller_granularity_crosses_a_whole_second(tmp_path):
+    """The helper's whole point, pinned so it cannot decay back into a write.
+
+    The property is NOT "the file changed" -- it is that the mtime lands in a
+    LATER WHOLE SECOND, because that is the comparison notify's poller makes.
+    Replacing the helper body with a plain ``path.write_text(text)`` turns this
+    red on every machine, which is the guarantee the sleep it replaced never
+    had: a sleep that happened to be long enough leaves no evidence when it is
+    not.
+    """
+    path = tmp_path / "code.py"
+    path.write_text("def before(): pass\n")
+    before = path.stat().st_mtime
+    rewrite_past_poller_granularity(path, "def after(): pass\n")
+    after = path.stat().st_mtime
+    assert path.read_text() == "def after(): pass\n"
+    assert after >= before + 2.0
+    assert int(after) > int(before)
 
 
 @pytest.mark.asyncio
@@ -132,10 +180,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
         elif operation == "new_tree":
             assert ("late_before", "child/new/nested/late.py") in reconciled
 
-        if polling:
-            # notify's poller compares whole-second mtimes for existing files.
-            await asyncio.sleep(1.1)
-        target.write_text("def after_recovery(): pass\n")
+        rewrite_past_poller_granularity(target, "def after_recovery(): pass\n")
         subsequent = await wait_for_symbol("after_recovery")
         assert ("during_arm", target_rel) not in subsequent
         if operation == "new_tree":
@@ -159,18 +204,14 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             target.write_text("def root_replaced(): pass\n")
             await wait_for_symbol("root_replaced")
-            if polling:
-                await asyncio.sleep(1.1)
-            target.write_text("def root_still_watched(): pass\n")
+            rewrite_past_poller_granularity(target, "def root_still_watched(): pass\n")
             await wait_for_symbol("root_still_watched")
         elif operation == "live_tree":
             late = child / "new" / "deep" / "late.py"
             late.parent.mkdir(parents=True)
             late.write_text("def live_before(): pass\n")
             await wait_for_symbol("live_before", "child/new/deep/late.py")
-            if polling:
-                await asyncio.sleep(1.1)
-            late.write_text("def live_after(): pass\n")
+            rewrite_past_poller_granularity(late, "def live_after(): pass\n")
             await wait_for_symbol("live_after", "child/new/deep/late.py")
             (child / "new").rename(root / "moved")
             moved = await wait_for_symbol("live_after", "moved/deep/late.py")
@@ -346,9 +387,7 @@ async def test_subdirectory_watch_reconciles_against_index_root_keys(tmp_path, m
         assert ("deep_symbol", "packages/foo/child/deep/code.py") not in remaining
         assert ("sibling_symbol", "packages/bar/lib.py") in remaining
         assert ("ready", "packages/foo/code.py") in remaining
-        if polling:
-            await asyncio.sleep(1.1)
-        target.write_text("def after_move(): pass\n")
+        rewrite_past_poller_granularity(target, "def after_move(): pass\n")
         edited = await wait_for("after_move", "packages/foo/code.py")
         assert ("ready", "packages/foo/code.py") not in edited
         target.unlink()
