@@ -161,7 +161,7 @@ def test_cli_prints_json_with_flags(tmp_path, capsys):
 # Owner ruling 2026-09-13: "mentioning credentials is fine; exposing them is
 # not." The word list matched `credential`, `token`, `secret` and `api key`
 # anywhere; over this repo's 321 issues it fired on 75, and it labelled #670
-# security twelve seconds after filing.
+# security 13 seconds after filing.
 
 @pytest.mark.parametrize(
     "text",
@@ -274,9 +274,50 @@ def test_a_plain_or_negated_token_sentence_is_not_security(text):
 @pytest.mark.parametrize(
     "text",
     [
-        # Untrusted CI input: the first draft of the exposure rule took
-        # 11.82 s on "secret" repeated to 65,536 characters. Each of these is
-        # at least 100,000 characters and must scan in well under a second
+        # Review round 2: a negated SAFEGUARD describes the exposure, and
+        # punctuation between the credential and the verb is not a gap.
+        "the api key wasn't redacted and is in the log",
+        "credentials are not redacted in the debug log",
+        "the token isn't masked in the log output",
+        "the secret doesn't get redacted: it's printed in stdout",
+        "My OpenAI API key, sadly, was leaked",
+        "my api key (the prod one) was leaked",
+        "the api key - the prod one - was leaked",
+        "error message contains my github token",
+    ],
+)
+def test_exposures_the_second_draft_missed_are_security(text):
+    assert scan.scan(text)["security"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Code in a bug report is not a password value.
+        "password: string",
+        "pwd = Path.cwd()",
+        'password = os.environ["DB_PASSWORD"]',
+        "password = getpass.getpass()",
+        # a negation that is not about a safeguard still cancels
+        "the api key is not in the log",
+        # corpus false positives of the round-3 draft: punctuation after a
+        # VERB crosses a clause, and a quoted or negated `contains` names
+        "When indexing a folder, the secret file detection skips files like",  # 76
+        "Requires an embedding provider:\n JCODEMUNCH_EMBED_MODEL (sentence-transformers), GOOGLE_API_KEY",  # 489
+        'their parent directory names contained the substring "secret"',  # 167
+        "The launch value is correlation data and should not contain secrets.",  # 371
+    ],
+)
+def test_code_and_negated_exposure_are_not_security(text):
+    assert scan.scan(text)["security"] == [], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Untrusted CI input: an unbounded-affix draft of the exposure rule
+        # took 205.53 s on "secret" repeated to 6,000 characters. Each of these
+        # is at least 100,000 characters and must scan in well under a second
         # on a developer box; the bound is loose for slow runners.
         "secret" * 20000,
         "secret_" * 20000,
@@ -289,6 +330,9 @@ def test_a_plain_or_negated_token_sentence_is_not_security(text):
         "leak" + " " * 120000 + "x",
         "secret" + "'" * 120000,
         ("token=" + "a" * 23 + " ") * 5000,
+        "secret - - " * 20000,
+        "api key, (" * 20000,
+        "leak not redact " * 20000,
     ],
     ids=lambda t: f"{t[:12]!r}x{len(t)}",
 )

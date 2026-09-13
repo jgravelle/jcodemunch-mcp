@@ -45,13 +45,13 @@ _TOKEN = (
     r"|limits?|estimat|efficien|reduction|spend|savings?|used|totals?))"
 )
 # ⚠⚠ Every repetition below is BOUNDED. This scan runs in CI on untrusted
-# text (title + body + comment, up to ~65k characters per event), and the
+# text (a title, a body and a comment, each up to 65,536 characters), and the
 # first draft of this rule used unbounded affixes beside the noun, and
 # "secret" repeated to 6,000 characters took 205.53 s (3,000: 26.23 s) where
 # the word list scans 120,000 in about 0.1 s. `tests/test_inbound_scan.py`
 # times the adversarial inputs.
 _LEAD = r"[`'\"(]{0,2}(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}_){0,3}"
-_NOUN = _LEAD + _CRED + r"[\w`'\"]{0,40}"
+_NOUN = _LEAD + _CRED + r"[\w`'\"]{0,40}[),;:]{0,2}"
 _TOKEN_NOUN = _LEAD + _TOKEN
 # Inflections are spelled out: a bare stem reads "service", "logic",
 # "story", "postgres" and "missing package" as exposure verbs, which the
@@ -94,11 +94,36 @@ _EXPOSE_AFTER = (
 # "stores nothing about secrets" and "never logs the token" are not
 # exposures ("the token cannot leak to another host", #407, is a fix
 # description). "not only" / "not just" are NOT negations ("the key was not only
-# leaked but printed" is a disclosure, and the first draft dropped it).
-_GAP = (
-    r"(?:(?!(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|isn't"
-    r"|wasn't|mustn't|shouldn't)\b|not\b(?!\s+(?:only|just)\b))"
-    r"[\w.'`\"/-]{1,60}\s+){0,4}?"
+# leaked but printed" is a disclosure, and the first draft dropped it), and
+# neither is a negated SAFEGUARD: "the api key wasn't redacted and is in the
+# log" describes the exposure.
+_NEGATION = (
+    r"(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|isn't"
+    r"|wasn't|aren't|weren't|mustn't|shouldn't|not)\b"
+    r"(?!\s+(?:(?:only|just)\b|(?:(?:get|got|be|been|being)\s+)?"
+    r"(?:redact|mask|scrub|sanitiz|filter|obfuscat|hidden|censor)))"
+)
+_GAP = r"(?:(?!" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
+# After a credential NOUN only, a word may carry punctuation ("key, sadly,",
+# "(the prod one)") and a bare dash is not a word ("the api key - the prod
+# one - was leaked"). ⚠ Not after a VERB: there a comma crosses a clause, and
+# the corpus run read "When indexing a folder, the secret file detection" and
+# "embedding provider: ... GOOGLE_API_KEY" as exposures.
+_DASH = r"(?:[-–—]{1,2}\s+)?"
+_NOUN_GAP = (
+    _DASH
+    + r"(?:(?!" + _NEGATION + r")[\w.'`\"/(][\w.'`\"/(),;:!?-]{0,59}\s+" + _DASH + r"){0,4}?"
+)
+# "contains my github token", "shows the api key": only a determiner or an
+# adjective of realness between, no quotes around the noun (`contains
+# "secret"` names the word), and never negated just before ("should not
+# contain secrets", #371).
+_CONTAIN = (
+    r"(?<!\bnot )(?<!n't )(?<!\bnever )(?<!\bno )"
+    r"\b(?:contain(?:s|ed|ing)?|show(?:s|ed|ing|n)?)\s+"
+    r"(?:(?:my|our|your|their|his|her|its|the|a|an|full|real|raw|plain|actual|live"
+    r"|prod|production|entire|whole|valid|working)\s+){0,3}"
+    r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}_){0,3}" + _CRED
 )
 
 # POLICY section 1 rule 1. Word-ish boundaries; case-insensitive.
@@ -130,13 +155,16 @@ SECURITY_TERMS = [
     r"|password|passwd|pwd)[\"']?\s{0,5}[:=]\s{0,5}[\"']?[A-Za-z0-9_\-/+=.]{24,}",
     # a short password value is still a password; placeholders are not
     r"\b(?:password|passwd|pwd)[\"']?\s{0,5}[:=]\s{0,5}[\"']?"
-    r"(?![<$*{%]|x{3,}|\.\.\.|none\b|null\b|true\b|false\b|str\b|changeme\b|required\b)"
+    r"(?![<$*{%]|x{3,}|\.\.\.|none\b|null\b|true\b|false\b|str\b|string\b|changeme\b|required\b"
+    # code, not a value: `pwd = Path.cwd()`, `os.environ[...]`, `getpass.getpass()`
+    r"|[A-Za-z_][\w.]{0,60}[(\[]|os\.environ|getpass)"
     r"[^\s\"'<>,;)\]]{6,}",
     # words: a credential and what happened to it, in either order
     _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
-    _NOUN + r"\s+" + _GAP + _EXPOSE_AFTER,
+    _NOUN + r"\s+" + _NOUN_GAP + _EXPOSE_AFTER,
     _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
-    _TOKEN_NOUN + r"\s+" + _GAP + _STRONG_AFTER,
+    _TOKEN_NOUN + r"\s+" + _NOUN_GAP + _STRONG_AFTER,
+    _CONTAIN,
     r"path (?:escape|traversal)",
     r"\btraversal\b",
     r"arbitrary (?:file )?(?:write|read|code)",
