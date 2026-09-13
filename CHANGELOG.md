@@ -23,15 +23,27 @@ true. The escalation is not the model's classification: it is our fixed
 response to the model failing and carries nothing it said.
 
 The workflow now passes the issue it is processing as a required
-`--issue`, and that is the only write target. A model result naming a
-different issue is itself malformed and escalates the named one. The
-escalation is written for an unparseable file, the classify step's
-`{"missing": true}` placeholder and an absent file alike. The witness test
-is retired in `harness/retired.json`. Its replacement asserts the two exact
-`gh` calls the escalation makes and that no model-derived label is among
-them. A ratchet asserts every inbound applier takes its write target from
-the workflow. `apply_depeval.py` always took `--pr` this way; triage was the
-one that diverged.
+`--issue`, and that is the only write target, the duplicate-link comment
+included. A model result naming a different issue is itself malformed and
+escalates the named one, without echoing the model's value into the public
+Actions log. The escalation now fires for ANY exception while reading,
+planning or drafting, not a list of them: the first version of this fix
+caught three exception types, and review found four inputs that escaped
+it and kept the loop. Those were an unhashable category, a non-string draft,
+invalid UTF-8 and deeply nested JSON. The witness test is retired in
+`harness/retired.json`. Its replacement asserts the two exact `gh` calls the
+escalation makes and that no model-derived label is among them. A ratchet
+over every `apply_*.py` on disk asserts that each takes a required
+`--issue`/`--pr` and passes it to every call in `main` that writes through
+`gh`. `apply_depeval.py` always did; triage was the one that diverged.
+`tests/test_retirement_ledger.py` now also accepts a `file::test_name` entry
+and fails if that function is defined again.
+
+⚠ The first red run of the new tests reached the real `gh` with the
+developer's credentials: `test_the_issue_argument_is_required` did not stub
+it, and on the pre-fix script `main` applied to the placeholder repository
+`o/r`, which returned 404 and wrote nothing. Every test in the file now runs
+under an autouse stub that fails on an unstubbed `gh` call.
 
 ⚠ Not fixed here, and named in #670 as separate: what makes `classify`
 fail (a rejection before any token is spent), and a retry ceiling for any

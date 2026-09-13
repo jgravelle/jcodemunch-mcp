@@ -31,6 +31,18 @@ def _load(name: str):
 at = _load("apply_triage")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_gh(monkeypatch):
+    # A test here must never reach the real `gh` with the developer's
+    # credentials. The first #670 red run did exactly that (a 404 against the
+    # placeholder `o/r`, by luck of the name): a test that forgot to stub
+    # fails loudly instead. Tests that record calls re-patch `_gh` over this.
+    def refuse(args, repo):
+        raise AssertionError(f"unstubbed gh call: {args} -R {repo}")
+
+    monkeypatch.setattr(at, "_gh", refuse)
+
+
 def _r(**kw):
     base = {
         "issue": 42,
@@ -194,7 +206,9 @@ def test_a_result_naming_a_different_issue_escalates_the_named_one(
     rc = _main(tmp_path, f, "--issue", "667", "--apply")
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["add"] == ESCALATION and "42" in out["error"]
+    assert out["add"] == ESCALATION and "different issue" in out["error"]
+    # the model's value is not echoed into a log that is public
+    assert "42" not in out["error"]
     assert [c[0][2] for c in calls] == ["667", "667"]
     assert not any("inbound:spam" in c[0] for c in calls)
 
@@ -247,27 +261,109 @@ def test_draft_file_carries_approval_fields_and_the_original(tmp_path):
     assert p.name == "5-99.md"
 
 
-@pytest.mark.parametrize(
-    "script, flag",
-    [("apply_triage.py", "--issue"), ("apply_depeval.py", "--pr")],
-)
-def test_every_inbound_applier_takes_its_write_target_from_the_workflow(script, flag):
+APPLIERS = sorted(p.name for p in INBOUND.glob("apply_*.py"))
+
+
+def test_the_applier_roster_is_read_off_disk():
+    # A literal roster leaves the third applier unchecked on arrival.
+    assert {"apply_triage.py", "apply_depeval.py"} <= set(APPLIERS)
+
+
+@pytest.mark.parametrize("script", APPLIERS)
+def test_every_inbound_applier_writes_only_to_the_target_the_workflow_named(script):
     # #670's mechanism: an applier that reads its target out of the model's
     # JSON has no target exactly when the model failed. `apply_depeval.py`
-    # always took `--pr`; `apply_triage.py` read `result["issue"]`. Parsed
-    # from the argparse call so a docstring mentioning the flag cannot pass.
+    # always took `--pr`; `apply_triage.py` read `result["issue"]`.
+    # Two halves, because a declared flag that the write ignores is the
+    # defect with a parameter added (Standing lesson 08-19, #508):
+    #  1. a REQUIRED `--issue` or `--pr` argument, parsed from the argparse
+    #     call so a docstring mentioning the flag cannot pass;
+    #  2. every call in `main` to a module function that calls `_gh` passes
+    #     `args.issue`/`args.pr` itself, not a value derived from the result.
     import ast
 
     tree = ast.parse((INBOUND / script).read_text(encoding="utf-8"))
-    found = [
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and getattr(n.func, "attr", None) == "add_argument"
-        and n.args
-        and isinstance(n.args[0], ast.Constant)
-        and n.args[0].value == flag
+    targets = {}
+    for n in ast.walk(tree):
+        if (
+            isinstance(n, ast.Call)
+            and getattr(n.func, "attr", None) == "add_argument"
+            and n.args
+            and isinstance(n.args[0], ast.Constant)
+            and n.args[0].value in ("--issue", "--pr")
+        ):
+            kw = {k.arg: k.value for k in n.keywords}
+            if isinstance(kw.get("required"), ast.Constant) and kw["required"].value is True:
+                targets[n.args[0].value.lstrip("-")] = n
+    assert targets, f"{script} takes no required --issue/--pr from the workflow"
+
+    def _is_args(node, attr):
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == attr
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "args"
+        )
+
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    writers = {
+        name
+        for name, fn in funcs.items()
+        if name != "_gh"
+        and any(
+            isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id == "_gh"
+            for c in ast.walk(fn)
+        )
+    }
+    writes = [
+        c
+        for c in ast.walk(funcs["main"])
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name) and c.func.id in writers
     ]
-    assert found, f"{script} has no {flag} argument"
-    kw = {k.arg: k.value for k in found[0].keywords}
-    assert isinstance(kw.get("required"), ast.Constant) and kw["required"].value is True
+    assert writes, f"{script}: main calls no function that writes through _gh"
+    for c in writes:
+        assert any(_is_args(a, t) for a in c.args for t in targets), (
+            f"{script}:{c.lineno}: a write to args.repo does not pass the workflow's target"
+        )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"issue": 667, "category": ["x"], "confidence": "high", "evidence": []}',  # TypeError
+        '{"issue": 667, "category": "question", "confidence": "high", "evidence": [], "draft": 5}',  # AttributeError
+        b"\xff\xfe{not utf-8",  # UnicodeDecodeError
+        "[" * 100_000 + "]" * 100_000,  # RecursionError
+    ],
+    ids=["unhashable-category", "non-string-draft", "invalid-utf8", "deeply-nested"],
+)
+def test_a_result_that_raises_anything_still_escalates(tmp_path, capsys, monkeypatch, content):
+    # The first version of the #670 fix caught a LIST of exceptions; each of
+    # these escaped it with no gh call and left the item queued.
+    calls = []
+    monkeypatch.setattr(at, "_gh", lambda args, repo: calls.append((args, repo)))
+    f = tmp_path / "r.json"
+    if isinstance(content, bytes):
+        f.write_bytes(content)
+    else:
+        f.write_text(content, encoding="utf-8")
+    assert _main(tmp_path, f, "--issue", "667", "--apply") == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["add"] == ESCALATION and "error" in out
+    assert [c[0] for c in calls] == [
+        ["issue", "edit", "667", "--add-label", "inbound:unknown", "--add-label", "needs-human"],
+        ["issue", "edit", "667", "--remove-label", "inbound:queued"],
+    ]
+
+
+def test_the_duplicate_comment_goes_to_the_named_issue(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(at, "_gh", lambda args, repo: calls.append((args, repo)))
+    f = tmp_path / "r.json"
+    f.write_text(
+        json.dumps(_r(issue=667, category="duplicate", duplicate_of=7, evidence=["a", "b"])),
+        encoding="utf-8",
+    )
+    assert _main(tmp_path, f, "--issue", "667", "--apply") == 0
+    comment = [c[0] for c in calls if c[0][:2] == ["issue", "comment"]]
+    assert len(comment) == 1 and comment[0][2] == "667"
