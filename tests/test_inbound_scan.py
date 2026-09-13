@@ -346,43 +346,59 @@ def test_code_and_negated_exposure_are_not_security(text):
     assert scan.scan(text)["security"] == [], text
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        # Untrusted CI input: an unbounded-affix draft of the exposure rule
-        # took 205.53 s on "secret" repeated to 6,000 characters. Each of these
-        # is at least 100,000 characters and must scan in well under a second
-        # on a developer box; the bound is loose for slow runners.
-        # (A 600,000-character input is timed outside the suite, in the PR.)
-        "secret" * 20000,
-        "secret_" * 20000,
-        "api_token" * 20000,
-        "leak a " * 20000,
-        "leak " * 20000 + "b" * 50000,
-        "secrets " * 20000,
-        "secret x x x x " * 20000,
-        "password in the " * 20000,
-        "leak" + " " * 120000 + "x",
-        "secret" + "'" * 120000,
-        ("token=" + "a" * 23 + " ") * 5000,
-        "secret - - " * 20000,
-        "api key, (" * 20000,
-        "leak not redact " * 20000,
-        "secret " + "- " * 60000,
-        "contains my " * 20000,
-        "not " * 40000 + "log the api key",
-        "api key\u2014" * 19000,
-        "secret \u2014\u2014 " * 15000,
-        "don't log it but " * 20000,
-    ],
-    ids=lambda t: f"{t[:12]!r}x{len(t)}",
-)
-def test_the_security_scan_is_linear_on_adversarial_input(text):
+# Untrusted CI input: an unbounded-affix draft of the exposure rule took
+# 205.53 s on "secret" repeated to 6,000 characters (3,000: 26.23 s), so a
+# super-linear pattern is a hang on a required CI job. Each shape is built at
+# a size n and at 4n and the test asserts GROWTH, not wall time: linear
+# scans 4x the text in about 4x the time, the draft above took 8x for 2x.
+# ⚠ An absolute bound failed once here under the full tier's parallel load
+# (1.03 s alone, over 3 s loaded) and CI's Windows runners are 3x this box;
+# a ratio measured in one process carries its own load factor on both sides.
+_ADVERSARIAL = {
+    "secret": lambda n: "secret" * n,
+    "secret_": lambda n: "secret_" * n,
+    "api_token": lambda n: "api_token" * n,
+    "leak a": lambda n: "leak a " * n,
+    "leak+b": lambda n: "leak " * n + "b" * (n * 5 // 2),
+    "secrets": lambda n: "secrets " * n,
+    "secret x x x x": lambda n: "secret x x x x " * n,
+    "password in the": lambda n: "password in the " * n,
+    "leak+spaces": lambda n: "leak" + " " * (6 * n) + "x",
+    "secret+quotes": lambda n: "secret" + "'" * (6 * n),
+    "token=": lambda n: ("token=" + "a" * 23 + " ") * (n // 4),
+    "secret - -": lambda n: "secret - - " * n,
+    "api key, (": lambda n: "api key, (" * n,
+    "leak not redact": lambda n: "leak not redact " * n,
+    "secret+dashes": lambda n: "secret " + "- " * (3 * n),
+    "contains my": lambda n: "contains my " * n,
+    "not+log": lambda n: "not " * (2 * n) + "log the api key",
+    "api key em dash": lambda n: "api key\u2014" * n,
+    "secret em dashes": lambda n: "secret \u2014\u2014 " * n,
+    "don't log it but": lambda n: "don't log it but " * n,
+}
+
+
+def _best_of_three(text):
     import time
 
-    t0 = time.perf_counter()
-    scan.scan(text)
-    assert time.perf_counter() - t0 < 3.0
+    best = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        scan.scan(text)
+        best = min(best, time.perf_counter() - t0)
+    return best
+
+
+@pytest.mark.parametrize("shape", sorted(_ADVERSARIAL))
+def test_the_security_scan_is_linear_on_adversarial_input(shape):
+    build = _ADVERSARIAL[shape]
+    small, large = build(2500), build(10000)
+    assert len(large) >= 40_000, (shape, len(large))
+    t_small, t_large = _best_of_three(small), _best_of_three(large)
+    # 4x the text: linear is ~4x; quadratic would be ~16x. 10x leaves room
+    # for noise without admitting a square law; the floor absorbs timer
+    # resolution on very fast shapes.
+    assert t_large <= 10 * max(t_small, 0.005), (shape, t_small, t_large)
 
 
 def test_the_scanner_source_carries_no_control_characters():
