@@ -226,6 +226,9 @@ def git_env(env: dict, *args: str, timeout: int = 60) -> str:
     return r.stdout
 
 
+UNREADABLE_PREFIX = "unreadable-"
+
+
 def tree_id() -> str:
     """Identity of the working tree's CONTENT under the tier paths.
 
@@ -255,10 +258,13 @@ def tree_id() -> str:
     # "racily clean" (mtime >= the INDEX FILE's mtime); a copy stamped "now"
     # makes every entry look settled, so a same-size edit inside the racy
     # window is trusted from the stat cache and the id names STALE content.
-    # It failed 1 run in 12 that way before this line.
-    fd, scratch = tempfile.mkstemp(prefix="tree-id-", suffix=".index")
-    os.close(fd)
+    # A draft that used `copyfile` named stale content in 3 of 25 looped runs.
+    # ⚠ It also writes loose blobs/trees for uncommitted content into
+    # `.git/objects` (unreferenced, gc collects them); the INDEX is untouched.
+    scratch = None
     try:
+        fd, scratch = tempfile.mkstemp(prefix="tree-id-", suffix=".index")
+        os.close(fd)
         real_index = git_env(
             dict(os.environ), "rev-parse", "--path-format=absolute", "--git-path", "index"
         ).strip()
@@ -277,11 +283,18 @@ def tree_id() -> str:
             git_env(env, "add", "-A", "--", *live)
         tree = git_env(env, "write-tree").strip()
         listing = git_env(env, "ls-tree", "-r", tree, "--", *TIER_PATHS)
-    except (OSError, subprocess.SubprocessError):
-        return "unreadable-" + os.urandom(8).hex()
+    except (OSError, subprocess.SubprocessError) as exc:
+        # Name the cause: a caller reporting only a mismatched id would send
+        # the reader looking for a tree that moved.
+        detail = (getattr(exc, "stderr", None) or str(exc)).strip()
+        print(f"tree_id: could not read the tree under {REPO}: {detail}", file=sys.stderr)
+        return UNREADABLE_PREFIX + os.urandom(8).hex()
     finally:
-        if os.path.exists(scratch):
-            os.unlink(scratch)
+        if scratch and os.path.exists(scratch):
+            try:
+                os.unlink(scratch)
+            except OSError:
+                pass  # a leaked temp index costs disk, never the verdict
     content = "\n".join(
         ln
         for ln in listing.splitlines()

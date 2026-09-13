@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 
-from _common import EVIDENCE, REPO, STATE, git, tree_id
+from _common import EVIDENCE, REPO, STATE, UNREADABLE_PREFIX, git, tree_id
 
 STAMP = STATE / "full-tier.json"
 
@@ -57,7 +57,9 @@ def main(argv: list[str]) -> int:
     stamp.update(
         ok=(rc == 0 and after == tree), seconds=round(time.monotonic() - t0, 1)
     )
-    if after != tree:
+    if tree.startswith(UNREADABLE_PREFIX) or after.startswith(UNREADABLE_PREFIX):
+        stamp["note"] = "tree identity could not be read (see stderr); stamp invalid"
+    elif after != tree:
         stamp["note"] = "tree changed during the run; stamp invalid"
     STAMP.write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     print(f"full-tier stamp: ok={stamp['ok']} tree={tree[:12]} -> {STAMP}")

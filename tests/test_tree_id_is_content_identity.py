@@ -119,12 +119,31 @@ def test_docs_and_the_harness_footprint_do_not_count(repo):
 
 
 def test_the_real_index_is_not_touched(repo):
+    # Bytes AND mtime: a stat-refresh write leaves porcelain output identical.
     r, common = repo
     (r / "src" / "a.py").write_text("A = 2\n", encoding="utf-8")
     (r / "src" / "untracked.py").write_text("U = 1\n", encoding="utf-8")
+    index = r / ".git" / "index"
     status = _git(r, "status", "--porcelain")
+    raw, mtime = index.read_bytes(), index.stat().st_mtime_ns
     common.tree_id()
+    assert index.read_bytes() == raw
+    assert index.stat().st_mtime_ns == mtime
     assert _git(r, "status", "--porcelain") == status
+
+
+def test_a_tracked_tier_directory_deleted_whole_still_counts(repo):
+    # The pathspec is absent from the working copy and present only in the
+    # index: it must still be staged, or the deletion is invisible.
+    import shutil
+
+    r, common = repo
+    before = common.tree_id()
+    shutil.rmtree(r / "src")
+    gone = common.tree_id()
+    assert gone != before
+    _git(r, "commit", "-q", "-am", "drop src")
+    assert common.tree_id() == gone
 
 
 def test_commit_invariance_holds_in_a_worktree(repo, tmp_path, monkeypatch):
@@ -140,19 +159,27 @@ def test_commit_invariance_holds_in_a_worktree(repo, tmp_path, monkeypatch):
     assert common.tree_id() == before
 
 
-def test_an_unreadable_tree_never_matches_a_stamp(repo, monkeypatch):
-    # Fail closed: two failed reads must not certify each other.
+def test_an_unreadable_tree_never_matches_a_stamp(repo, monkeypatch, capsys):
+    # Fail closed: two failed reads must not certify each other, and the
+    # cause is named rather than left to read as a tree that moved.
     r, common = repo
     monkeypatch.setattr(common, "REPO", r / "not-a-repo")
     first, second = common.tree_id(), common.tree_id()
     assert first != second
+    assert first.startswith(common.UNREADABLE_PREFIX)
+    assert "could not read the tree" in capsys.readouterr().err
 
 
 def test_a_racily_clean_edit_is_read_not_trusted_from_the_stat_cache(repo):
     # Same size, same mtime as the index entry, entry as new as the index
     # file: git's racy-clean rule is the ONLY thing that re-reads it. A
     # throwaway index copied with a fresh mtime defeats that rule and names
-    # the old content (1 run in 12 on the first draft of the fix).
+    # the old content (3 of 25 looped runs on the first draft of the fix).
+    # ⚠ This fails against that draft only where rewriting a file leaves its
+    # ctime alone (Windows: ctime is creation time). On Linux `write_text`
+    # and `os.utime` move ctime, git's default checkStat compares it, and the
+    # entry is re-read whatever the copy's mtime -- so the ubuntu legs pass
+    # regardless and the windows legs are this guard's teeth.
     import os
     r, common = repo
     target = r / "src" / "a.py"

@@ -10,8 +10,8 @@ and the stamp names the tree by `_common.tree_id()`. That id hashed
 commit moves a change from the second string into the first: the same
 content, two different strings, a different hash. So the natural order
 (run the tier, commit, open the PR) was refused on a clean working tree
-and paid for a second full tier, 218.14 s on #673, for a result it
-already had. The docstring had claimed the opposite since W-21, which was
+and paid for a second full tier (218.14 s on #673, as recorded in #675)
+for a result it already had. The docstring had claimed the opposite since W-21, which was
 marked FIXED having implemented only its other half (docs-only commits);
 no test ever ran the sentence.
 
@@ -19,9 +19,11 @@ The id now names content. The working copy under the stamp paths is
 staged into a throwaway index and written as a git tree, so a
 modification, a new file and a deletion each read the same before and
 after they are committed, staged or not, in a worktree too; untracked
-files still count and the real index is never written. A git failure
-yields an id no stamp can match, so two failed reads cannot certify each
-other.
+files still count and the real index is never written (git does store
+unreferenced objects for uncommitted content, which `gc` collects). A git
+failure yields an id no stamp can match, so two failed reads cannot
+certify each other, and it names its cause instead of reading as a tree
+that moved during the run.
 
 ⚠ The first draft of this fix copied the index with `copyfile`, which
 stamps the copy "now". Git re-reads a file whose stat matches its entry
