@@ -156,3 +156,77 @@ def test_cli_prints_json_with_flags(tmp_path, capsys):
     assert scan.main([str(f)]) == 0
     out = capsys.readouterr().out
     assert '"injection_hit": true' in out and '"security_hit": false' in out
+
+
+# Owner ruling 2026-09-13: "mentioning credentials is fine; exposing them is
+# not." The word list matched `credential`, `token`, `secret` and `api key`
+# anywhere; over this repo's 321 issues it fired on 75, and it labelled #670
+# security twelve seconds after filing.
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # #670's own sentences
+        "It is **not** credentials, quota or the daily budget: classify (668) succeeded in the same run, on the same key.",
+        "The model never holds a token that can write: model jobs run on the read-only GITHUB_TOKEN.",
+        "a no-model job verifies it and writes with the App token",
+        # this repository's own vocabulary
+        'Always prefix GitHub CLI ops with GITHUB_TOKEN="" to use the keyring token.',
+        "Never approve inline-credential Bash permissions in Claude Code settings.",
+        "Rotate the PyPI token after the release and store it in the keyring.",
+        "The secret-classifier section of SECURITY.md describes the filename rules.",
+        "tokens saved per call and the token budget for the session",
+        "Add support for an API key header in the HTTP transport.",
+        "The watcher service logic stores nothing about secrets.",
+    ],
+)
+def test_a_credential_that_is_only_mentioned_is_not_security(text):
+    assert scan.scan(text)["security"] == [], text
+
+
+_FAKE = {
+    # Built at runtime so no secret-shaped literal sits in the file (push
+    # protection would read it as a leak, which is this test's point).
+    "github": "gh" + "p_" + "A1b2C3d4" * 5,
+    "github_pat": "github" + "_pat_" + "11ABCDEFG0" * 3,
+    "anthropic": "sk-" + "ant-" + "api03-" + "x" * 30,
+    "aws": "AK" + "IA" + "ABCDEFGHIJKLMNOP",
+    "pypi": "py" + "pi-" + "AgEIcHlwaS5vcmc" * 4,
+    "slack": "xo" + "xb-" + "1234567890-abcdefghij",
+    "pem": "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIE...",
+}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"Here is my token so you can reproduce: {_FAKE['github']}",
+        f"GH_TOKEN={_FAKE['github_pat']} gh issue list",
+        f"<!-- {_FAKE['anthropic']} -->",
+        f"aws configure with {_FAKE['aws']}",
+        f"the password field in .pypirc reads {_FAKE['pypi']}",
+        f"webhook {_FAKE['slack']}",
+        _FAKE["pem"],
+        'config: api_key = "abcdefghijklmnopqrstuvwxyz0123456789"',
+        "The PyPI token was committed to the sdist.",
+        "The sdist ships .claude/settings.local.json with the PyPI token inside it.",
+        "My GitHub token is printed in the Actions log.",
+        "<!-- the password is in plain text in config.json -->",
+        "cred​ential leak in the response redaction",
+    ],
+)
+def test_an_exposed_credential_is_security(text):
+    assert scan.scan(text)["security"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The credential phrasings of the security-shaped issues in
+        # docs/inbound/AUDIT.md section 1.2 that the word list caught.
+        "a credential hardcoded inside an ordinary source file is caught by neither half",  # 444, 448
+        "`index_file` can ignore the project's `exclude_secret_patterns`",  # 508
+    ],
+)
+def test_the_audited_security_reports_are_still_caught(text):
+    assert scan.scan(text)["security"], text
