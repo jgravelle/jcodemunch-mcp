@@ -284,6 +284,14 @@ def test_a_plain_or_negated_token_sentence_is_not_security(text):
         "my api key (the prod one) was leaked",
         "the api key - the prod one - was leaked",
         "error message contains my github token",
+        # Review round 3
+        "the api key is not properly redacted in the logs",
+        "the api key isn't getting redacted and is in the log",
+        "credentials are not sanitised in the debug log",
+        "the password isn't encrypted, it's stored in plain text",
+        "the api key\u2014the prod one\u2014was leaked",
+        "the crash report shows the user's real api key",
+        "password = hunter2[x]",
     ],
 )
 def test_exposures_the_second_draft_missed_are_security(text):
@@ -306,6 +314,18 @@ def test_exposures_the_second_draft_missed_are_security(text):
         "Requires an embedding provider:\n JCODEMUNCH_EMBED_MODEL (sentence-transformers), GOOGLE_API_KEY",  # 489
         'their parent directory names contained the substring "secret"',  # 167
         "The launch value is correlation data and should not contain secrets.",  # 371
+        # Review round 3: the negation is read before a verb and inside
+        # parentheses, and `contains`/`shows` needs an owner and no UI word
+        "The launch value cannot contain secrets",
+        "the payload does not actually contain secrets",
+        "without containing credentials",
+        "add an option to not log the api key",
+        "the api key (never logged) is read from the environment",
+        "the api key (not logged) is read from env",
+        "the settings page shows a password prompt",
+        "the UI shows the API key field",
+        "Make sure your .env contains the API key",
+        "the folder containing .env files is skipped",
     ],
 )
 def test_code_and_negated_exposure_are_not_security(text):
@@ -319,6 +339,7 @@ def test_code_and_negated_exposure_are_not_security(text):
         # took 205.53 s on "secret" repeated to 6,000 characters. Each of these
         # is at least 100,000 characters and must scan in well under a second
         # on a developer box; the bound is loose for slow runners.
+        # (A 600,000-character input is timed outside the suite, in the PR.)
         "secret" * 20000,
         "secret_" * 20000,
         "api_token" * 20000,
@@ -333,6 +354,9 @@ def test_code_and_negated_exposure_are_not_security(text):
         "secret - - " * 20000,
         "api key, (" * 20000,
         "leak not redact " * 20000,
+        "secret " + "- " * 60000,
+        "contains my " * 20000,
+        "not " * 40000 + "log the api key",
     ],
     ids=lambda t: f"{t[:12]!r}x{len(t)}",
 )

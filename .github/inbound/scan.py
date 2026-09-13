@@ -45,7 +45,7 @@ _TOKEN = (
     r"|limits?|estimat|efficien|reduction|spend|savings?|used|totals?))"
 )
 # ⚠⚠ Every repetition below is BOUNDED. This scan runs in CI on untrusted
-# text (a title, a body and a comment, each up to 65,536 characters), and the
+# text (an issue or PR title, body and comment, as long as the author makes them), and the
 # first draft of this rule used unbounded affixes beside the noun, and
 # "secret" repeated to 6,000 characters took 205.53 s (3,000: 26.23 s) where
 # the word list scans 120,000 in about 0.1 s. `tests/test_inbound_scan.py`
@@ -100,11 +100,13 @@ _EXPOSE_AFTER = (
 _NEGATION = (
     r"(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|isn't"
     r"|wasn't|aren't|weren't|mustn't|shouldn't|not)\b"
-    r"(?!\s+(?:(?:only|just)\b|(?:(?:get|got|be|been|being)\s+)?"
-    r"(?:redact|mask|scrub|sanitiz|filter|obfuscat|hidden|censor)))"
+    r"(?!\s+(?:(?:only|just)\b|(?:(?:get|gets|got|getting|be|been|being|properly|correctly"
+    r"|fully|always|actually|really|ever)\s+){0,2}"
+    r"(?:redact|mask|scrub|saniti[sz]|filter|obfuscat|hidden|censor|encrypt|hash|protect)))"
 )
-_GAP = r"(?:(?!" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
-# After a credential NOUN only, a word may carry punctuation ("key, sadly,",
+_GAP = r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
+# After a credential NOUN only, five words may stand between ("isn't getting
+# redacted and is in the log"), a word may carry punctuation ("key, sadly,",
 # "(the prod one)") and a bare dash is not a word ("the api key - the prod
 # one - was leaked"). ⚠ Not after a VERB: there a comma crosses a clause, and
 # the corpus run read "When indexing a folder, the secret file detection" and
@@ -112,18 +114,31 @@ _GAP = r"(?:(?!" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
 _DASH = r"(?:[-–—]{1,2}\s+)?"
 _NOUN_GAP = (
     _DASH
-    + r"(?:(?!" + _NEGATION + r")[\w.'`\"/(][\w.'`\"/(),;:!?-]{0,59}\s+" + _DASH + r"){0,4}?"
+    + r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/(][\w.'`\"/(),;:!?–—-]{0,59}\s+" + _DASH
+    + r"){0,5}?"
 )
-# "contains my github token", "shows the api key": only a determiner or an
-# adjective of realness between, no quotes around the noun (`contains
-# "secret"` names the word), and never negated just before ("should not
-# contain secrets", #371).
+# Between a noun and what follows it: whitespace, or an unspaced em dash
+# ("the api key—the prod one—was leaked").
+_NOUN_SEP = r"(?:\s+|\s*[–—]\s*)"
+# "contains my github token", "shows the user's real api key": an OWNER or a
+# realness word before the noun, no quotes around it (`contains "secret"`
+# names the word), and no UI or config word after it ("shows the API key
+# field", "shows a password prompt").
 _CONTAIN = (
-    r"(?<!\bnot )(?<!n't )(?<!\bnever )(?<!\bno )"
     r"\b(?:contain(?:s|ed|ing)?|show(?:s|ed|ing|n)?)\s+"
-    r"(?:(?:my|our|your|their|his|her|its|the|a|an|full|real|raw|plain|actual|live"
-    r"|prod|production|entire|whole|valid|working)\s+){0,3}"
+    r"(?:(?:the|a|an|full|entire|whole)\s+){0,2}"
+    r"(?:(?:my|our|your|their|his|her|its|the user's|users'|real|raw|actual|live"
+    r"|prod|production|valid|working|unredacted|unmasked)\s+){1,2}"
     r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}_){0,3}" + _CRED
+    + r"(?![\w-]|\s+(?:field|prompt|input|box|setting|name|variable|placeholder|option"
+    r"|parameter|flag|form|dialog|page|section|docs?|label)s?\b)"
+)
+# A verb-first exposure is not one when a negation stands just before the
+# verb ("should not log the api key", "cannot contain secrets", "does not
+# actually contain my token"). Checked in scan() over the text before the
+# match, with the same _NEGATION (a lookbehind cannot hold it).
+_NEGATED_BEFORE = re.compile(
+    r"(?<![\w'])" + _NEGATION + r"(?:\s+[\w'-]{1,20}){0,2}\s+$", re.IGNORECASE
 )
 
 # POLICY section 1 rule 1. Word-ish boundaries; case-insensitive.
@@ -157,13 +172,14 @@ SECURITY_TERMS = [
     r"\b(?:password|passwd|pwd)[\"']?\s{0,5}[:=]\s{0,5}[\"']?"
     r"(?![<$*{%]|x{3,}|\.\.\.|none\b|null\b|true\b|false\b|str\b|string\b|changeme\b|required\b"
     # code, not a value: `pwd = Path.cwd()`, `os.environ[...]`, `getpass.getpass()`
-    r"|[A-Za-z_][\w.]{0,60}[(\[]|os\.environ|getpass)"
+    r"|[A-Za-z_]\w{0,30}(?:\.[A-Za-z_]\w{0,30}){1,4}\(|(?:input|getenv|getpass)\("
+    r"|[A-Za-z_][\w.]{0,60}\[[\"']|os\.environ|getpass)"
     r"[^\s\"'<>,;)\]]{6,}",
     # words: a credential and what happened to it, in either order
     _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
-    _NOUN + r"\s+" + _NOUN_GAP + _EXPOSE_AFTER,
+    _NOUN + _NOUN_SEP + _NOUN_GAP + _EXPOSE_AFTER,
     _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
-    _TOKEN_NOUN + r"\s+" + _NOUN_GAP + _STRONG_AFTER,
+    _TOKEN_NOUN + _NOUN_SEP + _NOUN_GAP + _STRONG_AFTER,
     _CONTAIN,
     r"path (?:escape|traversal)",
     r"\btraversal\b",
@@ -214,6 +230,11 @@ INJECTION_PATTERNS = [
 ]
 
 _SEC = [re.compile(p, re.IGNORECASE) for p in SECURITY_TERMS]
+_VERB_FIRST = {
+    _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
+    _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
+    _CONTAIN,
+}
 _INJ = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
 
 
@@ -231,7 +252,10 @@ def scan(text: str) -> dict:
     t = normalise(text)
     out = {"security": [], "injection": []}
     for rx in _SEC:
+        verb_first = rx.pattern in _VERB_FIRST
         for m in rx.finditer(t):
+            if verb_first and _NEGATED_BEFORE.search(t, max(0, m.start() - 60), m.start()):
+                continue
             out["security"].append({"match": m.group(0), "at": m.start()})
     for rx in _INJ:
         for m in rx.finditer(t):
