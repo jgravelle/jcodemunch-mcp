@@ -3,6 +3,8 @@
 import asyncio
 from contextlib import aclosing, closing
 import json
+import os
+from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
@@ -27,6 +29,138 @@ def _persisted_symbols(database):
             if "locked" not in str(error) or attempt == 39:
                 raise
             time.sleep(0.05)
+
+
+def rewrite_past_poller_granularity(path, text):
+    """Rewrite *path* so a whole-second-mtime poller is obliged to see it.
+
+    notify's poller compares WHOLE-SECOND mtimes for a file it already knows,
+    so a rewrite landing in the same second as the previous one is invisible to
+    it -- the content changed and the second did not.
+
+    This used to be ``if polling: await asyncio.sleep(1.1)`` before each such
+    rewrite, which is a barrier made of wall-clock: it assumes 1.1 s of sleep
+    buys a second boundary against a poller whose interval this project raises
+    to 1000 ms (``JCODEMUNCH_WATCH_POLL_DELAY_MS``), leaving ~100 ms of margin
+    on a loaded Windows runner. It held on this box and failed four times in
+    three days on CI (FINDINGS F-26, F-28, F-19's neighbours), across three
+    different tests, because a sleep cannot pin an ordering it only outlasts.
+
+    Stamping the mtime removes the timing question entirely: the new mtime is
+    at least two whole seconds past the old one whatever the machine was doing,
+    so the comparison the poller makes has exactly one answer. Applied on BOTH
+    backends deliberately -- a native watch fires on the write and does not care,
+    and two arms that differ only in what they wait for are two code paths.
+    """
+    previous = path.stat().st_mtime if path.exists() else 0.0
+    path.write_text(text)
+    stamp = max(time.time(), previous + 2.0)
+    os.utime(path, (stamp, stamp))
+
+
+def test_rewrite_past_poller_granularity_crosses_a_whole_second(tmp_path):
+    """The helper's whole point, pinned so it cannot decay back into a write.
+
+    The property is NOT "the file changed" -- it is that the mtime lands in a
+    LATER WHOLE SECOND, because that is the comparison notify's poller makes.
+    Replacing the helper body with a plain ``path.write_text(text)`` turns this
+    red on every machine, which is the guarantee the sleep it replaced never
+    had: a sleep that happened to be long enough leaves no evidence when it is
+    not.
+    """
+    path = tmp_path / "code.py"
+    path.write_text("def before(): pass\n")
+    before = path.stat().st_mtime
+    rewrite_past_poller_granularity(path, "def after(): pass\n")
+    after = path.stat().st_mtime
+    assert path.read_text() == "def after(): pass\n"
+    assert after >= before + 2.0
+    assert int(after) > int(before)
+
+
+def rename_against_scan_collision(source, destination, attempts=40, delay=0.05, _rename=None):
+    """Rename a directory the polling watcher may be mid-scan over.
+
+    Windows refuses to rename a directory while a handle is open on it, and the
+    POLLING backend re-walks the tree with ``os.scandir`` on every interval, so
+    a rename issued inside a scan window raises ``PermissionError`` WinError 5.
+    Transient BY CONSTRUCTION: the scan holding the handle finishes in
+    milliseconds, and it is not what any test in this file is about -- every one
+    of them asserts what the INDEX does after a move, never whether Windows
+    permitted the move on the first try.
+
+    ⚠⚠ **This is a retry, which is the shape of papering over a defect, so the
+    bound is deliberate and the exit is narrow.** Only WinError 5 is retried;
+    every other ``PermissionError`` (a sharing violation, a real lock, a
+    read-only tree) is re-raised on the first attempt. A collision outliving the
+    ~2 s bound is not a scan window either, and re-raises. So a genuine lock
+    still fails the test, which is the property that separates this from a
+    sleep-until-it-works.
+
+    ⚠ On Linux and macOS ``PermissionError`` carries no ``winerror``, so this is
+    a straight passthrough there and those platforms retry nothing.
+
+    Seen on windows 3.11 (2026-09-11, run 34644461374) and windows 3.10
+    (2026-09-13, run 34730611506), both on the polling arm.
+    """
+    rename = _rename if _rename is not None else Path.rename
+    for attempt in range(attempts):
+        try:
+            return rename(source, destination)
+        except PermissionError as error:
+            if getattr(error, "winerror", None) != 5 or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+
+def _scan_collision(winerror=5):
+    error = PermissionError("Access is denied")
+    error.winerror = winerror
+    return error
+
+
+def test_rename_against_scan_collision_retries_a_scan_window():
+    """One WinError 5, then success: the case the CI failures were."""
+    calls = []
+
+    def flaky(source, destination):
+        calls.append((source, destination))
+        if len(calls) == 1:
+            raise _scan_collision()
+        return "renamed"
+
+    assert rename_against_scan_collision("a", "b", delay=0, _rename=flaky) == "renamed"
+    assert calls == [("a", "b"), ("a", "b")]
+
+
+def test_rename_against_scan_collision_reraises_anything_else_immediately():
+    """A sharing violation is not a scan window and must not be retried.
+
+    This is the assertion that stops the helper from becoming a
+    sleep-until-it-works: a real lock has to fail on attempt one.
+    """
+    calls = []
+
+    def denied(source, destination):
+        calls.append(1)
+        raise _scan_collision(winerror=32)
+
+    with pytest.raises(PermissionError):
+        rename_against_scan_collision("a", "b", delay=0, _rename=denied)
+    assert len(calls) == 1
+
+
+def test_rename_against_scan_collision_gives_up_rather_than_hiding_a_lock():
+    """A collision that outlives the bound is re-raised, not swallowed."""
+    calls = []
+
+    def always(source, destination):
+        calls.append(1)
+        raise _scan_collision()
+
+    with pytest.raises(PermissionError):
+        rename_against_scan_collision("a", "b", attempts=3, delay=0, _rename=always)
+    assert len(calls) == 3
 
 
 @pytest.mark.asyncio
@@ -81,9 +215,9 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
             if operation == "delete":
                 shutil.rmtree(child)
             elif operation == "rename":
-                child.rename(root / "renamed")
+                rename_against_scan_collision(child, root / "renamed")
             elif operation == "replace":
-                child.rename(tmp_path / "moved_out")
+                rename_against_scan_collision(child, tmp_path / "moved_out")
                 child.mkdir()
                 (child / "nested.py").write_text("def replacement(): pass\n")
             elif operation == "new_tree":
@@ -132,10 +266,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
         elif operation == "new_tree":
             assert ("late_before", "child/new/nested/late.py") in reconciled
 
-        if polling:
-            # notify's poller compares whole-second mtimes for existing files.
-            await asyncio.sleep(1.1)
-        target.write_text("def after_recovery(): pass\n")
+        rewrite_past_poller_granularity(target, "def after_recovery(): pass\n")
         subsequent = await wait_for_symbol("after_recovery")
         assert ("during_arm", target_rel) not in subsequent
         if operation == "new_tree":
@@ -145,7 +276,7 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
             hidden.write_text("def hidden_after(): pass\n")
             await wait_for_symbol("hidden_after", ".github/hook.py")
         elif operation in ("move_out", "move_out_all"):
-            child.rename(tmp_path / "moved_out")
+            rename_against_scan_collision(child, tmp_path / "moved_out")
             remaining = await wait_for_symbol("nested_symbol", "child/nested.py", present=False)
             assert ("deep_symbol", "child/deep/code.py") not in remaining
             if operation == "move_out_all":
@@ -154,28 +285,24 @@ async def test_registration_race_updates_persisted_symbols(tmp_path, monkeypatch
                 assert ("after_recovery", "code.py") in remaining
                 assert ("hidden_before", ".github/hook.py") in remaining
         elif operation == "root_replace":
-            root.rename(tmp_path / "old_root")
+            rename_against_scan_collision(root, tmp_path / "old_root")
             root.mkdir()
             subprocess.run(["git", "init", "-q", str(root)], check=True)
             target.write_text("def root_replaced(): pass\n")
             await wait_for_symbol("root_replaced")
-            if polling:
-                await asyncio.sleep(1.1)
-            target.write_text("def root_still_watched(): pass\n")
+            rewrite_past_poller_granularity(target, "def root_still_watched(): pass\n")
             await wait_for_symbol("root_still_watched")
         elif operation == "live_tree":
             late = child / "new" / "deep" / "late.py"
             late.parent.mkdir(parents=True)
             late.write_text("def live_before(): pass\n")
             await wait_for_symbol("live_before", "child/new/deep/late.py")
-            if polling:
-                await asyncio.sleep(1.1)
-            late.write_text("def live_after(): pass\n")
+            rewrite_past_poller_granularity(late, "def live_after(): pass\n")
             await wait_for_symbol("live_after", "child/new/deep/late.py")
-            (child / "new").rename(root / "moved")
+            rename_against_scan_collision((child / "new"), root / "moved")
             moved = await wait_for_symbol("live_after", "moved/deep/late.py")
             assert ("live_after", "child/new/deep/late.py") not in moved
-            (root / "moved").rename(tmp_path / "moved_out")
+            rename_against_scan_collision((root / "moved"), tmp_path / "moved_out")
             (root / "moved" / "deep").mkdir(parents=True)
             (root / "moved" / "deep" / "late.py").write_text("def replaced_live(): pass\n")
             await wait_for_symbol("replaced_live", "moved/deep/late.py")
@@ -271,7 +398,7 @@ async def test_unknown_deletion_burst_keeps_fast_path_until_an_indexed_tree_is_g
         assert isinstance(calls[1], list) and len(calls[1]) == len(burst)
         assert len(symbols()) == 4
 
-        (root / "child").rename(tmp_path / "moved_out")
+        rename_against_scan_collision((root / "child"), tmp_path / "moved_out")
         await batches.put({(deleted, str(root / "child"))})
         await wait_for_calls(3)
         assert calls[2] is None
@@ -341,14 +468,12 @@ async def test_subdirectory_watch_reconciles_against_index_root_keys(tmp_path, m
     try:
         target.write_text("def ready(): pass\n")
         await wait_for("ready", "packages/foo/code.py")
-        (foo / "child").rename(tmp_path / "moved_out")
+        rename_against_scan_collision((foo / "child"), tmp_path / "moved_out")
         remaining = await wait_for("nested_symbol", "packages/foo/child/nested.py", present=False)
         assert ("deep_symbol", "packages/foo/child/deep/code.py") not in remaining
         assert ("sibling_symbol", "packages/bar/lib.py") in remaining
         assert ("ready", "packages/foo/code.py") in remaining
-        if polling:
-            await asyncio.sleep(1.1)
-        target.write_text("def after_move(): pass\n")
+        rewrite_past_poller_granularity(target, "def after_move(): pass\n")
         edited = await wait_for("after_move", "packages/foo/code.py")
         assert ("ready", "packages/foo/code.py") not in edited
         target.unlink()
