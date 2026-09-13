@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a triage result the model cannot produce is escalated, not retried forever (#670)
+
+When the inbound triage model failed, `apply_triage.py` planned exactly the
+right response (`inbound:unknown` + `needs-human`, remove `inbound:queued`)
+and then threw it away: it learned WHICH issue to write to from the model's
+own JSON, which is the one fact missing when the model has failed, so the
+except branch set the target to `None` and `apply` never ran. The job
+reported success, no label moved, and the issue was re-triaged every 15
+minutes. Observed as 14 consecutive `inbound triage` failures on two issues
+(runs 34707967479 to 34719256359, recorded in #670), against POLICY 6.4's
+"the job that escalated it does not run again on it". Reported by
+@jgravelle.
+
+The test for that branch asserted the defect as intent:
+`test_malformed_result_file_escalates_and_applies_nothing` required
+`called == []`. Two rules had been collapsed into one. The model's
+CLASSIFICATION must never reach `gh` on a malformed result, which stays
+true. The escalation is not the model's classification: it is our fixed
+response to the model failing and carries nothing it said.
+
+The workflow now passes the issue it is processing as a required
+`--issue`, and that is the only write target. A model result naming a
+different issue is itself malformed and escalates the named one. The
+escalation is written for an unparseable file, the classify step's
+`{"missing": true}` placeholder and an absent file alike. The witness test
+is retired in `harness/retired.json`. Its replacement asserts the two exact
+`gh` calls the escalation makes and that no model-derived label is among
+them. A ratchet asserts every inbound applier takes its write target from
+the workflow. `apply_depeval.py` always took `--pr` this way; triage was the
+one that diverged.
+
+⚠ Not fixed here, and named in #670 as separate: what makes `classify`
+fail (a rejection before any token is spent), and a retry ceiling for any
+future failure that leaves `inbound:queued` in place.
+
 ### Fixed - committing a tree no longer invalidates the full-tier stamp taken on it (#675)
 
 `pre_pr` refuses `gh pr create` unless the full tier passed on THIS tree,

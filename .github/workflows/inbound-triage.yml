@@ -217,7 +217,7 @@ jobs:
           AUTHOR=$(gh issue view "$ISSUE" -R "$REPO" --json author --jq .author.login)
           OWNER="${REPO%%/*}"
           python .github/inbound/apply_triage.py "$RUNNER_TEMP/result/triage-$ISSUE.json" \
-            --author "$AUTHOR" --owner "$OWNER" --repo "$REPO" \
+            --author "$AUTHOR" --owner "$OWNER" --repo "$REPO" --issue "$ISSUE" \
             --drafts-dir "$RUNNER_TEMP/drafts" --run-id "$GITHUB_RUN_ID" --apply > "$RUNNER_TEMP/plan.json" || rc=$?
           cat "$RUNNER_TEMP/plan.json"; exit "${rc:-0}"
 
