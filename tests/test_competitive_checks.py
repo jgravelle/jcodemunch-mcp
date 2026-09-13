@@ -24,7 +24,13 @@ What each test pins, and why (for docs/harness/ARCHAEOLOGY.md):
 - a sandbox timeout KILLS THE CONTAINER (CF-49: subprocess's timeout kills
   the docker client only; two 8 GB containers ran at once and took the host
   down on 2026-09-06), asserted against a live container when docker is
-  present and by the named-container contract otherwise.
+  present and by the named-container contract otherwise;
+- the live-container test asks `sandbox.docker_available()` whether it can
+  run, never a copy (CF-68: a copy that only asked whether `docker info`
+  succeeds ran it on a windows-latest runner whose daemon was in
+  Windows-container mode, and it failed PR #681's gate); a daemon-free test
+  reports a Windows daemon and asserts the skip AND that the daemon was
+  asked, and a ratchet fails any test file that asks `docker info` itself.
 """
 
 from __future__ import annotations
@@ -304,8 +310,11 @@ def test_a_windows_container_daemon_skips_the_daemon_test(monkeypatch, tmp_path)
 
     import sandbox
 
+    asked = []
+
     def fake_run(cmd, **kw):
         if cmd[:2] == ["docker", "info"]:
+            asked.append(cmd)
             out = "windows\n" if "--format" in cmd else "Server: OSType windows\n"
             return subprocess.CompletedProcess(cmd, 0, out, "")
         raise AssertionError(f"the sandbox ran on a Windows-container daemon: {cmd}")
@@ -314,17 +323,29 @@ def test_a_windows_container_daemon_skips_the_daemon_test(monkeypatch, tmp_path)
     monkeypatch.setattr(subprocess, "run", fake_run)
     with pytest.raises(pytest.skip.Exception):
         test_sandbox_timeout_kills_the_container(tmp_path)
+    # the skip came from ASKING the daemon, not from a gate that says no to everything
+    assert asked, "the gate skipped without asking the daemon"
 
 
 def test_no_test_rederives_docker_availability():
     """The authority is `sandbox.docker_available()` (it requires OSType linux,
     the one property the sandbox needs). A test that asks `docker info` itself
     is a second copy, and the first copy here was the narrower one."""
-    call = re.compile(r"""\b(?:run|check_output|check_call|call|Popen)\(\s*\[\s*["']docker["']\s*,\s*["']info["']""")
-    offenders = [
-        p.name for p in sorted((REPO / "tests").glob("test_*.py"))
-        if call.search(p.read_text(encoding="utf-8"))
+    # Every spelling of the question, not only the one the first copy used:
+    # a list or tuple naming docker (or `shutil.which("docker")`) then
+    # "info", and one shell string holding both words. A fake that COMPARES
+    # (`cmd[:2] == ["docker", "info"]`) is not a question and is removed first.
+    docker = r"""(?:["']docker(?:\.exe)?["']|(?:[\w.]+\.)?which\(\s*["']docker["']\s*\))"""
+    asks = [
+        re.compile(r"[\[(]\s*" + docker + r"""\s*,\s*["']info["']"""),
+        re.compile(r"""["']docker(?:\.exe)?\s+info\b"""),
     ]
+    compares = re.compile(r"""==\s*\[\s*["']docker["']\s*,\s*["']info["']\s*\]""")
+    offenders = []
+    for p in sorted((REPO / "tests").rglob("*.py")):
+        text = compares.sub("", p.read_text(encoding="utf-8"))
+        if any(rx.search(text) for rx in asks):
+            offenders.append(str(p.relative_to(REPO)))
     assert offenders == [], offenders
 
 
