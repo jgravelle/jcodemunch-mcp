@@ -42,7 +42,8 @@ and fails if that function is defined again.
 ⚠ The first red run of the new tests reached the real `gh` with the
 developer's credentials: `test_the_issue_argument_is_required` did not stub
 it, and on the pre-fix script `main` applied to the placeholder repository
-`o/r`, which returned 404 and wrote nothing. Every test in the file now runs
+`o/r`, and `gh` answered "Could not resolve to a Repository with the name
+'o/r'" and exited 1, so nothing was written. Every test in the file now runs
 under an autouse stub that fails on an unstubbed `gh` call.
 
 ⚠ Not fixed here, and named in #670 as separate: what makes `classify`

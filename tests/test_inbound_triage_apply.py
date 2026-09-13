@@ -34,8 +34,9 @@ at = _load("apply_triage")
 @pytest.fixture(autouse=True)
 def _no_real_gh(monkeypatch):
     # A test here must never reach the real `gh` with the developer's
-    # credentials. The first #670 red run did exactly that (a 404 against the
-    # placeholder `o/r`, by luck of the name): a test that forgot to stub
+    # credentials. The first #670 red run did exactly that (`gh` answered
+    # "Could not resolve to a Repository with the name 'o/r'", by luck of the
+    # placeholder name): a test that forgot to stub
     # fails loudly instead. Tests that record calls re-patch `_gh` over this.
     def refuse(args, repo):
         raise AssertionError(f"unstubbed gh call: {args} -R {repo}")
@@ -367,3 +368,25 @@ def test_the_duplicate_comment_goes_to_the_named_issue(tmp_path, monkeypatch):
     assert _main(tmp_path, f, "--issue", "667", "--apply") == 0
     comment = [c[0] for c in calls if c[0][:2] == ["issue", "comment"]]
     assert len(comment) == 1 and comment[0][2] == "667"
+
+
+def test_a_plan_addressing_another_issue_is_retargeted_not_trusted(tmp_path, monkeypatch):
+    # The cross-check makes the model's `issue` equal `--issue` today, so the
+    # retarget after `plan` is a second guard; this pins it on its own, in
+    # case `plan` ever derives a target from anything else in the result.
+    calls = []
+    monkeypatch.setattr(at, "_gh", lambda args, repo: calls.append((args, repo)))
+    real_plan = at.plan
+
+    def plan_elsewhere(result, author, owner):
+        p = real_plan(result, author, owner)
+        p["comment"] = {"issue_to": 42, "body": "x"}
+        p["draft"] = {"issue": 42, "category": "question", "body": "y"}
+        return p
+
+    monkeypatch.setattr(at, "plan", plan_elsewhere)
+    f = tmp_path / "r.json"
+    f.write_text(json.dumps(_r(issue=667)), encoding="utf-8")
+    assert _main(tmp_path, f, "--issue", "667", "--apply") == 0
+    assert [c[0][2] for c in calls] == ["667", "667", "667"]
+    assert (tmp_path / "d" / "667-1.md").exists() and not (tmp_path / "d" / "42-1.md").exists()
