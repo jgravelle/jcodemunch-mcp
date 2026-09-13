@@ -17,8 +17,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -207,29 +209,85 @@ def git(*args: str, timeout: int = 20) -> str:
     return r.stdout
 
 
+def git_env(env: dict, *args: str, timeout: int = 60) -> str:
+    """`git` under an explicit environment (tree_id's throwaway GIT_INDEX_FILE)."""
+    r = subprocess.run(
+        ["git", *args],
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    if r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, ["git", *args], r.stdout, r.stderr)
+    return r.stdout
+
+
 def tree_id() -> str:
-    """Identity of the working tree: HEAD's tree plus a digest of the uncommitted diff.
+    """Identity of the working tree's CONTENT under the tier paths.
 
     A full-tier run is valid for exactly this identity, whatever its age (D5).
     """
     # The identity covers what the full tier's verdict DEPENDS on: the code
     # roots, the packaging and the harness. A CHANGELOG line, a PR body draft
     # or a docs/ edit after the run does not invalidate it; committing the
-    # same content does not either (the first /feature run had to run the
-    # tier twice, W-21). The harness's own footprint (pytest-cov's
-    # `.coverage.<host>.<pid>` files, the hook state) never counts (W-13).
+    # same content does not either (W-21, #675). The harness's own footprint
+    # (pytest-cov's `.coverage.<host>.<pid>` files, the hook state) never
+    # counts (W-13).
+    # ⚠ #675: this hashed `ls-tree HEAD` + `git diff HEAD` + the untracked
+    # listing, and committing moves a change from the second string into the
+    # first, so the claim above was false for its whole life. The working
+    # copy is staged into a THROWAWAY index (a copy of the real one, so the
+    # stat cache spares re-hashing unchanged files) and written as a tree:
+    # blob ids of the content, identical before and after a commit, with
+    # untracked files included. The real index is never written.
     # Residual: a doc edit CAN flip a doc-reading test (CLAUDE.md size); the
     # PR gate is the authority for that, this hook is the early one.
-    tracked = git("ls-tree", "-r", "HEAD", "--", *TIER_PATHS)
-    diff = git("diff", "HEAD", "--", *TIER_PATHS)
-    untracked = "\n".join(
+    # ⚠ A tier path absent from both the working copy and the index is a
+    # pathspec `git add` refuses OUTRIGHT, adding nothing; pass only live ones.
+    # ⚠ Any git failure yields an id no stamp can hold (fail closed): a
+    # constant fallback would let two failed reads certify each other.
+    # ⚠⚠ The copy KEEPS the index's mtime (`copy2`, never `copyfile`). Git
+    # re-reads a file whose stat matches its entry only when that entry is
+    # "racily clean" (mtime >= the INDEX FILE's mtime); a copy stamped "now"
+    # makes every entry look settled, so a same-size edit inside the racy
+    # window is trusted from the stat cache and the id names STALE content.
+    # It failed 1 run in 12 that way before this line.
+    fd, scratch = tempfile.mkstemp(prefix="tree-id-", suffix=".index")
+    os.close(fd)
+    try:
+        real_index = git_env(
+            dict(os.environ), "rev-parse", "--path-format=absolute", "--git-path", "index"
+        ).strip()
+        if real_index and os.path.exists(real_index):
+            shutil.copy2(real_index, scratch)
+        else:
+            os.unlink(scratch)  # no index yet: git builds one from nothing
+        env = {**os.environ, "GIT_INDEX_FILE": scratch}
+        indexed = git_env(env, "ls-files", "--", *TIER_PATHS).splitlines()
+        live = [
+            p
+            for p in TIER_PATHS
+            if (REPO / p).exists() or any(f == p or f.startswith(p) for f in indexed)
+        ]
+        if live:
+            git_env(env, "add", "-A", "--", *live)
+        tree = git_env(env, "write-tree").strip()
+        listing = git_env(env, "ls-tree", "-r", tree, "--", *TIER_PATHS)
+    except (OSError, subprocess.SubprocessError):
+        return "unreadable-" + os.urandom(8).hex()
+    finally:
+        if os.path.exists(scratch):
+            os.unlink(scratch)
+    content = "\n".join(
         ln
-        for ln in git(
-            "status", "--porcelain", "--untracked-files=all", "--", *TIER_PATHS
-        ).splitlines()
-        if ln.startswith("??") and not ln[3:].startswith(".coverage")
+        for ln in listing.splitlines()
+        if not ln.split("\t", 1)[-1].rsplit("/", 1)[-1].startswith(".coverage")
     )
-    return hashlib.sha256((tracked + diff + untracked).encode("utf-8")).hexdigest()[:24]
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:24]
 
 
 class Budget:

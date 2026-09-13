@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - committing a tree no longer invalidates the full-tier stamp taken on it (#675)
+
+`pre_pr` refuses `gh pr create` unless the full tier passed on THIS tree,
+and the stamp names the tree by `_common.tree_id()`. That id hashed
+`git ls-tree HEAD` plus `git diff HEAD` plus the untracked listing, and a
+commit moves a change from the second string into the first: the same
+content, two different strings, a different hash. So the natural order
+(run the tier, commit, open the PR) was refused on a clean working tree
+and paid for a second full tier, 218.14 s on #673, for a result it
+already had. The docstring had claimed the opposite since W-21, which was
+marked FIXED having implemented only its other half (docs-only commits);
+no test ever ran the sentence.
+
+The id now names content. The working copy under the stamp paths is
+staged into a throwaway index and written as a git tree, so a
+modification, a new file and a deletion each read the same before and
+after they are committed, staged or not, in a worktree too; untracked
+files still count and the real index is never written. A git failure
+yields an id no stamp can match, so two failed reads cannot certify each
+other.
+
+⚠ The first draft of this fix copied the index with `copyfile`, which
+stamps the copy "now". Git re-reads a file whose stat matches its entry
+only when the entry is as new as the INDEX FILE, so the fresh copy made
+every entry look settled and a same-size edit in that window was trusted
+from the stat cache: 3 of 25 runs named stale content, which is a stamp
+accepted for a tree the tier never saw. `copy2` keeps the mtime (0 of 25),
+and `test_a_racily_clean_edit_is_read_not_trusted_from_the_stat_cache`
+fails 6 of 6 against the `copyfile` draft.
+
 ### Added - a checker's own output, mapped to the symbol it names (`import-trace --diagnostics`)
 
 The index has always known where every symbol begins and ends and has
