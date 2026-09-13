@@ -25,15 +25,34 @@ from pathlib import Path
 # "cred​ential" still reads as "credential".
 _ZERO_WIDTH = re.compile("[​‌‍⁠﻿­͏᠎]")
 
-# A credential NOUN, for the exposure patterns below only. ⚠ A bare `token`
-# is deliberately absent: in this repository it is overwhelmingly the LLM
-# unit ("tokens saved", "token budget"), so only a qualified token counts.
+# A credential NOUN, for the exposure patterns below only.
 _CRED = (
     r"(?:credentials?|secrets?|passwords?|passwd|api[_ -]?keys?|access[_ -]?keys?"
     r"|private[ -]keys?|signing[ -]keys?|ssh[ -]keys?|key ?material"
-    r"|(?:auth(?:entication)?|access|refresh|session|bearer|oauth|api|http"
-    r"|github|gh|pypi|npm|anthropic|openai|aws|slack|personal[ -]access)[_ -]tokens?)"
+    r"|(?:openai|anthropic|aws|gcp|google|azure|stripe|twilio|sendgrid|github|pypi|npm"
+    r"|slack|hugging[ -]?face|hf)[_ -]?(?:api[_ -]?)?(?:keys?|secrets?)"
+    r"|authorization[ -]headers?|(?:session|auth) cookies?|\.env(?: files?)?"
+    r"|(?:auth(?:entication)?|access|refresh|session|bearer|oauth|api|http|github|gh"
+    r"|pypi|npm|anthropic|openai|aws|slack|personal[ -]access)"
+    r"[_ -]tokens?(?!\s*(?:saved|counts?|budget|per\b|costs?|usage|used|totals?)))"
 )
+# A bare `token` is a credential only beside a STRONG exposure word
+# (`_STRONG_VERB` / `_STRONG_AFTER`), and never when an LLM-unit word follows
+# it ("tokens saved", "token budget"): in this repository that is the usual
+# sense, and "writes with the App token" (#670) is not a leak.
+_TOKEN = (
+    r"tokens?(?![A-Za-z0-9_])(?!\s*(?:saved|counts?|budget|per\b|costs?|usage|econom|meter|window"
+    r"|limits?|estimat|efficien|reduction|spend|savings?|used|totals?))"
+)
+# ⚠⚠ Every repetition below is BOUNDED. This scan runs in CI on untrusted
+# text (title + body + comment, up to ~65k characters per event), and the
+# first draft of this rule used unbounded affixes beside the noun, and
+# "secret" repeated to 6,000 characters took 205.53 s (3,000: 26.23 s) where
+# the word list scans 120,000 in about 0.1 s. `tests/test_inbound_scan.py`
+# times the adversarial inputs.
+_LEAD = r"[`'\"(]{0,2}(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}_){0,3}"
+_NOUN = _LEAD + _CRED + r"[\w`'\"]{0,40}"
+_TOKEN_NOUN = _LEAD + _TOKEN
 # Inflections are spelled out: a bare stem reads "service", "logic",
 # "story", "postgres" and "missing package" as exposure verbs, which the
 # corpus run showed it doing.
@@ -46,30 +65,49 @@ _EXPOSE_VERB = (
     r"|post(?:s|ed|ing)?|send(?:s|ing)?|sent|transmit(?:s|ted|ting)?"
     r"|return(?:s|ed|ing)?|serv(?:es|ed|ing)|index(?:es|ed|ing)?|cach(?:e|es|ed|ing)"
     r"|stor(?:e|es|ed|ing)|persist(?:s|ed|ing)?|hard[- ]?cod(?:e|es|ed|ing)"
-    r"|ignor(?:e|es|ed|ing)|bypass(?:es|ed|ing)?)"
+    r"|ignor(?:e|es|ed|ing)|bypass(?:es|ed|ing)?|includ(?:e|es|ed|ing))"
+)
+_STRONG_VERB = (
+    r"\b(?:leak(?:s|ed|ing)?|expos(?:e|es|ed|ing)|disclos(?:e|es|ed|ing)"
+    r"|reveal(?:s|ed|ing)?|dump(?:s|ed|ing)?|print(?:s|ed|ing)?|echo(?:es|ed|ing)?"
+    r"|log(?:s|ged|ging)?|past(?:e|es|ed|ing)|commit(?:s|ted|ting)?"
+    r"|publish(?:es|ed|ing)?|upload(?:s|ed|ing)?|hard[- ]?cod(?:e|es|ed|ing))"
+)
+_STRONG_AFTER = (
+    r"(?:leak\w{0,6}|expos\w{0,6}|disclos\w{0,6}|revealed|printed|logged|dumped|pasted"
+    r"|committed|published|uploaded|hard[- ]?coded|in (?:plain|clear) ?text"
+    r"|in (?:the |a |our |my |your |its )?(?:[\w-]{1,30} )?(?:logs?|output|stdout|stderr"
+    r"|sdist|wheel|tarball|artifact|git history|screenshot|gist|public))"
 )
 _EXPOSE_AFTER = (
-    r"(?:leak\w*|expos\w*|disclos\w*|visible|readable|world[- ]readable|hard[- ]?coded"
-    r"|checked[- ]in|committed|pushed|published|in (?:plain|clear) ?text"
+    r"(?:leak\w{0,6}|expos\w{0,6}|disclos\w{0,6}|visible|readable|world[- ]readable"
+    r"|hard[- ]?coded|checked[- ]in|committed|pushed|published|in (?:plain|clear) ?text"
     # a noun FIRST takes the passive only: "the token is printed", never
     # "rotate the token and store it"
-    r"|printed|logged|revealed|dumped|written|shipped|uploaded|bundled|embedded"
+    r"|printed|logged|revealed|dumped|written|shipped|uploaded|bundled|embedded|included"
     r"|pasted|posted|sent|transmitted|returned|served|indexed|cached|stored|persisted"
-    r"|in (?:the |a |our |my |your |its )?(?:[\w-]+ )?(?:logs?|output|stdout|stderr|sdist"
-    r"|wheel|package|tarball|artifact|repo(?:sitory)?|commit|git history|history|response"
-    r"|index|cache|url|query string|screenshot|gist|public))"
+    r"|in (?:the |a |our |my |your |its )?(?:[\w-]{1,30} )?(?:logs?|output|stdout|stderr"
+    r"|sdist|wheel|package|tarball|artifact|repo(?:sitory)?|commit|git history|history"
+    r"|response|index|cache|url|query string|screenshot|gist|public))"
 )
 # Up to four words between the two halves, none of them a negation:
-# "stores nothing about secrets" and "never logs the token" are not exposures.
-_GAP = r"(?:(?!(?:nothing|no|not|never|none|without)\b)[\w.'`\"/-]+\s+){0,4}?"
+# "stores nothing about secrets" and "never logs the token" are not
+# exposures ("the token cannot leak to another host", #407, is a fix
+# description). "not only" / "not just" are NOT negations ("the key was not only
+# leaked but printed" is a disclosure, and the first draft dropped it).
+_GAP = (
+    r"(?:(?!(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|isn't"
+    r"|wasn't|mustn't|shouldn't)\b|not\b(?!\s+(?:only|just)\b))"
+    r"[\w.'`\"/-]{1,60}\s+){0,4}?"
+)
 
 # POLICY section 1 rule 1. Word-ish boundaries; case-insensitive.
 # ⚠ Credentials fire on EXPOSURE, never on MENTION (owner ruling 2026-09-13,
 # "mentioning credentials is fine; exposing them is not"). The word list this
 # replaced matched `credential`, `token`, `secret` and `api key` anywhere and
-# flagged 75 of 321 issues, #670 twelve seconds after it was filed for
-# describing a credential-free defect. Exposure is a secret-shaped VALUE in
-# the text, or a credential noun within a few words of an exposure verb.
+# flagged 75 of 321 issues, #670 among them for describing a credential-free
+# defect. Exposure is a secret-shaped VALUE in the text, or a credential noun
+# within a few words of an exposure verb or state.
 SECURITY_TERMS = [
     r"vulnerab\w*",
     r"exploit\w*",
@@ -80,14 +118,25 @@ SECURITY_TERMS = [
     r"\bgithub_pat_[A-Za-z0-9_]{22,}",
     r"\bsk-ant-[A-Za-z0-9_-]{20,}",
     r"\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}",
-    r"\bAKIA[0-9A-Z]{16}\b",
+    r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b",
+    r"\bAIza[0-9A-Za-z_-]{30,}",
+    r"\bnpm_[A-Za-z0-9]{36,}",
+    r"\bhf_[A-Za-z0-9]{30,}",
     r"\bpypi-[A-Za-z0-9_-]{50,}",
     r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
-    r"(?:api[_-]?key|token|secret|password|passwd)[\"']?\s*[:=]\s*[\"']?[A-Za-z0-9_\-/+=]{24,}",
+    r"-----BEGIN [A-Z ]{0,20}PRIVATE KEY(?: BLOCK)?-----",
+    r"\bBearer\s+[A-Za-z0-9._~+/=-]{20,}",
+    r"\b[\w-]{0,40}?(?:api[_-]?key|access[_-]?key|secret[_-]?(?:access[_-]?)?key|token|secret"
+    r"|password|passwd|pwd)[\"']?\s{0,5}[:=]\s{0,5}[\"']?[A-Za-z0-9_\-/+=.]{24,}",
+    # a short password value is still a password; placeholders are not
+    r"\b(?:password|passwd|pwd)[\"']?\s{0,5}[:=]\s{0,5}[\"']?"
+    r"(?![<$*{%]|x{3,}|\.\.\.|none\b|null\b|true\b|false\b|str\b|changeme\b|required\b)"
+    r"[^\s\"'<>,;)\]]{6,}",
     # words: a credential and what happened to it, in either order
-    _EXPOSE_VERB + r"\s+" + _GAP + r"[\w`'\"./-]*?" + _CRED,
-    _CRED + r"[\w`'\"]*\s+" + _GAP + _EXPOSE_AFTER,
+    _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
+    _NOUN + r"\s+" + _GAP + _EXPOSE_AFTER,
+    _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
+    _TOKEN_NOUN + r"\s+" + _GAP + _STRONG_AFTER,
     r"path (?:escape|traversal)",
     r"\btraversal\b",
     r"arbitrary (?:file )?(?:write|read|code)",

@@ -230,3 +230,79 @@ def test_an_exposed_credential_is_security(text):
 )
 def test_the_audited_security_reports_are_still_caught(text):
     assert scan.scan(text)["security"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Review round 1 of the exposure rule: each of these was missed by
+        # its first draft.
+        "the api key was not only leaked but printed",  # "not only" is not a negation
+        "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
+        "Authorization: Bearer " + "abcdefghij" * 4,
+        "password=hunter2",
+        "aws_secret_access_key = " + "wJalrXUtnFEMI" + "/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "npm" + "_" + "A1b2C3d4" * 5,
+        "hf" + "_" + "A1b2C3d4" * 5,
+        "AI" + "za" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6q",
+        "AS" + "IA" + "ABCDEFGHIJKLMNOP",
+        "I accidentally pasted my token above",
+        "the token is logged",
+        "server logs include the full Authorization header",
+        "the .env file with my OPENAI key is in the wheel",
+    ],
+)
+def test_exposures_the_first_draft_missed_are_security(text):
+    assert scan.scan(text)["security"], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a no-model job verifies it and writes with the App token",
+        "returns the session token count",
+        "the secret is not leaked",
+        # corpus false positives of the second draft
+        "strip the Authorization header on a cross-host redirect, so the token cannot leak to another host",  # 407
+        "The trim trigger is a hardcoded 1000 writes (token_tracker.py:960)",  # 476
+    ],
+)
+def test_a_plain_or_negated_token_sentence_is_not_security(text):
+    assert scan.scan(text)["security"] == [], text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Untrusted CI input: the first draft of the exposure rule took
+        # 11.82 s on "secret" repeated to 65,536 characters. Each of these is
+        # at least 100,000 characters and must scan in well under a second
+        # on a developer box; the bound is loose for slow runners.
+        "secret" * 20000,
+        "secret_" * 20000,
+        "api_token" * 20000,
+        "leak a " * 20000,
+        "leak " * 20000 + "b" * 50000,
+        "secrets " * 20000,
+        "secret x x x x " * 20000,
+        "password in the " * 20000,
+        "leak" + " " * 120000 + "x",
+        "secret" + "'" * 120000,
+        ("token=" + "a" * 23 + " ") * 5000,
+    ],
+    ids=lambda t: f"{t[:12]!r}x{len(t)}",
+)
+def test_the_security_scan_is_linear_on_adversarial_input(text):
+    import time
+
+    t0 = time.perf_counter()
+    scan.scan(text)
+    assert time.perf_counter() - t0 < 3.0
+
+
+def test_the_scanner_source_carries_no_control_characters():
+    # A backspace written by an escape mishap once replaced `\b` inside a
+    # pattern here and compiled, ran and passed (the CLAUDE.md complexity.py
+    # lesson, reproduced in this file during the exposure rule's review).
+    raw = (INBOUND / "scan.py").read_bytes()
+    assert [b for b in raw if b < 32 and b not in (9, 10, 13)] == []
