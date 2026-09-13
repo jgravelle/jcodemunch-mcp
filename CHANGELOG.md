@@ -21,10 +21,15 @@ values (GitHub, Anthropic, OpenAI, AWS, PyPI and Slack token forms, a PEM
 private-key header, a long `key = value` assignment), or a credential noun
 within four words of an exposure verb or state, in either order. A negation
 inside that span breaks the match ("stores nothing about secrets", "the token
-cannot leak"), while "not only leaked" does not. A bare `token` counts only
+cannot leak"), while "not only leaked" and a negated safeguard ("the api key
+wasn't redacted and is in the log") do not. After the credential, an aside in
+commas, parentheses or dashes does not break it either ("my api key (the prod
+one) was leaked"). After a verb a comma does, because there it crosses a
+clause: allowing it there flagged #76, #167, #371 and #489, which only mention
+secrets. A bare `token` counts only
 beside a strong exposure word ("pasted my token", "the token is logged") and
 never before an LLM-unit word ("token count"). `Authorization: Bearer`
-values, short `password=` values, `*_access_key =` assignments and PGP, npm,
+values, short `password=` values (not code such as `Path.cwd()`), `*_access_key =` assignments and PGP, npm,
 Hugging Face, Google and temporary-AWS key forms are values too. Every
 repetition is bounded: the scan runs in CI on untrusted text, and the
 first draft of these patterns took 205.53 s on "secret" repeated to 6,000
