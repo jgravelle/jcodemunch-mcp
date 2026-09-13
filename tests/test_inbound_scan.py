@@ -286,12 +286,22 @@ def test_a_plain_or_negated_token_sentence_is_not_security(text):
         "error message contains my github token",
         # Review round 3
         "the api key is not properly redacted in the logs",
-        "the api key isn't getting redacted and is in the log",
+        "the api key isn't getting redacted, it's in the log",
         "credentials are not sanitised in the debug log",
         "the password isn't encrypted, it's stored in plain text",
         "the api key\u2014the prod one\u2014was leaked",
         "the crash report shows the user's real api key",
         "password = hunter2[x]",
+        # Review round 4
+        "I cannot believe it leaked my api key",
+        "can't believe this printed my github token",
+        "no wonder it logged my api key",
+        "we don't log it but printed my api key in the issue",
+        "I didn't commit it but pasted my api key",
+        "the response contains an access token",
+        "debug output contains the bearer token",
+        "the traceback shows the GITHUB_TOKEN",
+        "the wheel contains the .env file",
     ],
 )
 def test_exposures_the_second_draft_missed_are_security(text):
@@ -326,6 +336,10 @@ def test_exposures_the_second_draft_missed_are_security(text):
         "the UI shows the API key field",
         "Make sure your .env contains the API key",
         "the folder containing .env files is skipped",
+        # Review round 4
+        "should not log the token",
+        "credentials are not hashed; they are stored in the OS keychain",
+        "credentials are read from env and cached",
     ],
 )
 def test_code_and_negated_exposure_are_not_security(text):
@@ -357,6 +371,9 @@ def test_code_and_negated_exposure_are_not_security(text):
         "secret " + "- " * 60000,
         "contains my " * 20000,
         "not " * 40000 + "log the api key",
+        "api key\u2014" * 60000,
+        "secret \u2014\u2014 " * 40000,
+        "don't log it but " * 20000,
     ],
     ids=lambda t: f"{t[:12]!r}x{len(t)}",
 )

@@ -98,15 +98,15 @@ _EXPOSE_AFTER = (
 # neither is a negated SAFEGUARD: "the api key wasn't redacted and is in the
 # log" describes the exposure.
 _NEGATION = (
-    r"(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|isn't"
-    r"|wasn't|aren't|weren't|mustn't|shouldn't|not)\b"
+    r"(?:nothing|no|never|none|without|cannot|can't|won't|doesn't|don't|didn't|isn't"
+    r"|wasn't|aren't|weren't|hasn't|haven't|hadn't|couldn't|wouldn't|mustn't|shouldn't"
+    r"|needn't|not)\b"
     r"(?!\s+(?:(?:only|just)\b|(?:(?:get|gets|got|getting|be|been|being|properly|correctly"
     r"|fully|always|actually|really|ever)\s+){0,2}"
-    r"(?:redact|mask|scrub|saniti[sz]|filter|obfuscat|hidden|censor|encrypt|hash|protect)))"
+    r"(?:redact|mask|scrub|saniti[sz]|filter|obfuscat|hidden|censor|encrypt|hash)))"
 )
 _GAP = r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
-# After a credential NOUN only, five words may stand between ("isn't getting
-# redacted and is in the log"), a word may carry punctuation ("key, sadly,",
+# After a credential NOUN only, a word may carry punctuation ("key, sadly,",
 # "(the prod one)") and a bare dash is not a word ("the api key - the prod
 # one - was leaked"). ⚠ Not after a VERB: there a comma crosses a clause, and
 # the corpus run read "When indexing a folder, the secret file detection" and
@@ -114,8 +114,8 @@ _GAP = r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/-]{1,60}\s+){0,4}?"
 _DASH = r"(?:[-–—]{1,2}\s+)?"
 _NOUN_GAP = (
     _DASH
-    + r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/(][\w.'`\"/(),;:!?–—-]{0,59}\s+" + _DASH
-    + r"){0,5}?"
+    + r"(?:(?![`'\"(]?" + _NEGATION + r")[\w.'`\"/(][\w.'`\"/(),:!?–—-]{0,59}\s+" + _DASH
+    + r"){0,4}?"
 )
 # Between a noun and what follows it: whitespace, or an unspaced em dash
 # ("the api key—the prod one—was leaked").
@@ -133,12 +133,37 @@ _CONTAIN = (
     + r"(?![\w-]|\s+(?:field|prompt|input|box|setting|name|variable|placeholder|option"
     r"|parameter|flag|form|dialog|page|section|docs?|label)s?\b)"
 )
+# ...and an article alone is enough before a credential no one names in the
+# abstract ("the response contains an access token", "the wheel contains the
+# .env file", the v0.2.6 sdist shape); "your .env contains the API key" is
+# still an instruction.
+_CONTAIN_NAMED = (
+    r"\b(?:contain(?:s|ed|ing)?|show(?:s|ed|ing|n)?)\s+(?:(?:the|a|an|full|entire|whole)\s+){1,2}"
+    r"(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,30}_){0,3}"
+    r"(?:(?:access|refresh|session|bearer|oauth|auth|github|gh|pypi|npm|slack|anthropic|openai|aws)"
+    r"[_ -]tokens?|\.env(?: files?)?|private[ -]keys?|ssh[ -]keys?)"
+    r"(?![\w-]|\s+(?:field|prompt|input|box|setting|name|variable|placeholder|option"
+    r"|parameter|flag|form|dialog|page|section|docs?|label)s?\b)"
+)
 # A verb-first exposure is not one when a negation stands just before the
 # verb ("should not log the api key", "cannot contain secrets", "does not
 # actually contain my token"). Checked in scan() over the text before the
 # match, with the same _NEGATION (a lookbehind cannot hold it).
+# ⚠ Only an auxiliary or an adverb between: "I cannot believe it leaked my
+# api key" and "no wonder it logged my api key" are disclosures.
 _NEGATED_BEFORE = re.compile(
-    r"(?<![\w'])" + _NEGATION + r"(?:\s+[\w'-]{1,20}){0,2}\s+$", re.IGNORECASE
+    r"(?<![\w'])" + _NEGATION
+    + r"(?:\s+(?:be|been|being|get|gets|got|getting|ever|even|actually|really|always|currently"
+    r"|accidentally|intentionally|properly|automatically|to|it|them|anything))"
+    r"{0,2}\s+$",
+    re.IGNORECASE,
+)
+# 7: the verb-first patterns, named once and read by both the list and scan()
+_VERB_FIRST = (
+    _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
+    _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
+    _CONTAIN,
+    _CONTAIN_NAMED,
 )
 
 # POLICY section 1 rule 1. Word-ish boundaries; case-insensitive.
@@ -176,11 +201,9 @@ SECURITY_TERMS = [
     r"|[A-Za-z_][\w.]{0,60}\[[\"']|os\.environ|getpass)"
     r"[^\s\"'<>,;)\]]{6,}",
     # words: a credential and what happened to it, in either order
-    _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
+    *_VERB_FIRST,
     _NOUN + _NOUN_SEP + _NOUN_GAP + _EXPOSE_AFTER,
-    _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
     _TOKEN_NOUN + _NOUN_SEP + _NOUN_GAP + _STRONG_AFTER,
-    _CONTAIN,
     r"path (?:escape|traversal)",
     r"\btraversal\b",
     r"arbitrary (?:file )?(?:write|read|code)",
@@ -230,11 +253,6 @@ INJECTION_PATTERNS = [
 ]
 
 _SEC = [re.compile(p, re.IGNORECASE) for p in SECURITY_TERMS]
-_VERB_FIRST = {
-    _EXPOSE_VERB + r"\s+" + _GAP + _NOUN,
-    _STRONG_VERB + r"\s+" + _GAP + _TOKEN_NOUN,
-    _CONTAIN,
-}
 _INJ = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
 
 
@@ -252,11 +270,20 @@ def scan(text: str) -> dict:
     t = normalise(text)
     out = {"security": [], "injection": []}
     for rx in _SEC:
-        verb_first = rx.pattern in _VERB_FIRST
-        for m in rx.finditer(t):
-            if verb_first and _NEGATED_BEFORE.search(t, max(0, m.start() - 60), m.start()):
+        if rx.pattern not in _VERB_FIRST:
+            for m in rx.finditer(t):
+                out["security"].append({"match": m.group(0), "at": m.start()})
+            continue
+        # A match negated before its verb is dropped and the search resumes
+        # one character on, not past its end: "we don't log it but printed my
+        # api key" holds a second exposure inside the first match's span.
+        pos = 0
+        while (m := rx.search(t, pos)) is not None:
+            if _NEGATED_BEFORE.search(t, max(0, m.start() - 60), m.start()):
+                pos = m.start() + 1
                 continue
             out["security"].append({"match": m.group(0), "at": m.start()})
+            pos = m.end()
     for rx in _INJ:
         for m in rx.finditer(t):
             out["injection"].append(
