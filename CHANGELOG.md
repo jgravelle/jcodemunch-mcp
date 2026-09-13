@@ -26,15 +26,20 @@ wasn't redacted and is in the log") do not. After the credential, an aside in
 commas, parentheses or dashes does not break it either ("my api key (the prod
 one) was leaked"). After a verb a comma does, because there it crosses a
 clause: allowing it there flagged #76, #167, #371 and #489, which only mention
-secrets. A bare `token` counts only
+secrets. A negation just before the verb cancels too ("should not log the api
+key", "cannot contain secrets"), read from the same negation list as the gap.
+"contains" and "shows" count only with an owner or a realness word ("shows
+the user's real api key"), never before a UI word ("shows the API key
+field"). A bare `token` counts only
 beside a strong exposure word ("pasted my token", "the token is logged") and
 never before an LLM-unit word ("token count"). `Authorization: Bearer`
 values, short `password=` values (not code such as `Path.cwd()`), `*_access_key =` assignments and PGP, npm,
 Hugging Face, Google and temporary-AWS key forms are values too. Every
 repetition is bounded: the scan runs in CI on untrusted text, and the
 first draft of these patterns took 205.53 s on "secret" repeated to 6,000
-characters; the bounded patterns scan 600,000-character adversarial inputs
-in under a second, and the test file times them. Over the same corpus
+characters; the bounded patterns scanned a 600,000-character adversarial
+input in 0.75 s, and the test file times seventeen inputs of 100,000
+characters or more. Over the same corpus
 it flags 20. Every security-shaped report the audit lists that the word list
 caught is still caught (#444, #448, #508, #509). The other rule-1 triggers
 (vulnerability, exploit, CVE, traversal, cross-repo, arbitrary write, data
