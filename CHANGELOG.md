@@ -41,8 +41,9 @@ Hugging Face, Google and temporary-AWS key forms are values too. Every
 repetition is bounded: the scan runs in CI on untrusted text, and the
 first draft of these patterns took 205.53 s on "secret" repeated to 6,000
 characters; the bounded patterns scanned a 600,000-character adversarial
-input in 1.10 s, and the test file times twenty inputs of 100,000
-characters or more. Over the same corpus
+input in 1.10 s, and the test file checks that twenty adversarial shapes
+grow linearly: four times the text in under ten times the time, measured in
+one process so a loaded CI runner slows both sides alike. Over the same corpus
 it flags 20. Every security-shaped report the audit lists that the word list
 caught is still caught (#444, #448, #508, #509). The other rule-1 triggers
 (vulnerability, exploit, CVE, traversal, cross-repo, arbitrary write, data
@@ -50,7 +51,9 @@ exposure, redaction failure) are untouched.
 
 ⚠ The trade-off, accepted with the ruling: a disclosure written only in
 plain words with no credential noun ("the key is in the log") no longer
-trips the scan. The triage model still reads rule 1.
+trips the scan, and neither does one with more than four words between the
+credential and its exposure (a five-word window flagged mention-only
+sentences). The triage model still reads rule 1.
 
 ### Fixed - a triage result the model cannot produce is escalated, not retried forever (#670)
 
