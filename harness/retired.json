@@ -1,5 +1,13 @@
 {
   "schema": "jcm-harness-retired/v1",
   "note": "A test file listed in docs/harness/ARCHAEOLOGY.md may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
-  "retired": []
+  "retired": [
+    {
+      "path": "tests/test_inbound_triage_apply.py::test_malformed_result_file_escalates_and_applies_nothing",
+      "lesson": "Escalating is a write. The test asserted called == [] on a malformed triage result, so the fixed escalation (inbound:unknown + needs-human, dequeue) was planned and discarded and the item re-triaged every 15 minutes (#670). The rule it meant to encode, that the MODEL'S classification never reaches gh, is kept; the escalation carries nothing the model said and is written to the issue the workflow named.",
+      "replacement": "tests/test_inbound_triage_apply.py::test_malformed_result_escalates_ON_THE_ISSUE_THE_WORKFLOW_NAMED",
+      "commit": "5a38f16a",
+      "date": "2026-09-13"
+    }
+  ]
 }
