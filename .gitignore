@@ -133,3 +133,9 @@ benchmarks/rust_fidelity/oracle/Cargo.lock
 !docs/inbound/
 # The competitive feedback loop (2026-09-05): docs/competitive/DESIGN.md D7.
 !docs/competitive/
+# jFlowMunch's live diagram is CURRENT STATE, not a log or a deliverable: it is
+# overwritten every time a plan changes and belongs to whoever is at the desk.
+# Ignored the moment the instruction to write it landed, because an untracked
+# scratch file at the repo root is the v0.2.6 sdist vector exactly (and the
+# relnotes.md incident after it), and `git add -A` does not ask.
+.jFlowMunch/
