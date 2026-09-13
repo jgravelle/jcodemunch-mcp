@@ -1,6 +1,6 @@
 {
   "schema": "jcm-harness-retired/v1",
-  "note": "A test file listed in docs/harness/ARCHAEOLOGY.md may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
+  "note": "A test file listed in docs/harness/ARCHAEOLOGY.md, or one test function in it (path = file::test_name), may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
   "retired": [
     {
       "path": "tests/test_inbound_triage_apply.py::test_malformed_result_file_escalates_and_applies_nothing",

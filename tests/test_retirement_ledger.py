@@ -63,6 +63,17 @@ def test_every_ledgered_replacement_exists_and_collects():
         text = p.read_text(encoding="utf-8", errors="replace")
         if not re.search(rf"^\s*(async\s+)?def {re.escape(name)}\b", text, re.M):
             bad.append(f"{r['path']}: replacement {r['replacement']} not found")
-        if (REPO / r["path"]).exists():
+        # A ledgered `file::test_name` retires one function from a file that
+        # stays; its absence is the DEF, not the file (#670's entry).
+        rfile, sep, rname = r["path"].partition("::")
+        if sep:
+            rp = REPO / rfile
+            if rp.exists() and re.search(
+                rf"^\s*(async\s+)?def {re.escape(rname)}\b",
+                rp.read_text(encoding="utf-8", errors="replace"),
+                re.M,
+            ):
+                bad.append(f"{r['path']}: listed as retired but still defined")
+        elif (REPO / r["path"]).exists():
             bad.append(f"{r['path']}: listed as retired but still present")
     assert not bad, "\n".join(bad)
