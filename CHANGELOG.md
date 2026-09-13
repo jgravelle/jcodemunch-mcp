@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Changed - a credential makes an inbound item `security` when it is exposed, not when it is named
+
+The inbound intake scan labels an item `inbound:security` + `needs-human`
+before any model reads it. Its credential clause was a word list:
+`credential`, `token`, `secret`, `api key`, `private key` or `key material`
+anywhere in the text. Over every issue in this repository (321) it fired on
+75. The bare words `token` and `tokens` matched in 50 of those, and were the
+only match in 42, in a project where a token is usually the LLM unit. It labelled #670 security twelve seconds after filing,
+for describing a defect that involves no credential at all. Owner ruling,
+2026-09-13: "mentioning credentials is fine; exposing them is not."
+
+POLICY section 1 rule 1 now says a credential is exposed when a token, key
+or password VALUE appears in the item, or when the item says a credential
+was leaked, logged, printed, committed, shipped, returned or otherwise made
+readable. `.github/inbound/scan.py` matches exactly that: secret-shaped
+values (GitHub, Anthropic, OpenAI, AWS, PyPI and Slack token forms, a PEM
+private-key header, a long `key = value` assignment), or a credential noun
+within four words of an exposure verb or state, in either order. A negation
+inside that span breaks the match ("stores nothing about secrets"). A bare
+`token` is not a credential noun; a qualified one is. Over the same corpus
+it flags 19. Every security-shaped report the audit lists that the word list
+caught is still caught (#444, #448, #508, #509). The other rule-1 triggers
+(vulnerability, exploit, CVE, traversal, cross-repo, arbitrary write, data
+exposure, redaction failure) are untouched.
+
+⚠ The trade-off, accepted with the ruling: a disclosure written only in
+plain words with no credential noun ("the key is in the log") no longer
+trips the scan. The triage model still reads rule 1.
+
 ### Fixed - a triage result the model cannot produce is escalated, not retried forever (#670)
 
 When the inbound triage model failed, `apply_triage.py` planned exactly the
