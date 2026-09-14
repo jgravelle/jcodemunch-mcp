@@ -26,7 +26,10 @@ What each test pins, and why (for docs/harness/ARCHAEOLOGY.md):
   weaken it (Practice 6's shallow-clone family; the reason is not put in
   `_meta`, which a default install strips);
 - no git invocation under src/ passes a bare `--format=`/`--pretty=` literal
-  that git would read as a format NAME (the property, not the one call site).
+  that git would read as a format NAME (the property, not the one call site),
+  with f-strings RESOLVED rather than exempted and the split-argv spelling
+  read, and an in-suite arm showing each spelling of #667 is caught;
+- the reason a signal was withheld survives the compact (MUNCH) encoding.
 """
 
 from __future__ import annotations
@@ -104,7 +107,17 @@ def test_files_committed_together_are_temporally_coupled(tmp_path):
 
 
 def test_an_index_rooted_below_the_git_top_level_still_matches(tmp_path):
+    """`identity_mode="local"` on a folder below the git top level roots the
+    index THERE, with folder-relative paths, while `--name-only` prints
+    top-level paths. (The default identity roots at the top level and agrees.)"""
     pkg = _co_churn_repo(tmp_path / "mono", sub="services/api")
+    store = tmp_path / "store"
+    store.mkdir()
+    res = index_folder(str(pkg), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert res["success"] is True
+    out = gtm.get_tectonic_map(res["repo"], storage_path=str(store))
+    assert "error" not in out, out
+    assert "temporal" in out["signals_used"], out["signals_used"]
     edges = gtm._temporal_edges(str(pkg), frozenset({"a.py", "b.py", "c.py"}), days=90)
     assert edges.get(("a.py", "b.py")) == 1.0, edges
 
@@ -154,18 +167,60 @@ def test_a_shallow_clone_that_truncates_the_window_withholds_the_signal(tmp_path
 _KNOWN_PRETTY_NAMES = {"oneline", "short", "medium", "full", "fuller", "reference", "email", "raw", "mboxrd"}
 
 
+def _format_offenders(text: str) -> list[str]:
+    """Every `--format=`/`--pretty=` value git would read as a format NAME.
+
+    ⚠ An f-string is resolved, never exempted: `f"--format={SEP}"` with
+    `SEP = "COMMIT_SEP"` IS #667, so `{NAME}` is replaced by the module-level
+    string constant it names (unresolvable names count as offenders). The
+    split-argv spelling `"--format", "COMMIT_SEP"` is read too.
+    """
+    consts = dict(re.findall(r"""^([A-Za-z_]\w*)\s*=\s*["']([^"'\n]*)["']""", text, re.M))
+
+    def resolve(value):
+        out = value
+        for name in re.findall(r"\{([A-Za-z_]\w*)\}", value):
+            if name not in consts:
+                return None
+            out = out.replace("{" + name + "}", consts[name])
+        return out
+
+    found = []
+    joined = [m.group(1) for m in re.finditer(r"""["']--(?:format|pretty)=([^"']*)["']""", text)]
+    split = [m.group(1) for m in re.finditer(r"""["']--(?:format|pretty)["']\s*,\s*f?["']([^"']*)["']""", text)]
+    for value in joined + split:
+        resolved = resolve(value)
+        if resolved is None:
+            found.append(value)
+            continue
+        if resolved == "" or "%" in resolved or resolved.startswith(("format:", "tformat:")):
+            continue
+        if resolved in _KNOWN_PRETTY_NAMES:
+            continue
+        found.append(value)
+    return found
+
+
+def test_the_format_ratchet_sees_every_spelling_of_667():
+    """Non-vacuity, in the suite: each spelling of the defect is an offender,
+    and each legal form is not."""
+    assert _format_offenders('argv = ["git", "log", "--format=COMMIT_SEP"]')
+    assert _format_offenders('SEP = "COMMIT_SEP"\nargv = ["git", "log", f"--format={SEP}"]')
+    assert _format_offenders('argv = ["git", "log", "--format", "COMMIT_SEP"]')
+    assert _format_offenders('argv = ["git", "log", "--pretty=MARK"]')
+    assert _format_offenders('argv = ["git", "log", f"--format={UNKNOWN}"]')
+    assert not _format_offenders('argv = ["git", "log", "--format=format:COMMIT_SEP"]')
+    assert not _format_offenders('RS = "\\x1e"\nargv = ["git", "log", f"--format={RS}%H"]')
+    assert not _format_offenders('argv = ["git", "show", "--format=", "x"]')
+    assert not _format_offenders('argv = ["git", "log", "--format=oneline"]')
+
+
 def test_no_git_call_passes_a_bare_format_literal():
     """git reads `--format=<x>`/`--pretty=<x>` as a format NAME unless <x> holds a
     `%` placeholder or a `format:`/`tformat:` prefix; any other literal fails."""
-    rx = re.compile(r"""["']--(?:format|pretty)=([^"']*)["']""")
     offenders = []
     for path in sorted((REPO / "src").rglob("*.py")):
-        for m in rx.finditer(path.read_text(encoding="utf-8")):
-            value = m.group(1)
-            if value == "" or "%" in value or "{" in value or value.startswith(("format:", "tformat:")):
-                continue  # `{` is an f-string that interpolates a placeholder-bearing string
-            if value in _KNOWN_PRETTY_NAMES:
-                continue
+        for value in _format_offenders(path.read_text(encoding="utf-8")):
             offenders.append(f"{path.relative_to(REPO)}: --format={value}")
     assert offenders == [], offenders
 

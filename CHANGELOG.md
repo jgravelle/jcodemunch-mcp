@@ -23,7 +23,8 @@ signal now yields 4655 edges, and `signals_used` lists all three.
 
 A working signal makes a shallow clone matter. Each signal is normalised
 against its own maximum, so a truncated history would rescale co-churn, not
-weaken it: one co-change in three commits would score like four hundred. The
+weaken it: a pair that co-changed once in a three-commit history would score
+the same 1.0 as one that co-changed hundreds of times in the full history. The
 tool asks `churn_is_measurable` first. When the window isn't covered, it
 withholds the signal and names the reason in a new `signals_withheld` field
 in the answer, not in `_meta`, which a default install strips. The field
