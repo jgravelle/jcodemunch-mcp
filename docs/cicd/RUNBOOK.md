@@ -173,9 +173,11 @@ users need (policy 2), and the gate cannot be repaired in the same PR:
   repository: `github-actions[bot]` must be on the CLA allowlist at
   cla-assistant.io (section 9's setup step names both the App and the bot;
   until 2026-09-07 it named the App alone), or the bot's own PR carries
-  `license/cla: not signed` and cannot merge (#635, #636). If the job fails after the
-  push, open the PR by hand from the branch it pushed with the job's title and
-  body; a second dispatch the same day is rejected as a non-fast-forward.
+  `license/cla: not signed` and cannot merge (#635, #636). If the job finds the
+  branch with no open or merged PR, it exits green with a `::warning::`
+  annotation: open the PR by hand from that branch with the job's title and
+  body, or delete the branch and dispatch. A CLOSED PR for the date does not
+  block a dispatch; an OPEN or MERGED one does (C-18).
   ⚠ A workflow that commits or tags with `GITHUB_TOKEN` does so as
   `github-actions[bot]` (`41898282+github-actions[bot]@users.noreply.github.com`);
   one that pushes with the App token uses the App's own numeric address
