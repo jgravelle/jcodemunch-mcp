@@ -173,6 +173,19 @@ jobs:
         run: |
           set -euo pipefail
           D=$(date -u +%Y-%m-%d)
+          # Once per date. Merging this PR on a Monday is itself a push to main on a
+          # Monday, so without this the merge opened a second PR for the same date
+          # (#684 -> #688) and every later Monday merge failed at `git push` of the
+          # existing branch (C-18). An OPEN or MERGED PR for the date settles it; the
+          # branch is deleted on merge, so only `--state all` sees a merged week. A
+          # CLOSED one does not, so close + delete branch + dispatch still recovers.
+          B="harness-bot/results-$D"
+          STATES=$(gh pr list --state all --head "$B" --json state --jq '.[].state')
+          if grep -qE '^(OPEN|MERGED)$' <<< "$STATES"; then echo "a results PR for $D is open or merged; no PR"; exit 0; fi
+          if git ls-remote --exit-code --heads origin "$B" >/dev/null; then
+            echo "::warning::branch $B exists with no open or merged PR; open the PR by hand from it, or delete it and dispatch (RUNBOOK section 7)"
+            exit 0
+          fi
           # C-17: a made-up noreply address resolves to whichever GitHub account owns
           # that login (`harness-bot` is a stranger's, created 2026-05-18), so the
           # commit was attributed to them and CLA Assistant saw an unsigned author.
