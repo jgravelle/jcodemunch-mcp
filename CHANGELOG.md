@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - the inbound digest reports a kill-switch flip only when the switch moved (#690)
+
+The W37 digest (#687) listed 12 kill-switch flips in one week. The switch
+never moved. Every job writes its audit record through `ledger.py write
+--field k=v`, which parses each value as JSON. The shell writers pass a bare
+`kill_switch_state=true`, stored as a boolean; the inline-Python writers pass
+`json.dumps("true")`, stored as a string. The digest compared consecutive
+records with `!=`, and a boolean never equals a string. `item` had the same
+split. The September ledger holds 23 boolean and 53 string switch states, and
+13 integer and 70 string items.
+
+`make_record` now stores both fields as text however the workflow quoted
+them, and the digest reads older records through the same helper, so the
+history on the ledger branch needs no rewrite. Replaying that ledger, the
+week reads 71 records and 12 flips through the old digest and 0 through the
+new one. A real flip written in either spelling is still reported. The gate
+was never affected: `killswitch.enabled()` reads the repository variable,
+not the ledger.
+
 ### Fixed - `get_tectonic_map`'s git co-churn signal runs, and says when it cannot be trusted (#667)
 
 `get_tectonic_map` documents three fused coupling signals and gives git

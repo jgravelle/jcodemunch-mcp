@@ -44,6 +44,22 @@ REQUIRED = (
     "recorded_at",
 )
 OUTCOMES = ("acted", "drafted", "escalated", "skipped", "failed")
+# `write` passes every --field value through json.loads, so a shell writer's
+# bare `kill_switch_state=true` arrived as a boolean and `item=685` as an int,
+# beside the string an inline-Python writer's json.dumps produced. The digest
+# compared the two with `!=` and reported flips that never happened (#690).
+TEXT_FIELDS = ("item", "kill_switch_state")
+
+
+def as_text(value):
+    """One spelling per value: a boolean is ``"true"``/``"false"``, a number
+    its decimal string; ``None`` and strings pass through unchanged, so a
+    mis-set ``"True"`` is recorded as it was read."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    return value
 
 
 def make_record(**fields) -> dict:
@@ -67,6 +83,8 @@ def make_record(**fields) -> dict:
         }
     )
     rec.update(fields)
+    for k in TEXT_FIELDS:
+        rec[k] = as_text(rec[k])
     unknown = set(rec) - set(REQUIRED)
     if unknown:
         raise ValueError(f"unknown record fields: {sorted(unknown)}")

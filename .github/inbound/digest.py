@@ -25,6 +25,9 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ledger import as_text  # noqa: E402  sibling module; one spelling per value (#690)
+
 RUNS_URL = "https://github.com/{repo}/actions/runs/{run_id}"
 
 
@@ -109,7 +112,8 @@ def summarise(rows: list[dict], streaks: dict, drafts_pending: list[str], repo: 
             cost_by_day[t.date().isoformat()] += float(cost)
         elif outcome in ("acted", "drafted", "escalated", "failed"):
             cost_unknown += 1
-        state = r.get("kill_switch_state")
+        # records written before #690 carry a boolean; read them in one spelling
+        state = as_text(r.get("kill_switch_state"))
         if state is not None and state != "n/a":
             if last_state is not None and state != last_state:
                 switch_flips.append({"at": r.get("recorded_at"), "from": last_state, "to": state, "job": job})
