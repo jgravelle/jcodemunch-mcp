@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Fixed - `get_tectonic_map`'s git co-churn signal runs, and says when it cannot be trusted (#667)
+
+`get_tectonic_map` documents three fused coupling signals and gives git
+co-churn 30% of the weight. That signal had produced no edges on any
+repository since the tool shipped. It ran `git log --format=COMMIT_SEP`, and
+git reads a bare `--format=` value as the NAME of a pretty format. On this
+repository the call exits 128 with `fatal: invalid --pretty format:
+COMMIT_SEP`. The non-zero branch returned an empty signal and logged nothing,
+so `signals_used` quietly listed two signals. Every test that mentioned
+`"temporal"` handed a hand-written fixture to an encoder, and the producer's
+own test asserted only `"structural"`, which an empty signal satisfies.
+
+The call now uses `--format=format:COMMIT_SEP`. It also passes `--relative`,
+because `--name-only` prints paths from the git top level while the index
+holds them from its own root. Without it, an index rooted in a subdirectory
+would miss every name and lose the signal by a second route. A failing git
+is logged at WARNING with its stderr. On this repository, over 90 days, the
+signal now yields 4655 edges, and `signals_used` lists all three.
+
+A working signal makes a shallow clone matter. Each signal is normalised
+against its own maximum, so a truncated history would rescale co-churn, not
+weaken it: a pair that co-changed once in a three-commit history would score
+the same 1.0 as one that co-changed hundreds of times in the full history. The
+tool asks `churn_is_measurable` first. When the window isn't covered, it
+withholds the signal and names the reason in a new `signals_withheld` field
+in the answer, not in `_meta`, which a default install strips. The field
+survives the compact encoding. A ratchet now fails any git call under `src/`
+that passes a `--format=` or `--pretty=` literal git would read as a name.
+
 ### Changed - a credential makes an inbound item `security` when it is exposed, not when it is named
 
 The inbound intake scan labels an item `inbound:security` + `needs-human`

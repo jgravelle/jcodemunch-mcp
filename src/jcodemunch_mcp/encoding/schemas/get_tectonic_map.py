@@ -23,7 +23,7 @@ _TABLES = [
 _SCALARS = ("repo", "plate_count", "file_count")
 _META = ("timing_ms", "methodology")
 _META_JSON = ("verdict",)  # structured _meta that must survive compaction
-_JSON = ("signals_used", "isolated_files")
+_JSON = ("signals_used", "signals_withheld", "isolated_files")
 
 
 def _prune_optional_plate_fields(decoded: dict) -> dict:
