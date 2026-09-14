@@ -97,18 +97,37 @@ def _working_tree_reading(source_root: Optional[str]) -> Optional[tuple[str, tup
         return hit[0]
     reading: Optional[tuple[str, tuple]] = None
     try:
-        out = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=normal"],
+        # (#685) Porcelain prints paths from the git TOP LEVEL even from a
+        # subdirectory (it ignores `status.relativePaths`), while the index
+        # holds them from `source_root`. For an index rooted below the top level
+        # every dirty path missed `file_mtimes` and read as unindexed, so any
+        # uncommitted file anywhere in the monorepo refused absence claims.
+        # `-- .` keeps the reading to the corpus; the prefix is stripped so the
+        # paths are index paths. At the top level the prefix is empty.
+        prefix = subprocess.run(
+            ["git", "rev-parse", "--show-prefix"],
             cwd=source_root,
             capture_output=True,
             timeout=10,
             check=False,
             stdin=subprocess.DEVNULL,
         )
-        if out.returncode == 0:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal", "--", "."],
+            cwd=source_root,
+            capture_output=True,
+            timeout=10,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )
+        if out.returncode == 0 and prefix.returncode == 0:
+            lead = prefix.stdout.decode("utf-8", errors="replace").strip()
+            paths = _parse_porcelain(out.stdout)
+            if lead:
+                paths = tuple(p[len(lead):] if p.startswith(lead) else p for p in paths)
             reading = (
                 hashlib.sha256(out.stdout).hexdigest()[:16],
-                _parse_porcelain(out.stdout),
+                paths,
             )
     except (OSError, subprocess.SubprocessError):
         logger.debug("Working-tree probe failed for %s", source_root, exc_info=True)

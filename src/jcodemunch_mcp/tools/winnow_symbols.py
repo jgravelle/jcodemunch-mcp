@@ -71,11 +71,19 @@ def _run_git(args: list[str], cwd: str, timeout: int = 30) -> tuple[int, str]:
 
 
 def _get_file_churn(cwd: str, days: int) -> dict[str, int]:
+    # (#685) `--relative`: `--name-only` prints paths from the git TOP LEVEL, the
+    # index holds them from `source_root`, and an index rooted below the top
+    # level (`identity_mode="local"`) would miss every name: churn 0 reads as a
+    # cold file, not as an error.
     rc, out = _run_git(
-        ["log", f"--since={days} days ago", "--name-only", "--format="],
+        ["log", f"--since={days} days ago", "--relative", "--name-only", "--format="],
         cwd=cwd, timeout=60,
     )
-    if rc not in (0, 128) or not out:
+    if rc != 0:
+        # A failing git is not a repository with no churn; say so.
+        logger.warning("churn unavailable: git log exited %s in %s", rc, cwd)
+        return {}
+    if not out:
         return {}
     counts: dict[str, int] = defaultdict(int)
     for line in out.splitlines():

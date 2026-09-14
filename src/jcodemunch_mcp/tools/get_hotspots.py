@@ -51,12 +51,20 @@ def _get_file_churn(cwd: str, days: int) -> dict[str, int]:
 
     Uses a single ``git log --name-only`` pass for efficiency.
     """
-    rc, out, _ = _run_git(
-        ["log", f"--since={days} days ago", "--name-only", "--format="],
+    # (#685) `--relative`: `--name-only` prints paths from the git TOP LEVEL, the
+    # index holds them from `source_root`, and an index rooted below the top
+    # level (`identity_mode="local"`) would miss every name: churn 0 reads as a
+    # cold file, not as an error.
+    rc, out, err = _run_git(
+        ["log", f"--since={days} days ago", "--relative", "--name-only", "--format="],
         cwd=cwd,
         timeout=60,
     )
-    if rc not in (0, 128) or not out:
+    if rc != 0:
+        # A failing git is not a repository with no churn; say so.
+        logger.warning("churn unavailable: git log exited %s in %s: %s", rc, cwd, (err or "").strip()[:500])
+        return {}
+    if not out:
         return {}
 
     counts: dict[str, int] = defaultdict(int)

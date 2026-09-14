@@ -109,6 +109,9 @@ class GitBlameProvider(ContextProvider):
             result = subprocess.run(
                 [
                     "git", "log",
+                    # (#685) keyed by index path: `--name-only` alone prints
+                    # top-level paths, which miss an index rooted below it.
+                    "--relative",
                     "--name-only",
                     "--format=COMMIT %an|%aI",
                     "--diff-filter=AM",

@@ -43,7 +43,9 @@ def _resolve_sha(sha: str, cwd: str) -> Optional[str]:
 
 def _get_file_content_at(sha: str, file_path: str, cwd: str) -> Optional[str]:
     """Return file content at a given git SHA, or None (binary / not present)."""
-    rc, out, _ = _run_git(["show", f"{sha}:{file_path}"], cwd=cwd, timeout=15)
+    # `<sha>:<path>` is relative to the git TOP LEVEL; `<sha>:./<path>` is
+    # relative to cwd, which is the index root the path came from (#685).
+    rc, out, _ = _run_git(["show", f"{sha}:./{file_path}"], cwd=cwd, timeout=15)
     if rc != 0:
         return None
     return out
@@ -169,7 +171,10 @@ def get_changed_symbols(
 
     # Get changed files (name-only diff, exclude binary files)
     rc3, diff_out, diff_err = _run_git(
-        ["diff", "--name-only", "--diff-filter=ACDMRT", resolved_since, resolved_until],
+        # (#685) `--relative`: index-root-relative paths, so they match the
+        # index for a root below the git top level; `_get_file_content_at`
+        # reads them with the `./` form for the same reason.
+        ["diff", "--relative", "--name-only", "--diff-filter=ACDMRT", resolved_since, resolved_until],
         cwd=cwd,
     )
     if rc3 != 0:

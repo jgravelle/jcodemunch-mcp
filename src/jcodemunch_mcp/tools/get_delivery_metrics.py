@@ -149,6 +149,8 @@ def get_delivery_metrics(
             "log",
             "--no-merges",
             f"--since={window_days} days ago",
+            # (#685) index-root-relative paths, and only changes under it.
+            "--relative",
             "--name-only",
             f"--format={_RS}%H{_US}%cI{_US}%s{_US}%b{_US}",
         ],
