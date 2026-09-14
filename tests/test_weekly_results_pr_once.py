@@ -49,7 +49,12 @@ def _step_run() -> str:
 #   `--state` (default `open`), from `STUB_PRS` (`<branch>:<STATE>` words);
 #   `--jq` is refused unless it is the projection this stub implements;
 # - `git ls-remote --exit-code` succeeds only when the branch exists;
-# - `git push` of an existing branch is rejected, as it is on the runner.
+# - `git push` of an existing branch is rejected, as it is on the runner;
+# - `date` prints a fixed day, so the test and the step agree across 00:00 UTC.
+_DAY = "2026-09-14"
+_DATE = """#!/usr/bin/env bash
+echo "$STUB_DATE"
+"""
 _GIT = """#!/usr/bin/env bash
 echo "git $*" >> "$STUB_LOG"
 case "$1" in
@@ -91,14 +96,14 @@ exit 0
 def _execute(tmp: Path, prs: str, branch_exists: bool) -> tuple[int, str, str]:
     bindir = tmp / "bin"
     bindir.mkdir()
-    for name, body in (("git", _GIT), ("gh", _GH)):
+    for name, body in (("git", _GIT), ("gh", _GH), ("date", _DATE)):
         (bindir / name).write_text(body, encoding="utf-8", newline="\n")
     log = tmp / "calls.log"
     log.write_text("", encoding="utf-8")
     script = tmp / "step.sh"
     script.write_text(
         # `$PWD/bin`, not an absolute Windows path: `C:/...` splits at the colon in PATH.
-        'export PATH="$PWD/bin:$PATH"\nchmod +x bin/git bin/gh\n'
+        'export PATH="$PWD/bin:$PATH"\nchmod +x bin/git bin/gh bin/date\n'
         + _step_run().replace("\r\n", "\n"),
         encoding="utf-8",
         newline="\n",
@@ -107,6 +112,7 @@ def _execute(tmp: Path, prs: str, branch_exists: bool) -> tuple[int, str, str]:
     env.update(
         STUB_LOG=log.as_posix(),
         STUB_PRS=prs,
+        STUB_DATE=_DAY,
         STUB_BRANCH_EXISTS="1" if branch_exists else "0",
         GH_TOKEN="stub",
     )
@@ -117,9 +123,7 @@ def _execute(tmp: Path, prs: str, branch_exists: bool) -> tuple[int, str, str]:
 
 
 def _today() -> str:
-    from datetime import datetime, timezone
-
-    return "harness-bot/results-" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return "harness-bot/results-" + _DAY
 
 
 def test_first_run_of_the_day_opens_the_pr(tmp_path: Path) -> None:
@@ -138,6 +142,10 @@ def test_an_open_or_merged_pr_for_the_date_opens_nothing(tmp_path: Path, state: 
     assert rc == 0, out
     assert "git push" not in calls
     assert "gh pr create" not in calls
+    # Stopped by the PR query, not by the leftover-branch guard: that one tells a
+    # human to delete the branch, which would close this open PR.
+    assert "is open or merged; no PR" in out, out
+    assert "::warning::" not in out, out
 
 
 def test_a_closed_pr_for_the_date_does_not_block_a_dispatch(tmp_path: Path) -> None:
