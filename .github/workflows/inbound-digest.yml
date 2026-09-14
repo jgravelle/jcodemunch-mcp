@@ -42,6 +42,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       go: ${{ steps.gate.outputs.go }}
+      model_go: ${{ steps.gate.outputs.model_go }}
       title: ${{ steps.num.outputs.title }}
     env:
       REPO: ${{ github.repository }}
@@ -69,8 +70,12 @@ jobs:
           set +e
           GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job inbound-digest --record "$RUNNER_TEMP/audit/record.json"; k=$?
           python .github/inbound/budget.py --job inbound-digest --repo "$REPO"; b=$?
+          # the paragraph is the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner
+          # ruling 2026-09-14). No --record: the digest still runs and posts its numbers.
+          m=1; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED; m=$?; fi
           set -e
           if [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+          if [ "$m" != "0" ] || [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "model_go=false" >> "$GITHUB_OUTPUT"; else echo "model_go=true" >> "$GITHUB_OUTPUT"; fi
       - name: the ledger branch, read only (no credentials; the branch is public data)
         if: steps.gate.outputs.go == 'true'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -124,7 +129,7 @@ jobs:
     # A failure here still posts the digest, without the paragraph (the
     # apply job runs on always() and the prose artifact always exists).
     needs: numbers
-    if: needs.numbers.outputs.go == 'true'
+    if: needs.numbers.outputs.go == 'true' && needs.numbers.outputs.model_go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -18,6 +18,10 @@ import sys
 from pathlib import Path
 
 VARIABLE = "INBOUND_ENABLED"
+# The part of the layer that bills (owner ruling 2026-09-14: the model jobs
+# spent the API balance unseen). Every job that runs the model starts only
+# from a gate that read BOTH; the same exact-`true` rule, so absent is OFF.
+MODEL_VARIABLE = "INBOUND_MODEL_ENABLED"
 EXIT_SKIP = 78  # BSD EX_CONFIG-adjacent; distinct from failure so a caller can tell "off" from "broken"
 LAST_ERROR: dict[str, str] = {}  # why the last read returned None, for the printed verdict
 

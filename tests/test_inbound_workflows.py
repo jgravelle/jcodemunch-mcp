@@ -12,6 +12,7 @@ on an `issues:` trigger; a kill-switch step moved below the first write; a
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import re
 import sys
@@ -486,3 +487,92 @@ def test_every_kill_switch_read_uses_the_app_token(path: Path):
             if "budget.py" in run:
                 gh = env.get("GH_TOKEN") or (job.get("env") or {}).get("GH_TOKEN", "")
                 assert "secrets.GITHUB_TOKEN" in gh, (path.name, name, "budget.py reads runs with GITHUB_TOKEN")
+
+
+ks = _load("killswitch")
+
+
+def _model_gate_offenders(doc: dict) -> list[str]:
+    """Every job that runs the model starts only from a gate output that the
+    model switch feeds (owner ruling 2026-09-14: the model jobs billed the
+    API account unseen). A model job cannot read a variable itself (it holds
+    no App token, VERIFICATION 7.1), so the read lives in the gate job it
+    `needs`, and its exit code must reach the output the model job tests."""
+    jobs = _jobs(doc)
+    bad = []
+    for name, job in jobs.items():
+        if not any("claude-code-action" in (s.get("uses") or "") for s in _steps(job)):
+            continue
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else list(needs)
+        cond = str(job.get("if", ""))
+        ok = False
+        for g in needs:
+            gate = jobs.get(g, {})
+            for out, expr in (gate.get("outputs") or {}).items():
+                if f"needs.{g}.outputs.{out} == 'true'" not in cond:
+                    continue
+                m = re.search(r"steps\.(\w+)\.outputs\.(\w+)", str(expr))
+                if not m:
+                    continue
+                step = next((s for s in _steps(gate) if s.get("id") == m.group(1)), None)
+                run = ((step or {}).get("run") or "").replace("\\n", " ")
+                read = re.search(
+                    rf"killswitch\.py[^\n;]*--variable\s+\"?{re.escape(ks.MODEL_VARIABLE)}\"?[^\n;]*;\s*(\w+)=\$\?", run
+                )
+                if read and re.search(rf"\"\${read.group(1)}\"\s*!=\s*\"0\"[^\n]*\n?[^\n]*{m.group(2)}=false", run):
+                    ok = True
+        if not ok:
+            bad.append(f"{name}: if={cond!r}")
+    return bad
+
+
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)
+def test_every_model_job_starts_only_from_the_model_switch(path: Path):
+    """INBOUND_ENABLED is the whole layer; INBOUND_MODEL_ENABLED is the part
+    that bills. Absent is OFF, exactly like the layer switch."""
+    assert _model_gate_offenders(_wf(path)) == []
+
+
+def test_the_model_gate_ratchet_fails_a_model_job_gated_on_the_layer_switch_alone():
+    """Non-vacuity, in the suite: today's shape (one read, one `go`) is an
+    offender; the same gate with the model read feeding `go` is not."""
+    layer_only = yaml.safe_load(
+        """
+jobs:
+  queue:
+    outputs: {go: "${{ steps.pick.outputs.go }}"}
+    steps:
+      - id: pick
+        run: |
+          GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO"; k=$?
+          if [ "$k" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+  classify:
+    needs: queue
+    if: "needs.queue.outputs.go == 'true'"
+    steps:
+      - uses: anthropics/claude-code-action@x
+"""
+    )
+    assert _model_gate_offenders(layer_only)
+    both = copy.deepcopy(layer_only)
+    both["jobs"]["queue"]["steps"][0]["run"] = (
+        'GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO"; k=$?\n'
+        f'GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable {ks.MODEL_VARIABLE}; m=$?\n'
+        'if [ "$k" != "0" ] || [ "$m" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; fi\n'
+        'echo "go=true" >> "$GITHUB_OUTPUT"\n'
+    )
+    assert _model_gate_offenders(both) == []
+    # a model read whose exit code reaches no output does not count
+    both["jobs"]["queue"]["steps"][0]["run"] = both["jobs"]["queue"]["steps"][0]["run"].replace(
+        ' || [ "$m" != "0" ]', ""
+    )
+    assert '"$m"' not in both["jobs"]["queue"]["steps"][0]["run"].split("m=$?")[1]
+    assert _model_gate_offenders(both)
+
+
+def test_the_model_switch_is_a_second_variable_that_fails_closed_the_same_way():
+    assert ks.MODEL_VARIABLE == "INBOUND_MODEL_ENABLED" and ks.MODEL_VARIABLE != ks.VARIABLE
+    for value in (None, "", "True", "1", "yes"):
+        assert ks.enabled(value) is False

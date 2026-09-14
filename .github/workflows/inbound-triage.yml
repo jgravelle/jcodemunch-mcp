@@ -67,9 +67,11 @@ jobs:
         run: |
           set +e
           GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job inbound-triage --record "$RUNNER_TEMP/audit/record.json"; k=$?
+          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14)
+          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED --job inbound-triage --record "$RUNNER_TEMP/audit/record.json"; m=$?; fi
           python .github/inbound/budget.py --job inbound-triage --repo "$REPO"; b=$?
           set -e
-          if [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; echo "issues=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$k" != "0" ] || [ "$m" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; echo "issues=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [ -n "$REQUESTED" ]; then
             if ! printf '%s' "$REQUESTED" | grep -Eq '^[0-9]{1,7}$'; then echo "issue input is not a number" >&2; exit 1; fi
             echo "issues=[$REQUESTED]" >> "$GITHUB_OUTPUT"

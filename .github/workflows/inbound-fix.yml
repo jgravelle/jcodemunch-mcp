@@ -80,6 +80,8 @@ jobs:
           if ! printf '%s' "$ISSUE" | grep -Eq '^[0-9]{1,7}$'; then echo "issue number is not digits" >&2; exit 1; fi
           set +e
           GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job inbound-fix --item "$ISSUE" --record "$RUNNER_TEMP/audit/record.json"; k=$?
+          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14)
+          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED --job inbound-fix --item "$ISSUE" --record "$RUNNER_TEMP/audit/record.json"; m=$?; fi
           python .github/inbound/budget.py --job inbound-fix --repo "$REPO"; b=$?
           python .github/inbound/fix_preflight.py --repo "$REPO" --issue "$ISSUE" --labeler "$LABELER" --labeler-type "$LABELER_TYPE" \
             --app-login "$APP_LOGIN" --record "$RUNNER_TEMP/audit/record.json" > "$RUNNER_TEMP/preflight.json"; p=$?
@@ -87,8 +89,8 @@ jobs:
           # "trailing command hides the exit code" lesson): redirect, then show.
           cat "$RUNNER_TEMP/preflight.json"
           set -e
-          if [ "$k" != "0" ] || [ "$b" != "0" ] || [ "$p" != "0" ]; then
-            echo "go=false" >> "$GITHUB_OUTPUT"; echo "reason=kill=$k budget=$b preflight=$p" >> "$GITHUB_OUTPUT"
+          if [ "$k" != "0" ] || [ "$m" != "0" ] || [ "$b" != "0" ] || [ "$p" != "0" ]; then
+            echo "go=false" >> "$GITHUB_OUTPUT"; echo "reason=kill=$k model=$m budget=$b preflight=$p" >> "$GITHUB_OUTPUT"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"; echo "reason=ok" >> "$GITHUB_OUTPUT"
           fi
