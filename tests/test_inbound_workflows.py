@@ -614,3 +614,133 @@ def test_the_model_switch_is_a_second_variable_that_fails_closed_the_same_way():
     assert ks.MODEL_VARIABLE == "INBOUND_MODEL_ENABLED" and ks.MODEL_VARIABLE != ks.VARIABLE
     for value in (None, "", "True", "1", "yes"):
         assert ks.enabled(value) is False
+
+
+# --- the gate steps EXECUTED (review round 2) --------------------------------
+# A text pattern closes the spellings it names and leaves the next one open:
+# `||` turned into `&&`, `|| true` before `m=$?`, `m=0` after the read, a
+# removed `exit 0` all passed it. So each gate step in front of a model job is
+# run under bash with stub switch scripts, for every combination of the two
+# switches, and the outputs the model job starts from are read back.
+
+_STUB_SWITCH = """import os, sys
+a = sys.argv
+var = a[a.index("--variable") + 1] if "--variable" in a else "INBOUND_ENABLED"
+sys.exit(0 if os.environ.get("STUB_" + var) == "true" else 78)
+"""
+
+
+def _bash() -> str:
+    import shutil
+
+    for cand in (r"C:\Program Files\Git\bin\bash.exe", shutil.which("bash")):
+        if cand and Path(cand).is_file() and "system32" not in cand.lower():
+            return cand
+    raise AssertionError("bash is required to execute the gate steps (Git Bash on Windows)")
+
+
+def _gate_outputs(run: str, tmp: Path, layer: bool, model: bool) -> dict[str, str]:
+    import os
+    import subprocess
+
+    inbound = tmp / ".github" / "inbound"
+    inbound.mkdir(parents=True, exist_ok=True)
+    (inbound / "killswitch.py").write_text(_STUB_SWITCH, encoding="utf-8")
+    (inbound / "budget.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    (inbound / "fix_preflight.py").write_text("print('{}')\n", encoding="utf-8")
+    bindir = tmp / "bin"
+    bindir.mkdir(exist_ok=True)
+    (bindir / "gh").write_text("#!/usr/bin/env bash\necho '[1]'\n", encoding="utf-8", newline="\n")
+    (bindir / "python").write_text(
+        f'#!/usr/bin/env bash\nexec "{Path(sys.executable).as_posix()}" "$@"\n', encoding="utf-8", newline="\n"
+    )
+    out = tmp / "github_output.txt"
+    out.write_text("", encoding="utf-8")
+    (tmp / "runner").mkdir(exist_ok=True)
+    script = tmp / "step.sh"
+    script.write_text(
+        'export PATH="$STUB_BIN:$PATH"\nchmod +x "$STUB_BIN/gh" "$STUB_BIN/python"\n' + run.replace("\r\n", "\n"),
+        encoding="utf-8",
+        newline="\n",
+    )
+    env = dict(os.environ)
+    env.update(
+        STUB_INBOUND_ENABLED="true" if layer else "false",
+        STUB_INBOUND_MODEL_ENABLED="true" if model else "false",
+        STUB_BIN=bindir.as_posix(),
+        GITHUB_OUTPUT=out.as_posix(),
+        RUNNER_TEMP=(tmp / "runner").as_posix(),
+        REPO="o/r", ISSUE="7", REQUESTED="", LABELER="u", LABELER_TYPE="User", APP_LOGIN="a",
+    )
+    subprocess.run([_bash(), "-e", script.as_posix()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+    values: dict[str, str] = {}
+    for line in out.read_text(encoding="utf-8").splitlines():
+        k, _, v = line.partition("=")
+        values[k.strip()] = v.strip()  # the LAST write wins, as in Actions
+    return values
+
+
+def _model_start_combinations(doc: dict, tmp: Path) -> list[str]:
+    """Every (layer, model) combination under which a model job would start,
+    other than both switches on."""
+    jobs = _jobs(doc)
+    wrong = []
+    for name, job in jobs.items():
+        if not any("claude-code-action" in (s.get("uses") or "") for s in _steps(job)):
+            continue
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else list(needs)
+        cond = str(job.get("if", ""))
+        for layer in (True, False):
+            for model in (True, False):
+                starts = True
+                tested = 0
+                for g in needs:
+                    gate = jobs.get(g, {})
+                    for outname, expr in (gate.get("outputs") or {}).items():
+                        if f"needs.{g}.outputs.{outname} == 'true'" not in cond:
+                            continue
+                        m = re.search(r"steps\.(\w+)\.outputs\.(\w+)", str(expr))
+                        step = next((s for s in _steps(gate) if m and s.get("id") == m.group(1)), None)
+                        if step is None:
+                            continue
+                        d = tmp / f"{name}-{g}-{outname}-{layer}-{model}"
+                        d.mkdir(parents=True)
+                        tested += 1
+                        if _gate_outputs(step.get("run") or "", d, layer, model).get(m.group(2)) != "true":
+                            starts = False
+                if tested == 0 or "||" in cond or "always()" in cond:
+                    starts = True  # nothing we can execute holds it back
+                if starts and not (layer and model):
+                    wrong.append(f"{name}: starts with INBOUND_ENABLED={layer} INBOUND_MODEL_ENABLED={model}")
+                if not starts and layer and model:
+                    wrong.append(f"{name}: does not start with both switches on")
+    return wrong
+
+
+@pytest.mark.parametrize("stem", ["inbound-triage", "inbound-digest", "inbound-fix", "inbound-depeval"])
+def test_executed_gates_start_a_model_job_only_with_both_switches_on(stem: str, tmp_path: Path):
+    assert _model_start_combinations(_wf(WF / f"{stem}.yml"), tmp_path) == []
+
+
+def test_executed_gates_see_the_mutations_the_patterns_could_not(tmp_path: Path):
+    """Review round 2: M4 `&&` for `||`, M5 `m=0` after the read, M6 the
+    early `exit 0` removed, M7 `|| true` before `m=$?`. Each starts a model
+    job with the model switch off; the executed check must say so."""
+    def mutate(stem, job, step_id, old, new):
+        doc = _wf(WF / f"{stem}.yml")
+        step = next(s for s in _steps(doc["jobs"][job]) if s.get("id") == step_id)
+        assert old in step["run"], (stem, old)
+        step["run"] = step["run"].replace(old, new, 1)
+        return doc
+
+    cases = {
+        "M4": mutate("inbound-depeval", "gate", "gate", '[ "$k" != "0" ] || [ "$m" != "0" ]', '[ "$k" != "0" ] && [ "$m" != "0" ]'),
+        "M5": mutate("inbound-fix", "preflight", "pre", "m=$?; fi", "m=$?; fi; m=0"),
+        "M6": mutate("inbound-triage", "queue", "pick", 'echo "issues=[]" >> "$GITHUB_OUTPUT"; exit 0; fi', 'echo "issues=[]" >> "$GITHUB_OUTPUT"; fi'),
+        "M7": mutate("inbound-triage", "queue", "pick", "--variable INBOUND_MODEL_ENABLED; m=$?", "--variable INBOUND_MODEL_ENABLED || true; m=$?"),
+        "M1": mutate("inbound-digest", "numbers", "gate", 'echo "model_go=false"', 'echo "model_go=true"'),
+    }
+    for label, doc in cases.items():
+        found = _model_start_combinations(doc, tmp_path / label)
+        assert any("INBOUND_MODEL_ENABLED=False" in w for w in found), (label, found)
