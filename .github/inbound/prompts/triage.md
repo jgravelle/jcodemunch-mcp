@@ -2,7 +2,7 @@
 version: 1
 model: claude-sonnet-5
 job: inbound-triage
-policy_sha256: 8639e42174bde95fa6d4371b74aadcfe4c9240bbf94681f93aaa4d36f40115cd
+policy_sha256: 7705ea39a454f70d6ea16ea60dc5c1d3c6c36d1b7cfcacdd6d4d4875b030f859
 ---
 <!-- BEGIN policy:preamble -->
 <!-- inbound-preamble v1 -->

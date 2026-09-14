@@ -76,8 +76,9 @@ jobs:
         run: |
           set +e
           GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job inbound-depeval --record "$RUNNER_TEMP/audit/record.json"; k=$?
-          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14)
-          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED --job inbound-depeval --record "$RUNNER_TEMP/audit/record.json"; m=$?; fi
+          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14). No --record:
+          # its value is not the layer switch the ledger's kill_switch_state records (review round 1, finding 3)
+          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED; m=$?; fi
           python .github/inbound/budget.py --job inbound-depeval --repo "$REPO"; b=$?
           set -e
           if [ "$k" != "0" ] || [ "$m" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi

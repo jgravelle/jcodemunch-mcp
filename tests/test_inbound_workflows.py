@@ -507,6 +507,11 @@ def _model_gate_offenders(doc: dict) -> list[str]:
         needs = [needs] if isinstance(needs, str) else list(needs)
         cond = str(job.get("if", ""))
         ok = False
+        if "||" in cond or "always()" in cond:
+            # review round 1, M2: `always() || needs.queue.outputs.go == 'true'`
+            # names the output and starts the model regardless of it
+            bad.append(f"{name}: if={cond!r} can start without the gate")
+            continue
         for g in needs:
             gate = jobs.get(g, {})
             for out, expr in (gate.get("outputs") or {}).items():
@@ -516,11 +521,18 @@ def _model_gate_offenders(doc: dict) -> list[str]:
                 if not m:
                     continue
                 step = next((s for s in _steps(gate) if s.get("id") == m.group(1)), None)
-                run = ((step or {}).get("run") or "").replace("\\n", " ")
+                # join `\`-continued lines the way the shell does
+                run = ((step or {}).get("run") or "").replace("\\\n", " ")
                 read = re.search(
                     rf"killswitch\.py[^\n;]*--variable\s+\"?{re.escape(ks.MODEL_VARIABLE)}\"?[^\n;]*;\s*(\w+)=\$\?", run
                 )
-                if read and re.search(rf"\"\${read.group(1)}\"\s*!=\s*\"0\"[^\n]*\n?[^\n]*{m.group(2)}=false", run):
+                # the read's exit code must sit in the SAME `if` that writes
+                # exactly this output as false (review round 1, M1/M3: a bare
+                # `go=false` substring matched inside `model_go=false`)
+                if read and re.search(
+                    rf"if [^\n]*\"\${read.group(1)}\"\s*!=\s*\"0\"[^\n]*;\s*then\s*(?:\n\s*)?echo\s+\"{re.escape(m.group(2))}=false\"",
+                    run,
+                ):
                     ok = True
         if not ok:
             bad.append(f"{name}: if={cond!r}")
@@ -570,6 +582,32 @@ jobs:
     )
     assert '"$m"' not in both["jobs"]["queue"]["steps"][0]["run"].split("m=$?")[1]
     assert _model_gate_offenders(both)
+
+
+def test_the_model_gate_ratchet_fails_the_three_mutations_review_round_1_found():
+    """Each passed the first draft of the ratchet against the REAL workflows."""
+    digest = _wf(WF / "inbound-digest.yml")
+    assert _model_gate_offenders(digest) == []
+    # M1: the digest paragraph back on the layer switch alone, the new read left in place
+    m1 = copy.deepcopy(digest)
+    m1["jobs"]["prose"]["if"] = "needs.numbers.outputs.go == 'true'"
+    assert _model_gate_offenders(m1)
+    # M2: a condition that names the output and starts regardless of it
+    triage = _wf(WF / "inbound-triage.yml")
+    assert _model_gate_offenders(triage) == []
+    m2 = copy.deepcopy(triage)
+    m2["jobs"]["classify"]["if"] = "always() || needs.queue.outputs.go == 'true'"
+    assert _model_gate_offenders(m2)
+    # M3: the model read's code moved off the `go=false` line onto a separate output
+    fix = _wf(WF / "inbound-fix.yml")
+    assert _model_gate_offenders(fix) == []
+    m3 = copy.deepcopy(fix)
+    step = next(s for s in _steps(m3["jobs"]["preflight"]) if s.get("id") == "pre")
+    assert ' || [ "$m" != "0" ]' in step["run"]
+    step["run"] = step["run"].replace(' || [ "$m" != "0" ]', "") + (
+        'if [ "$m" != "0" ]; then echo "model_go=false" >> "$GITHUB_OUTPUT"; fi\n'
+    )
+    assert _model_gate_offenders(m3)
 
 
 def test_the_model_switch_is_a_second_variable_that_fails_closed_the_same_way():

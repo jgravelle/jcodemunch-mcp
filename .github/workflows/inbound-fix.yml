@@ -80,8 +80,9 @@ jobs:
           if ! printf '%s' "$ISSUE" | grep -Eq '^[0-9]{1,7}$'; then echo "issue number is not digits" >&2; exit 1; fi
           set +e
           GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --job inbound-fix --item "$ISSUE" --record "$RUNNER_TEMP/audit/record.json"; k=$?
-          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14)
-          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED --job inbound-fix --item "$ISSUE" --record "$RUNNER_TEMP/audit/record.json"; m=$?; fi
+          # the part that bills: INBOUND_MODEL_ENABLED, absent is off (owner ruling 2026-09-14). No --record:
+          # its value is not the layer switch the ledger's kill_switch_state records (review round 1, finding 3)
+          m=0; if [ "$k" = "0" ]; then GH_TOKEN="$SWITCH_TOKEN" python .github/inbound/killswitch.py --repo "$REPO" --variable INBOUND_MODEL_ENABLED; m=$?; fi
           python .github/inbound/budget.py --job inbound-fix --repo "$REPO"; b=$?
           python .github/inbound/fix_preflight.py --repo "$REPO" --issue "$ISSUE" --labeler "$LABELER" --labeler-type "$LABELER_TYPE" \
             --app-login "$APP_LOGIN" --record "$RUNNER_TEMP/audit/record.json" > "$RUNNER_TEMP/preflight.json"; p=$?

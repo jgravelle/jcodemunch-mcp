@@ -40,7 +40,7 @@ each job; `docs/cicd/RUNBOOK.md` section 9 is what a human does.** Nine
 `inbound-*.yml` workflows. ⚠⚠
 **Nothing runs until `INBOUND_ENABLED` reads exactly `true`, no model
 job until `INBOUND_MODEL_ENABLED` does** (off since 2026-09-14);
-absent is OFF, re-read before every first write.
+absent is OFF; the layer switch is re-read before every write.
 ⚠⚠ **The model never holds a token that can write**: model jobs run on
 the read-only `GITHUB_TOKEN` and write a file; a no-model job verifies it
 and writes with the App, to be confined by a ruleset to `inbound/**` and

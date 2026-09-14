@@ -7,11 +7,11 @@
 The inbound layer had one switch, `INBOUND_ENABLED`. It covered jobs that
 cost nothing (intake labels, the stale sweep, the digest's numbers) and
 four that call the model through the owner's Anthropic API key: triage,
-the digest's paragraph, fix and dependency evaluation. Between 2026-09-05
-and 2026-09-14 those four spent $22.14 that nobody saw, because the ledger
-records no cost and the daily ceiling counts runs. $13.36 of it was one
-retry loop on #625 in a single day. Turning the switch off to stop the
-spend also stopped the free jobs.
+the digest's paragraph, fix and dependency evaluation. Two of them, triage
+and the digest's paragraph, spent $22.14 between 2026-09-07 and 2026-09-12
+that nobody saw, because no audit record carries a cost and the daily
+ceiling counts runs. $13.36 of it was 20 triage runs on #625 on 2026-09-07.
+Turning the switch off to stop the spend also stopped the free jobs.
 
 A second variable, `INBOUND_MODEL_ENABLED`, now gates the part that bills.
 The gate job in front of every model job reads it with the same

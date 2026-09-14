@@ -330,17 +330,22 @@ integration`, no `permissions:` scope covers repository variables, and
 reader hid the 403 as `value: null`; the reason is in the verdict now.
 
 **Amended 2026-09-14 by the owner: a second switch for the part that
-bills.** The four jobs that run the model (`inbound-triage`, the digest's
-paragraph, `inbound-fix`, `inbound-depeval`) spent $22.14 of the owner's
-Anthropic API balance between 2026-09-05 and 2026-09-14 without the owner
-seeing it: the ledger records no cost, and the section 7 ceiling counts
-runs. Every gate job in front of a model job now also reads the
+bills.** Four jobs run the model (`inbound-triage`, the digest's
+paragraph, `inbound-fix`, `inbound-depeval`). Two of them, triage and the
+digest's paragraph, spent $22.14 of the owner's Anthropic API balance
+between 2026-09-07 and 2026-09-12 without the owner seeing it: no audit
+record carries a cost (inbound FINDINGS IN-23), and the section 7 ceiling
+counts runs. Every gate job in front of a model job now also reads the
 repository variable `INBOUND_MODEL_ENABLED`, with the same token, the same
 exact-`true` rule and the same fail-closed reading of absent. A model job
 starts only when both switches read `true`. `INBOUND_ENABLED` alone runs
-the jobs that hold no model: intake labels, the sweep, the digest's
-numbers and posting, fix-promote and bench-full. The digest posts without
-its paragraph when the model switch is off. The owner's ruling is that the
+the jobs that hold no model: intake labels, the sweep, and the digest's
+numbers and posting. The digest posts without its paragraph when the model
+switch is off. fix-promote and bench-full are not gated by the model switch
+but have nothing to act on without it: they start only from a branch or a
+label a model job produces. Dependency evaluation's model-free `depkind`
+labelling shares the gated job and stops with it. The model switch is read
+at the gate only; the layer switch is still re-read before every write. The owner's ruling is that the
 model switch stays off and issues are triaged by hand in a session;
 setting it is the owner's decision, never a job's.
 `tests/test_inbound_workflows.py::test_every_model_job_starts_only_from_the_model_switch`
