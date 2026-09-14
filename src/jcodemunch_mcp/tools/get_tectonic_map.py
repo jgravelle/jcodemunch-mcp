@@ -3,7 +3,7 @@
 Tectonic Analysis fuses three independent coupling signals — structural
 (import edges), behavioral (shared symbol references), and temporal
 (git co-churn) — into a single weighted file graph, then partitions it
-via label propagation to reveal the *actual* module boundaries hiding
+via Louvain modularity clustering (#668) to reveal the *actual* module boundaries hiding
 inside the codebase.
 
 Every discovered plate includes:
@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import os
-import random
 import subprocess
 import time
 from collections import defaultdict
@@ -188,67 +187,84 @@ def _fuse_signals(
 
 
 # ---------------------------------------------------------------------------
-# Label propagation (community detection)
+# Community detection: Louvain (modularity), deterministic
 # ---------------------------------------------------------------------------
 
-def _label_propagation(
+def _partition(
     nodes: list[str],
     edges: dict[tuple[str, str], float],
-    max_iterations: int = 50,
-    seed: int = 42,
+    resolution: float = 1.0,
+    max_levels: int = 20,
+    max_passes: int = 50,
 ) -> dict[str, int]:
-    """Weighted label propagation. Returns {node: community_id}.
+    """Weighted Louvain (Blondel et al., 2008). Returns {node: community_id}.
 
-    Each node starts with its own label. On each iteration, every node
-    adopts the label with the highest total edge weight among its neighbors.
-    Ties broken randomly. Converges when no node changes label.
+    ⚠⚠ (#668) This replaced label propagation, which adopts the heaviest
+    neighbouring label and so floods a graph through a HUB: a file every
+    module imports links every module to every other. On seven local corpora
+    it put a majority of the graph in one plate on five, and ALL of it on two
+    (the table is in CHANGELOG and #668). Louvain moves a node only when it
+    raises modularity, which charges a community for the total degree it
+    absorbs, so a hub cannot pull the modules into one plate.
+    ⚠ Deterministic without a seed: nodes and candidate communities are
+    visited in sorted order, so the same graph gives the same plates in any
+    input order and under any PYTHONHASHSEED. Label propagation's seeded RNG
+    did not make it so: the fused edge dict's order follows string hashing,
+    and one corpus's largest plate moved between runs of the same index.
     """
-    rng = random.Random(seed)
-
-    # Build adjacency with weights
-    adj: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    adj: dict[str, dict[str, float]] = {n: defaultdict(float) for n in nodes}
     for (a, b), w in edges.items():
-        adj[a].append((b, w))
-        adj[b].append((a, w))
-
-    # Initialize: each node gets a unique label
-    labels: dict[str, int] = {n: i for i, n in enumerate(nodes)}
-
-    for _iteration in range(max_iterations):
-        changed = False
-        # Process nodes in random order for stability
-        order = list(nodes)
-        rng.shuffle(order)
-
-        for node in order:
-            neighbors = adj.get(node)
-            if not neighbors:
-                continue
-
-            # Accumulate weight per label
-            label_weights: dict[int, float] = defaultdict(float)
-            for neighbor, weight in neighbors:
-                label_weights[labels[neighbor]] += weight
-
-            if not label_weights:
-                continue
-
-            max_weight = max(label_weights.values())
-            # Collect all labels tied at max weight
-            candidates = [lbl for lbl, w in label_weights.items() if w == max_weight]
-            chosen = rng.choice(candidates)
-
-            if chosen != labels[node]:
-                labels[node] = chosen
-                changed = True
-
-        if not changed:
+        adj.setdefault(a, defaultdict(float))
+        adj.setdefault(b, defaultdict(float))
+        if a == b:
+            adj[a][a] += w
+        else:
+            adj[a][b] += w
+            adj[b][a] += w
+    member: dict[str, str] = {n: n for n in adj}  # original node -> supernode
+    for _level in range(max_levels):
+        m2 = sum(sum(nb.values()) for nb in adj.values())
+        if m2 <= 0:
             break
-
-    # Renumber labels to 0..N-1
-    unique_labels = sorted(set(labels.values()))
-    remap = {old: new for new, old in enumerate(unique_labels)}
-    return {n: remap[lbl] for n, lbl in labels.items()}
+        degree = {n: sum(nb.values()) for n, nb in adj.items()}
+        comm = {n: n for n in adj}
+        total = dict(degree)
+        moved_any = False
+        for _pass in range(max_passes):
+            moved = 0
+            for n in sorted(adj):
+                current = comm[n]
+                links: dict[str, float] = defaultdict(float)
+                for nb, w in adj[n].items():
+                    if nb != n:
+                        links[comm[nb]] += w
+                total[current] -= degree[n]
+                best = current
+                best_gain = links.get(current, 0.0) - resolution * total[current] * degree[n] / m2
+                for c in sorted(links):
+                    gain = links[c] - resolution * total[c] * degree[n] / m2
+                    if gain > best_gain + 1e-12:
+                        best, best_gain = c, gain
+                total[best] = total.get(best, 0.0) + degree[n]
+                if best != current:
+                    comm[n] = best
+                    moved += 1
+            if not moved:
+                break
+            moved_any = True
+        if not moved_any:
+            break
+        aggregated: dict[str, dict[str, float]] = {}
+        for n, nb in adj.items():
+            row = aggregated.setdefault(comm[n], defaultdict(float))
+            for other, w in nb.items():
+                row[comm[other]] += w
+        member = {orig: comm[sup] for orig, sup in member.items()}
+        if len(aggregated) == len(adj):
+            break
+        adj = aggregated
+    ids = {c: i for i, c in enumerate(sorted(set(member.values())))}
+    return {n: ids[member[n]] for n in nodes}
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +399,7 @@ def get_tectonic_map(
 
     Fuses three coupling signals — structural (imports), behavioral
     (shared symbol references), and temporal (git co-churn) — then
-    partitions the weighted file graph via label propagation.
+    partitions the weighted file graph by Louvain modularity clustering.
 
     Args:
         repo:            Repository identifier (owner/repo or bare name).
@@ -510,12 +526,12 @@ def get_tectonic_map(
             "drifter_summary": [],
             "_meta": {
                 "timing_ms": round((time.perf_counter() - t0) * 1000, 1),
-                "methodology": "tectonic_label_propagation",
+                "methodology": "tectonic_louvain",
             },
         }
 
-    # --- Label propagation ---
-    labels = _label_propagation(active_nodes, fused)
+    # --- Community detection (Louvain, #668) ---
+    labels = _partition(active_nodes, fused)
 
     # --- Analyze plates ---
     raw_plates = _analyze_plates(labels, fused, fwd)
@@ -583,7 +599,7 @@ def get_tectonic_map(
         "drifter_summary": drifter_summary[:30],  # cap for readability
         "_meta": {
             "timing_ms": round(elapsed, 1),
-            "methodology": "tectonic_label_propagation",
+            "methodology": "tectonic_louvain",
             "signal_weights": {
                 "structural": W_STRUCTURAL,
                 "behavioral": W_BEHAVIORAL,
@@ -591,6 +607,5 @@ def get_tectonic_map(
             },
             "active_files": len(active_nodes),
             "edge_count": len(fused),
-            "label_propagation_seed": 42,
         },
     }

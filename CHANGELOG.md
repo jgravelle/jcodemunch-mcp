@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - get_tectonic_map finds modules instead of one plate that is most of the repository (#668)
+
+`get_tectonic_map` partitioned the fused file graph with label propagation,
+which adopts the heaviest neighbouring label. A hub file that every module
+imports links every module to every other, so one label flooded the graph:
+on this repository the largest plate held 772 of 1,139 files at cohesion
+0.0024, and #667's temporal signal made it larger, not smaller. The
+partition was also not stable. Its seeded RNG did not fix the order of the
+fused edges, which follows string hashing, so the same index gave a
+different largest plate under a different `PYTHONHASHSEED`.
+
+The partition is now Louvain modularity clustering, deterministic (sorted
+visiting order, no RNG) and pure Python. Measured on the fused graphs of
+seven local indexes, main's label propagation against this branch:
+
+| corpus | files in graph | main: largest plate | main: modularity | branch: largest plate | branch: modularity | branch ms |
+|---|---|---|---|---|---|---|
+| local/jcodemunch-mcp-0394b683 | 958 | 811 (84.7%) | 0.137 | 183 (19.1%) | 0.459 | 59 |
+| local/nestjs-nest-d3d8a6be | 1668 | 1612 (96.6%) | 0.007 | 575 (34.5%) | 0.285 | 356 |
+| fastapi/fastapi | 969 | 556 (57.4%) | 0.358 | 280 (28.9%) | 0.475 | 27 |
+| local/jdocmunch-mcp-6bc87e58 | 330 | 192 (58.2%) | 0.249 | 77 (23.3%) | 0.403 | 16 |
+| local/authlib-cc94e0b7 | 301 | 301 (100.0%) | -0.000 | 64 (21.3%) | 0.421 | 20 |
+| local/jdatamunch-mcp-a1bb3bdc | 184 | 184 (100.0%) | -0.000 | 51 (27.7%) | 0.361 | 9 |
+| expressjs/express | 99 | 42 (42.4%) | 0.468 | 27 (27.3%) | 0.566 | 2 |
+
+Everything downstream of the plates changes with them: anchors, cohesion,
+drifters, nexus alerts, and the plates `assemble_task_context` puts in a
+task capsule. `_meta.methodology` reads `tectonic_louvain`, and
+`_meta.label_propagation_seed` is gone.
+
 ### Changed - the inbound jobs that bill the model have their own switch, and it is off
 
 The inbound layer had one switch, `INBOUND_ENABLED`. It covered jobs that

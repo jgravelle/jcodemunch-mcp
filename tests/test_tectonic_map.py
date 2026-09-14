@@ -7,7 +7,7 @@ from jcodemunch_mcp.tools.get_tectonic_map import (
     _structural_edges,
     _behavioral_edges,
     _fuse_signals,
-    _label_propagation,
+    _partition,
     _majority_directory,
 )
 
@@ -72,7 +72,7 @@ def _build_isolated_repo(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Unit tests — label propagation
+# Unit tests — community detection (Louvain since #668; the class name predates it)
 # ---------------------------------------------------------------------------
 
 class TestLabelPropagation:
@@ -84,7 +84,7 @@ class TestLabelPropagation:
             ("a", "b"): 1.0, ("a", "c"): 1.0, ("b", "c"): 1.0,  # clique 1
             ("d", "e"): 1.0, ("d", "f"): 1.0, ("e", "f"): 1.0,  # clique 2
         }
-        labels = _label_propagation(nodes, edges)
+        labels = _partition(nodes, edges)
         # a,b,c should share a label; d,e,f should share a different label
         assert labels["a"] == labels["b"] == labels["c"]
         assert labels["d"] == labels["e"] == labels["f"]
@@ -94,7 +94,7 @@ class TestLabelPropagation:
         """Fully connected → one community."""
         nodes = ["a", "b", "c"]
         edges = {("a", "b"): 1.0, ("a", "c"): 1.0, ("b", "c"): 1.0}
-        labels = _label_propagation(nodes, edges)
+        labels = _partition(nodes, edges)
         assert labels["a"] == labels["b"] == labels["c"]
 
     def test_weak_bridge(self):
@@ -105,14 +105,14 @@ class TestLabelPropagation:
             ("d", "e"): 1.0, ("d", "f"): 1.0, ("e", "f"): 1.0,
             ("c", "d"): 0.05,  # weak bridge
         }
-        labels = _label_propagation(nodes, edges)
+        labels = _partition(nodes, edges)
         assert labels["a"] == labels["b"] == labels["c"]
         assert labels["d"] == labels["e"] == labels["f"]
 
     def test_empty_graph(self):
         """No edges → each node its own community."""
         nodes = ["a", "b"]
-        labels = _label_propagation(nodes, {})
+        labels = _partition(nodes, {})
         assert labels["a"] != labels["b"]
 
 
@@ -169,7 +169,7 @@ class TestGetTectonicMap:
         assert "signals_used" in result
         assert "drifter_summary" in result
         assert "_meta" in result
-        assert result["_meta"]["methodology"] == "tectonic_label_propagation"
+        assert result["_meta"]["methodology"] == "tectonic_louvain"
 
     def test_isolated_repo_returns_all_isolated(self, tmp_path):
         repo, store = _build_isolated_repo(tmp_path)
