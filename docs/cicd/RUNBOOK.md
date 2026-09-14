@@ -162,7 +162,8 @@ users need (policy 2), and the gate cannot be repaired in the same PR:
 
 ## 7. Weekly results PR and regression issues
 
-- Mondays, `main.yml` opens `harness: weekly bench result (<date>)`. Merge
+- Mondays, `main.yml` opens `harness: weekly bench result (<date>)`, once per
+  date: a later Monday push, including this PR's own merge, opens nothing (C-18). Merge
   it when green; it is labeled `no-changelog` on purpose. ⚠ It needs two
   repository settings that were both missing on its first firing (FINDINGS
   C-17, 2026-09-07): the inbound ruleset must exclude `refs/heads/harness-bot/**`

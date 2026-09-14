@@ -173,6 +173,15 @@ jobs:
         run: |
           set -euo pipefail
           D=$(date -u +%Y-%m-%d)
+          # Once per date. Merging this PR on a Monday is itself a push to main on a
+          # Monday, so without this the merge opened a second PR for the same date
+          # (#684 -> #688) and every later Monday merge failed at `git push` of the
+          # existing branch. The branch is deleted on merge, so the PR query (any
+          # state) is what sees a merged week; ls-remote covers a branch with no PR.
+          B="harness-bot/results-$D"
+          N=$(gh pr list --state all --head "$B" --json number --jq length)
+          if [ "$N" != 0 ]; then echo "a results PR for $D already exists; no PR"; exit 0; fi
+          if git ls-remote --exit-code --heads origin "$B" >/dev/null; then echo "branch $B exists with no PR; no PR"; exit 0; fi
           # C-17: a made-up noreply address resolves to whichever GitHub account owns
           # that login (`harness-bot` is a stranger's, created 2026-05-18), so the
           # commit was attributed to them and CLA Assistant saw an unsigned author.
