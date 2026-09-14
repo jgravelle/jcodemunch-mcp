@@ -14,7 +14,7 @@ split. The September ledger holds 23 boolean and 53 string switch states, and
 13 integer and 70 string items.
 
 `make_record` now stores both fields as text however the workflow quoted
-them, and the digest reads older records through the same helper, so the
+them, and the digest reads older switch states through the same helper, so the
 history on the ledger branch needs no rewrite. Replaying that ledger, the
 week reads 71 records and 12 flips through the old digest and 0 through the
 new one. A real flip written in either spelling is still reported. The gate
