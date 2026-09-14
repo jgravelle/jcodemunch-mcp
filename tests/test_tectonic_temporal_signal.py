@@ -235,7 +235,7 @@ def test_the_compact_encoding_keeps_signals_withheld():
     response = {
         "repo": "o/r", "plate_count": 0, "file_count": 2, "plates": [], "isolated_files": ["a.py", "b.py"],
         "signals_used": ["structural"], "signals_withheld": withheld, "drifter_summary": [],
-        "_meta": {"timing_ms": 1.0, "methodology": "tectonic_label_propagation"},
+        "_meta": {"timing_ms": 1.0, "methodology": "tectonic_louvain"},
     }
     payload, _ = enc.encode("get_tectonic_map", response)
     assert enc.decode(payload)["signals_withheld"] == withheld

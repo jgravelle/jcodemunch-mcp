@@ -7,15 +7,17 @@
 `get_tectonic_map` partitioned the fused file graph with label propagation,
 which adopts the heaviest neighbouring label. A hub file that every module
 imports links every module to every other, so one label flooded the graph:
-on this repository the largest plate held 772 of 1,139 files at cohesion
-0.0024, and #667's temporal signal made it larger, not smaller. The
+on this repository the largest plate held 772 of 1,139 indexed files at
+cohesion 0.0024 (#668), and #667's temporal signal made it larger, not
+smaller. The
 partition was also not stable. Its seeded RNG did not fix the order of the
 fused edges, which follows string hashing, so the same index gave a
 different largest plate under a different `PYTHONHASHSEED`.
 
 The partition is now Louvain modularity clustering, deterministic (sorted
 visiting order, no RNG) and pure Python. Measured on the fused graphs of
-seven local indexes, main's label propagation against this branch:
+seven local indexes, main's label propagation against this branch (a plate's
+share is out of the files in the fused graph, not of all indexed files):
 
 | corpus | files in graph | main: largest plate | main: modularity | branch: largest plate | branch: modularity | branch ms |
 |---|---|---|---|---|---|---|

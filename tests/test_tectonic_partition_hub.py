@@ -5,9 +5,10 @@ repository in one plate at cohesion 0.0024, and #667's temporal signal made it
 worse, not better (813 of 1,142 at 0.0021). The mechanism is a hub: a file
 every module imports (`server.py` here) links every module to every other, and
 label propagation adopts the heaviest neighbouring label, so one label floods
-the graph. The seven-corpus measurement (largest plate share and modularity,
-main vs branch) and the hash-seed runs are in the PR evidence and CHANGELOG;
-no figure is restated here.
+the graph. The figures above are the issue's (plates out of `file_count`); the
+seven-corpus measurement (largest plate share out of files in the fused graph,
+modularity, main vs branch) and the hash-seed runs are in the PR evidence and
+CHANGELOG.
 
 The end-to-end arm is a non-regression check, not the reproduction: on small
 fixture repos the fused weights normalise the hub down and label propagation

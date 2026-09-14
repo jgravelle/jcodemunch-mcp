@@ -201,9 +201,9 @@ def _partition(
 
     ⚠⚠ (#668) This replaced label propagation, which adopts the heaviest
     neighbouring label and so floods a graph through a HUB: a file every
-    module imports links every module to every other. On seven local corpora
-    it put a majority of the graph in one plate on five, and ALL of it on two
-    (the table is in CHANGELOG and #668). Louvain moves a node only when it
+    module imports links every module to every other. On most of the local
+    corpora it was measured on, one plate held a majority of the graph, and on
+    some all of it (the table is in CHANGELOG and #668; no count is copied here). Louvain moves a node only when it
     raises modularity, which charges a community for the total degree it
     absorbs, so a hub cannot pull the modules into one plate.
     ⚠ Deterministic without a seed: nodes and candidate communities are
