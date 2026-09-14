@@ -1,4 +1,7 @@
-"""DoD row 1 grades only a red/green pair produced for THIS change (#671).
+"""DoD row 1 grades only a red/green pair stamped for THIS change (#671).
+
+The stamp closes an INHERITED pair; it cannot prove pytest wrote the pair on
+the pre-change tree (docs/workflows/FINDINGS.md W-45 residual).
 
 `dod_checklist.py` resolved `evidence/red.txt` and `evidence/green.txt` by path
 alone, so a later change on the same box inherited them: #669 (one docstring,
@@ -81,7 +84,16 @@ def test_the_669_shape_a_pair_from_another_branch_is_not_met(dod):
 
 @pytest.mark.parametrize(
     "clause",
-    ["green_tree_moved", "red_same_tree_as_green", "red_rewritten", "green_rewritten", "red_other_branch"],
+    [
+        "green_tree_moved",
+        "red_same_tree_as_green",
+        "red_rewritten",
+        "green_rewritten",
+        "red_other_branch",
+        "green_other_branch",
+        "red_tree_unreadable",
+        "tree_now_unreadable",
+    ],
 )
 def test_each_binding_clause_fails_alone(dod, clause):
     rs, gs = _bound(dod)
@@ -96,6 +108,15 @@ def test_each_binding_clause_fails_alone(dod, clause):
         kw["green"] = GREEN.replace("3 passed", "4 passed")
     elif clause == "red_other_branch":
         rs = dod.make_stamp("red", RED, "fix/elsewhere", RED_TREE)
+    elif clause == "green_other_branch":
+        gs = dod.make_stamp("green", GREEN, "fix/elsewhere", GREEN_TREE)
+    elif clause == "red_tree_unreadable":
+        # tree_id's fail-closed id is random, so it always "differs" from green's.
+        rs = dod.make_stamp("red", RED, BRANCH, dod.UNREADABLE_PREFIX + "0123abcd")
+    elif clause == "tree_now_unreadable":
+        unreadable = dod.UNREADABLE_PREFIX + "0123abcd"
+        gs = dod.make_stamp("green", GREEN, BRANCH, unreadable)
+        kw["tree"] = unreadable
     verdict, ev = _row1(dod, ["src/jcodemunch_mcp/x.py"], rs, gs, **kw)
     assert verdict == "unmet", (clause, ev)
 
@@ -141,6 +162,15 @@ def test_stamp_writes_what_the_grader_accepts(dod, tmp_path, monkeypatch):
     gs = json.loads((tmp_path / "green.stamp.json").read_text(encoding="utf-8"))
     verdict, ev = _row1(dod, ["src/jcodemunch_mcp/x.py"], rs, gs)
     assert verdict == "met", ev
+
+
+def test_stamp_refuses_an_unreadable_tree(dod, tmp_path, monkeypatch):
+    monkeypatch.setattr(dod, "EVIDENCE", tmp_path)
+    monkeypatch.setattr(dod, "current_branch", lambda: BRANCH)
+    monkeypatch.setattr(dod, "tree_id", lambda: dod.UNREADABLE_PREFIX + "feedface")
+    (tmp_path / "red.txt").write_text(RED, encoding="utf-8")
+    assert dod.write_stamp("red") != 0
+    assert not (tmp_path / "red.stamp.json").exists()
 
 
 def test_stamp_refuses_without_the_output(dod, tmp_path, monkeypatch):

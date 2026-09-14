@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-from _common import EVIDENCE, REPO, git, paths_for, tree_id
+from _common import EVIDENCE, REPO, UNREADABLE_PREFIX, git, paths_for, tree_id
 
 RATE_KEY_RE = re.compile(
     r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
@@ -117,7 +117,12 @@ def write_stamp(kind: str) -> int:
     if text is None:
         print(f"dod_checklist: evidence/{kind}.txt is absent; run the tests into it first", file=sys.stderr)
         return 2
-    stamp = make_stamp(kind, text, current_branch(), tree_id())
+    tree = tree_id()
+    if tree.startswith(UNREADABLE_PREFIX):
+        # UNKNOWN is not a tree: a random id would always "differ" from green's.
+        print(f"dod_checklist: the tree could not be read; evidence/{kind}.txt is not stamped", file=sys.stderr)
+        return 2
+    stamp = make_stamp(kind, text, current_branch(), tree)
     (EVIDENCE / f"{kind}.stamp.json").write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     print(f"stamped evidence/{kind}.txt: branch={stamp['branch']} tree={stamp['tree'][:12]}")
     return 0
@@ -138,6 +143,9 @@ def row1_binding(
             return f"evidence/{kind}.txt was stamped on branch {stamp.get('branch')!r}, not {branch!r}"
         if stamp.get("sha256") != _sha(text):
             return f"evidence/{kind}.txt changed after it was stamped"
+    for kind, t in (("red", red_stamp.get("tree")), ("green", green_stamp.get("tree")), ("the current", tree)):
+        if not isinstance(t, str) or not t or t.startswith(UNREADABLE_PREFIX):
+            return f"{kind} tree could not be read, so the pair cannot be bound (fail closed)"
     if green_stamp.get("tree") != tree:
         return (
             f"evidence/green.txt ran on tree {str(green_stamp.get('tree'))[:12]}, "
