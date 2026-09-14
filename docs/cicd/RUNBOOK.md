@@ -221,6 +221,19 @@ Every job reads it at its first step and again before its first write, so
 a flip stops the layer within one step. Deleting `ANTHROPIC_API_KEY` is
 the coarse stop and is not reversible without the key.
 
+**The model switch (since 2026-09-14).** `INBOUND_MODEL_ENABLED` gates
+the jobs that call the model and bill the API account: triage, the
+digest's paragraph, fix and depeval. Absent is off, and it is off by the
+owner's ruling (POLICY section 8); issues are triaged by hand with
+`/triage-issue`. With `INBOUND_ENABLED=true` and this variable unset,
+intake labels, the sweep and the digest's numbers still run, at no model
+cost.
+
+```
+gh variable set INBOUND_MODEL_ENABLED --body true
+gh variable delete INBOUND_MODEL_ENABLED
+```
+
 **Approve a drafted reply.** Triage and dependency evaluation never post
 prose. A draft is a file under `drafts/` on the `inbound-ledger` branch
 with `approved: false` in its front matter. To post it, edit the file on

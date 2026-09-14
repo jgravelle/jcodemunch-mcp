@@ -114,7 +114,7 @@ only if the edit is by the author and the item is not `needs-human`.
 | writes | per item: remove `inbound:queued`; apply `inbound:<category>` (+ the matching human label per POLICY §1); if `duplicate` with `high`: post the link comment (the one day-one unattended comment); if a draftable category: write `drafts/<n>-<run>.md` to the artifact for the sweep; if `medium`/`low`/`unknown`: `needs-human`. Never comments otherwise. |
 | budgets | 10 min; 12 turns; 5 USD per run; 2 concurrent; 20 runs a day (pre-flight counts today's runs of this workflow name via `gh run list`) |
 | escalation | `needs-human` + audit record with `evidence[]` quoted; security is never reached here because intake labelled it first, but the prompt still carries rule 1 and applies it if intake's scan missed a phrasing |
-| kill switch | read at step 1 and again in the step immediately before labelling |
+| kill switch | read at step 1 and again in the step immediately before labelling; the `queue` gate also reads `INBOUND_MODEL_ENABLED` and `go` needs both (2026-09-14) |
 
 Reproducibility (POLICY rule 7) is NOT decided here: triage classifies a
 bug as `inbound:bug-candidate`, and only the fix job's reproduction step
@@ -137,7 +137,7 @@ turns it into `bug-reproducible` or `bug-unreproducible`. Until
 | writes | label `agent:in-progress` at start and its removal at end; branch `inbound/fix-<n>-*` (pushed by the publish job from the model's bundle, after `fix_publish.py` passes); a PR (`--body-file`, template §7, `Closes #<n>`, label `agent-authored`): opened as DRAFT always. Uploads the hand-over (bundle, body, `evidence/*`, the review verdict, the head SHA) as one artifact. |
 | budgets | 60 min; 60 turns; 25 USD (a run over the ceiling is `failed`); the reproduction step alone is bounded by `/fix-issue`'s own `--continue-on-collection-errors` run and a 15-minute step timeout |
 | escalation | `REFUSED: not reproduced` from the command: label `inbound:bug-unreproducible`, draft the request for information, `needs-human`, no branch pushed. `BLOCK` from the reviewer: delete the local branch, push nothing, `needs-human`, record the reasons. Any other failure, and any refusal by the publish gate: `needs-human`, nothing pushed (the hand-over artifact holds the reproduction for 90 days; a partial branch is not pushed, as built). |
-| kill switch | pre-flight, before the push, and before `gh pr create` |
+| kill switch | pre-flight, before the push, and before `gh pr create`; the pre-flight also reads `INBOUND_MODEL_ENABLED` and `go` needs both (2026-09-14) |
 
 **Promotion from draft to ready is a separate, model-free job**:
 `.github/workflows/inbound-fix-promote.yml` on `workflow_run` of `PR gate`
@@ -195,7 +195,7 @@ when the hand-over's head SHA is the PR head being promoted.
 | writes | the stage-4-format delta comment (one sticky comment, edited on re-run, like `pr-gate.yml`'s); labels: `agent:ready-to-merge` (patch-or-minor, all Floors hold, gate green, `APPROVE`), `agent:evaluation-failed`, or `agent:needs-human-review` (major, grammar, unknown, any non-APPROVE) |
 | budgets | 45 min; 30 turns; 10 USD; 4 runs a day; 2 concurrent |
 | escalation | `agent:needs-human-review`; the digest lists every dependency PR by label |
-| kill switch | step 1 and before the comment |
+| kill switch | step 1 and before the comment; the `gate` job also reads `INBOUND_MODEL_ENABLED` and `go` needs both (2026-09-14) |
 
 `inbound-bench-full.yml`: `workflow_dispatch` with the PR number, run by
 the depeval job through the App token; `contents: read`,
@@ -428,6 +428,8 @@ the start of a fix run and removed at its end (also on failure, by an
 checks for that label before `/fix-issue` (Phase 6).
 
 ## 10. Amendments to POLICY.md made by this design
+
+(2026-09-14, owner) §8 gains a second switch, `INBOUND_MODEL_ENABLED`, read by the gate in front of every model job: `inbound-triage`'s `queue`, `inbound-fix`'s `preflight`, `inbound-depeval`'s `gate`, and `inbound-digest`'s `numbers`, which emits `model_go` for the `prose` job and keeps `go` for `apply`, so the digest posts its numbers without a paragraph.
 
 Both applied in the same commit as this file, each with a dated note in
 the policy:

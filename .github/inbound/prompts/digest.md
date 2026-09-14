@@ -2,7 +2,7 @@
 version: 3
 model: claude-sonnet-5
 job: inbound-digest
-policy_sha256: 1e566a4ead520ffc3b5afec45edc270c2331c1c977ec389a66d2527d018b5d3c
+policy_sha256: 8639e42174bde95fa6d4371b74aadcfe4c9240bbf94681f93aaa4d36f40115cd
 ---
 <!-- BEGIN policy:preamble -->
 <!-- inbound-preamble v1 -->

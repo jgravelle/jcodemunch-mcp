@@ -37,16 +37,17 @@ TRACKED as of 2026-09-04** except `settings.local.json`, `*.bak` and
 
 **`docs/inbound/POLICY.md` is what a headless job may do; `DESIGN.md` is
 each job; `docs/cicd/RUNBOOK.md` section 9 is what a human does.** Nine
-`inbound-*.yml` workflows (DESIGN names each). ⚠⚠
-**Nothing runs until the variable `INBOUND_ENABLED` reads exactly
-`true`**; absent is OFF, read first and again before every first write.
+`inbound-*.yml` workflows. ⚠⚠
+**Nothing runs until `INBOUND_ENABLED` reads exactly `true`, no model
+job until `INBOUND_MODEL_ENABLED` does** (off since 2026-09-14);
+absent is OFF, re-read before every first write.
 ⚠⚠ **The model never holds a token that can write**: model jobs run on
 the read-only `GITHUB_TOKEN` and write a file; a no-model job verifies it
 and writes with the App, to be confined by a ruleset to `inbound/**` and
 `inbound-ledger` (RUNBOOK 9's once-only setup). Nothing headless merges, tags, publishes, closes, or
 touches POLICY 4.4's never-touch list (this file included); every drafted
-reply waits for a human `approved: true`. Open findings (the human setup
-steps IN-3/4/6/8; IN-15): `docs/inbound/FINDINGS.md`.
+reply waits for a human `approved: true`. Open findings:
+`docs/inbound/FINDINGS.md`.
 
 ## Competitive: the tier that measures us against the field (2026-09-06)
 

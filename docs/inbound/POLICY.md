@@ -329,6 +329,24 @@ integration`, no `permissions:` scope covers repository variables, and
 `GITHUB_TOKEN` in every job, so no job could ever read `true`, and the
 reader hid the 403 as `value: null`; the reason is in the verdict now.
 
+**Amended 2026-09-14 by the owner: a second switch for the part that
+bills.** The four jobs that run the model (`inbound-triage`, the digest's
+paragraph, `inbound-fix`, `inbound-depeval`) spent $22.14 of the owner's
+Anthropic API balance between 2026-09-05 and 2026-09-14 without the owner
+seeing it: the ledger records no cost, and the section 7 ceiling counts
+runs. Every gate job in front of a model job now also reads the
+repository variable `INBOUND_MODEL_ENABLED`, with the same token, the same
+exact-`true` rule and the same fail-closed reading of absent. A model job
+starts only when both switches read `true`. `INBOUND_ENABLED` alone runs
+the jobs that hold no model: intake labels, the sweep, the digest's
+numbers and posting, fix-promote and bench-full. The digest posts without
+its paragraph when the model switch is off. The owner's ruling is that the
+model switch stays off and issues are triaged by hand in a session;
+setting it is the owner's decision, never a job's.
+`tests/test_inbound_workflows.py::test_every_model_job_starts_only_from_the_model_switch`
+fails a model job whose gate does not feed that read into the output it
+starts from.
+
 Who may flip it: anyone with admin on the repository, through Settings or
 `gh variable set INBOUND_ENABLED --body false`. It is never set by a job.
 Flipping it is recorded in the digest with the actor and time, read from
