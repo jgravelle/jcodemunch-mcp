@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed - the inbound jobs that bill the model have their own switch, and it is off
+
+The inbound layer had one switch, `INBOUND_ENABLED`. It covered jobs that
+cost nothing (intake labels, the stale sweep, the digest's numbers) and
+four that call the model through the owner's Anthropic API key: triage,
+the digest's paragraph, fix and dependency evaluation. Between 2026-09-05
+and 2026-09-14 those four spent $22.14 that nobody saw, because the ledger
+records no cost and the daily ceiling counts runs. $13.36 of it was one
+retry loop on #625 in a single day. Turning the switch off to stop the
+spend also stopped the free jobs.
+
+A second variable, `INBOUND_MODEL_ENABLED`, now gates the part that bills.
+The gate job in front of every model job reads it with the same
+exact-`true` rule, so absent is off, and a model job starts only when both
+switches read `true`. The digest posts its numbers without a paragraph
+when the model switch is off. A test fails any `claude-code-action` job
+whose gate does not feed that read into the output it starts from; against
+`main`'s four workflows it finds one offender each. The owner's ruling is
+that the model switch stays off and issues are triaged by hand.
+
 ### Fixed - the inbound digest reports a kill-switch flip only when the switch moved (#690)
 
 The W37 digest (#687) listed 12 kill-switch flips in one week. The switch
