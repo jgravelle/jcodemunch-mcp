@@ -100,13 +100,21 @@ def test_get_hotspots_scores_churn_for_a_sub_rooted_index(tmp_path):
 
 
 def test_delivery_metrics_count_only_files_under_the_index_root(tmp_path):
-    pkg = _mono(tmp_path / "r")
+    root = tmp_path / "r"
+    pkg = _mono(root)
+    # A commit that changes only a file outside the index root.
+    (root / "other" / "x.py").write_text("def g():\n    return 7\n", encoding="utf-8")
+    _git(["add", "-A"], root)
+    _git(["commit", "-q", "-m", "outside only"], root, when=datetime.now(timezone.utc) - timedelta(days=2))
     store = tmp_path / "store"
     res = index_folder(str(pkg), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
     out = get_delivery_metrics(res["repo"], storage_path=str(store))
     assert "error" not in out, out
-    # other/x.py sits outside the index root and must not be counted.
+    # other/x.py sits outside the index root and must not be counted, and the
+    # commit that touched only it is not this corpus's commit: `--relative`
+    # alone listed it with an empty file set, which counted as durable.
     assert out["files_touched"] == 1, out
+    assert out["commits_total"] == 4, out
 
 
 def test_git_blame_is_keyed_by_index_path(tmp_path):
@@ -134,12 +142,26 @@ def test_get_changed_symbols_reads_index_paths_for_a_sub_rooted_index(tmp_path):
 
 
 @pytest.mark.parametrize("reader", [hot._get_file_churn, win._get_file_churn], ids=["get_hotspots", "winnow_symbols"])
-def test_a_failing_git_is_logged(tmp_path, reader, caplog):
-    not_a_repo = tmp_path / "plain"
-    not_a_repo.mkdir()
+def test_a_failing_git_is_logged(tmp_path, reader, caplog, monkeypatch):
+    # A git that cannot run at all (its cwd does not exist), not the unborn
+    # branch's rc 128: a failure must reach WARNING, never read as no churn.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    missing = tmp_path / "gone"
     with caplog.at_level(logging.DEBUG):
-        assert reader(str(not_a_repo), 90) == {}
-    assert any("git log" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
+        assert reader(str(missing), 90) == {}
+    warned = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("churn unavailable" in m for m in warned), [r.getMessage() for r in caplog.records]
+
+
+@pytest.mark.parametrize("reader", [hot._get_file_churn, win._get_file_churn], ids=["get_hotspots", "winnow_symbols"])
+def test_a_repo_with_no_commits_is_no_churn_and_no_warning(tmp_path, reader, caplog, monkeypatch):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    _git(["init", "-q", "-b", "main"], fresh)
+    with caplog.at_level(logging.DEBUG):
+        assert reader(str(fresh), 90) == {}
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [r.getMessage() for r in caplog.records]
 
 
 def _git_argv_lists(tree: ast.AST):

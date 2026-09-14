@@ -10,7 +10,11 @@ on a folder below it roots the index at that folder, with folder-relative
 paths, so every name git printed missed. `get_hotspots` scored a file changed
 four times as churn 0, which reads as a cold file rather than an error;
 `winnow_symbols`' churn axis did the same; `get_delivery_metrics` counted
-files outside the index root; the git-blame context provider attached
+files outside the index root, and (once paths were relative) listed commits
+that changed nothing under it with an empty file set, which can never be
+reworked and so raised `durable_rate`: it now reads only commits under the
+root (`-- .`), so `commits_total` for a sub-rooted index counts that corpus's
+commits, not the monorepo's; the git-blame context provider attached
 nothing; `get_changed_symbols` reported symbols under paths the index does
 not hold. The working-tree guard behind absence claims failed the other way:
 every dirty path read as unindexed, so an uncommitted file anywhere in the
@@ -21,7 +25,8 @@ test over the property found five `--name-only` calls without `--relative`,
 and a search for other path-printing git calls found the porcelain probe,
 which `--relative` cannot fix (it scopes to `-- .` and strips the prefix
 `git rev-parse --show-prefix` reports). A failing `git log` in the two churn
-readers is now logged instead of reading as no churn. The test scans `src/`,
+readers is now a WARNING instead of reading as no churn; a repository with no
+commits yet stays silent, because no churn is the right answer there. The test scans `src/`,
 so a new `--name-only` call without `--relative` fails it.
 
 ### Changed - the inbound jobs that bill the model have their own switch, and it is off

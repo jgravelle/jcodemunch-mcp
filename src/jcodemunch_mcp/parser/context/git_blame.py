@@ -119,6 +119,9 @@ class GitBlameProvider(ContextProvider):
                     "-n", str(GIT_BLAME_COMMIT_LIMIT),
                     f"--since={GIT_BLAME_SINCE}",
                     "--",
+                    # `.` spends `-n` on commits under the index root, not on
+                    # the whole monorepo (#685).
+                    ".",
                 ],
                 cwd=str(folder_path),
                 capture_output=True,

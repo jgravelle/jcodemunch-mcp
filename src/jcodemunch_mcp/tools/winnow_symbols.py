@@ -79,6 +79,11 @@ def _get_file_churn(cwd: str, days: int) -> dict[str, int]:
         ["log", f"--since={days} days ago", "--relative", "--name-only", "--format="],
         cwd=cwd, timeout=60,
     )
+    if rc == 128:
+        # The caller's rev-parse gate already passed, so 128 here is an unborn
+        # branch ("does not have any commits yet"): no churn is the right answer.
+        logger.debug("git log exited 128 in %s (no commits yet)", cwd)
+        return {}
     if rc != 0:
         # A failing git is not a repository with no churn; say so.
         logger.warning("churn unavailable: git log exited %s in %s", rc, cwd)
