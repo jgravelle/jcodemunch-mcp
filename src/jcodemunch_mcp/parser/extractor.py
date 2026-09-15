@@ -848,9 +848,18 @@ def _detect_interface_keywords(node, language: str) -> list[str]:
     if language == "rust" and ntype == "trait_item":
         return ["trait"]
 
-    # TypeScript / JavaScript: interface_declaration
-    if language in ("typescript", "javascript", "tsx") and ntype == "interface_declaration":
-        return ["interface"]
+    # TypeScript / JavaScript: interface_declaration, or an abstract class.
+    # ⚠ TypeScript is the one language here whose grammar answers "is this
+    # class abstract?" with a NODE TYPE rather than a modifier child, so the
+    # Java/C# shape below cannot find it and a scan for an `abstract` modifier
+    # returns [] on a class that plainly is one (#698). Dispatch resolution
+    # reads these keywords, so without this the class the spec fix just made
+    # visible arrives mislabelled as concrete.
+    if language in ("typescript", "javascript", "tsx"):
+        if ntype == "interface_declaration":
+            return ["interface"]
+        if ntype == "abstract_class_declaration":
+            return ["abstract"]
 
     # Java: interface_declaration, or class with "abstract" modifier
     if language == "java":

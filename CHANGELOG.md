@@ -23,8 +23,18 @@ Asking the grammar rather than guessing turned up a second node in the same
 family: an abstract member parses as `abstract_method_signature`, so the base
 class's declared contract extracted as nothing while its concrete siblings
 extracted normally. Both nodes are now mapped in both specs. `export`, `declare`
-and `default` are wrappers around the declaration and needed no entries of their
-own, which the tests assert rather than assume.
+and `default` are wrappers around the declaration and need no entries of their
+own; all four spellings are parsed in the tests, because "the wrapper does not
+matter" is a claim about the grammar and a wrapper that did hide the declaration
+would look exactly like this fix being complete.
+
+A third reader had to move with it. `_detect_interface_keywords` tags a class
+`abstract` for dispatch resolution by scanning for an `abstract` **modifier**,
+which is how Java and C# spell it — TypeScript spells it as the node type, so
+that scan returned `[]` on a class that plainly is one. Fixing only the spec
+would have made the symbol newly findable and newly mislabelled:
+`abstract class B {}` now yields `keywords=['abstract']` in TypeScript, matching
+Java's long-standing answer for the same declaration.
 
 Measured on zod at `e359f7378fe56d695134701cda1e9055a08892dc`, over the files
 that contain an abstract class:
@@ -35,10 +45,19 @@ that contain an abstract class:
 | methods with no owner in the id | 52 | 13 |
 | symbols extracted from those files | 968 | 977 |
 
+The 13 that remain are not residual defect: three are accessors (`get error()`,
+`get with()`, `set with()`) and ten are methods declared inside an object
+literal, which zod v4 mini uses to build per-instance method bags. Neither has a
+class owner to lose.
+
 What is impossible now: a TypeScript-family spec that knows `class_declaration`
 and not `abstract_class_declaration`. The guard is stated over the property, not
 over the two specs that exist today, so a third one inherits the rule instead of
-reintroducing the defect.
+reintroducing the defect. Its reach is bounded, and the bound is worth naming:
+the ratchet iterates `LANGUAGE_REGISTRY`, so it cannot see the hand-rolled Vue
+and Svelte `<script>` walkers in `extractor.py`, which match `class_declaration`
+only and still miss an abstract class inside a single-file component. That is
+pre-existing and tracked separately.
 
 Interface members (`method_signature`) remain unindexed on purpose. An interface
 is type structure rather than a class body, and indexing it would move the

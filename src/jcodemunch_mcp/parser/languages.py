@@ -323,11 +323,7 @@ TSX_SPEC = LanguageSpec(
     symbol_node_types={
         "function_declaration": "function",
         "class_declaration": "class",
-        # Same grammar family as TYPESCRIPT_SPEC, same two nodes, and a fix
-        # applied to one spec reaches only half the product (#698).
-        "abstract_class_declaration": "class",
         "method_definition": "method",
-        "abstract_method_signature": "method",
         "interface_declaration": "type",
         "type_alias_declaration": "type",
         "enum_declaration": "type",
@@ -335,9 +331,7 @@ TSX_SPEC = LanguageSpec(
     name_fields={
         "function_declaration": "name",
         "class_declaration": "name",
-        "abstract_class_declaration": "name",
         "method_definition": "name",
-        "abstract_method_signature": "name",
         "interface_declaration": "name",
         "type_alias_declaration": "name",
         "enum_declaration": "name",
@@ -345,18 +339,16 @@ TSX_SPEC = LanguageSpec(
     param_fields={
         "function_declaration": "parameters",
         "method_definition": "parameters",
-        "abstract_method_signature": "parameters",
         "arrow_function": "parameters",
     },
     return_type_fields={
         "function_declaration": "return_type",
         "method_definition": "return_type",
-        "abstract_method_signature": "return_type",
         "arrow_function": "return_type",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="decorator",
-    container_node_types=["class_declaration", "abstract_class_declaration", "class"],
+    container_node_types=["class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
@@ -368,16 +360,7 @@ TYPESCRIPT_SPEC = LanguageSpec(
     symbol_node_types={
         "function_declaration": "function",
         "class_declaration": "class",
-        # tree-sitter-typescript gives `abstract class X` its OWN node type,
-        # not a modifier on class_declaration -- `export`, `declare` and
-        # `default` are wrappers around it, so this one entry covers all four
-        # spellings. Omitting it made every abstract class invisible (#698).
-        "abstract_class_declaration": "class",
         "method_definition": "method",
-        # ...and an abstract member is `abstract_method_signature`, not
-        # method_definition, so the base class's DECLARED api extracted as
-        # nothing while its concrete methods extracted normally.
-        "abstract_method_signature": "method",
         "interface_declaration": "type",
         "type_alias_declaration": "type",
         "enum_declaration": "type",
@@ -385,9 +368,7 @@ TYPESCRIPT_SPEC = LanguageSpec(
     name_fields={
         "function_declaration": "name",
         "class_declaration": "name",
-        "abstract_class_declaration": "name",
         "method_definition": "name",
-        "abstract_method_signature": "name",
         "interface_declaration": "name",
         "type_alias_declaration": "name",
         "enum_declaration": "name",
@@ -395,21 +376,16 @@ TYPESCRIPT_SPEC = LanguageSpec(
     param_fields={
         "function_declaration": "parameters",
         "method_definition": "parameters",
-        "abstract_method_signature": "parameters",
         "arrow_function": "parameters",
     },
     return_type_fields={
         "function_declaration": "return_type",
         "method_definition": "return_type",
-        "abstract_method_signature": "return_type",
         "arrow_function": "return_type",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="decorator",
-    # A container list that omits the abstract node still EXTRACTS the methods
-    # inside one, attributing them to nobody: the id becomes `<file>::m#method`
-    # instead of `<file>::Owner.m#method`. A bare name is not an identity.
-    container_node_types=["class_declaration", "abstract_class_declaration", "class"],
+    container_node_types=["class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )

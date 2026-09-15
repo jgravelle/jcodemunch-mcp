@@ -107,6 +107,55 @@ def test_abstract_member_is_extracted_as_a_method(language, declaration):
     )
 
 
+# `export`, `declare` and `default` wrap the declaration without changing its
+# node type, so one spec entry covers all of them. That is a claim about the
+# grammar, so it is asserted here rather than trusted. `declare` is an ambient
+# context and forbids method bodies, which is why each spelling carries its own
+# source rather than sharing one.
+_WRAPPED = (
+    ("export abstract class Base { m(): void {} }", "typescript"),
+    ("abstract class Base { m(): void {} }", "typescript"),
+    ("declare abstract class Base { m(): void; }", "typescript"),
+    ("export default abstract class Base { m(): void {} }", "typescript"),
+    ("export abstract class Base { m(): void {} }", "tsx"),
+    ("declare abstract class Base { m(): void; }", "tsx"),
+)
+
+
+@pytest.mark.parametrize("source,language", _WRAPPED)
+def test_every_wrapper_spelling_reaches_the_same_declaration(source, language):
+    """A wrapper that hid the declaration would need its own spec entry, and
+    the absence of one would look exactly like today's fix being complete."""
+    symbols = parse_file(source, _FILENAME[language], language)
+    assert "Base" in {s.name for s in symbols if s.kind == "class"}, (
+        f"{source!r} did not yield the class"
+    )
+
+
+@pytest.mark.parametrize("language", _TS_FAMILY)
+@pytest.mark.parametrize("declaration", _DECLARATIONS)
+def test_abstract_class_is_tagged_abstract_for_dispatch(language, declaration):
+    """`Symbol.keywords` is what dispatch resolution reads to tell an abstract
+    base from a concrete class.
+
+    TypeScript is the one language here whose grammar answers "is this class
+    abstract?" with a node type rather than a modifier child, so the Java/C#
+    scan for an `abstract` modifier returns [] on a class that plainly is one.
+    Making the class visible without this would hand the consumer a symbol that
+    is newly findable and newly mislabelled.
+    """
+    symbols = parse_file(_source(declaration), _FILENAME[language], language)
+    base = [s for s in symbols if s.name == "Base" and s.kind == "class"]
+    assert base, "abstract class missing"
+    assert "abstract" in (base[0].keywords or []), (
+        f"keywords were {base[0].keywords!r}"
+    )
+    concrete = [s for s in symbols if s.name == "Concrete" and s.kind == "class"]
+    assert "abstract" not in (concrete[0].keywords or []), (
+        "non-vacuity: a concrete class must not be tagged abstract"
+    )
+
+
 @pytest.mark.parametrize("language", _TS_FAMILY)
 def test_spec_maps_the_abstract_node_wherever_it_maps_the_plain_one(language):
     """The ratchet: a TS-family spec may not know about `class_declaration`
@@ -131,3 +180,12 @@ def test_spec_maps_the_abstract_node_wherever_it_maps_the_plain_one(language):
         "an abstract member is not method_definition and needs its own entry"
     )
     assert "abstract_method_signature" in spec.name_fields
+    # The deliberate exclusion, asserted rather than argued in prose only. An
+    # interface is type structure, not a class body, and indexing its members
+    # would move the symbol count of every TypeScript repository -- a judgment
+    # call that needs its own measurement, so it must not arrive as a silent
+    # side effect of some later edit to this spec.
+    assert "method_signature" not in spec.symbol_node_types, (
+        "interface members are excluded on purpose; changing that needs its "
+        "own measurement, not a quiet spec edit"
+    )
