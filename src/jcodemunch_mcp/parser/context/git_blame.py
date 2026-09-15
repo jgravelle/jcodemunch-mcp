@@ -109,6 +109,9 @@ class GitBlameProvider(ContextProvider):
             result = subprocess.run(
                 [
                     "git", "log",
+                    # (#685) keyed by index path: `--name-only` alone prints
+                    # top-level paths, which miss an index rooted below it.
+                    "--relative",
                     "--name-only",
                     "--format=COMMIT %an|%aI",
                     "--diff-filter=AM",
@@ -116,6 +119,9 @@ class GitBlameProvider(ContextProvider):
                     "-n", str(GIT_BLAME_COMMIT_LIMIT),
                     f"--since={GIT_BLAME_SINCE}",
                     "--",
+                    # `.` spends `-n` on commits under the index root, not on
+                    # the whole monorepo (#685).
+                    ".",
                 ],
                 cwd=str(folder_path),
                 capture_output=True,
