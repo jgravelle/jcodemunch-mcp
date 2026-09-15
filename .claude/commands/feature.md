@@ -54,11 +54,15 @@ under `.claude/state/evidence/`. Authority for every rule is
    offline and you say so in the PR. Run them and record the red run:
    `{ uv run pytest <files> -q --continue-on-collection-errors; echo "EXIT=$?"; } > .claude/state/evidence/red.txt 2>&1`
    — the last line must not be `EXIT=0`. If the tests pass before the
-   change, the tests are wrong: refuse.
+   change, the tests are wrong: refuse. Then, as a line of its own, `python .claude/hooks/dod_checklist.py --stamp red`
+   (#671: row 1 grades only a pair stamped on this branch, green on the
+   tree now, red on a different tree).
 5. **Implement.** Use jcodemunch tools for navigation. The hooks
    `test_edit_guard` and `surface_guard` will speak if you weaken a test or
    move the surface; act on what they say. After editing, run the same
-   files green: `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`.
+   files green: `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`,
+   then `python .claude/hooks/dod_checklist.py --stamp green` (re-run and
+   re-stamp green after any later edit under a code root).
    Then COMMIT the implementation and its tests (`git add <files> && git
    commit -m ...` as a line of its own; the commit hook runs the fast tier
    and writes `evidence/fast.md`). Everything after this reviews and

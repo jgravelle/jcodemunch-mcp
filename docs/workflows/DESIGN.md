@@ -61,7 +61,7 @@ Conventions:
 
 | DoD | Evidence | n.a. when |
 |---|---|---|
-| 1 failing-then-passing test | `evidence/red.txt` (touched test files run at the base ref, expected non-zero) and `evidence/green.txt` (same at HEAD, zero) | never for a `fix` or `feat`; docs-only PRs |
+| 1 failing-then-passing test | `evidence/red.txt` (touched test files run at the base ref, expected non-zero) and `evidence/green.txt` (same at HEAD, zero), each bound by `dod_checklist.py --stamp red|green` to the branch, its output and the tier-path tree it ran on; green's tree must be the tree now and red's must differ (#671, W-45) | never for a `fix` or `feat`; docs-only PRs |
 | 2 ruff + touched files + full tier + skip count | `evidence/fast.md` (ruff is inside the fast tier), `evidence/touched.txt`, `evidence/full.md`; skip count is the full tier's own `ci.skips_*`/`suite.fast_skips_max` verdict lines | never |
 | 3 CHANGELOG line | `scripts/dod_changelog.py --base-ref origin/main` exit code | `no-changelog` label present |
 | 4 tool added / description changed | `scripts/surface_diff.py --base-ref origin/main`; plus a description diff over `_build_tools_list()` output (surface_diff reports names only; the description half is FINDINGS W-1 until the script exposes it) | no diff |

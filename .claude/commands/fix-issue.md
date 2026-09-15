@@ -41,7 +41,9 @@ release policy". `REFUSED: <reason>` and stop when a step cannot complete.
    (`--continue-on-collection-errors` because a pre-existing guard that
    imports a name the defect removed fails at COLLECTION and would abort
    the session before your test runs, W-32; a collection ERROR in red.txt
-   is itself evidence and goes in ISSUE.md). If the last line is `EXIT=0`,
+   is itself evidence and goes in ISSUE.md), then
+   `python .claude/hooks/dod_checklist.py --stamp red` as a line of its own
+   (#671). If the last line is `EXIT=0`,
    write what you tried into ISSUE.md under
    "Not reproduced" (commands, platform, versions) and
    `REFUSED: not reproduced`. Do not guess a fix.
@@ -59,7 +61,9 @@ release policy". `REFUSED: <reason>` and stop when a step cannot complete.
    authority the call site was reproducing)? What other spellings of the
    same input exist (`find_references` on the fixed symbol and its
    callers)? Add a test per spelling found. Re-run the touched files green:
-   `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`.
+   `{ uv run pytest <files> -q; echo "EXIT=$?"; } > .claude/state/evidence/green.txt 2>&1`,
+   then `python .claude/hooks/dod_checklist.py --stamp green` (re-run and
+   re-stamp green after any later edit under a code root).
    If the fix touches a module the failing test does not import, state
    why in ISSUE.md or refuse. Load `changelog-format` and write the
    `[Unreleased]` entry NOW (it cites `#$ARGUMENTS` and the reporter;

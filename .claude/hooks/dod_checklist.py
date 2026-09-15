@@ -10,6 +10,7 @@ produces: .claude/state/evidence/checklist.md (also printed)
 refuses:  nothing; it reports
 
 Usage: python .claude/hooks/dod_checklist.py [--base-ref origin/main] [--labels a,b] [--contributor]
+       python .claude/hooks/dod_checklist.py --stamp red|green   (right after each run, #671)
 The DoD text itself is read from docs/standard/STANDARD.md at run time; the
 item numbers are the only thing this file knows.
 """
@@ -17,12 +18,13 @@ item numbers are the only thing this file knows.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
 
-from _common import EVIDENCE, REPO, git, paths_for
+from _common import EVIDENCE, REPO, UNREADABLE_PREFIX, git, paths_for, tree_id
 
 RATE_KEY_RE = re.compile(
     r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
@@ -91,6 +93,101 @@ def row1_verdict(changed: list[str], red: str | None, green: str | None) -> tupl
     )
 
 
+# #671: row 1 read red.txt/green.txt by path alone, so a later change on the
+# same box inherited them (#669 graded `met` from #666's pair). A stamp binds a
+# run to the branch, the tier-path tree it ran on (`_common.tree_id`, the
+# identity pre_pr.py already holds the full-tier stamp to) and its own output.
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def make_stamp(kind: str, text: str, branch: str, tree: str) -> dict:
+    return {"kind": kind, "branch": branch, "tree": tree, "sha256": _sha(text)}
+
+
+def current_branch() -> str:
+    return git("rev-parse", "--abbrev-ref", "HEAD").strip()
+
+
+def write_stamp(kind: str) -> int:
+    """`--stamp red|green`: bind the run just written to this branch and tree."""
+    text = evidence(f"{kind}.txt")
+    if text is None:
+        print(f"dod_checklist: evidence/{kind}.txt is absent; run the tests into it first", file=sys.stderr)
+        return 2
+    tree = tree_id()
+    if tree.startswith(UNREADABLE_PREFIX):
+        # UNKNOWN is not a tree: a random id would always "differ" from green's.
+        print(f"dod_checklist: the tree could not be read; evidence/{kind}.txt is not stamped", file=sys.stderr)
+        return 2
+    stamp = make_stamp(kind, text, current_branch(), tree)
+    (EVIDENCE / f"{kind}.stamp.json").write_text(json.dumps(stamp, indent=1), encoding="utf-8")
+    print(f"stamped evidence/{kind}.txt: branch={stamp['branch']} tree={stamp['tree'][:12]}")
+    return 0
+
+
+def row1_binding(
+    red: str, green: str, red_stamp: dict | None, green_stamp: dict | None, *, branch: str, tree: str
+) -> str | None:
+    """None when the pair belongs to this change; otherwise why it does not."""
+    if red_stamp is None or green_stamp is None:
+        missing = [k for k, s in (("red", red_stamp), ("green", green_stamp)) if s is None]
+        return (
+            f"evidence/{'/'.join(missing)} not stamped; run "
+            "`python .claude/hooks/dod_checklist.py --stamp red|green` right after each run"
+        )
+    for kind, text, stamp in (("red", red, red_stamp), ("green", green, green_stamp)):
+        if stamp.get("branch") != branch:
+            return f"evidence/{kind}.txt was stamped on branch {stamp.get('branch')!r}, not {branch!r}"
+        if stamp.get("sha256") != _sha(text):
+            return f"evidence/{kind}.txt changed after it was stamped"
+    for kind, t in (("red", red_stamp.get("tree")), ("green", green_stamp.get("tree")), ("the current", tree)):
+        if not isinstance(t, str) or not t or t.startswith(UNREADABLE_PREFIX):
+            return f"{kind} tree could not be read, so the pair cannot be bound (fail closed)"
+    if green_stamp.get("tree") != tree:
+        return (
+            f"evidence/green.txt ran on tree {str(green_stamp.get('tree'))[:12]}, "
+            f"the tree now is {tree[:12]}; re-run green and stamp it"
+        )
+    if red_stamp.get("tree") == green_stamp.get("tree"):
+        return "evidence/red.txt ran on the same tree as green.txt, so it did not run on the pre-change tree"
+    return None
+
+
+def row1(
+    changed: list[str],
+    red: str | None,
+    green: str | None,
+    red_stamp: dict | None,
+    green_stamp: dict | None,
+    *,
+    branch: str,
+    tree: str,
+) -> tuple[str, str]:
+    """Row 1 with the pair held to this change, then graded by row1_verdict."""
+    if red is None or green is None:
+        return row1_verdict(changed, red, green)
+    why = row1_binding(red, green, red_stamp, green_stamp, branch=branch, tree=tree)
+    if why is None:
+        return row1_verdict(changed, red, green)
+    if not any(c.startswith(CODE_ROOTS) for c in changed):
+        return "n.a.", f"no change under a code root; the red/green pair on disk is not this change's ({why})"
+    return "unmet", why
+
+
+def _stamp_json(name: str) -> dict | None:
+    text = evidence(name)
+    if text is None:
+        return None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def harness_pass(summary: str | None) -> bool | None:
     if summary is None:
         return None
@@ -102,7 +199,10 @@ def main() -> int:
     ap.add_argument("--base-ref", default="origin/main")
     ap.add_argument("--labels", default="")
     ap.add_argument("--contributor", action="store_true")
+    ap.add_argument("--stamp", choices=("red", "green"), default=None)
     a = ap.parse_args()
+    if a.stamp:
+        return write_stamp(a.stamp)
     labels = {s.strip() for s in a.labels.split(",") if s.strip()}
     base = a.base_ref
     changed = (
@@ -129,7 +229,13 @@ def main() -> int:
 
     # 1 red then green
     red, green = evidence("red.txt"), evidence("green.txt")
-    row(1, *row1_verdict(changed, red, green))  # W-38
+    if red is not None and green is not None:
+        row(1, *row1(  # W-38, #671
+            changed, red, green, _stamp_json("red.stamp.json"), _stamp_json("green.stamp.json"),
+            branch=current_branch(), tree=tree_id(),
+        ))
+    else:
+        row(1, *row1_verdict(changed, red, green))  # W-38
 
     # 2 fast tier (ruff inside), touched files, full tier with skip verdicts
     fast, full = evidence("fast.md"), evidence("full.md")
