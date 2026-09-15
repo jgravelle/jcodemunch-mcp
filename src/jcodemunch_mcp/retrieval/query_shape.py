@@ -126,7 +126,44 @@ def is_identifier_query(query: str) -> bool:
     return bool(source_shaped_tokens(stripped))
 
 
-def exact_match_report(query: str, results: list[dict]) -> dict | None:
+def exact_needles(query: str) -> tuple[str, str] | None:
+    """The two forms an exact match may take, or None for a multi-word query.
+
+    ⚠ This is THE definition of "exact", and it has two readers: the report
+    below, and the result cut in `search_symbols`, which must not evict an exact
+    match in favour of a lexical near-miss. A second copy of this normalisation
+    would let the two disagree about which rows are exact, which is worse than
+    either answer alone.
+
+    ⚠⚠ Deliberately NOT gated on `is_identifier_query`, and the difference is
+    the whole defect. That gate refuses a single lower-case word with no
+    underscore, because such a query cannot be told from a topic -- correct for
+    deciding whether to ATTACH a report, and wrong for deciding what to KEEP:
+    `partial`, `pick` and `run` are exactly the names whose same-named locals
+    fill the result window (#699). Ranking a row whose name IS the query above
+    one that merely shares tokens costs nothing when the query was prose, since
+    then no row matches exactly.
+
+    For a qualified query (`Store.load`), the leaf is what a symbol `name`
+    holds; the full path is what an `id` holds.
+    """
+    stripped = query.strip()
+    if not stripped or len(stripped.split()) != 1:
+        return None
+    needle = stripped.lower()
+    return needle, needle.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+
+
+def is_exact_row(row: dict, needle: str, leaf: str) -> bool:
+    """Does one result row answer the query exactly? See `exact_needles`."""
+    name = str(row.get("name", "")).lower()
+    sym_id = str(row.get("id", "")).lower()
+    return needle in (name, sym_id) or bool(leaf) and name == leaf
+
+
+def exact_match_report(
+    query: str, results: list[dict], total_exact: int | None = None
+) -> dict | None:
     """Classify how well `results` answer an identifier-shaped `query`.
 
     Returns None for non-identifier queries so nothing is attached and no
@@ -135,31 +172,48 @@ def exact_match_report(query: str, results: list[dict]) -> dict | None:
     Matching mirrors `_identity_score` in search_symbols: exact on name or id,
     then a name prefix. Case-insensitive, because a caller retyping a symbol
     from memory gets the case wrong more often than they get the spelling wrong.
+
+    ⚠⚠ `total_exact` is how many exact matches the SCAN found, before the result
+    cap cut the page. Counting the rows handed to this function answers "how
+    many did you return" while reading as "how many exist" -- #559's shape, and
+    it is what made the cap's effect invisible: a query with 38 exact matches
+    reported `exact: 9` and looked complete. Pass it whenever the caller can
+    count before slicing; when it is None the field falls back to the page and
+    `exact_truncated` is absent rather than falsely False.
     """
+    # The report stays gated on identifier shape: attaching "no symbol named
+    # 'the' is in this index" to a prose search would be noise. The CUT is not
+    # gated -- see `exact_needles`.
     if not is_identifier_query(query):
         return None
-
-    needle = query.strip().lower()
-    # For a qualified query (`Store.load`), the leaf is what a symbol `name`
-    # holds; the full path is what an `id` holds.
-    leaf = needle.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+    needles = exact_needles(query)
+    if needles is None:
+        return None
+    needle, leaf = needles
 
     exact, prefix = [], []
     for row in results:
         name = str(row.get("name", "")).lower()
-        sym_id = str(row.get("id", "")).lower()
-        if needle in (name, sym_id) or (leaf and name == leaf):
+        if is_exact_row(row, needle, leaf):
             exact.append(row)
         elif name.startswith(needle) or (leaf and name.startswith(leaf)):
             prefix.append(row)
 
+    returned_exact = len(exact)
+    scanned_exact = returned_exact if total_exact is None else total_exact
     found = bool(exact) or bool(prefix)
     report = {
         "queried": query.strip(),
         "found": found,
-        "exact": len(exact),
+        "exact": scanned_exact,
         "prefix": len(prefix),
     }
+    if total_exact is not None and scanned_exact > returned_exact:
+        # The caller asked for a name, more symbols carry it than fit the page,
+        # and the remedy is theirs: raise max_results. Silence here is how the
+        # cut stayed invisible.
+        report["exact_returned"] = returned_exact
+        report["exact_truncated"] = True
     if not found and results:
         report["note"] = (
             f"No symbol named '{query.strip()}' is in this index. The results "

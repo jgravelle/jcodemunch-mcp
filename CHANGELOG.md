@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Fixed - an exact-name match is no longer evicted from the result page by a same-named local (#699)
+
+`search_symbols` cuts to `max_results` with a bounded heap keyed on BM25 alone,
+so eviction could not tell an exact-name match from a lexical near-miss, or a
+real definition from a local that happens to share the name. Where a name has
+more exact matches than the cap, ranking alone decided which survived — and the
+ones that lost did not appear at a lower rank, they did not appear at all.
+
+Two reproductions, and they do not share a discriminator. On zod, `partial`
+returns ranks 1-4 as real definitions and ranks 5-10 as six `constant` rows in
+test files, pushing `v4/mini/schemas.ts::partial` out; kind separates that one.
+On this repository, `run` returns ten rows that are all `#function`, every one a
+helper nested inside a test function, while `tools/refresh.py::run` and
+`watcher.py::WatcherManager.run` are absent; kind separates nothing there.
+
+The property both share is neither kind nor path: a crowder is declared inside a
+function body and is a local by construction, while a real answer is
+module-level or owned by a type. A path rule would have demoted a genuine
+`ZodObject.partial` declared in a fixture, and a nesting-depth rule would have
+demoted it too. The heap key is now `(declaration rank, score)`, and the final
+sort reads the same key — a row that survives the cut under one rule and is then
+ordered under another ranks below rows it outranked to get there. Locals are
+demoted, never filtered: they remain legitimate answers to "where is this name".
+
+The cut is deliberately **not** gated on `is_identifier_query`, which the
+`_meta.exact_match` report is. That gate refuses a single lower-case word with
+no underscore, which is right for deciding whether to attach a report and wrong
+for deciding what to keep: `partial`, `pick` and `run` are all that shape, so a
+cut inheriting the gate would be unfixed for every case that reported the defect.
+
+`_meta.exact_match.exact` was the second reader of the same cut. It counted the
+rows that survived, so a query with 38 exact matches reported `exact: 9` and read
+as complete — #559's rule ("a count taken after the page is cut describes the
+page") in the one place #559's own ratchet does not reach, because its `_CASES`
+roster is a hand-kept literal of four tools. The count is taken during scoring
+now, with `exact_returned` and `exact_truncated` beside it, so the cap's effect
+is visible and the caller knows the remedy is theirs.
+
+What is impossible now: a cut that silently drops the symbol a caller named. What
+is still possible, and worth its own issue: a tool with a (count, capped list)
+pair that nobody adds to #559's roster.
+
+Found by the benchmark in
+[amritessh/scalpel-fse2027-artifact](https://github.com/amritessh/scalpel-fse2027-artifact),
+which traced it to `partial`/`pick`/`ZodType` on zod and named the mechanism —
+ranked-and-capped retrieval dropping answers an unranked exact lookup returns
+unconditionally.
+
 ### Fixed - get_tectonic_map finds modules instead of one plate that is most of the repository (#668)
 
 `get_tectonic_map` partitioned the fused file graph with label propagation,

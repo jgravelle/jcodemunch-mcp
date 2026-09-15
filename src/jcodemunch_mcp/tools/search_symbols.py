@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..parser.imports import resolve_specifier
+from ..retrieval.query_shape import (
+    exact_needles as _exact_needles,
+    is_exact_row,
+)
 
 # ⚠ Re-exported, not redefined -- these moved to `retrieval/scoring.py` to
 # break the search_symbols <-> signal_fusion cycle. Patch THERE, not here:
@@ -490,6 +494,50 @@ def _heap_tiebreak(symbol_id: str) -> bytes:
     return bytes(255 - b for b in symbol_id.encode("utf-8", "surrogatepass"))
 
 
+# Owner kinds that make a nested symbol a DECLARATION rather than a local.
+# A method inside a class is what a caller asking for the name wants; a helper
+# inside a function body is a local by construction. Spelled as a set of kinds
+# rather than a path rule because `ZodObject.partial` in a test fixture is a
+# real definition and `refresh.run` in `src/` would be missed by one.
+_DECLARING_OWNER_KINDS = ("class", "type", "struct", "interface", "trait", "enum")
+
+
+def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) -> int:
+    """How much of a definition is this row, for the purpose of the result cut?
+
+    2 = an exact-name match that is module-level or owned by a type.
+    1 = an exact-name match declared inside a function body, i.e. a local.
+    0 = not an exact-name match; today's score ordering, untouched.
+
+    ⚠⚠ The cut is a bounded heap keyed on BM25 alone, so before this an exact
+    match could be evicted by a higher-scoring near-miss, and a dozen same-named
+    locals could fill the window and leave the real definition at NO rank
+    (#699). Kind alone does not separate the cases -- a local helper and a
+    module-level function are both `function` -- and neither does a test-path
+    rule, which would demote a genuine method declared in a fixture.
+
+    ⚠ A rank-0 row never triggers a lookup, so the cost is bounded by the number
+    of exact-name matches rather than by the corpus.
+    """
+    if needles is None:
+        return 0
+    if not is_exact_row(entry, *needles):
+        return 0
+
+    sym_id = str(entry.get("id", ""))
+    file_part, _, rest = sym_id.partition("::")
+    owner_path = rest.split("#", 1)[0].rsplit(".", 1)[0] if "." in rest.split("#", 1)[0] else ""
+    if not owner_path:
+        return 2  # module-level
+    getter = getattr(index, "get_symbol", None)
+    if getter is None:
+        return 2  # cannot establish an owner; do not demote on an unknown
+    for kind in _DECLARING_OWNER_KINDS:
+        if getter(f"{file_part}::{owner_path}#{kind}") is not None:
+            return 2
+    return 1
+
+
 def search_symbols(
     repo: str,
     query: str,
@@ -865,9 +913,14 @@ def search_symbols(
     # which is directory order on NTFS and hash order on ext4: the same corpus
     # returned different tied symbols on Windows and on CI (harness F-13; gin
     # "context bind" has five candidates at exactly 10.202).
-    heap: list[tuple[float, bytes, dict]] = []
+    heap: list[tuple[tuple[int, float], bytes, dict]] = []
     candidates_scored = 0
     max_bm25_score = 0.0
+    # The exact-name forms for this query, or None for a prose query. Resolved
+    # once; `search_symbols` must not own a second definition of "exact"
+    # (see retrieval.query_shape.exact_needles).
+    _needles = _exact_needles(query)
+    exact_scanned = 0
 
     for sym in candidates:
         if has_filters:
@@ -925,18 +978,26 @@ def search_symbols(
 
         # Bounded heap: O(N log K) instead of O(N log N)
         tiebreak = _heap_tiebreak(entry.get("id", ""))
+        rank = _declaration_rank(entry, index, _needles)
+        if rank:
+            exact_scanned += 1
+        key = (rank, heap_score)
         if len(heap) < effective_limit:
-            heapq.heappush(heap, (heap_score, tiebreak, entry))
-        elif (heap_score, tiebreak) > (heap[0][0], heap[0][1]):
-            heapq.heapreplace(heap, (heap_score, tiebreak, entry))
+            heapq.heappush(heap, (key, tiebreak, entry))
+        elif (key, tiebreak) > (heap[0][0], heap[0][1]):
+            heapq.heapreplace(heap, (key, tiebreak, entry))
 
-    # Extract results sorted by score descending, ties by symbol id ascending
-    _sorted_heap = sorted(heap, key=lambda x: (-x[0], x[2].get("id", "")))
+    # Extract results sorted by rank then score descending, ties by symbol id
+    # ascending. ⚠ The EVICTION and the ORDER must read the same key: a row that
+    # survives the cut under one rule and is then sorted under another ranks
+    # below rows it outranked to get there.
+    _sorted_heap = sorted(heap, key=lambda x: (-x[0][0], -x[0][1], x[2].get("id", "")))
     scored_results = [entry for _, _, entry in _sorted_heap]
     # Real ranking scores (top-first) for confidence/ledger — kept separate from
     # the response entries so _meta.confidence grades on real gap/strength instead
     # of flat-lining at the no-score neutral default (V6).
-    _conf_scores = [hs for hs, _, _ in _sorted_heap]
+    # The heap key is (declaration rank, score); confidence grades the SCORE.
+    _conf_scores = [hs for (_, hs), _, _ in _sorted_heap]
     heap_count = len(scored_results)  # save before budget packing
 
     # §1.2: Materialize full-detail payload BEFORE packing so byte_length reflects
@@ -1178,7 +1239,9 @@ def search_symbols(
     # contract only `absent` proves absence. `low_confidence` is the honest
     # state and cannot be cited as evidence the symbol does not exist.
     from ..retrieval.query_shape import exact_match_report as _exact_match_report
-    _exact = _exact_match_report(query, scored_results)
+    # `exact_scanned` counted during scoring, BEFORE the heap cut, so the report
+    # describes the repository rather than the page (#559's rule, #699's case).
+    _exact = _exact_match_report(query, scored_results, total_exact=exact_scanned)
     if _exact is not None:
         meta["exact_match"] = _exact
         if not _exact["found"] and scored_results:
