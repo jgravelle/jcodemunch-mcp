@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Fixed - TypeScript and TSX index `abstract class`, and its methods keep their owner (#698)
+
+tree-sitter-typescript gives `abstract class X` its own node type rather than a
+modifier on `class_declaration`, and neither `TYPESCRIPT_SPEC` nor `TSX_SPEC`
+named it. Every abstract class in a `.ts` or `.tsx` file was therefore absent
+from the index, while every concrete class in the same file indexed normally —
+so the symbol a caller most wants, the base class where a hierarchy declares its
+API, was the one that could not be found.
+
+`container_node_types` omitted it too, which is the half with the wider reach.
+The methods inside an abstract class were still extracted, attributed to nobody:
+the id came back as `<file>::parse#method` instead of
+`<file>::ZodType.parse#method`. That is the `qual_mismatch` rule the Rust
+fidelity harness already enforces one language over — the owner is the declaring
+type — encoded there as a benchmark rather than as a property, so TypeScript
+inherited none of it.
+
+Asking the grammar rather than guessing turned up a second node in the same
+family: an abstract member parses as `abstract_method_signature`, so the base
+class's declared contract extracted as nothing while its concrete siblings
+extracted normally. Both nodes are now mapped in both specs. `export`, `declare`
+and `default` are wrappers around the declaration and needed no entries of their
+own, which the tests assert rather than assume.
+
+Measured on zod at `e359f7378fe56d695134701cda1e9055a08892dc`, over the files
+that contain an abstract class:
+
+| measure | before | after |
+|---|---|---|
+| abstract classes found as kind=class | 0 | 7 |
+| methods with no owner in the id | 52 | 13 |
+| symbols extracted from those files | 968 | 977 |
+
+What is impossible now: a TypeScript-family spec that knows `class_declaration`
+and not `abstract_class_declaration`. The guard is stated over the property, not
+over the two specs that exist today, so a third one inherits the rule instead of
+reintroducing the defect.
+
+Interface members (`method_signature`) remain unindexed on purpose. An interface
+is type structure rather than a class body, and indexing it would move the
+symbol count of every TypeScript repository on a judgment call that needs its own
+measurement.
+
+Found by the benchmark in
+[amritessh/scalpel-fse2027-artifact](https://github.com/amritessh/scalpel-fse2027-artifact),
+which hit the same defect in its own indexer, traced it to zod's `ZodType`, and
+fixed it there first.
+
 ### Fixed - get_tectonic_map finds modules instead of one plate that is most of the repository (#668)
 
 `get_tectonic_map` partitioned the fused file graph with label propagation,
