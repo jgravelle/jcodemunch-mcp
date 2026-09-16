@@ -141,10 +141,13 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
    ⚠⚠ **The environment field accepts BLANK and a blank publisher
    publishes perfectly well** — there is no failure to notice, so this is
    set once and then never looked at again. Both of ours were created
-   unconstrained and stayed that way until 2026-09-16, when the index
-   e-mailed after 1.108.319 used them (*"the Trusted Publisher is configured
-   to allow any environment"*, with a one-click constrain link). Constrained
-   the same day. **A publisher is matched on owner + repo + workflow file +
+   unconstrained. **Test PyPI's was constrained on 2026-09-16 and PyPI's was
+   NOT** — Test PyPI e-mailed after 1.108.319 used it (*"the Trusted Publisher
+   is configured to allow any environment"*, with a one-click constrain link)
+   and PyPI sends no such notice, so the index that publishes to real users is
+   the one still open and the one nobody was told about. ⚠⚠ **Constrain it to
+   `pypi` at the URL below before the next release.** **A publisher is matched
+   on owner + repo + workflow file +
    environment; leave the fourth blank and it is not checked**, so any job in
    `release.yml` can mint a publishing token, including one added later that
    sits outside the environment and therefore outside step 2's gate. Read the
