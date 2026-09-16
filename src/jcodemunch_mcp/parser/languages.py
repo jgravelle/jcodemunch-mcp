@@ -302,11 +302,22 @@ JAVASCRIPT_SPEC = LanguageSpec(
         "function_declaration": "name",
         "class_declaration": "name",
         "method_definition": "name",
+        # ⚠⚠ #712. This node type sat in `symbol_node_types` above and in
+        # NEITHER map here, so every `function* gen()` parsed, matched,
+        # resolved to no name and was dropped -- advertised as supported, never
+        # emitted. An inventory check of declared node types (#698's lesson)
+        # passes on that: the two maps are a contract and nothing asserted they
+        # agree. `tests/test_language_spec_maps_agree.py` now asserts it for
+        # every spec in the registry.
+        "generator_function_declaration": "name",
     },
     param_fields={
         "function_declaration": "parameters",
         "method_definition": "parameters",
         "arrow_function": "parameters",
+        # Naming it is half the fix: without this a generator reads as a
+        # zero-argument function everywhere a signature is shown.
+        "generator_function_declaration": "parameters",
     },
     return_type_fields={},
     docstring_strategy="preceding_comment",
@@ -322,6 +333,9 @@ TSX_SPEC = LanguageSpec(
     ts_language="tsx",
     symbol_node_types={
         "function_declaration": "function",
+        # ⚠ #712. TS and TSX never listed this at all -- #698's shape, in
+        # the two specs #698 fixed, for a form nobody asked about then.
+        "generator_function_declaration": "function",
         "class_declaration": "class",
         # Same grammar family as TYPESCRIPT_SPEC, same two nodes, and a fix
         # applied to one spec reaches only half the product (#698).
@@ -334,6 +348,7 @@ TSX_SPEC = LanguageSpec(
     },
     name_fields={
         "function_declaration": "name",
+        "generator_function_declaration": "name",
         "class_declaration": "name",
         "abstract_class_declaration": "name",
         "method_definition": "name",
@@ -344,6 +359,7 @@ TSX_SPEC = LanguageSpec(
     },
     param_fields={
         "function_declaration": "parameters",
+        "generator_function_declaration": "parameters",
         "method_definition": "parameters",
         "abstract_method_signature": "parameters",
         "arrow_function": "parameters",
@@ -367,6 +383,9 @@ TYPESCRIPT_SPEC = LanguageSpec(
     ts_language="typescript",
     symbol_node_types={
         "function_declaration": "function",
+        # ⚠ #712. TS and TSX never listed this at all -- #698's shape, in
+        # the two specs #698 fixed, for a form nobody asked about then.
+        "generator_function_declaration": "function",
         "class_declaration": "class",
         # tree-sitter-typescript gives `abstract class X` its OWN node type,
         # not a modifier on class_declaration -- `export`, `declare` and
@@ -384,6 +403,7 @@ TYPESCRIPT_SPEC = LanguageSpec(
     },
     name_fields={
         "function_declaration": "name",
+        "generator_function_declaration": "name",
         "class_declaration": "name",
         "abstract_class_declaration": "name",
         "method_definition": "name",
@@ -394,6 +414,7 @@ TYPESCRIPT_SPEC = LanguageSpec(
     },
     param_fields={
         "function_declaration": "parameters",
+        "generator_function_declaration": "parameters",
         "method_definition": "parameters",
         "abstract_method_signature": "parameters",
         "arrow_function": "parameters",

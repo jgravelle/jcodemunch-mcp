@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Fixed - generator declarations were listed as supported and dropped (#712)
+
+`function* gen(a) { yield a; }` produced no symbol in JavaScript, TypeScript or
+TSX. An ordinary function did, and so did a generator EXPRESSION assigned to a
+variable, which is what made the reported case look arbitrary.
+
+Two maps decide whether a declaration form survives. `symbol_node_types` says
+which tree-sitter nodes become symbols; `name_fields` says which field carries
+each one's name, and `_extract_name` returns nothing for a node type missing
+from the second, so the symbol is dropped unnamed. JavaScript listed
+`generator_function_declaration` in the first map and in NEITHER of the other
+two -- advertised as supported, never emitted. `param_fields` had the same hole,
+which would have left a generator reading as a zero-argument function.
+
+⚠⚠ **#698's lesson is satisfied by this defect and could not catch it.** #698
+was a node type missing from the spec, and its remedy -- list the node type --
+passes here, because the generator IS listed. The contract between the two maps
+was already encoded one module over, for a different pair
+(`tests/test_ts_module_extensions.py`: "adding an extension to
+`LANGUAGE_EXTENSIONS` without its rewrite entry makes the file visible and its
+importers invisible"), and was recorded against that spelling rather than the
+shape.
+
+`tests/test_language_spec_maps_agree.py` asserts the property over all 79 specs
+in `LANGUAGE_REGISTRY`, so a language added later inherits it. An exception
+needs a real `_extract_name` branch behind it, asserted against that function's
+source, so the list cannot be used to silence a gap.
+
+Running it found what the report did not. TypeScript and TSX drop the same form
+by the OTHER mechanism -- they never listed the node type at all, #698's shape,
+in the two specs #698 itself fixed -- and both are fixed here. And Haskell's
+`name_fields` is empty, so **the language extracts nothing at all**; that is a
+separate verdict, filed as #722 and recorded as a tracked gap rather than
+excused.
+
+Found by an external critique of 1.108.319.
+
 ### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
 
 `release: post-publish` installs the just-published artifact into a clean venv,
