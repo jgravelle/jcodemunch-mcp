@@ -133,8 +133,13 @@ def test_an_annotation_element_is_indexed_and_owned(parsed):
     )
 
 
-def test_every_added_node_type_is_paired_in_all_three_maps():
+def test_every_added_node_type_is_paired_in_both_name_maps():
     """The #712 contract, asserted for the four node types this change adds.
+
+    ⚠ TWO maps, not three: `param_fields` is deliberately excluded, because a
+    compact constructor has no parameter list and an annotation element's
+    parentheses are always empty. The first name of this test said "all three
+    maps" and told a reader the opposite of what the body does.
 
     A node type in `symbol_node_types` with no `name_fields` entry resolves to
     no name and is dropped -- listed as supported, never emitted. #712 is the
@@ -172,11 +177,18 @@ def test_the_two_new_containers_are_declared():
 def test_a_record_component_is_not_claimed_as_a_member(parsed):
     """A STATED BOUNDARY, asserted so it is a decision rather than an oversight.
 
-    `record Point(int value)` declares a component. The compiler synthesises a
-    field and an accessor from it; neither is written in the source. This change
-    indexes the DECLARATION FORMS that were missing and does not invent symbols
-    for generated members -- an index that reports an accessor nobody wrote
-    cannot be checked against the file.
+    `record Point(int value)` declares a component. A component IS written, with
+    its own span -- the earlier version of this docstring said it was not, which
+    is true of the backing field and the accessor the compiler synthesises from
+    it, and false of the component itself. The reason to exclude it is that a
+    component is closer to a PARAMETER of the header than to a member: it is
+    declared in the signature, and what the class exposes because of it (field,
+    accessor) is generated. Indexing those would report members nobody wrote,
+    which cannot be checked against the file.
+
+    ⚠ The issue's own Test section asks for `Point.value` with an owner, so this
+    change declines one item #713 names. It declines it in the open, here, with
+    a flip path.
 
     ⚠ If a later change decides a component should be a field, this test is the
     one to flip, deliberately, with its own evidence. A red here means the

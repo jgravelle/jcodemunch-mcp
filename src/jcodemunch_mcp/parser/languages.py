@@ -552,7 +552,13 @@ JAVA_SPEC = LanguageSpec(
     },
     return_type_fields={
         "method_declaration": "type",
-        "annotation_type_element_declaration": "type",
+        # ⚠ `annotation_type_element_declaration` is NOT added here, and the
+        # grammar does expose a `type` field on it. Nothing in the tree READS
+        # `return_type_fields` or `type_patterns` -- both are write-only across
+        # all 79 specs -- so an entry would change no behaviour while implying
+        # it does. "Grep a persisted field for its readers before trusting it,
+        # AND BEFORE ADDING ONE" (#561/#562). The write-only pair is filed
+        # separately; wiring them up is where these two entries belong.
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="marker_annotation",
@@ -567,7 +573,7 @@ JAVA_SPEC = LanguageSpec(
         "annotation_type_declaration",
     ],
     constant_patterns=["field_declaration"],
-    type_patterns=["interface_declaration", "enum_declaration", "annotation_type_declaration"],
+    type_patterns=["interface_declaration", "enum_declaration"],
 )
 
 
