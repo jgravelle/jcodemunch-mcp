@@ -55,29 +55,79 @@ ROOT = Path(__file__).resolve().parents[1]
 WF = ROOT / ".github" / "workflows"
 RELEASE = WF / "release.yml"
 
-# ⚠⚠ Keyed on the install VERB and the absence of a local source, never on how
-# the version is spelled. The first draft matched `==$V` and therefore missed
-# `==${{ needs.preflight.outputs.version }}` -- the workflow's OWN idiom, the
-# expression `V` is assigned from two lines above each step -- along with a
-# literal version, `pip install`, `uv tool install` and `-r`. A third remote
-# install written any of those ways would have been ungated on arrival while
-# `assert len(found) >= 2` stayed green, because the existing two still matched.
-# That is "a guard written against a SPELLING is fixed for that spelling only"
-# (09-01, #566), found by the reviewer probing the regex rather than the tree.
-_INSTALL_VERB = re.compile(r"\b(?:uv (?:pip|tool) install|pip3? install)\b")
+# ⚠⚠ Never keyed on how the VERSION is spelled. The first draft matched `==$V`
+# and therefore missed `==${{ needs.preflight.outputs.version }}` -- the
+# workflow's OWN idiom, the expression `V` is assigned from two lines above each
+# step -- along with a literal version, `pip install` and `uv tool install`. A
+# third remote install written any of those ways would have been ungated on
+# arrival while `assert len(found) >= 2` stayed green, because the existing two
+# still matched. That is "a guard written against a SPELLING is fixed for that
+# spelling only" (09-01, #566), found by the reviewer probing the regex rather
+# than the tree. See `_is_remote_install` for the other two conjuncts and for
+# what dropping the version alone swept in.
+# ⚠ `uvx` is here deliberately: CLAUDE.md's `server.py` entry names probing
+# through bare `uvx` as a known wrong route ("it served a CACHED build once"),
+# which makes it the likeliest wrong spelling to appear in this file.
+_INSTALL_VERB = re.compile(r"\b(?:uv (?:pip|tool) install|uv add|uvx|pip3? install)\b")
 
 # A local artifact needs no retry: nothing has to propagate. The dry-run arms
 # install `dist/*.whl`, and wrapping those in a loop that can never help would
 # be worse than leaving them out.
 _LOCAL_SOURCE = re.compile(r"\bdist/|\.whl\b|\.tar\.gz\b|\s-e\s|--find-links")
 
+
+def _distribution() -> str:
+    """The name from `pyproject.toml`, never a second copy of it here."""
+    m = re.search(
+        r'^name\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M
+    )
+    assert m, "no name in pyproject.toml"
+    return m.group(1)
+
+
+_DIST = re.compile(re.escape(_distribution()))
+
 # The readiness endpoints a probe could ask about. The JSON API is the one that
 # burned us; `/simple/` is the honest surface and is still not the install.
 _PROBE_URL = re.compile(r"https://(?:test\.)?pypi\.org/(?:pypi|simple)/")
 
 
+def _strip_comment(line: str) -> str:
+    """Shell comment removed, so a line ABOUT the defect is not read as the defect.
+
+    ⚠ Found by the reviewer, not by the suite: writing this step's own
+    explanatory comment with the scheme included
+    (`# https://pypi.org/pypi/<pkg>/<version>/json`) turned
+    `test_no_step_gates_an_install_on_a_different_endpoint` red and named the
+    comment as the gate. The tree was green only because that comment happens to
+    omit `https://`. **The next person who documents the defect in full would
+    have got a red test blaming them for it.**
+    """
+    return line.split("#", 1)[0]
+
+
 def _is_remote_install(line: str) -> bool:
-    return bool(_INSTALL_VERB.search(line)) and not _LOCAL_SOURCE.search(line)
+    """Installs THIS distribution from somewhere that has to propagate.
+
+    Three conjuncts, and the third is the one the first two rounds missed in
+    opposite directions. Keying on the version SPELLING (`==$V`) missed this
+    workflow's own `${{ needs.preflight.outputs.version }}`; dropping the
+    version and keeping only "an install with no local artifact" then swept in
+    `-r requirements.txt`, `build twine` and `pytest`, so a future dev-tooling
+    step would fail three tests and be told to wrap itself in a propagation
+    retry — advice that is nonsense for `pytest`, and an invitation to weaken
+    the test rather than fix the step.
+
+    The property is "installs the just-published artifact", so the distribution
+    NAME is the conjunct that says so, read from `pyproject.toml` rather than
+    written here a second time.
+    """
+    line = _strip_comment(line)
+    return bool(
+        _INSTALL_VERB.search(line)
+        and _DIST.search(line)
+        and not _LOCAL_SOURCE.search(line)
+    )
 
 
 def _steps_with_run() -> list[tuple[str, str, str]]:
@@ -136,7 +186,11 @@ def test_no_step_gates_an_install_on_a_different_endpoint(job: str, name: str, r
     two surfaces with two caches, and the one that answers first is not the one
     that serves the file.
     """
-    probes = [ln.strip() for ln in run.splitlines() if _PROBE_URL.search(ln) and "pip install" not in ln]
+    probes = [
+        ln.strip()
+        for ln in run.splitlines()
+        if _PROBE_URL.search(_strip_comment(ln)) and not _is_remote_install(ln)
+    ]
     assert not probes, (
         f"{RELEASE.name} job {job!r}, step {name!r} gates an install on a separate "
         f"readiness probe:\n    " + "\n    ".join(probes) + "\n"
