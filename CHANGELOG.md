@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed - the inbound gate tests stubbed `gh` in a way that shadowed nothing on Windows (#705)
+
+`tests/test_inbound_workflows.py` executes each inbound workflow's gate step
+under bash, so the shell logic that holds a model job back is checked by running
+it rather than by matching patterns against it. It stubbed `gh` and `python` as
+extensionless files in a `bin/` directory prepended to `PATH`, with `chmod +x`
+in the prologue.
+
+**Git Bash on Windows resolves a command only through an executable extension.**
+The executable bit does not enter into it, so the stubs shadowed nothing:
+`command -v gh` answered `C:\Program Files\GitHub CLI\gh`. Every Windows run
+of that test called the real `gh` against the fake repo `o/r`, over the network,
+with whatever credentials the machine had.
+
+⚠⚠ **It never went red, and the reason is a lesson this project already wrote
+down.** The gate step pipes its output — `gh issue list ... | tr ... | sed ...`
+— and a pipeline reports its last command's status. The real `gh` failed, `sed`
+succeeded, `go=true` was written anyway. That is inbound item 6's rule from
+2026-09-04, *a gate's exit status is never the left side of a pipe*, reproduced
+inside the fixture written to check it.
+
+The symptom was a nightly timeout: `subprocess.TimeoutExpired ... after 60
+seconds` on two consecutive nights, on two different Python versions, always on
+the `True-True` combination. That combination is the only one that reaches the
+`gh` branch, which is why it and nothing else failed, and why Linux was green
+throughout.
+
+The stubs are shell functions now. Bash resolves a function ahead of `PATH` on
+both platforms, and a function needs no file, no `chmod` and no process.
+`test_a_gate_step_cannot_reach_the_real_tool` asserts what `command -v` answers,
+because resolution is the property that a file on `PATH` gets right on one
+platform and wrong on the other; it was run against the old mechanism first,
+where it reports the real `gh` and the real interpreter.
+
+⚠ `test_the_stub_refuses_a_command_it_does_not_implement` is the other half. A
+stub that answers everything hides the next dependency, so dispatch is by
+basename and an unrecognised script exits 127 with a named message. Without it
+this fix would trade a false positive for a silence (#569).
+
+Measured on the dev box, with a fast local `gh`: the file ran `155 passed in
+16.91s` before and `158 passed in 4.23s` after. A runner without a usable `gh`
+is where the 60 seconds came from.
+
 ## [1.108.319] - 2026-09-16 - the numbers a competitor published about us were right, and so was the refusal we had shipped over twice
 
 ### Fixed - the published benchmark tables are derived from the reference, not from three different runs (W-16)

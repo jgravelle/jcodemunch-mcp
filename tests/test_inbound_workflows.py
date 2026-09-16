@@ -623,10 +623,52 @@ def test_the_model_switch_is_a_second_variable_that_fails_closed_the_same_way():
 # run under bash with stub switch scripts, for every combination of the two
 # switches, and the outputs the model job starts from are read back.
 
-_STUB_SWITCH = """import os, sys
-a = sys.argv
-var = a[a.index("--variable") + 1] if "--variable" in a else "INBOUND_ENABLED"
-sys.exit(0 if os.environ.get("STUB_" + var) == "true" else 78)
+# ⚠⚠ The stubs are SHELL FUNCTIONS, and that is the fix for #705 (harness F-29).
+#
+# They used to be extensionless files written into a `bin/` directory prepended
+# to `PATH`, with `chmod +x` in the prologue. On Linux that shadows `gh` and
+# `python`. **On Windows it shadows NOTHING** — Git Bash's PATH search accepts a
+# file only if it carries an executable EXTENSION, so the executable bit is
+# irrelevant and `command -v gh` resolved to `C:\Program Files\GitHub CLI\gh`.
+#
+# So on every Windows runner this harness ran the REAL `gh` against the fake repo
+# `o/r`, over the network, with whatever credentials the runner had. It never
+# failed the test, because the gate writes it as
+# `gh issue list ... | tr ... | sed ...` and **a pipeline's exit status is its
+# LAST command** — `sed` succeeds, so the failure was masked and `go=true` was
+# written anyway. (The same lesson as inbound item 6, 09-04, reproduced inside
+# the fixture that was checking it.)
+#
+# That is what timed out: `True-True` is the only combination that reaches the
+# `gh` branch, which is why F-29's two failures both name it, and why the other
+# nine matrix jobs passed each night. A real `gh issue list` on a contended
+# runner with no token does DNS, TLS and auth resolution before it gives up.
+#
+# A function is resolved by bash before PATH on both platforms, needs no file,
+# no `chmod` and no process. The 60 s below is a hang guard now, not a budget:
+# nothing in a step can legitimately take seconds any more.
+_STUB_PRELUDE = r"""
+python() {
+  local _script _var _value
+  _script=${1##*/}
+  shift
+  case "$_script" in
+    killswitch.py)
+      _var=INBOUND_ENABLED
+      while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--variable" ]; then _var=$2; fi
+        shift
+      done
+      eval "_value=\${STUB_$_var-}"
+      if [ "$_value" = "true" ]; then return 0; fi
+      return 78
+      ;;
+    budget.py) return 0 ;;
+    fix_preflight.py) printf '{}\n'; return 0 ;;
+    *) printf 'stub python: unhandled script %s\n' "$_script" >&2; return 127 ;;
+  esac
+}
+gh() { printf '[1]\n'; }
 """
 
 
@@ -639,42 +681,39 @@ def _bash() -> str:
     raise AssertionError("bash is required to execute the gate steps (Git Bash on Windows)")
 
 
-def _gate_outputs(run: str, tmp: Path, layer: bool, model: bool) -> dict[str, str]:
+def _run_step(run: str, tmp: Path, layer: bool, model: bool):
+    """Execute one gate step under bash with the stub functions in front of it.
+
+    Returns the CompletedProcess so a guard can read the exit status and stderr;
+    `_gate_outputs` is the caller that wants the `$GITHUB_OUTPUT` values.
+    """
     import os
     import subprocess
 
-    inbound = tmp / ".github" / "inbound"
-    inbound.mkdir(parents=True, exist_ok=True)
-    (inbound / "killswitch.py").write_text(_STUB_SWITCH, encoding="utf-8")
-    (inbound / "budget.py").write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
-    (inbound / "fix_preflight.py").write_text("print('{}')\n", encoding="utf-8")
-    bindir = tmp / "bin"
-    bindir.mkdir(exist_ok=True)
-    (bindir / "gh").write_text("#!/usr/bin/env bash\necho '[1]'\n", encoding="utf-8", newline="\n")
-    (bindir / "python").write_text(
-        f'#!/usr/bin/env bash\nexec "{Path(sys.executable).as_posix()}" "$@"\n', encoding="utf-8", newline="\n"
-    )
+    tmp.mkdir(parents=True, exist_ok=True)
     out = tmp / "github_output.txt"
     out.write_text("", encoding="utf-8")
     (tmp / "runner").mkdir(exist_ok=True)
     script = tmp / "step.sh"
-    script.write_text(
-        'export PATH="$STUB_BIN:$PATH"\nchmod +x "$STUB_BIN/gh" "$STUB_BIN/python"\n' + run.replace("\r\n", "\n"),
-        encoding="utf-8",
-        newline="\n",
-    )
+    script.write_text(_STUB_PRELUDE + run.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
     env = dict(os.environ)
     env.update(
         STUB_INBOUND_ENABLED="true" if layer else "false",
         STUB_INBOUND_MODEL_ENABLED="true" if model else "false",
-        STUB_BIN=bindir.as_posix(),
         GITHUB_OUTPUT=out.as_posix(),
         RUNNER_TEMP=(tmp / "runner").as_posix(),
         REPO="o/r", ISSUE="7", REQUESTED="", LABELER="u", LABELER_TYPE="User", APP_LOGIN="a",
     )
-    subprocess.run([_bash(), "-e", script.as_posix()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run(
+        [_bash(), "-e", script.as_posix()],
+        cwd=tmp, env=env, capture_output=True, text=True, timeout=60,
+    )
+
+
+def _gate_outputs(run: str, tmp: Path, layer: bool, model: bool) -> dict[str, str]:
+    _run_step(run, tmp, layer, model)
     values: dict[str, str] = {}
-    for line in out.read_text(encoding="utf-8").splitlines():
+    for line in (tmp / "github_output.txt").read_text(encoding="utf-8").splitlines():
         k, _, v = line.partition("=")
         values[k.strip()] = v.strip()  # the LAST write wins, as in Actions
     return values
@@ -721,6 +760,63 @@ def _model_start_combinations(doc: dict, tmp: Path) -> list[str]:
 @pytest.mark.parametrize("stem", ["inbound-triage", "inbound-digest", "inbound-fix", "inbound-depeval"])
 def test_executed_gates_start_a_model_job_only_with_both_switches_on(stem: str, tmp_path: Path):
     assert _model_start_combinations(_wf(WF / f"{stem}.yml"), tmp_path) == []
+
+
+@pytest.mark.parametrize("name", ["gh", "python"])
+def test_a_gate_step_cannot_reach_the_real_tool(name: str, tmp_path: Path):
+    """#705 / harness F-29: no step may resolve `gh` or `python` off `PATH`.
+
+    ⚠⚠ This is the defect, and it was invisible on Linux. The stubs were
+    extensionless files on `PATH`; Git Bash on Windows resolves a command only
+    through an executable EXTENSION, so `command -v gh` returned
+    `C:\\Program Files\\GitHub CLI\\gh` and every Windows run of
+    `test_executed_gates_start_a_model_job_only_with_both_switches_on` called the
+    REAL `gh` against the fake repo `o/r`, over the network. That is a test
+    reaching real `gh`, which this project forbids outright, and it is what timed
+    out on the nightlies (F-29): `True-True` is the only combination that reaches
+    the `gh` branch.
+
+    ⚠ It never went red, because the gate writes `gh ... | tr ... | sed ...` and
+    a pipeline reports its LAST command's status. The real `gh` failed, `sed`
+    succeeded, `go=true` was written, and the check passed over a call it should
+    never have made.
+
+    Asserted as resolution rather than as a process count because resolution is
+    the property: a function answers on both platforms, a file on `PATH` answers
+    on one.
+
+    ⚠ The limit, stated rather than discovered later: a shell function is
+    bypassed by `env python`, `command python`, a backslash-escaped `\\python`
+    or a step that re-exports `PATH`, and this sees none of them — it runs the
+    prelude against a synthesized probe, not against the four real gate steps.
+    No gate step uses any of those spellings today, and all three script
+    basenames they do call are implemented, so this is a future spelling that is
+    not covered rather than a hole that is open. If one appears, the guard to
+    write is over the WORKFLOW text, not over this probe.
+    """
+    done = _run_step(f'command -v {name} > "$GITHUB_OUTPUT"\n', tmp_path, True, True)
+    assert done.returncode == 0, done.stderr
+    where = (tmp_path / "github_output.txt").read_text(encoding="utf-8").strip()
+    assert where == name, (
+        f"`{name}` resolved to {where!r} instead of the stub function; a gate step "
+        f"would run the real tool"
+    )
+
+
+def test_the_stub_refuses_a_command_it_does_not_implement(tmp_path: Path):
+    """The suppression guard for the test above.
+
+    A stub that answers everything is a stub that hides a new dependency: a gate
+    step that starts calling a fourth script would get a silent success and the
+    executed check would grade a path it never ran. Dispatch is by basename and
+    the default branch fails loudly.
+
+    Same lesson as #569 — a fix for a false positive can install a false
+    negative, and only the over-suppression test sees it.
+    """
+    done = _run_step('python .github/inbound/not_a_real_script.py --repo "$REPO"\n', tmp_path, True, True)
+    assert done.returncode != 0, done.stdout
+    assert "not_a_real_script.py" in done.stderr, done.stderr
 
 
 def test_executed_gates_see_the_mutations_the_patterns_could_not(tmp_path: Path):
