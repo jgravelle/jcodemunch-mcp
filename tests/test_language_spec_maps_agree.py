@@ -40,9 +40,14 @@ _RESOLVED_BEFORE_NAME_FIELDS = {
     },
     "python": {"type_alias_statement": "explicit branch for the 3.12 type statement"},
     "dart": {
-        "type_alias": "explicit branch",
-        "method_signature": "resolved through the enclosing declaration",
-        "mixin_declaration": "resolved through the enclosing declaration",
+        "type_alias": "explicit branch keyed on the language",
+        # ⚠ These two are keyed on the NODE TYPE with no language guard, their
+        # Dart origin recorded only in a comment (`extractor.py:1009,1017`).
+        # The first draft of this list said "resolved through the enclosing
+        # declaration", which is not a thing that happens; the stricter guard
+        # rejected it.
+        "method_signature": "generic branch on the node type (no language guard)",
+        "mixin_declaration": "generic branch on the node type (no language guard)",
     },
     "gleam": {
         "type_definition": "explicit branch",
@@ -98,11 +103,14 @@ def test_the_scan_reaches_every_spec():
     assert len(LANGUAGE_REGISTRY) >= 70, len(LANGUAGE_REGISTRY)
     declared = sum(len(getattr(s, "symbol_node_types", None) or {})
                    for s in LANGUAGE_REGISTRY.values())
-    # Measured at 79 specs / 129 declared node types on 2026-09-16. The floors
-    # sit below that with room to grow; they exist to catch a registry that
-    # collapsed, not to pin a count. ⚠ The first draft of this line asserted
-    # `>= 200` from memory and failed on a correct tree -- a hand-typed number
-    # in the test written to catch hand-typed maps.
+    # Measured on THIS tree, 2026-09-16: 79 specs, 131 declared node types.
+    # The floors sit below that with room to grow; they exist to catch a
+    # registry that collapsed, not to pin a count.
+    # ⚠ Two corrections, both in the test written to catch hand-typed numbers.
+    # The first draft asserted `>= 200` from memory and failed on a correct
+    # tree. The comment then said 129, measured BEFORE this PR added its own
+    # two entries to the TS and TSX specs -- stale by two, in a comment whose
+    # only job is to record a measurement.
     assert declared >= 120, declared
 
 
@@ -119,31 +127,103 @@ def test_the_predicate_sees_a_planted_gap():
     assert _unpaired(_Spec()) == {"a_declaration"}
 
 
-def test_every_exception_has_a_real_special_case():
-    """An excuse must have a handler behind it.
+def _extract_name_branches() -> list[str]:
+    """The source of each top-level `if` in `_extract_name`, one string each.
 
-    ⚠ Without this, `_RESOLVED_BEFORE_NAME_FIELDS` is a list anyone can append
-    to in order to make a red ratchet green -- the thing the split tests in this
-    repo already warn about ("adding a name there to buy budget is the thing the
-    split exists to stop"). The assertion is over the SOURCE of `_extract_name`,
-    because the handlers are `if` branches, not dispatch-table entries.
+    The handlers are `if` branches rather than dispatch-table entries, so the
+    check reads source -- but it reads each branch SEPARATELY, because a scan
+    over the whole function lets one language be excused by another's text.
     """
+    import ast
     import inspect
+    import textwrap
 
     from jcodemunch_mcp.parser import extractor
 
-    source = inspect.getsource(extractor._extract_name)
+    source = textwrap.dedent(inspect.getsource(extractor._extract_name))
+    func = ast.parse(source).body[0]
+    return [
+        ast.get_source_segment(source, node) or ""
+        for node in func.body
+        if isinstance(node, ast.If)
+    ]
+
+
+_ALL_LANGUAGES = frozenset(LANGUAGE_REGISTRY)
+
+
+def _handles(branch: str, language: str, node_type: str) -> bool:
+    """Does this branch handle ``node_type`` FOR ``language``?
+
+    Two ways to qualify, and the second is why a bare substring scan was not
+    enough. A branch may key on the language (`spec.ts_language == "gleam"`) or
+    on the node type alone -- `mixin_declaration` and `method_signature` are
+    handled by node type with no language guard at all, their Dart origin
+    recorded only in a comment. A node-type-only branch is GENERIC, so it
+    qualifies for any language; a branch naming a DIFFERENT language does not.
+    """
+    if node_type not in branch:
+        return False
+    named = {lang for lang in _ALL_LANGUAGES if f'"{lang}"' in branch}
+    return not named or language in named
+
+
+def test_every_exception_has_a_real_special_case():
+    """An excuse must have a handler behind it, and the handler must be ITS OWN.
+
+    ⚠⚠ The first version of this test was itself an escape hatch and was caught
+    in review by the pass this repo requires and I had not run: three bogus
+    exemptions -- `dart/totally_made_up_node`, `kotlin/another_fake_node` and
+    `python/mixin_declaration` (a node type only dart handles) -- were planted
+    and it stayed green. Three holes: a `language in {"kotlin"}` clause skipped
+    the node-type assertion entirely, an `or language in {"dart"}` did the same,
+    and the surviving check was a bare substring over the WHOLE function, so any
+    language could borrow another's branch text. Neither clause bought anything:
+    every excused node type appears in its own language's branch.
+
+    [[a-ratchet-can-pass-against-the-defect-it-names]] -- run a text-scanning
+    ratchet against the reintroduced defect, never only against the fixed tree.
+    `test_the_exception_guard_rejects_a_planted_excuse` is that pass, and it is
+    part of this file now rather than something a reviewer has to think to do.
+    """
+    branches = _extract_name_branches()
+    assert branches, "no top-level branches found; the parse of _extract_name failed"
+
     for language, entries in _RESOLVED_BEFORE_NAME_FIELDS.items():
-        assert f'"{language}"' in source, (
-            f"{language} is excused from the name_fields rule but "
-            f"_extract_name has no branch naming it"
-        )
+        declared = set(LANGUAGE_REGISTRY[language].symbol_node_types or {})
         for node_type in entries:
-            resolved_by_language_branch = language in {"kotlin"}
-            if not resolved_by_language_branch:
-                assert node_type in source or language in {"dart"}, (
-                    f"{language}/{node_type} is excused with no branch that names it"
-                )
+            # An excuse for a node type the spec does not even declare is
+            # meaningless, and it is what the planted `python/mixin_declaration`
+            # case is: a real node type, handled elsewhere, excused for a
+            # language that never declares it.
+            assert node_type in declared, (
+                f"{language}/{node_type} is excused from the name_fields rule but "
+                f"{language} does not declare that node type at all"
+            )
+            assert any(_handles(b, language, node_type) for b in branches), (
+                f"{language}/{node_type} is excused with no branch in _extract_name "
+                f"that handles it -- either for {language} by name, or generically"
+            )
+
+
+@pytest.mark.parametrize(
+    "language,node_type",
+    [
+        ("dart", "totally_made_up_node"),
+        ("kotlin", "another_fake_node"),
+        # A real node type, handled only by ANOTHER language's branch. This is
+        # the one a whole-function substring scan cannot see.
+        ("python", "mixin_declaration"),
+    ],
+)
+def test_the_exception_guard_rejects_a_planted_excuse(language, node_type, monkeypatch):
+    """The non-vacuity pass for the guard above: it must FAIL on a bogus entry."""
+    planted = {k: dict(v) for k, v in _RESOLVED_BEFORE_NAME_FIELDS.items()}
+    planted.setdefault(language, {})[node_type] = "planted by the test"
+    monkeypatch.setitem(globals(), "_RESOLVED_BEFORE_NAME_FIELDS", planted)
+
+    with pytest.raises(AssertionError):
+        test_every_exception_has_a_real_special_case()
 
 
 def test_a_javascript_generator_declaration_yields_its_symbol():
@@ -215,3 +295,21 @@ def test_typescript_generators_are_covered_too():
             "function* gen(a: number) { yield a; }\n", filename, language
         )}
         assert "gen" in names, f"{language} dropped a generator declaration"
+
+
+def test_a_known_gap_is_still_a_gap():
+    """A tracked gap must FAIL once it is fixed, or it becomes an exemption.
+
+    `_KNOWN_GAPS` excuses Haskell's five node types while #722 is open. Nothing
+    else would notice when #722 closes: the entry would sit there permanently
+    excusing a language that no longer needs it, which is how a gap becomes a
+    hole. This fails the moment the gap is repaired, and the failure message
+    says the remedy is to DELETE the entry, not to widen it.
+    """
+    for language, (node_types, why) in _KNOWN_GAPS.items():
+        still_unpaired = _unpaired(LANGUAGE_REGISTRY[language])
+        assert node_types <= still_unpaired, (
+            f"{language}: {sorted(node_types - still_unpaired)} is no longer "
+            f"unpaired, so this _KNOWN_GAPS entry is stale. If the gap is fixed "
+            f"({why}), DELETE the entry -- do not adjust it to match."
+        )
