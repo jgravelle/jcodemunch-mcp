@@ -41,9 +41,13 @@ stub that answers everything hides the next dependency, so dispatch is by
 basename and an unrecognised script exits 127 with a named message. Without it
 this fix would trade a false positive for a silence (#569).
 
-Measured on the dev box, with a fast local `gh`: the file ran `155 passed in
-16.91s` before and `158 passed in 4.23s` after. A runner without a usable `gh`
-is where the 60 seconds came from.
+Measured back to back on the dev box, both arms in one session, and recorded
+in `.claude/state/evidence/timing.md`: `2 failed, 156 passed in 18.71s` before,
+`158 passed in 4.21s` after. The two failures in the before arm are the new
+guards reporting that `gh` and `python` resolve outside the harness; the rest
+pass, because a fast local `gh` behind a pipe that hides its status is exactly
+what made this invisible. A runner without a usable `gh` is where the 60
+seconds came from, and this box cannot reproduce that.
 
 ## [1.108.319] - 2026-09-16 - the numbers a competitor published about us were right, and so was the refusal we had shipped over twice
 
