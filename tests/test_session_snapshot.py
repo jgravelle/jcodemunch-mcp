@@ -115,31 +115,48 @@ def test_snapshot_includes_searches():
 
 
 def test_snapshot_includes_negative_evidence():
-    """Test that negative evidence appears in the dead ends section."""
+    """Test that negative evidence appears in the dead ends section.
+
+    ⚠ Rewritten for #711. This test used to assert that EVERY recorded entry is
+    rendered as a dead end, `low_confidence_matches` included -- i.e. that a
+    search which FOUND weak matches is published to the model under
+    "don't re-search". It also pinned entries carrying no repository, which is
+    how one repo's miss told the model to stop looking in another. Those were
+    the defect, not the feature. What survives is the feature: an absence the
+    producer published reaches the snapshot, and it now names the repository it
+    was measured in.
+    """
     from jcodemunch_mcp.tools.session_journal import get_journal
-    
+
     journal = get_journal()
-    
-    # Record negative evidence
+
     journal.record_negative_evidence({
         "query": "nonexistent_function",
+        "repo": "local/repo-a",
         "verdict": "no_implementation_found",
+        "verdict_state": "absent",
         "scanned_symbols": 4147
     })
     journal.record_negative_evidence({
         "query": "missing_feature",
+        "repo": "local/repo-a",
         "verdict": "low_confidence_matches",
+        "verdict_state": "absent",
         "scanned_symbols": 150
     })
-    
+
     from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
-    
+
     result = get_session_snapshot(max_files=10, max_searches=5, max_edits=10, include_negative_evidence=True)
-    
+
     dead_ends = result["structured"]["dead_ends"]
-    assert len(dead_ends) == 2
-    assert {"query": "nonexistent_function", "verdict": "no_implementation_found"} in dead_ends
-    assert {"query": "missing_feature", "verdict": "low_confidence_matches"} in dead_ends
+    assert len(dead_ends) == 1, "a weak-match verdict was published as a dead end"
+    assert dead_ends[0] == {
+        "query": "nonexistent_function",
+        "verdict": "no_implementation_found",
+        "repo": "local/repo-a",
+    }
+    assert "local/repo-a" in result["snapshot"]
 
 
 def test_snapshot_respects_max_files():
