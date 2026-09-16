@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed - a search miss in one repository is no longer an absence claim about another (#711)
+
+`plan_turn` could return the three symbols implementing a feature and, in the
+same response, tell the caller "The feature does not exist in the indexed
+codebase. Do NOT search again." It took one zero-result search in ANY
+repository to trigger it, and the two sentences sat side by side in one
+payload.
+
+`SessionJournal` records a search twice and the records are not equivalent.
+`record_search(query, result_count)` keeps a query string and an integer -- no
+repository, no filters, no index generation -- and is session history.
+`record_negative_evidence({query, repo, verdict, ...})` keeps the producer's
+own finding, named to a repository, and `retrieval/verdict.py` withholds it
+entirely when absence cannot be established (the v1.108.184 packer guard). The
+prior-negative-evidence check read the first one. The search that caused the
+reported failure had published `citable: false`; that qualification lived in
+the channel nobody read, so every producer test stayed green while the claim
+was reassembled downstream from the integer beside it -- the #566 and #569
+lesson reaching a consumer that was never audited.
+
+An absence now needs two things at once: `SessionJournal.citable_absence(repo,
+query)` -- the one answer to whether an absence may be asserted, filtering the
+evidence log on repository, query and verdict -- and no matches on the current
+page. The second condition is not belt-and-braces: a filter, a token budget or
+a reindex between the two calls all leave a stale miss in the log, and none of
+them makes the symbols in front of the caller disappear. `low_confidence_matches`
+is not an absence verdict and is refused by name.
+
+Second spelling, fixed in the same change: `session_state` had persisted the
+negative-evidence log since it was added and `restore_journal` replayed only
+the query counts, so a resumed or compacted session kept the counts and dropped
+every repo-scoped finding. Harmless while the claim came from the counts;
+after this fix it would have quietly retired #205's stop signal at every
+resume.
+
+`tests/test_plan_turn.py::test_prior_evidence_stops_repeat_search` asserted the
+stop from an unscoped `record_search` and so could only pass while the defect
+existed. Its outcome is the feature and is kept; its mechanism was the bug, and
+the evidence now arrives through the channel that names a repository.
+
+Found by an external critique of 1.108.319.
+
 ### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
 
 `release: post-publish` installs the just-published artifact into a clean venv,

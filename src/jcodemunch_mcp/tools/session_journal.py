@@ -8,6 +8,10 @@ from typing import Optional
 
 _MAX_JOURNAL_ENTRIES = 5000  # Per-dict cap to prevent unbounded memory growth
 
+# The verdicts `retrieval/verdict.py` can put on a negative-evidence entry, and
+# the one of them that asserts nothing is there. Read by `citable_absence`.
+_ABSENCE_VERDICTS = frozenset({"no_implementation_found"})
+
 
 class SessionJournal:
     """Track file reads, searches, and edits during a session."""
@@ -92,6 +96,46 @@ class SessionJournal:
         """Return a copy of the negative evidence log."""
         with self._lock:
             return list(self._negative_evidence_log)
+
+    def citable_absence(self, repo: str, query: str) -> Optional[dict]:
+        """May an absence be asserted for ``(repo, query)`` from this session? (#711)
+
+        THE ONE ANSWER to that question. Every consumer asks here instead of
+        re-deriving it, because the two things this class records about a search
+        are not interchangeable:
+
+        * ``record_search`` keeps a QUERY STRING and an integer. No repository,
+          no filters, no index generation. It is session history and it cannot
+          support a claim about a codebase -- ``plan_turn`` rebuilt one from it
+          and told repo B that a symbol it was returning did not exist, because
+          repo A had missed the same word (#711).
+        * ``record_negative_evidence`` keeps the PRODUCER's finding, named to a
+          repository and carrying its verdict. `retrieval/verdict.py` withholds
+          it entirely when absence cannot be established (the v1.108.184 packer
+          guard), so an entry here means the producer was willing to publish
+          one -- the distinction #566 and #569 paid for.
+
+        ⚠ Only ``no_implementation_found`` is an absence claim.
+        ``low_confidence_matches`` says the matches were weak, which is the
+        opposite of nothing being there.
+
+        Returns the newest matching entry plus ``times_recorded``, or None.
+        A missing repo or query is None: an unscoped claim is not a claim.
+        """
+        if not repo or not query:
+            return None
+        with self._lock:
+            matches = [
+                entry
+                for entry in self._negative_evidence_log
+                if entry.get("repo") == repo
+                and entry.get("query") == query
+                and entry.get("verdict") in _ABSENCE_VERDICTS
+            ]
+        if not matches:
+            return None
+        newest = max(matches, key=lambda e: e.get("timestamp", 0))
+        return {**newest, "times_recorded": len(matches)}
 
     def record_tool_call(self, tool_name: str) -> None:
         """Record a tool call."""

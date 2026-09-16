@@ -146,6 +146,7 @@ def plan_turn(
     # Check session overlap + load journal context for sub-features
     session_overlap: list[str] = []
     journal_ctx: Optional[dict] = None
+    journal = None  # bound below; stays None if the journal is unavailable
     accessed_files: set = set()
     try:
         from .session_journal import get_journal
@@ -156,27 +157,33 @@ def plan_turn(
     except Exception:
         pass
 
-    # --- Sub-feature: Prior negative evidence check ---
-    # If the journal already has a zero-result search for this exact query,
-    # escalate to confidence="none" to stop the AI from re-searching.
+    # --- Sub-feature: Prior negative evidence check (#205, repo-scoped since #711) ---
+    # Two conditions, and BOTH are required:
+    #   1. the producer published an absence for THIS repository and this query
+    #      (`citable_absence` is the authority; a bare zero count is not one), and
+    #   2. this plan found nothing either.
+    # Condition 2 is not belt-and-braces. A filter, a token budget or a reindex
+    # between the two calls all leave a stale miss in the log, and none of them
+    # makes the symbols on this page disappear -- asserting absence over them
+    # produced a response that returned an implementation and denied it existed.
     prior_evidence = None
     try:
-        if journal_ctx is not None:
-            for search in journal_ctx.get("recent_searches", []):
-                if search["query"] == query and search.get("result_count", -1) == 0:
-                    times = search.get("count", search.get("times_run", 1))
-                    prior_evidence = {
-                        "previously_searched": True,
-                        "times_searched": times,
-                        "recommendation": (
-                            f"This exact query was already searched {times} time(s) "
-                            f"with 0 results. The feature does not exist in the indexed codebase. "
-                            f"Do NOT search again."
-                        ),
-                    }
-                    confidence = "none"
-                    max_supplementary_reads = 0
-                    break
+        if journal is not None and not recommended_symbols:
+            absence = journal.citable_absence(repo, query)
+            if absence is not None:
+                times = absence.get("times_recorded", 1)
+                prior_evidence = {
+                    "previously_searched": True,
+                    "times_searched": times,
+                    "recommendation": (
+                        f"A search for this exact query published an absence finding "
+                        f"for this repository {times} time(s), and this plan found no "
+                        f"match either. Re-running the same terms here will not change "
+                        f"the answer. This says nothing about any other repository."
+                    ),
+                }
+                confidence = "none"
+                max_supplementary_reads = 0
     except Exception:
         pass
 
