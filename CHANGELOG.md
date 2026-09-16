@@ -42,6 +42,38 @@ stop from an unscoped `record_search` and so could only pass while the defect
 existed. Its outcome is the feature and is kept; its mechanism was the bug, and
 the evidence now arrives through the channel that names a repository.
 
+Review found the same class one refusal reason over, twice more.
+
+The verdict alone cannot say whether a scan may prove absence.
+`verdict.py`'s `_packed_empty` guard withholds `negative_evidence` for six
+degraded cases and covers neither `index_changed` nor incomplete coverage: both
+fall through and publish `no_implementation_found` on a scan the handoff layer
+refuses, where `handoff.absence_refusal` puts the rule in one line -- only
+`absent` can prove absence, a weak or partial scan is not evidence of nothing.
+"Re-running the same terms will not change the answer" is exactly false there,
+because re-indexing is what changes it. The dispatcher records the verdict STATE
+beside the finding now, read before `meta_fields` strips `_meta`, and an entry
+with no state is refused rather than assumed good.
+
+`get_session_snapshot` was a second consumer and the widest surface the defect
+had -- it is the text the model reads at every compact and resume. It rendered
+every log entry under "don't re-search", dropped the repository, and kept
+`low_confidence_matches`, which is a search that FOUND weak matches. It imports
+the two conditions from the journal rather than restating them, names the
+repository on each line, and carries it in the structured half.
+
+A search and a plan can also spell the same repository differently, since
+`load_repo_index_or_error` resolves a path or a bare name; `plan_turn` offers
+the resolved `owner/name` beside the caller's spelling. A third spelling on the
+recording side is a stated gap and fails closed -- the stop signal does not
+fire, and no false claim is made.
+
+Two existing tests turned red and neither was fixed back.
+`test_prior_evidence_stops_repeat_search` drove the stop from an unscoped
+`record_search`, and `test_snapshot_includes_negative_evidence` required a
+weak-match verdict to be published as a dead end. Both stated the mechanism
+that was the defect; both keep the outcome that is the feature.
+
 Found by an external critique of 1.108.319.
 
 ### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
