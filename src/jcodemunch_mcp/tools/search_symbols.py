@@ -499,14 +499,33 @@ def _heap_tiebreak(symbol_id: str) -> bytes:
 # of this function -- see the UNKNOWN note below.
 _LOCAL_OWNER_KINDS = ("function", "method")
 
+# Kinds that DECLARE the thing a caller naming a symbol is usually asking for.
+# ⚠⚠ Both halves of the rank are required and they cover different corpora.
+# `constant` is deliberately absent: a `const partial = z.object(...).partial()`
+# in a test file is a real symbol and a poor answer to "where is partial
+# defined" when a method of that name exists.
+_DEFINITION_KINDS = frozenset(
+    {"class", "function", "method", "type", "struct", "interface", "trait", "enum"}
+)
+
 
 def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) -> int:
     """How much of a definition is this row, for the purpose of the result cut?
 
-    2 = an exact-name match that is a declaration, or whose owner cannot be
-        established.
-    1 = an exact-name match PROVEN to be declared inside a function body.
+    2 = an exact-name match of a declaring KIND that is not a proven local.
+    1 = any other exact-name match: a constant or field, or a symbol proven to
+        be declared inside a function body.
     0 = not an exact-name match; today's score ordering, untouched.
+
+    ⚠⚠ **Both conditions are load-bearing and each one alone leaves half the
+    defect live.** Measured on the two reproductions: jcodemunch's `run` is
+    crowded by helpers nested in test functions, all of kind `function`, so KIND
+    separates nothing and the owner probe is what fixes it. zod's `partial` is
+    crowded by `const partial = ...` rows that the TypeScript extractor records
+    with NO owner path at all -- they are module-level constants as far as the
+    index is concerned -- so the owner probe scores them exactly like a real
+    method and only KIND separates them. A first draft shipped with the owner
+    probe alone and left the reported case unchanged.
 
     ⚠⚠ The cut is a bounded heap keyed on BM25 alone, so before this an exact
     match could be evicted by a higher-scoring near-miss, and a dozen same-named
@@ -534,6 +553,9 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
         return 0
     if not is_exact_row(entry, *needles):
         return 0
+
+    if str(entry.get("kind", "")) not in _DEFINITION_KINDS:
+        return 1  # a constant or field carrying the name
 
     sym_id = str(entry.get("id", ""))
     file_part, _, rest = sym_id.partition("::")

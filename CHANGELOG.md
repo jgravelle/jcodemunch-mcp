@@ -26,6 +26,17 @@ sort reads the same key — a row that survives the cut under one rule and is th
 ordered under another ranks below rows it outranked to get there. Locals are
 demoted, never filtered: they remain legitimate answers to "where is this name".
 
+⚠⚠ **The rank has two conditions and each alone leaves half the defect live.**
+A declaring KIND separates zod's case: its crowders are `const partial = ...`
+rows that the TypeScript extractor records with no owner path, so the index sees
+module-level constants and an owner probe scores them exactly like a real method.
+A function-OWNER probe separates this repository's case: `run`'s crowders are
+helpers nested in test functions, all of kind `function`, so kind separates
+nothing. A first draft shipped with the owner probe alone, passed its own tests,
+and left the reported case byte-for-byte unchanged — the fixture had no
+module-level-constant shape in it. Both conditions ship, and both shapes are in
+the fixture now.
+
 ⚠ The owner is probed **positively** for being a function, and an owner that
 cannot be resolved is not demoted. Asking the opposite — is the owner a class or
 struct? — reads a failed lookup as proof of a function body, and a Rust `impl`

@@ -58,6 +58,22 @@ def crowded_repo(tmp_path_factory):
         '    """Execute one configured step."""\n'
         "    return 0\n"
     )
+    # ⚠⚠ The OTHER crowding shape, and the one that reported the defect. In
+    # TypeScript a `const partial = ...` inside a test callback is recorded with
+    # NO owner path -- the index sees a module-level `constant` -- so the
+    # function-owner probe scores it exactly like a real method and only its
+    # KIND separates it. A fixture with nested-function locals alone passes
+    # while zod stays broken, which is what happened.
+    (src / "src" / "config.py").write_text(
+        "def configure():\n"
+        '    """Configure the runner."""\n'
+        "    return 0\n"
+    )
+    for i in range(_LOCAL_COUNT):
+        (src / "tests" / f"test_const_{i}.py").write_text(
+            f"from src.config import configure as _c{i}\n\n"
+            f"configure = _c{i}\n"
+        )
     for i in range(_LOCAL_COUNT):
         (src / "tests" / f"test_case_{i}.py").write_text(
             f"class TestExecute{i}:\n"
@@ -228,6 +244,32 @@ def test_every_ranked_and_capped_exit_reads_the_declaration_rank():
     )
 
 
+def test_a_module_level_constant_does_not_evict_a_function(crowded_repo):
+    """The shape that reported the defect, and the one a nesting rule misses.
+
+    zod's crowders are `const partial = ...` rows the TypeScript extractor
+    records with no owner path, so the index sees module-level constants. The
+    function-owner probe scores them exactly like a real method; only their kind
+    separates them. A fixture built solely from nested-function locals passes
+    while the reported case stays broken — which is exactly what the first draft
+    of this fix did.
+    """
+    repo, store = crowded_repo
+    rows = search_symbols(repo=repo, query="configure", storage_path=store,
+                          detail_level="compact").get("results", [])
+    exact = [r for r in rows if r["name"] == "configure"]
+    assert exact, "fixture produced no exact matches for 'configure'"
+    kinds = [r["kind"] for r in exact]
+    files = {r["file"].replace("\\", "/") for r in exact}
+    assert any(f.endswith("src/config.py") for f in files), (
+        f"the function was evicted by same-named constants; got {sorted(files)} "
+        f"kinds={kinds}"
+    )
+    assert kinds[0] in {"function", "method"}, (
+        f"a non-declaring kind outranks the definition: {kinds}"
+    )
+
+
 def test_an_owner_that_cannot_be_resolved_is_not_demoted(crowded_repo, tmp_path_factory):
     """UNKNOWN is a third bucket, never False.
 
@@ -248,7 +290,7 @@ def test_an_owner_that_cannot_be_resolved_is_not_demoted(crowded_repo, tmp_path_
             return None
 
     needles = ("cache", "cache")
-    row = {"id": "src/impls.rs::Store.cache#method", "name": "cache"}
+    row = {"id": "src/impls.rs::Store.cache#method", "name": "cache", "kind": "method"}
     assert _declaration_rank(row, _Index(), needles) == 2, (
         "an owner that could not be established was demoted to a local"
     )
