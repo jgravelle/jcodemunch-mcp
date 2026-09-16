@@ -622,6 +622,16 @@ CSHARP_SPEC = LanguageSpec(
         "event_field_declaration": "constant",
         "event_declaration": "constant",
         "destructor_declaration": "method",
+        # ⚠⚠ #714. Three callable members that were declared nowhere, so a type
+        # resolved while the operations inside it did not exist: `Vec + Vec`
+        # had no definition to jump to and a cast operator could not be found.
+        # ⚠ They are deliberately ABSENT from `name_fields` below -- none has an
+        # identifier to point at, and their names are built in `_extract_name`'s
+        # csharp branch (an operator's grammar field holds the bare token `+`,
+        # a conversion has no name at all, an indexer is spelled `this[...]`).
+        "operator_declaration": "method",
+        "conversion_operator_declaration": "method",
+        "indexer_declaration": "method",
     },
     name_fields={
         "class_declaration": "name",

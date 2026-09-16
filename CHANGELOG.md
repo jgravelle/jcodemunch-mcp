@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Fixed - C# operators, conversion operators and indexers were not indexed (#714)
+
+A C# type resolved while three kinds of callable member inside it did not exist
+as symbols: `Vec + Vec` had no definition to jump to, and a cast operator could
+not be found at all.
+
+⚠⚠ **Declaring the node types is only half, and the other half is why this is
+not a one-line spec edit.** None of the three has an identifier to borrow. The
+grammar gives an operator's name as the bare token `+`; a conversion operator
+has no name field whatsoever, only a direction and a target type; an indexer is
+spelled `this[...]`. A `name_fields` entry would have produced a symbol called
+`+`, which matches nothing a reader types and collides with punctuation in a
+lexical index. The names are built in `_extract_name`'s csharp branch:
+`operator +`, `explicit operator string`, `implicit operator int`, `this[]` --
+each the text a developer writes at the declaration, so searching the
+declaration's own spelling finds it.
+
+⚠ **The guard for this was already in the function that needed changing.** That
+branch exists because `field_declaration` and `event_field_declaration` have the
+same shape -- a node type whose name is not at `child_by_field_name("name")`. It
+was solved for those two and never stated as a rule, so three more forms with
+the identical shape went unasked about. "A guard written against a spelling is
+fixed for that spelling only" (#566).
+
+Overload identity needed nothing: two `operator +` on one type already get
+`~1`/`~2` ids from the existing machinery, exactly as ordinary method overloads
+do, and the new forms inherit it. An indexer's `get` accessor is deliberately
+not promoted to a symbol -- a test says so, because indexing accessors would put
+a `get` on every type with a property.
+
+Fourth language in the #698 family (#698 TypeScript, #712 JavaScript/TS/TSX,
+#713 Java). The scan that would have caught all four -- a declaration form the
+grammar spells and no spec names -- is #724 and still does not exist.
+
+Found by an external critique of 1.108.319.
+
 ### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
 
 `release: post-publish` installs the just-published artifact into a clean venv,

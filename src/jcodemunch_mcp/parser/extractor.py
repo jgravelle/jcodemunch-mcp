@@ -1066,6 +1066,41 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
                     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
         return None
 
+    # C# (#714): three callable members with NO identifier to borrow. Their
+    # names are BUILT here rather than pointed at by `name_fields`, which is
+    # why they are absent from that map by design.
+    #
+    # ⚠⚠ The spelling is the whole value. The grammar hands back `+` for an
+    # operator; a symbol called `+` matches nothing a reader would type and
+    # collides with punctuation in a lexical index. Each name below is what a
+    # C# developer writes at the declaration, so searching the declaration's
+    # own text finds it.
+    if spec.ts_language == "csharp" and node.type == "operator_declaration":
+        operator = node.child_by_field_name("operator")
+        if operator is not None:
+            token = source_bytes[operator.start_byte:operator.end_byte].decode("utf-8")
+            return f"operator {token}"
+        return None
+
+    if spec.ts_language == "csharp" and node.type == "conversion_operator_declaration":
+        # No name field at all. What identifies it is the DIRECTION plus the
+        # target type: `explicit` demands a cast at the call site and
+        # `implicit` does not, so the two must not collapse to one name.
+        target = node.child_by_field_name("type")
+        direction = next(
+            (c.type for c in node.children if c.type in ("explicit", "implicit")),
+            None,
+        )
+        if target is not None and direction is not None:
+            type_name = source_bytes[target.start_byte:target.end_byte].decode("utf-8")
+            return f"{direction} operator {type_name}"
+        return None
+
+    if spec.ts_language == "csharp" and node.type == "indexer_declaration":
+        # Spelled `this[...]`; `this[]` is the form a reader recognises without
+        # committing to a parameter list that overloads would disagree about.
+        return "this[]"
+
     # C#: field_declaration and event_field_declaration wrappers
     if spec.ts_language == "csharp" and node.type in ("field_declaration", "event_field_declaration"):
         for child in node.children:
