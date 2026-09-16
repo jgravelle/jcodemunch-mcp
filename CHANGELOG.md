@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.319] - 2026-09-16 - the numbers a competitor published about us were right, and so was the refusal we had shipped over twice
+
 ### Fixed - the published benchmark tables are derived from the reference, not from three different runs (W-16)
 
 `/release` step 4 recomputes every published figure and refuses on a
@@ -518,6 +520,13 @@ Counter, so `core_compact` and the byte-pinned front door did not move).
 PRD: `docs/prd-compiler-diagnostics.md`. Provenance: trace-mcp shipped a
 `get_diagnostics` tool on 2026-09-09 that RUNS the checkers inside its
 server; the shape here is the one this project's read-only charter allows.
+
+### Fixed - `classify_intent`'s docstring named a fallback it never ran (#669)
+
+`counter.classify_intent` documented a catalog-search fallback. Its body runs
+the 35-rule regex loop and nothing else; the lexical fallback lives one level up
+in `_handle_route`. Nothing behaved wrongly -- the description did, which is the
+harder kind to notice, because a reader has no reason to check it.
 
 ## [1.108.318] - 2026-09-11 - the process is code that cannot skip a step, and the field is measured from result files
 

@@ -1936,3 +1936,19 @@ below, verbatim, so nothing is lost -- grep by date or issue number.
   the version matrix was not the axis that mattered. Pin format-sensitive
   parsing with a UNIT test over every spelling; an integration test can only
   observe the one its host emits. [[a-module-that-imports-clean-has-been-tested-for-nothing]]
+
+## Current State rotation (2026-09-16, release 1.108.319)
+
+The 1.108.316 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.316):** **A display preference edited the data it was displaying** (#572, @rknighton): the shared result cache handed back its stored dict, so `meta_fields` (the SHIPPED default `[]`) and per-call `suppress_meta` rewrote what every later caller was served; fixed in the cache, not at the two call sites. Rules: Key Files `storage/token_tracker.py`; forensics: `ISSUE-HISTORY.md` (rotated 2026-09-04).
+
+The 1.108.318 entry's product half, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.318 — **The process is code that cannot skip a step, and the field is measured from result files.** Three layers shipped in this block: the workflows layer (`/feature` · `/fix-issue` · `/release` · `/review` · `/triage-issue` · `/benchmark-compare` · `/competitive-compare`, with hooks that refuse a commit without the fast tier, a PR without a full-tier stamp on THIS tree, and every irreversible verb), the inbound layer (nine headless jobs, OFF until `INBOUND_ENABLED`, the model never holding a write token) and the competitive tier (the nulls, jCodeMunch and nine adapters over pinned corpora in a sandbox, every FINDINGS number script-written from a result file). Product: "where is this name used" reaches `check_references` on every surface that steers it (CF-63); a failed embedding batch names its cause (CF-66); the watcher registers once per root, a moved subtree, a renamed root and an edit under `.github/` reach the index, and an empty full incremental scan reconciles deletions and says when it removed everything (#641, #629, @marcelruhf); an install on tree-sitter-language-pack 1.x says so and what it costs (#608, @kecsap); the CodeQL triage's fixes (#628, C-16); the sdist no longer carries `.github/`. ⚠⚠ **`/release` step 4 REFUSED for the second release running, on the same six README per-repo benchmark rows (workflows W-16, REPORTED): they mirror `benchmarks/rag_baseline_results.json` while the grand total mirrors `jcm_reference.json`, and `tests/test_provenance.py` covers only the total.** Both releases shipped over it by a human's call; regenerate the rows from one artifact or widen the ratchet, or the refusal is ceremony. Forensics: `docs/workflows/FINDINGS.md`, `docs/inbound/FINDINGS.md`, `docs/competitive/FINDINGS.md`.
+
+The `Tests:` line's 1.108.316, 1.108.315 and 1.108.314 counts, verbatim:
+
+- 1.108.316: 9161 passed, 13 skipped, **0 failed** (9174 total).
+- 1.108.315: 9135 passed, 13 skipped, **0 failed** (9148 total).
+- 1.108.314: 9108 total.
