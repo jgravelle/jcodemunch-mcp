@@ -2,9 +2,10 @@
 
 ⚠⚠ `release.yml`'s post-publish job is what stands between a published artifact
 and the GitHub release plus the MCP registry entry. On v1.108.319 it failed on
-both platforms 250 milliseconds after the upload, which skipped both of those
-steps and left the release half-finished behind a dispatch line that had already
-reported success (cicd FINDINGS C-19, issues #706 / #707 / #709):
+both platforms 13 seconds after the upload finished and gave up in under a
+second, against a ten-minute budget -- which skipped both of those steps and
+left the release half-finished behind a dispatch line that had already reported
+success (cicd FINDINGS C-19, issues #706 / #707 / #709):
 
     × No solution found when resolving dependencies:
     ╰─▶ Because there is no version of jcodemunch-mcp==1.108.319 and you require
@@ -54,15 +55,29 @@ ROOT = Path(__file__).resolve().parents[1]
 WF = ROOT / ".github" / "workflows"
 RELEASE = WF / "release.yml"
 
-# An install that reaches the network for a version that may not be served yet.
-# A local wheel (`dist/*.whl`, the dry-run arm) is NOT one: nothing has to
-# propagate, so it must stay outside the retry requirement rather than be
-# wrapped in a loop that can never help.
-_REMOTE_INSTALL = re.compile(r"\buv pip install\b(?![^\n]*\bdist/)[^\n]*==\$?\{?V\}?")
+# ⚠⚠ Keyed on the install VERB and the absence of a local source, never on how
+# the version is spelled. The first draft matched `==$V` and therefore missed
+# `==${{ needs.preflight.outputs.version }}` -- the workflow's OWN idiom, the
+# expression `V` is assigned from two lines above each step -- along with a
+# literal version, `pip install`, `uv tool install` and `-r`. A third remote
+# install written any of those ways would have been ungated on arrival while
+# `assert len(found) >= 2` stayed green, because the existing two still matched.
+# That is "a guard written against a SPELLING is fixed for that spelling only"
+# (09-01, #566), found by the reviewer probing the regex rather than the tree.
+_INSTALL_VERB = re.compile(r"\b(?:uv (?:pip|tool) install|pip3? install)\b")
+
+# A local artifact needs no retry: nothing has to propagate. The dry-run arms
+# install `dist/*.whl`, and wrapping those in a loop that can never help would
+# be worse than leaving them out.
+_LOCAL_SOURCE = re.compile(r"\bdist/|\.whl\b|\.tar\.gz\b|\s-e\s|--find-links")
 
 # The readiness endpoints a probe could ask about. The JSON API is the one that
 # burned us; `/simple/` is the honest surface and is still not the install.
 _PROBE_URL = re.compile(r"https://(?:test\.)?pypi\.org/(?:pypi|simple)/")
+
+
+def _is_remote_install(line: str) -> bool:
+    return bool(_INSTALL_VERB.search(line)) and not _LOCAL_SOURCE.search(line)
 
 
 def _steps_with_run() -> list[tuple[str, str, str]]:
@@ -78,7 +93,7 @@ def _steps_with_run() -> list[tuple[str, str, str]]:
 
 
 def _remote_install_steps() -> list[tuple[str, str, str]]:
-    return [s for s in _steps_with_run() if _REMOTE_INSTALL.search(s[2])]
+    return [s for s in _steps_with_run() if any(_is_remote_install(ln) for ln in s[2].splitlines())]
 
 
 def test_the_scan_finds_the_steps_it_is_about():
@@ -103,7 +118,7 @@ def test_a_remote_install_retries_itself(job: str, name: str, run: str):
     operation that needs it.
     """
     for line in run.splitlines():
-        if not _REMOTE_INSTALL.search(line):
+        if not _is_remote_install(line):
             continue
         assert re.search(r"^\s*if\s+uv pip install\b", line), (
             f"{RELEASE.name} job {job!r}, step {name!r}: this installs a pinned version "
@@ -153,8 +168,12 @@ def test_an_exhausted_retry_still_fails(job: str, name: str, run: str):
 def test_the_step_name_does_not_promise_polling_it_does_not_do():
     """A step name is read by whoever triages the failure.
 
-    The name said "poll up to 10 min" while the step exited in 250 ms, which is
-    why the first read of this failure blamed PyPI rather than the workflow.
+    The name said "poll up to 10 min" while the resolver gave up in 250 ms
+    inside a step that had already built a venv, 13 seconds after the upload.
+    That is why the first read of this failure blamed PyPI rather than the
+    workflow. ⚠ The 250 ms is the RESOLVER's duration, not the gap from the
+    upload; attaching it to the wrong interval is how the number first got
+    published, and the reviewer caught it in four places.
 
     ⚠⚠ **This test did NOT catch C-19 and could not have.** The loop existed;
     it polled the wrong endpoint. It is kept because it closes the adjacent

@@ -9,7 +9,8 @@ runs the handshake against it, and compares its tool count to the pre-flight's.
 The two steps after it -- the GitHub release and the MCP registry publish -- run
 only if it succeeds.
 
-On 1.108.319 it failed on both platforms **250 milliseconds** after the upload:
+On 1.108.319 it failed on both platforms 13 seconds after the upload finished,
+giving up in under a second against a ten-minute budget:
 
 ```
 No solution found when resolving dependencies:
@@ -41,7 +42,20 @@ and failed later, confusingly. Both loops are followed by a check that the
 package is actually there, failing with the version and the budget named.
 
 `tests/test_release_install_is_its_own_probe.py` holds the properties, including
-the one that fails if the scan stops finding the steps it is about.
+the one that fails if the scan stops finding the steps it is about. Its scan is
+keyed on the install verb and the absence of a local artifact, never on how the
+version is spelled: the first draft matched `==$V` and would have missed this
+workflow's own `==${{ needs.preflight.outputs.version }}` idiom.
+
+⚠ `docs/cicd/RUNBOOK.md` carried the same mistake at the human layer -- it told
+the operator to re-run post-publish "once the version shows on
+`https://pypi.org/pypi/jcodemunch-mcp/X.Y.Z/json`", which is the endpoint that
+lied. Two of the three readers of "is PyPI ready" were code; the third is a
+person, and it is corrected here.
+
+⚠ 1.108.319 itself was recovered on the day: the failed jobs were re-run once
+PyPI had propagated, and the GitHub release and the registry publish both
+completed. Nothing was yanked and no version is missing.
 
 ### Fixed - the inbound gate tests stubbed `gh` in a way that shadowed nothing on Windows (#705)
 

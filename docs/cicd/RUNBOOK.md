@@ -117,9 +117,19 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
   cause (an undisclosed persistent or network behaviour was the last one;
   README "Background behavior, fully disclosed" is the compliance surface),
   reply to PyPI, and re-dispatch when lifted. Do not tag by hand meanwhile.
-- **Propagation lag**: `release: post-publish` polls up to 10 minutes. If
-  it times out, re-run only that job from the Actions UI once the version
-  shows on `https://pypi.org/pypi/jcodemunch-mcp/X.Y.Z/json`.
+- **Propagation lag**: `release: post-publish` retries the install itself for
+  up to 10 minutes. If it exhausts that, re-run only that job from the Actions
+  UI; the re-run's own first attempt is the readiness check.
+  ⚠⚠ **Do NOT decide it is ready by looking at
+  `https://pypi.org/pypi/jcodemunch-mcp/X.Y.Z/json`.** This line said to, and
+  that is C-19 at the human layer: the JSON API and the `/simple/` index
+  installers read are cached separately, so the JSON API can answer 200 while
+  the install still fails. On 1.108.319 the job's own probe did exactly that and
+  skipped the GitHub release and the registry publish. **The only reliable
+  readiness signal for an install is the install.**
+  ⚠ If a re-run keeps failing, `uv pip install "jcodemunch-mcp==X.Y.Z"` in a
+  scratch venv is the same question asked by hand; a 404 from the JSON API is
+  evidence of nothing either way.
 - **Test PyPI down**: `release: test pypi` fails; re-dispatch later. There is
   no skip switch by design.
 
