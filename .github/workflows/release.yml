@@ -176,6 +176,11 @@ jobs:
               if uv pip install --python "$VENV" --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match "jcodemunch-mcp==$V"; then break; fi
               echo "not on Test PyPI yet ($i)"; sleep 30
             done
+            # An exhausted retry must still fail (C-19): the `if` that makes the
+            # loop possible also swallows the last attempt's status, so without
+            # this the step walks on to the handshake with nothing installed.
+            uv pip show --python "$VENV" jcodemunch-mcp >/dev/null 2>&1 || {
+              echo "::error title=smoke::jcodemunch-mcp==$V did not install from Test PyPI within 10 minutes"; exit 1; }
           fi
           "$B/python" scripts/handshake.py --expect-version "$V" --command "$EXE" \
             --fixture tests/fixtures/pkg_smoke --expect-languages python,typescript,javascript,go 2>&1 | tee "${RUNNER_TEMP}/hs.log"
@@ -269,10 +274,18 @@ jobs:
             echo "DRY RUN: installing the built wheel, not PyPI" | tee -a "$GITHUB_STEP_SUMMARY"
             uv pip install --python "$VENV" dist/*.whl
           else
+            # The install IS the readiness probe (C-19). This used to poll
+            # pypi.org/pypi/<pkg>/<version>/json and then install through the
+            # /simple/ index: two separately cached surfaces, so the JSON API
+            # answered on the first iteration and the install ran against an
+            # index that had not published the file yet. The `if` is load-bearing
+            # twice -- it retries, and it stops `set -e` aborting on attempt one.
             for i in $(seq 1 40); do
-              if curl -fsS "https://pypi.org/pypi/jcodemunch-mcp/$V/json" >/dev/null; then break; fi; sleep 15
+              if uv pip install --python "$VENV" "jcodemunch-mcp==$V"; then break; fi
+              echo "not on PyPI yet ($i/40)"; sleep 15
             done
-            uv pip install --python "$VENV" "jcodemunch-mcp==$V"
+            uv pip show --python "$VENV" jcodemunch-mcp >/dev/null 2>&1 || {
+              echo "::error title=post-publish::jcodemunch-mcp==$V did not install from PyPI within 10 minutes"; exit 1; }
           fi
           "$B/python" scripts/handshake.py --expect-version "$V" --command "$EXE" \
             --fixture tests/fixtures/pkg_smoke --expect-languages python,typescript,javascript,go 2>&1 | tee "${RUNNER_TEMP}/hs.log"

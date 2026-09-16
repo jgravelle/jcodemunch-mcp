@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
+
+`release: post-publish` installs the just-published artifact into a clean venv,
+runs the handshake against it, and compares its tool count to the pre-flight's.
+The two steps after it -- the GitHub release and the MCP registry publish -- run
+only if it succeeds.
+
+On 1.108.319 it failed on both platforms **250 milliseconds** after the upload:
+
+```
+No solution found when resolving dependencies:
+Because there is no version of jcodemunch-mcp==1.108.319 ...
+```
+
+The step is named "poll up to 10 min" and it did not poll. Its readiness loop
+asked `https://pypi.org/pypi/<pkg>/<version>/json` -- the JSON API -- and the
+install that followed read the `/simple/` index. Those are separately cached, so
+the JSON API answered on the first iteration, the loop broke, and the install ran
+against an index that had not published the file yet.
+
+⚠⚠ **The ten-minute budget was real and was never spent.** This was never PyPI
+being slower than expected: a probe on a different endpoint can only confirm
+readiness by luck, and when the luck ran out the release went half-finished --
+PyPI and the tag done, the GitHub release and the registry entry skipped, behind
+a dispatch that had already reported success.
+
+The install is the probe now. `uv pip install` retries itself inside the loop,
+which is what `smoke from test pypi` one job earlier had been doing since it was
+written. Polling `/simple/` instead would have worked today and rotted the moment
+the installer changed what it reads; a probe and a consumer cannot drift when
+they are the same operation.
+
+⚠ The second half is the cost of the first, and it was already live in the smoke
+job: the `if` that makes a retry possible also swallows the last attempt's exit
+status, so an exhausted loop walked on to the handshake with nothing installed
+and failed later, confusingly. Both loops are followed by a check that the
+package is actually there, failing with the version and the budget named.
+
+`tests/test_release_install_is_its_own_probe.py` holds the properties, including
+the one that fails if the scan stops finding the steps it is about.
+
 ### Fixed - the inbound gate tests stubbed `gh` in a way that shadowed nothing on Windows (#705)
 
 `tests/test_inbound_workflows.py` executes each inbound workflow's gate step
