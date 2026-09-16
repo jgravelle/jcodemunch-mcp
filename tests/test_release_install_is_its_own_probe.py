@@ -104,7 +104,13 @@ _ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 
 def _logical_lines(run: str) -> list[str]:
-    """The step's shell, normalised the way the shell reads it.
+    """Continuations joined and comments stripped. NOT a shell.
+
+    ⚠ The summary line used to read "normalised the way the shell reads it",
+    which is the line a traceback shows and was over-claiming in both halves at
+    once: it expanded variables in a way no shell does (see below), and it cut
+    at a `#` that shell would not treat as a comment. It does two textual
+    things; naming them is the whole honesty of the helper.
 
     ⚠⚠ Two normalisations, and the first is this repo's own 09-04 lesson
     verbatim: *a ratchet's first draft matched per PHYSICAL line and stayed
@@ -157,8 +163,13 @@ def _strip_comment(line: str) -> str:
     comment as the gate. The tree was green only because that comment happens to
     omit `https://`. **The next person who documents the defect in full would
     have got a red test blaming them for it.**
+
+    ⚠ A `#` is only a comment at a WORD boundary. Splitting on the first one
+    anywhere truncated parameter expansion: `"jcodemunch-mcp==${TAG#v}"` became
+    `"jcodemunch-mcp==${TAG`. No line in `release.yml` writes that today and no
+    verdict moved, but a helper that claims to read shell has to read it.
     """
-    return line.split("#", 1)[0]
+    return re.split(r"(?:^|\s)#", line)[0]
 
 
 def _is_remote_install(line: str) -> bool:
@@ -222,7 +233,42 @@ _PREDICATE_CASES = [
     ("the installed exe path release.yml assigns", 'EXE="$B/jcodemunch-mcp.exe"\nuv pip install --python "$VENV" pytest && "$EXE" --version\n', False),
     ("a requirements path under a package-named dir", 'PKGDIR=/tmp/jcodemunch-mcp\nuv pip install --python "$VENV" -r "$PKGDIR/req.txt"\n', False),
     ("a continuation that is not an install", '"$B/python" scripts/handshake.py \\\n  --fixture tests/fixtures/pkg_smoke\n', False),
+    # ⚠ `${TAG#v}` is parameter expansion, not a comment; splitting on a bare `#`
+    # truncated it and the line stopped naming the distribution.
+    ("a version from parameter expansion", 'uv pip install "jcodemunch-mcp==${TAG#v}"\n', True),
 ]
+
+# The four shapes `_INSTALL_VERB` selects that the retry assertion could not
+# accept while it anchored on the literal `if uv pip install` — each a correctly
+# retried install. Asserted against the RETRY check, not the selector.
+_RETRIED_SHAPES = [
+    ("uvx", 'for i in $(seq 1 3); do\n  if uvx --from "jcodemunch-mcp==$V" jcodemunch-mcp --version; then break; fi\ndone\n'),
+    ("uv tool install", 'for i in $(seq 1 3); do\n  if uv tool install "jcodemunch-mcp==$V"; then break; fi\ndone\n'),
+    ("pip install", 'for i in $(seq 1 3); do\n  if pip install "jcodemunch-mcp==$V"; then break; fi\ndone\n'),
+    ("a compound condition", 'for i in $(seq 1 3); do\n  if cd "$D" && uv pip install "jcodemunch-mcp==$V"; then break; fi\ndone\n'),
+]
+
+
+@pytest.mark.parametrize("label,shell", _RETRIED_SHAPES, ids=[c[0] for c in _RETRIED_SHAPES])
+def test_any_install_verb_satisfies_the_retry_check(label: str, shell: str):
+    """A correctly retried install passes whatever verb it is written with.
+
+    ⚠⚠ All four of these were SELECTED as remote installs and could never
+    satisfy the retry assertion while it anchored on `if uv pip install`, so a
+    correct step would have failed with advice to rewrite it — and for `uvx`,
+    advice this repo's own notes argue against. The selector and the assertion
+    must agree about what an install is, which is why both call
+    `_is_remote_install` now.
+    """
+    for line in _logical_lines(shell):
+        if not _is_remote_install(line):
+            continue
+        condition = line.split("; then", 1)[0]
+        assert re.match(r"\s*if\s", line) and _is_remote_install(condition), (
+            f"{label}: a retried install written this way is rejected by the retry check"
+        )
+        return
+    raise AssertionError(f"{label}: the scan did not see this as a remote install at all")
 
 
 @pytest.mark.parametrize("label,shell,expected", _PREDICATE_CASES, ids=[c[0] for c in _PREDICATE_CASES])
@@ -242,7 +288,17 @@ def test_the_predicate_answers_each_spelling(label: str, shell: str, expected: b
     `[[-_]_]` compiled with a FutureWarning and matched nothing. Every scan
     silently returned False and every assertion below passed.
     """
-    assert any(_is_remote_install(line) for line in _logical_lines(shell)) is expected, label
+    got = any(_is_remote_install(line) for line in _logical_lines(shell))
+    hint = ""
+    if "stated gap" in label:
+        hint = (
+            "\n⚠ This case is a STATED GAP asserted as a gap (see `_logical_lines`). "
+            "A failure here may mean the gap was CLOSED, not that something broke: if the "
+            "scan now sees a package name held in a shell variable AND the three pinned "
+            "false positives above still pass, flip this case to True — do NOT revert the "
+            "change that closed it."
+        )
+    assert got is expected, f"{label}: expected {expected}, got {got}{hint}"
 
 
 def test_the_scan_finds_the_steps_it_is_about():
@@ -262,18 +318,36 @@ def test_a_remote_install_retries_itself(job: str, name: str, run: str):
     """The install is the probe.
 
     Every line that installs a pinned version from a remote index must sit
-    inside a retry whose CONDITION is that install — `if uv pip install ...;
-    then break; fi` — so a version still propagating is waited for by the
-    operation that needs it.
+    inside a retry whose CONDITION is that install — `if <install>; then break;
+    fi` — so a version still propagating is waited for by the operation that
+    needs it.
+
+    ⚠⚠ **Asserted as the property, because the literal was the FOURTH costume of
+    this file's recurring defect — this time in the assertion rather than the
+    selector.** It read `^\\s*if\\s+uv pip install\\b` while `_INSTALL_VERB`
+    accepts five spellings, so `if uvx --from ...`, `if uv tool install ...`,
+    `if pip install ...` and `if cd "$D" && uv pip install ...` were all
+    SELECTED as remote installs and could never satisfy it — four correctly
+    retried constructions failing with a message telling the author to make a
+    rewrite that is not required, and for `uvx` one this repo's own notes argue
+    against. It entered when the verb list widened and the assertion did not
+    follow.
+
+    The property is "the install is the retry's condition", so the check is
+    `_is_remote_install` on the text before `; then` — the same predicate that
+    selected the line, which is what stops the two drifting apart again.
     """
     for line in _logical_lines(run):
         if not _is_remote_install(line):
             continue
-        assert re.search(r"^\s*if\s+uv pip install\b", line), (
+        condition = line.split("; then", 1)[0]
+        assert re.match(r"\s*if\s", line) and _is_remote_install(condition), (
             f"{RELEASE.name} job {job!r}, step {name!r}: this installs a pinned version "
             f"from a remote index without retrying the install itself:\n    {line.strip()}\n"
-            f"Wrap it as `if uv pip install ...; then break; fi` inside the loop. A probe "
-            f"on any other endpoint confirms readiness by luck."
+            f"Put the install in the retry's CONDITION — `if <install>; then break; fi` — "
+            f"inside the loop. Any install verb will do; what matters is that the thing "
+            f"being retried is the install. A probe on any other endpoint confirms "
+            f"readiness by luck."
         )
 
 
