@@ -117,12 +117,32 @@ class TestSemanticPathTieBreak:
     """The scorer the two v1.108.223 lanes feed."""
 
     def test_the_semantic_sort_uses_a_total_order(self):
+        """The property is that the key ENDS in the symbol id and orders score
+        descending, not that it is one particular string.
+
+        ⚠ This assertion pinned the whole literal
+        `scored.sort(key=lambda x: (-x[0], x[1]["id"]))` until #699 added a
+        leading declaration-rank component. The invariant it exists to protect
+        -- ties broken on the id, so the numpy float32 and Python float64 lanes
+        cannot disagree at rank 0 -- was untouched by that change, but the test
+        failed anyway because it stated the mechanism instead of the outcome
+        (Practice 9). Restated over the property so a further component can be
+        added without a false alarm, and so dropping the id tiebreak still
+        fails.
+        """
         import inspect
+        import re
 
         from jcodemunch_mcp.tools import search_symbols as ss
 
         src = inspect.getsource(ss)
-        assert 'scored.sort(key=lambda x: (-x[0], x[1]["id"]))' in src
+        sorts = [ln.strip() for ln in src.splitlines() if "scored.sort(" in ln]
+        assert sorts, "the semantic scorer's sort disappeared; this ratchet is blind"
+        for line in sorts:
+            assert re.search(r'x\[1\]\["id"\]\s*\)*\s*\)\s*$', line), (
+                f"the symbol id is not the FINAL tiebreak: {line}"
+            )
+            assert "-x[0]" in line, f"score is not ordered descending: {line}"
         assert "scored.sort(key=lambda x: x[0], reverse=True)" not in src, (
             "a score-only sort leaves ties on SQLite's row order"
         )

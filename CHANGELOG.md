@@ -68,6 +68,16 @@ half therefore does not reach the four names that reported the defect; the
 correctness half does. Ungating the report is a separate judgment about noise on
 prose searches and is not made here.
 
+One older ratchet had to be restated rather than satisfied.
+`test_v1_108_228.py::test_the_semantic_sort_uses_a_total_order` pinned the
+literal string `scored.sort(key=lambda x: (-x[0], x[1]["id"]))`, and adding a
+leading rank component failed it while leaving its invariant — ties broken on the
+symbol id, so the numpy float32 and Python float64 lanes cannot disagree at rank
+0 — entirely intact. It stated the mechanism instead of the outcome (Practice 9).
+It now asserts that the key ends in the symbol id and orders score descending,
+which passes with a further component added and still fails when the id tiebreak
+is removed; that was verified by removing it.
+
 What is impossible now: a cut that silently drops the symbol a caller named, on
 any of the three exits.
 
