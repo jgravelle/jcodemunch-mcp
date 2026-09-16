@@ -411,3 +411,93 @@ def test_the_dispatcher_records_what_the_reader_requires(tmp_path: Path, monkeyp
         "repo a's miss reached repo b through the real dispatcher"
     )
     assert payload.get("action") != "STOP_AND_REPORT_GAP"
+
+
+def test_both_consumers_read_one_predicate(tmp_path: Path):
+    """A condition added once must reach every consumer (#711 review, note 1).
+
+    The planner and the snapshot both decide whether a log entry is an absence
+    worth repeating. Written as a comprehension in each, a third condition
+    added later reaches one of them -- which is the second-derivation shape
+    this whole issue is about, reproduced inside its own fix.
+
+    This asserts the wiring rather than the spelling: patch the shared
+    predicate to refuse everything, and BOTH consumers must fall silent. A
+    consumer holding its own copy keeps talking.
+    """
+    from unittest import mock
+
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+    from jcodemunch_mcp.tools.plan_turn import plan_turn
+    from jcodemunch_mcp.tools.session_journal import SessionJournal
+    from tests.conftest_helpers import create_mini_index
+
+    repo, storage_path = create_mini_index(tmp_path)
+    _remember_miss(ABSENT_QUERY, repo=repo)
+
+    # Both speak while the predicate accepts.
+    assert plan_turn(repo=repo, query=ABSENT_QUERY,
+                     storage_path=storage_path).get("prior_evidence") is not None
+    assert get_session_snapshot()["structured"]["dead_ends"]
+
+    with mock.patch.object(SessionJournal, "entry_is_citable", return_value=False):
+        planner = plan_turn(repo=repo, query=ABSENT_QUERY, storage_path=storage_path)
+        snapshot = get_session_snapshot()
+
+    assert planner.get("prior_evidence") is None, (
+        "the planner did not go through the shared predicate"
+    )
+    assert snapshot["structured"]["dead_ends"] == [], (
+        "the snapshot kept its own copy of the conditions"
+    )
+
+
+def test_the_dispatcher_arm_holds_with_full_metadata(tmp_path: Path, monkeypatch):
+    """The issue asked for both metadata settings; `meta_fields: []` is the other.
+
+    The recording site reads `_meta.verdict.state` before the strip, so the
+    default (`[]`) is the case that could silently lose it -- that arm is
+    `test_the_dispatcher_records_what_the_reader_requires`. This is the
+    complement: with `_meta` retained, nothing about the journal changes.
+    """
+    import asyncio
+    import json
+
+    from jcodemunch_mcp import config
+    from jcodemunch_mcp.server import call_tool
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    storage = str(tmp_path / "store")
+    monkeypatch.setenv("CODE_INDEX_PATH", storage)
+    handles = {}
+    for name, source in [
+        ("a", "def apple():\n    return 1\n"),
+        ("b", "def target():\n    return 1\ndef target_two():\n    return 2\n"),
+    ]:
+        root = tmp_path / name
+        root.mkdir()
+        (root / "example.py").write_text(source)
+        handles[name] = index_folder(
+            path=str(root), storage_path=storage, use_ai_summaries=False,
+            incremental=False, identity_mode="local",
+        )["repo"]
+
+    saved = dict(config._GLOBAL_CONFIG)
+    config._GLOBAL_CONFIG.update(
+        {"session_journal": True, "meta_fields": ["verdict"], "share_savings": False,
+         "use_ai_summaries": False}
+    )
+    try:
+        async def _run():
+            await call_tool("search_symbols", {"repo": handles["a"], "query": "target"})
+            after = await call_tool("plan_turn", {"repo": handles["b"], "query": "target"})
+            content = after if isinstance(after, list) else getattr(after, "content", [])
+            return json.loads(getattr(content[0], "text", "{}"))
+
+        payload = asyncio.run(_run())
+    finally:
+        config._GLOBAL_CONFIG.clear()
+        config._GLOBAL_CONFIG.update(saved)
+
+    assert payload["recommended_symbols"]
+    assert payload.get("prior_evidence") is None

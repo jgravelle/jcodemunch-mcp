@@ -108,6 +108,23 @@ class SessionJournal:
         with self._lock:
             return list(self._negative_evidence_log)
 
+    @staticmethod
+    def entry_is_citable(entry: dict) -> bool:
+        """Is this one log entry an absence a consumer may repeat? (#711)
+
+        The repo-independent half of ``citable_absence``, factored out because
+        it has TWO callers and they must not drift: the planner, which also
+        needs the repository to match, and `get_session_snapshot`, which is
+        session-wide and has no repository of its own to match against. A
+        condition added here reaches both. Written as a comprehension in each
+        of them, a third condition would reach one -- the second-derivation
+        shape this whole issue is about.
+        """
+        return (
+            entry.get("verdict") in _ABSENCE_VERDICTS
+            and entry.get("verdict_state") == _ABSENCE_STATE
+        )
+
     def citable_absence(
         self, repo: str, query: str, aliases: tuple[str, ...] = ()
     ) -> Optional[dict]:
@@ -158,8 +175,7 @@ class SessionJournal:
                 for entry in self._negative_evidence_log
                 if entry.get("repo") in names
                 and entry.get("query") == query
-                and entry.get("verdict") in _ABSENCE_VERDICTS
-                and entry.get("verdict_state") == _ABSENCE_STATE
+                and self.entry_is_citable(entry)
             ]
         if not matches:
             return None

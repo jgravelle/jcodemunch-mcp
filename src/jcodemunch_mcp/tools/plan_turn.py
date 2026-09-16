@@ -172,9 +172,20 @@ def plan_turn(
             # The log holds the repo string the SEARCH was called with, which
             # need not be the one this call used: `load_repo_index_or_error`
             # resolves a path or a bare name to `owner/name`. Both spellings are
-            # offered. ⚠ STATED GAP: a third spelling on the recording side
-            # (`repo="."`) still will not match, and the miss fails CLOSED --
-            # the stop signal does not fire, no false claim is made.
+            # offered.
+            #
+            # ⚠ STATED GAP, and it runs in BOTH directions because the match is
+            # string identity, not repository identity:
+            #   MISS  -- a third spelling on the recording side (`repo="."`)
+            #            does not match, so the stop signal does not fire. Fails
+            #            CLOSED: no false claim, only a lost convenience.
+            #   COLLIDE -- two different repositories addressed by the same
+            #            literal in one session share an entry. Bounded by the
+            #            condition above: this branch is unreachable unless the
+            #            current plan ALSO found nothing, so the worst case is a
+            #            stop signal on a query that genuinely missed here too.
+            # Closing either needs a resolved id the dispatcher does not have at
+            # the recording site; the response carries none.
             absence = journal.citable_absence(
                 repo, query, aliases=(f"{owner}/{name}",)
             )

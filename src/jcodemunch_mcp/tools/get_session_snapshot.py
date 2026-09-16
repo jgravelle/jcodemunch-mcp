@@ -7,10 +7,11 @@ context compaction to restore session orientation.
 from typing import Optional
 import time
 
-# #711: the same two conditions `citable_absence` applies, from the same
-# module. Importing them is the point -- a local copy of either would be the
-# second derivation this issue is about.
-from .session_journal import _ABSENCE_STATE, _ABSENCE_VERDICTS
+# #711: the same predicate `citable_absence` applies, not a local copy of its
+# conditions. This consumer is session-wide and has no repository to match
+# against, which is why it calls the repo-independent half rather than
+# `citable_absence` itself.
+from .session_journal import SessionJournal
 
 
 def _truncate_path(path: str, max_len: int = 50) -> str:
@@ -92,8 +93,7 @@ def _render_snapshot(
         recent_neg_log = [
             entry
             for entry in (neg_log or [])
-            if entry.get("verdict") in _ABSENCE_VERDICTS
-            and entry.get("verdict_state") == _ABSENCE_STATE
+            if SessionJournal.entry_is_citable(entry)
         ][-max_searches:]
         dead_ends.extend([
             {

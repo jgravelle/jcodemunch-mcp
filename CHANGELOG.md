@@ -68,6 +68,16 @@ the resolved `owner/name` beside the caller's spelling. A third spelling on the
 recording side is a stated gap and fails closed -- the stop signal does not
 fire, and no false claim is made.
 
+Both consumers call one predicate, `SessionJournal.entry_is_citable`. Writing
+the two conditions as a comprehension in each was the second-derivation shape
+this entry is about, reproduced one layer inside its own fix; a test patches
+the predicate and requires both consumers to fall silent.
+
+⚠ A third surface is NOT fixed here and is filed as #719: the agent policy this
+server installs still tells the model that `verdict: no_implementation_found`
+is evidence of absence, and presents `degraded` as an alternative value of the
+same field when it is a different field that can be true at the same time.
+
 Two existing tests turned red and neither was fixed back.
 `test_prior_evidence_stops_repeat_search` drove the stop from an unscoped
 `record_search`, and `test_snapshot_includes_negative_evidence` required a
