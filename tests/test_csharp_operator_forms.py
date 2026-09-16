@@ -130,9 +130,18 @@ def test_the_new_forms_are_methods(parsed):
     callable members already use here, and an operator is invoked rather than
     read.
     """
-    for symbol in parsed:
-        if symbol.name.startswith(("operator ", "explicit operator ", "implicit operator ")) or symbol.name == "this[]":
-            assert symbol.kind == "method", (symbol.name, symbol.kind)
+    matched = [
+        s for s in parsed
+        if s.name.startswith(("operator ", "explicit operator ", "implicit operator "))
+        or s.name == "this[]"
+    ]
+
+    # ⚠ Without this the loop matches nothing pre-fix and the test passes
+    # against the defect -- one of the four red-arm passes was vacuous for
+    # exactly this reason.
+    assert len(matched) == 5, sorted(s.name for s in matched)
+    for symbol in matched:
+        assert symbol.kind == "method", (symbol.name, symbol.kind)
 
 
 def test_two_overloads_of_one_operator_both_survive():
@@ -178,4 +187,128 @@ def test_an_accessor_is_not_promoted_to_a_symbol(parsed):
     type with a property, which is noise rather than navigation -- and property
     accessors have never been indexed here.
     """
+    # ⚠ The bare `"get" not in names` this used to be passes on a tree where no
+    # indexer symbol exists AT ALL, so it could not tell "one symbol, not three"
+    # from "nothing". Assert the indexer is present FIRST, and that exactly one
+    # symbol covers it.
+    indexers = [s for s in parsed if s.name == "this[]"]
+    assert len(indexers) == 1, [s.name for s in indexers]
+
     assert "get" not in _names(parsed)
+    assert "set" not in _names(parsed)
+
+
+# ---------------------------------------------------------------------------
+# #714 review: the destructive surface these new symbols created
+# ---------------------------------------------------------------------------
+
+_USED_SOURCE = """public class Use {
+    public void Go() {
+        var a = new Vec();
+        var b = new Vec();
+        var c = a + b;
+        var d = (string)a;
+        int i = a[0];
+        a.Ordinary(1);
+    }
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def two_file_repo(tmp_path_factory):
+    """A repo where every new member is USED, indexed through the product."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path_factory.mktemp("csharp_repo")
+    (root / "Vec.cs").write_text(SOURCE, encoding="utf-8")
+    (root / "Use.cs").write_text(_USED_SOURCE, encoding="utf-8")
+    storage = str(root / "idx")
+    result = index_folder(path=str(root), use_ai_summaries=False, storage_path=storage)
+    return result["repo"], storage
+
+
+def test_a_syntactically_invoked_member_is_not_certified_deletable(two_file_repo):
+    """⚠⚠ The defect this PR would otherwise have SHIPPED (#714 review).
+
+    An operator is invoked as `a + b`. Its name never appears at a call site, so
+    a reference search keyed on the name finds nothing -- and `check_delete_safe`
+    read that nothing as proof, returning `safe_to_delete` at confidence 1.0
+    with "No callers or refs found", for a member the corpus uses on the line
+    below the one it certified.
+
+    This is #566's lesson on new surface: capping the report does not cap the
+    tool that ACTS on it. The ordinary method in the same file is the control --
+    it is correctly blocked, which is what makes the operator's verdict a defect
+    rather than a thin corpus.
+    """
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    repo, storage = two_file_repo
+
+    control = check_delete_safe(repo, "Vec.cs::Vec.Ordinary#method", storage_path=storage)
+    assert control["verdict"] != "safe_to_delete", (
+        "the control is not blocked; the fixture proves nothing"
+    )
+
+    for symbol_id in (
+        "Vec.cs::Vec.operator +#method",
+        "Vec.cs::Vec.this[]#method",
+        "Vec.cs::Vec.explicit operator string#method",
+    ):
+        got = check_delete_safe(repo, symbol_id, storage_path=storage)
+        assert got["verdict"] != "safe_to_delete", (
+            f"{symbol_id} was certified deletable while in use "
+            f"(verdict={got['verdict']}, confidence={got['confidence']})"
+        )
+        assert got["verdict"] == "name_not_searchable", got["verdict"]
+        assert got["confidence"] <= 0.6, got["confidence"]
+
+
+def test_the_refusal_is_not_terminal(two_file_repo):
+    """A refusal that ends the investigation is its own defect.
+
+    `name_not_searchable` says the NAME channel cannot answer, not that the
+    question is closed: reading the call sites or ingesting runtime evidence
+    still settles it. Practice 7 -- `terminal` means FINAL, not SAFE.
+    """
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    repo, storage = two_file_repo
+    got = check_delete_safe(repo, "Vec.cs::Vec.operator +#method", storage_path=storage)
+
+    assert got["stop_rule"]["terminal"] is False, got["stop_rule"]
+
+
+def test_an_ordinary_name_is_still_searchable():
+    """The predicate must not refuse everything -- then it would prove nothing."""
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    for ordinary in ("Ordinary", "my_func", "MyClass", "_private", "a1", "Foo.Bar",
+                     "math_utils::multiply"):
+        assert name_can_appear_at_a_call_site(ordinary), ordinary
+
+    for built in ("operator +", "this[]", "explicit operator string",
+                  "implicit operator int", "operator ==", ""):
+        assert not name_can_appear_at_a_call_site(built), built
+
+
+def test_a_checked_operator_is_distinguishable_from_its_unchecked_twin():
+    """C# 11: a type may declare both, and they are different members.
+
+    ⚠ The first version of the fix read the `operator` field alone, so both
+    built the name `operator +`. They stayed id-distinct through `~1`/`~2`, so
+    nothing was dropped -- but two members published one name, and a
+    name-keyed search cannot recover which is which. Found in review.
+    """
+    source = """public class C {
+    public static C operator +(C a, C b) { return a; }
+    public static C operator checked +(C a, C b) { return a; }
+    public static explicit operator int(C a) { return 0; }
+    public static explicit operator checked int(C a) { return 0; }
+}
+"""
+    names = {s.name for s in parse_file(source, "C.cs", "csharp")}
+
+    assert {"operator +", "operator checked +",
+            "explicit operator int", "explicit operator checked int"} <= names, sorted(names)

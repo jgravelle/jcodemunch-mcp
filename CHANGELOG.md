@@ -28,9 +28,26 @@ fixed for that spelling only" (#566).
 
 Overload identity needed nothing: two `operator +` on one type already get
 `~1`/`~2` ids from the existing machinery, exactly as ordinary method overloads
-do, and the new forms inherit it. An indexer's `get` accessor is deliberately
-not promoted to a symbol -- a test says so, because indexing accessors would put
-a `get` on every type with a property.
+do, and the new forms inherit it. C# 11's `operator checked +` is a different
+member from `operator +` and carries the keyword in its name, so two members
+never publish one name. An indexer's `get` accessor is deliberately not
+promoted to a symbol -- a test says so, because indexing accessors would put a
+`get` on every type with a property.
+
+⚠⚠ **These are the first members here that no name-based reference search can
+see, and that made `check_delete_safe` dangerous on them.** An operator is
+invoked as `a + b`, an indexer as `a[0]` -- the declaration's name appears at no
+call site, so "no references found" is not evidence about it. Measured on a
+corpus using every one of them: the ordinary method in the same file returned
+`internal_uses_blocking`, and `operator +` returned **`safe_to_delete` at
+confidence 1.0**, "No callers or refs found." The new `name_not_searchable`
+verdict replaces the absence verdicts for any symbol whose name is not something
+a call site could write, capped at the same `UNPROVEN_CEILING` an unprovable
+absence already uses, and it is BOUNDED rather than terminal -- reading the call
+sites or ingesting runtime evidence still settles it. `tools/_name_reachability.py`
+is the one answer to "can a name-based search see this symbol", so the next
+consumer asks instead of re-deriving. This is #566's lesson -- capping a report
+does not cap the tool that ACTS on it -- on surface this change created.
 
 Fourth language in the #698 family (#698 TypeScript, #712 JavaScript/TS/TSX,
 #713 Java). The scan that would have caught all four -- a declaration form the

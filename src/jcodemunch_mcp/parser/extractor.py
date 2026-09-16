@@ -1079,7 +1079,14 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         operator = node.child_by_field_name("operator")
         if operator is not None:
             token = source_bytes[operator.start_byte:operator.end_byte].decode("utf-8")
-            return f"operator {token}"
+            # ⚠ C# 11 `operator checked +` is a DIFFERENT member from
+            # `operator +` and a type may declare both. The keyword is its own
+            # child, not part of the `operator` field, so reading the field
+            # alone gave both members the same name -- they stayed id-distinct
+            # via `~1`/`~2`, which is exactly the kind of "not a drop, just
+            # indistinguishable" that a name-based search cannot recover from.
+            checked = any(c.type == "checked" for c in node.children)
+            return f"operator checked {token}" if checked else f"operator {token}"
         return None
 
     if spec.ts_language == "csharp" and node.type == "conversion_operator_declaration":
@@ -1093,7 +1100,9 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         )
         if target is not None and direction is not None:
             type_name = source_bytes[target.start_byte:target.end_byte].decode("utf-8")
-            return f"{direction} operator {type_name}"
+            checked = any(c.type == "checked" for c in node.children)
+            keyword = "operator checked" if checked else "operator"
+            return f"{direction} {keyword} {type_name}"
         return None
 
     if spec.ts_language == "csharp" and node.type == "indexer_declaration":
