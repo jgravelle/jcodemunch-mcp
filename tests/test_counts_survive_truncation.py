@@ -50,6 +50,13 @@ def repo(tmp_path_factory) -> tuple[str, str]:
     (root / "src" / "covered.py").write_text(
         "def covered():\n    return 1\n", encoding="utf-8"
     )
+    # Two declarations of one underscore-bearing name, so `search_symbols` has
+    # more exact matches than the page cap and its (count, capped list) pair can
+    # be graded like the four above (#699).
+    for i in range(2):
+        (root / "src" / f"shared_{i}.py").write_text(
+            f"def shared_target():\n    return {i}\n", encoding="utf-8"
+        )
     # Four modules a real entry point reaches, so get_dead_code_v2's signals
     # discriminate. ⚠ Without an entry point every signal fires on every
     # symbol, v2 refuses with `signal_warning`, and this whole case would
@@ -99,6 +106,17 @@ def _dead(repo_id: str, storage: str, cap: int) -> dict:
     return get_dead_code_v2(repo_id, max_results=cap, storage_path=storage)
 
 
+def _symbols(repo_id: str, storage: str, cap: int) -> dict:
+    """`search_symbols`' `_meta.exact_match.exact` is a (count, capped list)
+    pair like the four above, and this roster is a hand-kept literal that did
+    not name it -- so the property ratchet existed and #699 shipped anyway.
+    The query is underscore-bearing because the report is gated on
+    `is_identifier_query`."""
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+    return search_symbols(repo_id, query="shared_target", max_results=cap,
+                          storage_path=storage, detail_level="compact")
+
+
 def _dig(payload: dict, dotted: str):
     """Read a possibly-nested key. `get_dead_code_v2` files its count under
     `_meta.total_matches`; the others publish theirs at the top level."""
@@ -114,6 +132,7 @@ _CASES = [
     ("find_importers", _importers, "importer_count", "importers"),
     ("find_references", _references, "reference_count", "references"),
     ("get_dead_code_v2", _dead, "_meta.total_matches", "dead_symbols"),
+    ("search_symbols", _symbols, "_meta.exact_match.exact", "results"),
 ]
 _IDS = [c[0] for c in _CASES]
 

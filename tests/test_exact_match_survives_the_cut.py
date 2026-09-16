@@ -167,6 +167,93 @@ def test_exact_match_counts_what_exists_not_what_survived(crowded_repo):
     assert report["exact_truncated"] is True
 
 
+def test_every_exit_applies_the_same_cut_rule(crowded_repo):
+    """`search_symbols` has THREE ranked-and-capped exits, not one.
+
+    `semantic=True` returns from the similarity path and `fusion=True` from the
+    fused path, both before the lexical heap. Fixing only the heap would leave
+    one tool answering the same query two incompatible ways depending on a flag
+    — and would leave the defect live for anyone who passes either.
+
+    ⚠ `semantic=True` needs a provider and degrades to lexical without one, so
+    this asserts the property for whatever path actually ran rather than
+    skipping: either way the definition must survive.
+    """
+    repo, store = crowded_repo
+    exercised = 0
+    for kwargs in ({"fusion": True}, {"semantic": True}, {}):
+        out = search_symbols(repo=repo, query="execute", storage_path=store,
+                             detail_level="compact", **kwargs)
+        if out.get("error"):
+            # The similarity path refuses without an embedding provider rather
+            # than serving a page, so there is no cut to grade. It is covered by
+            # the source ratchet below instead of being silently skipped.
+            assert out["error"] == "no_embedding_provider", out["error"]
+            continue
+        exercised += 1
+        files = {r["file"].replace("\\", "/")
+                 for r in out.get("results", []) if r["name"] == "execute"}
+        assert any(f.endswith("src/runner.py") for f in files), (
+            f"definition evicted with {kwargs or 'the default path'}; got {sorted(files)}"
+        )
+    assert exercised >= 2, "no exit was actually exercised end to end"
+
+
+def test_every_ranked_and_capped_exit_reads_the_declaration_rank():
+    """The source ratchet for the exits an end-to-end test cannot reach here.
+
+    `search_symbols` caps its page in three places -- the lexical heap, the
+    similarity sort and the fused sort. The first fix touched one, and one tool
+    with two cut rules answers the same query differently depending on a flag.
+    Stated over the property so a FOURTH exit added later inherits it rather
+    than reintroducing the defect.
+    """
+    import re
+    from pathlib import Path
+
+    import jcodemunch_mcp.tools.search_symbols as mod
+
+    source = Path(mod.__file__).read_text(encoding="utf-8")
+    cut_lines = [ln.strip() for ln in source.splitlines()
+                 if "[:effective_limit]" in ln or "scored.sort(" in ln]
+    assert cut_lines, "no cut site found; this ratchet has stopped measuring"
+
+    # Every cut must be ordered by a key that consults the declaration rank.
+    # The rank is applied at the sort, so find the sort/slice statements and
+    # require the rank to be named in the same statement or the one ordering it.
+    ranked = re.findall(r"_declaration_rank\(", source)
+    assert len(ranked) >= 4, (
+        f"_declaration_rank appears {len(ranked)}x: one definition plus one per "
+        f"cut site (heap, similarity, fusion). A cut site is unranked."
+    )
+
+
+def test_an_owner_that_cannot_be_resolved_is_not_demoted(crowded_repo, tmp_path_factory):
+    """UNKNOWN is a third bucket, never False.
+
+    The owner is probed positively for being a FUNCTION. Asking the opposite —
+    is the owner a class/struct/trait? — reads a failed lookup as proof of a
+    function body, and a Rust `impl` block puts the type in another file, so a
+    real method would be demoted below a same-named local. C++ .cpp/.h, C#
+    partial classes, Swift extensions and Ruby reopened classes are the same
+    shape.
+    """
+    from jcodemunch_mcp.tools.search_symbols import _declaration_rank
+
+    class _Index:
+        """An index that resolves nothing: every owner is UNKNOWN."""
+
+        @staticmethod
+        def get_symbol(_symbol_id):
+            return None
+
+    needles = ("cache", "cache")
+    row = {"id": "src/impls.rs::Store.cache#method", "name": "cache"}
+    assert _declaration_rank(row, _Index(), needles) == 2, (
+        "an owner that could not be established was demoted to a local"
+    )
+
+
 def test_the_cut_is_not_gated_on_identifier_shape(crowded_repo):
     """`execute` is a single lower-case word, so `is_identifier_query` refuses
     it -- and it is exactly the shape of the reported names (`partial`, `pick`,

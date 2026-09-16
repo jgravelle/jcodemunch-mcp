@@ -494,19 +494,18 @@ def _heap_tiebreak(symbol_id: str) -> bytes:
     return bytes(255 - b for b in symbol_id.encode("utf-8", "surrogatepass"))
 
 
-# Owner kinds that make a nested symbol a DECLARATION rather than a local.
-# A method inside a class is what a caller asking for the name wants; a helper
-# inside a function body is a local by construction. Spelled as a set of kinds
-# rather than a path rule because `ZodObject.partial` in a test fixture is a
-# real definition and `refresh.run` in `src/` would be missed by one.
-_DECLARING_OWNER_KINDS = ("class", "type", "struct", "interface", "trait", "enum")
+# Owner kinds that make a nested symbol a LOCAL: a helper declared inside a
+# function body. Asked positively, and that direction is the whole correctness
+# of this function -- see the UNKNOWN note below.
+_LOCAL_OWNER_KINDS = ("function", "method")
 
 
 def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) -> int:
     """How much of a definition is this row, for the purpose of the result cut?
 
-    2 = an exact-name match that is module-level or owned by a type.
-    1 = an exact-name match declared inside a function body, i.e. a local.
+    2 = an exact-name match that is a declaration, or whose owner cannot be
+        established.
+    1 = an exact-name match PROVEN to be declared inside a function body.
     0 = not an exact-name match; today's score ordering, untouched.
 
     ⚠⚠ The cut is a bounded heap keyed on BM25 alone, so before this an exact
@@ -515,6 +514,18 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
     (#699). Kind alone does not separate the cases -- a local helper and a
     module-level function are both `function` -- and neither does a test-path
     rule, which would demote a genuine method declared in a fixture.
+
+    ⚠⚠ **The owner is probed POSITIVELY for being a function, never negatively
+    for being a type, and UNKNOWN resolves to 2.** The first draft asked whether
+    the owner was a class/struct/trait and demoted everything else, which reads
+    a FAILED LOOKUP as proof of a function body. A Rust `impl` block is the
+    ordinary counter-example: `src/impls.rs::Store.cache#method` has its `struct
+    Store` indexed in `src/types.rs`, so the same-file probe missed and a real
+    method was ranked below a same-named local in a test file -- the defect this
+    exists to fix, in the languages it was not measured against. C++ .cpp/.h,
+    C# partial classes, Swift extensions and Ruby reopened classes are the same
+    shape. UNKNOWN is a third bucket and never False, the rule `has_any()`,
+    `freshness.classify` and `ledger_trust` all encode.
 
     ⚠ A rank-0 row never triggers a lookup, so the cost is bounded by the number
     of exact-name matches rather than by the corpus.
@@ -526,16 +537,17 @@ def _declaration_rank(entry: dict, index, needles: Optional[tuple[str, str]]) ->
 
     sym_id = str(entry.get("id", ""))
     file_part, _, rest = sym_id.partition("::")
-    owner_path = rest.split("#", 1)[0].rsplit(".", 1)[0] if "." in rest.split("#", 1)[0] else ""
+    path = rest.split("#", 1)[0]
+    owner_path = path.rsplit(".", 1)[0] if "." in path else ""
     if not owner_path:
         return 2  # module-level
     getter = getattr(index, "get_symbol", None)
     if getter is None:
         return 2  # cannot establish an owner; do not demote on an unknown
-    for kind in _DECLARING_OWNER_KINDS:
+    for kind in _LOCAL_OWNER_KINDS:
         if getter(f"{file_part}::{owner_path}#{kind}") is not None:
-            return 2
-    return 1
+            return 1  # proven local
+    return 2
 
 
 def search_symbols(
@@ -1480,7 +1492,13 @@ def _search_symbols_semantic(
     # disagreements across Django, FastAPI and jcm. The 4,000-vector corpus above
     # is synthetic and maximally homogeneous — it shows the hazard is real in
     # principle, NOT that it fires in practice. Both facts belong together.
-    scored.sort(key=lambda x: (-x[0], x[1]["id"]))
+    # ⚠⚠ The declaration rank leads the key here for the same reason it leads
+    # the lexical heap's (#699): this exit ALSO ranks-and-caps, so without it
+    # `semantic=True` answers the same query differently from the default path
+    # and still drops the definition a caller named. One tool must not have two
+    # cut rules.
+    _needles = _exact_needles(query)
+    scored.sort(key=lambda x: (-_declaration_rank(x[1], index, _needles), -x[0], x[1]["id"]))
     top = scored[:effective_limit]
     # Real ranking scores (top-first) for confidence/ledger (V6).
     _conf_scores = [s for s, _ in top]
@@ -1888,6 +1906,15 @@ def _search_symbols_fusion(
     # Build result list
     sym_by_id = {sym["id"]: sym for sym in candidates}
     scored_results = []
+    # ⚠⚠ The third cut site (#699). `fuse` orders by fused score alone, so this
+    # exit dropped an exact-name definition for the same reason the lexical heap
+    # did. Stable sort on the declaration rank only, so the fusion ordering is
+    # preserved within each rank -- this promotes, it does not re-rank.
+    _needles = _exact_needles(query)
+    fused = sorted(
+        fused,
+        key=lambda fr: -_declaration_rank(sym_by_id.get(fr.symbol_id) or {}, index, _needles),
+    )
     # Real fused ranking scores (top-first) for confidence/ledger (V6).
     _conf_scores = [fr.score for fr in fused[:effective_limit]]
 

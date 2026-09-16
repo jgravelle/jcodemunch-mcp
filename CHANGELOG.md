@@ -26,6 +26,28 @@ sort reads the same key — a row that survives the cut under one rule and is th
 ordered under another ranks below rows it outranked to get there. Locals are
 demoted, never filtered: they remain legitimate answers to "where is this name".
 
+⚠ The owner is probed **positively** for being a function, and an owner that
+cannot be resolved is not demoted. Asking the opposite — is the owner a class or
+struct? — reads a failed lookup as proof of a function body, and a Rust `impl`
+block puts the type in another file, so a real method would have been demoted
+below a same-named local in exactly the languages this was not measured against
+(C++ `.cpp`/`.h`, C# partial classes, Swift extensions and Ruby reopened classes
+are the same shape). UNKNOWN is a third bucket, never False.
+
+⚠⚠ **The tool caps its page in three places, and all three now read the same
+rule**: the lexical heap, the similarity sort behind `semantic=True`, and the
+fused sort behind `fusion=True`. Fixing only the heap would have left one tool
+answering the same query two incompatible ways depending on a flag. A source
+ratchet asserts every cut site consults the rank, so a fourth exit inherits it.
+
+Two consequences worth stating rather than discovering. `sort_by="centrality"`
+and `"combined"` now rank an exact-name match above everything else before
+PageRank is consulted; that is the point of the change, and it is a semantics
+change to two documented sort modes. And `_meta.verdict.best_score` is still the
+best score seen during the scan — unchanged — but `results[0]` is no longer
+necessarily the row carrying it, because a promoted definition can sit above a
+higher-scoring local.
+
 The cut is deliberately **not** gated on `is_identifier_query`, which the
 `_meta.exact_match` report is. That gate refuses a single lower-case word with
 no underscore, which is right for deciding whether to attach a report and wrong
@@ -35,14 +57,19 @@ cut inheriting the gate would be unfixed for every case that reported the defect
 `_meta.exact_match.exact` was the second reader of the same cut. It counted the
 rows that survived, so a query with 38 exact matches reported `exact: 9` and read
 as complete — #559's rule ("a count taken after the page is cut describes the
-page") in the one place #559's own ratchet does not reach, because its `_CASES`
+page") in the one place #559's own ratchet did not reach, because its `_CASES`
 roster is a hand-kept literal of four tools. The count is taken during scoring
-now, with `exact_returned` and `exact_truncated` beside it, so the cap's effect
-is visible and the caller knows the remedy is theirs.
+now, with `exact_returned` and `exact_truncated` beside it, and `search_symbols`
+has been added to that roster so the property ratchet covers the pair.
 
-What is impossible now: a cut that silently drops the symbol a caller named. What
-is still possible, and worth its own issue: a tool with a (count, capped list)
-pair that nobody adds to #559's roster.
+⚠ The report stays gated on `is_identifier_query` while the cut does not, so
+`exact_truncated` is attached to `get_user_id` and never to `run`. The visibility
+half therefore does not reach the four names that reported the defect; the
+correctness half does. Ungating the report is a separate judgment about noise on
+prose searches and is not made here.
+
+What is impossible now: a cut that silently drops the symbol a caller named, on
+any of the three exits.
 
 Found by the benchmark in
 [amritessh/scalpel-fse2027-artifact](https://github.com/amritessh/scalpel-fse2027-artifact),
