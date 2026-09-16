@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - the published benchmark tables are derived from the reference, not from three different runs (W-16)
+
+`/release` step 4 recomputes every published figure and refuses on a
+disagreement. It refused three consecutive releases on the same thing, and the
+first two shipped over it — which is how a refusal becomes ceremony.
+
+The disagreement was real and larger than it had been recorded. Three artifacts
+carried a per-repo jCodeMunch column for one run:
+
+| source | express | fastapi | gin | grand |
+|---|---|---|---|---|
+| `benchmarks/jcm_reference.json` (CI-captured) | 1,007 | 2,149 | 1,537 | 23,467 |
+| `README.md` | 1,017 | 2,218 | 1,573 | 23,467 |
+| `benchmarks/README.md` | 1,002 | 2,271 | 1,577 | **24,249** |
+
+That they describe one run is not an assumption: the reference's per-repo totals
+sum to 23,467, the grand total both files already printed. The rows were never
+regenerated when the reference was recaptured on 2026-09-03.
+
+⚠⚠ **`tests/test_provenance.py` gated the grand total and nothing gated the
+rows.** So the total stayed correct in both files while three sets of per-repo
+numbers drifted underneath it, and the ratchet was green throughout. A guard over
+the figure everyone remembers to update cannot see the figures they forget —
+**gate the cells the reader actually reads.**
+
+Every cell is now computed from `benchmarks/jcm_reference.json`, and
+`tests/test_benchmark_tables_mirror_the_reference.py` fails if either table
+drifts again: the per-repo average against the artifact, the `vs read-all` ratio
+against the published average (so a reader dividing two printed cells gets the
+printed ratio), and the identity that the rows sum to the total.
+
+⚠ The corrected numbers move slightly **in our favour** (15.5x → 15.6x, 38.4x →
+39.7x, 20.3x → 20.8x), which is worth stating plainly: the stale rows were
+under-claiming, so this is not a flattering correction arriving under cover of a
+process fix.
+
+⚠ The per-query spread each file published — 7.3x-79.8x in one, 7.6x-81.2x in the
+other — is derivable from nothing committed, because the reference records totals
+and averages only. It is withheld rather than picked, until
+`run_benchmark.py --reference` records per-query figures.
+
 ### Fixed - an exact-name match is no longer evicted from the result page by a same-named local (#699)
 
 `search_symbols` cuts to `max_results` with a bounded heap keyed on BM25 alone,

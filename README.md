@@ -53,12 +53,12 @@ Measured with `tiktoken cl100k_base` across three public repos pinned to upstrea
 
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 455 | 15,724 avg | 1,017 avg | **15.5x** | 152.0x |
-| fastapi/fastapi | 1,186 | 13,240 | 85,296 avg | 2,218 avg | **38.4x** | 372.0x |
-| gin-gonic/gin | 98 | 1,451 | 31,975 avg | 1,573 avg | **20.3x** | 96.5x |
+| expressjs/express | 186 | 455 | 15,724 avg | 1,007 avg | **15.6x** | 153.5x |
+| fastapi/fastapi | 1,186 | 13,240 | 85,296 avg | 2,149 avg | **39.7x** | 384.1x |
+| gin-gonic/gin | 98 | 1,451 | 31,975 avg | 1,537 avg | **20.8x** | 98.8x |
 | **Grand total (15 task-runs)** | | | **664,975** | **23,467** | **28.3x** | 241.1x |
 
-**Against a grep-and-read agent: 96.5% reduction, 28.3x fewer tokens.** Per-query results range from 7.6x to 81.2x (median 26.1x); no single multiple describes every query. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 96.5% reduction, 28.3x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 

@@ -49,18 +49,37 @@ Full per-task tables are in [`results.md`](results.md).
 
 | Repo | Files | Grep-top-3 baseline | Read-all baseline | jCodeMunch | vs grep | vs read-all |
 |------|------:|--------------------:|------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 15,724 avg | 154,569 | 1,002 avg | **15.7x** | 154.3x |
-| fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,271 avg | **37.6x** | 363.5x |
-| gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,577 avg | **20.3x** | 96.3x |
-| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **24,249** | **27.4x** | **233.4x** |
+| expressjs/express | 186 | 15,724 avg | 154,569 | 1,007 avg | **15.6x** | 153.5x |
+| fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,149 avg | **39.7x** | 384.1x |
+| gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,537 avg | **20.8x** | 98.8x |
+| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **23,467** | **28.3x** | **241.1x** |
 
-**96.4% average token reduction · 27.4x** against grep-and-read; 99.6% · 233.4x
-against read-all. Per-query spread 7.3x–79.8x, median 25.5x. tiktoken cl100k_base.
+**96.5% average token reduction · 28.3x** against grep-and-read; 99.6% · 241.1x
+against read-all. tiktoken cl100k_base.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus
 (165/951/98 files, 5,122,105 tokens, 263.9x) that no other artifact had matched
 since the corpus was pinned. Per-repo rows are per query (`avg`); the grand total
 sums 15 task-runs.
+
+⚠⚠ **And it went stale again, in a way the 2026-08-03 fix could not catch.**
+Until 2026-09-16 this table carried a jCodeMunch column of 1,002 / 2,271 / 1,577
+and a grand total of 24,249, while `README.md` carried 1,017 / 2,218 / 1,573 over
+a grand total of 23,467 and `benchmarks/jcm_reference.json` — the artifact CI
+captures — said 1,007 / 2,149 / 1,537. Three sets of numbers for one run, and the
+proof they ARE one run is that the reference's per-repo totals sum to the 23,467
+both files already printed. Every cell above is now derived from the reference,
+and `tests/test_benchmark_tables_mirror_the_reference.py` fails if either table
+drifts from it again. ⚠ `tests/test_provenance.py` gated the grand total and
+nothing gated the rows, which is why the total stayed right while the rows did
+not: **gate the cells the reader actually reads.**
+
+⚠ **The per-query spread that used to sit in this paragraph is not published any
+more.** Both files stated one (7.3x–79.8x median 25.5x here, 7.6x–81.2x median
+26.1x in `README.md`) and neither can be derived from the committed reference,
+which carries totals and averages only. Rather than pick one or recompute it from
+a run nobody can reproduce, it is withheld until `run_benchmark.py --reference`
+records per-query figures.
 
 To regenerate:
 
