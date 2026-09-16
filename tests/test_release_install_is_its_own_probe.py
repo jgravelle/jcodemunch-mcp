@@ -112,33 +112,39 @@ def _logical_lines(run: str) -> list[str]:
     before scanning it* (inbound item 6, where the reviewer named one site and
     the ratchet then found four more).
 
-    1. **Backslash continuations are joined.** `release.yml` already writes
-       `uv pip install --python "$VENV" \\` with the argument on the next line
-       two lines below each install, for the `scripts/handshake.py` call. Split
-       that way, the verb and the distribution name land on different physical
-       lines, neither matches, and `assert len(found) >= 2` stays green because
-       the existing two still do.
-    2. **Simple assignments are expanded**, so a name or version held in a shell
-       variable (`"$PKG==$V"`, `"${PKG}==${V}"`) is seen. Values are cut at the
-       first `;` so a compound line contributes only its assignment.
+    **Backslash continuations are joined**, and comments are stripped. That is
+    all, deliberately. `release.yml` already writes `uv pip install --python
+    "$VENV" \\` with the argument on the next line, two lines below each install
+    for the `scripts/handshake.py` call. Split per physical line, the verb and
+    the distribution name land apart, neither matches, and `assert len(found) >=
+    2` stays green because the existing two still do.
 
     ⚠ This is the THIRD costume of one defect, which is why the fix is
     normalisation rather than another pattern: round 1 keyed on the VERSION's
     spelling, round 3 keyed on the NAME's. A conjunct can be right while what it
     matches on is still a spelling.
+
+    ⚠⚠ **A variable holding the package name (`"$PKG==$V"`) is NOT covered, and
+    that is a decision rather than an oversight.** A draft expanded simple
+    assignments to reach it and was worse than the gap: substituting with
+    `str.replace` in dict order made `$V` eat the prefix of `$VENV`, so every
+    normalised line of BOTH real steps read `--python "<value of V>ENV"` -- text
+    no shell would ever produce, inside a helper whose docstring claimed shell
+    semantics. Ordering by length fixes that one and not the class: expanding
+    ANY variable whose value contains the distribution name pulls it into
+    unrelated lines, and `release.yml` already assigns `EXE="$B/jcodemunch-mcp.exe"`,
+    so `uv pip install ... pytest && "$EXE" --version` would read as a remote
+    install of the artifact. Reaching the real case needs the package ARGUMENT's
+    position, not textual substitution.
+    ⚠ The gap is narrow and bounded: `test_the_scan_finds_the_steps_it_is_about`
+    still fails if either existing install stops being seen, and a THIRD install
+    written that way would be ungated. **A false positive here tells an author to
+    wrap a `pytest` install in a propagation retry, which is nonsense advice and
+    an invitation to weaken the test** -- the worse of the two errors, and the
+    reviewer's own round-2 argument pointed the same way.
     """
     joined = re.sub(r"\\\s*\n\s*", " ", run)
-    env: dict[str, str] = {}
-    out: list[str] = []
-    for line in joined.splitlines():
-        bare = _strip_comment(line)
-        m = _ASSIGN.match(bare)
-        if m and not _INSTALL_VERB.search(bare):
-            env[m.group(1)] = m.group(2).split(";")[0].strip().strip("\"'")
-        for name, value in env.items():
-            bare = bare.replace("${" + name + "}", value).replace("$" + name, value)
-        out.append(bare)
-    return out
+    return [_strip_comment(line) for line in joined.splitlines()]
 
 
 def _strip_comment(line: str) -> str:
@@ -198,8 +204,10 @@ _PREDICATE_CASES = [
     # (label, step shell, is this a remote install of the published artifact)
     ("backslash continuation", 'V="1.1.1"\nuv pip install --python "$VENV" \\\n  "jcodemunch-mcp==$V"\n', True),
     ("PEP 503 underscore form", 'uv pip install "jcodemunch_mcp==$V"\n', True),
-    ("name held in $PKG", 'PKG="jcodemunch-mcp"\nV="1.2.3"\nuv pip install "$PKG==$V"\n', True),
-    ("name held in ${PKG}", 'PKG=jcodemunch-mcp\nuv pip install "${PKG}==${V}"\n', True),
+    # ⚠ The two STATED GAPS, asserted as gaps rather than left unsaid: see
+    # `_logical_lines`. The draft that reached them corrupted both real steps.
+    ("name held in $PKG (stated gap)", 'PKG="jcodemunch-mcp"\nV="1.2.3"\nuv pip install "$PKG==$V"\n', False),
+    ("name held in ${PKG} (stated gap)", 'PKG=jcodemunch-mcp\nuv pip install "${PKG}==${V}"\n', False),
     ("workflow expression version", 'uv pip install "jcodemunch-mcp==${{ needs.preflight.outputs.version }}"\n', True),
     ("literal version", 'uv pip install "jcodemunch-mcp==1.108.320"\n', True),
     ("uvx --from", 'uvx --from "jcodemunch-mcp==$V" jcodemunch-mcp\n', True),
@@ -208,6 +216,11 @@ _PREDICATE_CASES = [
     ("a single dev dependency", "uv pip install pytest\n", False),
     ("the local wheel (dry-run arm)", 'uv pip install --python "$VENV" dist/*.whl\n', False),
     ("commented out", '# uv pip install "jcodemunch-mcp==$V"\n', False),
+    # ⚠ The reviewer's three reproduced false positives from the expansion draft,
+    # pinned so it cannot come back quietly. release.yml already assigns the second.
+    ("a log path named after the package", 'LOG="${RUNNER_TEMP}/jcodemunch-mcp.log"\nuv pip install pytest 2>&1 | tee "$LOG"\n', False),
+    ("the installed exe path release.yml assigns", 'EXE="$B/jcodemunch-mcp.exe"\nuv pip install --python "$VENV" pytest && "$EXE" --version\n', False),
+    ("a requirements path under a package-named dir", 'PKGDIR=/tmp/jcodemunch-mcp\nuv pip install --python "$VENV" -r "$PKGDIR/req.txt"\n', False),
     ("a continuation that is not an install", '"$B/python" scripts/handshake.py \\\n  --fixture tests/fixtures/pkg_smoke\n', False),
 ]
 
@@ -275,7 +288,8 @@ def test_no_step_gates_an_install_on_a_different_endpoint(job: str, name: str, r
     probes = [
         ln.strip()
         for ln in _logical_lines(run)
-        if _PROBE_URL.search(ln) and not _is_remote_install(ln)
+        # ⚠ An assignment holding a URL gates nothing; it is a value, not a check.
+        if _PROBE_URL.search(ln) and not _is_remote_install(ln) and not _ASSIGN.match(ln)
     ]
     assert not probes, (
         f"{RELEASE.name} job {job!r}, step {name!r} gates an install on a separate "
