@@ -45,8 +45,19 @@ def _journal():
     return get_journal()
 
 
-def _remember_miss(query: str, repo: str, verdict: str = "no_implementation_found") -> None:
-    """Record a miss exactly as the dispatcher does (server.py, search_symbols arm)."""
+def _remember_miss(
+    query: str,
+    repo: str,
+    verdict: str = "no_implementation_found",
+    verdict_state: str = "absent",
+) -> None:
+    """Record a miss exactly as the dispatcher does (server.py, search_symbols arm).
+
+    ⚠ Hand-built, so it can drift from the producer. `test_the_dispatcher_records
+    _what_the_reader_requires` runs the real `call_tool` and is the guard against
+    that -- a mock broad enough to satisfy an assertion can bypass what the
+    assertion is about.
+    """
     import time
 
     journal = _journal()
@@ -56,6 +67,7 @@ def _remember_miss(query: str, repo: str, verdict: str = "no_implementation_foun
             "query": query,
             "repo": repo,
             "verdict": verdict,
+            "verdict_state": verdict_state,
             "scanned_symbols": 12,
             "timestamp": time.time(),
         }
@@ -213,6 +225,7 @@ def test_a_restored_session_keeps_the_evidence_not_just_the_counts(tmp_path: Pat
             "query": ABSENT_QUERY,
             "repo": "local/some-repo",
             "verdict": "no_implementation_found",
+            "verdict_state": "absent",
             "scanned_symbols": 12,
             "timestamp": time.time(),
         }
@@ -229,3 +242,172 @@ def test_a_restored_session_keeps_the_evidence_not_just_the_counts(tmp_path: Pat
         "the repo-scoped absence did not survive the round trip"
     )
     assert restored.citable_absence("local/another-repo", ABSENT_QUERY) is None
+
+
+def test_a_degraded_scan_is_not_an_absence_however_its_verdict_reads(tmp_path: Path):
+    """The second refusal reason (#711 review): the STATE, not just the verdict.
+
+    `verdict.py`'s `_packed_empty` guard withholds `negative_evidence` for six
+    degraded cases and does NOT cover `index_changed` or incomplete coverage:
+    both fall through to `elif result_count == 0` and publish
+    `no_implementation_found` on a scan `handoff.absence_refusal` refuses --
+    "only 'absent' can prove absence". Re-running the same terms is precisely
+    what a stale or rewritten index needs, so the recommendation's sentence
+    would be false for exactly these.
+    """
+    from jcodemunch_mcp.tools.plan_turn import plan_turn
+    from tests.conftest_helpers import create_mini_index
+
+    repo, storage_path = create_mini_index(tmp_path)
+    _remember_miss(ABSENT_QUERY, repo=repo, verdict_state="degraded")
+
+    result = plan_turn(repo=repo, query=ABSENT_QUERY, storage_path=storage_path)
+
+    assert result.get("prior_evidence") is None, (
+        "a degraded scan was replayed as proof the feature does not exist"
+    )
+
+
+def test_an_entry_with_no_recorded_state_is_refused(tmp_path: Path):
+    """UNKNOWN blocks, the rule every other absence surface here follows.
+
+    An entry restored from a state file written before `verdict_state` existed
+    cannot say whether its scan could prove anything, so it stops asserting.
+    Losing a stop signal is recoverable; a false absence is what #711 is.
+    """
+    import time
+
+    from jcodemunch_mcp.tools.plan_turn import plan_turn
+    from tests.conftest_helpers import create_mini_index
+
+    repo, storage_path = create_mini_index(tmp_path)
+    _journal().record_negative_evidence(
+        {
+            "query": ABSENT_QUERY,
+            "repo": repo,
+            "verdict": "no_implementation_found",
+            "scanned_symbols": 12,
+            "timestamp": time.time(),
+        }  # pre-#711 shape: no verdict_state
+    )
+
+    result = plan_turn(repo=repo, query=ABSENT_QUERY, storage_path=storage_path)
+
+    assert result.get("prior_evidence") is None
+
+
+def test_the_resolved_repo_spelling_also_matches(tmp_path: Path):
+    """The search and the plan need not spell the repository the same way."""
+    from jcodemunch_mcp.tools.plan_turn import plan_turn
+    from tests.conftest_helpers import create_mini_index
+
+    repo, storage_path = create_mini_index(tmp_path)
+    owner, _, name = repo.partition("/")
+    assert owner and name
+
+    # Recorded under the resolved identity; the caller asks with the same
+    # string here, and `aliases` is what closes the gap when they differ.
+    _remember_miss(ABSENT_QUERY, repo=f"{owner}/{name}")
+
+    result = plan_turn(repo=repo, query=ABSENT_QUERY, storage_path=storage_path)
+
+    assert result.get("prior_evidence") is not None
+
+
+def test_the_snapshot_does_not_publish_another_repos_dead_end(tmp_path: Path):
+    """Second consumer (#711 review): the text the model reads at every compact.
+
+    `get_session_snapshot` rendered every log entry under "don't re-search",
+    dropped the repository and kept every verdict -- the reported defect in the
+    widest surface it had. An entry earns that heading only on the conditions
+    `citable_absence` applies, and the repository is named on the line, because
+    a session-wide snapshot has no repo of its own to filter against.
+    """
+    from jcodemunch_mcp.tools.get_session_snapshot import get_session_snapshot
+
+    _remember_miss("gone_from_here", repo="local/repo-a")
+    _remember_miss("weak_here", repo="local/repo-b", verdict="low_confidence_matches")
+    _remember_miss("degraded_here", repo="local/repo-c", verdict_state="degraded")
+
+    snapshot = get_session_snapshot()
+
+    # The dead-ends block only. "Key searches" lists every query searched and is
+    # supposed to, so asserting over the whole snapshot would be asserting about
+    # the wrong block -- and it passed for the wrong reason when it did.
+    markdown = snapshot["snapshot"]
+    assert "### Dead ends" in markdown
+    section = markdown.split("### Dead ends", 1)[1]
+    dead_ends = snapshot["structured"]["dead_ends"]
+
+    assert "gone_from_here" in section
+    assert "local/repo-a" in section, "the dead end did not name the repo it was measured in"
+    assert "weak_here" not in section, "weak matches were published as a dead end"
+    assert "degraded_here" not in section, "a degraded scan was published as a dead end"
+    assert [e["query"] for e in dead_ends] == ["gone_from_here"]
+    assert dead_ends[0]["repo"] == "local/repo-a", (
+        "the structured half dropped the repository the claim belongs to"
+    )
+
+
+def test_the_dispatcher_records_what_the_reader_requires(tmp_path: Path, monkeypatch):
+    """End to end through `call_tool`, with `meta_fields: []` -- the shipped default.
+
+    Every other test here hand-builds the journal entry, which is a contract the
+    producer might not supply: rename `repo` or `verdict_state` in `server.py`
+    and they all stay green while the product breaks. This arm runs the real
+    dispatcher over two real indexes and is the reproduction from the issue.
+
+    ⚠ `_meta` is stripped for the caller further down the same function, so the
+    verdict state has to be read at the recording site or not at all. That is
+    exactly what this asserts.
+    """
+    import asyncio
+
+    from jcodemunch_mcp import config
+    from jcodemunch_mcp.server import call_tool
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    # The dispatcher resolves its store from CODE_INDEX_PATH, not from a
+    # `storage_path` argument -- `plan_turn` through `call_tool` takes no such
+    # argument, which is the whole reason this arm exercises something the
+    # direct-call tests cannot.
+    storage = str(tmp_path / "store")
+    monkeypatch.setenv("CODE_INDEX_PATH", storage)
+    handles = {}
+    for name, source in [
+        ("a", "def apple():\n    return 1\n"),
+        ("b", "def target():\n    return 1\ndef target_two():\n    return 2\n"),
+    ]:
+        root = tmp_path / name
+        root.mkdir()
+        (root / "example.py").write_text(source)
+        handles[name] = index_folder(
+            path=str(root), storage_path=storage, use_ai_summaries=False,
+            incremental=False, identity_mode="local",
+        )["repo"]
+
+    saved = dict(config._GLOBAL_CONFIG)
+    config._GLOBAL_CONFIG.update(
+        {"session_journal": True, "meta_fields": [], "share_savings": False,
+         "use_ai_summaries": False}
+    )
+    try:
+        async def _run():
+            import json
+
+            await call_tool("search_symbols", {"repo": handles["a"], "query": "target"})
+            after = await call_tool("plan_turn", {"repo": handles["b"], "query": "target"})
+            content = after if isinstance(after, list) else getattr(after, "content", [])
+            return json.loads(getattr(content[0], "text", "{}"))
+
+        payload = asyncio.run(_run())
+    finally:
+        config._GLOBAL_CONFIG.clear()
+        config._GLOBAL_CONFIG.update(saved)
+
+    assert "error" not in payload, payload
+    assert payload["recommended_symbols"], "repo b must still answer the question"
+    assert payload.get("prior_evidence") is None, (
+        "repo a's miss reached repo b through the real dispatcher"
+    )
+    assert payload.get("action") != "STOP_AND_REPORT_GAP"

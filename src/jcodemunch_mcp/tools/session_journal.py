@@ -12,6 +12,17 @@ _MAX_JOURNAL_ENTRIES = 5000  # Per-dict cap to prevent unbounded memory growth
 # the one of them that asserts nothing is there. Read by `citable_absence`.
 _ABSENCE_VERDICTS = frozenset({"no_implementation_found"})
 
+# ⚠⚠ The verdict STATE is a second, independent condition, and the legacy
+# `negative_evidence` dict cannot stand in for it. `verdict.py`'s `_packed_empty`
+# guard withholds that dict for six degraded cases; it does NOT cover
+# `index_changed` or incomplete coverage, both of which reach
+# `elif result_count == 0` and publish `no_implementation_found` on a scan the
+# handoff layer refuses. `handoff.absence_refusal` states the rule this borrows,
+# in one line: "only 'absent' can prove absence (a weak or partial scan is not
+# evidence of nothing)". Asking the state asks the same authority instead of
+# tracking its list of reasons.
+_ABSENCE_STATE = "absent"
+
 
 class SessionJournal:
     """Track file reads, searches, and edits during a session."""
@@ -97,7 +108,9 @@ class SessionJournal:
         with self._lock:
             return list(self._negative_evidence_log)
 
-    def citable_absence(self, repo: str, query: str) -> Optional[dict]:
+    def citable_absence(
+        self, repo: str, query: str, aliases: tuple[str, ...] = ()
+    ) -> Optional[dict]:
         """May an absence be asserted for ``(repo, query)`` from this session? (#711)
 
         THE ONE ANSWER to that question. Every consumer asks here instead of
@@ -115,22 +128,38 @@ class SessionJournal:
           guard), so an entry here means the producer was willing to publish
           one -- the distinction #566 and #569 paid for.
 
-        ⚠ Only ``no_implementation_found`` is an absence claim.
-        ``low_confidence_matches`` says the matches were weak, which is the
-        opposite of nothing being there.
+        Three conditions, all required:
+
+        * the entry names THIS repository (``aliases`` carries the other
+          spellings the caller answers to -- the resolved ``owner/name`` when
+          the search was called with a path or a bare name, and vice versa);
+        * ⚠ the verdict is an absence claim. Only ``no_implementation_found``
+          is. ``low_confidence_matches`` says the matches were weak, which is
+          the opposite of nothing being there;
+        * ⚠⚠ the scan's verdict STATE was ``absent``. See ``_ABSENCE_STATE``:
+          a degraded scan can still carry ``no_implementation_found``, and
+          "re-running this will not change the answer" is FALSE for a stale or
+          rewritten index, where re-indexing is exactly what changes it.
+
+        An entry with no recorded state is refused, not assumed good -- the
+        UNKNOWN-blocks rule every other absence surface here follows. Entries
+        restored from a state file written before the field existed therefore
+        stop asserting absence, which is the safe direction.
 
         Returns the newest matching entry plus ``times_recorded``, or None.
         A missing repo or query is None: an unscoped claim is not a claim.
         """
         if not repo or not query:
             return None
+        names = {repo, *(a for a in aliases if a)}
         with self._lock:
             matches = [
                 entry
                 for entry in self._negative_evidence_log
-                if entry.get("repo") == repo
+                if entry.get("repo") in names
                 and entry.get("query") == query
                 and entry.get("verdict") in _ABSENCE_VERDICTS
+                and entry.get("verdict_state") == _ABSENCE_STATE
             ]
         if not matches:
             return None

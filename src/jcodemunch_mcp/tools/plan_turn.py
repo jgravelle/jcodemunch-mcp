@@ -169,7 +169,15 @@ def plan_turn(
     prior_evidence = None
     try:
         if journal is not None and not recommended_symbols:
-            absence = journal.citable_absence(repo, query)
+            # The log holds the repo string the SEARCH was called with, which
+            # need not be the one this call used: `load_repo_index_or_error`
+            # resolves a path or a bare name to `owner/name`. Both spellings are
+            # offered. ⚠ STATED GAP: a third spelling on the recording side
+            # (`repo="."`) still will not match, and the miss fails CLOSED --
+            # the stop signal does not fire, no false claim is made.
+            absence = journal.citable_absence(
+                repo, query, aliases=(f"{owner}/{name}",)
+            )
             if absence is not None:
                 times = absence.get("times_recorded", 1)
                 prior_evidence = {

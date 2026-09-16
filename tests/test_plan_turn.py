@@ -193,6 +193,7 @@ class TestPlanTurn:
             "query": "nonexistent_xyz_feature",
             "repo": repo,
             "verdict": "no_implementation_found",
+            "verdict_state": "absent",
             "scanned_symbols": 5,
             "timestamp": time.time(),
         })

@@ -7,6 +7,11 @@ context compaction to restore session orientation.
 from typing import Optional
 import time
 
+# #711: the same two conditions `citable_absence` applies, from the same
+# module. Importing them is the point -- a local copy of either would be the
+# second derivation this issue is about.
+from .session_journal import _ABSENCE_STATE, _ABSENCE_VERDICTS
+
 
 def _truncate_path(path: str, max_len: int = 50) -> str:
     """Truncate long paths to save tokens."""
@@ -71,21 +76,42 @@ def _render_snapshot(
             snapshot_parts.append(f"- \"{item['query']}\" → {item['result_count']} results")
 
     # Dead ends (negative evidence)
+    #
+    # ⚠⚠ #711, second consumer. This block used to render EVERY entry in the
+    # log under "don't re-search", dropping the `repo` field and keeping every
+    # verdict -- so a miss in repo A told the model not to re-search it while
+    # working in repo B, and a `low_confidence_matches` (weak matches FOUND)
+    # was published as a dead end. This is the snapshot the model reads at
+    # every compact and resume, so it is the widest surface the defect had.
+    # An entry earns the heading only if it is the same absence claim
+    # `SessionJournal.citable_absence` would honour, and the repository it was
+    # measured in is named ON THE LINE, because this snapshot is session-wide
+    # and has no repo of its own to filter against.
     dead_ends = []
     if include_negative_evidence:
-        recent_neg_log = neg_log[-max_searches:] if neg_log else []
+        recent_neg_log = [
+            entry
+            for entry in (neg_log or [])
+            if entry.get("verdict") in _ABSENCE_VERDICTS
+            and entry.get("verdict_state") == _ABSENCE_STATE
+        ][-max_searches:]
         dead_ends.extend([
-            {"query": entry["query"], "verdict": entry["verdict"]}
+            {
+                "query": entry["query"],
+                "verdict": entry["verdict"],
+                "repo": entry.get("repo", ""),
+            }
             for entry in recent_neg_log
         ])
         if recent_neg_log:
-            snapshot_parts.append("\n### Dead ends (don't re-search)")
+            snapshot_parts.append("\n### Dead ends (don't re-search in the named repo)")
             for entry in recent_neg_log:
                 verdict_display = entry["verdict"].replace('_', ' ')
+                where = f" in {entry['repo']}" if entry.get("repo") else ""
                 if "scanned_symbols" in entry:
-                    snapshot_parts.append(f"- \"{entry['query']}\" → {verdict_display} (scanned {entry['scanned_symbols']} symbols)")
+                    snapshot_parts.append(f"- \"{entry['query']}\"{where} → {verdict_display} (scanned {entry['scanned_symbols']} symbols)")
                 else:
-                    snapshot_parts.append(f"- \"{entry['query']}\" → {verdict_display}")
+                    snapshot_parts.append(f"- \"{entry['query']}\"{where} → {verdict_display}")
 
     structured = {
         "focus_files": [
