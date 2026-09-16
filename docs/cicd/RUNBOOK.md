@@ -138,6 +138,22 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
 1. On PyPI and on Test PyPI: project `jcodemunch-mcp` → Publishing → add a
    GitHub publisher: owner `jgravelle`, repository `jcodemunch-mcp`, workflow
    `release.yml`, environment `pypi` (and `testpypi` on Test PyPI).
+   ⚠⚠ **The environment field accepts BLANK and a blank publisher
+   publishes perfectly well** — there is no failure to notice, so this is
+   set once and then never looked at again. Both of ours were created
+   unconstrained and stayed that way until 2026-09-16, when the index
+   e-mailed after 1.108.319 used them (*"the Trusted Publisher is configured
+   to allow any environment"*, with a one-click constrain link). Constrained
+   the same day. **A publisher is matched on owner + repo + workflow file +
+   environment; leave the fourth blank and it is not checked**, so any job in
+   `release.yml` can mint a publishing token, including one added later that
+   sits outside the environment and therefore outside step 2's gate. Read the
+   live setting, never this file:
+   <https://pypi.org/manage/project/jcodemunch-mcp/settings/publishing/> and
+   <https://test.pypi.org/manage/project/jcodemunch-mcp/settings/publishing/>.
+   ⚠ **jdocmunch and jdatamunch have their own publishers** and were set
+   up the same way — a setting fixed in one repo of a suite is fixed in one
+   repo (CLAUDE.md Standing lessons, 08-20).
 2. On GitHub: Settings → Environments → create `testpypi` and `pypi`,
    deployment branches: `main` only; on `pypi` set a 5-minute wait timer.
 3. Dispatch a dry run, then a real one.
