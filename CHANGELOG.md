@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed - Java records and annotation types were never indexed (#713)
+
+A `record`, its compact constructor, an `@interface` and its elements produced
+no symbols at all, and the methods written inside a record extracted with **no
+owner** -- an index holding a method that belongs to nothing.
+
+The grammar spells `record_declaration`, `compact_constructor_declaration`,
+`annotation_type_declaration` and `annotation_type_element_declaration`, each
+with a `name` field. `JAVA_SPEC` named none of them, so the declarations were
+never matched. Records have been in Java since 16.
+
+⚠⚠ **This is #698 in a third language, and the ownership half already had a
+guard.** #698 added `abstract_class_declaration` to the TypeScript specs, and
+its lesson was recorded as that fix plus the Rust `qual_mismatch` bucket, which
+gates at 0 on the rule "the owner is `self_ty`, never the trait". Neither
+reached Java. The suite stayed green because `test_languages.py`'s Java fixture
+holds a class, an interface and an enum -- the three forms the spec already
+named. A fixture written from the spec can only confirm the spec (#699).
+
+**The two halves are separate and both are asserted.** Names come from
+`symbol_node_types`/`name_fields`; ownership comes from `container_node_types`,
+which is why a method inside a record extracted before this change and reported
+`parent=None`. A fix that added the names alone would have looked complete and
+left every record member ownerless.
+
+⚠ **A record COMPONENT is deliberately not a symbol**, with a test that says so.
+`record Point(int value)` makes the compiler synthesise a field and an accessor;
+neither is written in the source, and an index reporting a member nobody wrote
+cannot be checked against the file. If that boundary should move it moves
+deliberately, with its own evidence.
+
+Found by an external critique of 1.108.319.
+
 ### Fixed - the release's post-publish check asked PyPI a different question than the one it needed (#709)
 
 `release: post-publish` installs the just-published artifact into a clean venv,

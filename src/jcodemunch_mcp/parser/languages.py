@@ -514,6 +514,18 @@ JAVA_SPEC = LanguageSpec(
         "class_declaration": "class",
         "interface_declaration": "type",
         "enum_declaration": "type",
+        # ⚠⚠ #713. The four below are #698 in Java: the grammar spells them,
+        # the spec named none, so a record and an @interface were absent
+        # ENTIRELY and the members inside them came out with no owner.
+        # #698's lesson was recorded as a TypeScript fix plus a Rust benchmark
+        # bucket and reached no other language. Records have been in Java
+        # since 16.
+        "record_declaration": "class",
+        # A constructor with NO parameter list -- that is why it is its own
+        # node type, and why nothing about `constructor_declaration` reaches it.
+        "compact_constructor_declaration": "method",
+        "annotation_type_declaration": "type",
+        "annotation_type_element_declaration": "method",
     },
     name_fields={
         "method_declaration": "name",
@@ -521,19 +533,41 @@ JAVA_SPEC = LanguageSpec(
         "class_declaration": "name",
         "interface_declaration": "name",
         "enum_declaration": "name",
+        # All four carry a `name` field; verified against the installed grammar
+        # rather than assumed from the node names (#698 was a spelling nobody
+        # checked).
+        "record_declaration": "name",
+        "compact_constructor_declaration": "name",
+        "annotation_type_declaration": "name",
+        "annotation_type_element_declaration": "name",
     },
     param_fields={
         "method_declaration": "parameters",
         "constructor_declaration": "parameters",
+        # ⚠ `compact_constructor_declaration` and
+        # `annotation_type_element_declaration` are deliberately ABSENT: a
+        # compact constructor has no parameter list by definition, and an
+        # annotation element's parentheses are always empty. An entry here
+        # would point at a field the grammar does not produce.
     },
     return_type_fields={
         "method_declaration": "type",
+        "annotation_type_element_declaration": "type",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="marker_annotation",
-    container_node_types=["class_declaration", "interface_declaration", "enum_declaration"],
+    # ⚠⚠ Ownership comes from HERE, not from the name maps, and it is the half
+    # a name-only audit misses: before #713 the method inside a record
+    # extracted fine and reported no parent at all.
+    container_node_types=[
+        "class_declaration",
+        "interface_declaration",
+        "enum_declaration",
+        "record_declaration",
+        "annotation_type_declaration",
+    ],
     constant_patterns=["field_declaration"],
-    type_patterns=["interface_declaration", "enum_declaration"],
+    type_patterns=["interface_declaration", "enum_declaration", "annotation_type_declaration"],
 )
 
 
