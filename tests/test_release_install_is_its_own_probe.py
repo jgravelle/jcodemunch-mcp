@@ -85,11 +85,60 @@ def _distribution() -> str:
     return m.group(1)
 
 
-_DIST = re.compile(re.escape(_distribution()))
+# ⚠ `-` and `_` fold: `jcodemunch_mcp==$V` is the PEP 503 normalised form and both
+# `uv` and `pip` accept it, so a literal hyphen would have been a fourth spelling.
+# ⚠⚠ Built by SPLITTING on the separators, not by chained `.replace`. The first
+# draft was `re.escape(name).replace(r"\-", "[-_]").replace("-", "[-_]")`, and the
+# second replace rewrote the `-` inside the `[-_]` the first had just inserted,
+# yielding `[[-_]_]` -- a regex that compiles with a FutureWarning and matches
+# NOTHING, so every scan silently returned False. `test_the_scan_finds_the_steps_it_is_about`
+# is what catches that, and it is why the non-vacuity floor is in this file.
+_DIST = re.compile("[-_]".join(re.escape(part) for part in re.split(r"[-_]", _distribution())))
 
 # The readiness endpoints a probe could ask about. The JSON API is the one that
 # burned us; `/simple/` is the honest surface and is still not the install.
 _PROBE_URL = re.compile(r"https://(?:test\.)?pypi\.org/(?:pypi|simple)/")
+
+
+_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+def _logical_lines(run: str) -> list[str]:
+    """The step's shell, normalised the way the shell reads it.
+
+    ⚠⚠ Two normalisations, and the first is this repo's own 09-04 lesson
+    verbatim: *a ratchet's first draft matched per PHYSICAL line and stayed
+    green with the defect back -- normalise the text the way the shell does
+    before scanning it* (inbound item 6, where the reviewer named one site and
+    the ratchet then found four more).
+
+    1. **Backslash continuations are joined.** `release.yml` already writes
+       `uv pip install --python "$VENV" \\` with the argument on the next line
+       two lines below each install, for the `scripts/handshake.py` call. Split
+       that way, the verb and the distribution name land on different physical
+       lines, neither matches, and `assert len(found) >= 2` stays green because
+       the existing two still do.
+    2. **Simple assignments are expanded**, so a name or version held in a shell
+       variable (`"$PKG==$V"`, `"${PKG}==${V}"`) is seen. Values are cut at the
+       first `;` so a compound line contributes only its assignment.
+
+    ⚠ This is the THIRD costume of one defect, which is why the fix is
+    normalisation rather than another pattern: round 1 keyed on the VERSION's
+    spelling, round 3 keyed on the NAME's. A conjunct can be right while what it
+    matches on is still a spelling.
+    """
+    joined = re.sub(r"\\\s*\n\s*", " ", run)
+    env: dict[str, str] = {}
+    out: list[str] = []
+    for line in joined.splitlines():
+        bare = _strip_comment(line)
+        m = _ASSIGN.match(bare)
+        if m and not _INSTALL_VERB.search(bare):
+            env[m.group(1)] = m.group(2).split(";")[0].strip().strip("\"'")
+        for name, value in env.items():
+            bare = bare.replace("${" + name + "}", value).replace("$" + name, value)
+        out.append(bare)
+    return out
 
 
 def _strip_comment(line: str) -> str:
@@ -122,7 +171,6 @@ def _is_remote_install(line: str) -> bool:
     NAME is the conjunct that says so, read from `pyproject.toml` rather than
     written here a second time.
     """
-    line = _strip_comment(line)
     return bool(
         _INSTALL_VERB.search(line)
         and _DIST.search(line)
@@ -143,7 +191,45 @@ def _steps_with_run() -> list[tuple[str, str, str]]:
 
 
 def _remote_install_steps() -> list[tuple[str, str, str]]:
-    return [s for s in _steps_with_run() if any(_is_remote_install(ln) for ln in s[2].splitlines())]
+    return [s for s in _steps_with_run() if any(_is_remote_install(ln) for ln in _logical_lines(s[2]))]
+
+
+_PREDICATE_CASES = [
+    # (label, step shell, is this a remote install of the published artifact)
+    ("backslash continuation", 'V="1.1.1"\nuv pip install --python "$VENV" \\\n  "jcodemunch-mcp==$V"\n', True),
+    ("PEP 503 underscore form", 'uv pip install "jcodemunch_mcp==$V"\n', True),
+    ("name held in $PKG", 'PKG="jcodemunch-mcp"\nV="1.2.3"\nuv pip install "$PKG==$V"\n', True),
+    ("name held in ${PKG}", 'PKG=jcodemunch-mcp\nuv pip install "${PKG}==${V}"\n', True),
+    ("workflow expression version", 'uv pip install "jcodemunch-mcp==${{ needs.preflight.outputs.version }}"\n', True),
+    ("literal version", 'uv pip install "jcodemunch-mcp==1.108.320"\n', True),
+    ("uvx --from", 'uvx --from "jcodemunch-mcp==$V" jcodemunch-mcp\n', True),
+    ("dev tooling", 'uv pip install --python "$VENV" build twine\n', False),
+    ("requirements file", 'uv pip install --python "$VENV" -r requirements.txt\n', False),
+    ("a single dev dependency", "uv pip install pytest\n", False),
+    ("the local wheel (dry-run arm)", 'uv pip install --python "$VENV" dist/*.whl\n', False),
+    ("commented out", '# uv pip install "jcodemunch-mcp==$V"\n', False),
+    ("a continuation that is not an install", '"$B/python" scripts/handshake.py \\\n  --fixture tests/fixtures/pkg_smoke\n', False),
+]
+
+
+@pytest.mark.parametrize("label,shell,expected", _PREDICATE_CASES, ids=[c[0] for c in _PREDICATE_CASES])
+def test_the_predicate_answers_each_spelling(label: str, shell: str, expected: bool):
+    """The scan's own behaviour, pinned rather than argued.
+
+    ⚠⚠ Every True case here is a spelling a previous round of this file MISSED,
+    and every False case is one a previous round wrongly MATCHED. Three rounds
+    went: keyed on the version's spelling (missed the workflow's own
+    expression), then keyed on nothing but "an install with no local file"
+    (swept in `pytest`), then keyed on the name's spelling (missed the
+    underscore form, a `$PKG` variable and a `\\` continuation).
+
+    ⚠ It also catches the failure that broke the predicate outright while
+    writing this: `_DIST` was built with chained `.replace`, the second rewrote
+    the `-` inside the `[-_]` the first had inserted, and the resulting
+    `[[-_]_]` compiled with a FutureWarning and matched nothing. Every scan
+    silently returned False and every assertion below passed.
+    """
+    assert any(_is_remote_install(line) for line in _logical_lines(shell)) is expected, label
 
 
 def test_the_scan_finds_the_steps_it_is_about():
@@ -167,7 +253,7 @@ def test_a_remote_install_retries_itself(job: str, name: str, run: str):
     then break; fi` — so a version still propagating is waited for by the
     operation that needs it.
     """
-    for line in run.splitlines():
+    for line in _logical_lines(run):
         if not _is_remote_install(line):
             continue
         assert re.search(r"^\s*if\s+uv pip install\b", line), (
@@ -188,8 +274,8 @@ def test_no_step_gates_an_install_on_a_different_endpoint(job: str, name: str, r
     """
     probes = [
         ln.strip()
-        for ln in run.splitlines()
-        if _PROBE_URL.search(_strip_comment(ln)) and not _is_remote_install(ln)
+        for ln in _logical_lines(run)
+        if _PROBE_URL.search(ln) and not _is_remote_install(ln)
     ]
     assert not probes, (
         f"{RELEASE.name} job {job!r}, step {name!r} gates an install on a separate "
