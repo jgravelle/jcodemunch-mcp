@@ -400,15 +400,13 @@ GITHUB_TOKEN="" gh issue list --state open ; GITHUB_TOKEN="" gh pr list --state 
 
 Each names a date to grep for in `ISSUE-HISTORY.md`.
 
-- **We fix the reported call site and leave the mechanism.** Three times in three
-  days (08-19, #506/#507/#508/#509): a second generator, a second call site, a
-  second derivation. The one-sentence fix each time is *ask the authority instead
-  of reproducing its logic*. ⚠⚠ **09-02 (#572) is the same shape in a cache, and
-  the contributor made the argument for us:** `search_symbols` had fixed
-  return-the-stored-object twice inside its OWN cache (#377 item 3, then #404)
-  and neither fix reached the SHARED one, so a display preference kept editing
-  cached data. **Ask whether the fix belongs one layer down, where the tool
-  written next inherits it.**
+- **We fix the reported call site and leave the mechanism.** 08-19
+  (#506/#507/#508/#509), three times in three days: a second generator, a second
+  call site, a second derivation. The fix each time is *ask the authority
+  instead of reproducing its logic*. ⚠⚠ 09-02 (#572) is the same shape in a
+  cache — `search_symbols` had fixed return-the-stored-object twice inside its
+  OWN cache and neither fix reached the SHARED one. **Ask whether the fix
+  belongs one layer down, where the tool written next inherits it.**
 - **Write the ratchet before concluding the reported list is the list.** 08-18
   #489 reported three sites; a test over the PROPERTY found five. Same at #447
   (three spellings of one path rule) and #491.
@@ -482,62 +480,53 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   the least schema scores the highest. The cut was not merely inconclusive, it
   was incapable — and it will be suggested again by the next cache paper.
 - **Dropping an unmeasurable axis is not the same as omitting an inapplicable
-  one, and the difference has a SIGN.** 08-28: gating `churn_surface` on a
-  shallow clone by omitting it — the convention `runtime_coverage` already uses
-  — took the same tree from **84.0 B to 88.8 B** while full-clone truth was
-  **77.3 C**. **Removing a low-scoring axis RAISES a mean**, so the fix moved
-  the published grade further from reality than the defect had. NOT APPLICABLE
-  may be dropped silently; COULD NOT MEASURE must withhold the composite and
-  the grade. ⚠ Ask which direction a "safe" omission moves the number before
-  shipping it. [[a-one-directional-check-certifies-its-blind-side]]
+  one, and the difference has a SIGN.** 08-28: omitting `churn_surface` on a
+  shallow clone took the same tree from **84.0 B to 88.8 B** where full-clone
+  truth was **77.3 C** — **removing a low-scoring axis RAISES a mean**, so the
+  fix moved the published grade further from reality than the defect had. NOT
+  APPLICABLE may be dropped silently; COULD NOT MEASURE must withhold the
+  composite and the grade. ⚠ Ask which direction a "safe" omission moves the
+  number before shipping it. [[a-one-directional-check-certifies-its-blind-side]]
 - **`.get(key, default)` is not a None guard when the key EXISTS.** 08-28:
   `diff_radar`'s `.get("composite", 0.0)` raised the moment a composite was
   legitimately `None` — the default never fires for a present key. ⚠ And the
   0.0 it would have supplied was worse than the crash: a ~77-point regression
   reported against a side nobody measured. Same shape as
   [[a-module-that-imports-clean-has-been-tested-for-nothing]].
-- **The host's timezone can select a test's INPUT FORMAT.** 08-28: git renders
-  a UTC offset as `Z`, which `datetime.fromisoformat` could not parse before
-  3.11 — so a boundary date was unreadable on 3.10, in CI only. Every runner is
-  UTC; this box is CDT and got `-05:00`, which parses everywhere. ⚠⚠ **No local
-  run on any version could reproduce it, `uv run --python 3.13` included** —
-  the version matrix was not the axis that mattered. Pin format-sensitive
-  parsing with a UNIT test over every spelling; an integration test can only
-  observe the one its host emits. [[a-module-that-imports-clean-has-been-tested-for-nothing]]
+- **The host's timezone can select a test's INPUT FORMAT.** 08-28: git renders a
+  UTC offset as `Z`, which `datetime.fromisoformat` could not parse before 3.11,
+  so a boundary date was unreadable on 3.10 in CI only; this box is CDT and got
+  `-05:00`, which parses everywhere. ⚠⚠ **No local run on any version could
+  reproduce it** — the version matrix was not the axis that mattered. Pin
+  format-sensitive parsing with a UNIT test over every spelling; an integration
+  test can only observe the one its host emits.
+  [[a-module-that-imports-clean-has-been-tested-for-nothing]]
 - **A command that does not CREATE its environment is testing whatever was
-  left there.** 08-28: the release checklist's CI-env reproduce ran
-  `uv run --python 3.13 python -m pytest` with no sync and no `--extra watch`,
-  so it inherited `.venv`. It looked right for months because a previous sync's
-  packages survived; switching interpreters cleared them and **105 tests
-  silently stopped executing while the run reported exit 0 and the totals
-  reconciled exactly**. ⚠ Read the SKIP count, not just the exit code and the
-  total. ⚠⚠ The fix is in a GITIGNORED skill file, so the durable copy and its
-  ratchet live in the repo — `tests/test_ci_env_reproduce_command.py` binds
-  CLAUDE.md's command to `pr-gate.yml`'s install line (it was `test.yml` until 2026-09-04).
-  [[pipes-and-missing-xdist-both-report-exit-zero]]
+  left there.** 08-28: the CI-env reproduce ran with no sync and no
+  `--extra watch`, so it inherited `.venv` and looked right for months; when
+  switching interpreters cleared it, **105 tests silently stopped executing
+  while the run reported exit 0 and the totals reconciled exactly**. ⚠ Read the
+  SKIP count, not just the exit code and the total. ⚠⚠ The fix lives in a
+  GITIGNORED skill file, so the durable copy is
+  `tests/test_ci_env_reproduce_command.py`, which binds CLAUDE.md's command to
+  `pr-gate.yml`'s install line. [[pipes-and-missing-xdist-both-report-exit-zero]]
 - **A denylist catches the instance; an allowlist catches the class.** 08-28:
-  `relnotes.md`, a scratch copy of the release notes, was swept up by
-  `git add -A` and shipped inside the published sdist. The sdist canary tests
-  prove NAMED bad paths are absent and could never have seen it — a scratch
-  file has no name to plant a canary under. ⚠ **Build release notes outside the
-  repository**; a `.gitignore` entry protects only the spelling someone
-  remembered. ⚠ Assert the allowlist in BOTH directions — an entry naming a
-  file that no longer ships makes the list stop describing the artifact.
-  ⚠⚠ **It found a SECOND instance minutes later and it was mine**: `suite.log`,
-  the pytest redirect used for every gate run that day, sitting in the repo
-  root. A release cut while one existed ships it, and a pytest log carries
-  absolute paths and usernames. **Redirect gate runs to the scratchpad, never
-  the repo.**
+  `relnotes.md`, a scratch release-notes copy, was swept up by `git add -A` and
+  shipped in the sdist. The canary tests prove NAMED bad paths absent, and a
+  scratch file has no name to plant a canary under. ⚠ **Build release notes
+  outside the repository**; a `.gitignore` entry protects only the spelling
+  someone remembered. ⚠ Assert the allowlist in BOTH directions. ⚠⚠ **Redirect
+  gate runs to the scratchpad, never the repo** — `suite.log` was the second
+  instance, found minutes later, and a pytest log carries absolute paths and
+  usernames.
 - **A field written by nobody's reader is a defect with no symptom.** 08-28
-  (#561/#562): `detect_framework` persisted `entry_point_patterns` into
-  `context_metadata` at index time, and a tree-wide search found that key
-  written in ONE place and read in NONE. Three tools each reproduced their own
-  "is this a root?" answer and every one was Python, so a Next.js repo detected
-  zero entry points. ⚠⚠ **An unconsumed field also rots unnoticed**: Flask and
-  FastAPI carried `"*.py"` there, which under fnmatch declares the whole tree —
-  the first naive reader would have switched dead-code detection off across an
-  ecosystem. **Grep a persisted field for its readers before trusting it, and
-  before adding one.** [[a-module-that-imports-clean-has-been-tested-for-nothing]]
+  (#561/#562): `detect_framework` persisted `entry_point_patterns` and a
+  tree-wide search found that key written in ONE place and read in NONE, so
+  three tools each reproduced their own Python-only answer and a Next.js repo
+  detected zero entry points. ⚠⚠ **An unconsumed field also rots unnoticed** —
+  Flask and FastAPI carried `"*.py"`, which under fnmatch declares the whole
+  tree. **Grep a persisted field for its readers before trusting it, and before
+  adding one.** [[a-module-that-imports-clean-has-been-tested-for-nothing]]
 - **A count taken after the page is cut describes the page.** 08-28 (#559):
   `untested_count = len(symbols)` ran after the `max_results` slice, so
   `get_repo_health`'s `max_results=1` published ~100% test reach on every repo
@@ -547,15 +536,13 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   returning `[]` WITH a `signal_warning` became `dead_code_pct: 0.0` and an axis
   of 100. [[a-one-directional-check-certifies-its-blind-side]]
 - **An optimisation has a SWITCHING cost, and the intuition about it inverts
-  once the thing is cached.** 08-30: `set_tool_tier("standard")` narrowed the
-  tool block by 6.7% and cost a full-rate rewrite of the whole cached prefix --
-  **174 requests to break even, 864 with 100k of history**, against 4 for
-  `core`. ⚠⚠ **Uncached the same switch pays back immediately**, which is why a
-  surface built to save tokens shipped a control that spends them: "fewer
-  tokens is better" is true right up to the point the block is stable. **Ask
-  what a saving costs to START, not only what it saves per unit.** ⚠ A
-  *widening* is never refused — it buys a capability, and only a narrowing
-  claims to save. [[a-one-directional-check-certifies-its-blind-side]]
+  once the thing is cached.** 08-30: narrowing the tool block by 6.7% cost a
+  full-rate rewrite of the whole cached prefix — **174 requests to break even,
+  864 with 100k of history**, against 4 for `core`. ⚠⚠ Uncached the same switch
+  pays back immediately, which is how a surface built to save tokens shipped a
+  control that spends them. **Ask what a saving costs to START, not only what it
+  saves per unit.** ⚠ A *widening* is never refused.
+  [[a-one-directional-check-certifies-its-blind-side]]
 - **A reason placed in `_meta` is deleted on a default install.** 08-30:
   `meta_fields` defaults to `[]` and the dispatcher strips `_meta`, so a
   refusal's explanation would have reached most users as a bare verdict, with
@@ -566,39 +553,29 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   [[a-module-that-imports-clean-has-been-tested-for-nothing]]
 - **A constant written for a FUTURE date is wrong for the whole interval before
   it, and looks identical to a stale one.** 09-01: the receipt priced `sonnet`
-  at $3 from 2026-06-24, the increase SCHEDULED for 2026-09-01 — cancelled the
-  day before. Sonnet 5 was never $3; the entry was wrong all 69 days, and its
-  dated comment made it look checked. ⚠⚠ **The pin agreed with it** (two literal
-  `3.0`s plus a DERIVED `"$0.09"` a name-search cannot see), so green meant
-  nothing — **re-read the SOURCE when touching a pinned table, never the other
-  copy.** ⚠ Four copies suite-wide; ours was right only in
-  `token_tracker.py`, whose key is `claude_sonnet_4_6`: **a key naming a FAMILY
+  at $3 from 2026-06-24 for an increase scheduled 2026-09-01 and cancelled the
+  day before — wrong all 69 days, with a dated comment that made it look
+  checked. ⚠⚠ The pin AGREED with it, including a derived `"$0.09"` no
+  name-search can see, so green meant nothing: **re-read the SOURCE when
+  touching a pinned table, never the other copy.** ⚠ **A key naming a FAMILY
   inherits whichever member's price someone last looked at.**
 - **A guard written against a SPELLING is fixed for that spelling only.** 09-01
-  (#566): #550 taught that `from . import receipts` depends on `receipts.py`,
-  then gated the fix on `set(specifier) == {"."}`. `from ..retrieval import
-  embed_drift` is the same dependency with the package named, and it kept
-  resolving to `__init__.py` for the whole life of the "fix" — 21 edges over 12
-  modules on our own `src/`, every one of them published by `find_dead_code` at
-  **confidence 1.0**. ⚠ The reported case and the property are different sizes;
-  #550's own comment argued the property and the code implemented the example.
-  ⚠⚠ **And the same error twice more in the fix**: the code comment's first
-  count (134) and the first repo-level ratchet (`built > 90`) both identified a
-  synthesised edge by its SHAPE — "the last segment appears in `names`" — which
-  also matches the hand-written `from .tools.index_repo import index_repo`. This
-  repo has **113** of those, already resolving, so **the ratchet passed against
-  the reintroduced defect and the number was 6x high**. Compare against the
-  import statements actually WRITTEN in the file. [[a-ratchet-can-pass-against-the-defect-it-names]]
+  (#566): #550 gated its fix on `set(specifier) == {"."}`, so the same
+  dependency with the package NAMED kept resolving to `__init__.py` and
+  `find_dead_code` published live modules as dead at confidence 1.0. ⚠ The
+  reported case and the property are different sizes. ⚠⚠ Identify a synthesised
+  edge by the import statements actually WRITTEN in the file, never by its
+  SHAPE — both the comment's count and the first ratchet did the latter, and the
+  ratchet passed against the reintroduced defect.
+  [[a-ratchet-can-pass-against-the-defect-it-names]]
 - **A fix for a false positive can install a false negative, and only the
-  non-vacuity pass sees it.** 09-01 (#569): the runtime-discovery scanner asked
-  whether `__path__` appeared in the enumeration call.
-  `pkgutil.iter_modules(schemas_pkg.__path__)` in a TEST file is ANOTHER
-  package's search path, so the test directory read as self-enumerating and
-  **502 files went live**, suppressing every real finding under `tests/` — with
-  every assertion in the new test file still green. ⚠ **Suppression has no
-  symptom**: the false positives it was written to remove were gone, which is
-  what success looks like. Ask what the fix makes INVISIBLE, and write that test
-  before the one that proves it works. [[a-set-cannot-count]]
+  non-vacuity pass sees it.** 09-01 (#569): the scanner asked whether `__path__`
+  appeared in the enumeration call, but in a TEST file that is ANOTHER package's
+  search path, so the test directory read as self-enumerating and **502 files
+  went live**, suppressing every real finding under `tests/` with every new
+  assertion still green. ⚠ **Suppression has no symptom** — the false positives
+  it removed were gone, which is what success looks like. Ask what the fix makes
+  INVISIBLE and write that test first. [[a-set-cannot-count]]
 - **Capping a report does not cap the tool that ACTS on it.** 09-01 (#566): the
   same absence claim reached `check_delete_safe` down a different branch — its
   "no refs at all" fallback returns `safe_to_delete` **regardless of** the
@@ -608,14 +585,13 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   recommendation is the surface that matters, and it was reading a signal it
   also had permission to ignore.
 - **A number that reproduces on one box is reproducible on one box.** 09-03
-  (harness F-13): the token benchmark was deterministic on this machine AND
-  on CI and disagreed by 2.5% between them, for three causes at once — a CRLF
-  checkout, ranking ties broken by `os.walk` order (NTFS vs ext4), and a
-  `_meta` counter read from HOME. **Capture a published reference where the
-  gate runs, and diff per-row, never per-total** — the total hid one cause
-  behind another. ⚠ And `uv run --python X` REBUILDS `.venv` without the
-  extras; the fast tier ran 1055/112-skipped at exit 0 minutes later. The
-  fast tier has a skip ceiling now. [[pipes-and-missing-xdist-both-report-exit-zero]]
+  (harness F-13): the token benchmark was deterministic here AND on CI and
+  disagreed by 2.5% between them, for three causes at once — a CRLF checkout,
+  ranking ties broken by `os.walk` order, and a `_meta` counter read from HOME.
+  **Capture a published reference where the gate runs, and diff per-row, never
+  per-total** — the total hid one cause behind another. ⚠ `uv run --python X`
+  REBUILDS `.venv` without the extras; the fast tier has a skip ceiling now.
+  [[pipes-and-missing-xdist-both-report-exit-zero]]
 - **A competitor's fix list is a free defect probe.** 08-22: a rival's
   `fix(gini): measure a file's lines as its own span, not the sum of every node`
   named our defect precisely enough to confirm in one query —
@@ -624,21 +600,33 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   against whatever we built the same way; it is minutes, and it finds what our
   own tests were written not to see. See CHANGELOG `[Unreleased]`.
 - **A frozen version string cannot say whether a running process serves current code.** 08-31: `__version__` is install-time metadata, so the drift verdict false-alarmed on every editable install and was blind to the copied one; `started_at` vs source mtime answers it (Key Files `install_layout.py`). Ownership and freshness are different properties. [[grep-a-persisted-field-for-its-readers]]
-- **A gate's exit status is never the left side of a pipe.** 09-04
-  (inbound item 6): `python gate.py ... | tee out; rc=$?` records tee's status
-  under Actions' default `bash -e`, so every decline the pre-flight computed
-  was ignored and the model would have run. The reviewer named one site; the
-  ratchet (`test_no_pipe_hides_a_gate_exit_status`) found four more across
-  the stack. ⚠ **Its first draft matched per PHYSICAL line and stayed green
-  with the pipe back**, because the invocation and `| tee` sat on different
-  `\`-continued lines; normalise the text the way the shell does before
-  scanning it. [[a-trailing-command-hides-pytests-exit-code]]
+- **A gate's exit status is never the left side of a pipe.** 09-04 (inbound
+  item 6): `python gate.py ... | tee out; rc=$?` records tee's status under
+  Actions' default `bash -e`, so every decline the pre-flight computed was
+  ignored. The reviewer named one site; the ratchet
+  (`test_no_pipe_hides_a_gate_exit_status`) found four more. ⚠ Its first draft
+  matched per PHYSICAL line and stayed green with the pipe back — **normalise
+  the text the way the shell does before scanning it.**
+  [[a-trailing-command-hides-pytests-exit-code]]
 - **A default argument bound at import pins the wrong repo.** 09-04 (inbound
   items 5 and 6): `def f(cwd: Path = ROOT)` captured the module's own
   checkout at `def`, so a test that patched `ROOT` to a scratch repo still
   ran git in `C:\MCPs\jcodemunch-mcp`; bit twice in one afternoon and only
   the end-to-end arm saw it. Default to `None`, resolve at call time.
   [[a-default-argument-bound-at-import-pins-the-wrong-repo]]
+- **A grammar can spell one concept as two node types, and a spec that names one
+  looks complete.** 09-15 (#698): `abstract_class_declaration` was in neither TS
+  spec, so every abstract class was absent and its methods lost their owner —
+  the Rust `qual_mismatch` rule, which had only ever been encoded as a Rust
+  benchmark. ⚠ Probe the owner POSITIVELY; a failed lookup is UNKNOWN, not proof.
+  [[a-guard-written-against-a-spelling]]
+
+- **A fixture that cannot express the reported shape cannot fail on it.** 09-15
+  (#699): the exact-match cut passed its whole suite while the corpus that
+  reported the defect returned byte-identical output, because the fixture held
+  only one of the two crowding shapes. ⚠⚠ **Re-run the reported corpus through
+  the product before calling a fix done.**
+  [[a-fixture-that-cannot-express-the-reported-shape-cannot-fail-on-it]]
 
 ## Issue + release policy (2026-07-28)
 
@@ -951,6 +939,12 @@ and exits 0. [[pipes-and-missing-xdist-both-report-exit-zero]]
    file, where **Key Files was 40.1% (55,643 chars)** and the issue/release
    policy 15.4%. Rotating what I proposed would have recovered almost nothing.
    Split by heading and sort by size first; it is one script and it settles it.
+   ⚠⚠ **REVERSED 2026-09-16 on a re-measurement, and the reason is arithmetic:
+   Standing lessons was 6.4% when that call was made and is 13.0% now, while Key
+   Files has not moved.** The 2026-09-16 pass rotated the dated INCIDENT PROSE
+   out of its twelve newest entries and kept every rule, date and marker --
+   9,312 chars to 7,193. **The section is still not a split candidate**; nothing
+   derives a standing lesson, which is why it stays in the loaded file.
    ⚠ **Key Files at 40% is the NEXT rotation target and the hardest**, because
    it is also the most load-bearing — the per-file ⚠⚠ warnings are what stop a
    defect recurring. Rotate its dated INCIDENT prose, never its rules.
