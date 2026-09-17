@@ -1,8 +1,9 @@
 """#740: the full tier spent a large share of its wall clock inside coverage's tracer.
 
 CI opened a `suite.full_seconds` regression on `main` at 379.77 s against a 360 s
-Floor. The suite was not slower per unit of work: over the nine main runs ending
-there, the test count grew **2.4%** (10518 -> 10772) while the measurement swung
+Floor. The suite was not slower per unit of work: over eight SAMPLED `main.yml`
+runs ending there -- a sample, not a consecutive window -- the test count grew
+**2.4%** (10518 -> 10772) while the measurement swung
 **52%** (249.80 -> 379.77) and did not track the count at all -- 10550 tests
 measured 355.39 s and 10679 measured 257.59 s. The distribution straddled the
 Floor and one run crossed it.
@@ -38,7 +39,7 @@ every other change -- and the docstring cited that very lesson while doing it.
 
 ⚠ It deliberately does NOT assert a wall time. A "finishes in under N seconds"
 test would fail on a loaded box and would be measuring the runner, which the
-nine-run table above shows is the unstable thing.
+eight-run table above shows is the unstable thing.
 """
 
 import ast

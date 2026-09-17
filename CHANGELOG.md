@@ -7,8 +7,12 @@
 CI opened a `suite.full_seconds` regression on `main`: 379.77 s against a 360 s
 Floor, on the ubuntu leg of `main.yml`.
 
-⚠⚠ **The suite was not slower per unit of work, and the nine runs ending there
-say so.** Across them the test count grew **2.4%** (10518 to 10772) while the
+⚠⚠ **The suite was not slower per unit of work, and eight sampled `main.yml`
+runs say so.** They are a SAMPLE of the runs ending at the failure, not a
+consecutive window -- at least one (7c90f432, 10521 tests at 269.41 s) sits
+between two of them, and an earlier draft called them "the eight main runs
+before it", which claimed a completeness the sampling did not have. Across the
+sampled endpoints the test count grew **2.4%** (10518 to 10772) while the
 measurement swung **52%** (249.80 to 379.77) -- and it did not track the count at
 all: 10550 tests measured 355.39 s, 10679 measured 257.59 s. The distribution
 straddled the Floor for days and one run crossed it. Reading that single crossing
@@ -80,7 +84,7 @@ predicates stayed green, because "the constant `sysmon` appears" and "the string
 `COVERAGE_CORE` appears" are two existence checks that never bind to each other.
 A ratchet passing against the defect it names, guarding the instrument that gates
 every other change. It deliberately asserts no wall time -- a "finishes in under
-N seconds" test would measure the runner, which the nine-run table shows is the
+N seconds" test would measure the runner, which the sampled run table shows is the
 unstable thing.
 
 ### Fixed - every Kotlin property is a symbol, and the constant channel keeps its own (#732)
