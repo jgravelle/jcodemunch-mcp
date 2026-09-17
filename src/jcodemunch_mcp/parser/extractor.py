@@ -656,10 +656,25 @@ def _walk_tree(
     # published dead-code grade. One named set, extended per language with a
     # sample in tests/test_constant_extraction_guard.py, keeps the blast radius
     # equal to the defect.
+    #
+    # ⚠⚠ **Kotlin asks the locality predicate HERE TOO, and leaving it to the
+    # scope gate alone published locals as class constants.** An `init` block
+    # and a secondary constructor are not symbols, so `parent_symbol` is still
+    # the class and `parent_is_container` is still True inside them: once
+    # kotlin joined `_CLASS_SCOPED_CONSTANT_LANGUAGES`, `class A { init { val
+    # MAX_I = 1 } }` emitted `MAX_I` as a constant belonging to `A`. Proven new
+    # in that change by removing the language from the set in memory, where it
+    # yields nothing. The two channels were disagreeing about the same node
+    # while `kotlin_property_is_constant` claimed to be the one answer both
+    # ask -- so now both ask BOTH predicates. Found in review.
     if node.type in spec.constant_patterns and (
         parent_symbol is None
         or (parent_is_container and language in _CLASS_SCOPED_CONSTANT_LANGUAGES)
         or language in _FUNCTION_SCOPED_CONSTANT_LANGUAGES
+    ) and not (
+        language == "kotlin"
+        and node.type == "property_declaration"
+        and kotlin_property_is_local(node)
     ):
         consts = _extract_constants(node, spec, source_bytes, filename, language)
         # ⚠⚠ `_constant_symbol` hardcodes `qualified_name = name` and takes no
@@ -1024,12 +1039,13 @@ def kotlin_property_name(node, source_bytes: bytes) -> Optional[str]:
     return None
 
 
-#: Node types that put a Kotlin `property_declaration` inside executable code
-#: rather than in a type's body or at file scope.
-_KOTLIN_LOCAL_SCOPES = frozenset({
-    "function_body",
-    "lambda_literal",
-    "anonymous_initializer",
+#: The node types a Kotlin `property_declaration` sits DIRECTLY under when it
+#: declares a member of a type or a file-scope property. Anything else is a
+#: local variable.
+_KOTLIN_MEMBER_PARENTS = frozenset({
+    "class_body",       # class, interface, object, companion object, object literal
+    "enum_class_body",  # an enum class spells its body differently
+    "source_file",      # a top-level `val`/`var`
 })
 
 
@@ -1040,29 +1056,36 @@ def kotlin_property_is_local(node) -> bool:
     SAME node type as a class member, so declaring `property_declaration`
     without this gate indexed every local variable in every Kotlin file --
     including one declared in a `for` body -- as a `property`. Measured before
-    the gate: `Foo.m.localOrdinary`, `Foo.m.localVar`, `Foo.m.inner` and
-    `topFn.topLocal` were all symbols. Nothing in the PR declared that, and the
-    comment beside `_CLASS_SCOPED_CONSTANT_LANGUAGES` declines exactly this
-    widening for the constant channel because it moves symbol counts in every
-    index and every published dead-code grade. Found in review.
+    the gate: `Foo.m.localOrdinary`, `Foo.m.inner` and `topFn.topLocal` were
+    all symbols. That widening moves symbol counts in every index and every
+    published dead-code grade, which is the blast radius the comment beside
+    `_CLASS_SCOPED_CONSTANT_LANGUAGES` declines to take for other languages.
 
-    ⚠ It also closes the incoherence that made the hole visible: the constant
-    channel's gate already refuses a function parent, so a local
-    `val LOCAL_SCREAM` was dropped while the `val localOrdinary` beside it was
-    indexed -- the discriminator being capitalisation. Locals are not symbols
-    here for any language, and now that is true for both channels.
+    ⚠⚠ **An ALLOWLIST of member parents, and the first version was a denylist
+    of local scopes -- which was wrong for three shapes and shipped past its
+    own tests.** `{function_body, lambda_literal, anonymous_initializer}` with
+    an ancestor walk missed a secondary constructor's body, an `if`/`when`
+    expression body, and therefore a local inside a class-scope initialiser:
+    `class C { constructor() { val inCtor = 2 } }` published `inCtor` as a
+    property of `C`. That is [[a-guard-written-against-a-spelling]] recurring
+    through its own fix, in the commit written to close it. **Asked the
+    grammar instead of guessing**, over 25 shapes (members, secondary
+    constructors, `init`, getter and setter bodies, `try`, `while`, `for`,
+    `when`, lambdas, expression-bodied functions): every local's direct parent
+    is `statements`, and every member's is one of the three above. No walk is
+    needed and the exceptions are zero.
 
-    ⚠ Walks ANCESTORS rather than asking for a parent symbol, because
-    `_extract_name` has no parent: the caller that does is `_walk_tree`, and
-    putting the rule there would separate it from the two predicates it belongs
-    beside.
+    ⚠ The direction matters. An allowlist fails CLOSED -- a container spelling
+    this set does not know yields no symbol, which is the pre-#732 status quo
+    -- where a denylist fails OPEN and publishes a local as class state. A
+    missed member is a gap; a false member moves a published grade.
+
+    ⚠ Reads the DIRECT parent rather than walking, because a walk cannot tell
+    a member of a local class (`class_body` under `statements`, a real member
+    of an indexed type) from a local beside it.
     """
     parent = node.parent
-    while parent is not None:
-        if parent.type in _KOTLIN_LOCAL_SCOPES:
-            return True
-        parent = parent.parent
-    return False
+    return parent is None or parent.type not in _KOTLIN_MEMBER_PARENTS
 
 
 def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:

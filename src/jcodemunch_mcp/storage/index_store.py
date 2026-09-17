@@ -219,7 +219,29 @@ INDEX_VERSION = 17
 #   are all stored per symbol. `search_symbols`, `find_references` and
 #   `check_rename_safe` all read them, so an unbumped index keeps answering
 #   `Foo::new` and `Bar::new` as one name forever.
-PARSER_GENERATION = 7
+#
+# gen 8 (#732): KOTLIN PROPERTIES -- a class indexed with its methods and none
+#   of its state.
+#
+#   `property_declaration` was in `KOTLIN_SPEC.constant_patterns` and not in
+#   its `symbol_node_types`, so `val owner`, `var balance`, a `private val` and
+#   a top-level `val` yielded no symbol at all. A data class -- whose entire
+#   surface is properties -- was an empty name in the index.
+#
+#   ⚠⚠ SYMBOLS on UNCHANGED CONTENT, gen 5's case exactly: every `.kt` file in
+#   an existing index was already parsed at gen 7 with the old symbol set, and
+#   incremental never re-reads unchanged content, so without a bump Kotlin
+#   properties stay missing forever for everyone who already has an index.
+#
+#   ⚠⚠ **This bump also repairs #698, which SHIPPED IN 1.108.319 WITHOUT ONE.**
+#   `abstract_class_declaration` was absent from both TypeScript specs, so
+#   every abstract class was missing and its methods lost their owner -- the
+#   same unchanged-content case -- and the released fix reaches only files that
+#   have changed since. The counter is one integer for the whole tree, so the
+#   re-parse this bump forces carries that fix to existing indexes too. It is
+#   named here rather than left as a silent side effect, because a repair
+#   nobody recorded is indistinguishable from one that did not happen.
+PARSER_GENERATION = 8
 
 
 @dataclass(frozen=True)

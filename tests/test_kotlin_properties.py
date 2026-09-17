@@ -33,8 +33,11 @@ channel owns it emits `const val MAX` TWICE, once as a constant and once as a
 property. One predicate decides, and both channels ask it.
 """
 
+from unittest import mock
+
 import pytest
 
+from jcodemunch_mcp.parser import extractor
 from jcodemunch_mcp.parser.extractor import parse_file
 from jcodemunch_mcp.parser.grammar_pack import get_parser
 from jcodemunch_mcp.parser.languages import KOTLIN_SPEC
@@ -292,6 +295,101 @@ val topLevel = 5
 fun topFn() { val topLocal = 9 }
 val lambdaHost = run { val insideLambda = 1; insideLambda }
 """
+
+
+#: Every scope a `property_declaration` can sit in, as
+#: (label, source, the name that must NOT be a symbol, the name that must be).
+#:
+#: ⚠⚠ **This matrix exists because the first gate was a DENYLIST of local
+#: scope spellings and was wrong for three of these.** It listed
+#: `{function_body, lambda_literal, anonymous_initializer}` and walked
+#: ancestors, which misses a secondary constructor (`statements` directly under
+#: `secondary_constructor`), an `if`/`when` body (`control_structure_body`),
+#: and therefore any local inside a class-scope initialiser -- so
+#: `class C { constructor() { val inCtor = 2 } }` published `inCtor` as a
+#: property of `C`. Every one of those passed the three tests above, because
+#: the `_LOCALS` fixture has no constructor, no `init`, no `if` body and no
+#: `when` body in it. Found in review round 3; the gate is an allowlist of
+#: MEMBER parents now, derived by asking the grammar rather than by listing
+#: what came to mind.
+_SCOPE_MATRIX = [
+    ("function body", "class C {\n  val m = 1\n  fun f() {\n    val x = 2\n  }\n}\n"),
+    ("secondary ctor", "class C {\n  val m = 1\n  constructor() {\n    val x = 2\n  }\n}\n"),
+    ("init block", "class C {\n  val m = 1\n  init {\n    val x = 2\n  }\n}\n"),
+    ("getter body", "class C {\n  val m: Int\n    get() {\n      val x = 2\n      return x\n    }\n}\n"),
+    ("setter body", "class C {\n  var m: Int = 0\n    set(v) {\n      val x = v\n      field = x\n    }\n}\n"),
+    ("if body", "class C {\n  val m = if (true) {\n    val x = 2\n    1\n  } else 3\n}\n"),
+    ("when body", "class C {\n  val m = when (1) {\n    else -> {\n      val x = 2\n      1\n    }\n  }\n}\n"),
+    ("for body", "class C {\n  val m = 1\n  fun f() {\n    for (i in 1..2) {\n      val x = i\n    }\n  }\n}\n"),
+    ("while body", "class C {\n  val m = 1\n  fun f() {\n    while (true) {\n      val x = 2\n    }\n  }\n}\n"),
+    ("try block", "class C {\n  val m = 1\n  fun f() {\n    try {\n      val x = 2\n    } finally {}\n  }\n}\n"),
+    ("lambda", "class C {\n  val m = 1\n  fun f() {\n    run {\n      val x = 2\n    }\n  }\n}\n"),
+    ("expression-bodied fun", "class C {\n  val m = 1\n  fun f() = run {\n    val x = 2\n  }\n}\n"),
+]
+
+
+@pytest.mark.parametrize("label,source", _SCOPE_MATRIX, ids=[m[0] for m in _SCOPE_MATRIX])
+@pytest.mark.parametrize("local_name", ["x", "MAX_X"])
+def test_no_scope_publishes_a_local_as_a_member(label, source, local_name):
+    """A local is not a symbol in ANY scope, whatever it is called.
+
+    ⚠⚠ The `local_name` axis is the capitalisation property, and it is the
+    half that was asserted over one scope while being FALSE one scope over:
+    a SCREAMING_CASE local was dropped by the constant channel's own gate
+    while the ordinary local beside it was published, so which declarations
+    became symbols depended on how they were spelled. Both spellings run
+    through every scope here.
+
+    ⚠ `m` is the non-vacuity control: a gate that dropped everything would
+    satisfy the absence assertion alone.
+    """
+    source = source.replace("val x =", f"val {local_name} =")
+    names = {s.name for s in parse_file(source, "Scope.kt", "kotlin")}
+
+    assert local_name not in names, f"{label}: local published as a member; got {sorted(names)}"
+    assert "m" in names, f"{label}: the enclosing member vanished; got {sorted(names)}"
+
+
+def test_a_member_of_a_local_type_is_still_a_member():
+    """The allowlist's other direction, and the denylist got this wrong too.
+
+    A class declared inside a function IS indexed, so its properties are
+    declared members of an indexed type and belong in the index with it. An
+    ancestor walk cannot see that -- it finds the enclosing `function_body`
+    and calls the member a local -- which is why the rule reads the DIRECT
+    parent. Same for a property of an anonymous `object`.
+    """
+    local_class = "fun outer() {\n  class Local {\n    val localMember = 1\n  }\n}\n"
+    names = {s.name for s in parse_file(local_class, "T.kt", "kotlin")}
+    assert {"Local", "localMember"} <= names, sorted(names)
+
+    anon = "fun outer() {\n  val o = object {\n    val anonProp = 1\n  }\n}\n"
+    symbols = {s.name: s for s in parse_file(anon, "T.kt", "kotlin")}
+    assert "anonProp" in symbols, sorted(symbols)
+    # `o` itself is a local and stays out, so this is not a blanket widening.
+    assert "o" not in symbols, sorted(symbols)
+
+
+def test_the_gate_is_an_allowlist_of_member_parents():
+    """⚠⚠ The DIRECTION is the rule, not the contents.
+
+    An allowlist fails CLOSED: a container spelling the set does not know
+    yields no symbol, which is the pre-#732 status quo. A denylist of local
+    scopes fails OPEN and publishes a local as class state, which moves every
+    published dead-code grade. A future Kotlin grammar that renames a body
+    node must not be able to turn this into false members.
+    """
+    from jcodemunch_mcp.parser.extractor import _KOTLIN_MEMBER_PARENTS
+
+    invented = "class C {\n  val m = 1\n  fun f() {\n    val x = 2\n  }\n}\n"
+    with mock.patch.object(
+        extractor, "_KOTLIN_MEMBER_PARENTS", frozenset(_KOTLIN_MEMBER_PARENTS) - {"class_body"}
+    ):
+        names = {s.name for s in parse_file(invented, "T.kt", "kotlin")}
+
+    # Removing a spelling LOSES a member; it never gains a false one.
+    assert "m" not in names, sorted(names)
+    assert "x" not in names, sorted(names)
 
 
 def test_a_local_variable_is_not_a_property():
