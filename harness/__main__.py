@@ -637,6 +637,28 @@ def tier_full(result: dict) -> bool:
     cov = T.floor("coverage.min")
     warm_ok = warm_assets()
     print(f"== full tier: tests/ with --cov-fail-under={cov}")
+    # ⚠⚠ **Coverage's C tracer was half this tier's wall clock (#740).** Measured
+    # on the measuring box, same tree, same command, one variable apart: default
+    # core 306.81 s, `sysmon` 150.09 s, uninstrumented 148.25 s -- so under
+    # `sys.monitoring` the instrumentation is close to free where the C tracer
+    # cost ~158 s. That is what put `suite.full_seconds` over its Floor on main.
+    #
+    # ⚠⚠ **The coverage NUMBER is unchanged and that was PROVEN, not assumed:**
+    # two full runs diffed per file came to 52,510 statements and 9,471 missed
+    # under BOTH cores, with two concurrency modules differing by one line each
+    # in opposite directions. `coverage.min` is itself a Floor, and a tracer that
+    # counted fewer lines as missed would be a loosening by a side door.
+    #
+    # ⚠ NOT version-gated here. coverage checks `sys.monitoring`, branch support,
+    # dynamic contexts and concurrency, then warns and falls back to its default
+    # core (`coverage/core.py`, slug `no-sysmon`), so the 3.10 and 3.11 legs
+    # measure exactly as before. A `sys.version_info` test here would be a second
+    # copy of that decision, wrong the first time coverage widens support.
+    #
+    # ⚠ `setdefault`, so `COVERAGE_CORE=ctrace ... -m harness full` still forces
+    # the old tracer -- the comparison above has to stay reproducible by whoever
+    # doubts it.
+    cov_env = {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
     rc, out, secs = _run(
         [
             PY,
@@ -651,7 +673,8 @@ def tier_full(result: dict) -> bool:
             "--cov=src",
             "--cov-report=term",
             f"--cov-fail-under={cov}",
-        ]
+        ],
+        env=cov_env,
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
