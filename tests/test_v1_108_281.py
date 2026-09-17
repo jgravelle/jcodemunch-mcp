@@ -175,6 +175,29 @@ def test_java_class_and_method_symbols_are_unchanged():
     ]
 
 
+#: One class-scoped constant per language in `_CLASS_SCOPED_CONSTANT_LANGUAGES`,
+#: as (filename, source, the one constant name it must yield).
+#:
+#: ⚠ This IS the sample the set's note requires, and it is executed rather
+#: than grepped. A language added to the set without an entry here fails
+#: `test_only_named_languages_reach_constants_through_a_container` by name.
+_CLASS_SCOPED_SAMPLES = {
+    # A Java constant is a `static final` field, so under the unwidened gate
+    # `field_declaration` sat in `constant_patterns` unreachable by
+    # construction -- the defect #428 opened this set for.
+    "java": ("Probe.java", "class Probe {\n  static final int K = 1;\n}\n", "K"),
+    # Kotlin joined in #732: a `const val` in a companion object is the
+    # idiomatic Kotlin constant and was emitted by NEITHER channel, because
+    # `_extract_name` declined it to a constant channel that could not run at
+    # class scope.
+    "kotlin": (
+        "Probe.kt",
+        "class Probe {\n  companion object { const val K = 1 }\n}\n",
+        "K",
+    ),
+}
+
+
 # ── The widening is named, not general ──────────────────────────────────────
 
 def test_only_named_languages_reach_constants_through_a_container():
@@ -185,12 +208,53 @@ def test_only_named_languages_reach_constants_through_a_container():
     constants they have never emitted, moving symbol counts in every index and
     every published dead-code grade. This test is what makes the narrow choice
     durable: widen the set deliberately, with a sample, or not at all.
+
+    ⚠⚠ **This asserted `== frozenset({"java"})` until #732, and that was the
+    MECHANISM rather than the outcome.** Its own rule, one line up, is "widen
+    deliberately, with a sample, or not at all" -- and an equality against one
+    literal cannot tell a deliberate sampled widening from a careless one. It
+    refuses both, so the only way past it is to edit the test, which is the
+    opposite of a durable guard. It went red against a widening that followed
+    its rule exactly (kotlin, with its sample), which is the Practice 9 tell: a
+    test stating the implementation can only pass while that implementation is
+    the current one.
+
+    The property has two halves and both are below: a language NOT in the set
+    still cannot reach constants through a container, and a language IN it
+    carries the sample the rule requires.
     """
     from jcodemunch_mcp.parser.extractor import _CLASS_SCOPED_CONSTANT_LANGUAGES
-
-    assert _CLASS_SCOPED_CONSTANT_LANGUAGES == frozenset({"java"})
 
     # A Python class body holds an UPPER_CASE assignment, which is the exact
     # shape the general widening would have admitted.
     source = "class Config:\n    TIMEOUT = 30\n\n\nMODULE_LEVEL = 1\n"
     assert _constants(source, "conf.py", "python") == ["MODULE_LEVEL"]
+    assert "python" not in _CLASS_SCOPED_CONSTANT_LANGUAGES
+
+    # The other half of the rule, which nothing enforced before: a language in
+    # the set must have a sample proving what membership bought it. Without
+    # this the set could be widened silently and only the literal above would
+    # have objected -- for the wrong reason.
+    #
+    # ⚠⚠ BEHAVIOURAL, not a text scan. The first version of this half grepped
+    # the guard file for the language's file suffix, which is a guard written
+    # against a spelling twice over: `.py` appears in that file as a
+    # counter-example, so planting `python` in the set would have PASSED it,
+    # and java's sample lives in THIS file rather than the one the set's note
+    # names, so the scan was looking in the wrong place for the one language
+    # that was already there. Running the extraction cannot be fooled by
+    # either.
+    for language in sorted(_CLASS_SCOPED_CONSTANT_LANGUAGES):
+        sample = _CLASS_SCOPED_SAMPLES.get(language)
+        assert sample is not None, (
+            f"{language} joined _CLASS_SCOPED_CONSTANT_LANGUAGES with no "
+            f"sample in _CLASS_SCOPED_SAMPLES. The set's own note says adding "
+            f"a language without a sample is the failure #428 is about; add "
+            f"the three lines that prove what membership bought."
+        )
+        filename, source, expected = sample
+        assert _constants(source, filename, language) == [expected], (
+            f"{language} is in _CLASS_SCOPED_CONSTANT_LANGUAGES but its "
+            f"class-scoped constant is not extracted, so membership is buying "
+            f"nothing: {_constants(source, filename, language)}"
+        )
