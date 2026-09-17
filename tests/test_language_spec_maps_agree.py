@@ -61,6 +61,11 @@ _RESOLVED_BEFORE_NAME_FIELDS = {
         "type_alias": "explicit branch",
     },
     "kotlin": {
+        # #732. Two levels down (`variable_declaration > simple_identifier`),
+        # so `name_fields` cannot reach it; the branch also DECLINES when
+        # `kotlin_property_is_constant` says the constant channel owns the
+        # declaration, which is what stops `const val` being emitted twice.
+        "property_declaration": "explicit kotlin branch, declines to the constant channel",
         "class_declaration": "blanket kotlin branch",
         "function_declaration": "blanket kotlin branch",
         "object_declaration": "blanket kotlin branch",

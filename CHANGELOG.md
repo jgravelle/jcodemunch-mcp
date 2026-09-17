@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed - every Kotlin property is a symbol, and the constant channel keeps its own (#732)
+
+A Kotlin class indexed with its methods and none of its state. `val owner`,
+`var balance`, a `private val`, and a top-level `val` or `var` all yielded no
+symbol at all, so a data class -- whose entire surface is properties -- was an
+empty name in the index.
+
+⚠⚠ **Reading the extractor said this was covered.** There is a
+`property_declaration` branch keyed on kotlin, added by #428, and it is a
+CONSTANT extractor: it declines anything that is not a `val`, and any `val`
+whose name does not read as SCREAMING_CASE. It does exactly what it was written
+to do and nothing was wrong with it. Ordinary properties had no channel, and the
+branch's existence is what kept that invisible to a reader -- it took running
+the product to see it.
+
+⚠⚠ **`property_declaration` is now in `symbol_node_types` AND
+`constant_patterns`, which is a trap unless one rule owns the split.**
+`_walk_tree` runs the constant check independently of symbol extraction on the
+same node rather than as an `elif`, so two channels deciding separately emit
+`const val MAX_RETRIES` twice. `kotlin_property_is_constant` is the single
+predicate both sides ask: the constant branch extracts when it answers True and
+`_extract_name` declines when it does. A second copy of #428's rule inside
+`_extract_name` would have worked on the day it was written and drifted into a
+gap or a double-emit later, which is the second-derivation shape this project
+keeps paying for.
+
+⚠ The kind is `property`, not `constant`. A `var` is mutable, and every
+constant-oriented consumer would otherwise be told it never changes.
+
+⚠ Out of scope and stated as tests rather than left silent: a constructor
+`val` parses as `class_parameter`, not `property_declaration`; and
+`val (a, b) = pair` is `multi_variable_declaration`, which binds more than one
+name, so naming it would have to pick one. Both remain in #724's inventory.
+
+Found by #724's grammar inventory on its first review, and confirmed by running
+`parse_file` rather than by reading the scan. Both ratchets from the two
+preceding PRs fired on this fix -- #712's pairing check when the node type
+became declared, and #724's `_CONFIRMED_GAPS` assertion the moment the gap
+closed, naming the record to delete. The inventory went 273 to 272 forms.
+
 ### Added - the grammar is asked what it spells, instead of trusted to match what we wrote (#724)
 
 Four issues were one property wearing four costumes. TypeScript spelled

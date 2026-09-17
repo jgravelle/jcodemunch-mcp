@@ -1104,6 +1104,10 @@ KOTLIN_SPEC = LanguageSpec(
         "object_declaration": "class",    # object declarations (singletons)
         "function_declaration": "function",
         "type_alias": "type",
+        # #732. `property` rather than `constant`, because a `var` is mutable
+        # and every constant-oriented consumer would be told otherwise. PHP's
+        # spec already uses this kind.
+        "property_declaration": "property",
     },
     name_fields={},     # Names extracted via special-case in extractor.py
     param_fields={},    # Parameters captured via source range in _build_signature
@@ -1111,6 +1115,11 @@ KOTLIN_SPEC = LanguageSpec(
     docstring_strategy="preceding_comment",
     decorator_node_type=None,  # Annotations live inside modifiers node; captured in signature
     container_node_types=["class_declaration", "object_declaration"],
+    # ⚠⚠ `property_declaration` is in BOTH maps deliberately (#732): the
+    # constant channel keeps `const val` and SCREAMING_CASE `val` (#428), and
+    # ordinary properties come through here.  `kotlin_property_is_constant` is
+    # the single predicate that splits them, asked by both sides, so no
+    # declaration is emitted twice and none is dropped.
     constant_patterns=["property_declaration"],
     type_patterns=["type_alias", "class_declaration"],
 )

@@ -32,9 +32,6 @@
     "java": [
       "field_declaration"
     ],
-    "kotlin": [
-      "property_declaration"
-    ],
     "scala": [
       "given_definition"
     ],
@@ -288,7 +285,6 @@
     ],
     "kotlin": [
       "multi_variable_declaration",
-      "property_declaration",
       "variable_declaration"
     ],
     "lua": [

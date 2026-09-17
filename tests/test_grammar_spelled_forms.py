@@ -107,9 +107,12 @@ _KNOWN_GHOSTS = {
 # `property_declaration` branch: the branch exists and `val name` still yields
 # no symbol, in a class body and at top level. Reading the source says covered;
 # running the product says otherwise, and the product is the authority.
+# ⚠ `kotlin/property_declaration` was here and is GONE, closed by #732. That is
+# the intended lifecycle: `test_a_confirmed_gap_is_in_the_inventory` went red
+# the moment the fix landed and named this line, so the record could not
+# outlive the defect it records.
 _CONFIRMED_GAPS = {
     "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
-    "kotlin": [("property_declaration", "`val name` / `var count` yield nothing, in a class or at top level")],
     "swift": [
         ("protocol_function_declaration", "a protocol's method requirements are absent"),
         ("protocol_property_declaration", "a protocol's property requirements are absent"),

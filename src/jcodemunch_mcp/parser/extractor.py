@@ -995,8 +995,84 @@ def _extract_symbol(
     return symbol
 
 
+def kotlin_property_name(node, source_bytes: bytes) -> Optional[str]:
+    """The identifier a Kotlin `property_declaration` binds, or None.
+
+    The grammar puts it under `variable_declaration > simple_identifier`, two
+    levels down, which is why `name_fields` cannot express it and
+    `KOTLIN_SPEC` resolves it through `_extract_name` instead (#732).
+
+    ⚠ Returns None for a destructuring declaration (`val (a, b) = pair`), which
+    the grammar spells `multi_variable_declaration` and which binds more than
+    one name. That form is still unindexed and is in #724's inventory; naming
+    it here would have to pick one of its names, which is worse than nothing.
+    """
+    for child in node.children:
+        if child.type == "variable_declaration":
+            for sub in child.children:
+                if sub.type == "simple_identifier":
+                    return source_bytes[sub.start_byte:sub.end_byte].decode("utf-8")
+            return None
+    return None
+
+
+def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
+    """Does this Kotlin property belong to the CONSTANT channel? (#428, #732)
+
+    ⚠⚠ THE ONE ANSWER, asked by both channels. `property_declaration` sits in
+    `KOTLIN_SPEC.constant_patterns` AND in its `symbol_node_types`, and
+    `_walk_tree` runs the constant check independently of symbol extraction on
+    the same node rather than as an `elif`. Two channels deciding separately
+    emit `const val MAX` twice -- once as a constant, once as a property. This
+    predicate is what makes the split exhaustive and disjoint: the constant
+    branch extracts when it answers True, `_extract_name` declines when it
+    does, and every declaration is owned exactly once.
+
+    The rule is #428's, unchanged and moved rather than rewritten: a `const
+    val` is a constant by declaration, and a plain `val` is merely immutable --
+    Kotlin uses `val` for ordinary properties -- so it also counts as a
+    constant when its NAME reads as one, the convention the other extractors
+    use. A `var` is never a constant.
+    """
+    is_const = False
+    is_val = False
+    for child in node.children:
+        if child.type == "modifiers":
+            for mod in child.children:
+                if source_bytes[mod.start_byte:mod.end_byte] == b"const":
+                    is_const = True
+        elif child.type == "binding_pattern_kind":
+            if source_bytes[child.start_byte:child.end_byte] == b"val":
+                is_val = True
+    if not is_val:
+        return False
+    if is_const:
+        return True
+
+    name = kotlin_property_name(node, source_bytes)
+    if name is None:
+        return False
+    return name.isupper() or (len(name) > 1 and name[0].isupper() and "_" in name)
+
+
 def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str]:
     """Extract the name from an AST node."""
+    # Kotlin properties (#732).  The identifier is two levels down, under
+    # `variable_declaration > simple_identifier`, so `name_fields` cannot reach
+    # it.
+    #
+    # ⚠⚠ Returning None here is how the CONSTANT channel keeps ownership of a
+    # `const val` or a SCREAMING_CASE `val`: `property_declaration` is in both
+    # `constant_patterns` and `symbol_node_types`, and an unnamed node is
+    # dropped, so declining is what stops the same declaration being emitted
+    # twice.  Both sides ask `kotlin_property_is_constant`, so the split cannot
+    # drift into a gap or an overlap -- which a second copy of the rule here
+    # would eventually do, the [[a-guard-written-against-a-spelling]] shape.
+    if spec.ts_language == "kotlin" and node.type == "property_declaration":
+        if kotlin_property_is_constant(node, source_bytes):
+            return None
+        return kotlin_property_name(node, source_bytes)
+
     # Handle type_declaration in Go - name is in type_spec child
     if node.type == "type_declaration":
         for child in node.children:
@@ -1949,37 +2025,8 @@ def _extract_constant(
     # language rather than deleted, because a branch keyed only on node type is
     # exactly how this went unreachable in the first place.
     if node.type == "property_declaration" and language == "kotlin":
-        is_const = False
-        is_val = False
-        for child in node.children:
-            if child.type == "modifiers":
-                for mod in child.children:
-                    if source_bytes[mod.start_byte:mod.end_byte] == b"const":
-                        is_const = True
-            elif child.type == "binding_pattern_kind":
-                if source_bytes[child.start_byte:child.end_byte] == b"val":
-                    is_val = True
-        if not is_val:
-            return None
-
-        name_node = None
-        for child in node.children:
-            if child.type == "variable_declaration":
-                for sub in child.children:
-                    if sub.type == "simple_identifier":
-                        name_node = sub
-                        break
-                break
-        if not name_node:
-            return None
-
-        name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
-        # `const val` is a constant by declaration.  A plain `val` is merely
-        # immutable, and Kotlin uses it for ordinary properties, so fall back to
-        # the naming convention the other extractors use.
-        if not is_const and not (
-            name.isupper() or (len(name) > 1 and name[0].isupper() and "_" in name)
-        ):
+        name = kotlin_property_name(node, source_bytes)
+        if name is None or not kotlin_property_is_constant(node, source_bytes):
             return None
 
         sig = source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip()
