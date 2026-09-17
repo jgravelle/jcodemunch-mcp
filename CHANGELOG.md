@@ -32,8 +32,9 @@ branch in `_walk_tree`. #731 (Go's package-level `var`) is the same shape and
 inherits it.
 
 ⚠⚠ **A third node-type list beside two write-only ones is a risk, not a
-neutral addition.** `type_patterns` and `return_type_fields` are written for all
-79 specs and read by nothing (#725), and a list no channel consults is
+neutral addition.** `type_patterns` and `return_type_fields` are declared across
+the spec table -- 19 and 14 of the 79 specs respectively -- and read by nothing
+(#725), and a list no channel consults is
 indistinguishable from the defect it was added to fix.
 `test_every_declared_field_pattern_actually_yields_a_field` asserts the
 readership through the product, keyed on the spec so the second member is
@@ -54,13 +55,30 @@ Java spells a local `local_variable_declaration`, a different node type from
 member and a local -- cannot arise here. Asserted anyway rather than argued: a
 fix routed through `variable_declarator`, which locals DO use, fails those tests.
 
-⚠ The kind is `field`, which has been in `KIND_ORDER` since #571 (@devtomnl)
-while no Java declaration produced one. Java is the first live emitter, the
-position PHP's `property` was in before #732 -- so there is no tuple edit here
-and no cached-prefix cost. A field carries its owner (`Account.balance`, and
-`Account.Inner.innerField`); a field published as a bare name is #698's
-complaint in another language, so `_field_symbol` is qualified at the call site,
-which is the only place that knows the parent.
+⚠ The kind is `field`, already in `KIND_ORDER` and already live: the Python
+parser has emitted `field` for dataclass attributes since before #571, which is
+how @devtomnl found that both gates rejected the kind while 399 of them sat in
+this repo's own index. So there is no tuple edit here and no cached-prefix cost,
+and Java joins an established kind rather than reviving a dead one -- the
+opposite of `property`'s position in #732, where PHP had declared the kind and
+nothing emitted it.
+
+⚠ A field carries its owner (`Account.balance`, and `Account.Inner.innerField`);
+a field published as a bare name is #698's complaint in another language, so
+`_field_symbol` is qualified at the call site, which is the only place that
+knows the parent.
+
+⚠⚠ **That leaves the two channels on this node type disagreeing about
+ownership, and it is recorded here rather than discovered later.** A field comes
+out as `Account.balance` and the `static final` constant beside it comes out as
+a bare `MAX`, so whether a Java declaration knows its owner is now decided by
+the presence of `static final` -- a discriminator of exactly the kind this entry
+refuses two paragraphs up. The constant half is #428's behaviour and predates
+this change: `_constant_symbol` hardcodes `qualified_name = name` and only Rust
+qualifies at the call site, because threading a parent through
+`_extract_constants` reaches the Bash, Go, PHP and Java binders at once. Fixing
+it here would take that blast radius for a defect nobody reported, so it is
+named and left, not silently inherited.
 
 ⚠ Blast radius: a new symbol class for every Java file changes symbol counts,
 and `find_dead_code` applies no `kind` filter, so an unreferenced private field
@@ -69,17 +87,31 @@ grade for every Java repo. That is what the tool is for, and it is a grade
 movement users will see on their next re-index.
 
 ⚠ `PARSER_GENERATION` is NOT bumped, and that is deliberate rather than
-forgotten: #732 took it 7 to 8 one PR ago and it is unreleased, so every index
-this change can reach is already going to be re-parsed by that bump. A second
-increment in the same release would re-parse the same trees twice.
+forgotten: #732 took it 7 to 8 one PR ago and both entries are still under
+`[Unreleased]`, so every index a RELEASE of this can reach re-parses under that
+bump already, and a second increment would re-parse the same trees twice.
+⚠⚠ **The uncovered population is a tree indexed from source BETWEEN the two
+commits** -- stamped 8, never re-parsed, Java fields absent permanently. That is
+a maintainer's own box and nobody else's (Practice 11: we develop jcodemunch
+using jcodemunch), and the remedy is the re-index Practice 11 already requires
+after a release, not a bump that would charge every user for it.
 
 ⚠ Out of scope and recorded rather than left silent: a Java interface's
 `int X = 1;` is `constant_declaration`, a different node type that yields
-nothing today, and stays in #724's inventory.
+nothing today, and so is the identical declaration in an annotation type
+(`@interface Ann { int LIMIT = 3; }`). Both stay in #724's inventory. Naming one
+spelling and not the other is how a boundary note becomes the next omission.
 
 Found by #724's grammar inventory and confirmed by running `parse_file`, not by
-reading the scan. Its `_CONFIRMED_GAPS` entry leaves in this commit, which is
-what the record was built to force.
+reading the scan. Its `_CONFIRMED_GAPS` entry leaves in this commit.
+
+⚠⚠ **That removal was voluntary, and #724 claimed it could not be.** The gate,
+`test_a_confirmed_gap_is_in_the_inventory`, fails when a recorded gap has left
+the inventory -- and the inventory is derived from `symbol_node_types` alone, so
+a gap closed through any OTHER channel (this one through `field_patterns`, and
+`constant_patterns` before it) leaves the row in place and the record green. The
+claim that the record cannot outlive the defect holds only for fixes that take
+the one route. Recorded so the next such fix knows the gate is not watching.
 
 ### Fixed - every Kotlin property is a symbol, and the constant channel keeps its own (#732)
 

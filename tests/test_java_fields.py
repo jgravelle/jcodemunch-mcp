@@ -122,11 +122,38 @@ def test_every_field_shape_is_indexed(parsed, name):
 def test_a_field_is_kind_field(parsed):
     """Not `constant`, and not `property`.
 
-    `field` has been in `KIND_ORDER` since #571 (@devtomnl) while no Java
-    declaration produced one, so this is the first live emitter -- the same
-    declared-and-dead position `property` was in for PHP before #732.
+    ⚠ `field` is an ESTABLISHED kind, not a revived one: the Python parser has
+    emitted it for dataclass attributes since before #571, which is how
+    @devtomnl found that both gates rejected the kind while 399 of them sat in
+    this repo's own index. Java joins it. (An earlier draft of this docstring
+    called Java "the first live emitter" -- that sentence belongs to `property`
+    and Kotlin in #732, where PHP had declared the kind and nothing emitted it,
+    and it is false here. Caught in review.)
     """
     assert _named(parsed, "balance")[0].kind == "field"
+
+
+def test_the_field_kind_was_already_live_before_java(parsed):
+    """The correction above, asserted rather than left as a comment.
+
+    A docstring that names another language's behaviour is a claim, and this
+    file is where the next reader checks it. Python dataclass attributes are the
+    prior emitter; if that ever stops being true, the sentence above needs
+    rewriting and this says so by failing.
+    """
+    python_kinds = {
+        s.kind
+        for s in parse_file(
+            "from dataclasses import dataclass\n"
+            "@dataclass\n"
+            "class P:\n"
+            "    x: int = 0\n",
+            "p.py",
+            "python",
+        )
+    }
+
+    assert "field" in python_kinds, sorted(python_kinds)
 
 
 def test_a_field_knows_its_owner(parsed):
