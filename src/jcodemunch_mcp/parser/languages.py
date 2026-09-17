@@ -62,10 +62,10 @@ class LanguageSpec:
     # `_extract_constants` does.
     #
     # ⚠⚠ **This is READ, which is the whole difference from `type_patterns` and
-    # `return_type_fields` next door.** Those are written for 79 specs and read
-    # by nothing (#725), and a third write-only field would be that defect
-    # again rather than a new channel. `test_language_spec_maps_agree.py` holds
-    # the readership claim.
+    # `return_type_fields` next door.** Those are declared by 19 and 14 of the
+    # 79 specs respectively and read by NOTHING (#725), and a third write-only
+    # field would be that defect again rather than a new channel.
+    # `test_language_spec_maps_agree.py` holds the readership claim.
     field_patterns: list[str] = dc_field(default_factory=list)
 
 

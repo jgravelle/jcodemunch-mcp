@@ -330,9 +330,9 @@ def test_a_known_gap_is_still_a_gap():
 def test_every_declared_field_pattern_actually_yields_a_field():
     """`field_patterns` must be READ, which is the whole difference from #725.
 
-    ⚠⚠ `type_patterns` and `return_type_fields` are written for all 79 specs and
-    read by nothing -- #725 -- and #735 added a third node-type list beside
-    them. A list that no channel consults is indistinguishable from the defect
+    ⚠⚠ `type_patterns` and `return_type_fields` are declared by 19 and 14 of the
+    79 specs respectively and read by NOTHING -- #725 -- and #735 added a third
+    node-type list beside them. A list that no channel consults is indistinguishable from the defect
     it was added to fix ("a parameter that is present and does nothing", 08-19),
     and the only thing separating the new field from the two dead ones is that
     something runs it. This asserts that, through the product, per language: a

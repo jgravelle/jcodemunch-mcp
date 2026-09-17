@@ -49,11 +49,29 @@ public class Account {
     int[] history = new int[4];
     @Deprecated private int legacy = 0;
 
+    Account() {
+        int inCtor = 7;
+    }
+
+    {
+        int inInstanceInit = 8;
+    }
+
+    static {
+        int inStaticInit = 9;
+    }
+
     void deposit(int n) {
         int local = n;
         for (int i = 0; i < n; i++) {
             int inner = i;
         }
+        if (n > 0) {
+            int inIf = n;
+        }
+        Runnable r = () -> {
+            int inLambda = 1;
+        };
     }
 
     class Inner {
@@ -133,7 +151,7 @@ def test_a_field_is_kind_field(parsed):
     assert _named(parsed, "balance")[0].kind == "field"
 
 
-def test_the_field_kind_was_already_live_before_java(parsed):
+def test_the_field_kind_was_already_live_before_java():
     """The correction above, asserted rather than left as a comment.
 
     A docstring that names another language's behaviour is a claim, and this
@@ -227,7 +245,14 @@ def test_no_declaration_is_emitted_twice(parsed):
 # Locals are not fields
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("local", ["local", "inner", "i"])
+@pytest.mark.parametrize(
+    "local",
+    ["local", "inner", "i", "inIf", "inLambda", "inCtor", "inInstanceInit", "inStaticInit"],
+    ids=[
+        "method body", "for body", "for header", "if body", "lambda body",
+        "constructor", "instance initialiser", "static initialiser",
+    ],
+)
 def test_a_local_variable_is_not_a_field(parsed, local):
     """⚠ Java spells a local `local_variable_declaration`, a DIFFERENT node type
     from `field_declaration` -- which is why this language has no analogue of
@@ -237,6 +262,15 @@ def test_a_local_variable_is_not_a_field(parsed, local):
     types is the whole reason no scope gate is needed here, and an assertion is
     cheaper than the next reader taking it on trust. A fix routed through
     `variable_declarator` -- which locals DO use -- fails this.
+
+    ⚠⚠ **The constructor and the two initialiser blocks are here because those
+    are the scopes #732's round 3 caught its Kotlin gate failing**, and because
+    an earlier ARCHAEOLOGY row for this file CLAIMED they were covered when the
+    fixture held only a method body and a `for` body. The product was right
+    either way -- a local in a constructor has never been a Java field -- but a
+    record asserting coverage the file does not have is what a future reviewer
+    reads INSTEAD of re-deriving it. Closed by adding the shapes rather than by
+    softening the sentence. Found in review round 2.
     """
     assert not _named(parsed, local), f"{local} is a local variable, not a field"
 
