@@ -1,20 +1,160 @@
 {
   "_README": [
-    "Written by scripts/refresh_grammar_inventory.py (#724). Do NOT hand-edit",
-    "to silence a failure. Each entry is a node type the compiled grammar emits and",
-    "the LanguageSpec does not name, so the form is never extracted.",
+    "Written by scripts/refresh_grammar_inventory.py (#724). Do NOT hand-edit to",
+    "silence a failure.",
+    "",
+    "Each entry is a node type the compiled grammar EMITS and the language's",
+    "recognised set does not contain -- either its LanguageSpec.symbol_node_types",
+    "(source `spec`) or the node-type literals its _parse_<lang>_symbols function",
+    "matches on (source `inline`). See `sources` below for which applies.",
+    "",
+    "An entry is NOT a proof that the form is unextractable. symbol_node_types is",
+    "one channel of several: constant_patterns and container_node_types also reach",
+    "the extractor, so go/const_declaration, javascript/lexical_declaration and",
+    "rust/const_item DO yield symbols, and rust/impl_item is a container that",
+    "deliberately emits none. The entry means: nothing in the node-type map claims",
+    "this form, so whether it is extracted is a question, not a given. Six rows",
+    "(python/with_item, bash/case_item, swift/capture_list_item,",
+    "swift/tuple_type_item, rust/attribute_item, rust/inner_attribute_item) are not",
+    "declarations at all and are left in rather than special-cased.",
+    "",
+    "`confirmed_gaps` are the rows verified through parse_file to yield no symbol.",
+    "",
     "A change here is a DECISION: either the form is a symbol (declare it in",
-    "languages.py) or it is correctly ignored (update this file in the same commit).",
+    "languages.py) or it is correctly ignored (regenerate in the same commit).",
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
   ],
   "confirmed_gaps": {
-    "go": "var_spec",
-    "java": "field_declaration",
-    "kotlin": "property_declaration",
-    "scala": "given_definition",
-    "swift": "protocol_function_declaration"
+    "go": [
+      "var_spec"
+    ],
+    "java": [
+      "field_declaration"
+    ],
+    "kotlin": [
+      "property_declaration"
+    ],
+    "scala": [
+      "given_definition"
+    ],
+    "solidity": [
+      "constructor_definition",
+      "error_declaration"
+    ],
+    "swift": [
+      "protocol_function_declaration",
+      "protocol_property_declaration",
+      "subscript_declaration"
+    ]
+  },
+  "sources": {
+    "ada": "inline",
+    "apex": "inline",
+    "arduino": "spec",
+    "bash": "spec",
+    "c": "spec",
+    "cpp": "spec",
+    "csharp": "spec",
+    "dart": "spec",
+    "erlang": "inline",
+    "fortran": "inline",
+    "fsharp": "inline",
+    "gdscript": "spec",
+    "go": "spec",
+    "graphql": "inline",
+    "java": "spec",
+    "javascript": "spec",
+    "julia": "inline",
+    "kotlin": "spec",
+    "lua": "inline",
+    "luau": "inline",
+    "nim": "inline",
+    "objc": "inline",
+    "ocaml": "inline",
+    "perl": "spec",
+    "php": "spec",
+    "powershell": "inline",
+    "python": "spec",
+    "rust": "spec",
+    "scala": "spec",
+    "solidity": "inline",
+    "sql": "inline",
+    "swift": "spec",
+    "tsx": "spec",
+    "typescript": "spec"
   },
   "inventory": {
+    "ada": [
+      "access_definition",
+      "access_to_object_definition",
+      "access_to_subprogram_definition",
+      "array_type_definition",
+      "component_declaration",
+      "component_definition",
+      "decimal_fixed_point_definition",
+      "derived_type_definition",
+      "elsif_expression_item",
+      "elsif_statement_item",
+      "entry_declaration",
+      "enumeration_type_definition",
+      "exception_declaration",
+      "exception_renaming_declaration",
+      "expression_function_declaration",
+      "extended_return_object_declaration",
+      "floating_point_definition",
+      "formal_abstract_subprogram_declaration",
+      "formal_access_type_definition",
+      "formal_array_type_definition",
+      "formal_complete_type_declaration",
+      "formal_concrete_subprogram_declaration",
+      "formal_decimal_fixed_point_definition",
+      "formal_derived_type_definition",
+      "formal_discrete_type_definition",
+      "formal_floating_point_definition",
+      "formal_incomplete_type_declaration",
+      "formal_interface_type_definition",
+      "formal_modular_type_definition",
+      "formal_object_declaration",
+      "formal_ordinary_fixed_point_definition",
+      "formal_package_declaration",
+      "formal_private_type_definition",
+      "formal_signed_integer_type_definition",
+      "formal_subprogram_declaration",
+      "generic_package_declaration",
+      "generic_renaming_declaration",
+      "generic_subprogram_declaration",
+      "global_aspect_definition",
+      "incomplete_type_declaration",
+      "index_subtype_definition",
+      "interface_type_definition",
+      "modular_type_definition",
+      "null_procedure_declaration",
+      "number_declaration",
+      "object_renaming_declaration",
+      "ordinary_fixed_point_definition",
+      "package_renaming_declaration",
+      "private_extension_declaration",
+      "private_type_declaration",
+      "protected_definition",
+      "protected_type_declaration",
+      "record_definition",
+      "record_type_definition",
+      "signed_integer_type_definition",
+      "single_protected_declaration",
+      "single_task_declaration",
+      "subprogram_declaration",
+      "subprogram_renaming_declaration",
+      "subtype_declaration",
+      "task_definition",
+      "task_type_declaration"
+    ],
+    "apex": [
+      "accessor_declaration",
+      "constant_declaration",
+      "constructor_declaration",
+      "field_declaration",
+      "local_variable_declaration"
+    ],
     "arduino": [
       "attribute_declaration",
       "concept_definition",
@@ -81,6 +221,21 @@
       "representation_declaration",
       "static_final_declaration"
     ],
+    "erlang": [
+      "ssr_definition"
+    ],
+    "fortran": [
+      "cray_pointer_declaration",
+      "triplet_spec"
+    ],
+    "fsharp": [
+      "argument_name_spec",
+      "argument_spec",
+      "arguments_spec",
+      "curried_spec",
+      "exception_definition",
+      "value_declaration"
+    ],
     "gdscript": [
       "constructor_definition"
     ],
@@ -98,6 +253,21 @@
       "var_spec",
       "variadic_parameter_declaration"
     ],
+    "graphql": [
+      "arguments_definition",
+      "directive_definition",
+      "enum_value_definition",
+      "enum_values_definition",
+      "executable_definition",
+      "field_definition",
+      "fields_definition",
+      "input_fields_definition",
+      "input_value_definition",
+      "root_operation_type_definition",
+      "type_definition",
+      "type_system_definition",
+      "variable_definition"
+    ],
     "java": [
       "constant_declaration",
       "field_declaration",
@@ -112,10 +282,62 @@
       "using_declaration",
       "variable_declaration"
     ],
+    "julia": [
+      "primitive_definition"
+    ],
     "kotlin": [
       "multi_variable_declaration",
       "property_declaration",
       "variable_declaration"
+    ],
+    "lua": [
+      "function_definition",
+      "variable_declaration"
+    ],
+    "luau": [
+      "function_definition",
+      "variable_declaration"
+    ],
+    "nim": [
+      "concept_declaration",
+      "conditional_declaration",
+      "enum_declaration",
+      "enum_field_declaration",
+      "field_declaration",
+      "object_declaration",
+      "parameter_declaration",
+      "symbol_declaration",
+      "tuple_deconstruct_declaration",
+      "variant_declaration",
+      "variant_discriminator_declaration"
+    ],
+    "objc": [
+      "atomic_declaration",
+      "attribute_declaration",
+      "class_declaration",
+      "compatibility_alias_declaration",
+      "field_declaration",
+      "implementation_definition",
+      "parameter_declaration",
+      "property_attributes_declaration",
+      "property_declaration",
+      "protocol_forward_declaration",
+      "qualified_protocol_interface_declaration",
+      "struct_declaration",
+      "type_definition"
+    ],
+    "ocaml": [
+      "class_type_definition",
+      "constructor_declaration",
+      "exception_definition",
+      "expression_item",
+      "field_declaration",
+      "inheritance_definition",
+      "instance_variable_definition",
+      "method_definition",
+      "module_type_definition",
+      "record_declaration",
+      "variant_declaration"
     ],
     "perl": [
       "variable_declaration"
@@ -128,6 +350,11 @@
       "namespace_use_declaration",
       "static_variable_declaration",
       "use_declaration"
+    ],
+    "powershell": [
+      "class_property_definition",
+      "function_parameter_declaration",
+      "type_spec"
     ],
     "python": [
       "decorated_definition",
@@ -153,6 +380,23 @@
       "given_definition",
       "import_declaration",
       "val_declaration",
+      "var_declaration"
+    ],
+    "solidity": [
+      "constant_variable_declaration",
+      "constructor_definition",
+      "error_declaration",
+      "fallback_receive_definition",
+      "return_type_definition",
+      "user_defined_type_definition",
+      "variable_declaration",
+      "yul_function_definition",
+      "yul_variable_declaration"
+    ],
+    "sql": [
+      "array_size_definition",
+      "frame_definition",
+      "function_declaration",
       "var_declaration"
     ],
     "swift": [

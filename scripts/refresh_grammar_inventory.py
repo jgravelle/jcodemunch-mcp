@@ -28,23 +28,48 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "fixtures" / "grammar_declaration_inventory.json"
 
 _README = [
-    "Written by scripts/refresh_grammar_inventory.py (#724). Do NOT hand-edit",
-    "to silence a failure. Each entry is a node type the compiled grammar emits and",
-    "the LanguageSpec does not name, so the form is never extracted.",
+    "Written by scripts/refresh_grammar_inventory.py (#724). Do NOT hand-edit to",
+    "silence a failure.",
+    "",
+    "Each entry is a node type the compiled grammar EMITS and the language's",
+    "recognised set does not contain -- either its LanguageSpec.symbol_node_types",
+    "(source `spec`) or the node-type literals its _parse_<lang>_symbols function",
+    "matches on (source `inline`). See `sources` below for which applies.",
+    "",
+    "An entry is NOT a proof that the form is unextractable. symbol_node_types is",
+    "one channel of several: constant_patterns and container_node_types also reach",
+    "the extractor, so go/const_declaration, javascript/lexical_declaration and",
+    "rust/const_item DO yield symbols, and rust/impl_item is a container that",
+    "deliberately emits none. The entry means: nothing in the node-type map claims",
+    "this form, so whether it is extracted is a question, not a given. Six rows",
+    "(python/with_item, bash/case_item, swift/capture_list_item,",
+    "swift/tuple_type_item, rust/attribute_item, rust/inner_attribute_item) are not",
+    "declarations at all and are left in rather than special-cased.",
+    "",
+    "`confirmed_gaps` are the rows verified through parse_file to yield no symbol.",
+    "",
     "A change here is a DECISION: either the form is a symbol (declare it in",
-    "languages.py) or it is correctly ignored (update this file in the same commit).",
+    "languages.py) or it is correctly ignored (regenerate in the same commit).",
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py",
 ]
 
 
 def main() -> int:
     sys.path.insert(0, str(ROOT / "tests"))
-    from test_grammar_spelled_forms import _CONFIRMED_GAPS, _current_inventory
+    from test_grammar_spelled_forms import (
+        _CONFIRMED_GAPS,
+        _current_inventory,
+        _inventory_sources,
+    )
 
     inventory = _current_inventory()
+    sources = _inventory_sources()
     payload = {
         "_README": _README,
-        "confirmed_gaps": {k: v[0] for k, v in sorted(_CONFIRMED_GAPS.items())},
+        "confirmed_gaps": {
+            k: [nt for nt, _why in v] for k, v in sorted(_CONFIRMED_GAPS.items())
+        },
+        "sources": {k: sources[k] for k in sorted(inventory)},
         "inventory": {k: inventory[k] for k in sorted(inventory)},
     }
 

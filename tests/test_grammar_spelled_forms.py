@@ -36,11 +36,22 @@ growth-gated baseline would have recorded it as unnamed on day one and said
 nothing. What it buys is that the set is WRITTEN DOWN and reviewable, and that
 it cannot grow in silence -- a grammar upgrade that adds a form, or a new
 language nobody classified, fails here. The review is what finds a standing
-gap, and reviewing this inventory for the first time found five, every one
+gap, and reviewing this inventory found nine across six languages, every one
 confirmed by running the product rather than by reading the scan (see
 `_CONFIRMED_GAPS`).
+
+⚠⚠ **The scan reaches 54 languages, and the first draft reached 22.** 35 specs
+declare no `symbol_node_types` and still parse with a compiled grammar, matching
+node types against literals written inline in `_parse_<lang>_symbols`. Calling
+those "regex-parsed" and skipping them exempted `solidity` (10 such literals),
+`nim` (10), `graphql` (9) and `vue` (8) -- and a Solidity form the grammar
+spells and that inline list omits IS #698. Found in review; the exemption was
+wrong for all 35, and the ARCHAEOLOGY row stated it as fact.
 """
 
+import ast
+import functools
+import inspect
 import json
 import pathlib
 
@@ -56,30 +67,66 @@ BASELINE = pathlib.Path(__file__).parent / "fixtures" / "grammar_declaration_inv
 # suffixes, because three grammars in the set use `_item` (rust) or `_spec`
 # (go) for the same concept and stopping at `_declaration` would read those
 # two languages as clean when they are the opposite.
+# ⚠ Six entries are not declarations at all (`python/with_item`,
+# `bash/case_item`, `swift/capture_list_item`, `swift/tuple_type_item`,
+# `rust/attribute_item`, `rust/inner_attribute_item`). They are left in rather
+# than special-cased: narrowing the suffix set to exclude them is a rule written
+# against six spellings, and the baseline's job is to be reviewed, not to be
+# free of rows a reviewer dismisses in a second.
 _DECLARATION_SUFFIXES = ("_declaration", "_definition", "_item", "_spec")
 
 # Property A's one standing exception. Same rule as #712's `_KNOWN_GAPS`: the
-# entry names the issue, and `test_a_known_gap_is_still_a_gap` fails when the
-# gap closes, so an excuse cannot outlive the defect it excuses.
+# entry names the issue, and `test_a_known_ghost_is_still_a_ghost` fails when
+# the gap closes, so an excuse cannot outlive the defect it excuses.
 _KNOWN_GHOSTS = {
     "haskell": ({"type_synon"}, "#722: the grammar spells it `type_synomym`"),
 }
 
-# The gaps this inventory found on its first review, each CONFIRMED by parsing
-# a snippet through `parse_file` rather than by reading the scan. They stay in
-# the baseline (they are the current, wrong, behaviour) and each names the
-# issue that will close it. ⚠ This is documentation, not an excuse list: the
-# baseline already carries these node types, and this map exists so a reader
-# knows which baseline entries are known-wrong versus deliberately omitted.
+# The gaps this inventory found on review, each CONFIRMED by parsing a snippet
+# through `parse_file` and watching the symbol not appear -- never by reading
+# the scan, and never by reading the extractor source.
+#
+# ⚠⚠ A LIST per language, not one entry. The first draft keyed one node type
+# per language and silently dropped two of Swift's three confirmed gaps, which
+# is the container's shape deciding what gets recorded. Found in review.
+#
+# ⚠ `kotlin/property_declaration` is here although `extractor.py` HAS a
+# `property_declaration` branch: the branch exists and `val name` still yields
+# no symbol, in a class body and at top level. Reading the source says covered;
+# running the product says otherwise, and the product is the authority.
 _CONFIRMED_GAPS = {
-    "go": ("var_spec", "a package-level `var Client = 1` yields no symbol"),
-    "kotlin": ("property_declaration", "`val name` / `var count` yield nothing"),
-    "swift": ("protocol_function_declaration", "protocol requirements are absent"),
-    "scala": ("given_definition", "a Scala 3 `given` yields no symbol"),
-    "java": ("field_declaration", "a plain instance field yields no symbol"),
+    "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
+    "kotlin": [("property_declaration", "`val name` / `var count` yield nothing, in a class or at top level")],
+    "swift": [
+        ("protocol_function_declaration", "a protocol's method requirements are absent"),
+        ("protocol_property_declaration", "a protocol's property requirements are absent"),
+        ("subscript_declaration", "a subscript yields no symbol"),
+    ],
+    "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
+    "java": [("field_declaration", "a plain instance field yields no symbol; `static final` does, via constant_patterns")],
+    "solidity": [
+        ("constructor_definition", "a Solidity `constructor(...)` yields no symbol"),
+        ("error_declaration", "`error Unauthorized(address)` yields nothing: the extractor "
+                              "matches `error_definition` and the grammar emits "
+                              "`error_declaration` -- #722's shape, in a second language"),
+    ],
+}
+
+# ⚠⚠ Confirmed by the product and NOT expressible in the inventory, so recorded
+# here rather than silently dropped. Julia's extractor matches
+# `short_function_definition`, which its grammar does not emit, so `f(x) = x + 1`
+# yields no symbol while `function g(y) ... end` does. It is a GHOST (a literal
+# with no node type behind it), not an unnamed form, so it cannot appear in an
+# inventory built from what the grammar emits. Property A would catch it, and
+# property A deliberately does not run over the inline half -- see
+# `test_the_ghost_check_does_not_run_over_the_inline_half` for why.
+_INLINE_GHOSTS_FOUND = {
+    "julia": ("short_function_definition", "`f(x) = x + 1` yields no symbol"),
+    "solidity": ("error_definition", "the grammar emits `error_declaration`"),
 }
 
 
+@functools.lru_cache(maxsize=None)
 def _grammar_kinds(language):
     """Every NAMED node kind the compiled grammar can emit, or None."""
     try:
@@ -89,35 +136,100 @@ def _grammar_kinds(language):
         # indexed for text search only. Absent is not a failure here.
         return None
     lang = parser.language
-    return {
+    return frozenset(
         lang.node_kind_for_id(i)
         for i in range(lang.node_kind_count)
         if lang.node_kind_is_named(i) and lang.node_kind_for_id(i)
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _extractor_functions():
+    """`_parse_<lang>_symbols` by name, parsed ONCE.
+
+    ⚠ `extractor.py` is large and `ast.parse` over it is not free. The first
+    draft parsed it per language per call, and `_checkable_languages()` is
+    called by every test in this file -- the suite went from under a second to
+    over two minutes. Cached here rather than at the call sites, so a new
+    caller inherits it.
+    """
+    from jcodemunch_mcp.parser import extractor
+
+    module = ast.parse(inspect.getsource(extractor))
+    return {
+        node.name: node
+        for node in ast.walk(module)
+        if isinstance(node, ast.FunctionDef)
     }
 
 
-def _declaring_languages():
-    """Specs that declare node types AND have a grammar to check them against.
+def _harvested_node_types(language, kinds):
+    """Node types a hand-written `_parse_<lang>_symbols` matches on, by AST.
 
-    ⚠ A spec with an EMPTY `symbol_node_types` is regex-parsed or
-    custom-extracted (Erlang, Fortran, SQL, Razor -- CLAUDE.md "Custom
-    Parsers"), so every declaration form in its grammar would read as a gap.
-    The first draft of this scan omitted this filter and reported 422 gaps
-    across 39 languages; the real figure is an order of magnitude smaller, and
-    the difference was entirely languages that do not use the node-type path
-    at all. A scan that cannot tell "omitted" from "not applicable" is
-    measuring its own blind spot.
+    ⚠⚠ 35 of the 79 specs declare NO `symbol_node_types` and still parse with a
+    compiled tree-sitter grammar: their extractor function calls `get_parser`
+    and compares `node.type` against string literals written inline. The first
+    draft of this file called those specs "regex-parsed" and skipped them, which
+    exempted `solidity` (10 literals), `nim` (10), `graphql` (9) and `vue` (8)
+    from the very check they need -- a Solidity form the grammar spells and that
+    inline list omits IS #698, and the guard would have said nothing. Found in
+    review; the claim was wrong for every one of the 35.
+
+    ⚠ Harvesting literals is weaker than reading a declared map and the weakness
+    has a DIRECTION. A literal that is a field name rather than a node type
+    (`"name"`, `"body"`) can coincide with a real node kind and inflate what
+    this reports as recognised, which SHRINKS the gap. So this can under-report
+    a gap and cannot invent one -- the safe direction for a scan whose output a
+    human reviews.
+    """
+    node = _extractor_functions().get(f"_parse_{language}_symbols")
+    if node is None or "get_parser" not in ast.unparse(node):
+        return frozenset()
+    literals = {
+        n.value for n in ast.walk(node)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    }
+    return frozenset(literals & kinds)
+
+
+@functools.lru_cache(maxsize=1)
+def _checkable_languages():
+    """Every language whose recognised node types can be compared to a grammar.
+
+    Two sources, and the inventory records which:
+
+    * `spec` -- the language declares `symbol_node_types` (22 specs);
+    * `inline` -- the language declares none and its extractor function matches
+      node types against literals in its body (32 more).
+
+    A language with no grammar in this pack is skipped: 13 of them are indexed
+    for text search only, by design, and absent is not a failure.
     """
     out = {}
     for language, spec in sorted(LANGUAGE_REGISTRY.items()):
-        declared = set(getattr(spec, "symbol_node_types", None) or {})
-        if not declared:
-            continue
         kinds = _grammar_kinds(language)
         if kinds is None:
             continue
-        out[language] = (declared, kinds)
+        declared = set(getattr(spec, "symbol_node_types", None) or {})
+        if declared:
+            out[language] = (declared, kinds, "spec")
+            continue
+        harvested = _harvested_node_types(language, kinds)
+        if harvested:
+            out[language] = (harvested, kinds, "inline")
     return out
+
+
+def _spec_declaring_languages():
+    """The `spec` half alone -- the only half property A can speak about.
+
+    ⚠ Property A asks whether a DECLARED node type exists in the grammar. A
+    harvested literal is not a declaration: it is any string in a function
+    body, so a literal absent from the grammar is usually a field name or a
+    kind string, not a typo. Running property A over the inline half would
+    report every one of them as a ghost.
+    """
+    return {k: (v[0], v[1]) for k, v in _checkable_languages().items() if v[2] == "spec"}
 
 
 def _unnamed_declaration_forms(declared, kinds):
@@ -128,18 +240,24 @@ def _unnamed_declaration_forms(declared, kinds):
 
 
 def _current_inventory():
-    return {
-        language: _unnamed_declaration_forms(declared, kinds)
-        for language, (declared, kinds) in _declaring_languages().items()
-        if _unnamed_declaration_forms(declared, kinds)
-    }
+    out = {}
+    for language, (recognised, kinds, _source) in _checkable_languages().items():
+        gap = _unnamed_declaration_forms(recognised, kinds)
+        if gap:
+            out[language] = gap
+    return out
+
+
+def _inventory_sources():
+    """Which half each language's recognised set came from: `spec` or `inline`."""
+    return {lang: src for lang, (_r, _k, src) in _checkable_languages().items()}
 
 
 # ---------------------------------------------------------------------------
 # Property A: a declared node type the grammar never emits
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("language", sorted(_declaring_languages()))
+@pytest.mark.parametrize("language", sorted(_spec_declaring_languages()))
 def test_every_declared_node_type_is_one_the_grammar_emits(language):
     """A spec entry naming a node type no grammar produces is dead on arrival.
 
@@ -151,7 +269,7 @@ def test_every_declared_node_type_is_one_the_grammar_emits(language):
     ⚠ Exact, with no judgement call: the grammar either emits the kind or it
     does not.
     """
-    declared, kinds = _declaring_languages()[language]
+    declared, kinds = _spec_declaring_languages()[language]
     excused = _KNOWN_GHOSTS.get(language, (set(), ""))[0]
 
     ghosts = (declared - kinds) - excused
@@ -172,11 +290,42 @@ def test_a_known_ghost_is_still_a_ghost():
     delete -- so the exception list cannot quietly become permanent.
     """
     for language, (ghosts, why) in _KNOWN_GHOSTS.items():
-        declared, kinds = _declaring_languages()[language]
+        declared, kinds = _spec_declaring_languages()[language]
         still = ghosts & (declared - kinds)
         assert still == ghosts, (
             f"{language}: {sorted(ghosts - still)} is no longer a ghost "
             f"({why}). Remove it from _KNOWN_GHOSTS."
+        )
+
+
+def test_the_ghost_check_does_not_run_over_the_inline_half():
+    """Property A is scoped to the `spec` half, and the reason is measurable.
+
+    A harvested literal is any string in a function body, so "absent from the
+    grammar" does not mean "typo". Measured across the 32 inline languages, the
+    declaration-shaped literals no grammar emits are:
+
+    * `apex` and `solidity`: the bare string `"_declaration"`, which is an
+      argument to `endswith`, not a node type;
+    * `svelte` and `vue`: seven or eight JavaScript node types, correct for the
+      script block's DELEGATED grammar and absent from the host grammar;
+    * `julia` and `solidity`: two real ghosts (`_INLINE_GHOSTS_FOUND`).
+
+    Two signals in six, and the four false positives are structural rather than
+    fixable by a threshold -- an `endswith` argument and a delegated grammar are
+    both legitimate. Gating on this would fail four languages forever, which is
+    how a guard gets disabled. The real ones are recorded and filed instead.
+
+    This test asserts the SCOPE so a later widening has to argue with it.
+    """
+    spec_half = set(_spec_declaring_languages())
+    all_checkable = set(_checkable_languages())
+
+    assert spec_half < all_checkable, "the inline half is missing from the scan"
+    for language in ("solidity", "vue", "svelte", "julia"):
+        assert language not in spec_half, (
+            f"{language} is now spec-declaring; property A applies to it and "
+            f"the scoping argument in this docstring needs re-measuring"
         )
 
 
@@ -220,26 +369,31 @@ def test_the_unnamed_declaration_inventory_matches_the_baseline():
 def test_the_baseline_covers_every_language_the_scan_can_reach():
     """Non-vacuity floor: the scan must actually reach the specs it claims to.
 
-    A `_declaring_languages()` that returned {} -- a broken grammar pack, a
+    A `_checkable_languages()` that returned {} -- a broken grammar pack, a
     registry that failed to import, an over-eager filter -- would make every
     case above pass while checking nothing. Measured on THIS tree, 2026-09-17:
-    22 specs declare node types and have a grammar, and 19 of them have at
-    least one unnamed declaration form. The floors sit below both with room to
-    move; they exist to catch a scan that collapsed, not to pin a count.
+    54 languages are checkable (22 through `symbol_node_types`, 32 through
+    inline literals) and 34 of them have at least one unnamed declaration form.
+    The floors sit below both with room to move; they exist to catch a scan
+    that collapsed, not to pin a count.
     """
-    reachable = _declaring_languages()
-    assert len(reachable) >= 18, sorted(reachable)
+    reachable = _checkable_languages()
+    assert len(reachable) >= 45, sorted(reachable)
 
     inventory = _current_inventory()
-    assert len(inventory) >= 15, sorted(inventory)
+    assert len(inventory) >= 28, sorted(inventory)
 
     # And the scan must be looking at a real vocabulary, not an empty set.
-    for language, (_declared, kinds) in reachable.items():
-        assert len(kinds) > 20, (language, len(kinds))
+    # ⚠ The floor is 10, not a round 20: `elisp` has exactly 20 named kinds and
+    # a `> 20` written from a guess failed against a correct tree. A
+    # non-vacuity floor has to clear the SMALLEST real member, which is a
+    # measurement rather than a number that looks safe.
+    for language, (_recognised, kinds, _source) in reachable.items():
+        assert len(kinds) >= 10, (language, len(kinds))
 
 
 @pytest.mark.parametrize("language,node_type", sorted(
-    (lang, nt) for lang, (nt, _why) in _CONFIRMED_GAPS.items()
+    (lang, nt) for lang, entries in _CONFIRMED_GAPS.items() for nt, _why in entries
 ))
 def test_a_confirmed_gap_is_in_the_inventory(language, node_type):
     """The five gaps this instrument found on its first review are real.
@@ -259,6 +413,61 @@ def test_a_confirmed_gap_is_in_the_inventory(language, node_type):
         f"_CONFIRMED_GAPS entry; if the scan stopped seeing it, the scan "
         f"is broken."
     )
+
+
+def test_the_baseline_gate_fires_on_a_planted_difference(tmp_path, monkeypatch):
+    """⚠⚠ The gate that runs on every commit, proven against a real difference.
+
+    The detection PREDICATE is proven by
+    `test_the_scan_would_have_caught_each_reported_defect`. The comparison is a
+    different piece of code: a defect in the `added`/`removed` set arithmetic,
+    or a baseline whose `inventory` key were present but empty, would keep every
+    other test in this file green while gating nothing -- and the red arm's only
+    witness for this test was a `FileNotFoundError`, which proves the file is
+    read, not that a difference fails. Found in review.
+
+    [[a-ratchet-can-pass-against-the-defect-it-names]]: run it against the
+    reintroduced defect, never only against the fixed tree.
+    """
+    real = json.loads(BASELINE.read_text(encoding="utf-8"))
+
+    # 1. A form that left the inventory (a gap we closed, or a spec entry
+    #    deleted by accident) must fail.
+    language = sorted(real["inventory"])[0]
+    shrunk = json.loads(json.dumps(real))
+    shrunk["inventory"][language] = shrunk["inventory"][language] + ["planted_extra_declaration"]
+    planted = tmp_path / "shrunk.json"
+    planted.write_text(json.dumps(shrunk), encoding="utf-8")
+    monkeypatch.setattr(BASELINE.__class__, "read_text",
+                        lambda self, **kw: planted.read_text(**kw)
+                        if self == BASELINE else pathlib.Path.read_text(self, **kw))
+    with pytest.raises(AssertionError, match="no longer unnamed"):
+        test_the_unnamed_declaration_inventory_matches_the_baseline()
+
+    # 2. A newly unnamed form -- the #698 arrival shape -- must fail too.
+    grown = json.loads(json.dumps(real))
+    grown["inventory"][language] = grown["inventory"][language][1:]
+    planted.write_text(json.dumps(grown), encoding="utf-8")
+    with pytest.raises(AssertionError, match="newly unnamed"):
+        test_the_unnamed_declaration_inventory_matches_the_baseline()
+
+
+def test_the_inline_half_is_actually_covered():
+    """The blind spot this file shipped with, asserted closed.
+
+    35 specs declare no `symbol_node_types` and still parse with a compiled
+    grammar. The first draft skipped them as "regex-parsed", which exempted
+    solidity, nim, graphql and vue -- languages that hard-code 8 to 10
+    declaration node types in a function body, where an omission is #698
+    exactly. A regression to the old filter drops these languages from
+    `_checkable_languages()` and fails here.
+    """
+    sources = _inventory_sources()
+    inline = sorted(lang for lang, src in sources.items() if src == "inline")
+
+    assert len(inline) >= 25, inline
+    for language in ("solidity", "nim", "graphql", "vue"):
+        assert sources.get(language) == "inline", (language, sources.get(language))
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +500,7 @@ def test_the_scan_would_have_caught_each_reported_defect(language, node_type):
     A scan that could not see these is a scan that would not have prevented
     any of the four issues it was written for.
     """
-    declared, kinds = _declaring_languages()[language]
+    declared, kinds = _spec_declaring_languages()[language]
     assert node_type in declared, (
         f"{language}/{node_type} is not declared, so this case is not "
         f"reproducing a fixed defect any more"
@@ -317,7 +526,7 @@ def test_the_ghost_check_fires_on_a_planted_typo():
     `_grammar_kinds` that returned every possible string -- or a declared set
     that was empty -- would keep the property-A cases green forever.
     """
-    declared, kinds = _declaring_languages()["java"]
+    declared, kinds = _spec_declaring_languages()["java"]
     planted = declared | {"recrod_declaration"}
 
     ghosts = planted - kinds
