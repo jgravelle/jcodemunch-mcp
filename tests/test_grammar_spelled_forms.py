@@ -40,17 +40,30 @@ gap, and reviewing this inventory found nine across six languages, every one
 confirmed by running the product rather than by reading the scan (see
 `_CONFIRMED_GAPS`).
 
-⚠⚠ **The scan reaches 54 languages, and the first draft reached 22.** 35 specs
-declare no `symbol_node_types` and still parse with a compiled grammar, matching
-node types against literals written inline in `_parse_<lang>_symbols`. Calling
-those "regex-parsed" and skipping them exempted `solidity` (10 such literals),
-`nim` (10), `graphql` (9) and `vue` (8) -- and a Solidity form the grammar
-spells and that inline list omits IS #698. Found in review; the exemption was
-wrong for all 35, and the ARCHAEOLOGY row stated it as fact.
+⚠⚠ **The scan reaches 54 languages, and the first draft reached 22.** Of the 44
+registry entries that have a grammar and declare no `symbol_node_types`, **34
+parse with that compiled grammar** and match node types against literals written
+inline in `_parse_<lang>_symbols` -- `solidity`, `nim`, `graphql` and `vue`
+among them. Skipping all of them as "regex-parsed" exempted exactly the
+languages where an omission IS #698. Found in review.
+
+⚠ The old label was not wrong for everyone, and saying "wrong for all of them"
+replaced one imprecise claim with another: **7 are genuinely regex-parsed**
+(`asm`, `astro`, `cobol`, `racket`, `verilog`, `vhdl`, `yaml` -- their extractor
+never calls `get_parser`) and **3 have no extractor function at all** (`html`,
+`r`, `twig`). For those ten the exemption was correct.
+
+⚠ **Two of the 34 leave the scan and it is not an oversight to fix silently:**
+`elixir` and `nix` match node types in module-level helpers (`_walk_elixir`,
+`_walk_nix_bindings`) rather than inside `_parse_<lang>_symbols`, so the AST
+walk finds no literals and `_checkable_languages()` drops them. 32 reach the
+inline half. `test_the_inline_half_names_what_it_cannot_reach` pins that count
+so a third language cannot join them unnoticed.
 """
 
 import ast
 import functools
+import re
 import inspect
 import json
 import pathlib
@@ -175,12 +188,23 @@ def _harvested_node_types(language, kinds):
     inline list omits IS #698, and the guard would have said nothing. Found in
     review; the claim was wrong for every one of the 35.
 
-    ⚠ Harvesting literals is weaker than reading a declared map and the weakness
-    has a DIRECTION. A literal that is a field name rather than a node type
-    (`"name"`, `"body"`) can coincide with a real node kind and inflate what
-    this reports as recognised, which SHRINKS the gap. So this can under-report
-    a gap and cannot invent one -- the safe direction for a scan whose output a
-    human reviews.
+    ⚠ Harvesting literals is weaker than reading a declared map, in BOTH
+    directions, and only one of them is safe by construction:
+
+    * a literal that is a field name rather than a node type (`"name"`,
+      `"body"`) can coincide with a real node kind and inflate `recognised`,
+      which SHRINKS the reported gap -- safe, it can only hide a finding;
+    * a node type matched OUTSIDE this function -- in a module-level helper the
+      `ast.walk` never reaches -- shrinks `recognised` and INFLATES the gap.
+      `elixir` and `nix` prove the mechanism exists; they escape only because
+      their harvest is empty and `_checkable_languages()` drops them.
+
+    ⚠⚠ So "this cannot invent a gap" is TRUE ON THIS TREE and is not true by
+    construction. Measured 2026-09-17: no inline language matches node types
+    both inside and outside its parse function
+    (`test_no_inline_language_matches_node_types_outside_its_parse_function`
+    is that measurement, kept as an assertion rather than a sentence, because
+    the claim is what a reviewer will rely on).
     """
     node = _extractor_functions().get(f"_parse_{language}_symbols")
     if node is None or "get_parser" not in ast.unparse(node):
@@ -305,8 +329,9 @@ def test_the_ghost_check_does_not_run_over_the_inline_half():
     grammar" does not mean "typo". Measured across the 32 inline languages, the
     declaration-shaped literals no grammar emits are:
 
-    * `apex` and `solidity`: the bare string `"_declaration"`, which is an
-      argument to `endswith`, not a node type;
+    * `apex` and `solidity`: the bare string `"_declaration"`, an argument to
+      `str.replace` in a signature f-string (`node.type.replace("_declaration",
+      "")`), not a node type;
     * `svelte` and `vue`: seven or eight JavaScript node types, correct for the
       script block's DELEGATED grammar and absent from the host grammar;
     * `julia` and `solidity`: two real ghosts (`_INLINE_GHOSTS_FOUND`).
@@ -322,10 +347,19 @@ def test_the_ghost_check_does_not_run_over_the_inline_half():
     all_checkable = set(_checkable_languages())
 
     assert spec_half < all_checkable, "the inline half is missing from the scan"
+
+    # ⚠ Assert the SOURCE property A is parametrized over, not just that the
+    # four languages are outside the spec half: the first version asserted the
+    # precondition and would have stayed green if the parametrize at the top of
+    # property A were widened to `_checkable_languages()`, which is the change
+    # this test claims to guard against.
+    cases = set(test_every_declared_node_type_is_one_the_grammar_emits.pytestmark[0].args[1])
+    assert cases == spec_half, sorted(cases ^ spec_half)
+
     for language in ("solidity", "vue", "svelte", "julia"):
-        assert language not in spec_half, (
-            f"{language} is now spec-declaring; property A applies to it and "
-            f"the scoping argument in this docstring needs re-measuring"
+        assert language not in cases, (
+            f"{language} is now in property A's cases; the four structural "
+            f"false positives in this docstring need re-measuring first"
         )
 
 
@@ -384,10 +418,11 @@ def test_the_baseline_covers_every_language_the_scan_can_reach():
     assert len(inventory) >= 28, sorted(inventory)
 
     # And the scan must be looking at a real vocabulary, not an empty set.
-    # ⚠ The floor is 10, not a round 20: `elisp` has exactly 20 named kinds and
-    # a `> 20` written from a guess failed against a correct tree. A
-    # non-vacuity floor has to clear the SMALLEST real member, which is a
-    # measurement rather than a number that looks safe.
+    # ⚠ The floor is 10 because the SMALLEST real vocabulary is `json` at 12
+    # (then toml 19, elisp 20, groovy 20). A `> 20` written from a guess failed
+    # against a correct tree, and its first correction named elisp -- the
+    # third-smallest, which happened to be the one that failed. A non-vacuity
+    # floor has to clear the smallest MEMBER, not the one that caught you.
     for language, (_recognised, kinds, _source) in reachable.items():
         assert len(kinds) >= 10, (language, len(kinds))
 
@@ -396,7 +431,7 @@ def test_the_baseline_covers_every_language_the_scan_can_reach():
     (lang, nt) for lang, entries in _CONFIRMED_GAPS.items() for nt, _why in entries
 ))
 def test_a_confirmed_gap_is_in_the_inventory(language, node_type):
-    """The five gaps this instrument found on its first review are real.
+    """The nine gaps this instrument found on review are real.
 
     ⚠ Each was confirmed by running a snippet through `parse_file` and
     watching the symbol not appear, never by reading the scan -- the
@@ -441,15 +476,81 @@ def test_the_baseline_gate_fires_on_a_planted_difference(tmp_path, monkeypatch):
     monkeypatch.setattr(BASELINE.__class__, "read_text",
                         lambda self, **kw: planted.read_text(**kw)
                         if self == BASELINE else pathlib.Path.read_text(self, **kw))
-    with pytest.raises(AssertionError, match="no longer unnamed"):
+    # ⚠⚠ Match the PLANTED node type, never the direction's wording. The gate
+    # builds one message carrying both "newly unnamed" and "no longer unnamed"
+    # on every failure, so matching either phrase proves only that something
+    # raised -- the first version of this test asserted both directions and
+    # tested one of them twice. That is the defect this test exists to prevent,
+    # reproduced inside it [[a-ratchet-can-pass-against-the-defect-it-names]].
+    with pytest.raises(AssertionError, match=r"no longer unnamed.*planted_extra_declaration"):
         test_the_unnamed_declaration_inventory_matches_the_baseline()
 
     # 2. A newly unnamed form -- the #698 arrival shape -- must fail too.
     grown = json.loads(json.dumps(real))
+    dropped = grown["inventory"][language][0]
     grown["inventory"][language] = grown["inventory"][language][1:]
     planted.write_text(json.dumps(grown), encoding="utf-8")
-    with pytest.raises(AssertionError, match="newly unnamed"):
+    with pytest.raises(AssertionError, match=rf"newly unnamed.*{re.escape(dropped)}"):
         test_the_unnamed_declaration_inventory_matches_the_baseline()
+
+
+def test_no_inline_language_matches_node_types_outside_its_parse_function():
+    """The measurement that makes "the harvest cannot invent a gap" true.
+
+    ⚠⚠ The safe direction is safe by construction; the unsafe one is not. A
+    language that matched node types in a module-level helper would have those
+    literals missed, shrinking its recognised set and INFLATING its reported
+    gap -- a scan inventing work. `elixir` and `nix` do exactly that and escape
+    only because they harvest nothing at all and are dropped.
+
+    This asserts the property the docstring claims: every inline language that
+    reaches the scan keeps its node-type matching inside the function the scan
+    reads. A language that starts matching outside it fails here, and the fix
+    is to widen the harvest, never to update this number.
+    """
+    inline = [lang for lang, src in _inventory_sources().items() if src == "inline"]
+
+    for language in inline:
+        node = _extractor_functions().get(f"_parse_{language}_symbols")
+        assert node is not None, language
+        body = ast.unparse(node)
+        # A helper called for its node-type matching takes the node or the
+        # tree; the tell is that the parse function names a module-level
+        # `_walk_*` helper that itself compares `.type`.
+        for helper in ("_walk_elixir", "_walk_nix_bindings"):
+            assert helper not in body, (
+                f"{language} delegates node matching to {helper}, which the "
+                f"harvest cannot read -- its gap is inflated, not under-reported"
+            )
+
+
+def test_the_inline_half_names_what_it_cannot_reach():
+    """`elixir` and `nix` are dropped, and the drop is asserted, not silent.
+
+    Both take the compiled-grammar path and both harvest zero literals, so
+    `_checkable_languages()` omits them. That is a real limit of the
+    instrument. If a third language joins them -- or if one of these two is
+    brought in -- this fails and the docstrings that quote 32 and 34 have to
+    be re-measured rather than drifting.
+    """
+    from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+
+    compiled_path = set()
+    for language, spec in LANGUAGE_REGISTRY.items():
+        if getattr(spec, "symbol_node_types", None):
+            continue
+        kinds = _grammar_kinds(language)
+        if kinds is None:
+            continue
+        node = _extractor_functions().get(f"_parse_{language}_symbols")
+        if node is not None and "get_parser" in ast.unparse(node):
+            compiled_path.add(language)
+
+    reached = {lang for lang, src in _inventory_sources().items() if src == "inline"}
+
+    assert compiled_path - reached == {"elixir", "nix"}, sorted(compiled_path - reached)
+    assert len(compiled_path) == 34, len(compiled_path)
+    assert len(reached) == 32, len(reached)
 
 
 def test_the_inline_half_is_actually_covered():

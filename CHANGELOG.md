@@ -38,16 +38,23 @@ that half is a frozen inventory (`tests/fixtures/grammar_declaration_inventory.j
 a claim that the form is a symbol, and an entry is not proof the form is
 unextractable -- `constant_patterns` and `container_node_types` are separate
 channels, so `rust/const_item` and `javascript/lexical_declaration` do yield
-symbols. The entry means nothing in the node-type map claims the form.
+symbols, and a spec-declaring language's extractor can match a node type
+literally too. The entry means nothing in the node-type map claims the form.
 
 ⚠⚠ The scan reads TWO sources, and reading one was a blind spot big enough to
-miss the issue's own class. 22 specs declare `symbol_node_types`; 35 more
-declare none and still parse with a compiled grammar, matching node types
-against literals written inline in `_parse_<lang>_symbols`. Treating those as
-"regex-parsed" exempted solidity (10 such literals), nim (10), graphql (9) and
-vue (8) -- and a Solidity form the grammar spells and that list omits is #698
-exactly. The literals are harvested by AST, which can only under-report a gap
-and never invent one.
+miss the issue's own class. 22 specs declare `symbol_node_types`; of the 44
+that declare none and have a grammar, 34 parse with that compiled grammar and
+match node types against literals written inline in `_parse_<lang>_symbols` --
+solidity, nim, graphql and vue among them. Treating all of them as
+"regex-parsed" exempted exactly the languages where an omission is #698. The
+literals are harvested by AST; 32 of the 34 reach the scan, and the two that do
+not (elixir and nix, which match in module-level helpers) are asserted rather
+than dropped quietly.
+
+⚠ The label was not wrong for everyone: 7 of the 44 are genuinely regex-parsed
+and 3 have no extractor function at all, so for those ten the exemption was
+correct. A first correction here said "wrong for all 35", which replaced one
+imprecise claim with another.
 
 ⚠⚠ What the inventory does not do: adjudicate an omission that has always been
 there. `abstract_class_declaration` was in the TypeScript grammar from the day
