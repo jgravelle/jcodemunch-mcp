@@ -119,7 +119,6 @@ _CONFIRMED_GAPS = {
         ("subscript_declaration", "a subscript yields no symbol"),
     ],
     "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
-    "java": [("field_declaration", "a plain instance field yields no symbol; `static final` does, via constant_patterns")],
     "solidity": [
         ("constructor_definition", "a Solidity `constructor(...)` yields no symbol"),
         ("error_declaration", "`error Unauthorized(address)` yields nothing: the extractor "

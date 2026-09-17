@@ -692,6 +692,30 @@ def _walk_tree(
                 c.parent = parent_symbol.id
         symbols.extend(consts)
 
+    # Fields: declarations that bind N names and are not symbols in their own
+    # right (#735).
+    #
+    # ⚠⚠ **Qualified HERE, unconditionally, because a field with no owner is the
+    # defect one language over.** #698's complaint was that an unindexed
+    # `abstract class` left its methods with no owner; a Java field published as
+    # a bare `balance` is the same answer to the same question. `_walk_tree` is
+    # the only place that knows the parent, which is why `_field_symbol` cannot
+    # be correct on its own -- unlike `_constant_symbol`, whose bare name is
+    # right for the file-scope languages it was written for and wrong only for
+    # Rust.
+    #
+    # ⚠ There is no top-level field in Java -- a field is always in a type body
+    # -- so `parent_symbol is None` means the owner failed to parse, and a bare
+    # name is better than dropping the declaration.
+    if node.type in spec.field_patterns:
+        fields = _extract_fields(node, spec, source_bytes, filename, language)
+        if parent_symbol is not None:
+            for f in fields:
+                f.qualified_name = f"{parent_symbol.qualified_name}.{f.name}"
+                f.id = make_symbol_id(filename, f.qualified_name, "field")
+                f.parent = parent_symbol.id
+        symbols.extend(fields)
+
     # A JS/TS class field INITIALIZER is not the class body. Everything the
     # initializer contains is attributed to the field, never to the class.
     #
@@ -1857,6 +1881,55 @@ def _constant_symbol(
     )
 
 
+def _field_symbol(
+    name: str, decl_node, source_bytes: bytes, filename: str, language: str
+) -> Symbol:
+    """One field symbol spanning its whole declaration.
+
+    ⚠ The span is the DECLARATION, not the declarator, and that is deliberate:
+    `private java.util.List<String> tags;` carries the type, which is the most
+    useful thing about a field after its name, and the declarator node holds
+    only `tags`. The N-name forms share the span for the reason `_constant_symbol`
+    gives -- the declaration is what the reader opens, and a synthesised narrower
+    range would not address bytes that exist (#414's rule).
+
+    ⚠ `qualified_name` is the bare name here and is REPLACED at the call site,
+    which is where `parent_symbol` exists. A field with no owner is #698's
+    complaint in another language, so unlike `_constant_symbol` this one is
+    never correct as it stands.
+    """
+    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
+    return Symbol(
+        id=make_symbol_id(filename, name, "field"),
+        file=filename,
+        name=name,
+        qualified_name=name,
+        kind="field",
+        language=language,
+        signature=sig[:200],
+        line=decl_node.start_point[0] + 1,
+        end_line=decl_node.end_point[0] + 1,
+        byte_offset=decl_node.start_byte,
+        byte_length=decl_node.end_byte - decl_node.start_byte,
+        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
+    )
+
+
+def _extract_fields(
+    node, spec: LanguageSpec, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Declarations that bind N names and are not symbols in their own right (#735).
+
+    ⚠ One member today. It is a DISPATCHER rather than a branch in `_walk_tree`
+    so that the node-type list lives in the spec beside every other node-type
+    list, and so the next language inherits the channel instead of growing a
+    second copy of the rule -- #731 (Go `var_spec`) is the same shape waiting.
+    """
+    if node.type == "field_declaration" and language == "java":
+        return _extract_java_fields(node, source_bytes, filename, language)
+    return []
+
+
 def _extract_go_constants(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:
@@ -1902,33 +1975,92 @@ def _extract_php_constants(
     return found
 
 
-def _extract_java_constants(
-    node, source_bytes: bytes, filename: str, language: str
-) -> list[Symbol]:
-    """Java constants are `static final` fields, N declarators per node (#428).
+def java_field_is_constant(node) -> bool:
+    """Does this Java `field_declaration` belong to the CONSTANT channel? (#428, #735)
+
+    ⚠⚠ THE ONE ANSWER, asked by both channels. `field_declaration` is in
+    `JAVA_SPEC.constant_patterns` AND in its `field_patterns`, and `_walk_tree`
+    runs the two independently on the same node rather than as an `elif`. Two
+    channels deciding separately emit `static final int MAX` twice -- once as a
+    constant, once as a field. This predicate is what makes the split disjoint:
+    the constant channel extracts when it answers True and the field channel
+    declines when it does. #732 is the same trap in Kotlin, and its lesson is
+    that the rule must be MOVED rather than copied -- a second transcription of
+    "both modifiers" works on the day it is written and drifts into a gap or a
+    double-emit later.
 
     ⚠ **Both modifiers are required, and that is the whole discriminator.** A
     bare `final int x` is per-instance and a bare `static int x` is mutable
     shared state; neither is a constant, and admitting either would put ordinary
-    fields into `kind="constant"` for every Java class in an index.
+    fields into `kind="constant"` for every Java class in an index. Those two
+    are also the shapes a careless field fix drops, because they are the ones
+    that look constant-ish from a distance.
     """
     modifiers = next((c for c in node.children if c.type == "modifiers"), None)
     if modifiers is None:
-        return []
-    present = {c.type for c in modifiers.children}
-    if not {"static", "final"} <= present:
-        return []
+        return False
+    return {"static", "final"} <= {c.type for c in modifiers.children}
 
-    found: list[Symbol] = []
+
+def _java_declarator_names(node, source_bytes: bytes) -> list[str]:
+    """Every name one Java `field_declaration` binds, in source order.
+
+    ⚠⚠ `int a, b, c;` is ONE node and THREE declarations. Returning the first
+    name would make the discriminator between "indexed" and "silently dropped"
+    the presence of `static final`, because the constant channel has bound every
+    declarator since #428 -- the shape of #732's capitalisation incoherence,
+    where which declarations became symbols depended on how they were spelled.
+    """
+    names: list[str] = []
     for declarator in node.children:
         if declarator.type != "variable_declarator":
             continue
         name_node = declarator.child_by_field_name("name")
         if name_node is None:
             continue
-        name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
-        found.append(_constant_symbol(name, node, source_bytes, filename, language))
-    return found
+        names.append(
+            source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        )
+    return names
+
+
+def _extract_java_constants(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Java constants are `static final` fields, N declarators per node (#428)."""
+    if not java_field_is_constant(node):
+        return []
+    return [
+        _constant_symbol(name, node, source_bytes, filename, language)
+        for name in _java_declarator_names(node, source_bytes)
+    ]
+
+
+def _extract_java_fields(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Every Java field that is not a constant, N declarators per node (#735).
+
+    ⚠⚠ **A standing omission, not a regression.** `field_declaration` was never
+    in `JAVA_SPEC.symbol_node_types`, so every ordinary field in every Java
+    class was absent for the whole life of the spec -- the widest of the nine
+    gaps #724's grammar inventory found. The gap READS as being about `final`,
+    because `static final` fields do extract; they reach the index through
+    `constant_patterns`, a different channel matching the same node type, and
+    everything that channel declined had nothing to fall to.
+
+    ⚠ **No scope gate, and that is a fact about this grammar rather than an
+    omission here.** Java spells a local `local_variable_declaration`, a
+    different node type, so the Kotlin problem of #732 -- where one node type
+    served both a member and a local -- cannot arise. `test_java_fields.py`
+    asserts it anyway rather than leaving the next reader to trust the claim.
+    """
+    if java_field_is_constant(node):
+        return []
+    return [
+        _field_symbol(name, node, source_bytes, filename, language)
+        for name in _java_declarator_names(node, source_bytes)
+    ]
 
 
 def _extract_bash_constants(

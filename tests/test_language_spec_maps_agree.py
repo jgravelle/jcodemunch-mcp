@@ -325,3 +325,46 @@ def test_a_known_gap_is_still_a_gap():
             f"unpaired, so this _KNOWN_GAPS entry is stale. If the gap is fixed "
             f"({why}), DELETE the entry -- do not adjust it to match."
         )
+
+
+def test_every_declared_field_pattern_actually_yields_a_field():
+    """`field_patterns` must be READ, which is the whole difference from #725.
+
+    ⚠⚠ `type_patterns` and `return_type_fields` are written for all 79 specs and
+    read by nothing -- #725 -- and #735 added a third node-type list beside
+    them. A list that no channel consults is indistinguishable from the defect
+    it was added to fix ("a parameter that is present and does nothing", 08-19),
+    and the only thing separating the new field from the two dead ones is that
+    something runs it. This asserts that, through the product, per language: a
+    spec that declares the list must produce at least one `field` from the node
+    type it names.
+
+    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so the second
+    member (#731's Go `var_spec` is the same shape) inherits the check on
+    arrival instead of joining unwatched.
+    """
+    samples = {
+        "java": ("A.java", "class A {\n  private int probe;\n}\n"),
+    }
+
+    declaring = {
+        name: spec
+        for name, spec in LANGUAGE_REGISTRY.items()
+        if getattr(spec, "field_patterns", None)
+    }
+    assert declaring, "no spec declares field_patterns; delete the field or the channel"
+
+    for language, spec in sorted(declaring.items()):
+        sample = samples.get(language)
+        assert sample is not None, (
+            f"{language} declares field_patterns={spec.field_patterns} with no "
+            f"sample here, so nothing proves the channel runs for it. Add three "
+            f"lines rather than trusting the declaration."
+        )
+        filename, source = sample
+        kinds = {s.kind for s in parse_file(source, filename, language)}
+        assert "field" in kinds, (
+            f"{language} declares field_patterns={spec.field_patterns} and its "
+            f"sample yields no field -- the list is write-only, which is #725 "
+            f"in a third costume. Got kinds: {sorted(kinds)}"
+        )

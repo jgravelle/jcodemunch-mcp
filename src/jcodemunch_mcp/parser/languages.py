@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Optional
 
 from .template_shared import TEMPLATE_ENGINE_LANGUAGES, TEMPLATE_EXTENSIONS
@@ -50,6 +51,22 @@ class LanguageSpec:
     # If True, decorators are direct children of the declaration node (e.g. C#)
     # If False (default), decorators are preceding siblings (e.g. Python, Java)
     decorator_from_children: bool = False
+
+    # Node types for declarations that bind N names and are not symbols in their
+    # own right -- a Java `field_declaration` holding `int a, b, c` (#735).
+    #
+    # ⚠ Separate from `symbol_node_types` because that channel yields at most
+    # ONE symbol per node (`_extract_symbol` returns `Optional[Symbol]`), and
+    # separate from `constant_patterns` because the kind and the ownership rule
+    # differ; `_extract_fields` dispatches per language exactly as
+    # `_extract_constants` does.
+    #
+    # ⚠⚠ **This is READ, which is the whole difference from `type_patterns` and
+    # `return_type_fields` next door.** Those are written for 79 specs and read
+    # by nothing (#725), and a third write-only field would be that defect
+    # again rather than a new channel. `test_language_spec_maps_agree.py` holds
+    # the readership claim.
+    field_patterns: list[str] = dc_field(default_factory=list)
 
 
 # File extension to language mapping
@@ -595,6 +612,18 @@ JAVA_SPEC = LanguageSpec(
     ],
     constant_patterns=["field_declaration"],
     type_patterns=["interface_declaration", "enum_declaration"],
+    # ⚠⚠ THE SAME NODE TYPE AS `constant_patterns`, ON PURPOSE, and it is a
+    # trap unless one predicate owns the split. `_walk_tree` runs the two
+    # channels INDEPENDENTLY on the same node -- not as an `elif` -- so
+    # `static final int MAX` is emitted twice unless something decides.
+    # `java_field_is_constant` is that predicate and BOTH channels ask it: the
+    # constant channel extracts when it answers True and the field channel
+    # declines when it does. #732 is the identical trap in Kotlin.
+    #
+    # ⚠ `constant_patterns` matched this node type alone for its whole life, so
+    # every field it declined -- which is every field that is not `static
+    # final`, i.e. most of them -- had no channel to fall to (#735).
+    field_patterns=["field_declaration"],
 )
 
 
