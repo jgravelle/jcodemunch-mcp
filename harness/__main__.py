@@ -637,17 +637,21 @@ def tier_full(result: dict) -> bool:
     cov = T.floor("coverage.min")
     warm_ok = warm_assets()
     print(f"== full tier: tests/ with --cov-fail-under={cov}")
-    # ⚠⚠ **Coverage's C tracer was half this tier's wall clock (#740).** Measured
-    # on the measuring box, same tree, same command, one variable apart: default
-    # core 306.81 s, `sysmon` 150.09 s, uninstrumented 148.25 s -- so under
-    # `sys.monitoring` the instrumentation is close to free where the C tracer
-    # cost ~158 s. That is what put `suite.full_seconds` over its Floor on main.
+    # ⚠⚠ **Coverage's C tracer was ~40% of this tier's wall clock (#740).** The
+    # measurement is `docs/harness/FINDINGS.md` F-32, written from
+    # `.claude/state/evidence/740_measurement.json` and not restated here -- an
+    # earlier version of this comment carried its own copy of the figures, which
+    # review found to be the fastest of five samples with the other four
+    # unreconciled. Four runs, same box and tree: ctrace twice, sysmon, and
+    # uninstrumented; sysmon's instrumentation costs about 5 s where ctrace's
+    # costs about 135 s.
     #
-    # ⚠⚠ **The coverage NUMBER is unchanged and that was PROVEN, not assumed:**
-    # two full runs diffed per file came to 52,510 statements and 9,471 missed
-    # under BOTH cores, with two concurrency modules differing by one line each
-    # in opposite directions. `coverage.min` is itself a Floor, and a tracer that
-    # counted fewer lines as missed would be a loosening by a side door.
+    # ⚠⚠ **The coverage NUMBER is not weakened, and a CONTROL shows it rather
+    # than an assertion:** ctrace disagreed with ITSELF by more missed lines
+    # across two runs than it disagreed with sysmon, every delta inside the async
+    # dispatcher, statements identical throughout. `coverage.min` is itself a
+    # Floor, and a tracer counting fewer lines as missed would be a loosening by
+    # a side door, so equality could not simply be asserted.
     #
     # ⚠ NOT version-gated here. coverage checks `sys.monitoring`, branch support,
     # dynamic contexts and concurrency, then warns and falls back to its default

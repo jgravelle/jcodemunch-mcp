@@ -2,63 +2,86 @@
 
 ## [Unreleased]
 
-### Fixed - the full tier spent half its wall clock inside coverage's tracer (#740)
+### Fixed - coverage's C tracer was ~40% of the full tier's wall clock (#740)
 
 CI opened a `suite.full_seconds` regression on `main`: 379.77 s against a 360 s
 Floor, on the ubuntu leg of `main.yml`.
 
-⚠⚠ **The suite was not slower per unit of work, and the eight runs before it say
-so.** Across those commits the test count grew **2.4%** (10518 to 10772) while
-the measurement swung **52%** (249.80 to 379.77) -- and it did not track the
-count at all: 10550 tests measured 355.39 s, 10679 measured 257.59 s. The
-distribution straddled the Floor for days and one run crossed it. Reading that
-single crossing as "the suite got slow" would have sent the fix at the wrong
-thing, which is why the table was built before anything was changed.
+⚠⚠ **The suite was not slower per unit of work, and the nine runs ending there
+say so.** Across them the test count grew **2.4%** (10518 to 10772) while the
+measurement swung **52%** (249.80 to 379.77) -- and it did not track the count at
+all: 10550 tests measured 355.39 s, 10679 measured 257.59 s. The distribution
+straddled the Floor for days and one run crossed it. Reading that single crossing
+as "the suite got slow" would have aimed the fix at the wrong thing, which is why
+the table was built before anything changed.
 
-⚠⚠ **What WAS recoverable is the tracer.** Same box, same tree, same command,
-one environment variable apart: coverage's default C tracer **306.81 s**,
-`COVERAGE_CORE=sysmon` **150.09 s**. An uninstrumented run of the same suite is
-**148.25 s**, so under `sys.monitoring` the instrumentation is close to free
-where the C tracer cost about 158 seconds -- roughly half the tier.
+⚠⚠ **What WAS recoverable is the tracer**, and the numbers below are written from
+`.claude/state/evidence/740_measurement.json` rather than typed (`docs/harness/
+FINDINGS.md` F-32 carries the row). Four runs back to back on the measuring box,
+same tree, same command, `-n auto`:
 
-⚠⚠ **The coverage NUMBER is unchanged, and that was PROVEN rather than assumed.**
-`coverage.min` is itself a Floor, so a faster tracer that counted fewer lines as
-missed would be a loosening by a side door. Two full runs with `term-missing`,
-diffed per file: **52,510 statements and 9,471 missed under BOTH cores**. Exactly
-two files differ, by one line each in opposite directions, and both are
-concurrency modules (`storage/process_locks.py`, `storage/token_tracker.py`)
-where a timing-dependent line flips between runs. An earlier pair of runs
-differed by 12 lines in total, which is that same variance and not a property of
-the core.
+| condition | wall |
+|---|---|
+| ctrace (coverage's C tracer) | 336.33 s and 332.41 s |
+| `sysmon` (`sys.monitoring`) | 203.98 s |
+| no coverage at all | 199.16 s |
+
+So sysmon's instrumentation costs **4.82 s** where
+ctrace's costs **135.21 s**, and the tier drops
+**39.0%**.
+
+⚠ An earlier draft of this entry claimed "roughly half the tier" and "close to
+free" from a single favourable sysmon sample of 150.09 s, while four other
+measurements of the same thing read 184-206 s and were not reconciled. Found in
+review. The controlled set above replaced all of it; the shape of the conclusion
+survived and its size did not.
+
+⚠⚠ **The coverage number is NOT weakened, and a CONTROL is what shows it rather
+than an assertion.** `coverage.min` is itself a Floor, so a tracer counting fewer
+lines as missed would be a loosening by a side door. Run twice on the SAME core,
+ctrace reported 9475 then 9471 missed
+lines; sysmon reported 9470. **The between-run difference
+inside one core (4) is larger than the
+between-core difference (1)**, and every
+delta sits in `server.py` -- the async dispatcher -- which reported 1132, then
+1127, then 1127. Statements are identical at 52,487
+throughout.
 
 ⚠ **Not version-gated by us.** coverage checks `sys.monitoring`, branch support,
 dynamic contexts and the concurrency setting, then warns and falls back to its
 default core (`coverage/core.py`, slug `no-sysmon`). The 3.10 and 3.11 legs of
-the PR-gate matrix therefore measure exactly as before. A `sys.version_info`
-check in the harness would be a second copy of that decision, correct the day it
-was written and wrong the first time coverage widens support.
+the PR-gate matrix measure exactly as before and nothing raises. A
+`sys.version_info` check in the harness would be a second copy of that decision,
+correct the day it was written and wrong the first time coverage widens support.
 
 ⚠ `setdefault`, not assignment: `COVERAGE_CORE=ctrace uv run python -m harness
-full` still forces the old tracer, because the comparison above has to stay
+full` still forces the old tracer, because the comparison has to stay
 reproducible by whoever doubts it.
 
 ⚠⚠ **No Floor moved, and the arithmetic that would have moved it is recorded
 because it points the wrong way.** `docs/harness/DESIGN.md`'s tolerance rule is
-`floor = 2x the median of three consecutive runs on one box at one commit`.
-Three runs on the measuring box at this commit: 184.81 / 197.47 / 200.25,
-median 197.47, so the rule would yield **395** -- LOOSER than the 360 in force.
-Applying a rule because it is the rule, in the direction that weakens the gate,
-is the thing `loosened` blocks exist to make loud; 360 stays. The comparison
-worth having is against the Floor's own calibration: **188.43 s when it was set
-on 2026-09-03 at roughly 9,000 tests, against 197.47 s now at 10,780.** The tier
-is back to about its calibration speed carrying 20% more tests, so the margin
-the Floor was designed to have is restored rather than borrowed.
+`floor = 2x the median of three consecutive runs on one box at one commit`. Three
+harness runs at this commit -- 184.81 / 197.47 / 200.25, median 197.47 -- yield
+**395**, LOOSER than the 360 in force. Applying a rule because it is the rule, in
+the direction that weakens the gate, is what `loosened` blocks exist to make
+loud; 360 stays. Against the Floor's own calibration the tier is back to roughly
+its original speed: **188.43 s when 360 was set on 2026-09-03**
+(`harness/thresholds.json` `set_at`), against **197.47 s now**. The nearest
+recorded suite total to that date is 9,260 at 1.108.317 on 2026-09-04
+(CLAUDE.md), against 10,804 today -- **16.7% more tests** for about the same wall
+clock. ⚠ An earlier draft said "roughly 9,000" and "20%", which rounded in the
+flattering direction and had no source; the count at the Floor-setting commit
+itself was never recorded, so the day-later figure is named as what it is.
 
-⚠ `tests/test_full_tier_coverage_core.py` asserts the REQUEST, never a wall
-time. A test that asserted "the suite finishes in under N seconds" would fail on
-a loaded box and would be measuring the runner -- the very thing the eight-run
-table shows is unstable. What must not regress silently is that the tier asks
-for the fast core.
+⚠ `tests/test_full_tier_coverage_core.py` asserts the env the tier BUILDS, by
+calling `tier_full` with a stubbed `_run`. Its first version scanned source text
+and was worthless: review mutated the function to request `ctrace` and all four
+predicates stayed green, because "the constant `sysmon` appears" and "the string
+`COVERAGE_CORE` appears" are two existence checks that never bind to each other.
+A ratchet passing against the defect it names, guarding the instrument that gates
+every other change. It deliberately asserts no wall time -- a "finishes in under
+N seconds" test would measure the runner, which the nine-run table shows is the
+unstable thing.
 
 ### Fixed - every Kotlin property is a symbol, and the constant channel keeps its own (#732)
 
