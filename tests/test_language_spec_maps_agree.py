@@ -37,6 +37,13 @@ _RESOLVED_BEFORE_NAME_FIELDS = {
     "csharp": {
         "field_declaration": "walks variable_declaration -> variable_declarator",
         "event_field_declaration": "same walk as field_declaration",
+        # #714. These three have no identifier to borrow: the grammar gives an
+        # operator TOKEN, a conversion direction plus a target type, and
+        # nothing at all for an indexer. The name is BUILT in the csharp
+        # branch, which is what an entry here is required to point at.
+        "operator_declaration": "csharp branch builds `operator +`",
+        "conversion_operator_declaration": "csharp branch builds `explicit operator string`",
+        "indexer_declaration": "csharp branch builds `this[]`",
     },
     "python": {"type_alias_statement": "explicit branch for the 3.12 type statement"},
     "dart": {

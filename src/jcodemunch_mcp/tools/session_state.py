@@ -174,7 +174,20 @@ class SessionState:
             for _ in range(entry.get("edits", 1) if isinstance(entry, dict) else 1):
                 journal.record_edit(file_path)
                 count += 1
-        
+
+        # Restore the negative-evidence log (#711). `save` has persisted this
+        # list since it was added and NOTHING read it back, so a resumed
+        # session kept the query counts and lost the repo-scoped findings they
+        # sit beside. That was survivable only while `plan_turn` asserted
+        # absence from the counts; now that the claim requires the evidence,
+        # dropping it here would quietly retire #205's stop signal across every
+        # compact and resume. It lives at the TOP level of the state file, not
+        # under "journal" -- `save` writes it as a sibling.
+        for entry in data.get("negative_evidence_log", []) or []:
+            if isinstance(entry, dict):
+                journal.record_negative_evidence(entry)
+                count += 1
+
         return count
 
     def restore_search_cache(

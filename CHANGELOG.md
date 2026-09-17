@@ -2,6 +2,180 @@
 
 ## [Unreleased]
 
+### Fixed - a search miss in one repository is no longer an absence claim about another (#711)
+
+`plan_turn` could return the three symbols implementing a feature and, in the
+same response, tell the caller "The feature does not exist in the indexed
+codebase. Do NOT search again." It took one zero-result search in ANY
+repository to trigger it, and the two sentences sat side by side in one
+payload.
+
+`SessionJournal` records a search twice and the records are not equivalent.
+`record_search(query, result_count)` keeps a query string and an integer -- no
+repository, no filters, no index generation -- and is session history.
+`record_negative_evidence({query, repo, verdict, ...})` keeps the producer's
+own finding, named to a repository, and `retrieval/verdict.py` withholds it
+entirely when absence cannot be established (the v1.108.184 packer guard). The
+prior-negative-evidence check read the first one. The search that caused the
+reported failure had published `citable: false`; that qualification lived in
+the channel nobody read, so every producer test stayed green while the claim
+was reassembled downstream from the integer beside it -- the #566 and #569
+lesson reaching a consumer that was never audited.
+
+An absence now needs two things at once: `SessionJournal.citable_absence(repo,
+query)` -- the one answer to whether an absence may be asserted, filtering the
+evidence log on repository, query and verdict -- and no matches on the current
+page. The second condition is not belt-and-braces: a filter, a token budget or
+a reindex between the two calls all leave a stale miss in the log, and none of
+them makes the symbols in front of the caller disappear. `low_confidence_matches`
+is not an absence verdict and is refused by name.
+
+Second spelling, fixed in the same change: `session_state` had persisted the
+negative-evidence log since it was added and `restore_journal` replayed only
+the query counts, so a resumed or compacted session kept the counts and dropped
+every repo-scoped finding. Harmless while the claim came from the counts;
+after this fix it would have quietly retired #205's stop signal at every
+resume.
+
+`tests/test_plan_turn.py::test_prior_evidence_stops_repeat_search` asserted the
+stop from an unscoped `record_search` and so could only pass while the defect
+existed. Its outcome is the feature and is kept; its mechanism was the bug, and
+the evidence now arrives through the channel that names a repository.
+
+Review found the same class one refusal reason over, twice more.
+
+The verdict alone cannot say whether a scan may prove absence.
+`verdict.py`'s `_packed_empty` guard withholds `negative_evidence` for six
+degraded cases and covers neither `index_changed` nor incomplete coverage: both
+fall through and publish `no_implementation_found` on a scan the handoff layer
+refuses, where `handoff.absence_refusal` puts the rule in one line -- only
+`absent` can prove absence, a weak or partial scan is not evidence of nothing.
+"Re-running the same terms will not change the answer" is exactly false there,
+because re-indexing is what changes it. The dispatcher records the verdict STATE
+beside the finding now, read before `meta_fields` strips `_meta`, and an entry
+with no state is refused rather than assumed good.
+
+`get_session_snapshot` was a second consumer and the widest surface the defect
+had -- it is the text the model reads at every compact and resume. It rendered
+every log entry under "don't re-search", dropped the repository, and kept
+`low_confidence_matches`, which is a search that FOUND weak matches. It imports
+the two conditions from the journal rather than restating them, names the
+repository on each line, and carries it in the structured half.
+
+A search and a plan can also spell the same repository differently, since
+`load_repo_index_or_error` resolves a path or a bare name; `plan_turn` offers
+the resolved `owner/name` beside the caller's spelling. A third spelling on the
+recording side is a stated gap and fails closed -- the stop signal does not
+fire, and no false claim is made.
+
+Both consumers call one predicate, `SessionJournal.entry_is_citable`. Writing
+the two conditions as a comprehension in each was the second-derivation shape
+this entry is about, reproduced one layer inside its own fix; a test patches
+the predicate and requires both consumers to fall silent.
+
+⚠ A third surface is NOT fixed here and is filed as #719: the agent policy this
+server installs still tells the model that `verdict: no_implementation_found`
+is evidence of absence, and presents `degraded` as an alternative value of the
+same field when it is a different field that can be true at the same time.
+
+Two existing tests turned red and neither was fixed back.
+`test_prior_evidence_stops_repeat_search` drove the stop from an unscoped
+`record_search`, and `test_snapshot_includes_negative_evidence` required a
+weak-match verdict to be published as a dead end. Both stated the mechanism
+that was the defect; both keep the outcome that is the feature.
+
+### Fixed - Java records and annotation types were never indexed (#713)
+
+A `record`, its compact constructor, an `@interface` and its elements produced
+no symbols at all, and the methods written inside a record extracted with **no
+owner** -- an index holding a method that belongs to nothing.
+
+The grammar spells `record_declaration`, `compact_constructor_declaration`,
+`annotation_type_declaration` and `annotation_type_element_declaration`, each
+with a `name` field. `JAVA_SPEC` named none of them, so the declarations were
+never matched. Records have been in Java since 16.
+
+⚠⚠ **This is #698 in a third language, and the ownership half already had a
+guard.** #698 added `abstract_class_declaration` to the TypeScript specs, and
+its lesson was recorded as that fix plus the Rust `qual_mismatch` bucket, which
+gates at 0 on the rule "the owner is `self_ty`, never the trait". Neither
+reached Java. The suite stayed green because `test_languages.py`'s Java fixture
+holds a class, an interface and an enum -- the three forms the spec already
+named. A fixture written from the spec can only confirm the spec (#699).
+
+**The two halves are separate and both are asserted.** Names come from
+`symbol_node_types`/`name_fields`; ownership comes from `container_node_types`,
+which is why a method inside a record extracted before this change and reported
+`parent=None`. A fix that added the names alone would have looked complete and
+left every record member ownerless.
+
+⚠ **A record COMPONENT is deliberately not a symbol**, with a test that says so.
+A component is closer to a PARAMETER of the header than to a member: it is
+declared in the signature, and what the class exposes because of it -- the
+backing field, the accessor -- is generated, so indexing those would report
+members nobody wrote. #713's own Test section asks for `Point.value` with an
+owner, so this declines one item the issue names; it declines it in the open,
+with a flip path in the test. If that boundary should move it moves
+deliberately, with its own evidence.
+
+⚠ Two entries were added to `return_type_fields` and `type_patterns` in the
+first draft and removed: **nothing in the tree reads either field**, across all
+79 specs, so the entries would have changed no behaviour while implying they
+did. Filed as #725. The omission half of this defect class -- a form the grammar
+spells that no spec names, which is #698, #713 and half of #712 -- still has no
+guard; #723's ratchet reads only what a spec already declares. Filed as #724.
+
+### Fixed - C# operators, conversion operators and indexers were not indexed (#714)
+
+A C# type resolved while three kinds of callable member inside it did not exist
+as symbols: `Vec + Vec` had no definition to jump to, and a cast operator could
+not be found at all.
+
+⚠⚠ **Declaring the node types is only half, and the other half is why this is
+not a one-line spec edit.** None of the three has an identifier to borrow. The
+grammar gives an operator's name as the bare token `+`; a conversion operator
+has no name field whatsoever, only a direction and a target type; an indexer is
+spelled `this[...]`. A `name_fields` entry would have produced a symbol called
+`+`, which matches nothing a reader types and collides with punctuation in a
+lexical index. The names are built in `_extract_name`'s csharp branch:
+`operator +`, `explicit operator string`, `implicit operator int`, `this[]` --
+each the text a developer writes at the declaration, so searching the
+declaration's own spelling finds it.
+
+⚠ **The guard for this was already in the function that needed changing.** That
+branch exists because `field_declaration` and `event_field_declaration` have the
+same shape -- a node type whose name is not at `child_by_field_name("name")`. It
+was solved for those two and never stated as a rule, so three more forms with
+the identical shape went unasked about. "A guard written against a spelling is
+fixed for that spelling only" (#566).
+
+Overload identity needed nothing: two `operator +` on one type already get
+`~1`/`~2` ids from the existing machinery, exactly as ordinary method overloads
+do, and the new forms inherit it. C# 11's `operator checked +` is a different
+member from `operator +` and carries the keyword in its name, so two members
+never publish one name. An indexer's `get` accessor is deliberately not
+promoted to a symbol -- a test says so, because indexing accessors would put a
+`get` on every type with a property.
+
+⚠⚠ **These are the first members here that no name-based reference search can
+see, and that made `check_delete_safe` dangerous on them.** An operator is
+invoked as `a + b`, an indexer as `a[0]` -- the declaration's name appears at no
+call site, so "no references found" is not evidence about it. Measured on a
+corpus using every one of them: the ordinary method in the same file returned
+`internal_uses_blocking`, and `operator +` returned **`safe_to_delete` at
+confidence 1.0**, "No callers or refs found." The new `name_not_searchable`
+verdict replaces the absence verdicts for any symbol whose name is not something
+a call site could write, capped at the same `UNPROVEN_CEILING` an unprovable
+absence already uses, and it is BOUNDED rather than terminal -- reading the call
+sites or ingesting runtime evidence still settles it. `tools/_name_reachability.py`
+is the one answer to "can a name-based search see this symbol", so the next
+consumer asks instead of re-deriving. This is #566's lesson -- capping a report
+does not cap the tool that ACTS on it -- on surface this change created.
+
+Fourth language in the #698 family (#698 TypeScript, #712 JavaScript/TS/TSX,
+#713 Java). The scan that would have caught all four -- a declaration form the
+grammar spells and no spec names -- is #724 and still does not exist.
+
 ### Fixed - generator declarations were listed as supported and dropped (#712)
 
 `function* gen(a) { yield a; }` produced no symbol in JavaScript, TypeScript or

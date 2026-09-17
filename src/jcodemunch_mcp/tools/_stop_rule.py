@@ -65,6 +65,11 @@ _BOUNDED = {
         # rather than among the hard blockers because nothing was PROVEN to use
         # the symbol — re-indexing can still move it either way.
         "corpus_inadequate",
+        # (#714) Nothing was proven to use the symbol and nothing could be:
+        # the name never reaches a call site. Reading the call sites or
+        # ingesting runtime evidence can still move it either way, so it is
+        # bounded rather than terminal.
+        "name_not_searchable",
     }),
     "check_edit_safe": frozenset({
         "safe_to_edit",
