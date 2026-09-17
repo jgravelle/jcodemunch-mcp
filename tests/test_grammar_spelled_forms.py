@@ -205,9 +205,9 @@ def _harvested_node_types(language, kinds):
       their harvest is empty and `_checkable_languages()` drops them.
 
     ⚠⚠ So "this cannot invent a gap" is TRUE ON THIS TREE and is not true by
-    construction. Measured 2026-09-17: no inline language matches node types
+    construction. Measured 2026-09-16: no inline language matches node types
     both inside and outside its parse function
-    (`test_no_inline_language_matches_node_types_outside_its_parse_function`
+    (`test_no_inline_language_recognises_node_types_outside_its_parse_function`
     is that measurement, kept as an assertion rather than a sentence, because
     the claim is what a reviewer will rely on).
     """
@@ -410,7 +410,7 @@ def test_the_baseline_covers_every_language_the_scan_can_reach():
 
     A `_checkable_languages()` that returned {} -- a broken grammar pack, a
     registry that failed to import, an over-eager filter -- would make every
-    case above pass while checking nothing. Measured on THIS tree, 2026-09-17:
+    case above pass while checking nothing. Measured on THIS tree, 2026-09-16:
     54 languages are checkable (22 through `symbol_node_types`, 32 through
     inline literals) and 34 of them have at least one unnamed declaration form.
     The floors sit below both with room to move; they exist to catch a scan
@@ -514,10 +514,13 @@ def _top_level_functions():
     from jcodemunch_mcp.parser import extractor
 
     module = _ast.parse(inspect.getsource(extractor))
+    # ⚠ `AsyncFunctionDef` too: `extractor.py` has none today (147 top-level
+    # functions, 0 async), and an `async def` helper added later would leave
+    # the call graph silently, which is the direction that INFLATES a gap.
     return {
         node.name: node
         for node in module.body
-        if isinstance(node, _ast.FunctionDef)
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef))
     }
 
 
@@ -659,13 +662,16 @@ def test_the_inline_half_is_actually_covered():
     the old filter drops these languages from `_checkable_languages()` and
     fails here.
 
-    ⚠ `vue` is in that list for the opposite reason to the other three, and it
-    is worth stating: it hard-codes ZERO declaration-shaped node types its own
-    grammar emits, because the ones it matches belong to the DELEGATED
-    JavaScript grammar of its script block -- which is why it has inventory
-    rows at all. An earlier draft cited it as hard-coding eight of them, which
-    contradicts the delegated-grammar argument this same file makes for
-    scoping property A.
+    ⚠⚠ `vue` is in that list for the opposite reason to the other three and the
+    correction matters, because two drafts of this paragraph got it wrong in
+    opposite directions. It recognises five node types, NONE declaration-shaped
+    (`attribute`, `comment`, `raw_text`, `script_element`, `start_tag`), so its
+    unnamed-form set is EMPTY and it has no inventory rows at all: the
+    declaration node types a reader sees in `_parse_vue_symbols` belong to the
+    DELEGATED JavaScript grammar of its script block, not to vue's. The first
+    draft called it a language hard-coding eight declaration node types; the
+    second said the delegation was "why it has inventory rows at all", when it
+    has none. Both were written from reading rather than from the fixture.
     """
     sources = _inventory_sources()
     inline = sorted(lang for lang, src in sources.items() if src == "inline")
