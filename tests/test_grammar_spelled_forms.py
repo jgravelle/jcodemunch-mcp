@@ -179,14 +179,19 @@ def _extractor_functions():
 def _harvested_node_types(language, kinds):
     """Node types a hand-written `_parse_<lang>_symbols` matches on, by AST.
 
-    ⚠⚠ 35 of the 79 specs declare NO `symbol_node_types` and still parse with a
-    compiled tree-sitter grammar: their extractor function calls `get_parser`
-    and compares `node.type` against string literals written inline. The first
-    draft of this file called those specs "regex-parsed" and skipped them, which
-    exempted `solidity` (10 literals), `nim` (10), `graphql` (9) and `vue` (8)
-    from the very check they need -- a Solidity form the grammar spells and that
-    inline list omits IS #698, and the guard would have said nothing. Found in
-    review; the claim was wrong for every one of the 35.
+    ⚠⚠ Many specs declare NO `symbol_node_types` and still parse with a compiled
+    tree-sitter grammar: their extractor function calls `get_parser` and
+    compares `node.type` against string literals written inline. The first draft
+    of this file called all of those "regex-parsed" and skipped them, which
+    exempted `solidity`, `nim`, `graphql` and `vue` from the very check they
+    need -- a Solidity form the grammar spells and that inline list omits IS
+    #698, and the guard would have said nothing.
+
+    ⚠ The counts are asserted by `test_the_inline_half_names_what_it_cannot_reach`
+    and stated nowhere else. An earlier draft typed a per-language literal count
+    into this docstring, over three different bases, none of which reconciled --
+    in the file whose whole subject is a hand-written list drifting from what
+    the grammar says.
 
     ⚠ Harvesting literals is weaker than reading a declared map, in BOTH
     directions, and only one of them is safe by construction:
@@ -494,34 +499,125 @@ def test_the_baseline_gate_fires_on_a_planted_difference(tmp_path, monkeypatch):
         test_the_unnamed_declaration_inventory_matches_the_baseline()
 
 
-def test_no_inline_language_matches_node_types_outside_its_parse_function():
-    """The measurement that makes "the harvest cannot invent a gap" true.
+@functools.lru_cache(maxsize=1)
+def _top_level_functions():
+    """Module-level functions of `extractor.py`, by name.
 
-    ⚠⚠ The safe direction is safe by construction; the unsafe one is not. A
-    language that matched node types in a module-level helper would have those
-    literals missed, shrinking its recognised set and INFLATING its reported
-    gap -- a scan inventing work. `elixir` and `nix` do exactly that and escape
-    only because they harvest nothing at all and are dropped.
+    ⚠⚠ `ast.walk` is WRONG for this and the difference is not cosmetic: 22
+    helper names are defined 27 times as NESTED closures inside other
+    functions, so a name-keyed walk collapses them and resolves a call to
+    whichever copy it saw last. Module body only. A nested closure is already
+    inside the harvest's own walk, so it needs no resolution here.
+    """
+    import ast as _ast
 
-    This asserts the property the docstring claims: every inline language that
-    reaches the scan keeps its node-type matching inside the function the scan
-    reads. A language that starts matching outside it fails here, and the fix
-    is to widen the harvest, never to update this number.
+    from jcodemunch_mcp.parser import extractor
+
+    module = _ast.parse(inspect.getsource(extractor))
+    return {
+        node.name: node
+        for node in module.body
+        if isinstance(node, _ast.FunctionDef)
+    }
+
+
+def _literals_reachable_outside(language):
+    """Grammar-kind literals held by top-level helpers the parse function calls.
+
+    Transitive over module-level functions. Returns the node types a helper
+    recognises that `_parse_<lang>_symbols` does not mention itself -- exactly
+    the set the harvest cannot see.
+    """
+    tops = _top_level_functions()
+    entry = tops.get(f"_parse_{language}_symbols")
+    if entry is None:
+        return frozenset()
+
+    seen, queue, outside = set(), [entry], set()
+    own = {
+        n.value for n in ast.walk(entry)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+    }
+    kinds = _grammar_kinds(language) or frozenset()
+    while queue:
+        node = queue.pop()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name):
+                helper = tops.get(sub.func.id)
+                if helper is not None and helper.name not in seen:
+                    seen.add(helper.name)
+                    queue.append(helper)
+                    outside |= {
+                        n.value for n in ast.walk(helper)
+                        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    }
+    return frozenset((outside & kinds) - own)
+
+
+# The one language whose helpers hold a grammar-kind literal the parse function
+# does not, and the measurement that says it is not an inflated gap.
+_HELPER_LITERAL_EXCEPTIONS = {
+    "sql": (
+        {"function_declaration", "function_body"},
+        "reached through the SHARED `_extract_name` and `_build_signature`, which "
+        "NAME and SIGN a node rather than decide whether it is a symbol: "
+        "`_parse_sql_symbols` recognises `create_function`, and "
+        "`CREATE FUNCTION add_one(...)` yields ('add_one', 'function'), so the "
+        "inventory row is honest",
+    ),
+}
+
+
+def test_no_inline_language_recognises_node_types_outside_its_parse_function():
+    """The measurement behind "the harvest cannot invent a gap".
+
+    ⚠⚠ The first version of this test was VACUOUS and its docstring claimed
+    otherwise, which is the worse half. It iterated the 32 languages that reach
+    the scan -- a set that excludes `elixir` and `nix` BY CONSTRUCTION, being
+    exactly the two `_checkable_languages()` drops -- and asserted none of them
+    named `_walk_elixir` or `_walk_nix_bindings`. It could fail only on two
+    hard-coded helper names appearing where they never would, while the
+    ARCHAEOLOGY row cited it as holding the measurement. A guard written
+    against two spellings, inside a file about guards written against
+    spellings. Found in review, after I flagged it as suspect and was right.
+
+    The property: a node type matched in a top-level helper the harvest does
+    not read shrinks `recognised` and INFLATES that language's gap -- the one
+    direction in which this scan could invent work for a human. This walks the
+    top-level call graph and asserts the set is empty, or a named exception
+    carrying the measurement that says it is harmless.
     """
     inline = [lang for lang, src in _inventory_sources().items() if src == "inline"]
+    assert len(inline) >= 25, inline
 
-    for language in inline:
-        node = _extractor_functions().get(f"_parse_{language}_symbols")
-        assert node is not None, language
-        body = ast.unparse(node)
-        # A helper called for its node-type matching takes the node or the
-        # tree; the tell is that the parse function names a module-level
-        # `_walk_*` helper that itself compares `.type`.
-        for helper in ("_walk_elixir", "_walk_nix_bindings"):
-            assert helper not in body, (
-                f"{language} delegates node matching to {helper}, which the "
-                f"harvest cannot read -- its gap is inflated, not under-reported"
-            )
+    for language in sorted(inline):
+        outside = _literals_reachable_outside(language)
+        excused = _HELPER_LITERAL_EXCEPTIONS.get(language, (set(), ""))[0]
+        assert not (outside - excused), (
+            f"{language}: {sorted(outside - excused)} are grammar node types "
+            f"matched in a helper `_parse_{language}_symbols` calls but does "
+            f"not mention. The harvest cannot see them, so {language}'s "
+            f"inventory rows may be INFLATED -- the scan inventing work rather "
+            f"than hiding it. Widen the harvest, or add a "
+            f"_HELPER_LITERAL_EXCEPTIONS entry with the measurement that says "
+            f"the rows are honest."
+        )
+
+
+def test_the_helper_literal_exception_is_not_an_escape_hatch():
+    """An exception must name something that is really reachable outside.
+
+    The `_RESOLVED_BEFORE_NAME_FIELDS` rule from #712: an excuse for a thing
+    that is not happening is an entry nobody can ever remove, and the list
+    becomes the hatch. If `sql` stops reaching those literals through a shared
+    helper, this fails and names the line to delete.
+    """
+    for language, (node_types, why) in _HELPER_LITERAL_EXCEPTIONS.items():
+        outside = _literals_reachable_outside(language)
+        assert node_types <= outside, (
+            f"{language}: {sorted(node_types - outside)} is excused but is no "
+            f"longer reachable outside the parse function ({why}). Remove it."
+        )
 
 
 def test_the_inline_half_names_what_it_cannot_reach():
@@ -556,12 +652,20 @@ def test_the_inline_half_names_what_it_cannot_reach():
 def test_the_inline_half_is_actually_covered():
     """The blind spot this file shipped with, asserted closed.
 
-    35 specs declare no `symbol_node_types` and still parse with a compiled
-    grammar. The first draft skipped them as "regex-parsed", which exempted
-    solidity, nim, graphql and vue -- languages that hard-code 8 to 10
-    declaration node types in a function body, where an omission is #698
-    exactly. A regression to the old filter drops these languages from
-    `_checkable_languages()` and fails here.
+    Specs that declare no `symbol_node_types` and still parse with a compiled
+    grammar were skipped as "regex-parsed", which exempted solidity, nim,
+    graphql and vue -- languages that match node types against a hand-written
+    list in a function body, where an omission is #698 exactly. A regression to
+    the old filter drops these languages from `_checkable_languages()` and
+    fails here.
+
+    ⚠ `vue` is in that list for the opposite reason to the other three, and it
+    is worth stating: it hard-codes ZERO declaration-shaped node types its own
+    grammar emits, because the ones it matches belong to the DELEGATED
+    JavaScript grammar of its script block -- which is why it has inventory
+    rows at all. An earlier draft cited it as hard-coding eight of them, which
+    contradicts the delegated-grammar argument this same file makes for
+    scoping property A.
     """
     sources = _inventory_sources()
     inline = sorted(lang for lang, src in sources.items() if src == "inline")
