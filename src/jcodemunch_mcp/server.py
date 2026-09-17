@@ -7086,10 +7086,18 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         ne = result.get("negative_evidence")
                         if ne and isinstance(ne, dict):
                             import time as _t
+                            # #711: the STATE travels with the finding. The
+                            # legacy `negative_evidence` dict alone cannot say
+                            # whether this scan may prove absence -- a degraded
+                            # one carries `no_implementation_found` too -- and
+                            # `_meta` is stripped further down (`meta_fields`
+                            # defaults to `[]`), so it is read HERE or nowhere.
+                            _vs = ((result.get("_meta") or {}).get("verdict") or {})
                             journal.record_negative_evidence({
                                 "query": query,
                                 "repo": arguments.get("repo", ""),
                                 "verdict": ne.get("verdict", ""),
+                                "verdict_state": _vs.get("state", ""),
                                 "scanned_symbols": ne.get("scanned_symbols", 0),
                                 "timestamp": _t.time(),
                             })
@@ -7102,10 +7110,18 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         ne = result.get("negative_evidence")
                         if ne and isinstance(ne, dict):
                             import time as _t
+                            # #711: the STATE travels with the finding. The
+                            # legacy `negative_evidence` dict alone cannot say
+                            # whether this scan may prove absence -- a degraded
+                            # one carries `no_implementation_found` too -- and
+                            # `_meta` is stripped further down (`meta_fields`
+                            # defaults to `[]`), so it is read HERE or nowhere.
+                            _vs = ((result.get("_meta") or {}).get("verdict") or {})
                             journal.record_negative_evidence({
                                 "query": query,
                                 "repo": arguments.get("repo", ""),
                                 "verdict": ne.get("verdict", ""),
+                                "verdict_state": _vs.get("state", ""),
                                 "scanned_symbols": ne.get("scanned_symbols", 0),
                                 "timestamp": _t.time(),
                             })

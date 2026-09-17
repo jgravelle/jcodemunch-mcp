@@ -167,16 +167,36 @@ class TestPlanTurn:
                 assert "centrality_score" in c
 
     def test_prior_evidence_stops_repeat_search(self, tmp_path: Path):
-        """If journal has a zero-result search, confidence should be 'none'."""
+        """A published absence for THIS repo still stops the repeat search (#205).
+
+        ⚠ Rewritten for #711. This test used to inject `record_search(query, 0)`
+        alone -- a query string and an integer, with no repository and no
+        verdict -- and assert the stop fired. That could only pass while the
+        defect existed: the same unscoped record made `plan_turn` deny, in one
+        repository, the existence of symbols it was returning from another.
+        The mechanism it asserted was the bug; the OUTCOME it asserted is the
+        feature, so the outcome is kept and the evidence now arrives through
+        the channel that carries a repository. `tests/test_plan_turn_absence_is_repo_scoped.py`
+        holds the rest of the rule.
+        """
+        import time
+
         from jcodemunch_mcp.tools.plan_turn import plan_turn
         from jcodemunch_mcp.tools.session_journal import get_journal
         from tests.conftest_helpers import create_mini_index
 
         repo, storage_path = create_mini_index(tmp_path)
 
-        # Inject a fake zero-result search into the journal
         journal = get_journal()
         journal.record_search("nonexistent_xyz_feature", result_count=0)
+        journal.record_negative_evidence({
+            "query": "nonexistent_xyz_feature",
+            "repo": repo,
+            "verdict": "no_implementation_found",
+            "verdict_state": "absent",
+            "scanned_symbols": 5,
+            "timestamp": time.time(),
+        })
 
         result = plan_turn(repo=repo, query="nonexistent_xyz_feature", storage_path=storage_path)
         assert result["confidence"] == "none"
