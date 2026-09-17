@@ -1,265 +1,266 @@
 {
-  "schema": "jcm-harness-tiers/v1",
-  "note": "Tier membership (docs/harness/DESIGN.md s2). fast = offline files under the 90 s ceiling; full = tests/ entire; bench = harness commands. UNCLEAR and STRUCTURAL entries are listed, never moved.",
-  "fast": [
-    "tests/test_absence_wiring_guard.py",
-    "tests/test_benchmark_grep_baseline.py",
-    "tests/test_benchmark_reference.py",
-    "tests/test_build.py",
-    "tests/test_call_outcome_contract.py",
-    "tests/test_catalog_moratorium.py",
-    "tests/test_channel_accuracy.py",
-    "tests/test_ci_env_reproduce_command.py",
-    "tests/test_claude_md_policy.py",
-    "tests/test_claude_md_rotation.py",
-    "tests/test_claude_md_size.py",
-    "tests/test_cli_env_split.py",
-    "tests/test_cli_output_encoding.py",
-    "tests/test_config_docs_reverse_parity.py",
-    "tests/test_config_isolation_guard.py",
-    "tests/test_counter_surface_stability.py",
-    "tests/test_deadcode_eval_harness.py",
-    "tests/test_delete_index_cli.py",
-    "tests/test_description_smells.py",
-    "tests/test_dispatch_resolution.py",
-    "tests/test_docs_config_parity.py",
-    "tests/test_file_io_encoding_guard.py",
-    "tests/test_groq_explainer.py",
-    "tests/test_groq_voice.py",
-    "tests/test_harness_summary.py",
-    "tests/test_health_radar_action.py",
-    "tests/test_key_files_split.py",
-    "tests/test_license_identifier_agreement.py",
-    "tests/test_local_encoder.py",
-    "tests/test_lockfile_version_sync.py",
-    "tests/test_lsp_bridge.py",
-    "tests/test_mcp_instructions.py",
-    "tests/test_negative_evidence.py",
-    "tests/test_nuxt_srcdir.py",
-    "tests/test_optional_dep_skips_are_visible.py",
-    "tests/test_org_http.py",
-    "tests/test_plan_turn.py",
-    "tests/test_plugin_manifest_sync.py",
-    "tests/test_post_tool_use_hook.py",
-    "tests/test_pulse.py",
-    "tests/test_racket_fidelity.py",
-    "tests/test_racket_fidelity_artifacts.py",
-    "tests/test_register_edit.py",
-    "tests/test_release_preflight.py",
-    "tests/test_render_diagram_integration.py",
-    "tests/test_render_diagram_viewer.py",
-    "tests/test_replay_metrics.py",
-    "tests/test_retirement_ledger.py",
-    "tests/test_route_binary_pilot_is_frozen.py",
-    "tests/test_route_recall_artifacts_are_fresh.py",
-    "tests/test_runtime_phase6.py",
-    "tests/test_rust_fidelity_artifacts.py",
-    "tests/test_schema_baseline_transcription.py",
-    "tests/test_schema_budget.py",
-    "tests/test_sdist_exclusions.py",
-    "tests/test_search_result_cache.py",
-    "tests/test_search_symbols_tie_order.py",
-    "tests/test_security_disclosure.py",
-    "tests/test_security_md_limits_parity.py",
-    "tests/test_security_md_policy.py",
-    "tests/test_server_json_sync.py",
-    "tests/test_session_journal.py",
-    "tests/test_session_state.py",
-    "tests/test_standard_invariants.py",
-    "tests/test_stdio_guard.py",
-    "tests/test_stop_rule.py",
-    "tests/test_streamable_http_integration.py",
-    "tests/test_streamable_http_sessions.py",
-    "tests/test_subprocess_encoding_guard.py",
-    "tests/test_surface_cli.py",
-    "tests/test_thresholds_are_the_only_copy.py",
-    "tests/test_tier_switch_cost.py",
-    "tests/test_token_benchmark_floor.py",
-    "tests/test_turn_budget.py",
-    "tests/test_v1_108_0.py",
-    "tests/test_v1_108_121.py",
-    "tests/test_v1_108_136.py",
-    "tests/test_v1_108_194.py",
-    "tests/test_v1_108_199.py",
-    "tests/test_v1_108_2.py",
-    "tests/test_v1_108_201.py",
-    "tests/test_v1_108_269.py",
-    "tests/test_v1_108_270.py",
-    "tests/test_v1_108_271.py",
-    "tests/test_v1_108_99.py",
-    "tests/test_verdict_coverage_calibration.py",
-    "tests/test_watcher_dynamic.py",
-    "tests/test_watcher_lock.py",
-    "tests/test_watcher_serve.py",
-    "tests/test_workflows_pinned.py"
-  ],
-  "bench": [
-    {
-      "name": "replay_gate",
-      "cmd": [
-        "benchmarks/replay/run_replay.py",
-        "--fixture",
-        "benchmarks/replay/fixtures/self_v1_75_0.json",
-        "--baseline-file",
-        "benchmarks/replay/results/self_v1_75_0-golden.json"
-      ],
-      "rules": [
-        "R55"
-      ],
-      "thresholds": [
-        "replay.max_relative_drop"
-      ],
-      "self_index": true
-    },
-    {
-      "name": "route_recall_human",
-      "cmd": [
-        "benchmarks/route_recall/run_route_recall.py"
-      ],
-      "thresholds": []
-    },
-    {
-      "name": "route_recall_holdout",
-      "cmd": [
-        "benchmarks/route_recall/run_route_recall.py",
-        "--corpus",
-        "benchmarks/route_recall/holdout.json"
-      ],
-      "thresholds": [
-        "route.control_at1"
-      ]
-    },
-    {
-      "name": "route_emitted",
-      "cmd": [
-        "benchmarks/route_recall/run_emitted_task.py"
-      ],
-      "thresholds": []
-    },
-    {
-      "name": "schema_baseline_live",
-      "cmd": [
-        "benchmarks/harness/capture_schema_baseline.py",
-        "--breakdown"
-      ],
-      "restore": [
-        "benchmarks/schema_baseline.json"
-      ],
-      "thresholds": [
-        "schema.core_compact_ceiling",
-        "schema.drift_tolerance"
-      ]
-    },
-    {
-      "name": "tier_switch",
-      "cmd": [
-        "benchmarks/tier_switch/price_tier_switch.py"
-      ],
-      "thresholds": []
-    },
-    {
-      "name": "goldset",
-      "cmd": [
-        "benchmarks/goldset/measure.py"
-      ],
-      "restore": [
-        "benchmarks/provenance/channel_accuracy.json"
-      ],
-      "thresholds": [
-        "goldset.recall_min"
-      ]
-    },
-    {
-      "name": "description_smells",
-      "cmd": [
-        "benchmarks/description_smells/score_descriptions.py"
-      ],
-      "restore": [
-        "benchmarks/description_smells/scores.json"
-      ],
-      "thresholds": []
-    },
-    {
-      "name": "self_latency",
-      "cmd": [
-        "benchmarks/self_latency/measure.py",
-        "--out",
-        "harness/results/self_latency.json"
-      ],
-      "artifact": "harness/results/self_latency.json",
-      "thresholds": [
-        "latency.search_symbols_warm_p95_ms",
-        "latency.search_text_warm_p95_ms",
-        "latency.get_symbol_source_warm_p95_ms",
-        "latency.get_file_outline_warm_p95_ms",
-        "index.cold_self_seconds",
-        "index.one_file_reindex_ms"
-      ]
-    },
-    {
-      "name": "token_benchmark",
-      "cmd": [
-        "benchmarks/harness/run_benchmark.py",
-        "--floor"
-      ],
-      "network": true,
-      "rules": [
-        "R1",
-        "R2",
-        "R3",
-        "R4",
-        "R5",
-        "R6"
-      ],
-      "thresholds": [
-        "token.grand_ratio_vs_grep",
-        "token.per_repo_rise_max"
-      ]
-    }
-  ],
-  "structural": [
-    "tests/test_context_providers.py",
-    "tests/test_deadcode_eval_harness.py",
-    "tests/test_render_diagram_integration.py"
-  ],
-  "unclear": [
-    {
-      "path": "tests/test_agent_selector.py",
-      "question": "asserts the agent_selector config map; no issue or commit explains why it exists (ARCHAEOLOGY s5). Keep byte-identical until reviewed."
-    },
-    {
-      "path": "tests/test_config_watcher_keys.py",
-      "question": "asserts literal DEFAULTS values only; is it a guard or a transcription? (ARCHAEOLOGY s5)"
-    },
-    {
-      "path": "tests/test_groq_voice.py",
-      "question": "no docstring, no issue reference; what defect does it pin? (ARCHAEOLOGY s5)"
-    },
-    {
-      "path": "benchmarks/cache_stability/",
-      "question": "no README, artifact pinned by nothing, every number moved on re-run; is the hold verdict consulted anywhere? Excluded from every tier (N4)."
-    }
-  ],
-  "excluded": [
-    {
-      "path": "benchmarks/cache_stability/measure.py",
-      "reason": "non-deterministic: corpus is a live snapshot of src/ (COVERAGE-MAP N4)"
-    },
-    {
-      "path": "benchmarks/rust_fidelity/ (live oracle)",
-      "reason": "needs cargo + network; frozen oracle gated by tests/test_rust_fidelity.py"
-    },
-    {
-      "path": "benchmarks/racket_fidelity/ (live oracle)",
-      "reason": "needs racket; frozen oracle gated by tests/test_racket_fidelity.py"
-    },
-    {
-      "path": "benchmarks/deadcode_eval/",
-      "reason": "needs the full suite under coverage; number only, no floor yet"
-    },
-    {
-      "path": "benchmarks/codex_surface/, benchmarks/swebench/, RAG/Odysseus comparators",
-      "reason": "external auth, disk or servers; manual"
-    }
-  ]
+ "schema": "jcm-harness-tiers/v1",
+ "note": "Tier membership (docs/harness/DESIGN.md s2). fast = offline files under the 90 s ceiling; full = tests/ entire; bench = harness commands. UNCLEAR and STRUCTURAL entries are listed, never moved.",
+ "fast": [
+  "tests/test_absence_wiring_guard.py",
+  "tests/test_benchmark_grep_baseline.py",
+  "tests/test_benchmark_reference.py",
+  "tests/test_build.py",
+  "tests/test_call_outcome_contract.py",
+  "tests/test_catalog_moratorium.py",
+  "tests/test_channel_accuracy.py",
+  "tests/test_ci_env_reproduce_command.py",
+  "tests/test_claude_md_policy.py",
+  "tests/test_claude_md_rotation.py",
+  "tests/test_claude_md_size.py",
+  "tests/test_cli_env_split.py",
+  "tests/test_cli_output_encoding.py",
+  "tests/test_config_docs_reverse_parity.py",
+  "tests/test_config_isolation_guard.py",
+  "tests/test_counter_surface_stability.py",
+  "tests/test_deadcode_eval_harness.py",
+  "tests/test_delete_index_cli.py",
+  "tests/test_description_smells.py",
+  "tests/test_dispatch_resolution.py",
+  "tests/test_docs_config_parity.py",
+  "tests/test_file_io_encoding_guard.py",
+  "tests/test_full_tier_coverage_core.py",
+  "tests/test_groq_explainer.py",
+  "tests/test_groq_voice.py",
+  "tests/test_harness_summary.py",
+  "tests/test_health_radar_action.py",
+  "tests/test_key_files_split.py",
+  "tests/test_license_identifier_agreement.py",
+  "tests/test_local_encoder.py",
+  "tests/test_lockfile_version_sync.py",
+  "tests/test_lsp_bridge.py",
+  "tests/test_mcp_instructions.py",
+  "tests/test_negative_evidence.py",
+  "tests/test_nuxt_srcdir.py",
+  "tests/test_optional_dep_skips_are_visible.py",
+  "tests/test_org_http.py",
+  "tests/test_plan_turn.py",
+  "tests/test_plugin_manifest_sync.py",
+  "tests/test_post_tool_use_hook.py",
+  "tests/test_pulse.py",
+  "tests/test_racket_fidelity.py",
+  "tests/test_racket_fidelity_artifacts.py",
+  "tests/test_register_edit.py",
+  "tests/test_release_preflight.py",
+  "tests/test_render_diagram_integration.py",
+  "tests/test_render_diagram_viewer.py",
+  "tests/test_replay_metrics.py",
+  "tests/test_retirement_ledger.py",
+  "tests/test_route_binary_pilot_is_frozen.py",
+  "tests/test_route_recall_artifacts_are_fresh.py",
+  "tests/test_runtime_phase6.py",
+  "tests/test_rust_fidelity_artifacts.py",
+  "tests/test_schema_baseline_transcription.py",
+  "tests/test_schema_budget.py",
+  "tests/test_sdist_exclusions.py",
+  "tests/test_search_result_cache.py",
+  "tests/test_search_symbols_tie_order.py",
+  "tests/test_security_disclosure.py",
+  "tests/test_security_md_limits_parity.py",
+  "tests/test_security_md_policy.py",
+  "tests/test_server_json_sync.py",
+  "tests/test_session_journal.py",
+  "tests/test_session_state.py",
+  "tests/test_standard_invariants.py",
+  "tests/test_stdio_guard.py",
+  "tests/test_stop_rule.py",
+  "tests/test_streamable_http_integration.py",
+  "tests/test_streamable_http_sessions.py",
+  "tests/test_subprocess_encoding_guard.py",
+  "tests/test_surface_cli.py",
+  "tests/test_thresholds_are_the_only_copy.py",
+  "tests/test_tier_switch_cost.py",
+  "tests/test_token_benchmark_floor.py",
+  "tests/test_turn_budget.py",
+  "tests/test_v1_108_0.py",
+  "tests/test_v1_108_121.py",
+  "tests/test_v1_108_136.py",
+  "tests/test_v1_108_194.py",
+  "tests/test_v1_108_199.py",
+  "tests/test_v1_108_2.py",
+  "tests/test_v1_108_201.py",
+  "tests/test_v1_108_269.py",
+  "tests/test_v1_108_270.py",
+  "tests/test_v1_108_271.py",
+  "tests/test_v1_108_99.py",
+  "tests/test_verdict_coverage_calibration.py",
+  "tests/test_watcher_dynamic.py",
+  "tests/test_watcher_lock.py",
+  "tests/test_watcher_serve.py",
+  "tests/test_workflows_pinned.py"
+ ],
+ "bench": [
+  {
+   "name": "replay_gate",
+   "cmd": [
+    "benchmarks/replay/run_replay.py",
+    "--fixture",
+    "benchmarks/replay/fixtures/self_v1_75_0.json",
+    "--baseline-file",
+    "benchmarks/replay/results/self_v1_75_0-golden.json"
+   ],
+   "rules": [
+    "R55"
+   ],
+   "thresholds": [
+    "replay.max_relative_drop"
+   ],
+   "self_index": true
+  },
+  {
+   "name": "route_recall_human",
+   "cmd": [
+    "benchmarks/route_recall/run_route_recall.py"
+   ],
+   "thresholds": []
+  },
+  {
+   "name": "route_recall_holdout",
+   "cmd": [
+    "benchmarks/route_recall/run_route_recall.py",
+    "--corpus",
+    "benchmarks/route_recall/holdout.json"
+   ],
+   "thresholds": [
+    "route.control_at1"
+   ]
+  },
+  {
+   "name": "route_emitted",
+   "cmd": [
+    "benchmarks/route_recall/run_emitted_task.py"
+   ],
+   "thresholds": []
+  },
+  {
+   "name": "schema_baseline_live",
+   "cmd": [
+    "benchmarks/harness/capture_schema_baseline.py",
+    "--breakdown"
+   ],
+   "restore": [
+    "benchmarks/schema_baseline.json"
+   ],
+   "thresholds": [
+    "schema.core_compact_ceiling",
+    "schema.drift_tolerance"
+   ]
+  },
+  {
+   "name": "tier_switch",
+   "cmd": [
+    "benchmarks/tier_switch/price_tier_switch.py"
+   ],
+   "thresholds": []
+  },
+  {
+   "name": "goldset",
+   "cmd": [
+    "benchmarks/goldset/measure.py"
+   ],
+   "restore": [
+    "benchmarks/provenance/channel_accuracy.json"
+   ],
+   "thresholds": [
+    "goldset.recall_min"
+   ]
+  },
+  {
+   "name": "description_smells",
+   "cmd": [
+    "benchmarks/description_smells/score_descriptions.py"
+   ],
+   "restore": [
+    "benchmarks/description_smells/scores.json"
+   ],
+   "thresholds": []
+  },
+  {
+   "name": "self_latency",
+   "cmd": [
+    "benchmarks/self_latency/measure.py",
+    "--out",
+    "harness/results/self_latency.json"
+   ],
+   "artifact": "harness/results/self_latency.json",
+   "thresholds": [
+    "latency.search_symbols_warm_p95_ms",
+    "latency.search_text_warm_p95_ms",
+    "latency.get_symbol_source_warm_p95_ms",
+    "latency.get_file_outline_warm_p95_ms",
+    "index.cold_self_seconds",
+    "index.one_file_reindex_ms"
+   ]
+  },
+  {
+   "name": "token_benchmark",
+   "cmd": [
+    "benchmarks/harness/run_benchmark.py",
+    "--floor"
+   ],
+   "network": true,
+   "rules": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+   ],
+   "thresholds": [
+    "token.grand_ratio_vs_grep",
+    "token.per_repo_rise_max"
+   ]
+  }
+ ],
+ "structural": [
+  "tests/test_context_providers.py",
+  "tests/test_deadcode_eval_harness.py",
+  "tests/test_render_diagram_integration.py"
+ ],
+ "unclear": [
+  {
+   "path": "tests/test_agent_selector.py",
+   "question": "asserts the agent_selector config map; no issue or commit explains why it exists (ARCHAEOLOGY s5). Keep byte-identical until reviewed."
+  },
+  {
+   "path": "tests/test_config_watcher_keys.py",
+   "question": "asserts literal DEFAULTS values only; is it a guard or a transcription? (ARCHAEOLOGY s5)"
+  },
+  {
+   "path": "tests/test_groq_voice.py",
+   "question": "no docstring, no issue reference; what defect does it pin? (ARCHAEOLOGY s5)"
+  },
+  {
+   "path": "benchmarks/cache_stability/",
+   "question": "no README, artifact pinned by nothing, every number moved on re-run; is the hold verdict consulted anywhere? Excluded from every tier (N4)."
+  }
+ ],
+ "excluded": [
+  {
+   "path": "benchmarks/cache_stability/measure.py",
+   "reason": "non-deterministic: corpus is a live snapshot of src/ (COVERAGE-MAP N4)"
+  },
+  {
+   "path": "benchmarks/rust_fidelity/ (live oracle)",
+   "reason": "needs cargo + network; frozen oracle gated by tests/test_rust_fidelity.py"
+  },
+  {
+   "path": "benchmarks/racket_fidelity/ (live oracle)",
+   "reason": "needs racket; frozen oracle gated by tests/test_racket_fidelity.py"
+  },
+  {
+   "path": "benchmarks/deadcode_eval/",
+   "reason": "needs the full suite under coverage; number only, no floor yet"
+  },
+  {
+   "path": "benchmarks/codex_surface/, benchmarks/swebench/, RAG/Odysseus comparators",
+   "reason": "external auth, disk or servers; manual"
+  }
+ ]
 }

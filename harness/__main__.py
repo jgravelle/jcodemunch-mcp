@@ -637,6 +637,32 @@ def tier_full(result: dict) -> bool:
     cov = T.floor("coverage.min")
     warm_ok = warm_assets()
     print(f"== full tier: tests/ with --cov-fail-under={cov}")
+    # ⚠⚠ **Coverage's C tracer was ~40% of this tier's wall clock (#740).** The
+    # measurement is `docs/harness/FINDINGS.md` F-32, written from
+    # `.claude/state/evidence/740_measurement.json` and not restated here -- an
+    # earlier version of this comment carried its own copy of the figures, which
+    # review found to be the fastest of five samples with the other four
+    # unreconciled. Four runs, same box and tree: ctrace twice, sysmon, and
+    # uninstrumented; sysmon's instrumentation costs about 5 s where ctrace's
+    # costs about 135 s.
+    #
+    # ⚠⚠ **The coverage NUMBER is not weakened, and a CONTROL shows it rather
+    # than an assertion:** ctrace disagreed with ITSELF by more missed lines
+    # across two runs than it disagreed with sysmon, every delta inside the async
+    # dispatcher, statements identical throughout. `coverage.min` is itself a
+    # Floor, and a tracer counting fewer lines as missed would be a loosening by
+    # a side door, so equality could not simply be asserted.
+    #
+    # ⚠ NOT version-gated here. coverage checks `sys.monitoring`, branch support,
+    # dynamic contexts and concurrency, then warns and falls back to its default
+    # core (`coverage/core.py`, slug `no-sysmon`), so the 3.10 and 3.11 legs
+    # measure exactly as before. A `sys.version_info` test here would be a second
+    # copy of that decision, wrong the first time coverage widens support.
+    #
+    # ⚠ `setdefault`, so `COVERAGE_CORE=ctrace ... -m harness full` still forces
+    # the old tracer -- the comparison above has to stay reproducible by whoever
+    # doubts it.
+    cov_env = {"COVERAGE_CORE": os.environ.get("COVERAGE_CORE", "sysmon")}
     rc, out, secs = _run(
         [
             PY,
@@ -651,7 +677,8 @@ def tier_full(result: dict) -> bool:
             "--cov=src",
             "--cov-report=term",
             f"--cov-fail-under={cov}",
-        ]
+        ],
+        env=cov_env,
     )
     summ = _pytest_summary(out)
     print("  ", summ["line"])
