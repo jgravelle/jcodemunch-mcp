@@ -1,0 +1,185 @@
+{
+  "_README": [
+    "Written by scripts/refresh_grammar_inventory.py (#724). Do NOT hand-edit",
+    "to silence a failure. Each entry is a node type the compiled grammar emits and",
+    "the LanguageSpec does not name, so the form is never extracted.",
+    "A change here is a DECISION: either the form is a symbol (declare it in",
+    "languages.py) or it is correctly ignored (update this file in the same commit).",
+    "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
+  ],
+  "confirmed_gaps": {
+    "go": "var_spec",
+    "java": "field_declaration",
+    "kotlin": "property_declaration",
+    "scala": "given_definition",
+    "swift": "protocol_function_declaration"
+  },
+  "inventory": {
+    "arduino": [
+      "attribute_declaration",
+      "concept_definition",
+      "friend_declaration",
+      "namespace_alias_definition",
+      "namespace_definition",
+      "optional_parameter_declaration",
+      "optional_type_parameter_declaration",
+      "parameter_declaration",
+      "static_assert_declaration",
+      "template_declaration",
+      "template_template_parameter_declaration",
+      "type_parameter_declaration",
+      "using_declaration",
+      "variadic_parameter_declaration",
+      "variadic_type_parameter_declaration"
+    ],
+    "bash": [
+      "case_item"
+    ],
+    "c": [
+      "attribute_declaration",
+      "field_declaration",
+      "parameter_declaration"
+    ],
+    "cpp": [
+      "attribute_declaration",
+      "concept_definition",
+      "consteval_block_declaration",
+      "explicit_object_parameter_declaration",
+      "export_declaration",
+      "friend_declaration",
+      "global_module_fragment_declaration",
+      "import_declaration",
+      "module_declaration",
+      "namespace_alias_definition",
+      "namespace_definition",
+      "optional_parameter_declaration",
+      "optional_type_parameter_declaration",
+      "parameter_declaration",
+      "private_module_fragment_declaration",
+      "static_assert_declaration",
+      "template_declaration",
+      "template_template_parameter_declaration",
+      "type_parameter_declaration",
+      "using_declaration",
+      "variadic_parameter_declaration",
+      "variadic_type_parameter_declaration"
+    ],
+    "csharp": [
+      "accessor_declaration",
+      "catch_declaration",
+      "enum_member_declaration",
+      "file_scoped_namespace_declaration",
+      "namespace_declaration",
+      "variable_declaration"
+    ],
+    "dart": [
+      "extension_type_declaration",
+      "initialized_variable_definition",
+      "local_function_declaration",
+      "local_variable_declaration",
+      "pattern_variable_declaration",
+      "representation_declaration",
+      "static_final_declaration"
+    ],
+    "gdscript": [
+      "constructor_definition"
+    ],
+    "go": [
+      "const_declaration",
+      "const_spec",
+      "field_declaration",
+      "import_declaration",
+      "import_spec",
+      "parameter_declaration",
+      "short_var_declaration",
+      "type_parameter_declaration",
+      "type_spec",
+      "var_declaration",
+      "var_spec",
+      "variadic_parameter_declaration"
+    ],
+    "java": [
+      "constant_declaration",
+      "field_declaration",
+      "import_declaration",
+      "local_variable_declaration",
+      "module_declaration",
+      "package_declaration"
+    ],
+    "javascript": [
+      "field_definition",
+      "lexical_declaration",
+      "using_declaration",
+      "variable_declaration"
+    ],
+    "kotlin": [
+      "multi_variable_declaration",
+      "property_declaration",
+      "variable_declaration"
+    ],
+    "perl": [
+      "variable_declaration"
+    ],
+    "php": [
+      "const_declaration",
+      "function_static_declaration",
+      "global_declaration",
+      "namespace_definition",
+      "namespace_use_declaration",
+      "static_variable_declaration",
+      "use_declaration"
+    ],
+    "python": [
+      "decorated_definition",
+      "with_item"
+    ],
+    "rust": [
+      "attribute_item",
+      "const_item",
+      "extern_crate_declaration",
+      "field_declaration",
+      "foreign_mod_item",
+      "impl_item",
+      "inner_attribute_item",
+      "let_declaration",
+      "macro_definition",
+      "mod_item",
+      "static_item",
+      "use_declaration"
+    ],
+    "scala": [
+      "export_declaration",
+      "extension_definition",
+      "given_definition",
+      "import_declaration",
+      "val_declaration",
+      "var_declaration"
+    ],
+    "swift": [
+      "associatedtype_declaration",
+      "capture_list_item",
+      "external_macro_definition",
+      "import_declaration",
+      "macro_declaration",
+      "macro_definition",
+      "operator_declaration",
+      "precedence_group_declaration",
+      "protocol_function_declaration",
+      "protocol_property_declaration",
+      "subscript_declaration",
+      "tuple_type_item"
+    ],
+    "tsx": [
+      "ambient_declaration",
+      "lexical_declaration",
+      "public_field_definition",
+      "variable_declaration"
+    ],
+    "typescript": [
+      "ambient_declaration",
+      "lexical_declaration",
+      "public_field_definition",
+      "variable_declaration"
+    ]
+  }
+}
