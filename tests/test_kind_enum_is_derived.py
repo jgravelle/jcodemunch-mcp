@@ -140,3 +140,40 @@ async def test_the_runtime_gate_accepts_field():
     from jcodemunch_mcp.server import VALID_KINDS as dispatcher_kinds
 
     assert "field" in dispatcher_kinds
+
+
+def test_every_spec_kind_is_a_valid_kind():
+    """⚠⚠ A kind a LanguageSpec can emit must be a kind the wire can carry (#732).
+
+    #571's fix derived the schema enum from `KIND_ORDER` so the enum and the
+    tuple could not drift. That closed the copy and left the other direction
+    open: nothing checked that a kind a SPEC maps a node type to is in the
+    tuple at all. `PHP_SPEC` mapped `property_declaration` to `property` from
+    before #571, and the entry never fired -- a declared-but-dead kind, which
+    both gates would have rejected the moment anything emitted one. Kotlin
+    became the first live emitter in #732 and the whole suite stayed green,
+    because 10,741 tests contained nothing that asked this question.
+
+    The failure it prevents is precise: `search_symbols(kind="<new>")` is
+    REFUSED by `server.py`'s `kind_filter not in VALID_KINDS` check, and the
+    published schema enum omits the value, so the kind is emitted into the
+    index and unreachable through the one filter meant to find it.
+
+    ⚠ `KIND_ORDER` is APPEND-ONLY (its own comment says why: each position is
+    bytes a client has already cached). So the fix for a failure here is to
+    append the kind, never to reword a spec to dodge it.
+    """
+    from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+    from jcodemunch_mcp.parser.symbols import VALID_KINDS
+
+    offenders = {}
+    for language, spec in sorted(LANGUAGE_REGISTRY.items()):
+        for node_type, kind in (getattr(spec, "symbol_node_types", None) or {}).items():
+            if kind not in VALID_KINDS:
+                offenders.setdefault(kind, []).append(f"{language}:{node_type}")
+
+    assert not offenders, (
+        f"these spec kinds are not in KIND_ORDER, so a symbol carrying one is "
+        f"unreachable by `search_symbols(kind=...)` and absent from the wire "
+        f"enum: {offenders}. Append to KIND_ORDER (never reorder)."
+    )

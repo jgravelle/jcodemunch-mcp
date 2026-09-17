@@ -174,3 +174,38 @@ def test_bash_mutable_declarations_are_not_constants():
     source = 'local scoped=1\ndeclare plain=2\nPLAIN=3\n'
     found = [s for s in parse_file(source, "p.sh", "bash") if s.kind == "constant"]
     assert not found
+
+
+def test_kotlin_class_scoped_constants_are_extracted():
+    """Kotlin joined `_CLASS_SCOPED_CONSTANT_LANGUAGES` in #732.
+
+    The note beside that set says adding a language without a sample here is
+    the failure #428 is about, so this is that sample.
+
+    ⚠⚠ Kotlin was added for a reason the Java entry did not have: once #732
+    declared `property_declaration` in `symbol_node_types`, `_extract_name`
+    began DECLINING constant-shaped properties to the constant channel, and at
+    class or object scope that channel could not run. The declarations were
+    then emitted by neither -- disjoint but not exhaustive. A `const val` in a
+    `companion object` is the idiomatic Kotlin constant, so the hole was over
+    the most common shape.
+    """
+    from jcodemunch_mcp.parser.extractor import parse_file
+
+    source = """class Foo {
+    val MAX_SIZE = 10
+    companion object { const val INNER_CONST = 3 }
+}
+object Registry { const val BAR_CONST = 4 }
+"""
+    symbols = list(parse_file(source, "Foo.kt", "kotlin"))
+    by_name = {s.name: s for s in symbols}
+
+    for name in ("MAX_SIZE", "INNER_CONST", "BAR_CONST"):
+        assert name in by_name, (name, sorted(by_name))
+        assert by_name[name].kind == "constant", (name, by_name[name].kind)
+
+    # And exactly once each: the property channel must not also claim them.
+    names = [s.name for s in symbols]
+    for name in ("MAX_SIZE", "INNER_CONST", "BAR_CONST"):
+        assert names.count(name) == 1, (name, names)

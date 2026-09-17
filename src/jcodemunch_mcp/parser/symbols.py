@@ -59,6 +59,16 @@ KIND_ORDER: tuple[str, ...] = (
     # hardcoded wire enum, which had drifted from this set because it was a
     # SECOND COPY. Deriving the enum is what stops the next kind repeating it.
     "field",      # Struct/dataclass/record fields
+    # ⚠⚠ (#732) #571 ALMOST REPEATED, one entry down. `PHP_SPEC` had mapped
+    # `property_declaration` to this kind since before #571 and the entry never
+    # fired, so the kind was declared-but-dead and both gates would have
+    # rejected it the moment anything emitted one. Kotlin is the first live
+    # emitter. The comment above says deriving the enum is what stops the next
+    # kind repeating it -- deriving the enum was not enough, because nothing
+    # checked that a kind a SPEC can emit is a kind this tuple contains.
+    # `tests/test_kind_enum_is_derived.py::test_every_spec_kind_is_a_valid_kind`
+    # is that check, and it fails on a spec kind absent from here.
+    "property",   # Kotlin/PHP properties: named, mutable-or-not class state
 )
 
 VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)

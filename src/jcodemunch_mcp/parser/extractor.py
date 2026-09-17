@@ -25,7 +25,15 @@ logger = logging.getLogger(__name__)
 # a statement about the LANGUAGE, not a preference: Java has no file-scope
 # constant to find. Adding a language here without a sample in
 # tests/test_constant_extraction_guard.py is the failure that issue is about.
-_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java"})
+# ⚠⚠ kotlin joined in #732, and NOT as part of the property fix -- it closes a
+# hole that fix would otherwise have made structural. `const val` inside a
+# `companion object` is THE idiomatic Kotlin constant, and at class or object
+# scope the constant channel never ran, so it was dropped. Once
+# `property_declaration` was declared, `_extract_name` began DECLINING those
+# same nodes to a channel that could not accept them: disjoint, but no longer
+# exhaustive. Measured before the fix: `MAX_SIZE`, `INNER_CONST` and
+# `BAR_CONST` were emitted by neither channel. Found in review.
+_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java", "kotlin"})
 
 #: Languages whose constants may be declared inside a FUNCTION body and are
 #: still worth indexing. Separate from the class-scoped set above because it
@@ -1024,9 +1032,16 @@ def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
     `_walk_tree` runs the constant check independently of symbol extraction on
     the same node rather than as an `elif`. Two channels deciding separately
     emit `const val MAX` twice -- once as a constant, once as a property. This
-    predicate is what makes the split exhaustive and disjoint: the constant
-    branch extracts when it answers True, `_extract_name` declines when it
-    does, and every declaration is owned exactly once.
+    predicate is what makes the split DISJOINT: the constant branch extracts
+    when it answers True and `_extract_name` declines when it does.
+
+    ⚠⚠ Disjoint is not exhaustive, and the difference cost a real hole.
+    The constant channel is ALSO gated on scope (`parent_symbol is None`
+    unless the language is in `_CLASS_SCOPED_CONSTANT_LANGUAGES`), and a
+    decline here carries no scope information, so it cannot know whether
+    the other channel will accept. Kotlin had to join that set in the same
+    change; before it did, `val MAX_SIZE` in a class body and `const val`
+    in a companion object were emitted by NEITHER channel. Found in review.
 
     The rule is #428's, unchanged and moved rather than rewritten: a `const
     val` is a constant by declaration, and a plain `val` is merely immutable --

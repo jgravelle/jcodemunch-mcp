@@ -1119,7 +1119,12 @@ KOTLIN_SPEC = LanguageSpec(
     # constant channel keeps `const val` and SCREAMING_CASE `val` (#428), and
     # ordinary properties come through here.  `kotlin_property_is_constant` is
     # the single predicate that splits them, asked by both sides, so no
-    # declaration is emitted twice and none is dropped.
+    # declaration is emitted twice.  ⚠ Disjoint is NOT the same as
+    # exhaustive: the constant channel is also gated on SCOPE, and Kotlin
+    # had to join `_CLASS_SCOPED_CONSTANT_LANGUAGES` before a `const val`
+    # in a companion object reached it at all.  Until it did, this
+    # predicate declined those nodes to a channel that could not accept
+    # them and they were emitted by neither.
     constant_patterns=["property_declaration"],
     type_patterns=["type_alias", "class_declaration"],
 )
