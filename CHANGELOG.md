@@ -31,7 +31,8 @@ keeps paying for.
 ⚠ The kind is `property`, not `constant`. A `var` is mutable, and every
 constant-oriented consumer would otherwise be told it never changes.
 
-⚠⚠ **#571 was one entry from repeating, and 10,741 tests stayed green over it.**
+⚠⚠ **#571 was one entry from repeating, and the whole suite stayed green over
+it.**
 `property` was not in `KIND_ORDER`, so `search_symbols(kind="property")` is
 refused by the `kind_filter not in VALID_KINDS` check and the published schema
 enum omits the value -- a symbol indexed, and unreachable through the one filter
@@ -55,30 +56,11 @@ declining constant-shaped properties to a channel that could not accept them, so
 sat over the most common shape. Found in review, against a first fixture that
 had no companion object in it and therefore could not fail on it.
 
-⚠⚠ **#571 was one entry away from repeating and the whole suite stayed green.**
-`property` was not in `KIND_ORDER`, so `search_symbols(kind="property")` is
-refused by the `kind_filter not in VALID_KINDS` check and the published schema
-enum omits the value -- a symbol indexed and unreachable through the one filter
-meant to find it. `PHP_SPEC` had mapped the kind for years and nothing ever
-emitted one, so it sat declared-and-dead; Kotlin is the first live emitter.
-#571's fix DERIVED the enum from `KIND_ORDER` so the two copies could not
-drift, and that was not enough, because nothing checked that a kind a SPEC can
-emit is a kind the tuple contains. `test_every_spec_kind_is_a_valid_kind` is
-that check, over every spec; run against the pre-fix tuple it names both kotlin
-and php.
-
-⚠⚠ **Kotlin joined `_CLASS_SCOPED_CONSTANT_LANGUAGES`, and that is not part of
-the property fix -- it closes a hole the property fix would have made
-structural.** The constant channel is gated on `parent_symbol is None` unless
-the language is in that set, so at class or object scope it never ran for
-Kotlin. Once `property_declaration` was declared, `_extract_name` began
-DECLINING constant-shaped properties to a channel that could not accept them,
-and `val MAX_SIZE` in a class body, `const val` in a `companion object` and
-`const val` in an `object` were emitted by NEITHER: disjoint, but not
-exhaustive. A `const val` in a companion object is the idiomatic Kotlin
-constant, so the hole sat over the most common shape. Found in review, against
-a first fixture that contained no companion object and therefore could not fail
-on it.
+⚠ Appending to `KIND_ORDER` is safe for the cached prefix -- positions 0-7 are
+byte-identical and only the insertion point onward moves -- but it is not free:
+the `search_symbols` schema grows 2 tokens (`core_compact` 3967 to 3969), one
+full-rate prefix rewrite per user, inside `schema.drift_tolerance` and well
+under the 4,000 ceiling. The byte-pinned Counter surface is untouched at 945.
 
 ⚠ Out of scope and stated as tests rather than left silent: a constructor
 `val` parses as `class_parameter`, not `property_declaration`; and

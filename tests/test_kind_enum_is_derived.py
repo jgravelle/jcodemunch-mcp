@@ -152,7 +152,7 @@ def test_every_spec_kind_is_a_valid_kind():
     before #571, and the entry never fired -- a declared-but-dead kind, which
     both gates would have rejected the moment anything emitted one. Kotlin
     became the first live emitter in #732 and the whole suite stayed green,
-    because 10,741 tests contained nothing that asked this question.
+    because nothing in it asked this question.
 
     The failure it prevents is precise: `search_symbols(kind="<new>")` is
     REFUSED by `server.py`'s `kind_filter not in VALID_KINDS` check, and the

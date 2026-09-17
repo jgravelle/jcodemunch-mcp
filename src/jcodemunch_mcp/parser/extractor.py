@@ -1024,6 +1024,47 @@ def kotlin_property_name(node, source_bytes: bytes) -> Optional[str]:
     return None
 
 
+#: Node types that put a Kotlin `property_declaration` inside executable code
+#: rather than in a type's body or at file scope.
+_KOTLIN_LOCAL_SCOPES = frozenset({
+    "function_body",
+    "lambda_literal",
+    "anonymous_initializer",
+})
+
+
+def kotlin_property_is_local(node) -> bool:
+    """Is this Kotlin `property_declaration` a LOCAL VARIABLE? (#732)
+
+    ⚠⚠ Kotlin's grammar spells a local `val x = 1` inside a function with the
+    SAME node type as a class member, so declaring `property_declaration`
+    without this gate indexed every local variable in every Kotlin file --
+    including one declared in a `for` body -- as a `property`. Measured before
+    the gate: `Foo.m.localOrdinary`, `Foo.m.localVar`, `Foo.m.inner` and
+    `topFn.topLocal` were all symbols. Nothing in the PR declared that, and the
+    comment beside `_CLASS_SCOPED_CONSTANT_LANGUAGES` declines exactly this
+    widening for the constant channel because it moves symbol counts in every
+    index and every published dead-code grade. Found in review.
+
+    ⚠ It also closes the incoherence that made the hole visible: the constant
+    channel's gate already refuses a function parent, so a local
+    `val LOCAL_SCREAM` was dropped while the `val localOrdinary` beside it was
+    indexed -- the discriminator being capitalisation. Locals are not symbols
+    here for any language, and now that is true for both channels.
+
+    ⚠ Walks ANCESTORS rather than asking for a parent symbol, because
+    `_extract_name` has no parent: the caller that does is `_walk_tree`, and
+    putting the rule there would separate it from the two predicates it belongs
+    beside.
+    """
+    parent = node.parent
+    while parent is not None:
+        if parent.type in _KOTLIN_LOCAL_SCOPES:
+            return True
+        parent = parent.parent
+    return False
+
+
 def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
     """Does this Kotlin property belong to the CONSTANT channel? (#428, #732)
 
@@ -1084,6 +1125,8 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # drift into a gap or an overlap -- which a second copy of the rule here
     # would eventually do, the [[a-guard-written-against-a-spelling]] shape.
     if spec.ts_language == "kotlin" and node.type == "property_declaration":
+        if kotlin_property_is_local(node):
+            return None
         if kotlin_property_is_constant(node, source_bytes):
             return None
         return kotlin_property_name(node, source_bytes)

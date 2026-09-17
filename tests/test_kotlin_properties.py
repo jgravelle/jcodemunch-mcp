@@ -272,3 +272,68 @@ def test_the_node_type_is_declared():
     assert "property_declaration" in KOTLIN_SPEC.symbol_node_types, sorted(
         KOTLIN_SPEC.symbol_node_types
     )
+
+
+# ---------------------------------------------------------------------------
+# Locals: the blast radius this fix must NOT take (#732 review round 2)
+# ---------------------------------------------------------------------------
+
+_LOCALS = """class Holder {
+    val member = 1
+    fun work() {
+        val localOrdinary = 3
+        val LOCAL_SCREAM = 2
+        var localVar = 4
+        for (x in 1..3) { val inner = x }
+    }
+}
+
+val topLevel = 5
+fun topFn() { val topLocal = 9 }
+val lambdaHost = run { val insideLambda = 1; insideLambda }
+"""
+
+
+def test_a_local_variable_is_not_a_property():
+    """⚠⚠ Kotlin spells a local `val` with the SAME node type as a member.
+
+    So declaring `property_declaration` without a scope gate indexes every
+    local variable in every Kotlin file. Measured before the gate:
+    `Holder.work.localOrdinary`, `Holder.work.localVar`, `Holder.work.inner`
+    and `topFn.topLocal` were all symbols, one of them declared in a `for`
+    body. Nothing in the first version of this PR declared that widening, and
+    the comment beside `_CLASS_SCOPED_CONSTANT_LANGUAGES` refuses exactly it
+    for the constant channel because it moves symbol counts in every index and
+    every published dead-code grade. Found in review.
+    """
+    names = {s.name for s in parse_file(_LOCALS, "Holder.kt", "kotlin")}
+
+    for local in ("localOrdinary", "localVar", "inner", "topLocal", "insideLambda"):
+        assert local not in names, (local, sorted(names))
+
+
+def test_the_local_gate_is_not_keyed_on_capitalisation():
+    """The incoherence that made the hole visible, asserted as a property.
+
+    Before the gate, a local `val LOCAL_SCREAM` was DROPPED (the constant
+    channel refuses a function parent) while the `val localOrdinary` beside it
+    was INDEXED -- the discriminator between a symbol and nothing was the
+    variable's capitalisation. Both are locals and neither is a symbol now, for
+    the same reason.
+    """
+    names = {s.name for s in parse_file(_LOCALS, "Holder.kt", "kotlin")}
+
+    assert "LOCAL_SCREAM" not in names, sorted(names)
+    assert "localOrdinary" not in names, sorted(names)
+
+
+def test_the_gate_keeps_members_and_top_level_declarations():
+    """Non-vacuity: a gate that dropped everything would pass the two above."""
+    symbols = parse_file(_LOCALS, "Holder.kt", "kotlin")
+    by_name = {s.name: s for s in symbols}
+
+    assert by_name["member"].kind == "property"
+    assert by_name["topLevel"].kind == "property"
+    # A top-level property whose INITIALISER is a lambda is still a property;
+    # only the declaration inside the lambda is local.
+    assert by_name["lambdaHost"].kind == "property"

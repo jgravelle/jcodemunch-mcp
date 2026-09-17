@@ -223,6 +223,9 @@ def test_only_named_languages_reach_constants_through_a_container():
     still cannot reach constants through a container, and a language IN it
     carries the sample the rule requires.
     """
+    from unittest import mock
+
+    from jcodemunch_mcp.parser import extractor
     from jcodemunch_mcp.parser.extractor import _CLASS_SCOPED_CONSTANT_LANGUAGES
 
     # A Python class body holds an UPPER_CASE assignment, which is the exact
@@ -257,4 +260,25 @@ def test_only_named_languages_reach_constants_through_a_container():
             f"{language} is in _CLASS_SCOPED_CONSTANT_LANGUAGES but its "
             f"class-scoped constant is not extracted, so membership is buying "
             f"nothing: {_constants(source, filename, language)}"
+        )
+
+        # ⚠⚠ And the sample must DISCRIMINATE. Extracting the constant proves
+        # nothing on its own: a sample whose constant is reachable without
+        # membership passes identically with the language removed from the
+        # set, so the assertion above would hold against the reintroduced
+        # defect -- [[a-ratchet-can-pass-against-the-defect-it-names]], in the
+        # guard written to close exactly that. Measured with a planted
+        # `javascript` entry whose sample was a file-scope `const K = 1`: it
+        # yielded `['K']` both ways. Found in review.
+        with mock.patch.object(
+            extractor,
+            "_CLASS_SCOPED_CONSTANT_LANGUAGES",
+            frozenset(_CLASS_SCOPED_CONSTANT_LANGUAGES) - {language},
+        ):
+            without = _constants(source, filename, language)
+        assert without != [expected], (
+            f"{language}'s sample yields {without} with the language REMOVED "
+            f"from _CLASS_SCOPED_CONSTANT_LANGUAGES, which is what it yields "
+            f"with it -- so the sample does not demonstrate what membership "
+            f"buys. Use a constant that is only reachable at class scope."
         )
