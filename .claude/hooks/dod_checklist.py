@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -216,11 +217,48 @@ def main() -> int:
     src_diff = git("diff", f"{base}...HEAD", "--", "src/") + git("diff", "--", "src/")
     touched = lambda *pre: any(c.startswith(pre) for c in changed)  # noqa: E731
     src_changed = touched("src/")
-    tests_deleted = bool(
-        git(
+    deleted_test_files = [
+        f
+        for f in git(
             "diff", "--name-only", "--diff-filter=D", f"{base}...HEAD", "--", "tests/"
-        ).strip()
-    )
+        ).splitlines()
+        if f.strip()
+    ]
+
+    def _retired_test_functions() -> list[str]:
+        """Test FUNCTIONS removed from surviving files, renames excluded.
+
+        ⚠⚠ **A file-granular check could not see a retirement.** DoD 11 and
+        `harness/retired.json`'s own note are explicit that the unit is
+        `file::test_name`, and this item read `--diff-filter=D`, which lists
+        deleted FILES only -- so a PR deleting two test functions from a file
+        that survives was graded `n.a.`, and the item was never evaluated by the
+        machine at all. Found in review of #748/#749, which deleted exactly two.
+
+        ⚠ A name that still exists ANYWHERE under `tests/` is a rename or a
+        move, not a retirement, and is excluded -- the same judgement a human
+        makes on `test_edit_guard`'s warning, which fires on both.
+        """
+        diff = git("diff", "-U0", f"{base}...HEAD", "--", "tests/")
+        removed = {
+            m.group(1)
+            for line in diff.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+            for m in [re.search(r"def (test_\w+)", line)]
+            if m
+        }
+        if not removed:
+            return []
+        surviving = ""
+        for path in sorted(pathlib.Path("tests").rglob("*.py")):
+            try:
+                surviving += path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+        return sorted(n for n in removed if f"def {n}(" not in surviving)
+
+    retired_functions = _retired_test_functions()
+    tests_deleted = bool(deleted_test_files) or bool(retired_functions)
 
     rows: list[tuple[int, str, str]] = []
 
@@ -425,7 +463,7 @@ def main() -> int:
 
     # 11 retired test ledger
     if not tests_deleted:
-        row(11, "n.a.", "no test file deleted")
+        row(11, "n.a.", "no test file deleted and no test function retired")
     else:
         rc, out = sh(
             "uv",
@@ -436,10 +474,12 @@ def main() -> int:
             "-p",
             "no:cacheprovider",
         )
+        subject = ", ".join(deleted_test_files + retired_functions)
         row(
             11,
             "met" if rc == 0 and "harness/retired.json" in changed else "unmet",
-            f"retirement ledger test rc={rc}; harness/retired.json changed={'harness/retired.json' in changed}",
+            f"retired: {subject}; ledger test rc={rc}; harness/retired.json "
+            f"changed={'harness/retired.json' in changed}",
         )
 
     # 12 threshold moved
