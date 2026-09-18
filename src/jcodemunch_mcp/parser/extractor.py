@@ -721,6 +721,22 @@ def _walk_tree(
                 f.parent = parent_symbol.id
         symbols.extend(fields)
 
+    # Mutable module-level bindings: a JS/TS `let` or `var` (#741, #742).
+    #
+    # ⚠⚠ **No scope gate HERE, and that is deliberate: the locality rule is
+    # the declaration's own PARENT NODE, asked in `js_binding_is_member`.**
+    # `parent_symbol is None` -- the gate the constant channel above uses --
+    # cannot see a block, so it published `if (x) { const BLOCKY = 1; }` as
+    # module state, and repeating it here would publish a `let` in every `if`
+    # body in every JS file. #732 round 3, one language over.
+    #
+    # ⚠ Nothing is qualified: no JS member position for a binding has a
+    # `parent_symbol` at all (a TS namespace is in no spec's
+    # `container_node_types`), so a qualification loop here would be a
+    # parameter that is present and does nothing.
+    if node.type in spec.variable_patterns:
+        symbols.extend(_extract_variables(node, spec, source_bytes, filename, language))
+
     # A JS/TS class field INITIALIZER is not the class body. Everything the
     # initializer contains is attributed to the field, never to the class.
     #
@@ -1852,9 +1868,45 @@ def _extract_constants(
         return _extract_php_constants(node, source_bytes, filename, language)
     if node.type == "field_declaration" and language == "java":
         return _extract_java_constants(node, source_bytes, filename, language)
+    if language in _JS_BINDING_LANGUAGES and node.type in (
+        "lexical_declaration",
+        "variable_declaration",
+    ):
+        return _extract_js_bindings(node, source_bytes, filename, language, constants=True)
 
     single = _extract_constant(node, spec, source_bytes, filename, language)
     return [single] if single else []
+
+
+def _declaration_symbol(
+    name: str, decl_node, source_bytes: bytes, filename: str, language: str, kind: str
+) -> Symbol:
+    """One symbol of `kind`, named `name`, spanning the whole declaration.
+
+    ⚠⚠ **The ONE builder for the declaration-shaped channels**, because it was
+    about to be copied a fourth time. `_constant_symbol` (#428),
+    `_field_symbol` (#735) and a variable builder (#741) differ in the kind
+    string and in nothing else -- same span rule, same signature slice, same
+    content hash -- and three transcriptions of one body is how the span rule
+    drifts on the copy nobody re-reads. The wrappers below keep their own
+    docstrings, because the RULES about ownership differ even though the
+    construction does not.
+    """
+    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
+    return Symbol(
+        id=make_symbol_id(filename, name, kind),
+        file=filename,
+        name=name,
+        qualified_name=name,
+        kind=kind,
+        language=language,
+        signature=sig[:200],
+        line=decl_node.start_point[0] + 1,
+        end_line=decl_node.end_point[0] + 1,
+        byte_offset=decl_node.start_byte,
+        byte_length=decl_node.end_byte - decl_node.start_byte,
+        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
+    )
 
 
 def _constant_symbol(
@@ -1869,21 +1921,7 @@ def _constant_symbol(
     than at a synthesised range (#414's rule: an offset must address bytes that
     exist).
     """
-    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
-    return Symbol(
-        id=make_symbol_id(filename, name, "constant"),
-        file=filename,
-        name=name,
-        qualified_name=name,
-        kind="constant",
-        language=language,
-        signature=sig[:200],
-        line=decl_node.start_point[0] + 1,
-        end_line=decl_node.end_point[0] + 1,
-        byte_offset=decl_node.start_byte,
-        byte_length=decl_node.end_byte - decl_node.start_byte,
-        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
-    )
+    return _declaration_symbol(name, decl_node, source_bytes, filename, language, "constant")
 
 
 def _field_symbol(
@@ -1910,21 +1948,7 @@ def _field_symbol(
     complaint in another language, so unlike `_constant_symbol` this one is
     never correct as it stands.
     """
-    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
-    return Symbol(
-        id=make_symbol_id(filename, name, kind),
-        file=filename,
-        name=name,
-        qualified_name=name,
-        kind=kind,
-        language=language,
-        signature=sig[:200],
-        line=decl_node.start_point[0] + 1,
-        end_line=decl_node.end_point[0] + 1,
-        byte_offset=decl_node.start_byte,
-        byte_length=decl_node.end_byte - decl_node.start_byte,
-        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
-    )
+    return _declaration_symbol(name, decl_node, source_bytes, filename, language, kind)
 
 
 def _extract_fields(
@@ -1944,6 +1968,171 @@ def _extract_fields(
     return []
 
 
+def _extract_variables(
+    node, spec: LanguageSpec, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Declarations that bind N names to MUTABLE module-level state (#741, #742).
+
+    ⚠ A DISPATCHER for the reason `_extract_fields` gives: the node-type list
+    belongs in the spec beside every other node-type list, and #731 (Go's
+    package-level `var`) inherits the channel instead of growing a second copy
+    of the rule.
+    """
+    if language in _JS_BINDING_LANGUAGES and node.type in (
+        "lexical_declaration",
+        "variable_declaration",
+    ):
+        return _extract_js_bindings(node, source_bytes, filename, language, constants=False)
+    return []
+
+
+# ---------------------------------------------------------------------------
+# JS/TS/TSX binding declarations (#741, #742)
+# ---------------------------------------------------------------------------
+
+#: The three specs that route a binding declaration here. Vue and Svelte parse
+#: their script blocks in their OWN extractors (`_parse_vue_symbols`,
+#: `_parse_svelte_symbols`) and are deliberately absent -- they make their own
+#: kind decisions about reactive state and props, and the same wrong-kind
+#: question there is filed separately.
+_JS_BINDING_LANGUAGES = frozenset({"javascript", "typescript", "tsx"})
+
+#: Parent node types at which a binding declares MODULE-LEVEL state.
+#:
+#: ⚠⚠ **An ALLOWLIST, and the direction is the rule.** A denylist of local
+#: spellings fails OPEN -- one unlisted block form publishes a function-local
+#: as module state, which moves every published symbol count and dead-code
+#: grade -- while an allowlist fails CLOSED to the pre-fix status quo for an
+#: unlisted member position. #732 shipped the denylist version in Kotlin and
+#: spent a review round undoing it; this set was derived by asking the grammar
+#: for the parent of a binding in every scope JS and TS can spell.
+#:
+#: ⚠ `program` is a plain file-scope declaration, `export_statement` is
+#: `export const`/`let`/`var`, and `ambient_declaration` is TypeScript's
+#: `declare const` / `declare var`.
+_JS_BINDING_MEMBER_PARENTS = frozenset({
+    "program",
+    "export_statement",
+    "ambient_declaration",
+})
+
+#: Node types whose `statement_block` body is still module level.
+#:
+#: ⚠⚠ **A TypeScript namespace body is a `statement_block` -- the SAME node
+#: type as a function body, an `if` body and a class static block** -- so the
+#: direct parent cannot separate them and the grandparent decides.
+#: `internal_module` is `namespace NS { ... }`, `module` is
+#: `declare module "m" { ... }`, `ambient_declaration` is `declare global`.
+_JS_BINDING_MEMBER_BLOCK_OWNERS = frozenset({
+    "internal_module",
+    "module",
+    "ambient_declaration",
+})
+
+
+def js_binding_is_member(node) -> bool:
+    """Does this binding declare module-level state rather than a local?
+
+    ⚠⚠ **The scope gate in `_walk_tree` cannot answer this, which is why the
+    node's own parent is asked.** That gate is `parent_symbol is None`, and a
+    bare block, an `if` body, a `for` body and a `switch` case are not symbols
+    -- so at file scope `if (x) { const BLOCKY = 1; }` published a
+    block-scoped local as a module constant, and #742's `var` half would have
+    added two more spellings of the same leak. It is #732's round-3 defect in
+    Kotlin, in the clause one `if` above it.
+    """
+    parent = node.parent
+    if parent is None:
+        return False
+    if parent.type in _JS_BINDING_MEMBER_PARENTS:
+        return True
+    if parent.type == "statement_block":
+        owner = parent.parent
+        return owner is not None and owner.type in _JS_BINDING_MEMBER_BLOCK_OWNERS
+    return False
+
+
+def js_binding_is_constant(node) -> bool:
+    """Does this binding belong to the CONSTANT channel? (#741, #742)
+
+    ⚠⚠ THE ONE ANSWER, asked by both channels. `lexical_declaration` is in the
+    JS specs' `constant_patterns` AND their `variable_patterns`, and
+    `_walk_tree` runs the two independently on the same node rather than as an
+    `elif`; two channels deciding separately emit one `const` twice. #735's
+    Java split and #732's Kotlin one are the same trap, and their lesson is
+    that the rule is MOVED rather than copied.
+
+    ⚠⚠ **The keyword is a NAMED FIELD, which is the authority here.** The
+    grammar gives `lexical_declaration` a `kind` field holding `const` or
+    `let`, so this needs no scan of anonymous children and no name heuristic --
+    and a heuristic is what the reported defect invites, since `let
+    MUTABLE_CAP = 5` and `const config = {}` are each wrong under one.
+
+    ⚠ `variable_declaration` is `var` and is never a constant. A missing `kind`
+    field answers False: claiming an immutability the source does not state is
+    the defect (#741), where the opposite error only under-promises.
+    """
+    if node.type != "lexical_declaration":
+        return False
+    kind = node.child_by_field_name("kind")
+    return kind is not None and kind.type == "const"
+
+
+def _js_declarator_names(node, source_bytes: bytes) -> list[str]:
+    """Every name one JS binding declaration binds, in source order.
+
+    ⚠⚠ `const A = 1, B = 2;` is ONE node and TWO declarations, and the old
+    branch `return`ed on the first declarator -- so `B` was dropped in silence.
+    Every other N-name language got this in #428 (Go, Bash, PHP, Java) and
+    Java's fields again in #735; JS was in neither change.
+
+    ⚠ A function-valued declarator is DECLINED here, on both channels:
+    `_extract_variable_function` owns `const fn = () => {}` and emits it as a
+    `function`, so binding it again would give one declaration two symbols
+    under two kinds.
+
+    ⚠ A destructuring pattern (`const { a, b } = obj`) is declined too, because
+    the declarator's `name` is an `object_pattern` rather than an `identifier`.
+    That is a standing gap, unchanged by #741/#742 and filed separately --
+    pinned by `test_a_destructuring_pattern_is_a_known_separate_gap` so it is
+    disclosed rather than assumed absent.
+    """
+    names: list[str] = []
+    for declarator in node.children:
+        if declarator.type != "variable_declarator":
+            continue
+        name_node = declarator.child_by_field_name("name")
+        if name_node is None or name_node.type != "identifier":
+            continue
+        value_node = declarator.child_by_field_name("value")
+        if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
+            continue
+        names.append(
+            source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+        )
+    return names
+
+
+def _extract_js_bindings(
+    node, source_bytes: bytes, filename: str, language: str, *, constants: bool
+) -> list[Symbol]:
+    """One JS/TS binding declaration, for whichever channel asked.
+
+    ⚠ Both channels enter HERE, with the same predicate and the same locality
+    rule, and differ only in which side of `js_binding_is_constant` they keep.
+    A `const` reaching the variable channel returns nothing and a `let`
+    reaching the constant channel returns nothing, which is what makes the
+    split disjoint rather than a race between two transcriptions.
+    """
+    if js_binding_is_constant(node) is not constants:
+        return []
+    if not js_binding_is_member(node):
+        return []
+    kind = "constant" if constants else "variable"
+    return [
+        _declaration_symbol(name, node, source_bytes, filename, language, kind)
+        for name in _js_declarator_names(node, source_bytes)
+    ]
 def _extract_php_properties(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:
@@ -2381,46 +2570,10 @@ def _extract_constant(
         name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
         return _constant_symbol(name, node, source_bytes, filename, language)
 
-    # JS/TS/TSX: index `const` declarations as constants.
-    # `export const foo = ...` appears as a lexical_declaration under an export_statement;
-    # plain `const foo = ...` is a lexical_declaration at module scope.
-    # variable_declaration covers `var`/`let` at module scope in some tree-sitter grammars.
-    if node.type in ("lexical_declaration", "variable_declaration"):
-        if language not in ("javascript", "typescript", "tsx"):
-            return None
-        for child in node.children:
-            if child.type != "variable_declarator":
-                continue
-            name_node = child.child_by_field_name("name")
-            if not name_node or name_node.type != "identifier":
-                continue
-            name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
-            # Arrow functions and function expressions are handled by _extract_variable_function
-            value_node = child.child_by_field_name("value")
-            if value_node and value_node.type in (
-                "arrow_function",
-                "function_expression",
-                "generator_function",
-            ):
-                continue
-            sig = source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip()
-            const_bytes = source_bytes[node.start_byte:node.end_byte]
-            c_hash = compute_content_hash(const_bytes)
-            return Symbol(
-                id=make_symbol_id(filename, name, "constant"),
-                file=filename,
-                name=name,
-                qualified_name=name,
-                kind="constant",
-                language=language,
-                signature=sig[:200],
-                line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
-                byte_offset=node.start_byte,
-                byte_length=node.end_byte - node.start_byte,
-                content_hash=c_hash,
-            )
-
+    # ⚠ JS/TS/TSX bindings are NOT here. They reach `_extract_constants`,
+    # which routes them to `_extract_js_bindings` -- one declaration binds N
+    # names (`const A = 1, B = 2`) and this function returns at most one
+    # symbol, which is how `B` was dropped in silence until #741/#742.
     return None
 
 

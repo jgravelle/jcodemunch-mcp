@@ -68,6 +68,20 @@ class LanguageSpec:
     # `test_language_spec_maps_agree.py` holds the readership claim.
     field_patterns: list[str] = dc_field(default_factory=list)
 
+    # Node types for declarations that bind N names to MUTABLE module-level
+    # state -- a JS/TS `let` or `var` (#741, #742).
+    #
+    # ⚠⚠ **A node type may be in BOTH this and `constant_patterns`, and for
+    # JS/TS it is.** `const` and `let` are one node type (`lexical_declaration`)
+    # and the keyword tells them apart, so the two channels match the same node
+    # and `js_binding_is_constant` is the ONE predicate both ask -- #735's Java
+    # split, where two channels deciding separately emit one declaration twice.
+    #
+    # ⚠ Also READ, for the reason stated above `field_patterns`; the same
+    # readership test covers it, keyed on the spec so a second member is
+    # checked on arrival. #731 (Go's package-level `var`) is the next one.
+    variable_patterns: list[str] = dc_field(default_factory=list)
+
 
 # File extension to language mapping
 LANGUAGE_EXTENSIONS = {
@@ -341,6 +355,8 @@ JAVASCRIPT_SPEC = LanguageSpec(
     decorator_node_type=None,
     container_node_types=["class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=[],
 )
 
@@ -391,6 +407,8 @@ TSX_SPEC = LanguageSpec(
     decorator_node_type="decorator",
     container_node_types=["class_declaration", "abstract_class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
@@ -449,6 +467,8 @@ TYPESCRIPT_SPEC = LanguageSpec(
     # instead of `<file>::Owner.m#method`. A bare name is not an identity.
     container_node_types=["class_declaration", "abstract_class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
