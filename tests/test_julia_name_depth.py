@@ -294,17 +294,56 @@ def _calls_in_branch_for(node_type: str) -> set[str]:
     return calls
 
 
-#: What a type branch is allowed to call, beyond the shared resolver.
-#:
-#: ⚠ `_direct_name` is here because `abstract_definition` has fallen back to it
-#: since before #749 and nothing establishes that every spelling of every type
-#: form builds a `type_head`. It is a FALLBACK -- second in the or-chain, after
-#: the resolver -- which is the difference between a safety net and a bypass.
-#:
-#: ⚠⚠ An allowlist grows, and this project has watched one become an escape
-#: hatch (`_HELPER_LITERAL_EXCEPTIONS`, deleted by the test written to keep it
-#: honest). Adding a name here is the decision this guard exists to force.
-_NAME_HELPERS_A_TYPE_BRANCH_MAY_ASK = frozenset({"_type_head_name", "_direct_name"})
+def _name_expression_for(node_type: str):
+    """The `name = ...` expression in the walker branch that handles `node_type`.
+
+    ⚠⚠ **Asserting on the ASSIGNMENT is what makes an allowlist unnecessary.**
+    The first version of this guard asked which functions the branch CALLS, and
+    "calls the resolver" is not "is named by it":
+    `_abstract_head_name(node) or _type_head_name(node)` satisfies it while the
+    bespoke helper takes every name and the resolver is dead in the or-chain --
+    measured in review, one reordering from the real code, which is already an
+    or-chain. The exception list that closed it was the
+    `_HELPER_LITERAL_EXCEPTIONS` shape this project has already watched become
+    an escape hatch, and it had its own hole: with both names allowlisted,
+    `_direct_name(node) or _type_head_name(node)` -- the FALLBACK promoted ahead
+    of the resolver -- passed too.
+
+    ⚠ Reading the expression states the property exactly: the resolver decides
+    the name, and anything else is a fallback BEHIND it.
+    """
+    for node in ast.walk(_julia_tree()):
+        if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
+            continue
+        constants = []
+        for comparator in node.test.comparators:
+            if isinstance(comparator, ast.Constant):
+                constants.append(comparator.value)
+            elif isinstance(comparator, (ast.Tuple, ast.List, ast.Set)):
+                constants.extend(
+                    e.value for e in comparator.elts if isinstance(e, ast.Constant)
+                )
+        if node_type not in constants:
+            continue
+        for statement in node.body:
+            if (
+                isinstance(statement, ast.Assign)
+                and any(
+                    isinstance(t, ast.Name) and t.id == "name"
+                    for t in statement.targets
+                )
+            ):
+                return statement.value
+    return None
+
+
+def _first_call_name(expression) -> str | None:
+    """The function the expression reaches FIRST: itself, or an or-chain's head."""
+    if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.Or):
+        expression = expression.values[0]
+    if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
+        return expression.func.id
+    return None
 
 
 def test_every_type_form_asks_the_same_resolver():
@@ -338,26 +377,18 @@ def test_every_type_form_asks_the_same_resolver():
     )
 
     for node_type in ("struct_definition", "abstract_definition"):
-        calls = _calls_in_branch_for(node_type)
-        assert calls, f"no `{node_type}` branch found in `_parse_julia_symbols`"
-        assert "_type_head_name" in calls, (
-            f"the `{node_type}` branch names its type with {sorted(calls)} and "
-            f"does not ask `_type_head_name`. Every type form asks ONE resolver "
-            f"(#749); a second helper that happens to be correct today is how "
-            f"this function reached four of them."
+        expression = _name_expression_for(node_type)
+        assert expression is not None, (
+            f"no `name = ...` assignment in the `{node_type}` branch of "
+            f"`_parse_julia_symbols`"
         )
-        # ⚠⚠ An ALLOWLIST, because "calls the resolver" is not "is named by
-        # it": `_abstract_head_name(node) or _type_head_name(node)` satisfies the
-        # assertion above while the bespoke helper decides every name and the
-        # resolver is dead in the or-chain -- measured in review, and it is ONE
-        # reordering away from the real code, which is already an or-chain.
-        unexpected = calls - _NAME_HELPERS_A_TYPE_BRANCH_MAY_ASK
-        assert not unexpected, (
-            f"the `{node_type}` branch also calls {sorted(unexpected)}. A helper "
-            f"ahead of `_type_head_name` in an or-chain takes every name and "
-            f"leaves the resolver unreachable, so the shared-resolver property "
-            f"is a spelling rather than a fact. Add the name here only with the "
-            f"reason it is not a fifth bespoke helper."
+        first = _first_call_name(expression)
+        assert first == "_type_head_name", (
+            f"the `{node_type}` branch names its type with "
+            f"`{ast.unparse(expression)}`, so `{first}` decides every name and "
+            f"`_type_head_name` is at best a fallback behind it. Every type form "
+            f"asks ONE resolver (#749); a second helper that happens to be "
+            f"correct today is how this function reached four of them."
         )
 
 

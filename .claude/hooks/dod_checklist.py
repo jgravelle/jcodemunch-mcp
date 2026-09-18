@@ -18,6 +18,7 @@ item numbers are the only thing this file knows.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import pathlib
@@ -195,6 +196,22 @@ def harness_pass(summary: str | None) -> bool | None:
     return "**FAIL**" not in summary and "HARNESS FAIL" not in summary
 
 
+#: How similar two bodies must be for a removal + addition to read as a RENAME.
+#:
+#: ⚠⚠ MEASURED on the only two real cases in this repo's history, not chosen:
+#: `b9dfcb19`, the one retirement in `harness/retired.json`, scores **0.571**
+#: against its nearest replacement in the same file; `4093364f`, #753's rename
+#: of `test_every_declared_field_pattern_actually_yields_a_field`, scores
+#: **0.851** against its new name. 0.75 sits between them with margin on both
+#: sides, and both commits were re-run through the detector to confirm the
+#: verdicts come out RETIREMENT and RENAME respectively.
+#:
+#: ⚠ A two-point calibration is thin, and it is stated here so a future case
+#: landing between 0.571 and 0.851 is a decision someone makes rather than a
+#: silent misgrade. Widening the gap needs a third real case, not a nudge.
+_RENAME_BODY_SIMILARITY = 0.75
+
+
 def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
     r"""Test FUNCTIONS removed and not redefined, keyed `file::name`.
 
@@ -215,17 +232,16 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
     `runtime/redact.py` with `redact.py` by basename, reproduced inside a
     guard written against a neighbouring miss. Keyed `file::name` now.
 
-    ⚠⚠ **A file that LOST a test function and GAINED one is treated as a
-    rename, and that is deliberately fail-open.** Nothing in a diff separates a
-    rename from a deletion that happens to sit beside an unrelated new test, so
-    it cannot be decided here. It is excluded rather than reported because
-    `test_edit_guard` ALREADY fires on every removed `def test_` and a human
-    verifies each one -- this session cleared three that way in one afternoon --
-    and a second gate turning every rename into an `unmet` row would have
-    `pre_pr.py` refuse those PRs outright. **The cost is that a retirement
-    disguised by an unrelated addition in the same file is missed HERE;
-    `test_edit_guard` is the control that still sees it.** That division is
-    stated rather than left to be rediscovered.
+    ⚠⚠ **A rename is told from a retirement by the BODY, and a file-level
+    rule was measured wrong.** The first version excluded every removal in a
+    file that gained any test function, which silenced `b9dfcb19` -- the ONLY
+    prior retirement in `harness/retired.json` -- because its replacement was
+    added to the same file beside eleven other new tests. The ledger's schema
+    makes that the normal shape, not an edge case: entry 0's `path` and
+    `replacement` name one file. A rename keeps the body; a replacement
+    rewrites it, so the bodies are compared against
+    `_RENAME_BODY_SIMILARITY`, which is measured on both real cases in this
+    repo's history rather than chosen.
 
     ⚠ A name added to ANOTHER file in the same diff is a move, not a
     retirement, and is excluded by name.
@@ -243,19 +259,45 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
     which asserts on the literal `"def test_a_macro_is_a_known_separate_gap"`.
     It was saved only by the absent `(`.
     """
-    removed: set[tuple[str, str]] = set()
-    added: set[tuple[str, str]] = set()
+    removed: dict[tuple[str, str], tuple[str, ...]] = {}
+    added: dict[tuple[str, str], tuple[str, ...]] = {}
     current = ""
+    side = ""
+    block_name = ""
+    block: list[str] = []
+
+    def _flush() -> None:
+        if block_name:
+            target = removed if side == "-" else added
+            target[(current, block_name)] = tuple(block)
+
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
+            _flush()
+            side, block_name, block = "", "", []
             current = line[len("+++ b/"):].strip()
             continue
-        if line.startswith("+++") or line.startswith("---"):
+        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
+            _flush()
+            side, block_name, block = "", "", []
             continue
-        m = re.search(r"^[-+]\s*(?:async\s+)?def (test_\w+)", line)
-        if not m or not current:
+        if not current or line[:1] not in ("-", "+"):
+            _flush()
+            side, block_name, block = "", "", []
             continue
-        (removed if line.startswith("-") else added).add((current, m.group(1)))
+        if line[:1] != side:
+            _flush()
+            side, block_name, block = line[:1], "", []
+        text = line[1:]
+        m = re.match(r"\s*(?:async\s+)?def (test_\w+)", text)
+        if m:
+            _flush()
+            block_name, block = m.group(1), []
+        elif block_name:
+            stripped = text.strip()
+            if stripped:
+                block.append(stripped)
+    _flush()
 
     if not removed:
         return []
@@ -270,16 +312,41 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
             re.search(rf"^\s*(?:async\s+)?def {re.escape(name)}\b", text, re.M)
         )
 
+    def _is_a_rename(path: str, body: tuple[str, ...]) -> bool:
+        """Did some function ADDED to this file keep this one's body?
+
+        ⚠⚠ **The body is the discriminator, and a file-level one was measured
+        WRONG.** Excluding every removal in a file that gained any test silenced
+        `b9dfcb19` -- the only prior retirement in `harness/retired.json` --
+        because its replacement went into the SAME file beside eleven other new
+        tests. The ledger's own schema makes that the normal shape: entry 0's
+        `path` and `replacement` name one file. So the file-level rule missed
+        1 of 1 historical retirements, and this PR was caught only because its
+        replacements happened to go in a new file.
+
+        ⚠ A rename keeps the body; a replacement rewrites it.
+        `_RENAME_BODY_SIMILARITY` carries the calibration and the two
+        measurements behind it.
+        """
+        if not body:
+            return False
+        for (added_path, _name), added_body in added.items():
+            if added_path != path or not added_body:
+                continue
+            if difflib.SequenceMatcher(
+                None, "\n".join(body), "\n".join(added_body)
+            ).ratio() >= _RENAME_BODY_SIMILARITY:
+                return True
+        return False
+
     moved = {name for _path, name in added}
-    renamed_in = {path for path, _name in added}
     return sorted(
         f"{path}::{name}"
-        for path, name in removed
+        for (path, name), body in removed.items()
         if not _defined_in(path, name)
         and name not in moved
-        and path not in renamed_in
+        and not _is_a_rename(path, body)
     )
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()

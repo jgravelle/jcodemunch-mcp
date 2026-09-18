@@ -96,28 +96,29 @@ def test_a_rename_in_place_is_not_a_retirement(dod, tmp_path):
     assert dod.retired_test_functions(diff, repo) == []
 
 
-def test_a_deletion_beside_an_unrelated_addition_is_the_disclosed_gap(dod, tmp_path):
-    """⚠⚠ The fail-open this detector accepts ON PURPOSE, pinned so it is a
-    decision rather than a surprise.
+def test_a_replacement_rewritten_in_the_same_file_is_still_a_retirement(dod, tmp_path):
+    """⚠⚠ The case a FILE-LEVEL rename rule swallowed, and it is the dominant one.
 
-    Nothing in a diff separates a rename from a deletion that happens to sit
-    beside an unrelated new test in the same file, so a file that lost one and
-    gained one is read as a rename. `test_edit_guard` fires on every removed
-    `def test_` regardless and a human verifies each -- that is the control that
-    still sees this case, and the reason a second gate here would be worse:
-    every ordinary rename would become an `unmet` row and `pre_pr.py` refuses a
-    PR on one.
+    The first version excluded every removal in a file that gained any test, so
+    it reported NOTHING on `b9dfcb19` -- the only retirement in
+    `harness/retired.json` -- because the replacement was added to the same file
+    beside eleven other new tests. The ledger schema makes that the normal
+    shape: entry 0's `path` and `replacement` name one file. Measured in review;
+    the detector missed 1 of 1 historical retirements, and this PR was caught
+    only because its replacements went into a NEW file.
 
-    If this row ever fails because the detector got stricter, the thing to check
-    is whether renames now block PRs.
+    ⚠ Bodies are compared instead. Both real cases were measured:
+    `b9dfcb19` scores 0.571 against its nearest in-file replacement and is
+    REPORTED; #753's rename (`4093364f`) scores 0.851 and is NOT. Both commits
+    were re-run through the detector to confirm the verdicts.
     """
-    repo = _repo(tmp_path, {"tests/test_a.py": "def test_unrelated():\n    assert True\n"})
+    repo = _repo(tmp_path, {"tests/test_a.py": "def test_rewritten():\n    assert compute() == 7\n"})
     diff = _diff(
-        _removed("tests/test_a.py", "test_genuinely_retired"),
-        _added("tests/test_a.py", "test_unrelated"),
+        f"--- a/tests/test_a.py{chr(10)}+++ b/tests/test_a.py{chr(10)}@@ -1 +0,0 @@{chr(10)}-def test_gone():{chr(10)}-    subprocess.run(['gh', 'issue', 'comment']){chr(10)}-    assert called == []",
+        f"--- a/tests/test_a.py{chr(10)}+++ b/tests/test_a.py{chr(10)}@@ -0,0 +1 @@{chr(10)}+def test_rewritten():{chr(10)}+    assert compute() == 7",
     )
 
-    assert dod.retired_test_functions(diff, repo) == []
+    assert dod.retired_test_functions(diff, repo) == ["tests/test_a.py::test_gone"]
 
 
 def test_a_move_to_another_file_in_the_same_diff_is_not_a_retirement(dod, tmp_path):
@@ -175,13 +176,41 @@ def test_a_mention_of_the_name_is_not_a_definition(dod, tmp_path):
 
 
 def test_an_async_definition_counts_as_surviving(dod, tmp_path):
-    """`async def` is a definition; matching only `def` would report it retired."""
+    """`async def` is a definition; matching only `def` would report it retired.
+
+    ⚠⚠ The first version of this row was VACUOUS for the reason it is named:
+    its diff removed AND re-added the name, so the move exclusion decided it and
+    `_defined_in` never ran -- it stayed green with `async` dropped from the
+    survival regex. Removal only now, so the survival scan is the deciding
+    check. Found in review.
+    """
     repo = _repo(
         tmp_path, {"tests/test_a.py": "async def test_gone():\n    assert True\n"}
     )
-    diff = f"--- a/tests/test_a.py\n+++ b/tests/test_a.py\n@@ -1 +1 @@\n-async def test_gone():\n+async def test_gone():"
 
-    assert dod.retired_test_functions(diff, repo) == []
+    assert dod.retired_test_functions(_removed("tests/test_a.py", "test_gone"), repo) == []
+
+
+def test_a_name_that_is_a_prefix_of_a_surviving_one_is_still_retired(dod, tmp_path):
+    """⚠⚠ The row that catches a survival check loosened to a substring.
+
+    `test_foo` and `test_foo_bar` are different tests. A `.startswith` or a bare
+    `in` would read the longer name as the shorter one surviving and drop the
+    ledger demand silently.
+
+    ⚠ It also catches the corruption that actually happened while writing this
+    detector: the `\nb` in the survival regex was written as a literal BACKSPACE
+    (0x08), which compiles, runs, lints clean and matches nothing -- the exact
+    0x08-for-\nb defect CLAUDE.md records from the nesting-depth opener. Every
+    other row here passed with the corrupt regex; this one does not.
+    """
+    repo = _repo(
+        tmp_path, {"tests/test_b.py": "def test_foo_bar():\n    assert True\n"}
+    )
+
+    assert dod.retired_test_functions(_removed("tests/test_b.py", "test_foo"), repo) == [
+        "tests/test_b.py::test_foo"
+    ]
 
 
 def test_the_repo_root_comes_from_the_argument_not_the_process_cwd(dod, tmp_path, monkeypatch):
