@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Security - anyio 4.12.1 carries a critical TLS advisory, and the gate found it before a release did
+
+`deps.vuln_max` went red on every open branch at once, which is what a
+dependency floor looks like when the advisory is published rather than the tree
+changed. Two advisories against the locked `anyio==4.12.1`:
+GHSA-82r6-8w77-94w6 (critical -- `TLSStream` encodes host names with IDNA 2003,
+so a certificate can be spoofed for a name that normalises differently under
+IDNA 2008) and GHSA-5p39-cfhj-2xmp (medium -- a process-pool worker blocks
+indefinitely on undrained stderr).
+
+The TLS one reaches us through the HTTP transport, which is the surface that
+terminates TLS. Locked at 4.15.1, and the `http` and `all` extras declare
+`anyio>=4.14.2` rather than `>=4.0.0` -- a floor that admits the vulnerable
+version keeps admitting it after the lock moves, and the lock governs CI, not
+what a user resolves.
+
 ### Fixed - three dead literals in two inline extractors, two of which hid a form (#736, #737, #738)
 
 A Solidity `constructor`, a Solidity custom `error` and a Julia short-form
