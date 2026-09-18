@@ -28,12 +28,6 @@
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
   ],
   "confirmed_gaps": {
-    "go": [
-      "var_spec"
-    ],
-    "scala": [
-      "given_definition"
-    ],
     "solidity": [
       "constructor_definition",
       "error_declaration"
@@ -373,7 +367,6 @@
     "scala": [
       "export_declaration",
       "extension_definition",
-      "given_definition",
       "import_declaration",
       "val_declaration",
       "var_declaration"

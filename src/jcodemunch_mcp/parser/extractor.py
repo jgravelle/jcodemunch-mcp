@@ -716,6 +716,19 @@ def _walk_tree(
                 f.parent = parent_symbol.id
         symbols.extend(fields)
 
+    # Variables: declarations that bind N names to MUTABLE module-level state
+    # (#741, #742, #731).
+    #
+    # ⚠⚠ **No owner is attached here, and that is the difference from the field
+    # channel above.** A field belongs to the type that declares it, so a bare
+    # name is the defect one language over (#698). A module-level binding
+    # belongs to no type -- qualifying it against `parent_symbol` would invent
+    # an owner, and the locality predicate each language brings is what keeps a
+    # FUNCTION-local binding out of this channel entirely rather than giving it
+    # the enclosing function as a parent.
+    if node.type in spec.variable_patterns:
+        symbols.extend(_extract_variables(node, spec, source_bytes, filename, language))
+
     # A JS/TS class field INITIALIZER is not the class body. Everything the
     # initializer contains is attributed to the field, never to the class.
     #
@@ -1905,6 +1918,134 @@ def _field_symbol(
         name=name,
         qualified_name=name,
         kind="field",
+        language=language,
+        signature=sig[:200],
+        line=decl_node.start_point[0] + 1,
+        end_line=decl_node.end_point[0] + 1,
+        byte_offset=decl_node.start_byte,
+        byte_length=decl_node.end_byte - decl_node.start_byte,
+        content_hash=compute_content_hash(source_bytes[decl_node.start_byte:decl_node.end_byte]),
+    )
+
+
+def _extract_variables(
+    node, spec: LanguageSpec, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Declarations that bind N names to MUTABLE module-level state (#731).
+
+    ⚠ A DISPATCHER for the reason `_extract_fields` gives: the node-type list
+    belongs in the spec beside every other node-type list, so a second language
+    joins the channel instead of growing a second copy of the rule. #741/#742
+    (JS/TS `let` and `var`) is the other member.
+    """
+    if node.type == "var_declaration" and language == "go":
+        return _extract_go_variables(node, source_bytes, filename, language)
+    return []
+
+
+#: Parent node types at which a Go `var` declares PACKAGE-level state.
+#:
+#: ⚠⚠ **An ALLOWLIST, and the direction is the whole rule.** Go spells a LOCAL
+#: `var` with the same `var_declaration` node type as a package-level one -- the
+#: trap #735's Java fix did not have to face, because Java spells a local
+#: `local_variable_declaration`. A denylist of local spellings fails OPEN: one
+#: unlisted block form publishes a function-local as package state, which moves
+#: every symbol count and dead-code grade that reads this index. An allowlist
+#: fails CLOSED to the pre-fix status quo. #732 shipped the denylist version in
+#: Kotlin and spent a review round undoing it.
+#:
+#: ⚠ One entry, because Go has one package scope: a declaration is package-level
+#: exactly when the file itself holds it. Derived by asking the grammar, not by
+#: reasoning about Go -- every local form nests through a `block` and a
+#: `statement_list`, whatever the enclosing statement.
+_GO_PACKAGE_LEVEL_PARENTS = frozenset({"source_file"})
+
+
+def go_var_is_package_level(node) -> bool:
+    """Is this `var_declaration` package state rather than a local?
+
+    ⚠ A missing parent answers False. An orphaned node cannot be shown to be
+    package-level, and the unprovable case belongs on the side that leaves the
+    form unindexed -- the same UNKNOWN-is-not-True rule the product applies to
+    `has_any()`.
+    """
+    parent = node.parent
+    return parent is not None and parent.type in _GO_PACKAGE_LEVEL_PARENTS
+
+
+def _go_var_spec_nodes(node):
+    """Every `var_spec` a `var_declaration` holds, grouped or not.
+
+    ⚠⚠ **Go nests the two grouped forms DIFFERENTLY, and this is where a binder
+    copied from `_extract_go_constants` goes wrong.** A grouped `const ( ... )`
+    holds its `const_spec` children directly under the declaration, so that
+    function's one-level walk finds them all. A grouped `var ( ... )` wraps its
+    specs in a `var_spec_list`, so the same walk finds NOTHING and every grouped
+    variable is silently dropped. Asserted by
+    `test_a_grouped_var_block_binds_every_name`.
+    """
+    for child in node.children:
+        if child.type == "var_spec":
+            yield child
+        elif child.type == "var_spec_list":
+            for spec_node in child.children:
+                if spec_node.type == "var_spec":
+                    yield spec_node
+
+
+def _extract_go_variables(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Go package-level `var`, which binds N names through two nestings (#731).
+
+    `http.DefaultClient` is one of these, and so is every sentinel error a
+    package exports. `const` beside them has been indexed since #428 and `var`
+    was not, because `const_declaration` is in `constant_patterns` and
+    `var_declaration` was in no channel at all.
+
+    ⚠ No naming heuristic, for `_extract_go_constants`' stated reason: `var` IS
+    the declaration, so filtering on capitalisation would drop exactly the
+    unexported package state that Go's own visibility rule spells in lowercase.
+    """
+    if not go_var_is_package_level(node):
+        return []
+
+    found: list[Symbol] = []
+    for spec_node in _go_var_spec_nodes(node):
+        for child in spec_node.children:
+            # Names precede the `=`; the value side lives in an expression_list.
+            # A spec with a type and no value (`var ErrNotFound error`) has no
+            # `=` at all, and its type is a `type_identifier`, never an
+            # `identifier`, so the same loop reads it correctly.
+            if child.type == "=":
+                break
+            if child.type == "identifier":
+                name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", "replace")
+                found.append(_variable_symbol(name, node, source_bytes, filename, language))
+    return found
+
+
+def _variable_symbol(
+    name: str, decl_node, source_bytes: bytes, filename: str, language: str
+) -> Symbol:
+    """One variable symbol spanning its whole declaration.
+
+    The span is the DECLARATION for the reason `_constant_symbol` gives: the
+    declaration is what a reader opens, a grouped `var ( ... )` has no narrower
+    node containing one name alone, and a synthesised range would not address
+    bytes that exist (#414's rule).
+
+    ⚠ `qualified_name` is the bare name and stays that way, unlike
+    `_field_symbol`'s: module-level state has no owner to qualify against, and
+    inventing one would be the mirror of #698's missing owner.
+    """
+    sig = source_bytes[decl_node.start_byte:decl_node.end_byte].decode("utf-8", "replace").strip()
+    return Symbol(
+        id=make_symbol_id(filename, name, "variable"),
+        file=filename,
+        name=name,
+        qualified_name=name,
+        kind="variable",
         language=language,
         signature=sig[:200],
         line=decl_node.start_point[0] + 1,

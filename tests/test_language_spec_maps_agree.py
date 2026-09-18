@@ -18,6 +18,9 @@ The ratchet below found a second defect on its first run -- Haskell's
 what a property test is for, and it is why the reported list was not the list.
 """
 
+import ast
+import inspect
+
 import pytest
 
 from jcodemunch_mcp.parser.extractor import parse_file
@@ -327,44 +330,123 @@ def test_a_known_gap_is_still_a_gap():
         )
 
 
-def test_every_declared_field_pattern_actually_yields_a_field():
-    """`field_patterns` must be READ, which is the whole difference from #725.
+#: Every spec channel extracted by its OWN dispatcher, with the kind it must
+#: produce and one sample per DECLARING language.
+#:
+#: ⚠⚠ ONE table, not one test per channel: `variable_patterns` (#731, #741) is
+#: the second entry, and writing it as a copy of the field test would put the
+#: #725 readership claim in two places that can drift.
+_EXTRACTION_CHANNELS = {
+    "field_patterns": (
+        "field",
+        {"java": ("A.java", "class A {\n  private int probe;\n}\n")},
+    ),
+    "variable_patterns": (
+        "variable",
+        {"go": ("a.go", "package m\n\nvar probe = 1\n")},
+    ),
+}
+
+
+@pytest.mark.parametrize("channel", sorted(_EXTRACTION_CHANNELS))
+def test_every_declared_extraction_channel_actually_yields_its_kind(channel):
+    """A channel must be READ, which is the whole difference from #725.
 
     ⚠⚠ `type_patterns` and `return_type_fields` are declared by 19 and 14 of the
     79 specs respectively and read by NOTHING -- #725 -- and #735 added a third
-    node-type list beside them. A list that no channel consults is indistinguishable from the defect
-    it was added to fix ("a parameter that is present and does nothing", 08-19),
-    and the only thing separating the new field from the two dead ones is that
-    something runs it. This asserts that, through the product, per language: a
-    spec that declares the list must produce at least one `field` from the node
-    type it names.
+    node-type list beside them, #731 a fourth. A list no channel consults is
+    indistinguishable from the defect it was added to fix ("a parameter that is
+    present and does nothing", 08-19), and the only thing separating a new list
+    from the two dead ones is that something runs it. This asserts that through
+    the product, per language: a spec declaring the list must produce at least
+    one symbol of the channel's kind from the node type it names.
 
-    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so the second
-    member (#731's Go `var_spec` is the same shape) inherits the check on
-    arrival instead of joining unwatched.
+    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so a language
+    joining a channel inherits the check on arrival instead of joining
+    unwatched -- which is also what keeps the table honest when two branches add
+    members to the same channel.
     """
-    samples = {
-        "java": ("A.java", "class A {\n  private int probe;\n}\n"),
-    }
+    kind, samples = _EXTRACTION_CHANNELS[channel]
 
     declaring = {
         name: spec
         for name, spec in LANGUAGE_REGISTRY.items()
-        if getattr(spec, "field_patterns", None)
+        if getattr(spec, channel, None)
     }
-    assert declaring, "no spec declares field_patterns; delete the field or the channel"
+    assert declaring, f"no spec declares {channel}; delete the field or the channel"
 
     for language, spec in sorted(declaring.items()):
         sample = samples.get(language)
         assert sample is not None, (
-            f"{language} declares field_patterns={spec.field_patterns} with no "
+            f"{language} declares {channel}={getattr(spec, channel)} with no "
             f"sample here, so nothing proves the channel runs for it. Add three "
             f"lines rather than trusting the declaration."
         )
         filename, source = sample
         kinds = {s.kind for s in parse_file(source, filename, language)}
-        assert "field" in kinds, (
-            f"{language} declares field_patterns={spec.field_patterns} and its "
-            f"sample yields no field -- the list is write-only, which is #725 "
-            f"in a third costume. Got kinds: {sorted(kinds)}"
+        assert kind in kinds, (
+            f"{language} declares {channel}={getattr(spec, channel)} and its "
+            f"sample yields no {kind} -- the list is write-only, which is #725 "
+            f"in another costume. Got kinds: {sorted(kinds)}"
         )
+
+
+def _channels_the_walker_consults() -> set[str]:
+    """Every `spec.<name>_patterns` the tree walk actually reads.
+
+    ⚠⚠ **Asked of the PRODUCT, not of a naming convention.** The first version
+    of this test collected every field ending in `_patterns`, which swept in
+    `type_patterns` -- a list declared by 19 specs and read by NOTHING (#725),
+    i.e. the very defect the table exists to detect, reported as a missing row.
+    A guard keyed to a spelling instead of to the property is the #709 shape,
+    and it failed here on its first run.
+
+    `_walk_tree` is where a channel becomes real: a list nothing dispatches on
+    is not a channel, however it is named.
+    """
+    import jcodemunch_mcp.parser.extractor as extractor
+
+    tree = ast.parse(inspect.getsource(extractor._walk_tree))
+    return {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "spec"
+        and node.attr.endswith("_patterns")
+    }
+
+
+def test_every_extraction_channel_is_covered():
+    """A channel the walker dispatches on, with no row above, is unwatched.
+
+    ⚠ The readership claim is per CHANNEL, so a fifth node-type list arriving
+    without a row here inherits exactly the #725 silence the table exists to
+    end. `constant_patterns` is excluded because it predates the channel idea
+    and the per-language extraction tests cover it directly.
+    """
+    consulted = _channels_the_walker_consults() - {"constant_patterns"}
+    assert consulted, (
+        "the walker consults no *_patterns channel, which means this table is "
+        "describing something that no longer exists"
+    )
+    missing = sorted(consulted - set(_EXTRACTION_CHANNELS))
+    assert not missing, (
+        f"{missing} are dispatched on by _walk_tree and have no row in "
+        f"_EXTRACTION_CHANNELS, so nothing proves they yield anything "
+        f"(#725, #735, #731)."
+    )
+
+
+def test_the_table_describes_no_channel_the_walker_ignores():
+    """The other direction: a row for a list nothing dispatches on.
+
+    ⚠ That is #725 exactly -- a declared list read by nobody -- and a row here
+    would read as proof that it IS read, which is worse than the silence.
+    """
+    consulted = _channels_the_walker_consults()
+    stale = sorted(set(_EXTRACTION_CHANNELS) - consulted)
+    assert not stale, (
+        f"{stale} have rows here and _walk_tree dispatches on none of them: "
+        f"either the channel was removed, or it was never wired in (#725)."
+    )

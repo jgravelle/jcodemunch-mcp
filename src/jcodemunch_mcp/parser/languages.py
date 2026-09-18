@@ -68,6 +68,23 @@ class LanguageSpec:
     # `test_language_spec_maps_agree.py` holds the readership claim.
     field_patterns: list[str] = dc_field(default_factory=list)
 
+    # Node types for declarations that bind N names to MUTABLE module-level
+    # state -- a JS/TS `let` or `var` (#741, #742), a Go package-level `var`
+    # (#731).
+    #
+    # ⚠⚠ **A node type may be in BOTH this and `constant_patterns`.** For JS/TS
+    # it is: `const` and `let` are one node type (`lexical_declaration`) and the
+    # keyword tells them apart, so the two channels match the same node and one
+    # shared predicate must own the split -- #735's Java trap, where two
+    # channels deciding separately emit one declaration twice. Go needs no such
+    # predicate, because its grammar spells `const_declaration` and
+    # `var_declaration` as different node types.
+    #
+    # ⚠ Also READ, for the reason stated above `field_patterns`; the same
+    # readership test covers it, keyed on the spec so a new member is checked on
+    # arrival.
+    variable_patterns: list[str] = dc_field(default_factory=list)
+
 
 # File extension to language mapping
 LANGUAGE_EXTENSIONS = {
@@ -478,6 +495,11 @@ GO_SPEC = LanguageSpec(
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=["const_declaration"],
+    # ⚠ The DECLARATION, not `var_spec`: one `var_declaration` wraps every spec
+    # of a grouped `var ( ... )` block, and the channel's job is to be handed
+    # the node a reader would open. `_extract_go_variables` walks down to the
+    # specs, through `var_spec_list` when the block is grouped (#731).
+    variable_patterns=["var_declaration"],
     type_patterns=["type_declaration"],
 )
 
@@ -1432,6 +1454,12 @@ SCALA_SPEC = LanguageSpec(
         "function_declaration": "function",
         "val_definition": "constant",
         "var_definition": "constant",
+        # ⚠ `constant`, the kind the `val` it replaced already takes: a `given`
+        # is a stable value, and a new kind would have to be APPENDED to
+        # `KIND_ORDER` (published in the cached schema prefix) to say that a
+        # `given` is a different sort of thing from a `val`, which it is not
+        # (#734).
+        "given_definition": "constant",
     },
     name_fields={
         "class_definition": "name",
@@ -1443,6 +1471,12 @@ SCALA_SPEC = LanguageSpec(
         "function_declaration": "name",
         "val_definition": "pattern",
         "var_definition": "pattern",
+        # ⚠⚠ The field is absent on an ANONYMOUS given (`given Conv = ???`),
+        # and that is the correct outcome: `_extract_symbol` yields nothing, so
+        # the form stays unindexed rather than being published under its TYPE's
+        # name. A name that appears nowhere in the source cannot be searched for
+        # and cannot be told from a `given` genuinely called `Conv` (#734).
+        "given_definition": "name",
     },
     param_fields={
         "function_definition": "parameters",

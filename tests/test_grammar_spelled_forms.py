@@ -111,14 +111,22 @@ _KNOWN_GHOSTS = {
 # the intended lifecycle: `test_a_confirmed_gap_is_in_the_inventory` went red
 # the moment the fix landed and named this line, so the record could not
 # outlive the defect it records.
+# ⚠ `go/var_spec` and `scala/given_definition` were here and are GONE, closed by
+# #731 and #734. ⚠⚠ Note the ASYMMETRY between the two removals, because it is
+# the kind of thing that reads as an oversight later. `given_definition` leaves
+# the INVENTORY as well: the Scala spec now names it, so the row disappears and
+# `test_a_confirmed_gap_is_in_the_inventory` went red and named the line.
+# `var_spec` stays IN the inventory and only loses its gap entry, because the
+# fix declares `var_declaration` -- the node a reader opens, and the one that
+# wraps every spec of a grouped block -- while `var_spec` itself is still named
+# by no channel. The row remains true as written ("no channel names this form");
+# what stopped being true is the gap entry's claim that the form yields nothing.
 _CONFIRMED_GAPS = {
-    "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
     "swift": [
         ("protocol_function_declaration", "a protocol's method requirements are absent"),
         ("protocol_property_declaration", "a protocol's property requirements are absent"),
         ("subscript_declaration", "a subscript yields no symbol"),
     ],
-    "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
     "solidity": [
         ("constructor_definition", "a Solidity `constructor(...)` yields no symbol"),
         ("error_declaration", "`error Unauthorized(address)` yields nothing: the extractor "

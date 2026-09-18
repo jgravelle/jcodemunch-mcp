@@ -69,6 +69,17 @@ KIND_ORDER: tuple[str, ...] = (
     # `tests/test_kind_enum_is_derived.py::test_every_spec_kind_is_a_valid_kind`
     # is that check, and it fails on a spec kind absent from here.
     "property",   # Kotlin/PHP properties: named, mutable-or-not class state
+    # ⚠⚠ (#741, #742, #731) A module-scope MUTABLE binding: JS/TS `let` and
+    # `var`, and Go's package-level `var`. Deliberately NOT `property`, which
+    # #732 added for class state -- a top-level `let` belongs to no type, and
+    # reusing that kind would mix module bindings into every consumer asking
+    # about a class's members. It is the word the grammar itself uses
+    # (`variable_declaration`, `var_spec`) and the word LSP uses for the same
+    # distinction (Variable, separate from both Property and Constant).
+    # ⚠ Appended, never inserted, for the reason above this tuple: each
+    # existing position is bytes a client has already cached, and a reorder is
+    # a full-rate schema rewrite for every user.
+    "variable",   # Module-scope mutable bindings: JS/TS `let`/`var`, Go `var`
 )
 
 VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)

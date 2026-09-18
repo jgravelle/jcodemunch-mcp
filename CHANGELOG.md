@@ -2,6 +2,74 @@
 
 ## [Unreleased]
 
+### Fixed - a Go package-level `var` and a Scala 3 `given` are symbols (#731, #734)
+
+Two languages, one class of defect, and the same one #698, #712, #713, #722,
+#732 and #735 were: a declaration form the grammar spells that the spec never
+names. Both were found by #724's inventory rather than by a user, and both were
+confirmed by running the product.
+
+**Go (#731).** A package-level `var` yielded no symbol while a `const` in the
+same file did. `http.DefaultClient` is one of these, and so is every sentinel
+error a package exports -- `io.EOF`, `sql.ErrNoRows` -- which are exactly the
+names a reader searches for and could not find.
+
+⚠⚠ **The asymmetry is invisible from the extractor, which is why it survived.**
+`const_declaration` reaches the index through `constant_patterns`;
+`var_declaration` reached nothing. A reader who opens Go's constant binder sees
+a language whose grouped, multi-name declarations are handled properly and stops
+looking. That is #735's Java case and #732's Kotlin case in a third costume.
+
+⚠⚠ **Go spells a LOCAL `var` with the SAME node type**, so this needed a scope
+gate that #735 did not -- Java spells a local `local_variable_declaration`.
+`go_var_is_package_level` reads the direct parent against an ALLOWLIST, for
+#732's reason: a denylist of local spellings fails OPEN, publishing a
+function-local as package state and moving every symbol count and dead-code
+grade downstream, while an allowlist fails CLOSED to the pre-fix status quo.
+
+⚠⚠ **Go nests its two grouped forms differently, and a binder written by analogy
+drops half of them.** A grouped `const ( ... )` holds its specs directly under
+the declaration; a grouped `var ( ... )` wraps them in a `var_spec_list`. The
+obvious copy of `_extract_go_constants` finds every constant and no variable.
+`test_a_grouped_var_block_binds_every_name` is that case.
+
+⚠ The form rides `variable_patterns`, the channel #741/#742 added for JS/TS
+`let` and `var`, because one `var_spec` binds N names (`var C, D = 3, 4`) while
+`symbol_node_types` yields at most one symbol per node. The kind is `variable`,
+appended to `KIND_ORDER` -- that tuple is PUBLISHED in the cached schema prefix,
+so a reorder is a full-rate cache write for every user. No owner is attached,
+unlike a field: module-level state belongs to no type, and qualifying it against
+the enclosing symbol would invent one.
+
+**Scala (#734).** A `given` yielded no symbol while the `val` and the `def`
+beside it extracted. `given` is how Scala 3 replaced `implicit val`, so the
+declarations that drive implicit resolution -- the ones hardest to find by
+reading, because the call site never names them -- were the ones missing.
+
+⚠ **One name, one node, so this needed no channel**: `given_definition` carries
+a `name` field, which is exactly what `symbol_node_types` + `name_fields`
+expresses. The channel argument in #735 and #731 applies only to forms binding N
+names, and reaching for it here would have been ceremony. The kind is
+`constant`, the kind the `val` it replaced already takes; a new kind would claim
+a distinction that does not exist and would cost another published-prefix entry.
+
+⚠⚠ **The grammar spells three things `given_definition` and only one has a
+name.** `given Conv = ???` and `given [T]: Ord[T] = ???` are anonymous, and
+Scala synthesises their names from the type at compile time. They stay absent,
+asserted in both directions rather than papered over with the type name: a name
+that appears nowhere in the source cannot be searched for and cannot be told
+apart from a `given` genuinely called `Conv`. `extension_definition` is unnamed
+in the spec too and is in the same inventory, but an extension's methods do
+extract, so that is a smaller separate gap and is pinned rather than fixed here.
+
+⚠ The inventory goes **272 -> 271** and both `_CONFIRMED_GAPS` entries leave.
+The two removals are ASYMMETRIC on purpose: `given_definition` leaves the
+inventory because the spec now names it, while `go/var_spec` stays listed and
+only loses its gap entry -- the fix declares `var_declaration`, the node a reader
+opens and the one that wraps every spec of a grouped block, so the row's claim
+that no channel names `var_spec` is still true. What stopped being true is the
+gap entry's claim that the form yields nothing.
+
 ### Fixed - every Java field is a symbol, not only the `static final` ones (#735)
 
 A Java class indexed with its methods and none of its state. `private int
