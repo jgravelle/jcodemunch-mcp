@@ -112,14 +112,22 @@ _KNOWN_GHOSTS = {
 # the intended lifecycle: `test_a_confirmed_gap_is_in_the_inventory` went red
 # the moment the fix landed and named this line, so the record could not
 # outlive the defect it records.
+# ⚠ `go/var_spec` and `scala/given_definition` were here and are GONE, closed by
+# #731 and #734. ⚠⚠ Note the ASYMMETRY between the two removals, because it is
+# the kind of thing that reads as an oversight later. `given_definition` leaves
+# the INVENTORY as well: the Scala spec now names it, so the row disappears and
+# `test_a_confirmed_gap_is_in_the_inventory` went red and named the line.
+# `var_spec` stays IN the inventory and only loses its gap entry, because the
+# fix declares `var_declaration` -- the node a reader opens, and the one that
+# wraps every spec of a grouped block -- while `var_spec` itself is still named
+# by no channel. The row remains true as written ("no channel names this form");
+# what stopped being true is the gap entry's claim that the form yields nothing.
 _CONFIRMED_GAPS = {
-    "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
     "swift": [
         ("protocol_function_declaration", "a protocol's method requirements are absent"),
         ("protocol_property_declaration", "a protocol's property requirements are absent"),
         ("subscript_declaration", "a subscript yields no symbol"),
     ],
-    "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
 }
 
 # ⚠⚠ Confirmed by the product and NOT expressible in the inventory, so recorded
@@ -249,8 +257,9 @@ def _harvested_node_types(language, kinds):
 #: DELETION -- so a form that stops extracting returns to the inventory instead
 #: of hiding in it.
 #:
-#: ⚠ `variable_patterns` (#741) is read through `getattr`, so this does not
-#: depend on the order two branches merge in.
+#: ⚠ Every name here is read through `getattr`, so this does not depend on the
+#: order two branches merge in; `variable_patterns` (#741) arrived that way and
+#: `_PENDING_CHANNELS` is empty again.
 _EXTRACTION_CHANNELS = (
     "constant_patterns",
     "field_patterns",
@@ -265,7 +274,10 @@ def _spec_recognised(spec) -> set[str]:
         recognised |= set(getattr(spec, channel, None) or [])
     return recognised
 
-_PENDING_CHANNELS = {"variable_patterns": "#741 / PR #753"}
+#: ⚠ EMPTY, and that is the expected end state. `variable_patterns` was the
+#: one reviewed entry (#741 / PR #753); it is a field of `LanguageSpec` since
+#: that branch merged, so the exemption was dropped rather than left to rot.
+_PENDING_CHANNELS: dict[str, str] = {}
 
 #: Fields whose VALUES are node-type collections, classified by what reads them.
 #:
@@ -645,9 +657,9 @@ def test_the_pending_set_is_exactly_what_review_saw():
     the `_KNOWN_GAPS` treatment. Removing the last one when #741 merges is the
     expected direction, and this line is the reminder.
     """
-    assert set(_PENDING_CHANNELS) == {"variable_patterns"}, (
-        f"_PENDING_CHANNELS is {sorted(_PENDING_CHANNELS)}; only "
-        f"variable_patterns (#741 / PR #753) has been reviewed as pending. A "
+    assert set(_PENDING_CHANNELS) == set(), (
+        f"_PENDING_CHANNELS is {sorted(_PENDING_CHANNELS)}; it is empty since "
+        f"#741 / PR #753 merged and variable_patterns became a real field. A "
         f"new entry needs the branch that adds the field named, and a `getattr` "
         f"read is not evidence the field will ever exist (#757)."
     )

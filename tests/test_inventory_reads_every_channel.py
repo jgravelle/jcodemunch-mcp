@@ -10,11 +10,12 @@ so three of them were invisible.
 ⚠⚠ **The tell is the DIRECTION: closing a gap could make the count go UP.**
 #735 fixed Java fields through `field_patterns`, so `java.field_declaration`
 stayed listed although every Java field is now indexed -- that one is on `main`.
-⚠ The second is measured on #743's UNMERGED branch, which moves
-`php.property_declaration` out of `symbol_node_types` into the same channel:
-the inventory grows there from 272 to 273 **in the change that fixes it**. A
-file that exists to name unindexed forms was naming indexed ones, and the fix
-for one made it worse.
+⚠ The second was measured on #743/#744's branch (PR #761, merged since), which
+moves `php.property_declaration` out of `symbol_node_types` into the same
+channel: the inventory GREW there **in the change that fixes it**. A file that
+exists to name unindexed forms was naming indexed ones, and the fix for one
+made it worse. ⚠ The two figures that measurement carried are not restated,
+because the base moves with every parallel fix.
 
 ⚠⚠ **Why it was left alone twice, and what makes widening safe now.**
 "Declared in a channel" is not "extracted by it", and #735 is the proof:
@@ -57,14 +58,29 @@ _CHANNEL_SAMPLES: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("go", "const_declaration"): (
         "a.go", "package p\n\nconst Probe = 1\n", "Probe", "constant",
     ),
+    ("go", "var_declaration"): (
+        "a.go", "package p\n\nvar Probe = 1\n",
+        "Probe", "variable",
+    ),
     ("java", "field_declaration"): (
         "A.java", "class A {\n  private int probe;\n}\n", "probe", "field",
     ),
     ("javascript", "lexical_declaration"): (
         "a.js", "const PROBE = 1;\n", "PROBE", "constant",
     ),
+    ("javascript", "variable_declaration"): (
+        "a.js", "var probe = 1;\n",
+        "probe", "variable",
+    ),
     ("php", "const_declaration"): (
         "a.php", "<?php\nconst PROBE = 1;\n", "PROBE", "constant",
+    ),
+    # The one sample that needs a wrapper: a PHP property cannot be written
+    # outside a class, so `A` is extracted too. The deletion check is what
+    # keeps the row honest -- `probe`/`property` is what the form CONTRIBUTES.
+    ("php", "property_declaration"): (
+        "a.php", "<?php\nclass A {\n    public int $probe = 1;\n}\n",
+        "probe", "property",
     ),
     ("rust", "const_item"): (
         "a.rs", "const PROBE: u8 = 1;\n", "PROBE", "constant",
@@ -75,8 +91,16 @@ _CHANNEL_SAMPLES: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("tsx", "lexical_declaration"): (
         "a.tsx", "const PROBE = 1;\n", "PROBE", "constant",
     ),
+    ("tsx", "variable_declaration"): (
+        "a.tsx", "var probe = 1;\n",
+        "probe", "variable",
+    ),
     ("typescript", "lexical_declaration"): (
         "a.ts", "const PROBE = 1;\n", "PROBE", "constant",
+    ),
+    ("typescript", "variable_declaration"): (
+        "a.ts", "var probe = 1;\n",
+        "probe", "variable",
     ),
 }
 

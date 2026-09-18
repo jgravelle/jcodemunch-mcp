@@ -36,12 +36,6 @@
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
   ],
   "confirmed_gaps": {
-    "go": [
-      "var_spec"
-    ],
-    "scala": [
-      "given_definition"
-    ],
     "swift": [
       "protocol_function_declaration",
       "protocol_property_declaration",
@@ -249,7 +243,6 @@
       "short_var_declaration",
       "type_parameter_declaration",
       "type_spec",
-      "var_declaration",
       "var_spec",
       "variadic_parameter_declaration"
     ],
@@ -277,8 +270,7 @@
     ],
     "javascript": [
       "field_definition",
-      "using_declaration",
-      "variable_declaration"
+      "using_declaration"
     ],
     "julia": [
       "primitive_definition"
@@ -371,7 +363,6 @@
     "scala": [
       "export_declaration",
       "extension_definition",
-      "given_definition",
       "import_declaration",
       "val_declaration",
       "var_declaration"
@@ -407,13 +398,11 @@
     ],
     "tsx": [
       "ambient_declaration",
-      "public_field_definition",
-      "variable_declaration"
+      "public_field_definition"
     ],
     "typescript": [
       "ambient_declaration",
-      "public_field_definition",
-      "variable_declaration"
+      "public_field_definition"
     ]
   }
 }
