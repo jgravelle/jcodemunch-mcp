@@ -28,10 +28,6 @@
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
   ],
   "confirmed_gaps": {
-    "solidity": [
-      "constructor_definition",
-      "error_declaration"
-    ],
     "swift": [
       "protocol_function_declaration",
       "protocol_property_declaration",
@@ -373,8 +369,6 @@
     ],
     "solidity": [
       "constant_variable_declaration",
-      "constructor_definition",
-      "error_declaration",
       "fallback_receive_definition",
       "return_type_definition",
       "user_defined_type_definition",

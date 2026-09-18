@@ -127,12 +127,6 @@ _CONFIRMED_GAPS = {
         ("protocol_property_declaration", "a protocol's property requirements are absent"),
         ("subscript_declaration", "a subscript yields no symbol"),
     ],
-    "solidity": [
-        ("constructor_definition", "a Solidity `constructor(...)` yields no symbol"),
-        ("error_declaration", "`error Unauthorized(address)` yields nothing: the extractor "
-                              "matches `error_definition` and the grammar emits "
-                              "`error_declaration` -- #722's shape, in a second language"),
-    ],
 }
 
 # ⚠⚠ Confirmed by the product and NOT expressible in the inventory, so recorded
@@ -143,10 +137,22 @@ _CONFIRMED_GAPS = {
 # inventory built from what the grammar emits. Property A would catch it, and
 # property A deliberately does not run over the inline half -- see
 # `test_the_ghost_check_does_not_run_over_the_inline_half` for why.
-_INLINE_GHOSTS_FOUND = {
-    "julia": ("short_function_definition", "`f(x) = x + 1` yields no symbol"),
-    "solidity": ("error_definition", "the grammar emits `error_declaration`"),
-}
+#: Ghosts found by the inline-half measurement and NOT YET FIXED.
+#:
+#: ⚠⚠ Both original entries left on 2026-09-17: julia's
+#: `short_function_definition` (#738) and solidity's `error_definition` (#737)
+#: are fixed, so an entry claiming they are ghosts would now be a false record.
+#: A third literal, julia's `mutable_struct_definition`, was never recorded here
+#: and was correct not to be: the grammar has no such kind but spells
+#: `mutable struct X` as an ordinary `struct_definition`, which the extractor
+#: already matched, so it cost nothing. It was deleted as dead code in the same
+#: change, with `test_a_mutable_struct_still_extracts` proving the removal safe.
+#:
+#: ⚠ Empty is the correct state, not a broken table --
+#: `test_the_ghost_check_does_not_run_over_the_inline_half` still pins the scope,
+#: and `test_no_inline_language_recognises_node_types_outside_its_parse_function`
+#: still measures whether the harvest can invent a gap.
+_INLINE_GHOSTS_FOUND: dict[str, tuple[str, str]] = {}
 
 
 @functools.lru_cache(maxsize=None)
@@ -349,12 +355,19 @@ def test_the_ghost_check_does_not_run_over_the_inline_half():
       "")`), not a node type;
     * `svelte` and `vue`: seven or eight JavaScript node types, correct for the
       script block's DELEGATED grammar and absent from the host grammar;
-    * `julia` and `solidity`: two real ghosts (`_INLINE_GHOSTS_FOUND`).
+    * `julia` and `solidity`: two real ghosts, BOTH FIXED on 2026-09-17 (#737,
+      #738), so `_INLINE_GHOSTS_FOUND` is empty rather than broken.
 
     Two signals in six, and the four false positives are structural rather than
     fixable by a threshold -- an `endswith` argument and a delegated grammar are
     both legitimate. Gating on this would fail four languages forever, which is
     how a guard gets disabled. The real ones are recorded and filed instead.
+
+    ⚠ A third literal turned up in julia while #738 was being fixed and was
+    right to be absent from that measurement: `mutable_struct_definition` is a
+    kind the grammar does not emit, but it spells `mutable struct X` as an
+    ordinary `struct_definition` which the extractor already matched, so the
+    dead alternative cost nothing. Deleted as dead code, not filed as a defect.
 
     This test asserts the SCOPE so a later widening has to argue with it.
     """
@@ -753,3 +766,58 @@ def test_the_ghost_check_fires_on_a_planted_typo():
     ghosts = planted - kinds
 
     assert ghosts == {"recrod_declaration"}, ghosts
+
+
+def test_a_recorded_inline_ghost_is_still_a_ghost():
+    """An entry must FAIL once its ghost is fixed, or it becomes a false record.
+
+    ⚠⚠ **`_INLINE_GHOSTS_FOUND` had NO READER for its whole life** -- one
+    definition, one docstring mention, zero assertions -- so its entries could
+    have outlived their defects and nothing would have objected. That is
+    #561/#562's lesson inside the instrument #724 built to find that class.
+    `_CONFIRMED_GAPS` has had `test_a_confirmed_gap_is_in_the_inventory` since
+    #724; this is its missing sibling.
+
+    ⚠⚠ **The first version of THIS test could not fail on the case it was
+    written for, and review proved it by planting both deleted entries on the
+    fixed tree and watching it pass.** It asserted the node type was absent from
+    the GRAMMAR -- but a ghost is fixed by changing the EXTRACTOR literal, and
+    the grammar never gains the typo, so the gate fired only in a case that
+    cannot happen. Second guard in one session with that defect
+    (`[[a-ratchet-can-pass-against-the-defect-it-names]]`).
+
+    The property is about the EXTRACTOR, so it reads
+    `_harvested_node_types`: a recorded ghost must still be a literal the parse
+    function matches AND still be absent from the grammar. When either half
+    stops holding the ghost is gone and the entry is a false record.
+    """
+    for language, (node_type, why) in _INLINE_GHOSTS_FOUND.items():
+        kinds = _grammar_kinds(language)
+        assert kinds is not None, f"{language} has no grammar in this pack"
+
+        harvested = _harvested_node_types(language, kinds)
+        assert node_type in harvested, (
+            f"{language}: `{node_type}` is no longer a literal "
+            f"_parse_{language}_symbols matches, so the ghost is FIXED ({why}). "
+            f"DELETE this _INLINE_GHOSTS_FOUND entry -- do not adjust it."
+        )
+        assert node_type not in kinds, (
+            f"{language}: the grammar now emits `{node_type}`, so it is not a "
+            f"ghost any more ({why}). DELETE the entry."
+        )
+
+
+def test_the_inline_ghost_table_is_empty_and_that_is_deliberate():
+    """Pins the vacuity of the test above so it cannot pass unnoticed forever.
+
+    If someone adds an entry, this fails and points at the sibling gate, which
+    is then no longer vacuous. If someone empties the table to silence that
+    gate, this fails too and asks for the reason in the CHANGELOG.
+    """
+    assert _INLINE_GHOSTS_FOUND == {}, (
+        f"_INLINE_GHOSTS_FOUND now carries {sorted(_INLINE_GHOSTS_FOUND)}. That "
+        f"is fine -- it means a new ghost was found -- and it means "
+        f"test_a_recorded_inline_ghost_is_still_a_ghost is no longer vacuous. "
+        f"CHANGE THIS ASSERTION (a docstring edit leaves it red) and say in the "
+        f"CHANGELOG which ghost and which issue tracks it."
+    )
