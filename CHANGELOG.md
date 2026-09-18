@@ -42,7 +42,7 @@ subscript is invoked as `m[i]` and its declaration's name is never written at a
 call site -- but a bare `subscript` is identifier-shaped, so the predicate would
 have called it searchable and `check_delete_safe` would have returned
 `safe_to_delete` for a member the corpus uses on every line that indexes the
-type. Measured: the mutation that drops the brackets fails twelve tests,
+type. Measured: the mutation that drops the brackets fails thirteen tests,
 `test_a_subscript_in_use_is_not_certified_deletable` among them. The guard would
 not have fired, would not have been touched, and would have been wrong -- a
 guard written against a spelling, where the spelling was one we chose.
@@ -68,6 +68,13 @@ decision, and four planted shapes (a bare literal, an f-string behind a
 conditional, a name behind a variable, a concatenation) are parametrized as the
 non-vacuity pass -- [[a-ratchet-can-pass-against-the-defect-it-names]], in the
 ratchet written to close that very lesson.
+
+⚠ A second round found the same shape one layer in and it is fixed the same
+way: the borrowed-name test was a SUBSTRING scan, so
+`return "get_" + source_bytes[a:b].decode("utf-8")` -- which builds the
+identifier-shaped `get_foo` and carries both substrings -- classified as
+borrowed. It asks the expression's SHAPE now, and that case is the fifth planted
+row.
 
 ⚠ **The blanket fix was available and refused.** Descending every Swift pattern
 to its identifier covers the protocol case in one line and silently changes

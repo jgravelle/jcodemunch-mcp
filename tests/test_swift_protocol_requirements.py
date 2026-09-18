@@ -274,6 +274,28 @@ _NAME_BORROWING_HELPERS = {
 _INTERPOLATED_BUILDER_COUNT = 3
 
 
+def _is_borrowed_slice(value) -> bool:
+    """Is this expression exactly `source_bytes[a:b].decode(...)`?
+
+    ⚠ Exactly, and nothing wrapping it. A concatenation, an f-string or a call
+    around the borrow produces a name the source does not contain, which makes
+    it a BUILT name however much borrowed text it carries.
+    """
+    import ast
+
+    if not isinstance(value, ast.Call):
+        return False
+    func = value.func
+    if not (isinstance(func, ast.Attribute) and func.attr == "decode"):
+        return False
+    sliced = func.value
+    return (
+        isinstance(sliced, ast.Subscript)
+        and isinstance(sliced.value, ast.Name)
+        and sliced.value.id == "source_bytes"
+    )
+
+
 def _built_name_sites(source: str):
     """Classify every `return` in `_extract_name`'s source.
 
@@ -323,16 +345,23 @@ def _built_name_sites(source: str):
                 scaffoldings.append((scaffolding, ast.get_source_segment(source, one) or "<f-string>"))
             continue
 
-        segment = ast.get_source_segment(source, node) or ""
         # A name read out of the file being parsed is BORROWED: the call site
         # writes it, so a reference search can see it.
-        if "source_bytes[" in segment and ".decode(" in segment:
+        #
+        # ⚠⚠ STRUCTURAL, never a substring over the return's text. The first
+        # version asked whether the segment CONTAINED `source_bytes[` and
+        # `.decode(`, and review measured what that admits:
+        # `return "get_" + source_bytes[a:b].decode("utf-8")` builds the
+        # identifier-shaped `get_foo` and was classified as borrowed -- a guard
+        # written against a spelling, inside the guard written to close that
+        # class. The whole expression must BE the borrow.
+        if _is_borrowed_slice(value):
             continue
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
                 and value.func.id in _NAME_BORROWING_HELPERS:
             continue
 
-        unclassified.append(segment)
+        unclassified.append(ast.get_source_segment(source, node) or "")
 
     return literals, scaffoldings, unclassified
 
@@ -431,6 +460,15 @@ def _extract_name(node, spec, source_bytes):
 def _extract_name(node, spec, source_bytes):
     return "operator" + token
 ''',
+    # ⚠⚠ The narrowest route, and the one a SUBSTRING borrow-check admits: the
+    # return carries `source_bytes[` and `.decode(`, so a text scan calls it
+    # borrowed, while the name it produces (`get_foo`) appears nowhere in the
+    # file being parsed. Review measured this against the substring version and
+    # got `unclassified=0`. `_is_borrowed_slice` asks the SHAPE instead.
+    "a partial borrow with a built prefix": '''
+def _extract_name(node, spec, source_bytes):
+    return "get_" + source_bytes[node.start_byte:node.end_byte].decode("utf-8")
+''',
 }
 
 
@@ -460,6 +498,32 @@ def test_the_built_name_guard_fires_on_a_planted_identifier_shaped_name(shape):
         f"{shape}: the guard saw nothing wrong with a built name a reference "
         f"search will be trusted about, so it would not have caught #733's "
         f"first draft either"
+    )
+
+
+def test_every_name_borrowing_helper_still_exists():
+    """The allowlist's second direction (#733).
+
+    ⚠⚠ `_NAME_BORROWING_HELPERS` is an ALLOWLIST, and allowlists in this repo
+    grow: the next author whose helper trips the third bucket can silence the
+    guard by adding a name, which is the `_HELPER_LITERAL_EXCEPTIONS` shape this
+    same PR deleted an entry from. Two limits, stated rather than papered over:
+
+    - Nothing here PROVES a listed helper borrows rather than builds. That is
+      not statically decidable, so the roster is a judgement each entry's author
+      has to make, and this test only stops a stale one lingering.
+    - A helper that starts BUILDING a name keeps its entry and goes unchecked.
+      The remedy if that ever matters is to roster the helper's own returns the
+      way `_extract_name`'s are rostered, not to grow this list further.
+    """
+    from jcodemunch_mcp.parser import extractor
+
+    missing = {
+        name for name in _NAME_BORROWING_HELPERS if not hasattr(extractor, name)
+    }
+    assert not missing, (
+        f"{sorted(missing)} is excused as a name-borrowing helper and no longer "
+        f"exists in `extractor`. Delete the entry."
     )
 
 
