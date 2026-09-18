@@ -330,20 +330,41 @@ def test_a_known_gap_is_still_a_gap():
         )
 
 
-#: Every spec channel extracted by its OWN dispatcher, with the kind it must
-#: produce and one sample per DECLARING language.
+#: Every spec channel whose members are extracted by their OWN dispatcher, with
+#: the kind it must produce and one sample per declaring language.
 #:
-#: ⚠⚠ ONE table, not one test per channel: `variable_patterns` (#731, #741) is
+#: ⚠⚠ ONE table, not one test per channel: `variable_patterns` (#741/#742) is
 #: the second entry, and writing it as a copy of the field test would put the
-#: #725 readership claim in two places that can drift.
+#: #725 readership claim in two places that can drift. A channel added without
+#: a row here fails `test_every_extraction_channel_is_covered` below.
 _EXTRACTION_CHANNELS = {
     "field_patterns": (
         "field",
-        {"java": ("A.java", "class A {\n  private int probe;\n}\n")},
+        {
+            "java": ("A.java", "class A {\n  private int probe;\n}\n"),
+            # ⚠⚠ The KIND is per LANGUAGE, not per channel, and #743 is why.
+            # `field_patterns` answers "this declaration binds N names and is
+            # not a symbol in its own right"; what those names ARE is the
+            # language's own word. Java calls them fields, PHP calls them
+            # properties, and PHP_SPEC has declared the `property` kind since
+            # before #571. A table keyed on the channel ALONE would force one of
+            # the two languages to lie about its own members to satisfy a test,
+            # so a sample may carry its own kind as an optional third element.
+            "php": ("a.php", "<?php\nclass A { public $probe = 1; }\n", "property"),
+        },
     ),
     "variable_patterns": (
         "variable",
-        {"go": ("a.go", "package m\n\nvar probe = 1\n")},
+        {
+            "javascript": ("a.js", "let probe = 1;\n"),
+            "typescript": ("a.ts", "let probe = 1;\n"),
+            "tsx": ("a.tsx", "let probe = 1;\n"),
+            # ⚠ Go joins this channel on the same merge (#731). Its grammar
+            # spells `const_declaration` and `var_declaration` separately, so
+            # unlike JS/TS it needs no shared predicate -- asserted here so the
+            # channel is proved for BOTH declarers, not just the first.
+            "go": ("a.go", "package m\n\nvar probe = 1\n"),
+        },
     ),
 }
 
@@ -354,17 +375,18 @@ def test_every_declared_extraction_channel_actually_yields_its_kind(channel):
 
     ⚠⚠ `type_patterns` and `return_type_fields` are declared by 19 and 14 of the
     79 specs respectively and read by NOTHING -- #725 -- and #735 added a third
-    node-type list beside them, #731 a fourth. A list no channel consults is
-    indistinguishable from the defect it was added to fix ("a parameter that is
-    present and does nothing", 08-19), and the only thing separating a new list
-    from the two dead ones is that something runs it. This asserts that through
-    the product, per language: a spec declaring the list must produce at least
-    one symbol of the channel's kind from the node type it names.
+    node-type list beside them, #741 and #731 a fourth. A list no channel
+    consults is indistinguishable from the defect it was added to fix ("a
+    parameter that is present and does nothing", 08-19), and the only thing
+    separating a new list from the two dead ones is that something runs it.
+    This asserts that through the product, per language: a spec declaring the
+    list must produce at least one symbol of the channel's kind from the node
+    type it names.
 
-    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so a language
-    joining a channel inherits the check on arrival instead of joining
-    unwatched -- which is also what keeps the table honest when two branches add
-    members to the same channel.
+    ⚠ Keyed on the SPEC rather than on a hardcoded language list, so a
+    language joining a channel inherits the check on arrival instead of
+    joining unwatched -- which is also what kept the table honest when two
+    branches added members to the same channel on the same day.
     """
     kind, samples = _EXTRACTION_CHANNELS[channel]
 
@@ -382,12 +404,15 @@ def test_every_declared_extraction_channel_actually_yields_its_kind(channel):
             f"sample here, so nothing proves the channel runs for it. Add three "
             f"lines rather than trusting the declaration."
         )
-        filename, source = sample
+        # ⚠ A sample may carry its own kind as a third element, overriding the
+        # channel's; the table's PHP row says why (#743).
+        filename, source, *override = sample
+        expected = override[0] if override else kind
         kinds = {s.kind for s in parse_file(source, filename, language)}
-        assert kind in kinds, (
+        assert expected in kinds, (
             f"{language} declares {channel}={getattr(spec, channel)} and its "
-            f"sample yields no {kind} -- the list is write-only, which is #725 "
-            f"in another costume. Got kinds: {sorted(kinds)}"
+            f"sample yields no {expected} -- the list is write-only, which is "
+            f"#725 in another costume. Got kinds: {sorted(kinds)}"
         )
 
 

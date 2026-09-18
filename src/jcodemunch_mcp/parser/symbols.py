@@ -69,14 +69,16 @@ KIND_ORDER: tuple[str, ...] = (
     # `tests/test_kind_enum_is_derived.py::test_every_spec_kind_is_a_valid_kind`
     # is that check, and it fails on a spec kind absent from here.
     "property",   # Kotlin/PHP properties: named, mutable-or-not class state
-    # ⚠⚠ (#731) A module-scope MUTABLE binding: Go's package-level `var` today,
-    # and the kind #741/#742 will use for JS/TS `let` and `var` when that branch
-    # merges -- it is not in the tree yet, so Go is the only producer here.
-    # Deliberately NOT `property`, which
-    # #732 added for class state -- a top-level `let` belongs to no type, and
-    # reusing that kind would mix module bindings into every consumer asking
-    # about a class's members. It is the word the grammar itself uses
-    # (`variable_declaration`, `var_spec`) and the word LSP uses for the same
+    # ⚠⚠ A module-scope MUTABLE binding. TWO producers as of this merge:
+    # JS/TS `let` and `var` (#741, #742) and Go's package-level `var` (#731).
+    # Each branch added this entry independently believing the other was
+    # unmerged, and both comments claimed sole ownership -- the merge is where
+    # that gets corrected rather than carried.
+    # Deliberately NOT `property`, which #732 added for class state -- a
+    # top-level binding belongs to no type, and reusing that kind would mix
+    # module bindings into every consumer asking about a class's members. It is
+    # the word the grammars themselves use (`variable_declaration`,
+    # `variable_declarator`, `var_spec`) and the word LSP uses for the same
     # distinction (Variable, separate from both Property and Constant).
     # ⚠ Appended, never inserted, for the reason above this tuple: each
     # existing position is bytes a client has already cached, and a reorder is

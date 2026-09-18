@@ -334,6 +334,7 @@
       "global_declaration",
       "namespace_definition",
       "namespace_use_declaration",
+      "property_declaration",
       "static_variable_declaration",
       "use_declaration"
     ],

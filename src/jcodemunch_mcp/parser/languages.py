@@ -69,27 +69,23 @@ class LanguageSpec:
     field_patterns: list[str] = dc_field(default_factory=list)
 
     # Node types for declarations that bind N names to MUTABLE module-level
-    # state. Introduced by #731 for Go's package-level `var`; #741/#742 adds
-    # JS/TS `let` and `var` to it on a separate branch.
-    #
-    # ⚠ Go is the ONLY declarer on this tree. Nothing here describes a JS
-    # behaviour that does not exist yet: a channel documented by a language that
-    # does not declare it is the write-only claim (#725) this project keeps
-    # paying for.
+    # state. TWO declarers as of this merge: JS/TS `let` and `var` (#741,
+    # #742) and Go's package-level `var` (#731).
     #
     # ⚠⚠ **A node type may be in BOTH this and `constant_patterns`, and the
-    # first language to do so must bring ONE shared predicate.** Go does not:
-    # its grammar spells `const_declaration` and `var_declaration` as different
-    # node types, so the two channels cannot match the same node. A language
-    # whose grammar spells both with one node type -- JS/TS is the case coming,
-    # where `const` and `let` are both `lexical_declaration` -- needs the split
-    # owned by a single predicate, because `_walk_tree` runs the channels
-    # INDEPENDENTLY and two channels deciding separately emit one declaration
-    # twice. #735's Java trap and #732's Kotlin one.
+    # two languages sit on opposite sides of that.** JS/TS spells `const` and
+    # `let` as ONE node type (`lexical_declaration`) with the keyword telling
+    # them apart, so both channels match the same node and
+    # `js_binding_is_constant` is the ONE predicate each asks. Go spells
+    # `const_declaration` and `var_declaration` separately, so its two channels
+    # cannot collide and it needs no predicate. The rule for the next member is
+    # the JS/TS one: `_walk_tree` runs the channels INDEPENDENTLY, so two
+    # channels deciding separately emit one declaration twice -- #735's Java
+    # trap and #732's Kotlin one.
     #
     # ⚠ Also READ, for the reason stated above `field_patterns`; the same
-    # readership test covers it, keyed on the spec so a new member is checked on
-    # arrival.
+    # readership test covers it, keyed on the spec so a new member is checked
+    # on arrival.
     variable_patterns: list[str] = dc_field(default_factory=list)
 
 
@@ -365,6 +361,8 @@ JAVASCRIPT_SPEC = LanguageSpec(
     decorator_node_type=None,
     container_node_types=["class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=[],
 )
 
@@ -415,6 +413,8 @@ TSX_SPEC = LanguageSpec(
     decorator_node_type="decorator",
     container_node_types=["class_declaration", "abstract_class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
@@ -473,6 +473,8 @@ TYPESCRIPT_SPEC = LanguageSpec(
     # instead of `<file>::Owner.m#method`. A bare name is not an identity.
     container_node_types=["class_declaration", "abstract_class_declaration", "class"],
     constant_patterns=["lexical_declaration"],
+    # `const` and `let` are the same node type; `var` is its own (#741, #742).
+    variable_patterns=["lexical_declaration", "variable_declaration"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
@@ -666,7 +668,14 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "type",
         "trait_declaration": "type",
         "enum_declaration": "type",
-        "property_declaration": "property",
+        # ⚠⚠ `property_declaration` is NOT here, and its absence is the fix for
+        # #743 rather than an omission. It sat in this map with
+        # `name_fields["property_declaration"] = "name"` beside it and yielded
+        # nothing for the whole life of the spec, because the grammar sets no
+        # `name` field on that node -- the name is two levels down at
+        # `property_element > variable_name > name`. It reaches the index
+        # through `field_patterns` below, which is also the only channel that
+        # can express `public $a = 1, $b = 2;` (one node, two declarations).
     },
     name_fields={
         "function_definition": "name",
@@ -675,7 +684,6 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "name",
         "trait_declaration": "name",
         "enum_declaration": "name",
-        "property_declaration": "name",
     },
     param_fields={
         "function_definition": "parameters",
@@ -687,9 +695,14 @@ PHP_SPEC = LanguageSpec(
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute",  # PHP 8 #[Attribute] syntax
-    container_node_types=["class_declaration", "trait_declaration", "interface_declaration"],
+    container_node_types=["class_declaration", "trait_declaration", "interface_declaration", "enum_declaration"],
     constant_patterns=["const_declaration"],
     type_patterns=["interface_declaration", "trait_declaration", "enum_declaration"],
+    # #743. One `property_declaration` binds N names and `_extract_symbol`
+    # returns one `Optional[Symbol]` per node, so `symbol_node_types`
+    # structurally cannot express the form -- #735's reason for this channel,
+    # inherited rather than re-derived.
+    field_patterns=["property_declaration"],
 )
 
 
