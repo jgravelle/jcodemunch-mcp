@@ -29,10 +29,30 @@ the wrong thing:
 - `subscript_declaration`'s `name` field is a `user_type` holding the RETURN
   type, so an entry there is not merely useless: every subscript in a corpus
   would index as `Int`, `String` or `Element`. Its name is BUILT in
-  `_extract_name`, which is #714's remedy for the three C# forms with no
-  identifier to borrow, and it is spelled `subscript` for #714's stated reason --
-  it is what a developer writes at the declaration, so searching the
-  declaration's own text finds it.
+  `_extract_name`, #714's remedy for the three C# forms with no identifier to
+  borrow, and it is spelled **`subscript[]`**, mirroring that fix's `this[]` for
+  the same construct one language over.
+
+⚠⚠ **The brackets are load-bearing and a bare `subscript` would have shipped
+#714's defect past the guard written to prevent it.** `tools/_name_reachability.py`
+is THE ONE ANSWER to whether "no references found" is evidence about a symbol,
+and it asks a property of the STRING: a name that is not a plain identifier
+cannot be a call-site token in any language, so it refuses the absence claim. A
+subscript is invoked as `m[i]` and its declaration's name is never written at a
+call site -- but a bare `subscript` is identifier-shaped, so the predicate would
+have called it searchable and `check_delete_safe` would have returned
+`safe_to_delete` for a member the corpus uses on every line that indexes the
+type. Measured: the mutation that drops the brackets fails twelve tests,
+`test_a_subscript_in_use_is_not_certified_deletable` among them. The guard would
+not have fired, would not have been touched, and would have been wrong -- a
+guard written against a spelling, where the spelling was one we chose.
+
+That is fixed at the level it belongs to rather than in this one name.
+`test_every_built_name_in_the_extractor_is_unreachable_by_name` scans
+`_extract_name` for every built name -- the returned literals AND the literal
+scaffolding of the interpolated ones, which is where #714's three live -- and
+fails on any that `name_can_appear_at_a_call_site` would accept. The property
+that whole module rests on had never been asserted.
 
 ⚠ **The blanket fix was available and refused.** Descending every Swift pattern
 to its identifier covers the protocol case in one line and silently changes

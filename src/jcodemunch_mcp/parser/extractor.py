@@ -1327,15 +1327,27 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
 
     if spec.ts_language == "swift" and node.type == "subscript_declaration":
         # No identifier anywhere, and the `name` field is the return type. The
-        # name is BUILT, #714's remedy for the C# indexer, and it is spelled the
-        # way a Swift developer writes the declaration, so searching the
-        # declaration's own text finds it.
+        # name is BUILT -- #714's remedy for the C# indexer, which is the same
+        # construct one language over and is spelled `this[]`.
+        #
+        # ⚠⚠ The BRACKETS ARE LOAD-BEARING and a bare `subscript` is
+        # the wrong answer, for a reason outside this module.
+        # `tools/_name_reachability.py` decides whether "no references found"
+        # is evidence about a symbol, and it asks a property of the STRING: a
+        # name that is not a plain identifier cannot be a call-site token in
+        # any language, so it refuses the absence claim. A subscript is invoked
+        # as `m[i]` and its declaration's name is never written at a call site,
+        # so a bare `subscript` -- identifier-shaped, and therefore accepted as
+        # searchable -- would hand `check_delete_safe` a confident
+        # `safe_to_delete` for a member the corpus uses on every line that
+        # indexes the type. That is the defect #714 exists to prevent, walked
+        # around by a name that merely LOOKS ordinary.
         #
         # ⚠ A type may declare several subscripts and they share this name.
         # That is #714's accepted limit, taken deliberately: the alternative is
         # committing the name to a parameter list that overloads disagree about.
         # They stay distinct by id and by line.
-        return "subscript"
+        return "subscript[]"
 
     if node.type not in spec.name_fields:
         return None

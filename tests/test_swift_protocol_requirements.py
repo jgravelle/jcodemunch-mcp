@@ -20,8 +20,10 @@ That is correct for exactly one of these three:
   rather than in our code.
 - `subscript_declaration`'s `name` field is a `user_type` holding the RETURN
   type, so a `name_fields` entry would index every subscript in a corpus under
-  whatever it returns. The name is BUILT, the way #714 built `this[]` for a C#
-  indexer.
+  whatever it returns. The name is BUILT and spelled `subscript[]`, the way
+  #714 built `this[]` for a C# indexer -- and the brackets are load-bearing, not
+  cosmetic, because `_name_reachability` decides whether "no references found"
+  is evidence by asking whether the NAME is identifier-shaped.
 
 ⚠ `test_a_subscript_is_not_named_after_its_return_type` and
 `test_a_protocol_property_requirement_drops_its_binding_keyword` are the two
@@ -77,7 +79,7 @@ def test_a_protocol_property_requirement_is_a_symbol():
 
 
 def test_a_subscript_is_a_symbol():
-    assert ("subscript", "method") in pairs(REPORTED)
+    assert ("subscript[]", "method") in pairs(REPORTED)
 
 
 def test_the_reported_case_in_full():
@@ -91,7 +93,7 @@ def test_the_reported_case_in_full():
         ("required", "method"),
         ("value", "constant"),
         ("S", "class"),
-        ("subscript", "method"),
+        ("subscript[]", "method"),
         ("ordinary", "method"),
     }
 
@@ -169,23 +171,23 @@ OTHER_SHAPES = {
     ),
     "generic subscript": (
         "struct S {\n  subscript<T>(i: T) -> T { return i }\n}\n",
-        ("subscript", "method"),
+        ("subscript[]", "method"),
     ),
     "static subscript": (
         "struct S {\n  static subscript(i: Int) -> Int { return i }\n}\n",
-        ("subscript", "method"),
+        ("subscript[]", "method"),
     ),
     "subscript with a setter": (
         "struct S {\n  subscript(i: Int) -> Int {\n    get { return i }\n    set { }\n  }\n}\n",
-        ("subscript", "method"),
+        ("subscript[]", "method"),
     ),
     "subscript in an enum": (
         "enum E {\n  subscript(i: Int) -> Int { return i }\n}\n",
-        ("subscript", "method"),
+        ("subscript[]", "method"),
     ),
     "subscript in an extension": (
         "extension S {\n  subscript(i: Int) -> Int { return i }\n}\n",
-        ("subscript", "method"),
+        ("subscript[]", "method"),
     ),
 }
 
@@ -210,13 +212,113 @@ def test_a_subscript_is_not_named_after_its_return_type():
     )
 
 
-def test_a_subscript_is_named_what_a_reader_would_type():
-    """⚠ The built name is `subscript`, which is the word a Swift developer
-    writes at the declaration -- #714's rule, that searching the declaration's
-    own text must find the symbol. `this[]` was chosen for C# by the same rule,
-    because `this[...]` is what a C# developer writes there.
+def test_a_subscript_is_named_the_way_the_c_sharp_indexer_is():
+    """⚠ `subscript[]`, mirroring #714's `this[]` for the same construct.
+
+    A Swift subscript and a C# indexer are the same thing in two languages, and
+    a reader who has met one recognises the other spelled the same way.
     """
-    assert ("subscript", "method") in pairs(REPORTED)
+    assert ("subscript[]", "method") in pairs(REPORTED)
+
+
+def test_the_built_name_is_refused_by_the_reference_reachability_rule():
+    """⚠⚠ The brackets are LOAD-BEARING, and a bare `subscript` would have
+    shipped #714's defect with the guard that prevents it left standing.
+
+    `tools/_name_reachability.py` is THE ONE ANSWER to "is an absence of this
+    name evidence about this symbol", and it asks a property of the STRING: a
+    name that is not a plain identifier cannot be a call-site token in any
+    language, so it refuses the absence claim. A subscript is invoked as `m[i]`
+    and its declaration's name is never written at a call site.
+
+    A bare `subscript` is identifier-shaped, so the predicate would have called
+    it searchable and `check_delete_safe` would have read "no references found"
+    as proof -- `safe_to_delete` for a member the corpus uses on every line that
+    indexes the type. The guard would not have fired, would not have been
+    changed, and would have been wrong: [[a-guard-written-against-a-spelling]],
+    where the spelling was one WE chose.
+    """
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    assert not name_can_appear_at_a_call_site("subscript[]")
+    assert name_can_appear_at_a_call_site("subscript"), (
+        "the control is gone: if a bare `subscript` is refused too, this test "
+        "no longer says why the brackets are there"
+    )
+
+
+def test_every_built_name_in_the_extractor_is_unreachable_by_name():
+    """⚠⚠ The mechanism, not this instance (#733).
+
+    `_name_reachability`'s correctness rests on a property of every BUILT name
+    in the tree -- that none of them is identifier-shaped -- and until now
+    nothing asserted it. The C# three satisfy it by having an operator, a space
+    or brackets in them; the Swift one satisfies it only because this fix chose
+    brackets, and a bare `subscript` would have satisfied nothing while looking
+    exactly as correct.
+
+    ⚠ Both directions. The roster is asserted unreachable, AND the scan
+    fails on a `return "<literal>"` in `_extract_name` that the roster does not
+    name -- because a roster alone is a list of the spellings someone
+    remembered, which is the failure this repo keeps paying for.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from jcodemunch_mcp.parser import extractor
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    roster = {
+        "subscript[]",            # swift, #733
+        "this[]",                 # csharp, #714
+    }
+    for built in roster:
+        assert not name_can_appear_at_a_call_site(built), built
+
+    source = textwrap.dedent(inspect.getsource(extractor._extract_name))
+    tree = ast.parse(source)
+
+    returned = {
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+    unrostered = {name for name in returned if name not in roster}
+    assert not unrostered, (
+        f"_extract_name returns built name(s) {sorted(unrostered)} that this "
+        f"roster does not name. Add them, and check first that "
+        f"`name_can_appear_at_a_call_site` refuses each one -- an "
+        f"identifier-shaped built name silently re-arms #714 (#733)."
+    )
+
+    # ⚠⚠ The C# three are f-strings, so the scan above cannot see them
+    # and a roster-only check would have called this covered while the three
+    # names #714 was written about went unasserted. Their VALUE is not knowable
+    # statically -- `f"operator {token}"` depends on the source being parsed --
+    # but their SCAFFOLDING is, and a literal part carrying a character no
+    # identifier may hold refuses every possible substitution.
+    interpolated = [
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.JoinedStr)
+    ]
+    assert interpolated, (
+        "no interpolated built name found; if `_extract_name` stopped building "
+        "names this way the C# half of this check is now vacuous"
+    )
+    for joined in interpolated:
+        scaffolding = "".join(
+            part.value for part in joined.values
+            if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        )
+        rendered = ast.get_source_segment(source, joined) or "<f-string>"
+        assert not name_can_appear_at_a_call_site(scaffolding), (
+            f"{rendered} builds a name whose literal parts are "
+            f"identifier-shaped, so some substitution produces a name a "
+            f"reference search will be trusted about (#733, #714)"
+        )
 
 
 def test_a_subscript_in_a_protocol_is_a_requirement_too():
@@ -227,7 +329,7 @@ def test_a_subscript_in_a_protocol_is_a_requirement_too():
   subscript(i: Int) -> Int { get }
 }
 """
-    assert ("subscript", "method", "P.subscript") in qualified(source)
+    assert ("subscript[]", "method", "P.subscript[]") in qualified(source)
 
 
 def test_two_subscripts_in_one_type_stay_distinct():
@@ -243,7 +345,7 @@ def test_two_subscripts_in_one_type_stay_distinct():
   subscript(row: Int, col: Int) -> Int { return row }
 }
 """
-    subs = [s for s in parse_file(source, "a.swift", "swift") if s.name == "subscript"]
+    subs = [s for s in parse_file(source, "a.swift", "swift") if s.name == "subscript[]"]
     assert len(subs) == 2
     assert len({s.id for s in subs}) == 2
     assert len({s.line for s in subs}) == 2
@@ -394,3 +496,75 @@ def test_a_deinit_is_a_known_separate_gap():
         f"a Swift deinit now yields {extracted} -- that is #754 closing, which "
         f"belongs to PR #756's gap table, not to this fix (#733)."
     )
+
+
+# ---------------------------------------------------------------------------
+# The destructive surface this fix creates (#733, mirroring #714's review)
+# ---------------------------------------------------------------------------
+
+_DECL_SOURCE = """struct Matrix {
+  subscript(i: Int) -> Int { return i }
+  func ordinary(_ n: Int) {}
+}
+"""
+
+_USE_SOURCE = """func go() {
+  let m = Matrix()
+  let x = m[0]
+  m.ordinary(1)
+}
+"""
+
+
+@pytest.fixture(scope="module")
+def two_file_repo(tmp_path_factory):
+    """A Swift repo where the subscript is USED, indexed through the product."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path_factory.mktemp("swift_repo")
+    (root / "Matrix.swift").write_text(_DECL_SOURCE, encoding="utf-8")
+    (root / "Use.swift").write_text(_USE_SOURCE, encoding="utf-8")
+    storage = str(root / "idx")
+    result = index_folder(path=str(root), use_ai_summaries=False, storage_path=storage)
+    return result["repo"], storage
+
+
+def test_a_subscript_in_use_is_not_certified_deletable(two_file_repo):
+    """⚠⚠ The defect this fix would otherwise have CREATED.
+
+    Before the fix a subscript was absent from the index, so `check_delete_safe`
+    could not be asked about it. Now it can, and a subscript is invoked as
+    `m[0]` -- its declaration's name is never written at a call site, so a
+    reference search keyed on the name finds nothing. #714 measured what that
+    costs: `safe_to_delete` at confidence 1.0, with "No callers or refs found",
+    for a member used on the line below the one it certified.
+
+    ⚠ #566's lesson on new surface, which is why this test exists rather
+    than a sentence in the PR: capping a report does not cap the tool that ACTS
+    on it, and a fix that makes a form visible hands every consumer of that form
+    a question it could not previously be asked.
+
+    The ordinary method is the control -- it is correctly blocked, which is what
+    makes a `safe_to_delete` on the subscript a defect rather than a thin corpus.
+    """
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    repo, storage = two_file_repo
+
+    control = check_delete_safe(
+        repo, "Matrix.swift::Matrix.ordinary#method", storage_path=storage
+    )
+    assert control["verdict"] != "safe_to_delete", (
+        "the control is not blocked; the fixture proves nothing"
+    )
+
+    got = check_delete_safe(
+        repo, "Matrix.swift::Matrix.subscript[]#method", storage_path=storage
+    )
+    assert got["verdict"] != "safe_to_delete", (
+        f"a subscript in use was certified deletable "
+        f"(verdict={got['verdict']}, confidence={got['confidence']})"
+    )
+    assert got["verdict"] == "name_not_searchable", got["verdict"]
+    assert got["confidence"] <= 0.6, got["confidence"]
+    assert got["stop_rule"]["terminal"] is False, got["stop_rule"]
