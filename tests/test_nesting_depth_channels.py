@@ -156,9 +156,38 @@ def test_opener_regex_needs_a_word_boundary(line, expected):
 
 
 def test_source_carries_no_stray_control_characters():
-    """The guard for the above, over the whole module."""
-    text = (_REPO / "src" / "jcodemunch_mcp" / "parser" / "complexity.py").read_text(
-        encoding="utf-8"
-    )
-    bad = sorted({hex(ord(c)) for c in text if ord(c) < 32 and c not in "\n\t"})
-    assert not bad, f"control characters in source: {bad}"
+    """The guard for the above, over every tree that can carry a regex.
+
+    ⚠⚠ **This scanned ONE FILE for its whole life, and the defect recurred
+    outside it.** The lesson was recorded from `complexity.py`'s opener, where a
+    literal BACKSPACE (0x08) had replaced a `\b` and compiled, ran and passed
+    ruff -- so the guard was written against the file where it happened rather
+    than against the property, which is [[a-guard-written-against-a-spelling]]
+    applied to a guard. On 2026-09-18 the same 0x08-for-`\b` substitution landed
+    in `.claude/hooks/dod_checklist.py`'s survival regex, in a PR that cites this
+    lesson; every behavioural row there passed with the corrupt pattern, because
+    a regex that matches nothing looks exactly like a strict one.
+
+    ⚠ Second instance is this project's threshold for fixing the mechanism, so
+    the scan walks `src/`, `tests/` and `.claude/hooks/` -- one `rglob`, cheaper
+    than a per-case row in each consumer, and it covers the files written next.
+    """
+    roots = [_REPO / "src", _REPO / "tests", _REPO / ".claude" / "hooks"]
+    offenders: dict[str, list[str]] = {}
+    scanned = 0
+    for root in roots:
+        for path in sorted(root.rglob("*.py")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            scanned += 1
+            bad = sorted(
+                {hex(ord(c)) for c in text if ord(c) < 32 and c not in "\n\t"}
+            )
+            if bad:
+                offenders[str(path.relative_to(_REPO))] = bad
+
+    assert not offenders, f"control characters in source: {offenders}"
+    # ⚠ Non-vacuity: a walk that reached no FILES would report clean forever.
+    assert scanned > 500, f"only {scanned} files scanned; the walk is not reaching the tree"

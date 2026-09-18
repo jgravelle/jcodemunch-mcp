@@ -198,17 +198,28 @@ def harness_pass(summary: str | None) -> bool | None:
 
 #: How similar two bodies must be for a removal + addition to read as a RENAME.
 #:
-#: ⚠⚠ MEASURED on the only two real cases in this repo's history, not chosen:
-#: `b9dfcb19`, the one retirement in `harness/retired.json`, scores **0.571**
-#: against its nearest replacement in the same file; `4093364f`, #753's rename
-#: of `test_every_declared_field_pattern_actually_yields_a_field`, scores
-#: **0.851** against its new name. 0.75 sits between them with margin on both
-#: sides, and both commits were re-run through the detector to confirm the
-#: verdicts come out RETIREMENT and RENAME respectively.
+#: ⚠⚠ **A DELIBERATE BIAS TOWARD REPORTING, not a margin.** The first version
+#: of this comment claimed 0.75 "sits between them with margin on both sides" on
+#: the strength of two samples -- `b9dfcb19`, the one retirement in
+#: `harness/retired.json`, at **0.571**, and #753's rename (`880a9061`) at
+#: **0.851**. A sweep of the last 800 commits touching `tests/` falsifies that:
+#: **517 removal/addition pairs scored, only 15 clear 0.75, and 64 sit inside
+#: the 0.571-0.851 band.** The rename class straddles the line -- genuine
+#: renames measured at 0.735, 0.696 and 0.689 -- so there is margin against the
+#: two samples and NONE against the class.
 #:
-#: ⚠ A two-point calibration is thin, and it is stated here so a future case
-#: landing between 0.571 and 0.851 is a decision someone makes rather than a
-#: silent misgrade. Widening the gap needs a third real case, not a nudge.
+#: ⚠⚠ It stays at 0.75 anyway, and the reason is the direction of the error.
+#: A missed retirement loses the lesson permanently and silently; a reported
+#: rename costs a human one look. **The cost is ledger NOISE, not blocked work**:
+#: an `unmet` row has `pre_pr.py` refuse the PR, and the cheapest escape is a
+#: ledger entry for a rename, which `tests/test_retirement_ledger.py` accepts
+#: because the old name is genuinely gone. So the bias dilutes the ledger rather
+#: than stopping anyone.
+#:
+#: ⚠ `test_a_rename_below_the_threshold_is_an_accepted_false_positive` pins one
+#: of the measured sub-0.75 renames, so **lowering this constant to "fix" a
+#: false positive fails a test that explains why it is accepted.** Raising or
+#: lowering it needs a re-run of the sweep, not a nudge against one case.
 _RENAME_BODY_SIMILARITY = 0.75
 
 
@@ -272,12 +283,18 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
             target[(current, block_name)] = tuple(block)
 
     for line in diff.splitlines():
-        if line.startswith("+++ b/"):
+        # ⚠ A file header is recognised by its FULL prefix, never by a leading
+        # `-`: a removed body line reading `--- separator ---` at column 0 would
+        # otherwise flush the block early and lower that body's similarity
+        # score, which biases a real rename toward reading as a retirement.
+        # Latent (no test file here has such a line) and cheap to close.
+        if line.startswith("+++ b/") or line.startswith("--- a/"):
             _flush()
             side, block_name, block = "", "", []
-            current = line[len("+++ b/"):].strip()
+            if line.startswith("+++ b/"):
+                current = line[len("+++ b/"):].strip()
             continue
-        if line.startswith("+++") or line.startswith("---") or line.startswith("@@"):
+        if line.startswith("@@"):
             _flush()
             side, block_name, block = "", "", []
             continue
