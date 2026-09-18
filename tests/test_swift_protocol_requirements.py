@@ -247,78 +247,234 @@ def test_the_built_name_is_refused_by_the_reference_reachability_rule():
     )
 
 
-def test_every_built_name_in_the_extractor_is_unreachable_by_name():
-    """⚠⚠ The mechanism, not this instance (#733).
+#: Names `_extract_name` returns as string LITERALS, each of which must be
+#: refused by `name_can_appear_at_a_call_site`. ⚠ A roster alone is a list of
+#: the spellings someone remembered; `_built_name_sites` is what keeps it
+#: honest, in both directions.
+_BUILT_NAME_ROSTER = {
+    "subscript[]",  # swift, #733
+    "this[]",       # csharp, #714
+}
 
-    `_name_reachability`'s correctness rests on a property of every BUILT name
-    in the tree -- that none of them is identifier-shaped -- and until now
-    nothing asserted it. The C# three satisfy it by having an operator, a space
-    or brackets in them; the Swift one satisfies it only because this fix chose
-    brackets, and a bare `subscript` would have satisfied nothing while looking
-    exactly as correct.
+#: Helpers that return a name BORROWED from the source rather than built. A
+#: return that calls one of these is not a built name and needs no roster entry.
+_NAME_BORROWING_HELPERS = {
+    "kotlin_property_name",
+    "_swift_bound_identifier",
+    "_extract_cpp_name",
+}
 
-    ⚠ Both directions. The roster is asserted unreachable, AND the scan
-    fails on a `return "<literal>"` in `_extract_name` that the roster does not
-    name -- because a roster alone is a list of the spellings someone
-    remembered, which is the failure this repo keeps paying for.
+#: How many interpolated builders `_extract_name` holds. ⚠⚠ PINNED, because the
+#: first version of this check counted them implicitly and found ONE of three:
+#: `return f"operator checked {token}" if checked else f"operator {token}"` is
+#: an `ast.IfExp`, so a test for `isinstance(node.value, ast.JoinedStr)` walks
+#: straight past both C# operator builders while its own `assert interpolated`
+#: floor stayed satisfied by the third. Found in review, by planting an
+#: identifier-shaped scaffolding in that arm and watching it stay green.
+_INTERPOLATED_BUILDER_COUNT = 3
+
+
+def _built_name_sites(source: str):
+    """Classify every `return` in `_extract_name`'s source.
+
+    Returns `(literals, scaffoldings, unclassified)`:
+
+    - `literals` -- returns of a plain string. These ARE the built name.
+    - `scaffoldings` -- the literal parts of every f-string reachable from a
+      return, found by walking the return's whole expression rather than
+      testing its top node, so an `if`/`else` between the two does not hide it.
+      The VALUE is not knowable statically (`f"operator {token}"` depends on the
+      source being parsed) but a literal part carrying a character no identifier
+      may hold refuses every possible substitution.
+    - `unclassified` -- a return this function cannot show to be a BORROWED
+      name. ⚠⚠ This third bucket is the one that closes the hole a roster and a
+      literal scan leave open: `built = "x"; return built`, a concatenation, or
+      any new route produces a name neither of the first two buckets sees, and
+      counting them as fine by default is how a guard passes against the defect
+      it names.
     """
     import ast
+
+    literals: list[str] = []
+    scaffoldings: list[tuple[str, str]] = []
+    unclassified: list[str] = []
+
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return):
+            continue
+        value = node.value
+
+        if value is None or (isinstance(value, ast.Constant) and value.value is None):
+            continue
+
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            literals.append(value.value)
+            continue
+
+        joined = [n for n in ast.walk(value) if isinstance(n, ast.JoinedStr)]
+        if joined:
+            for one in joined:
+                scaffolding = "".join(
+                    part.value
+                    for part in one.values
+                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                )
+                scaffoldings.append((scaffolding, ast.get_source_segment(source, one) or "<f-string>"))
+            continue
+
+        segment = ast.get_source_segment(source, node) or ""
+        # A name read out of the file being parsed is BORROWED: the call site
+        # writes it, so a reference search can see it.
+        if "source_bytes[" in segment and ".decode(" in segment:
+            continue
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
+                and value.func.id in _NAME_BORROWING_HELPERS:
+            continue
+
+        unclassified.append(segment)
+
+    return literals, scaffoldings, unclassified
+
+
+def _extract_name_source() -> str:
     import inspect
     import textwrap
 
     from jcodemunch_mcp.parser import extractor
+
+    return textwrap.dedent(inspect.getsource(extractor._extract_name))
+
+
+def test_every_built_name_in_the_extractor_is_unreachable_by_name():
+    """⚠⚠ The mechanism, not this instance (#733).
+
+    `_name_reachability`'s correctness rests on a property of every BUILT name
+    in the tree -- that none of them is identifier-shaped, so a reference search
+    keyed on the name is never trusted about it -- and until this fix nothing
+    asserted it. The C# three satisfy it by carrying an operator or a space; the
+    Swift one satisfies it only because this fix chose brackets, and a bare
+    `subscript` would have satisfied nothing while looking exactly as correct.
+
+    Three buckets, and the third is what makes the first two mean something: a
+    return this scan cannot show to be a BORROWED name fails, so a built name
+    arriving by a route nobody anticipated -- a variable, a concatenation --
+    cannot pass by being unrecognised.
+    """
     from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
 
-    roster = {
-        "subscript[]",            # swift, #733
-        "this[]",                 # csharp, #714
-    }
-    for built in roster:
+    for built in _BUILT_NAME_ROSTER:
         assert not name_can_appear_at_a_call_site(built), built
 
-    source = textwrap.dedent(inspect.getsource(extractor._extract_name))
-    tree = ast.parse(source)
+    literals, scaffoldings, unclassified = _built_name_sites(_extract_name_source())
 
-    returned = {
-        node.value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Return)
-        and isinstance(node.value, ast.Constant)
-        and isinstance(node.value.value, str)
-    }
-    unrostered = {name for name in returned if name not in roster}
+    unrostered = {name for name in literals if name not in _BUILT_NAME_ROSTER}
     assert not unrostered, (
-        f"_extract_name returns built name(s) {sorted(unrostered)} that this "
+        f"_extract_name returns built name(s) {sorted(unrostered)} that the "
         f"roster does not name. Add them, and check first that "
         f"`name_can_appear_at_a_call_site` refuses each one -- an "
         f"identifier-shaped built name silently re-arms #714 (#733)."
     )
 
-    # ⚠⚠ The C# three are f-strings, so the scan above cannot see them
-    # and a roster-only check would have called this covered while the three
-    # names #714 was written about went unasserted. Their VALUE is not knowable
-    # statically -- `f"operator {token}"` depends on the source being parsed --
-    # but their SCAFFOLDING is, and a literal part carrying a character no
-    # identifier may hold refuses every possible substitution.
-    interpolated = [
-        node.value for node in ast.walk(tree)
-        if isinstance(node, ast.Return) and isinstance(node.value, ast.JoinedStr)
-    ]
-    assert interpolated, (
-        "no interpolated built name found; if `_extract_name` stopped building "
-        "names this way the C# half of this check is now vacuous"
+    # ⚠ The other direction: an entry whose code is gone lingers otherwise, and
+    # a roster nobody prunes is the escape hatch `_RESOLVED_BEFORE_NAME_FIELDS`
+    # already had to grow a test against.
+    stale = _BUILT_NAME_ROSTER - set(literals)
+    assert not stale, (
+        f"the roster names {sorted(stale)}, which `_extract_name` no longer "
+        f"returns. Delete the entry."
     )
-    for joined in interpolated:
-        scaffolding = "".join(
-            part.value for part in joined.values
-            if isinstance(part, ast.Constant) and isinstance(part.value, str)
-        )
-        rendered = ast.get_source_segment(source, joined) or "<f-string>"
+
+    assert len(scaffoldings) == _INTERPOLATED_BUILDER_COUNT, (
+        f"expected {_INTERPOLATED_BUILDER_COUNT} interpolated builders in "
+        f"`_extract_name`, found {len(scaffoldings)}: "
+        f"{[rendered for _s, rendered in scaffoldings]}. If one was added, "
+        f"check its literal parts refuse every substitution before raising this "
+        f"number; if one was removed, lower it."
+    )
+    for scaffolding, rendered in scaffoldings:
         assert not name_can_appear_at_a_call_site(scaffolding), (
             f"{rendered} builds a name whose literal parts are "
             f"identifier-shaped, so some substitution produces a name a "
             f"reference search will be trusted about (#733, #714)"
         )
+
+    assert not unclassified, (
+        f"`_extract_name` has return(s) this guard cannot classify: "
+        f"{unclassified}. If the name is BORROWED from the source, teach "
+        f"`_built_name_sites` how to see that; if it is BUILT, check "
+        f"`name_can_appear_at_a_call_site` refuses it and add it to the roster."
+    )
+
+
+_PLANTED_BUILT_NAMES = {
+    "a bare literal": '''
+def _extract_name(node, spec, source_bytes):
+    return "subscriptIndexer"
+''',
+    # ⚠⚠ The shape the first version of this guard missed entirely. Both
+    # builders hang off an `ast.IfExp`, so the return's TOP node is not a
+    # JoinedStr and a check on `isinstance(node.value, ast.JoinedStr)` sees
+    # neither -- which is how an identifier-shaped `operator_+` would have
+    # shipped under a green test whose docstring claimed to cover it.
+    "an f-string behind a conditional": '''
+def _extract_name(node, spec, source_bytes):
+    return f"operator_checked_{token}" if checked else f"operator_{token}"
+''',
+    # Neither bucket sees this, which is why the third exists.
+    "a built name behind a variable": '''
+def _extract_name(node, spec, source_bytes):
+    built = "indexer"
+    return built
+''',
+    "a built name by concatenation": '''
+def _extract_name(node, spec, source_bytes):
+    return "operator" + token
+''',
+}
+
+
+@pytest.mark.parametrize(
+    "shape", sorted(_PLANTED_BUILT_NAMES), ids=sorted(_PLANTED_BUILT_NAMES)
+)
+def test_the_built_name_guard_fires_on_a_planted_identifier_shaped_name(shape):
+    """⚠⚠ The non-vacuity pass, and it is not optional here.
+
+    The guard above passed on its FIRST run, which is the shape
+    [[a-ratchet-can-pass-against-the-defect-it-names]] names -- and it was in
+    fact passing while reaching one of three interpolated builders, found by
+    review planting exactly the second case below.
+
+    Each source here produces a name a reference search would be trusted about.
+    The guard must refuse all four: the first two by the predicate, the last two
+    by being unable to classify the return at all.
+    """
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    literals, scaffoldings, unclassified = _built_name_sites(_PLANTED_BUILT_NAMES[shape])
+
+    accepted = [n for n in literals if name_can_appear_at_a_call_site(n)]
+    accepted += [r for s, r in scaffoldings if name_can_appear_at_a_call_site(s)]
+
+    assert accepted or unclassified, (
+        f"{shape}: the guard saw nothing wrong with a built name a reference "
+        f"search will be trusted about, so it would not have caught #733's "
+        f"first draft either"
+    )
+
+
+def test_the_planted_guard_still_accepts_the_real_thing():
+    """The control: a guard that refused every source would pass the test above
+    while saying nothing about `_extract_name`.
+    """
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    literals, scaffoldings, unclassified = _built_name_sites(_extract_name_source())
+
+    assert not unclassified
+    assert literals and scaffoldings
+    assert not [n for n in literals if name_can_appear_at_a_call_site(n)]
+    assert not [s for s, _r in scaffoldings if name_can_appear_at_a_call_site(s)]
 
 
 def test_a_subscript_in_a_protocol_is_a_requirement_too():

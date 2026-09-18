@@ -48,11 +48,26 @@ not have fired, would not have been touched, and would have been wrong -- a
 guard written against a spelling, where the spelling was one we chose.
 
 That is fixed at the level it belongs to rather than in this one name.
-`test_every_built_name_in_the_extractor_is_unreachable_by_name` scans
-`_extract_name` for every built name -- the returned literals AND the literal
-scaffolding of the interpolated ones, which is where #714's three live -- and
-fails on any that `name_can_appear_at_a_call_site` would accept. The property
-that whole module rests on had never been asserted.
+`test_every_built_name_in_the_extractor_is_unreachable_by_name` classifies every
+`return` in `_extract_name` into three buckets and fails on any built name
+`name_can_appear_at_a_call_site` would accept: returned literals, the literal
+scaffolding of every f-string reachable from a return, and -- the bucket that
+makes the other two mean anything -- a return it cannot show to be a name
+BORROWED from the source, so a built name arriving by a variable or a
+concatenation cannot pass by being unrecognised. The property that whole module
+rests on had never been asserted.
+
+⚠⚠ **Its first version reached one of the three interpolated builders and
+said in three places that it reached all three.** `return f"operator checked
+{token}" if checked else f"operator {token}"` is an `ast.IfExp`, so a test on
+the return's TOP node walks past both C# operator builders while its own
+vacuity floor stays satisfied by the third -- green against an identifier-shaped
+`operator_+`. Found in review by planting exactly that. The scan walks each
+return's whole expression now, the builder count is PINNED so a fourth forces a
+decision, and four planted shapes (a bare literal, an f-string behind a
+conditional, a name behind a variable, a concatenation) are parametrized as the
+non-vacuity pass -- [[a-ratchet-can-pass-against-the-defect-it-names]], in the
+ratchet written to close that very lesson.
 
 ⚠ **The blanket fix was available and refused.** Descending every Swift pattern
 to its identifier covers the protocol case in one line and silently changes
