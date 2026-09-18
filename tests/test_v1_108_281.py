@@ -195,6 +195,11 @@ _CLASS_SCOPED_SAMPLES = {
         "class Probe {\n  companion object { const val K = 1 }\n}\n",
         "K",
     ),
+    # PHP joined in #744, the third language with the shape and considered by
+    # neither earlier change. A class constant is the idiomatic PHP constant --
+    # the node type was already in `constant_patterns` and only the scope gate
+    # refused it, so membership is the whole fix.
+    "php": ("Probe.php", "<?php\nclass Probe {\n  const K = 1;\n}\n", "K"),
 }
 
 

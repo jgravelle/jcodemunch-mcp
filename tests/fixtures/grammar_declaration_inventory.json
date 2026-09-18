@@ -8,15 +8,23 @@
     "(source `spec`) or the node-type literals its _parse_<lang>_symbols function",
     "matches on (source `inline`). See `sources` below for which applies.",
     "",
-    "An entry is NOT a proof that the form is unextractable. The node-type map is",
-    "one channel of several: constant_patterns, field_patterns,",
-    "container_node_types, and literals matched inside the extractor itself all",
-    "reach it -- so go/const_declaration, javascript/lexical_declaration and",
-    "rust/const_item DO yield symbols, java/field_declaration yields a field per",
-    "declarator through field_patterns (#735), rust/impl_item is a container that",
-    "deliberately emits none, and cpp matches namespace_definition literally.",
-    "The entry means: nothing in the node-type map names",
-    "this form, so whether it is extracted is a question, not a given. Six rows",
+    "The recognised set reads ALL FOUR extraction channels since #757 --",
+    "symbol_node_types, constant_patterns, field_patterns and variable_patterns",
+    "-- so a form extracted through any of them is NOT listed here. That fixed",
+    "the direction in which this artifact was worst: #735 indexed every Java",
+    "field through field_patterns and java/field_declaration stayed listed; and",
+    "on #743's branch, moving php/property_declaration into the same channel",
+    "GREW the count, in the change that fixed it. Every form the widening",
+    "suppresses a row for carries a sample in",
+    "tests/test_inventory_reads_every_channel.py, proved by deletion, so a form",
+    "that stops extracting comes back here.",
+    "",
+    "An entry is still NOT a proof that the form is unextractable, because two",
+    "routes remain outside those channels: a container_node_types entry (rust/",
+    "impl_item is one, and deliberately emits nothing itself) and a node type",
+    "matched as a literal inside the extractor (cpp/namespace_definition). So the",
+    "entry means: no channel names this form, and whether the extractor reaches",
+    "it another way is a question, not a given. Six rows",
     "(python/with_item, bash/case_item, swift/capture_list_item,",
     "swift/tuple_type_item, rust/attribute_item, rust/inner_attribute_item) are not",
     "declarations at all and are left in rather than special-cased.",
@@ -27,14 +35,7 @@
     "languages.py) or it is correctly ignored (regenerate in the same commit).",
     "Regenerate: uv run python scripts/refresh_grammar_inventory.py"
   ],
-  "confirmed_gaps": {
-    "go": [
-      "var_spec"
-    ],
-    "scala": [
-      "given_definition"
-    ]
-  },
+  "confirmed_gaps": {},
   "sources": {
     "ada": "inline",
     "apex": "inline",
@@ -228,7 +229,6 @@
       "constructor_definition"
     ],
     "go": [
-      "const_declaration",
       "const_spec",
       "field_declaration",
       "import_declaration",
@@ -237,7 +237,6 @@
       "short_var_declaration",
       "type_parameter_declaration",
       "type_spec",
-      "var_declaration",
       "var_spec",
       "variadic_parameter_declaration"
     ],
@@ -258,7 +257,6 @@
     ],
     "java": [
       "constant_declaration",
-      "field_declaration",
       "import_declaration",
       "local_variable_declaration",
       "module_declaration",
@@ -266,9 +264,7 @@
     ],
     "javascript": [
       "field_definition",
-      "lexical_declaration",
-      "using_declaration",
-      "variable_declaration"
+      "using_declaration"
     ],
     "julia": [
       "primitive_definition"
@@ -330,7 +326,6 @@
       "variable_declaration"
     ],
     "php": [
-      "const_declaration",
       "function_static_declaration",
       "global_declaration",
       "namespace_definition",
@@ -349,7 +344,6 @@
     ],
     "rust": [
       "attribute_item",
-      "const_item",
       "extern_crate_declaration",
       "field_declaration",
       "foreign_mod_item",
@@ -358,13 +352,11 @@
       "let_declaration",
       "macro_definition",
       "mod_item",
-      "static_item",
       "use_declaration"
     ],
     "scala": [
       "export_declaration",
       "extension_definition",
-      "given_definition",
       "import_declaration",
       "val_declaration",
       "var_declaration"
@@ -397,15 +389,11 @@
     ],
     "tsx": [
       "ambient_declaration",
-      "lexical_declaration",
-      "public_field_definition",
-      "variable_declaration"
+      "public_field_definition"
     ],
     "typescript": [
       "ambient_declaration",
-      "lexical_declaration",
-      "public_field_definition",
-      "variable_declaration"
+      "public_field_definition"
     ]
   }
 }

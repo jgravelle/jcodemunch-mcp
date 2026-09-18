@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Security - anyio 4.12.1 carries a critical TLS advisory, and the gate found it before a release did
+
+`deps.vuln_max` went red on every open branch at once, which is what a
+dependency floor looks like when the advisory is published rather than the tree
+changed. Two advisories against the locked `anyio==4.12.1`:
+GHSA-82r6-8w77-94w6 (critical -- `TLSStream` encodes host names with IDNA 2003,
+so a certificate can be spoofed for a name that normalises differently under
+IDNA 2008) and GHSA-5p39-cfhj-2xmp (medium -- a process-pool worker blocks
+indefinitely on undrained stderr).
+
+The TLS one reaches us through the HTTP transport, which is the surface that
+terminates TLS. Locked at 4.15.1, and the `http` and `all` extras declare
+`anyio>=4.14.2` rather than `>=4.0.0` -- a floor that admits the vulnerable
+version keeps admitting it after the lock moves, and the lock governs CI, not
+what a user resolves.
+
 ### Fixed - three dead literals in two inline extractors, two of which hid a form (#736, #737, #738)
 
 A Solidity `constructor`, a Solidity custom `error` and a Julia short-form
@@ -112,6 +128,379 @@ which is a new inconsistency rather than a fix.
 The inventory went 272 to 270 forms. ⚠ #738 moves it by nothing, correctly:
 `assignment` is not declaration-shaped, so the form it hid was never in the
 inventory and only the inline-literal measurement could see it.
+### Fixed - a JS `let` is not a constant, and a `var` is a symbol (#741, #742)
+
+Two reports, one decision behind both. `let counter = 0` was indexed as
+`kind="constant"`, so every consumer asking what never changes was told a
+reassignable binding qualifies; and `var legacy = 2` yielded no symbol at all,
+so a module written in pre-ES6 JavaScript — or any ES5 transpiler output —
+indexed with no top-level bindings. Both in `javascript`, `typescript` and
+`tsx`.
+
+⚠⚠ **`const` and `let` are ONE node type and `var` is another, which is why one
+spec entry looked complete.** The grammar spells `const`/`let`
+`lexical_declaration` and `var` `variable_declaration`; all three specs named
+the first in `constant_patterns` and the second nowhere. #698's shape exactly —
+a grammar spelling one concept as two node types — with the extra twist that
+the node type they DID name covers a mutable form too.
+
+⚠⚠ **The keyword is a NAMED FIELD, and asking it is the fix.**
+`lexical_declaration` carries a `kind` field holding `const` or `let`, so
+`js_binding_is_constant` reads the declaration's own word rather than guessing.
+A capitalisation heuristic was the available shortcut and it is wrong in both
+directions on the reported cases: `let MUTABLE_CAP = 5` is mutable and
+`const config = {...}` is not. #732 refused the same shortcut for Kotlin in the
+words #741 quotes back at us; nothing carried that answer across, which is the
+mechanism half of this change.
+
+⚠⚠ **The kind is `variable`, APPENDED to `KIND_ORDER`, and deliberately not
+`property`.** #732 added `property` for class state; a module-scope `let`
+belongs to no type, and reusing that kind would mix module bindings into every
+consumer asking what a class declares. `variable` is the word this grammar uses
+(`variable_declaration`, `variable_declarator`) and the word LSP uses for the
+same three-way split against Property and Constant. A kind absent from
+`KIND_ORDER` is refused by `search_symbols`' `kind_filter` check and omitted
+from the published enum, which derives from the same tuple (#571) — so this is
+a wire change as well as a naming one, and the tuple is appended to rather than
+reordered because each existing position is bytes a client has already cached.
+
+⚠⚠ **A fourth channel, `variable_patterns`, rather than a `language == ...`
+branch.** One declaration binds N names (`const A = 1, B = 2`) and
+`_extract_symbol` returns one `Optional[Symbol]` per node, so `symbol_node_types`
+structurally cannot express it — #735's reason for `field_patterns`, and #731
+(Go's package-level `var`) inherits this one. `lexical_declaration` is now in
+`constant_patterns` AND `variable_patterns`, which `_walk_tree` runs
+independently on the same node, so `js_binding_is_constant` is the ONE
+predicate both channels ask: two channels deciding separately emit one `const`
+twice (#735 in Java, #732 in Kotlin).
+
+**Two more defects in the same function, neither in either report.**
+
+⚠⚠ **`const A = 1, B = 2;` bound `A` and dropped `B` in silence.** The branch
+`return`ed on the first `variable_declarator`. Every other N-name language got
+this in #428 — Go, Bash, PHP, Java — and Java's fields again in #735; JS was in
+neither change, so which declarations became symbols depended on whether the
+author used one statement or two.
+
+⚠⚠ **A block-scoped local was published as module state.** The constant
+channel's scope gate is `parent_symbol is None`, and a bare block, an `if`
+body, a `for` body and a `switch` case are not symbols — so at file scope
+`if (x) { const BLOCKY = 1; }` indexed `BLOCKY` as a module constant, and the
+`let`/`var` half of this change would have added two more spellings of the same
+leak. It is #732's round-3 defect one `if` above the Kotlin clause that fixed
+it, and the remedy is the same: `js_binding_is_member` reads the declaration's
+own PARENT against an ALLOWLIST of member positions
+(`program`, `export_statement`, TypeScript's `ambient_declaration`, and a
+`statement_block` owned by a namespace or declared module). **An allowlist
+because the DIRECTION is the rule**: it fails closed to the pre-fix status quo
+for an unlisted member position, where a denylist of local spellings fails open
+into false module state. ⚠ A TS namespace body is a `statement_block`, the same
+node type as a function body and a class static block, so the grandparent
+decides — the set was derived by asking the grammar for the parent of a binding
+in every scope JS and TS can spell, not from a reading of the report.
+
+⚠ Blast radius, and some of it is a narrowing. Every JS/TS repo gains its `var`
+bindings and every `let` moves from `constant` to `variable`, so symbol counts
+rise, `kind="constant"` returns fewer rows for these languages, and a heuristic
+file summary counting constants counts fewer. Bindings in top-level blocks
+disappear, which is the leak above. `find_dead_code` applies no `kind` filter,
+so an unreferenced `let` now enters the dead-code corpus like a Java field does
+since #735.
+
+⚠ `PARSER_GENERATION` is NOT bumped, for the reason #735's entry above gives
+verbatim: #732 took it 7 to 8 and all three entries are still under
+`[Unreleased]`, so every index a release of this can reach re-parses under that
+bump already. The uncovered population is a tree indexed from source BETWEEN
+the commits — a maintainer's own box, whose remedy is the re-index Practice 11
+already requires.
+
+⚠ `variable_declaration` STAYS in the frozen grammar inventory for the three
+languages although it is extracted now, because `_checkable_languages` derives
+the recognised set from `symbol_node_types` alone. That is the gate blind spot
+#746 recorded for `field_patterns`, unchanged here and deliberately not
+widened: "declared in a channel" is not "extracted by it", and java's
+`field_declaration` sat in `constant_patterns` for years while every ordinary
+field was dropped — widening the recognised set by declaration would have
+hidden the widest gap #724 found.
+
+⚠ Out of scope, filed rather than left silent: a destructured binding
+(`const { a, b } = obj`) still yields no symbol, because the declarator's
+`name` is an `object_pattern`; and Vue's and Svelte's own script extractors
+make the #741 decision separately — a Svelte `export let name` is published as
+a constant there, and an ordinary `let`, `const` or `var` in a `<script>` block
+yields nothing at all. Filed as #751 and #752;
+`test_a_destructuring_pattern_is_a_known_separate_gap` FAILS when #751 closes,
+so the pin cannot outlive it.
+### Fixed - a PHP class is indexed with its state, not only its methods (#743, #744)
+
+Two reports, one language, two different causes. `public $prop = 1` yielded no
+symbol in any visibility, and `const K = 3` inside a class yielded none either
+while the same `const` at file scope worked. A PHP class indexed with its
+methods and none of its state — #735's symptom in a second language.
+
+⚠⚠ **#743 is #712's shape one indirection down.** `PHP_SPEC` named
+`property_declaration` in `symbol_node_types`, mapped it to `property`, and
+gave it `name_fields["property_declaration"] = "name"` — and the grammar sets
+no `name` field on that node. Its named children are the modifiers and one
+`property_element` per bound name, each of which carries the name two levels
+down at `property_element > variable_name > name`. A `name_fields` entry
+pointing at a field the grammar does not produce resolves to nothing, so the
+symbol was dropped in silence while every map looked complete. **That is also
+why `property` sat in `KIND_ORDER` as a declared-and-dead kind until Kotlin
+became its first live emitter (#732): that entry named the symptom, this is the
+cause.**
+
+⚠ The `$` is not part of the name. `variable_name` spells `$prop` and its
+`name` child spells `prop`, which is what `$this->prop` writes and what a
+reader searches for.
+
+⚠⚠ **#744 is a SCOPE GATE, and the node type was right all along.**
+`const_declaration` was already in `constant_patterns`; `_walk_tree` gates the
+constant channel on `parent_symbol is None` unless the language is in
+`_CLASS_SCOPED_CONSTANT_LANGUAGES`, and that set read `{"java", "kotlin"}`.
+#428 opened the hole for Java and #732 closed it for Kotlin — PHP is the third
+language with the shape and was considered by neither.
+
+⚠⚠ **The gate has TWO halves and membership buys only one.** With `php` in the
+set, a class constant extracted and an ENUM constant still did not:
+`parent_is_container` is computed from the spec's `container_node_types`, which
+named class, trait and interface and not `enum_declaration`. Found by reading
+the output of the fix rather than the issue.
+
+⚠ **Naming the enum a container buys the constant and nothing else**, which is
+narrower than the first version of this entry claimed. An enum METHOD was
+already owned: PHP spells it `method_declaration`, which `symbol_node_types`
+maps straight to `method`, and `parent_is_container` only promotes a
+`function`. The enum constant it does add comes out BARE, like every other
+class constant here. Caught in review, measured against the pre-change tree --
+and the claim contradicted this change's own test, which asserts
+`("EK", "constant", "EK")` two files over.
+
+⚠ Properties route through `field_patterns` (#735's channel), not
+`symbol_node_types`: `public $a = 1, $b = 2;` is one node and two
+declarations, and `_extract_symbol` returns one `Optional[Symbol]` per node, so
+the second name is structurally unreachable through that map. **`_field_symbol`
+takes a `kind` now, because the CHANNEL is not the kind** — that channel
+answers "this declaration binds N names and is not a symbol in its own right",
+and what those names ARE is the language's own word. Java calls them fields,
+PHP calls them properties.
+
+⚠⚠ **A mutation pass found a defect review would not have.** `_walk_tree`
+re-mints a member's id when it qualifies it, with the literal `"field"` —
+correct while Java was the channel's only member, and wrong the moment PHP
+emitted a `property`: `a.php::C.prop#field` for a symbol whose kind says
+`property`, an id no kind-keyed lookup resolves. Reverting that line left all
+59 tests in the two files green, because every assertion read `name`, `kind`
+and `qualified_name` and none read the id. It reads `f.kind` now, and a test
+holds it.
+
+⚠ Blast radius: every PHP repo gains its class properties and class constants,
+so symbol counts rise and `find_dead_code` — which applies no `kind` filter —
+sees an unreferenced private property as it has seen a Java field since #735.
+An enum gains its constants; nothing about an enum's methods changes.
+
+⚠ One live consumer asymmetry, named rather than fixed:
+`summarizer/file_summarize.py` counts members with `kind == "field"`, so a PHP
+class with five properties summarises as "(2 methods)" where the Java class one
+node type over gets "(2 methods, 5 fields)". Not a regression — PHP yielded no
+properties at all before — and not worth teaching one heuristic summary about
+two kinds inside a parser fix, but it is the price of the per-language kind and
+a reader should not have to discover it. Filed as #760, because the asymmetry
+outlives the release that explains it.
+
+⚠ A PHP class constant keeps the BARE name that Java and Kotlin give theirs
+(`K`, not `C.K`). `_constant_symbol` hardcodes `qualified_name = name` and only
+Rust qualifies at the call site; qualifying PHP alone would make the answer
+depend on which language you asked. Recorded, unchanged, and now asserted so
+the inconsistency is deliberate rather than accidental.
+
+⚠ The frozen grammar inventory GREW by one (272 → 273): `php.property_declaration`
+left `symbol_node_types` and the inventory's recognised set reads that map
+alone, so a form that is now extracted reads as an unnamed gap. **That is the
+blind spot #735 recorded, and the count moving in the wrong direction during a
+fix is the second instance — filed as #757.** Also filed: #758, a tracked-gap
+entry can cite an issue that does not exist, in all three ledgers.
+
+⚠ Out of scope, pinned rather than folded in: a PHP `enum_case` (`case A;`) is
+a node type no spec map names, so enum cases yield no symbol (#759).
+`test_an_enum_case_is_a_known_separate_gap` FAILS when that closes.
+### Fixed - a Go package-level `var` and a Scala 3 `given` are symbols (#731, #734)
+
+Two languages, one class of defect, and the same one #698, #712, #713, #722,
+#732 and #735 were: a declaration form the grammar spells that the spec never
+names. Both were found by #724's inventory rather than by a user, and both were
+confirmed by running the product.
+
+**Go (#731).** A package-level `var` yielded no symbol while a `const` in the
+same file did. `http.DefaultClient` is one of these, and so is every sentinel
+error a package exports -- `io.EOF`, `sql.ErrNoRows` -- which are exactly the
+names a reader searches for and could not find.
+
+⚠⚠ **The asymmetry is invisible from the extractor, which is why it survived.**
+`const_declaration` reaches the index through `constant_patterns`;
+`var_declaration` reached nothing. A reader who opens Go's constant binder sees
+a language whose grouped, multi-name declarations are handled properly and stops
+looking. That is #735's Java case and #732's Kotlin case in a third costume.
+
+⚠⚠ **Go spells a LOCAL `var` with the SAME node type**, so this needed a scope
+gate that #735 did not -- Java spells a local `local_variable_declaration`.
+`go_var_is_package_level` reads the direct parent against an ALLOWLIST, for
+#732's reason: a denylist of local spellings fails OPEN, publishing a
+function-local as package state and moving every symbol count and dead-code
+grade downstream, while an allowlist fails CLOSED to the pre-fix status quo.
+
+⚠⚠ **Go nests its two grouped forms differently, and a binder written by analogy
+drops half of them.** A grouped `const ( ... )` holds its specs directly under
+the declaration; a grouped `var ( ... )` wraps them in a `var_spec_list`. The
+obvious copy of `_extract_go_constants` finds every constant and no variable.
+`test_a_grouped_var_block_binds_every_name` is that case.
+
+⚠ The form rides `variable_patterns`, a CHANNEL this entry introduces, because
+one `var_spec` binds N names (`var C, D = 3, 4`) while `symbol_node_types`
+yields at most one symbol per node. #741/#742 adds JS/TS `let` and `var` to the
+same channel on a separate branch; Go is its only member here. The kind is `variable`,
+appended to `KIND_ORDER` -- that tuple is PUBLISHED in the cached schema prefix,
+so a reorder is a full-rate cache write for every user. No owner is attached,
+unlike a field: module-level state belongs to no type, and qualifying it against
+the enclosing symbol would invent one.
+
+⚠ Two findings came out of probing the fix rather than out of the report, and
+both are recorded rather than folded in. Go's blank identifier `_` was indexed
+as a `variable`; it is the language's discard, cannot be referenced, and several
+can sit in one file, so the channel skips it -- and the CONSTANT channel has the
+same hole for `const ( _ = iota; KB; MB )`, which is filed as #763 instead of
+being changed in passing, because that is a different channel with its own
+history (#428).
+
+**Scala (#734).** A `given` yielded no symbol while the `val` and the `def`
+beside it extracted. `given` is how Scala 3 replaced `implicit val`, so the
+declarations that drive implicit resolution -- the ones hardest to find by
+reading, because the call site never names them -- were the ones missing.
+
+⚠ **One name, one node, so this needed no channel**: `given_definition` carries
+a `name` field, which is exactly what `symbol_node_types` + `name_fields`
+expresses. The channel argument in #735 and #731 applies only to forms binding N
+names, and reaching for it here would have been ceremony. The kind is
+`constant`, the kind the `val` it replaced already takes; a new kind would claim
+a distinction that does not exist and would cost another published-prefix entry.
+
+⚠⚠ **The grammar spells three things `given_definition` and only one has a
+name.** `given Conv = ???` and `given [T]: Ord[T] = ???` are anonymous, and
+Scala synthesises their names from the type at compile time. They stay absent,
+asserted in both directions rather than papered over with the type name: a name
+that appears nowhere in the source cannot be searched for and cannot be told
+apart from a `given` genuinely called `Conv`. `extension_definition` is unnamed
+in the spec too and is in the same inventory, but an extension's methods do
+extract, so that is a smaller separate gap and is pinned rather than fixed here.
+
+⚠⚠ **A structural `given` is a CONTAINER, and this fix regressed its members
+before it fixed them.** `given ordering: Ordering[Int] with { def compare ... }`
+holds members; once the given became a symbol it became their parent, and a
+parent absent from `container_node_types` promotes nothing and qualifies
+nothing -- so `O.compare` (method) became a bare `compare` (function). That is
+#698's complaint, a member losing its owner, arriving through the fix for a
+different form. Measured against `main` in a worktree rather than reasoned
+about, after review asked what the untested shapes did. `given_definition` is a
+container now, which is also the truthful answer: `compare` belongs to the
+given, and it comes out as `O.ordering.compare`.
+
+⚠ The inventory goes **272 -> 271** and both `_CONFIRMED_GAPS` entries leave.
+The two removals are ASYMMETRIC on purpose: `given_definition` leaves the
+inventory because the spec now names it, while `go/var_spec` stays listed and
+only loses its gap entry -- the fix declares `var_declaration`, the node a reader
+opens and the one that wraps every spec of a grouped block, so the row's claim
+that no channel names `var_spec` is still true. What stopped being true is the
+gap entry's claim that the form yields nothing.
+### Fixed - the grammar inventory's recognised set reads all four extraction channels (#757)
+
+`tests/test_grammar_spelled_forms.py` freezes, per language, the
+declaration-shaped node types a grammar emits that the language's spec does not
+recognise. `_checkable_languages` derived that recognised set from
+`symbol_node_types` alone, and a spec has four extraction channels --
+`symbol_node_types`, `constant_patterns`, `field_patterns` (#735) and
+`variable_patterns` (#741). Three of them were invisible to the file whose job
+is naming what is unindexed.
+
+⚠⚠ **The tell is the DIRECTION: closing a gap could make the count go UP.**
+#735 indexed every Java field through `field_patterns`, and
+`java.field_declaration` stayed listed as unrecognised -- that one is on `main`.
+The second was measured on #743/#744's branch (PR #761, merged since), which
+moves `php.property_declaration` out of `symbol_node_types` into the same
+channel: the inventory GREW there **in the change that fixes it**. The two
+figures that measurement carried are not restated, because the base moves with
+every parallel fix. So the artifact a reader consults to pick
+the next gap was reporting indexed forms as gaps, and a fix could make its own
+evidence worse.
+
+⚠⚠ **"Declared in a channel" is not "extracted by it", which is why this was
+correctly left alone twice and why the union ships with a second half.**
+`java.field_declaration` sat in `constant_patterns` for years while every
+ordinary field was dropped, because that channel required `static final`. A set
+unioned by DECLARATION alone would have called the form recognised and hidden
+the widest gap #724 found -- re-installing the defect #735 exists to fix,
+silently, in the instrument that measures it.
+
+So every form the widening suppresses a row for owes a sample in
+`tests/test_inventory_reads_every_channel.py`, and each sample proves the
+channel extracts that form **by deletion**: the node type is removed from every
+channel, the file is re-parsed, and the symbol must stop coming out. Appearance
+alone cannot carry the claim -- a sample has to be legal source, so it carries a
+container the spec also declares, and a container can answer "the kind appears"
+by itself. That was the hollow row review found in #745's guard, one channel
+over. A form that stops extracting now returns to the inventory instead of
+hiding in it.
+
+⚠⚠ **The classification is keyed to the SHAPE, and the rule is INVERTED so an
+unrecognised shape fails closed.** Keying it to a spelling was wrong twice --
+first no rule at all, then a rule over `list[str]` while the canonical channel
+`symbol_node_types` is a `dict[str, str]`, which is the natural spelling for any
+channel carrying a kind. Both versions were the same fail-open shape, narrower
+each time, which is #709's history exactly: re-keyed four times in six rounds,
+and what held was one shared predicate plus pinned cases. So the SCALAR
+spellings are pinned and every other annotation is treated as a collection of
+node types owing one of four classifications. `tuple[str, ...]`, `frozenset[str]`
+and a nested dict now land in the rule by default rather than escaping it, and a
+new scalar KIND fails loudly instead of being waved through. A rule over `list[str]` alone misses the shape the canonical
+channel has -- `symbol_node_types` is a `dict[str, str]`, node type to kind,
+which is the natural spelling for any channel carrying a kind -- so a
+dict-shaped fifth channel walked through the rule written to stop exactly that.
+One predicate over node-type collections now covers both, and #709 is the
+precedent: re-keyed four times in six rounds, and what held was one shared
+predicate plus pinned cases.
+
+⚠ **The scan found a third write-only spec field on its first run.** #725 named
+`type_patterns` and `return_type_fields`; `param_fields` is required
+positionally, so every spec fills it in, and nothing in `src/` reads it. It was
+classified "signature detail" here on the strength of its name until the scan
+disagreed, which is the argument for scanning a classification rather than
+stating one.
+
+⚠⚠ **An UNKNOWN read is not an absence, and the irony is load-bearing.** The
+scan matches a literal attribute, a constant `getattr` and a constant subscript;
+it cannot see `getattr(spec, name)` with a variable -- which is precisely how
+the channels themselves are read here. If the parser adopted that style over a
+spec field, the scan would report a field read on every call as unread and the
+unread test would CERTIFY the classification it exists to refuse. A dynamic read
+in the package that consumes specs now fails loudly instead, the same tri-state
+rule the product applies to `has_any()`.
+
+⚠⚠ **The channel list is one gated roster, not a list two files transcribe.**
+Both readers import one tuple, and `LanguageSpec`'s field roster is pinned: a
+fifth field fails by name and forces one decision, channel or not-a-channel with
+the reason. The classification cannot be the lazy answer either -- a node-type
+LIST classified as a non-channel owes either "nothing reads it", which is
+SCANNED across `src/`, or a named non-extraction read, which is
+`container_node_types` alone and pinned to the file that reads it. That closes
+the recurrence one field over: `type_patterns` is declared by 19 specs and read
+by nothing (#725), so the day something wires it in it becomes a channel the
+recognised set has never heard of, and the only symptom would be this inventory
+quietly listing forms the product extracts. Ten planted defects, ten named
+guards red, each one PREDICTED before it was run.
+
+⚠ Inventory **272 -> 264**: eight rows leave, across go, java, javascript, php,
+rust, tsx and typescript. `docs/harness/ARCHAEOLOGY.md` carries the new count.
+`variable_patterns` is read through `getattr`, so this does not depend on the
+order #741's branch and this one merge in.
 ### Fixed - a Swift protocol's requirements and every subscript are symbols (#733)
 
 A protocol indexed as a bare name. `func required()` and `var value: Int { get }`
@@ -245,7 +634,7 @@ neutral addition.** `type_patterns` and `return_type_fields` are declared across
 the spec table -- 19 and 14 of the 79 specs respectively -- and read by nothing
 (#725), and a list no channel consults is
 indistinguishable from the defect it was added to fix.
-`test_every_declared_field_pattern_actually_yields_a_field` asserts the
+`test_every_declared_extraction_channel_actually_yields_its_kind` asserts the
 readership through the product, keyed on the spec so the second member is
 checked when it arrives rather than joining unwatched.
 
