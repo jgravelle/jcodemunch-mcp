@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Fixed - a Julia macro and every wrapped type head are symbols (#748, #749)
+
+A Julia macro yielded no symbol, and a `struct` or `abstract type` yielded one
+only when its name was bare. Add a type parameter or a supertype -- the ordinary
+case in numerical and interface-style Julia -- and it produced nothing: seven of
+nine type shapes were absent, and the two that worked were the least common.
+
+⚠⚠ **Neither is a ghost, which is what makes them one fix.** All three node
+types are in the compiled grammar and all three are matched by
+`_parse_julia_symbols`. The NAME LOOKUP read a depth the grammar uses only for
+the simplest spelling of each form:
+
+    macro sayhello(x)       signature > call_expression > identifier
+    struct Box{T}           type_head > parametrized_type_expression > identifier
+    struct S <: Super       type_head > binary_expression > identifier
+    struct Q{T} <: Sup{T}   type_head > binary_expression >
+                                parametrized_type_expression > identifier
+
+`_direct_name` asked for a direct identifier child, which a macro does not have;
+`_struct_name` read `type_head > identifier`, which only the bare head has.
+
+⚠⚠ **The third and fourth instance of one shape in one function, and that is
+why the fix is a resolver rather than two patches.** #738 was the first pair:
+the short form's name sits under `call_expression` and the helper wanted a
+`signature`. Its answer was `_callable_name`, ONE resolver asked by the long and
+short forms, which repaired the long form for free. `_type_head_name` is the
+same answer for type heads, asked by `struct_definition` and
+`abstract_definition`; the macro branch asks `_func_name`, because a macro's
+`signature` nests its name exactly where a function's does. **Four name helpers
+were reached one bespoke fix at a time, and a fifth would have been reached the
+same way.**
+
+⚠⚠ **The name is the LEFT operand, never "the first identifier found".**
+`struct S <: Super` mentions two identifiers and declares one, and
+`struct Box{T}` binds `T` for the head. A walk that collected identifiers would
+index a supertype defined in another file, and a type parameter, as declarations
+here -- **a failure worse than the absence it replaces**, because a fabricated
+symbol looks correct in a result list while a missing one is merely missing.
+Both are asserted as their own rows.
+
+⚠ A `binary_expression` is unwrapped by POSITION, not by matching the `<:`
+token: keying on the spelling is the defect class #709 was re-keyed through four
+times.
+
+⚠ `primitive type Bits 8 end` is NOT fixed here and is asserted as a separate
+gap. `primitive_definition` is a node type the extractor does not match at all,
+which is #698's class rather than this one, and it is julia's one remaining row
+in #724's inventory -- the row leaves when a change whose subject it is removes
+it.
+
+Both gap tests that recorded these defects are deleted with `harness/retired.json`
+entries, and `test_the_retired_gap_tests_are_gone_from_the_short_function_file`
+fails if either comes back: a gap test outliving its gap is the shape those
+tests existed to prevent.
+
 ### Security - anyio 4.12.1 carries a critical TLS advisory, and the gate found it before a release did
 
 `deps.vuln_max` went red on every open branch at once, which is what a

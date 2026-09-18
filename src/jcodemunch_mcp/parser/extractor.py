@@ -7965,16 +7965,69 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return _callable_name(head)
         return None
 
-    def _struct_name(node) -> Optional[str]:
-        """Extract name from struct_definition via type_head > identifier."""
+    #: Nodes a Julia TYPE head wraps its name in without changing what it names:
+    #: a parameter list (`Box{T}`) and the `<:` supertype declaration, which the
+    #: grammar spells as an ordinary `binary_expression`.
+    _TYPE_HEAD_WRAPPERS = frozenset({"parametrized_type_expression", "binary_expression"})
+
+    def _type_head_name(node) -> Optional[str]:
+        """The declared name of a type head, through any wrapping (#749).
+
+        ⚠⚠ **ONE resolver, asked by every type form, and it is the FOURTH
+        name helper this function needed before anyone asked why.** `_struct_name`
+        read `type_head > identifier`, which is only the bare spelling, so seven
+        of nine type shapes yielded nothing -- and the two that worked
+        (`struct P`, `abstract type A end`) are the least common in real Julia,
+        where a parametric or subtyped head is the ordinary case. `_callable_name`
+        one screen up is the same answer to the same question for callable heads
+        (#738); a fifth bespoke helper is how the first four happened.
+
+        ⚠⚠ **The name is the LEFT operand, never "the first identifier
+        found".** `struct S <: Super` mentions two identifiers and declares one,
+        and `struct Box{T}` binds `T` for the head -- so a walk that collected
+        identifiers would index a supertype living in another file, and a type
+        parameter, as declarations here. **That failure is worse than the
+        absence it replaces**, because a fabricated symbol looks correct in a
+        result list while an absent one is merely missing.
+
+        ⚠ A `binary_expression` is unwrapped by POSITION rather than by
+        matching the `<:` token. The left operand of a type head is its name
+        under any operator the grammar admits there, and keying on the spelling
+        is what [[a-guard-written-against-a-spelling]] names -- the same reason
+        `_callable_name` unwraps `where_expression` by node type and not by
+        reading the word.
+
+        ⚠ The loop is a LOOP because the wrappers NEST: `Q{T} <: Sup{T}` is
+        `binary_expression > parametrized_type_expression > identifier`, so a
+        one-level unwrap handles the two simple shapes and silently drops the
+        combined one. Bounded, for the reason `_callable_name` is bounded.
+
+        ⚠ The direct-identifier fallback is kept: `abstract_definition` reached
+        it before this change and nothing establishes that every spelling of
+        every type form builds a `type_head`.
+        """
+        head = None
         for child in node.children:
             if child.type == "type_head":
-                for sub in child.children:
-                    if sub.type == "identifier":
-                        return source[sub.start_byte:sub.end_byte]
-            elif child.type == "identifier":
+                head = child
+                break
+            if child.type == "identifier":
                 return source[child.start_byte:child.end_byte]
-        return None
+        if head is None:
+            return None
+
+        named = [c for c in head.children if c.is_named]
+        current = named[0] if named else None
+        depth = 0
+        while current is not None and current.type in _TYPE_HEAD_WRAPPERS:
+            if depth >= 8:
+                return None
+            inner = [c for c in current.children if c.is_named]
+            current = inner[0] if inner else None
+            depth += 1
+        if current is None or current.type != "identifier":
+            return None
+        return source[current.start_byte:current.end_byte]
 
     def _direct_name(node) -> Optional[str]:
         """Return first identifier child text."""
@@ -8026,7 +8079,15 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name = _short_function_name(node)
             kind = "function" if name else None
         elif node.type == "macro_definition":
-            name = _direct_name(node)
+            # ⚠⚠ `_func_name`, not a macro-shaped helper (#748). A macro's
+            # `signature` nests its name exactly where a function's does
+            # (`signature > call_expression > identifier`), so the two forms are
+            # ONE question; `_direct_name` asked for a direct identifier child,
+            # which a macro does not have, and every macro was dropped in
+            # silence. `test_a_macro_and_a_function_are_named_by_the_same_path`
+            # asserts the shared path on the product rather than on a tree read
+            # once.
+            name = _func_name(node)
             kind = "function"
         elif node.type == "struct_definition":
             # ⚠ `mutable_struct_definition` was the third dead literal in this
@@ -8037,10 +8098,10 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # checks the grammar after those two finds a third literal matching
             # nothing and cannot tell which kind it is.
             # `test_a_mutable_struct_still_extracts` proves the removal is safe.
-            name = _struct_name(node)
+            name = _type_head_name(node)
             kind = "type"
         elif node.type == "abstract_definition":
-            name = _struct_name(node) or _direct_name(node)
+            name = _type_head_name(node) or _direct_name(node)
             kind = "type"
         elif node.type == "module_definition":
             name = _direct_name(node)

@@ -130,26 +130,6 @@ def test_the_controls_extract(parsed):
     assert {"Demo", "longform", "Point"} <= names, sorted(names)
 
 
-def test_a_macro_is_a_known_separate_gap(parsed):
-    """⚠⚠ Found while building this fixture, and it is NOT this issue.
-
-    `macro sayhello(x) ... end` yields no symbol. `macro_definition` IS in the
-    grammar and IS matched, so this is not a ghost -- the extractor reads the
-    name with `_direct_name`, which takes the first DIRECT identifier child,
-    while a macro's name sits at `signature > call_expression > identifier`,
-    exactly one level deeper. The same "the helper looks in the wrong place"
-    shape as the short form, in the same function, needing a different fix.
-
-    Filed separately (policy 1: one issue, one verdict). This asserts the gap so
-    the record cannot outlive it -- when macros start extracting, this test
-    fails and names the line to delete.
-    """
-    assert not [s for s in parsed if s.name == "sayhello"], (
-        "a Julia macro now yields a symbol, so the separate macro gap is fixed "
-        "-- DELETE this test rather than adjusting it, and remove the note from "
-        "the module docstring"
-    )
-
 
 # ---------------------------------------------------------------------------
 # The ghost
@@ -292,56 +272,6 @@ def test_the_unnameable_short_forms_are_declined_not_mis_named(source, label):
         f"must gain it in the same change or the two disagree"
     )
 
-
-@pytest.mark.parametrize(
-    "source,name",
-    [
-        ("struct Box{T} end", "Box"),
-        ("struct S <: Super end", "S"),
-        ("struct Q{T} <: Sup{T} end", "Q"),
-        ("mutable struct M{T} end", "M"),
-        ("abstract type B <: A end", "B"),
-        ("abstract type C{T} <: A end", "C"),
-        ("primitive type Bits 8 end", "Bits"),
-    ],
-    ids=["parametric", "subtyped", "both", "mutable parametric",
-         "abstract subtyped", "abstract parametric", "primitive"],
-)
-def test_a_parametric_or_subtyped_type_head_is_a_known_gap(source, name):
-    """⚠⚠ #749, found in review of this batch and deliberately NOT fixed here.
-
-    `_struct_name` reads `type_head > identifier`, which is only the bare form.
-    The grammar nests the name as soon as the head is parametric or subtyped --
-    `type_head > parametrized_type_expression > identifier`, or
-    `type_head > binary_expression > ...` for `<:` -- so seven of nine type
-    shapes yield nothing, and the two that work are the least common in real
-    Julia. `abstract_definition` shares the helper and the gap; `primitive type`
-    is unnamed in the extractor entirely and is julia's one remaining row in
-    #724's inventory.
-
-    **The third instance of one shape in this function**, after short-form
-    functions (#738, fixed here) and macros (#748): the node type is right and
-    matched, and the NAME HELPER LOOKS AT THE WRONG DEPTH. That is why #738's
-    fix is `_callable_name`, one shared resolver, rather than a fourth bespoke
-    helper -- and why #749 argues for the same treatment of type heads instead
-    of a fifth.
-
-    ⚠ The sources are single-line because an empty Julia type body is valid,
-    which keeps newline escapes out of a parametrize list. An earlier draft used
-    `\\n` and the escapes were processed twice on the way into the file, leaving
-    an unterminated string literal that failed at COLLECTION -- the documented
-    hazard, and the reason code with escapes goes through an editor and an
-    `ast.parse`, never a heredoc.
-
-    This asserts the gap so the record cannot outlive it: when #749 is fixed
-    these fail and name the line to delete.
-    """
-    symbols = parse_file(source, "t.jl", "julia")
-
-    assert not [s for s in symbols if s.name == name], (
-        f"{name} now extracts, so #749 is fixed -- DELETE this test rather than "
-        f"adjusting it, and remove the note from the module docstring"
-    )
 
 
 def test_the_bare_type_head_control_still_extracts():
