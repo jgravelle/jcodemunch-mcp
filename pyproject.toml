@@ -70,7 +70,7 @@ openai = ["openai>=1.0.0"]
 minimax = ["openai>=1.0.0"]
 zhipu = ["openai>=1.0.0"]
 dbt = ["pyyaml>=6.0"]
-http = ["uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.0.0"]
+http = ["uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.14.2"]
 watch = ["watchfiles>=1.0.0"]
 semantic = ["sentence-transformers>=2.2.0"]
 local-embed = ["onnxruntime>=1.16.0"]
@@ -81,7 +81,7 @@ keyring = ["keyring>=24.0"]
 bench = ["openai>=1.0.0", "anthropic>=0.40.0", "pyyaml>=6.0", "rich>=13.0", "jinja2>=3.1"]
 # `all` is a hand-maintained union of every extra above. When you add a new
 # extra or a new dependency to one, mirror it here (there is no auto-union).
-all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.0.0", "watchfiles>=1.0.0", "sentence-transformers>=2.2.0", "onnxruntime>=1.16.0", "sounddevice>=0.4.6", "numpy>=1.24.0", "Pillow>=10.0.0", "rich>=13.0", "jinja2>=3.1", "keyring>=24.0"]
+all = ["anthropic>=0.40.0", "google-generativeai>=0.8.0", "openai>=1.0.0", "pyyaml>=6.0", "uvicorn>=0.20.0", "starlette>=1.3.1", "anyio>=4.14.2", "watchfiles>=1.0.0", "sentence-transformers>=2.2.0", "onnxruntime>=1.16.0", "sounddevice>=0.4.6", "numpy>=1.24.0", "Pillow>=10.0.0", "rich>=13.0", "jinja2>=3.1", "keyring>=24.0"]
 
 
 [project.scripts]

@@ -175,7 +175,6 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "function_definition": ("a.php", "<?php\nfunction probe() { }\n"),
         "interface_declaration": ("a.php", "<?php\ninterface Probe { }\n"),
         "method_declaration": ("a.php", "<?php\nclass Holder { public function probe() { } }\n"),
-        "property_declaration": ("a.php", "<?php\nclass Holder { public $probe = 1; }\n"),
         "trait_declaration": ("a.php", "<?php\ntrait Probe { }\n"),
     },
     "python": {
@@ -204,6 +203,7 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "enum_definition": ("a.scala", "enum Probe:\n  case A\n"),
         "function_declaration": ("a.scala", "trait Holder:\n  def probe: Int\n"),
         "function_definition": ("a.scala", "def probe: Int = 1\n"),
+        "given_definition": ("a.scala", "given probe: Int = 1\n"),
         "object_definition": ("a.scala", "object Probe\n"),
         "trait_definition": ("a.scala", "trait Probe\n"),
         "type_definition": ("a.scala", "type Probe = String\n"),
@@ -217,6 +217,9 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "init_declaration": ("a.swift", "class Holder {\n    init() {}\n}\n"),
         "property_declaration": ("a.swift", "class Holder {\n    var probe = 1\n}\n"),
         "protocol_declaration": ("a.swift", "protocol Probe {}\n"),
+        "protocol_function_declaration": ("a.swift", "protocol Holder {\n    func probe()\n}\n"),
+        "protocol_property_declaration": ("a.swift", "protocol Holder {\n    var probe: Int { get }\n}\n"),
+        "subscript_declaration": ("a.swift", "struct Holder {\n    subscript(i: Int) -> Int { return i }\n}\n"),
         "typealias_declaration": ("a.swift", "typealias Probe = String\n"),
     },
     "tsx": {
@@ -268,11 +271,13 @@ _KNOWN_GAPS: dict[str, dict[str, str]] = {
         "newtype": "#722: haskell extracts nothing",
         "type_synon": "#722: haskell extracts nothing, and this is not the grammar's spelling",
     },
-    # #743: the motivating instance. `name_fields` says `name` and the grammar
-    # sets no such field on this node -- the name is at
-    # `property_element > variable_name`. Declared, nameable by #712's guard,
-    # and never emitted.
-    "php": {"property_declaration": "#743: the grammar sets no `name` field on property_declaration"},
+    # ⚠⚠ #743 was the motivating instance and its entry is GONE, but NOT by the
+    # usual route. `test_a_known_gap_is_still_a_gap` fails when a gap closes
+    # while the form stays declared; this form stopped being DECLARED at all --
+    # #744 moved `php.property_declaration` out of `symbol_node_types` into
+    # `field_patterns`, so it left `DECLARED_FORMS` and the partition check is
+    # what named it. Both exits are correct and they fail in different tests,
+    # which is worth knowing before reading either failure.
     # #754: found by THIS file on its first run. The grammar gives
     # `deinit_declaration` no identifier child at all (its only named child is
     # `function_body`), so there is no name to borrow and the symbol is
@@ -297,6 +302,8 @@ _PROMOTED_IN_A_CONTAINER = {
     ("cpp", "field_declaration"): "a member function prototype is a field_declaration (#755)",
     ("rust", "function_signature_item"): "a bodiless fn exists only inside a trait",
     ("scala", "function_declaration"): "a bodiless def exists only inside a trait or abstract class",
+    ("swift", "protocol_function_declaration"): "a protocol's method requirement exists only inside the protocol (#733)",
+    ("swift", "subscript_declaration"): "a subscript exists only inside a type (#733)",
 }
 
 
@@ -410,6 +417,36 @@ def test_every_declared_node_type_has_a_sample():
         f"gap: {missing}. Declaring a form obliges two lines of sample source "
         f"here -- without one, nothing proves the declaration produces a symbol "
         f"(#745)."
+    )
+
+
+def test_no_sample_describes_a_form_that_is_not_declared():
+    """The mirror of the sample obligation, and the direction nothing asked.
+
+    ⚠⚠ The file had a one-way check: a declared form with no sample fails,
+    a sample for a form nothing declares sat green forever. That is how
+    `php.property_declaration`'s sample survived #744 moving the form out of
+    `symbol_node_types` into `field_patterns` -- the row read as evidence for a
+    declaration that no longer existed, which is the record-outlives-its-subject
+    shape this whole file is about, one direction over.
+
+    ⚠ A sample is not wasted work when it goes stale -- the PHP one moved to
+    `tests/test_inventory_reads_every_channel.py`, where the form is now
+    recognised. The rule is that it lives where the form is declared, not in
+    both places.
+    """
+    declared = {(lang, nt) for lang, nt, _k in DECLARED_FORMS}
+    stale = sorted(
+        f"{language}.{node_type}"
+        for language, samples in _SAMPLES.items()
+        for node_type in samples
+        if (language, node_type) not in declared
+    )
+    assert not stale, (
+        f"{stale} have samples here and are declared in no spec's "
+        f"`symbol_node_types`. If the form moved to another channel, its "
+        f"sample belongs in that channel's file; if the declaration was "
+        f"dropped, so is the sample."
     )
 
 

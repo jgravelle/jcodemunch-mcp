@@ -62,6 +62,7 @@ so a third language cannot join them unnoticed.
 """
 
 import ast
+import dataclasses
 import functools
 import re
 import inspect
@@ -71,7 +72,7 @@ import pathlib
 import pytest
 
 from jcodemunch_mcp.parser.grammar_pack import get_parser
-from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY, LanguageSpec
 
 
 BASELINE = pathlib.Path(__file__).parent / "fixtures" / "grammar_declaration_inventory.json"
@@ -111,15 +112,22 @@ _KNOWN_GHOSTS = {
 # the intended lifecycle: `test_a_confirmed_gap_is_in_the_inventory` went red
 # the moment the fix landed and named this line, so the record could not
 # outlive the defect it records.
-_CONFIRMED_GAPS = {
-    "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
-    "swift": [
-        ("protocol_function_declaration", "a protocol's method requirements are absent"),
-        ("protocol_property_declaration", "a protocol's property requirements are absent"),
-        ("subscript_declaration", "a subscript yields no symbol"),
-    ],
-    "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
-}
+# ⚠ `go/var_spec` and `scala/given_definition` were here and are GONE, closed by
+# #731 and #734. ⚠⚠ Note the ASYMMETRY between the two removals, because it is
+# the kind of thing that reads as an oversight later. `given_definition` leaves
+# the INVENTORY as well: the Scala spec now names it, so the row disappears and
+# `test_a_confirmed_gap_is_in_the_inventory` went red and named the line.
+# `var_spec` stays IN the inventory and only loses its gap entry, because the
+# fix declares `var_declaration` -- the node a reader opens, and the one that
+# wraps every spec of a grouped block -- while `var_spec` itself is still named
+# by no channel. The row remains true as written ("no channel names this form");
+# what stopped being true is the gap entry's claim that the form yields nothing.
+# ⚠ And `swift`'s three requirement forms were the last entries, closed by
+# #733. The dict is EMPTY, which is the intended end state and not a missing
+# import: every gap review confirmed through `parse_file` has been fixed.
+# `test_a_confirmed_gap_is_in_the_inventory` is vacuous while it stays empty,
+# and becomes the lifecycle guard again the moment review records the next one.
+_CONFIRMED_GAPS: dict[str, list[tuple[str, str]]] = {}
 
 # ⚠⚠ Confirmed by the product and NOT expressible in the inventory, so recorded
 # here rather than silently dropped. Julia's extractor matches
@@ -229,13 +237,563 @@ def _harvested_node_types(language, kinds):
     return frozenset(literals & kinds)
 
 
+#: Every channel a spec can extract a node type through.
+#:
+#: ⚠⚠ **FOUR, and this function read ONE for its whole life (#757).** A form
+#: fixed through `field_patterns` or `constant_patterns` stayed listed as
+#: unrecognised, so #735 left `java.field_declaration` in the inventory and
+#: #743 made the count GROW in the change that fixed PHP properties -- a file
+#: that names unindexed forms was naming indexed ones, and closing a gap could
+#: make it worse.
+#:
+#: ⚠⚠ **"Declared in a channel" is NOT "extracted by it", which is why this
+#: union ships with evidence.** `java.field_declaration` sat in
+#: `constant_patterns` for years while every ordinary field was dropped,
+#: because that channel required `static final`; a union by declaration alone
+#: would have called the form recognised and hidden the widest gap #724 found.
+#: `tests/test_inventory_reads_every_channel.py` owes a sample for every form
+#: this widening suppresses a row for, and proves the channel extracts it BY
+#: DELETION -- so a form that stops extracting returns to the inventory instead
+#: of hiding in it.
+#:
+#: ⚠ Every name here is read through `getattr`, so this does not depend on the
+#: order two branches merge in; `variable_patterns` (#741) arrived that way and
+#: `_PENDING_CHANNELS` is empty again.
+_EXTRACTION_CHANNELS = (
+    "constant_patterns",
+    "field_patterns",
+    "variable_patterns",
+)
+
+
+def _spec_recognised(spec) -> set[str]:
+    """Every node type this spec can extract, across all four channels."""
+    recognised = set(getattr(spec, "symbol_node_types", None) or {})
+    for channel in _EXTRACTION_CHANNELS:
+        recognised |= set(getattr(spec, channel, None) or [])
+    return recognised
+
+#: ⚠ EMPTY, and that is the expected end state. `variable_patterns` was the
+#: one reviewed entry (#741 / PR #753); it is a field of `LanguageSpec` since
+#: that branch merged, so the exemption was dropped rather than left to rot.
+_PENDING_CHANNELS: dict[str, str] = {}
+
+#: Fields whose VALUES are node-type collections, classified by what reads them.
+#:
+#: ⚠⚠ **ONE predicate over the SHAPE, because the first two versions of this
+#: gate were keyed to a spelling and review broke both.** Round two's version
+#: had no rule at all, so a new channel could be classified non-channel and
+#: every guard stayed green. Round three's was keyed to `list[str]` -- and the
+#: canonical channel, `symbol_node_types`, is a `dict[str, str]`, which is the
+#: natural shape for any channel carrying a kind, so a dict-shaped fifth channel
+#: walked straight through the rule written to stop exactly that. Same recurrence
+#: as #709, which was re-keyed FOUR times in six rounds; what held there was one
+#: shared predicate plus pinned cases, so that is what this is.
+#:
+#: The predicate is the annotation being a node-type collection (`list[str]` or
+#: `dict[str, str]`), and every field matching it owes ONE of four
+#: classifications:
+#:
+#: * the first channel, `symbol_node_types`, unioned in by `_spec_recognised`;
+#: * a member of `_EXTRACTION_CHANNELS` (or `_PENDING_CHANNELS`);
+#: * `_UNREAD_NON_CHANNEL_FIELDS` -- nothing reads it, and that is SCANNED;
+#: * `_READ_FOR_SOMETHING_ELSE` -- read, but not to decide what is extracted,
+#:   with the purpose stated and the reading file pinned.
+#:
+#: A field matching the predicate and none of the four fails by name. There is
+#: no fifth bucket, which is the point: the bucket is where an excuse would go.
+
+#: Read by NOTHING (#725), which is why they are not channels -- and the claim
+#: is asserted, not quoted.
+#:
+#: ⚠⚠ **`type_patterns` is the live candidate for #757 recurring one field
+#: over**: 19 specs declare it, the extractor reads none of them, and the day
+#: something wires it in it IS a channel the recognised set has never heard of.
+#: The only symptom would be this inventory quietly listing forms the product
+#: extracts -- the direction it is least able to notice, because a row that
+#: should not be there looks like a row nobody has got to yet.
+_UNREAD_NON_CHANNEL_FIELDS = {
+    "type_patterns": "#725: declared by 19 specs, read by nothing",
+    "return_type_fields": "#725: declared by 14 specs, read by nothing",
+    # ⚠⚠ A THIRD, found by this scan rather than by reading: #725 named two,
+    # and `param_fields` is required POSITIONALLY, so every spec fills it in and
+    # nothing in `src/` reads it. It was classified "signature detail" here on
+    # the strength of its name until the scan disagreed -- which is the argument
+    # for scanning a classification instead of stating one.
+    # ⚠ No count, deliberately: the registry size (79), the number of
+    # `LanguageSpec(...)` literals (78) and the keys in the registry literal
+    # (77) are three different denominators, and a required argument needs none
+    # of them to make the point.
+    "param_fields": "required positionally, so every spec fills it; read by nothing (found by this scan)",
+}
+
+#: Read, but for something other than deciding what gets extracted: the purpose
+#: and the file that does the reading, so an excuse cannot outlive its reason.
+_READ_FOR_SOMETHING_ELSE = {
+    "container_node_types": (
+        "ownership: parent_is_container promotes a function to a method, it "
+        "does not turn a node into a symbol",
+        "src/jcodemunch_mcp/parser/extractor.py",
+    ),
+    "name_fields": (
+        "naming: how to NAME a node type the spec already declares",
+        "src/jcodemunch_mcp/parser/extractor.py",
+    ),
+}
+
+#: Fields that are not node-type collections at all, with what they are.
+_SCALAR_SPEC_FIELDS = frozenset(
+    {
+        "ts_language",              # the grammar's name
+        "docstring_strategy",       # a strategy name
+        "decorator_node_type",      # one node type, attached to a symbol, never one itself
+        "decorator_from_children",  # a bool
+    }
+)
+
+#: The union every field of `LanguageSpec` must fall into. Kept for the roster
+#: test, which is what fails when a field arrives that nothing here classifies.
+_NON_CHANNEL_SPEC_FIELDS = frozenset(
+    {"symbol_node_types"}
+    | set(_UNREAD_NON_CHANNEL_FIELDS)
+    | set(_READ_FOR_SOMETHING_ELSE)
+    | _SCALAR_SPEC_FIELDS
+)
+
+#: The SCALAR annotations. Everything else is treated as a node-type collection.
+#:
+#: ⚠⚠ **INVERTED, and the direction is the whole point.** Listing the collection
+#: spellings makes the rule fail OPEN: `tuple[str, ...]`, `frozenset[str]`,
+#: `dict[str, list[str]]`, a bare `list` or `list[str] | None` all fall out of
+#: it, and a channel spelled any of those is classified away with no scan. That
+#: is the third version of one hole -- round two had no rule, round three keyed
+#: it to `list[str]`, and each fix was a narrower version of the same
+#: fail-open shape (#709: re-keyed four times in six rounds).
+#:
+#: Pinning the three scalar spellings this dataclass uses inverts it: an
+#: unrecognised annotation lands in the collection rule and owes a
+#: classification, so a new SPELLING fails closed and a new scalar KIND (say
+#: `int`) fails loudly rather than being waved through. Text comparison stops
+#: being load-bearing for coverage -- it only has to recognise three spellings,
+#: and being wrong about one of those is the safe direction.
+#:
+#: ⚠ Both string and object forms are covered by normalising the text, because
+#: a dataclass annotation reaches `dataclasses.fields` as a string under
+#: `from __future__ import annotations` and as the object without it.
+_SCALAR_SPEC_ANNOTATIONS = (
+    "str",
+    "Optional[str]",
+    "bool",
+)
+
+def _annotation_text(annotation) -> str:
+    """One normalised spelling for an annotation, however it arrives.
+
+    ⚠⚠ Three forms reach `dataclasses.fields`, and the first version of this
+    handled ONE. Without `from __future__ import annotations` a plain class
+    arrives as the class object and stringifies as `<class 'str'>`, a `typing`
+    construct as `typing.Optional[str]`, and a builtin generic as `list[str]` --
+    so a normaliser written against the third reads the first two as unknown.
+    Under the INVERTED rule that direction is safe (unknown means "treat it as a
+    collection", so it fails loudly) and it was still wrong: every scalar field
+    was reported as a collection at once, which is how it was found.
+    """
+    if isinstance(annotation, str):
+        text = annotation
+    elif isinstance(annotation, type):
+        text = annotation.__name__
+    else:
+        text = str(annotation)
+    return text.replace(" ", "").replace("typing.", "")
+
+
+def _spec_field_names() -> set[str]:
+    return {f.name for f in dataclasses.fields(LanguageSpec)}
+
+
+def _node_type_collection_fields() -> set[str]:
+    """Fields of `LanguageSpec` whose values are collections of node types.
+
+    ⚠⚠ Defined by EXCLUSION, so an unrecognised annotation is a collection and
+    owes a classification. Keying it to the collection spellings instead let a
+    dict-shaped channel through (round three), and before that there was no rule
+    at all (round two) -- the same fail-open shape, twice, narrower each time.
+    """
+    return {
+        f.name
+        for f in dataclasses.fields(LanguageSpec)
+        if _annotation_text(f.type) not in _SCALAR_SPEC_ANNOTATIONS
+    }
+
+
+def _src_files():
+    root = pathlib.Path(__file__).resolve().parent.parent / "src"
+    return sorted(root.rglob("*.py"))
+
+
+def _reads_of(field_name: str) -> list[str]:
+    """Every file under `src/` that READS a spec's `field_name`.
+
+    Three shapes, found by AST rather than by text:
+
+    * `spec.field_name` -- an attribute read, the likely one;
+    * `getattr(anything, "field_name")` -- quote style irrelevant, which a text
+      scan got wrong: it built a double-quoted needle and missed
+      `getattr(spec, 'type_patterns')`;
+    * `anything["field_name"]` -- a subscript read, the `asdict(spec)` route.
+
+    ⚠ Keyword CONSTRUCTION is deliberately NOT a read: every spec in
+    `languages.py` passes `type_patterns=[...]`, and counting that would make
+    every field look consumed, so the scan would assert nothing. An
+    `ast.keyword` is never an `Attribute`, `getattr` call or `Subscript`, so
+    this falls out of the shapes rather than needing an exclusion.
+
+    ⚠ Co-located by construction: a text scan asked whether `getattr` and the
+    name both appeared ANYWHERE in the same file, which is over-inclusive on
+    unrelated files and under-inclusive on quote style at once.
+    """
+    hits = []
+    for path in _src_files():
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:  # pragma: no cover - a file we cannot parse is not a read
+            continue
+        for node in ast.walk(tree):
+            read = False
+            if isinstance(node, ast.Attribute) and node.attr == field_name:
+                read = True
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and node.args
+                and isinstance(node.args[1] if len(node.args) > 1 else None, ast.Constant)
+                and node.args[1].value == field_name
+            ):
+                read = True
+            elif (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Constant)
+                and node.slice.value == field_name
+            ):
+                read = True
+            if read:
+                hits.append("src/" + path.as_posix().split("/src/", 1)[-1])
+                break
+    return sorted(set(hits))
+
+
+def test_every_node_type_collection_field_is_classified():
+    """⚠⚠ The gate for #757 recurring one field over, and the ONE place the
+    lazy answer is refused.
+
+    Every field whose value is a collection of node types owes a
+    classification: a channel, unread (scanned), or read for something else
+    with the purpose and the reader named. There is no bucket for "not a
+    channel" on its own, because that is where an excuse goes -- and a wrong
+    answer here is invisible in the product: the inventory simply starts
+    reporting forms the extractor handles, which reads like a gap nobody has
+    got to yet.
+    """
+    classified = (
+        {"symbol_node_types"}
+        | set(_EXTRACTION_CHANNELS)
+        | set(_PENDING_CHANNELS)
+        | set(_UNREAD_NON_CHANNEL_FIELDS)
+        | set(_READ_FOR_SOMETHING_ELSE)
+    )
+    unclassified = sorted(_node_type_collection_fields() - classified)
+    assert not unclassified, (
+        f"{unclassified} hold collections of node types and nothing says what "
+        f"reads them. Pick one: an extraction channel (_EXTRACTION_CHANNELS, "
+        f"plus a sample per widened form in "
+        f"tests/test_inventory_reads_every_channel.py); unread "
+        f"(_UNREAD_NON_CHANNEL_FIELDS, which is scanned across src/); or read "
+        f"for something other than extraction (_READ_FOR_SOMETHING_ELSE, with "
+        f"the purpose and the file that reads it). A field classified only as "
+        f"'not a channel' is the escape hatch this refuses (#757)."
+    )
+
+
+@pytest.mark.parametrize("field_name", sorted(_UNREAD_NON_CHANNEL_FIELDS))
+def test_a_field_classified_unread_is_still_unread(field_name):
+    """The measurement inside the gate, asserted instead of transcribed.
+
+    ⚠⚠ This is the trip-wire: when a fix wires `type_patterns` into the
+    extractor it becomes an extraction channel, and the recognised set will not
+    know. This fails on that commit and names the decision.
+    """
+    readers = _reads_of(field_name)
+    assert not readers, (
+        f"{field_name} is classified a non-channel because nothing reads it "
+        f"({_UNREAD_NON_CHANNEL_FIELDS[field_name]}), and {readers} read it "
+        f"now. If it feeds extraction it is a CHANNEL: add it to "
+        f"_EXTRACTION_CHANNELS, and a sample per newly recognised form in "
+        f"tests/test_inventory_reads_every_channel.py. If it feeds something "
+        f"else, move it to _READ_FOR_SOMETHING_ELSE with the purpose and this "
+        f"file named (#757)."
+    )
+
+
+@pytest.mark.parametrize("field_name", sorted(_READ_FOR_SOMETHING_ELSE))
+def test_a_field_read_for_something_else_is_still_read_there(field_name):
+    """The positive control for the scan, and the other direction of the excuse.
+
+    ⚠ If the read disappears the field is UNREAD and belongs in the scanned
+    set; if it moves, the pinned file is wrong and the next reader is misled.
+    Either way the classification as written has stopped being true.
+
+    ⚠⚠ These arms are what make the unread arms mean something: they share one
+    `_reads_of`, so a scan stubbed to find nothing fails HERE while the unread
+    tests stay green, and a scan that finds everything fails there while this
+    stays green. Neither half can be vacuous while the other passes.
+    """
+    purpose, reader = _READ_FOR_SOMETHING_ELSE[field_name]
+    readers = _reads_of(field_name)
+    assert reader in readers, (
+        f"{field_name} is excused from being a channel because {reader} reads "
+        f"it for {purpose}, and that read is gone -- readers now {readers}. "
+        f"Re-classify it: unread fields go in _UNREAD_NON_CHANNEL_FIELDS "
+        f"(#757)."
+    )
+
+
+def test_no_classification_names_a_field_that_is_gone():
+    """A classification for a field that no longer exists.
+
+    ⚠ Harmless to the product and corrosive to the gate: it reads as a decision
+    someone made about a real field, so the next reader trusts the list is
+    complete. The sample table next door is gated in both directions for the
+    same reason.
+    """
+    named = (
+        set(_UNREAD_NON_CHANNEL_FIELDS)
+        | set(_READ_FOR_SOMETHING_ELSE)
+        | _SCALAR_SPEC_FIELDS
+        | {"symbol_node_types"}
+    )
+    stale = sorted(named - _spec_field_names())
+    assert not stale, (
+        f"{stale} are classified as fields of LanguageSpec and are not fields "
+        f"of it -- renamed or removed (#757)."
+    )
+
+
+def test_every_extraction_channel_is_a_real_spec_field():
+    """A channel name that is not a field reads as an absent one, silently.
+
+    ⚠⚠ Both tuples go through `getattr(spec, channel, None) or []`, which is
+    exactly right for a field that has not merged yet and exactly wrong for a
+    TYPO -- the two are indistinguishable at the call site, and the typo
+    version quietly recognises nothing for the life of the file.
+    """
+    unknown = sorted(
+        set(_EXTRACTION_CHANNELS) - _spec_field_names() - set(_PENDING_CHANNELS)
+    )
+    assert not unknown, (
+        f"{unknown} are read as extraction channels and are not fields of "
+        f"LanguageSpec -- either a typo, or a pending arrival that belongs in "
+        f"_PENDING_CHANNELS with its branch named (#757)."
+    )
+
+
+def test_a_pending_channel_is_still_pending():
+    """The `getattr` excuse dies when the field arrives.
+
+    ⚠ Same shape as `_KNOWN_GAPS` next door: an exemption that outlives its
+    reason stops being an exemption and becomes a hole.
+    """
+    arrived = sorted(name for name in _PENDING_CHANNELS if name in _spec_field_names())
+    assert not arrived, (
+        f"{arrived} are fields of LanguageSpec now, so the branch adding them "
+        f"has merged: drop the _PENDING_CHANNELS entry (#757)."
+    )
+
+
+def test_a_pending_channel_is_not_a_typo_of_an_existing_field():
+    """⚠⚠ The hole `_PENDING_CHANNELS` would otherwise keep open.
+
+    `test_every_extraction_channel_is_a_real_spec_field` SUBTRACTS the pending
+    set, and `test_a_pending_channel_is_still_pending` can only fire when a name
+    becomes a real field -- which a MISSPELLED name never does. So
+    `feild_patterns` would sit there green forever, contributing nothing, which
+    is the exact silence the pending block says it exists to end.
+
+    ⚠ Measured on this roster: the three shapes a typo takes are all refused --
+    `feild_patterns` 0.929, `field_paterns` 0.963, `field_pattern` 0.963 -- and
+    plausible new names pass with margin (`variable_patterns` 0.71,
+    `method_patterns` 0.759, `enum_patterns` 0.769). One boundary case is
+    refused and is legitimate: `container_patterns` scores 0.857 against
+    `constant_patterns`. Kept, because the refusal is loud, names the pair, and
+    `test_the_pending_set_is_exactly_what_review_saw` already forces any new
+    entry to be argued for in the same commit.
+    """
+    import difflib
+
+    fields = _spec_field_names()
+    near = {}
+    for pending in _PENDING_CHANNELS:
+        for existing in fields:
+            # ⚠ An EXACT match is not a typo, it is an arrival, and
+            # `test_a_pending_channel_is_still_pending` owns that case. Without
+            # this, planting the arrival fires BOTH tests and neither verdict
+            # means what it says -- found by planting it.
+            if pending == existing:
+                continue
+            if difflib.SequenceMatcher(None, pending, existing).ratio() >= 0.85:
+                near.setdefault(pending, []).append(existing)
+    assert not near, (
+        f"{near} -- each pending channel is one small edit from a field that "
+        f"already exists, which is a typo, not an arrival. A typo'd channel is "
+        f"read as an absent field forever and nothing else would say so (#757)."
+    )
+
+
+def test_the_pending_set_is_exactly_what_review_saw():
+    """A pending entry is a REVIEWED exemption, not a place to put a name.
+
+    ⚠ Pinned by content, so adding one fails here and has to be argued for --
+    the `_KNOWN_GAPS` treatment. Removing the last one when #741 merges is the
+    expected direction, and this line is the reminder.
+    """
+    assert set(_PENDING_CHANNELS) == set(), (
+        f"_PENDING_CHANNELS is {sorted(_PENDING_CHANNELS)}; it is empty since "
+        f"#741 / PR #753 merged and variable_patterns became a real field. A "
+        f"new entry needs the branch that adds the field named, and a `getattr` "
+        f"read is not evidence the field will ever exist (#757)."
+    )
+
+
+def test_every_scalar_field_has_a_pinned_scalar_annotation():
+    """The inversion's own guard: a field named a scalar must be one.
+
+    ⚠ `_SCALAR_SPEC_FIELDS` is prose, `_SCALAR_SPEC_ANNOTATIONS` is the rule.
+    If a field in the first grows a collection annotation, the collection rule
+    already catches it -- this fails FIRST and says which of the two lists is
+    now wrong, which is the difference between a diagnosis and a puzzle.
+    """
+    annotations = {
+        f.name: _annotation_text(f.type) for f in dataclasses.fields(LanguageSpec)
+    }
+    wrong = {
+        name: annotations[name]
+        for name in sorted(_SCALAR_SPEC_FIELDS)
+        if annotations.get(name) not in _SCALAR_SPEC_ANNOTATIONS
+    }
+    assert not wrong, (
+        f"{wrong} are listed as scalar fields and are not annotated with a "
+        f"pinned scalar spelling {_SCALAR_SPEC_ANNOTATIONS}. Either the "
+        f"annotation changed -- in which case classify the field per the "
+        f"collection rule -- or a new scalar spelling needs adding to "
+        f"_SCALAR_SPEC_ANNOTATIONS deliberately (#757)."
+    )
+
+
+#: Where spec FIELDS are read. Scoped, and the scope is narrower than the claim
+#: it is tempting to make: four modules outside the parser reference
+#: `LanguageSpec` or `LANGUAGE_REGISTRY` (`config.py`, `server.py`,
+#: `cli/hooks/_common.py`, `tools/search_ast.py`), so "the parser is the only
+#: consumer" would be false. What is true today is that every read of a spec's
+#: FIELDS lives in `parser/extractor.py` and `parser/imports.py`, both inside
+#: this scope.
+#:
+#: ⚠ A computed read over a spec field in one of those four modules escapes this
+#: guard. Widening it to them fails on three unrelated `server.py` sites
+#: (`getattr(logging, level_name, ...)` and friends), so the honest closure is to
+#: key on the OBJECT rather than the directory -- flag
+#: `getattr(<name bound to a spec>, <computed>)` anywhere in `src/`. Not done:
+#: it needs binding analysis to be worth more than the scope, and the two
+#: modules that actually read fields are covered. Recorded so the next reader
+#: knows the limit rather than inferring a stronger claim from the constant.
+_SPEC_READING_PACKAGE = "src/jcodemunch_mcp/parser"
+
+
+def _dynamic_attribute_reads() -> list[str]:
+    """`getattr(x, <not a literal>)` sites in the package that reads specs."""
+    sites = []
+    for path in _src_files():
+        posix = "src/" + path.as_posix().split("/src/", 1)[-1]
+        if not posix.startswith(_SPEC_READING_PACKAGE):
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) > 1
+                and not isinstance(node.args[1], ast.Constant)
+            ):
+                sites.append(f"{posix}:{node.lineno}")
+    return sorted(set(sites))
+
+
+def test_no_dynamic_attribute_read_hides_a_spec_field():
+    """⚠⚠ An UNKNOWN read must not be reported as an absence.
+
+    `_reads_of` matches a literal attribute, `getattr` with a constant name and
+    a constant subscript. It cannot see `getattr(spec, name)` where `name` is a
+    variable -- and **that is exactly how this file reads the channels**:
+    `_spec_recognised` loops over `_EXTRACTION_CHANNELS` and calls
+    `getattr(spec, channel, None)`. If the parser ever adopts that style over
+    spec fields, the scan reports "unread" for a field read on every call, and
+    `test_a_field_classified_unread_is_still_unread` would then CERTIFY the
+    classification it exists to refuse.
+
+    So a dynamic read in the package that consumes specs is UNKNOWN, and UNKNOWN
+    fails loudly instead of counting as absence -- the same rule the product
+    applies to `has_any()` and to every tri-state probe in this tree. Measured
+    when written: six such calls exist under `src/`, none in the parser and none
+    over a spec (`logging`, `sys`, `self._mod`, two over a partial index row).
+    """
+    sites = _dynamic_attribute_reads()
+    assert not sites, (
+        f"{sites} read an attribute by a computed name inside "
+        f"{_SPEC_READING_PACKAGE}, so the unread scan can no longer tell a "
+        f"field nothing reads from one read dynamically. Either read the field "
+        f"by name, or make the unread classification prove itself another way "
+        f"-- an UNKNOWN read must not be published as an absence (#757)."
+    )
+
+
+def test_no_spec_field_is_unaccounted_for():
+    """⚠⚠ The roster, pinned: a new field of `LanguageSpec` fails by name.
+
+    The collection rule above decides what a node-type collection owes. This is
+    the outer ring -- every field, collection-shaped or not, must be accounted
+    for somewhere, so a new field cannot arrive unexamined and a new SCALAR
+    cannot be mistaken for a reviewed one.
+    """
+    accounted = (
+        {"symbol_node_types"}
+        | set(_EXTRACTION_CHANNELS)
+        | set(_PENDING_CHANNELS)
+        | set(_UNREAD_NON_CHANNEL_FIELDS)
+        | set(_READ_FOR_SOMETHING_ELSE)
+        | _SCALAR_SPEC_FIELDS
+    )
+    unaccounted = sorted(_spec_field_names() - accounted)
+    assert not unaccounted, (
+        f"LanguageSpec gained {unaccounted}, which nothing here accounts for. "
+        f"If it holds node types, classify it per the collection rule. If it is "
+        f"a scalar, add it to _SCALAR_SPEC_FIELDS with what it is -- and note "
+        f"that this is not an exit: the collection rule keys on the ANNOTATION, "
+        f"so a collection named as a scalar still owes a classification (#757)."
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def _checkable_languages():
     """Every language whose recognised node types can be compared to a grammar.
 
     Two sources, and the inventory records which:
 
-    * `spec` -- the language declares `symbol_node_types` (22 specs);
+    * `spec` -- the language declares node types in any extraction channel,
+      `symbol_node_types` or one of `_EXTRACTION_CHANNELS` (#757; 22 specs
+      declare the first, and `_spec_recognised` is what the arm tests);
     * `inline` -- the language declares none and its extractor function matches
       node types against literals in its body (32 more).
 
@@ -247,7 +805,7 @@ def _checkable_languages():
         kinds = _grammar_kinds(language)
         if kinds is None:
             continue
-        declared = set(getattr(spec, "symbol_node_types", None) or {})
+        declared = _spec_recognised(spec)
         if declared:
             out[language] = (declared, kinds, "spec")
             continue
@@ -311,11 +869,24 @@ def test_every_declared_node_type_is_one_the_grammar_emits(language):
 
     ghosts = (declared - kinds) - excused
 
+    spec = LANGUAGE_REGISTRY[language]
+    where = {
+        node_type: sorted(
+            channel
+            for channel in ("symbol_node_types", *_EXTRACTION_CHANNELS)
+            if node_type in (getattr(spec, channel, None) or ())
+        )
+        for node_type in sorted(ghosts)
+    }
+
     assert not ghosts, (
-        f"{language}: {sorted(ghosts)} declared in symbol_node_types but the "
-        f"grammar never emits that node type -- the entry matches nothing and "
+        f"{language}: {where} -- declared in the channel(s) named, and the "
+        f"grammar never emits that node type, so the entry matches nothing and "
         f"the form is silently unextractable (#724). Check the grammar's own "
-        f"spelling with Language.node_kind_for_id."
+        f"spelling with Language.node_kind_for_id. ⚠ The channel is "
+        f"REPORTED rather than assumed: since #757 this property covers all "
+        f"four, and naming symbol_node_types unconditionally sent a reader to "
+        f"the wrong list."
     )
 
 
@@ -447,11 +1018,8 @@ def test_the_baseline_covers_every_language_the_scan_can_reach():
         assert len(kinds) >= 10, (language, len(kinds))
 
 
-@pytest.mark.parametrize("language,node_type", sorted(
-    (lang, nt) for lang, entries in _CONFIRMED_GAPS.items() for nt, _why in entries
-))
-def test_a_confirmed_gap_is_in_the_inventory(language, node_type):
-    """The nine gaps this instrument found on review are real.
+def test_a_confirmed_gap_is_in_the_inventory():
+    """Every gap this instrument found on review is real, and none outlives its fix.
 
     ⚠ Each was confirmed by running a snippet through `parse_file` and
     watching the symbol not appear, never by reading the scan -- the
@@ -459,14 +1027,26 @@ def test_a_confirmed_gap_is_in_the_inventory(language, node_type):
     rule. When one is fixed, the node type leaves the inventory and this test
     names the `_CONFIRMED_GAPS` line to delete, the same way the ghost list
     cannot outlive its defect.
+
+    ⚠⚠ NOT parametrized, deliberately. `_CONFIRMED_GAPS` is empty now that
+    #733 closed the last three entries, and a parametrize over an empty set
+    SKIPS -- a green-looking row that asserts nothing, and one unit of the
+    `ci.skips_windows` ceiling spent on it. Iterating inside the test reports
+    every stale entry in one message instead of one id per entry, which is the
+    better failure anyway: the fix is always "delete these lines".
     """
     inventory = _current_inventory()
 
-    assert node_type in inventory.get(language, []), (
-        f"{language}/{node_type} is recorded as a confirmed gap but is no "
-        f"longer in the inventory -- if it was fixed, remove the "
-        f"_CONFIRMED_GAPS entry; if the scan stopped seeing it, the scan "
-        f"is broken."
+    stale = sorted(
+        f"{language}/{node_type}"
+        for language, entries in _CONFIRMED_GAPS.items()
+        for node_type, _why in entries
+        if node_type not in inventory.get(language, [])
+    )
+    assert not stale, (
+        f"{stale} are recorded as confirmed gaps but are no longer in the "
+        f"inventory -- if they were fixed, remove the _CONFIRMED_GAPS "
+        f"entries; if the scan stopped seeing them, the scan is broken."
     )
 
 
