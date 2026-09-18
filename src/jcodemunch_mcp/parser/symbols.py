@@ -69,8 +69,10 @@ KIND_ORDER: tuple[str, ...] = (
     # `tests/test_kind_enum_is_derived.py::test_every_spec_kind_is_a_valid_kind`
     # is that check, and it fails on a spec kind absent from here.
     "property",   # Kotlin/PHP properties: named, mutable-or-not class state
-    # ⚠⚠ (#741, #742, #731) A module-scope MUTABLE binding: JS/TS `let` and
-    # `var`, and Go's package-level `var`. Deliberately NOT `property`, which
+    # ⚠⚠ (#731) A module-scope MUTABLE binding: Go's package-level `var` today,
+    # and the kind #741/#742 will use for JS/TS `let` and `var` when that branch
+    # merges -- it is not in the tree yet, so Go is the only producer here.
+    # Deliberately NOT `property`, which
     # #732 added for class state -- a top-level `let` belongs to no type, and
     # reusing that kind would mix module bindings into every consumer asking
     # about a class's members. It is the word the grammar itself uses

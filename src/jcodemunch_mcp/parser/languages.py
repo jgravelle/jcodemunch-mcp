@@ -69,16 +69,23 @@ class LanguageSpec:
     field_patterns: list[str] = dc_field(default_factory=list)
 
     # Node types for declarations that bind N names to MUTABLE module-level
-    # state -- a JS/TS `let` or `var` (#741, #742), a Go package-level `var`
-    # (#731).
+    # state. Introduced by #731 for Go's package-level `var`; #741/#742 adds
+    # JS/TS `let` and `var` to it on a separate branch.
     #
-    # ⚠⚠ **A node type may be in BOTH this and `constant_patterns`.** For JS/TS
-    # it is: `const` and `let` are one node type (`lexical_declaration`) and the
-    # keyword tells them apart, so the two channels match the same node and one
-    # shared predicate must own the split -- #735's Java trap, where two
-    # channels deciding separately emit one declaration twice. Go needs no such
-    # predicate, because its grammar spells `const_declaration` and
-    # `var_declaration` as different node types.
+    # ⚠ Go is the ONLY declarer on this tree. Nothing here describes a JS
+    # behaviour that does not exist yet: a channel documented by a language that
+    # does not declare it is the write-only claim (#725) this project keeps
+    # paying for.
+    #
+    # ⚠⚠ **A node type may be in BOTH this and `constant_patterns`, and the
+    # first language to do so must bring ONE shared predicate.** Go does not:
+    # its grammar spells `const_declaration` and `var_declaration` as different
+    # node types, so the two channels cannot match the same node. A language
+    # whose grammar spells both with one node type -- JS/TS is the case coming,
+    # where `const` and `let` are both `lexical_declaration` -- needs the split
+    # owned by a single predicate, because `_walk_tree` runs the channels
+    # INDEPENDENTLY and two channels deciding separately emit one declaration
+    # twice. #735's Java trap and #732's Kotlin one.
     #
     # ⚠ Also READ, for the reason stated above `field_patterns`; the same
     # readership test covers it, keyed on the spec so a new member is checked on
@@ -1488,7 +1495,16 @@ SCALA_SPEC = LanguageSpec(
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
-    container_node_types=["class_definition", "object_definition", "trait_definition", "enum_definition"],
+    # ⚠⚠ `given_definition` is a CONTAINER as well as a symbol (#734). A
+    # structural given -- `given ordering: Ordering[Int] with { def compare ... }`
+    # -- holds members, and naming the given without naming the container
+    # REGRESSES them: the given becomes their parent symbol, is not a container,
+    # so nothing promotes `compare` to a method or qualifies it, and
+    # `O.compare` (method) became a bare `compare` (function). #698's complaint
+    # -- a member losing its owner because a declaration form is mishandled --
+    # arriving through the FIX for a different form. Measured against `main`,
+    # not reasoned about.
+    container_node_types=["class_definition", "object_definition", "trait_definition", "enum_definition", "given_definition"],
     constant_patterns=["val_definition", "var_definition"],
     type_patterns=["trait_definition", "enum_definition", "type_definition"],
 )

@@ -11,14 +11,29 @@ is exactly the shape `symbol_node_types` + `name_fields` expresses. That is
 #698's and #713's remedy, and it is the right one HERE -- the channel argument
 in #735 and #731 applies only to forms that bind N names.
 
-⚠⚠ **The grammar spells THREE things `given_definition` and only one has a
-name.** `given ordering: Ordering[Int] = ???` carries an identifier;
-`given Conv = ???` and `given [T]: Ord[T] = ???` are anonymous, and Scala
-synthesises their names at compile time from the type. Those two extract
-NOTHING and are asserted as a known, separate gap below rather than papered over
-with the type name -- a fabricated identity is worse than an absence, because a
-name that does not appear in the source cannot be searched for and cannot be
-told apart from one that does.
+⚠⚠ **One node type, SEVERAL shapes, and the discriminator is whether the source
+writes a name.** Named: `given ordering: Ordering[Int] = ???`, `inline given`,
+a `given` in an `enum` body, one with a `using` clause, and the STRUCTURAL form
+`given ordering: Ordering[Int] with { ... }`. Anonymous: `given Conv = ???`,
+`given [T]: Ord[T] = ???`, and the structural `given Ord[Int] with { ... }`.
+The anonymous ones extract NOTHING and are asserted as a known separate gap
+below rather than papered over with the type name -- a fabricated identity is
+worse than an absence, because a name that does not appear in the source cannot
+be searched for and cannot be told apart from one that does.
+
+⚠ The shape list was "three" in the first draft of this file, asserted in three
+places, with four shapes untested. Review named it and the probe found a
+REGRESSION hiding in one of them; the list is enumerated by the tests now
+instead of counted in prose.
+
+⚠⚠ **A structural `given` is a CONTAINER, and naming it without saying so
+regressed its members.** `given ordering: Ordering[Int] with { def compare ... }`
+holds members. Once the given became a symbol it became their parent, and
+because `given_definition` was not in `container_node_types` nothing promoted
+`compare` to a method or qualified it: `O.compare` (method) on `main` became a
+bare `compare` (function) here. That is #698's complaint -- a member losing its
+owner -- arriving through the fix for a different form, and it was found by
+running both trees rather than by reading the diff.
 """
 
 import pytest
@@ -133,6 +148,79 @@ def test_an_anonymous_given_is_a_known_separate_gap(shape):
         f"the name it carries must be one a reader can search for, and this "
         f"test is where the decision gets recorded (#734)."
     )
+
+
+def qualified(source: str) -> set[tuple[str, str, str]]:
+    return {(x.name, x.kind, x.qualified_name) for x in parse_file(source, "a.scala", "scala")}
+
+
+STRUCTURAL_NAMED = """object O {
+  given ordering: Ordering[Int] with {
+    def compare(a: Int, b: Int) = 0
+  }
+}
+"""
+
+STRUCTURAL_ANONYMOUS = """object O {
+  given Ord[Int] with {
+    def compare(a: Int, b: Int) = 0
+  }
+}
+"""
+
+
+def test_a_structural_given_keeps_its_members_owned():
+    """⚠⚠ The regression this fix INTRODUCED, caught by running `main` beside it.
+
+    A structural given holds members. Once `given_definition` became a symbol it
+    became their parent symbol, and a parent that is not in
+    `container_node_types` promotes nothing and qualifies nothing -- so
+    `O.compare` (method) on `main` became a bare `compare` (function) here. The
+    remedy is that a given IS a container, which is also the truthful answer:
+    `compare` is a member of the given, not of the object around it.
+    """
+    assert qualified(STRUCTURAL_NAMED) == {
+        ("O", "class", "O"),
+        ("ordering", "constant", "O.ordering"),
+        ("compare", "method", "O.ordering.compare"),
+    }
+
+
+def test_an_anonymous_structural_given_leaves_its_members_where_they_were():
+    """The other half, and the reason the container entry is safe.
+
+    An anonymous given is not a symbol, so it is not a parent either: its
+    members keep the owner they had on `main`. Asserted because the container
+    entry could have moved them under a symbol that does not exist.
+    """
+    assert qualified(STRUCTURAL_ANONYMOUS) == {
+        ("O", "class", "O"),
+        ("compare", "method", "O.compare"),
+    }
+
+
+def test_an_inline_given_is_a_symbol():
+    """`inline given` puts a `modifiers` node before the name; the name field
+    still resolves, so the form needs nothing special -- asserted rather than
+    assumed, because it was one of the shapes the first draft never ran.
+    """
+    source = """object O {
+  inline given conv: Conv = ???
+}
+"""
+    assert ("conv", "constant") in pairs(source)
+
+
+def test_a_given_in_an_enum_body_is_a_symbol():
+    """An `enum` is a container in this spec, so this also checks the given is
+    owned rather than floating.
+    """
+    source = """enum E {
+  case A
+  given ordering: Ordering[E] = ???
+}
+"""
+    assert ("ordering", "constant", "E.ordering") in qualified(source)
 
 
 def test_an_extension_is_not_this_issue():

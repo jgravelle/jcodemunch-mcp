@@ -717,7 +717,7 @@ def _walk_tree(
         symbols.extend(fields)
 
     # Variables: declarations that bind N names to MUTABLE module-level state
-    # (#741, #742, #731).
+    # (#731; #741/#742 joins this channel on its own branch).
     #
     # ⚠⚠ **No owner is attached here, and that is the difference from the field
     # channel above.** A field belongs to the type that declares it, so a bare
@@ -1935,8 +1935,9 @@ def _extract_variables(
 
     ⚠ A DISPATCHER for the reason `_extract_fields` gives: the node-type list
     belongs in the spec beside every other node-type list, so a second language
-    joins the channel instead of growing a second copy of the rule. #741/#742
-    (JS/TS `let` and `var`) is the other member.
+    joins the channel instead of growing a second copy of the rule. Go is the
+    only member on this tree; #741/#742 adds JS/TS `let` and `var` on a separate
+    branch, and this function is where that branch and this one meet.
     """
     if node.type == "var_declaration" and language == "go":
         return _extract_go_variables(node, source_bytes, filename, language)
@@ -2021,6 +2022,15 @@ def _extract_go_variables(
                 break
             if child.type == "identifier":
                 name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", "replace")
+                # ⚠ `var _ = mustCompile(...)` is Go's DISCARD, not a name: the
+                # blank identifier cannot be referenced, several may sit in one
+                # file, and each would be a symbol called `_` competing in every
+                # ranking. The constant channel has the same hole for `const _ =
+                # iota`, which is left alone here rather than fixed silently in
+                # a change about `var` -- it is a real finding and has its own
+                # issue (#763).
+                if name == "_":
+                    continue
                 found.append(_variable_symbol(name, node, source_bytes, filename, language))
     return found
 

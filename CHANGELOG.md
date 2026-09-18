@@ -33,13 +33,22 @@ the declaration; a grouped `var ( ... )` wraps them in a `var_spec_list`. The
 obvious copy of `_extract_go_constants` finds every constant and no variable.
 `test_a_grouped_var_block_binds_every_name` is that case.
 
-⚠ The form rides `variable_patterns`, the channel #741/#742 added for JS/TS
-`let` and `var`, because one `var_spec` binds N names (`var C, D = 3, 4`) while
-`symbol_node_types` yields at most one symbol per node. The kind is `variable`,
+⚠ The form rides `variable_patterns`, a CHANNEL this entry introduces, because
+one `var_spec` binds N names (`var C, D = 3, 4`) while `symbol_node_types`
+yields at most one symbol per node. #741/#742 adds JS/TS `let` and `var` to the
+same channel on a separate branch; Go is its only member here. The kind is `variable`,
 appended to `KIND_ORDER` -- that tuple is PUBLISHED in the cached schema prefix,
 so a reorder is a full-rate cache write for every user. No owner is attached,
 unlike a field: module-level state belongs to no type, and qualifying it against
 the enclosing symbol would invent one.
+
+⚠ Two findings came out of probing the fix rather than out of the report, and
+both are recorded rather than folded in. Go's blank identifier `_` was indexed
+as a `variable`; it is the language's discard, cannot be referenced, and several
+can sit in one file, so the channel skips it -- and the CONSTANT channel has the
+same hole for `const ( _ = iota; KB; MB )`, which is filed as #763 instead of
+being changed in passing, because that is a different channel with its own
+history (#428).
 
 **Scala (#734).** A `given` yielded no symbol while the `val` and the `def`
 beside it extracted. `given` is how Scala 3 replaced `implicit val`, so the
@@ -61,6 +70,17 @@ that appears nowhere in the source cannot be searched for and cannot be told
 apart from a `given` genuinely called `Conv`. `extension_definition` is unnamed
 in the spec too and is in the same inventory, but an extension's methods do
 extract, so that is a smaller separate gap and is pinned rather than fixed here.
+
+⚠⚠ **A structural `given` is a CONTAINER, and this fix regressed its members
+before it fixed them.** `given ordering: Ordering[Int] with { def compare ... }`
+holds members; once the given became a symbol it became their parent, and a
+parent absent from `container_node_types` promotes nothing and qualifies
+nothing -- so `O.compare` (method) became a bare `compare` (function). That is
+#698's complaint, a member losing its owner, arriving through the fix for a
+different form. Measured against `main` in a worktree rather than reasoned
+about, after review asked what the untested shapes did. `given_definition` is a
+container now, which is also the truthful answer: `compare` belongs to the
+given, and it comes out as `O.ordering.compare`.
 
 ⚠ The inventory goes **272 -> 271** and both `_CONFIRMED_GAPS` entries leave.
 The two removals are ASYMMETRIC on purpose: `given_definition` leaves the

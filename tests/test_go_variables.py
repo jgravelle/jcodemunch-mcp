@@ -196,6 +196,26 @@ func F() {
     assert "x" not in {name for name, _kind in pairs(source)}
 
 
+def test_the_blank_identifier_is_not_a_symbol():
+    """⚠ `var _ = mustCompile(...)` is Go's DISCARD, not a declaration of a name.
+
+    It cannot be referenced, several can sit in one file, and each would be a
+    symbol called `_` competing in every ranking -- noise that looks like data.
+    Found by probing the fix rather than by the report.
+
+    ⚠ `const _ = iota` has the SAME hole in the constant channel and is
+    deliberately NOT fixed here: it is a separate finding, filed as #763 rather
+    than folded into a change about `var`, and this test asserts only the half
+    this PR owns.
+    """
+    source = """package m
+
+var _ = 1
+var Client = 2
+"""
+    assert pairs(source) == {("Client", "variable")}
+
+
 def test_no_declaration_is_emitted_twice():
     """⚠ Keyed on `(name, line)`, not on the name: two package-level vars with
     the same name are illegal in Go, but a name repeated across scopes is not,
