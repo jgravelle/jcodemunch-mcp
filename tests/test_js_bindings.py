@@ -17,6 +17,12 @@ names a `(name, kind)` pair, never a node type.** A test that asserts
 is read by nothing — the `type_patterns` shape (#725), and the reason #735 wrote
 its own tests this way.
 
+⚠ A destructured binding was a KNOWN GAP here, pinned by
+`test_a_destructuring_pattern_is_a_known_separate_gap` so it was disclosed
+rather than assumed absent. That test was written to FAIL when the gap closed
+and it did (#751); the walk that closed it, and the nine nesting shapes its two
+samples could not express, are `tests/test_js_destructured_bindings.py`.
+
 ⚠ Three languages, always parametrized. `TYPESCRIPT_SPEC` and `TSX_SPEC` carry
 the same entries as `JAVASCRIPT_SPEC`, and a fix applied to one spec reaches
 half the product (#698).
@@ -294,28 +300,3 @@ def test_the_kind_is_new_and_the_tuple_grew_at_the_end():
     full-rate cache write for every user, for a reorder that buys nothing.
     """
     assert KIND_ORDER[-1] == "variable"
-
-
-# ---------------------------------------------------------------------------
-# Known gaps, pinned so they are disclosed rather than assumed absent
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("language,filename", LANGUAGES)
-@pytest.mark.parametrize("source,names", [
-    ("const { a, b } = obj;\n", ["a", "b"]),
-    ("let [c, d] = arr;\n", ["c", "d"]),
-])
-def test_a_destructuring_pattern_is_a_known_separate_gap(language, filename, source, names):
-    """⚠ A destructured binding yields NO symbol, before this change and after.
-
-    The declarator's `name` is an `object_pattern` or `array_pattern` rather
-    than an `identifier`, so the binder declines it. Filed separately rather
-    than fixed here: it needs a recursive walk of nested patterns, defaults and
-    rest elements, which is a different verdict from "what kind does a binding
-    carry" (policy 1).
-
-    ⚠⚠ **This test FAILS when that gap closes**, which is the point — it names
-    the line to delete instead of leaving a silent absence behind.
-    """
-    for name in names:
-        assert _named(source, language, filename, name) == []

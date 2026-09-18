@@ -2291,6 +2291,65 @@ def js_binding_is_constant(node) -> bool:
     return kind is not None and kind.type == "const"
 
 
+#: The two pattern node types a binding declaration's `name` field can be.
+_JS_BINDING_PATTERN_TYPES = frozenset({"object_pattern", "array_pattern"})
+
+#: Node types that ARE a bound name. `shorthand_property_identifier_pattern` is
+#: the `{ a }` spelling and `identifier` covers every other leaf.
+_JS_BINDING_NAME_TYPES = frozenset({"identifier", "shorthand_property_identifier_pattern"})
+
+#: ⚠⚠ The bound side of a two-sided pattern node, BY FIELD. `pair_pattern`'s
+#: other side is a `property_identifier` -- a key on the right-hand object,
+#: bound to nothing -- and the default expressions of the two assignment forms
+#: are arbitrary code. Reading the field is what keeps `{ a: renamed }` from
+#: publishing `a` and `{ a = fallback }` from publishing `fallback`.
+_JS_BINDING_PATTERN_VALUE_FIELDS = {
+    "pair_pattern": "value",
+    "object_assignment_pattern": "left",
+    "assignment_pattern": "left",
+}
+
+#: A pattern nests without limit in the grammar and never deeply in real code.
+#: The cap is a stack guard, not a rule about JavaScript.
+_MAX_BINDING_PATTERN_DEPTH = 32
+
+
+def _js_binding_pattern_names(node, source_bytes: bytes, depth: int = 0) -> list[str]:
+    """Every name one binding target binds, walking nested patterns (#751).
+
+    ⚠⚠ **An ALLOWLIST, so an unrecognised node type binds nothing.** The
+    alternative -- collect every `identifier` under the pattern -- publishes
+    `a` for `const { a: renamed }` and for `const { a: { b } }`, where `a` names
+    a property of the right-hand object and is bound to no declaration. An
+    absence is visible as a missing search result; a fabricated symbol is not,
+    and #741's member gate took the same direction for the same reason.
+
+    ⚠ A plain `identifier` enters here too, so the common case and the pattern
+    case are ONE path rather than a branch that has to stay in step.
+    """
+    if depth > _MAX_BINDING_PATTERN_DEPTH:
+        return []
+    node_type = node.type
+    if node_type in _JS_BINDING_NAME_TYPES:
+        return [source_bytes[node.start_byte:node.end_byte].decode("utf-8", "replace")]
+    field = _JS_BINDING_PATTERN_VALUE_FIELDS.get(node_type)
+    if field is not None:
+        inner = node.child_by_field_name(field)
+        return [] if inner is None else _js_binding_pattern_names(inner, source_bytes, depth + 1)
+    if node_type == "rest_pattern":
+        named = [c for c in node.children if c.is_named]
+        if not named:
+            return []
+        return _js_binding_pattern_names(named[0], source_bytes, depth + 1)
+    if node_type in _JS_BINDING_PATTERN_TYPES:
+        names: list[str] = []
+        for child in node.children:
+            if child.is_named:
+                names.extend(_js_binding_pattern_names(child, source_bytes, depth + 1))
+        return names
+    return []
+
+
 def _js_declarator_names(node, source_bytes: bytes) -> list[str]:
     """Every name one JS binding declaration binds, in source order.
 
@@ -2304,25 +2363,25 @@ def _js_declarator_names(node, source_bytes: bytes) -> list[str]:
     `function`, so binding it again would give one declaration two symbols
     under two kinds.
 
-    ⚠ A destructuring pattern (`const { a, b } = obj`) is declined too, because
-    the declarator's `name` is an `object_pattern` rather than an `identifier`.
-    That is a standing gap, unchanged by #741/#742 and filed separately --
-    pinned by `test_a_destructuring_pattern_is_a_known_separate_gap` so it is
-    disclosed rather than assumed absent.
+    ⚠⚠ A destructuring pattern (`const { a, b } = obj`) was declined too, for
+    the whole life of this function, because the declarator's `name` is an
+    `object_pattern` rather than an `identifier` -- so a file whose exports were
+    all destructured indexed with none of them (#751). `_js_binding_pattern_names`
+    is the recursive walk that closes it, and it is a SHARED helper: the Vue and
+    Svelte extractors ask it too, because a per-extractor copy is how the same
+    gap returns in a language nobody re-tested (#752).
     """
     names: list[str] = []
     for declarator in node.children:
         if declarator.type != "variable_declarator":
             continue
         name_node = declarator.child_by_field_name("name")
-        if name_node is None or name_node.type != "identifier":
+        if name_node is None:
             continue
         value_node = declarator.child_by_field_name("value")
         if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
             continue
-        names.append(
-            source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
-        )
+        names.extend(_js_binding_pattern_names(name_node, source_bytes))
     return names
 
 
@@ -4961,25 +5020,34 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         elif node.type in ("lexical_declaration", "variable_declaration"):
-            # const/let declarations — capture Vue reactive + macro calls
+            # ⚠⚠ EVERY binding, not only the ones whose right-hand side is a Vue
+            # reactive or macro call. That gate dropped `let count = 0`,
+            # `const MAX = 5` and `var legacy = 1`, so a component indexed with
+            # its name and the `defineProps` result alone (#752).
+            #
+            # ⚠ The KEYWORD decides the kind, asked of the shared
+            # `js_binding_is_constant` (#741) rather than hardcoded `constant`
+            # here -- this was the third extractor deciding it independently.
+            if not js_binding_is_member(node):
+                return
+            kind = "constant" if js_binding_is_constant(node) else "variable"
             for decl in node.children:
                 if decl.type != "variable_declarator":
                     continue
                 name_node = decl.child_by_field_name("name")
-                val_node = decl.child_by_field_name("value")
                 if name_node is None:
                     continue
-                name = _node_text(name_node)
-                if not name.isidentifier():
+                val_node = decl.child_by_field_name("value")
+                if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
+                    # the declaration branch above owns `const fn = () => {}`
                     continue
-                # Only capture if RHS is a Vue reactive/macro call
-                if val_node and _is_vue_reactive_call(val_node):
-                    sig = _node_text(node).split("\n")[0].rstrip("{").strip()
+                sig = _node_text(node).split("\n")[0].rstrip("{").strip()
+                for name in _js_binding_pattern_names(name_node, script_bytes):
                     sym = Symbol(
-                        id=make_symbol_id(filename, name, "constant"),
+                        id=make_symbol_id(filename, name, kind),
                         name=name,
                         qualified_name=f"{component_name}.{name}",
-                        kind="constant",
+                        kind=kind,
                         language="vue",
                         file=filename,
                         line=_adjusted_line(decl),
@@ -5237,12 +5305,12 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 # rest_pattern (...rest) is not a named prop → skip
             return [n for n in out if n.isidentifier()]
 
-        def _emit_const(name: str, line_node, doc_node, signature: str) -> None:
+        def _emit_const(name: str, line_node, doc_node, signature: str, kind: str = "constant") -> None:
             symbols.append(Symbol(
-                id=make_symbol_id(filename, name, "constant"),
+                id=make_symbol_id(filename, name, kind),
                 name=name,
                 qualified_name=f"{component_name}.{name}",
-                kind="constant",
+                kind=kind,
                 language="svelte",
                 file=filename,
                 line=_adjusted_line(line_node),
@@ -5326,37 +5394,60 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     None,
                 )
                 if inner is not None:
-                    for decl in inner.children:
-                        if decl.type != "variable_declarator":
-                            continue
-                        nn = decl.child_by_field_name("name")
-                        if nn is None or not _node_text(nn).isidentifier():
-                            continue
-                        _emit_const(_node_text(nn), decl, node, _first_line(node))
+                    # ⚠⚠ `export let` is a PROP and `export const` is not. The
+                    # parent assigns a prop, so it is the most mutable binding
+                    # in the file and `constant` is the one kind it cannot be
+                    # (#752); an `export const` is a readonly export Svelte does
+                    # not let the parent set, so it stays a `constant`. The same
+                    # keyword authority decides both (#741).
+                    kind = "constant" if js_binding_is_constant(inner) else "property"
+                    for pname in _js_declarator_names(inner, script_bytes):
+                        _emit_const(pname, inner, node, _first_line(node), kind=kind)
                     return
                 # `export function` / `export class` → recurse so the declaration
                 # branch above handles the wrapped node.
 
             elif node.type in ("lexical_declaration", "variable_declaration"):
-                # const/let declarations — capture Svelte-rune reactive state / props.
+                # ⚠⚠ EVERY binding, not only the framework shapes. This branch
+                # required a rune on the right-hand side, so `let count = 0`,
+                # `const MAX = 5` and `var legacy = 1` fell through and a
+                # component indexed with its name and nothing else (#752).
+                #
+                # ⚠ The KEYWORD decides the kind, asked of the shared
+                # `js_binding_is_constant` -- `$state` is reached by `let` and
+                # `$derived` by `const`, so a per-rune table would be a fourth
+                # transcription of #741's rule.
+                if not js_binding_is_member(node):
+                    return
+                kind = "constant" if js_binding_is_constant(node) else "variable"
                 for decl in node.children:
                     if decl.type != "variable_declarator":
                         continue
                     name_node = decl.child_by_field_name("name")
+                    if name_node is None:
+                        continue
                     val_node = decl.child_by_field_name("value")
-                    if name_node is None or val_node is None:
+                    if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
+                        # `_walk`'s declaration branch owns `const fn = () => {}`
                         continue
                     rune = _rune_name(val_node)
-                    if rune is None:
-                        continue
-                    if name_node.type == "object_pattern":
-                        # `let { a, b } = $props()` → one constant per named prop
+                    if rune == "$props" and name_node.type == "object_pattern":
+                        # ⚠⚠ `let { a, b } = $props()` asks a DIFFERENT question
+                        # than a binding walk, which is why `_destructured_names`
+                        # stays rather than collapsing into
+                        # `_js_binding_pattern_names`: the prop a parent passes
+                        # is the KEY of `{ name: local }`, where the binding is
+                        # the value, and `...rest` binds a name but names no
+                        # prop. Same nodes, opposite sides.
                         for pname in _destructured_names(name_node):
-                            _emit_const(pname, decl, node, f"{pname} = {rune}()")
+                            _emit_const(pname, decl, node, f"{pname} = {rune}()", kind="property")
                         continue
-                    name = _node_text(name_node)
-                    if name.isidentifier():
-                        _emit_const(name, decl, node, _first_line(node))
+                    # `let props = $props()` binds the whole input object, so it
+                    # is a declared input under any spelling.
+                    bind_kind = "property" if rune == "$props" else kind
+                    for pname in _js_binding_pattern_names(name_node, script_bytes):
+                        signature = f"{pname} = {rune}()" if rune else _first_line(node)
+                        _emit_const(pname, decl, node, signature, kind=bind_kind)
 
             elif node.type == "labeled_statement":
                 # Svelte 4 reactive declaration: `$: doubled = count * 2`

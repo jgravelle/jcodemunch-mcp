@@ -2,6 +2,71 @@
 
 ## [Unreleased]
 
+### Fixed - a destructured JS binding declares names, and a Vue or Svelte script block has bindings (#751, #752)
+
+`const { a, b } = obj` yielded no symbol in javascript, typescript or tsx, and a
+Vue or Svelte component indexed with its own name and almost nothing else. Two
+reports, one shape: a name the extractor could see was there and did not reach.
+
+**#751 -- the declarator's `name` field is a pattern, not an identifier.**
+`_js_declarator_names` required an `identifier` and a destructuring spells that
+field `object_pattern` or `array_pattern`, so the declarator was declined for
+the whole life of that function. `const { useState } = React` and
+`export const { GET, POST } = handlers` are ordinary module surface and the
+second is a Next.js route's entire public API, so a file whose exports were all
+destructured indexed with none of them.
+
+⚠⚠ **The fix is a recursive walk with an ALLOWLIST, and the allowlist is the
+load-bearing half.** A pattern nests, and half the nestings bind something other
+than the name written first: `{ a: renamed }` binds `renamed`, `{ a: { b } }`
+binds `b` ALONE, `[, second]` has a hole, `{ ...rest }` binds through a
+`rest_pattern`. A walk that collected every `identifier` under the pattern would
+publish `a` for the first two -- a name that is a property of the right-hand
+object and is bound to no declaration. **An absence shows up as a missing search
+result; a fabricated symbol does not**, which is the direction #741's member gate
+already took. The bound side is read BY FIELD, because the other side of a
+`pair_pattern` is a `property_identifier` and the other side of the two
+assignment forms is arbitrary code. Planting the naive walk fails 15 rows of
+`test_a_nested_pattern_binds_its_leaves_and_not_its_path`.
+
+**#752 -- two extractors kept their own copy of a decision that already had an
+authority.** `_parse_vue_symbols` and `_parse_svelte_symbols` matched specific
+framework shapes -- a rune, a Vue macro call, a Svelte 4 `export let` -- and
+emitted them through a local helper that hardcoded `kind="constant"`. An
+ordinary `let count = 0` matched no framework shape and fell through; whatever
+did match was published immutable whatever keyword declared it.
+
+⚠⚠ **A Svelte prop was the worst case of the wrong kind: the parent assigns it,
+so it is the most mutable binding in the file.** It is a `property` now -- a
+declared input on a component these extractors already model as a class, which
+is what that kind means here (#732, #743). ⚠⚠ **`export let` is a prop and
+`export const` is not**, because Svelte does not let a parent set an
+`export const`; the first draft of the fix made both properties and
+`test_svelte4_export_let_is_prop_constant` caught it, which is Practice 9 in
+both directions -- half of that test was the defect's witness and half was a
+real fact nothing else recorded.
+
+⚠⚠ **Widening those branches removed the accident that had been keeping locals
+out.** The old rune/macro check meant a block-scoped `const` had no matching
+right-hand side and was silently never published, so asking for every binding
+makes the locality rule something that must be asked EXPLICITLY:
+`js_binding_is_member`, #741's gate, reused rather than re-derived. That row was
+missing from the first version of the new test file and a planted removal of
+both gates passed all seventeen of its tests.
+
+**What is impossible now:** a JS/TS binding declaration whose names the grammar
+spells as a pattern cannot index as nothing, in any of the three languages or in
+Vue, Svelte or Astro; and a component's `<script>` bindings cannot be published
+under a kind their keyword contradicts. Astro needed no change at all -- it was
+already asking the shared binder, which is the argument for fixing this one
+layer down, and `test_astro_frontmatter_inherited_the_fix_with_no_astro_change`
+is what fails if it is ever given a fourth copy.
+
+`tests/test_js_bindings.py::test_a_destructuring_pattern_is_a_known_separate_gap`
+was written to FAIL when this gap closed and it did; it is retired in
+`harness/retired.json` with the replacement that carries its lesson.
+
+
 ### Fixed - a Julia macro and every wrapped type head are symbols (#748, #749)
 
 A Julia macro yielded no symbol, and a `struct` or `abstract type` yielded one

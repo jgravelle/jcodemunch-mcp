@@ -55,7 +55,8 @@ def test_svelte_no_script_returns_empty():
 # 3. Svelte 5 runes
 # ---------------------------------------------------------------------------
 
-def test_svelte5_runes_become_constants():
+def test_svelte5_runes_carry_the_keyword_kind():
+    """The name said `become_constants`, which was the defect (#752)."""
     src = (
         "<script>\n"
         "  let count = $state(0);\n"
@@ -64,10 +65,16 @@ def test_svelte5_runes_become_constants():
         "</script>\n"
     )
     by_name = {s.name: s for s in parse_file(src, "src/R.svelte", "svelte")}
-    assert by_name["count"].kind == "constant"
-    assert by_name["doubled"].kind == "constant"
+    # ⚠ #752: the KEYWORD decides, not the rune. All three are declared with
+    # `let`, and a rune-keyed table would be a fourth transcription of #741's
+    # rule -- `$state` is reached by `let` and `$derived` by either.
+    assert by_name["count"].kind == "variable"
+    assert by_name["doubled"].kind == "variable"
     # $derived.by member form still resolves to the rune.
-    assert by_name["big"].kind == "constant"
+    assert by_name["big"].kind == "variable"
+    assert {s.name for s in parse_file(
+        "<script>\n  const doubled = $derived(1);\n</script>\n", "src/D.svelte", "svelte"
+    ) if s.kind == "constant"} == {"doubled"}
 
 
 def test_svelte5_destructured_props_each_surface():
@@ -86,10 +93,18 @@ def test_svelte5_destructured_props_each_surface():
 # 4. Svelte 4 props
 # ---------------------------------------------------------------------------
 
-def test_svelte4_export_let_is_prop_constant():
+def test_svelte4_export_let_is_a_prop_and_export_const_is_not():
+    """⚠⚠ #752 corrected the FIRST half and this test carried the SECOND.
+
+    `export let` is a prop: the parent assigns it, so `constant` was the one
+    kind it could not be. `export const` is a readonly export Svelte does NOT
+    let the parent set -- it is not a prop at all, and the first draft of the
+    fix made it one. The keyword tells them apart, so both come off the same
+    authority (#741).
+    """
     src = "<script>\n  export let title;\n  export const MAX = 5;\n</script>\n"
     by_name = {s.name: s for s in parse_file(src, "src/Old.svelte", "svelte")}
-    assert by_name["title"].kind == "constant"
+    assert by_name["title"].kind == "property"
     assert by_name["MAX"].kind == "constant"
 
 
