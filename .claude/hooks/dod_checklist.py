@@ -195,6 +195,92 @@ def harness_pass(summary: str | None) -> bool | None:
     return "**FAIL**" not in summary and "HARNESS FAIL" not in summary
 
 
+def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
+    r"""Test FUNCTIONS removed and not redefined, keyed `file::name`.
+
+    ⚠⚠ **A file-granular check could not see a retirement.** DoD 11 and
+    `harness/retired.json`'s own note are explicit that the unit is
+    `file::test_name`, and this item read `--diff-filter=D`, which lists
+    deleted FILES only -- so a PR deleting two test functions from a file
+    that survives was graded `n.a.`, and the item was never evaluated by the
+    machine at all. Found in review of #748/#749, which deleted exactly two.
+
+    ⚠⚠ **A NAME IS NOT AN IDENTITY, and the first version of this keyed on
+    one.** It concatenated every file under `tests/` and asked whether
+    `def <name>(` appeared anywhere, so retiring one of the **128 test names
+    that are defined in more than one file** (`test_empty` in 8,
+    `test_idempotent` in 6) was excluded as a rename and the ledger was
+    never demanded -- the exact grade this detector exists to stop. That is
+    `tests/test_key_files_split.py`'s own recorded bug, which collapsed
+    `runtime/redact.py` with `redact.py` by basename, reproduced inside a
+    guard written against a neighbouring miss. Keyed `file::name` now.
+
+    ⚠⚠ **A file that LOST a test function and GAINED one is treated as a
+    rename, and that is deliberately fail-open.** Nothing in a diff separates a
+    rename from a deletion that happens to sit beside an unrelated new test, so
+    it cannot be decided here. It is excluded rather than reported because
+    `test_edit_guard` ALREADY fires on every removed `def test_` and a human
+    verifies each one -- this session cleared three that way in one afternoon --
+    and a second gate turning every rename into an `unmet` row would have
+    `pre_pr.py` refuse those PRs outright. **The cost is that a retirement
+    disguised by an unrelated addition in the same file is missed HERE;
+    `test_edit_guard` is the control that still sees it.** That division is
+    stated rather than left to be rediscovered.
+
+    ⚠ A name added to ANOTHER file in the same diff is a move, not a
+    retirement, and is excluded by name.
+
+    ⚠ `REPO / "tests"`, never `Path("tests")`: every other filesystem and
+    git read here is anchored because a hook's CWD is not the repo root.
+    Unanchored, `rglob` yields nothing, every removed name reads as retired,
+    and `pre_pr.py` refuses the PR on an ordinary rename.
+
+    ⚠ A DEFINITION, not a mention. The survival scan matches
+    `^\s*(async\s+)?def <name>\b` per file, the pattern
+    `tests/test_retirement_ledger.py` already uses. A raw substring scan is
+    answered by a test that merely NAMES the retired function -- and this
+    very PR ships one, `test_the_retired_gap_tests_are_gone_from_the_short_function_file`,
+    which asserts on the literal `"def test_a_macro_is_a_known_separate_gap"`.
+    It was saved only by the absent `(`.
+    """
+    removed: set[tuple[str, str]] = set()
+    added: set[tuple[str, str]] = set()
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            current = line[len("+++ b/"):].strip()
+            continue
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        m = re.search(r"^[-+]\s*(?:async\s+)?def (test_\w+)", line)
+        if not m or not current:
+            continue
+        (removed if line.startswith("-") else added).add((current, m.group(1)))
+
+    if not removed:
+        return []
+
+    def _defined_in(path: str, name: str) -> bool:
+        file_path = repo / path
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        return bool(
+            re.search(rf"^\s*(?:async\s+)?def {re.escape(name)}\b", text, re.M)
+        )
+
+    moved = {name for _path, name in added}
+    renamed_in = {path for path, _name in added}
+    return sorted(
+        f"{path}::{name}"
+        for path, name in removed
+        if not _defined_in(path, name)
+        and name not in moved
+        and path not in renamed_in
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-ref", default="origin/main")
@@ -225,39 +311,9 @@ def main() -> int:
         if f.strip()
     ]
 
-    def _retired_test_functions() -> list[str]:
-        """Test FUNCTIONS removed from surviving files, renames excluded.
-
-        ⚠⚠ **A file-granular check could not see a retirement.** DoD 11 and
-        `harness/retired.json`'s own note are explicit that the unit is
-        `file::test_name`, and this item read `--diff-filter=D`, which lists
-        deleted FILES only -- so a PR deleting two test functions from a file
-        that survives was graded `n.a.`, and the item was never evaluated by the
-        machine at all. Found in review of #748/#749, which deleted exactly two.
-
-        ⚠ A name that still exists ANYWHERE under `tests/` is a rename or a
-        move, not a retirement, and is excluded -- the same judgement a human
-        makes on `test_edit_guard`'s warning, which fires on both.
-        """
-        diff = git("diff", "-U0", f"{base}...HEAD", "--", "tests/")
-        removed = {
-            m.group(1)
-            for line in diff.splitlines()
-            if line.startswith("-") and not line.startswith("---")
-            for m in [re.search(r"def (test_\w+)", line)]
-            if m
-        }
-        if not removed:
-            return []
-        surviving = ""
-        for path in sorted(pathlib.Path("tests").rglob("*.py")):
-            try:
-                surviving += path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-        return sorted(n for n in removed if f"def {n}(" not in surviving)
-
-    retired_functions = _retired_test_functions()
+    retired_functions = retired_test_functions(
+        git("diff", "-U0", f"{base}...HEAD", "--", "tests/"), REPO
+    )
     tests_deleted = bool(deleted_test_files) or bool(retired_functions)
 
     rows: list[tuple[int, str, str]] = []
@@ -474,7 +530,7 @@ def main() -> int:
             "-p",
             "no:cacheprovider",
         )
-        subject = ", ".join(deleted_test_files + retired_functions)
+        subject = ", ".join(deleted_test_files + retired_functions) or "(none)"
         row(
             11,
             "met" if rc == 0 and "harness/retired.json" in changed else "unmet",

@@ -272,16 +272,39 @@ def _calls_in_branch_for(node_type: str) -> set[str]:
     for node in ast.walk(_julia_tree()):
         if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
             continue
-        if not any(
-            isinstance(c, ast.Constant) and c.value == node_type
-            for c in node.test.comparators
-        ):
+        constants = []
+        for comparator in node.test.comparators:
+            if isinstance(comparator, ast.Constant):
+                constants.append(comparator.value)
+            elif isinstance(comparator, (ast.Tuple, ast.List, ast.Set)):
+                # ⚠ `elif node.type in ("struct_definition", "abstract_definition")`
+                # is a legal spelling of the same branch, and reading only
+                # `ast.Constant` reported "no branch found" for a branch sitting
+                # in front of the reader. Fail-closed, but with a message that
+                # sends them hunting. Found in review.
+                constants.extend(
+                    e.value for e in comparator.elts if isinstance(e, ast.Constant)
+                )
+        if node_type not in constants:
             continue
         for statement in node.body:
             for inner in ast.walk(statement):
                 if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name):
                     calls.add(inner.func.id)
     return calls
+
+
+#: What a type branch is allowed to call, beyond the shared resolver.
+#:
+#: ⚠ `_direct_name` is here because `abstract_definition` has fallen back to it
+#: since before #749 and nothing establishes that every spelling of every type
+#: form builds a `type_head`. It is a FALLBACK -- second in the or-chain, after
+#: the resolver -- which is the difference between a safety net and a bypass.
+#:
+#: ⚠⚠ An allowlist grows, and this project has watched one become an escape
+#: hatch (`_HELPER_LITERAL_EXCEPTIONS`, deleted by the test written to keep it
+#: honest). Adding a name here is the decision this guard exists to force.
+_NAME_HELPERS_A_TYPE_BRANCH_MAY_ASK = frozenset({"_type_head_name", "_direct_name"})
 
 
 def test_every_type_form_asks_the_same_resolver():
@@ -322,6 +345,19 @@ def test_every_type_form_asks_the_same_resolver():
             f"does not ask `_type_head_name`. Every type form asks ONE resolver "
             f"(#749); a second helper that happens to be correct today is how "
             f"this function reached four of them."
+        )
+        # ⚠⚠ An ALLOWLIST, because "calls the resolver" is not "is named by
+        # it": `_abstract_head_name(node) or _type_head_name(node)` satisfies the
+        # assertion above while the bespoke helper decides every name and the
+        # resolver is dead in the or-chain -- measured in review, and it is ONE
+        # reordering away from the real code, which is already an or-chain.
+        unexpected = calls - _NAME_HELPERS_A_TYPE_BRANCH_MAY_ASK
+        assert not unexpected, (
+            f"the `{node_type}` branch also calls {sorted(unexpected)}. A helper "
+            f"ahead of `_type_head_name` in an or-chain takes every name and "
+            f"leaves the resolver unreachable, so the shared-resolver property "
+            f"is a spelling rather than a fact. Add the name here only with the "
+            f"reason it is not a fifth bespoke helper."
         )
 
 
