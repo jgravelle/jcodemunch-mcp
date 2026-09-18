@@ -281,6 +281,59 @@ def test_a_tuple_binding_is_a_known_separate_gap():
     )
 
 
+def _pattern_of(source: str, node_type: str):
+    """The `name` field of the first `node_type` in a parsed Swift file."""
+    from jcodemunch_mcp.parser.extractor import get_parser
+
+    tree = get_parser("swift").parse(source.encode())
+    stack = [tree.root_node]
+    while stack:
+        current = stack.pop(0)
+        if current.type == node_type:
+            return current.child_by_field_name("name")
+        stack.extend(current.children)
+    raise AssertionError(f"no {node_type} in the sample; the probe is wrong")
+
+
+def test_the_name_resolver_declines_a_pattern_that_binds_several_names():
+    """⚠⚠ Asserted as a UNIT, because the product cannot reach it.
+
+    `_swift_bound_identifier` returns None for a pattern binding none or several
+    names, and that branch is what stops a blanket descent from publishing `a`
+    and dropping `b` in `let (a, b) = (1, 2)`. No Swift source can exercise it
+    through `parse_file`: a protocol property always binds exactly one name, and
+    the tuple form is `property_declaration`, which does not call this helper.
+
+    ⚠ A guard nothing can reach is a claim nothing can falsify -- the shape
+    [[a-guard-covered-only-by-positive-tests-can-be-deleted]] names. Calling it
+    directly with the tuple pattern is what makes the decline real rather than
+    decorative, and it is the assertion that fails if the helper is ever changed
+    to return the first identifier it finds.
+    """
+    from jcodemunch_mcp.parser.extractor import _swift_bound_identifier
+
+    source = "struct S {\n  let (a, b) = (1, 2)\n}\n"
+    pattern = _pattern_of(source, "property_declaration")
+
+    assert _swift_bound_identifier(pattern, source.encode()) is None, (
+        "the resolver picked one name out of a pattern that binds two; that is "
+        "a silent drop, which is why it declines instead (#733)"
+    )
+
+
+def test_the_name_resolver_finds_the_one_name_a_requirement_binds():
+    """The control for the test above: a decline that declined EVERYTHING would
+    pass it while resolving nothing, and every product assertion here would then
+    be carried by some other path.
+    """
+    from jcodemunch_mcp.parser.extractor import _swift_bound_identifier
+
+    source = "protocol P {\n  var value: Int { get }\n}\n"
+    pattern = _pattern_of(source, "protocol_property_declaration")
+
+    assert _swift_bound_identifier(pattern, source.encode()) == "value"
+
+
 def test_no_declaration_is_emitted_twice():
     """⚠ Keyed on `(name, line)`, not on the name: `subscript` is a BUILT name
     shared by every subscript in a type, so a set of names cannot tell a
