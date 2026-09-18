@@ -13,14 +13,14 @@
       "path": "tests/test_julia_short_functions.py::test_a_macro_is_a_known_separate_gap",
       "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `macro_definition` is in the grammar and matched, and the extractor read the name with `_direct_name` (first DIRECT identifier child) while a macro's name sits at `signature > call_expression > identifier` (#748). The lesson it carried -- that a name helper looking one level too shallow drops the form in silence, with no ghost and no unmatched node type to find -- is kept and widened: the replacement asserts the macro extracts across four argument spellings AND that a macro and a function are named by the SAME path, which is why the fix reuses `_func_name` instead of adding a fifth bespoke helper.",
       "replacement": "tests/test_julia_name_depth.py::test_a_macro_and_a_function_are_named_by_the_same_path",
-      "commit": "PENDING",
+      "commit": "12ee7fc4",
       "date": "2026-09-18"
     },
     {
       "path": "tests/test_julia_short_functions.py::test_a_parametric_or_subtyped_type_head_is_a_known_gap",
       "lesson": "The same lifecycle, one node type over: `_struct_name` read `type_head > identifier`, which is only the bare spelling, so seven of nine Julia type shapes yielded nothing while the two that worked were the least common in real code (#749). The lesson is that a fixture holding only the shapes that work reports a healthy language -- it was not wrong, it was narrow -- and it is kept by a replacement that parametrizes all nine shapes. The gap test's OTHER half, that a deeper walk must not fabricate symbols, is kept by two new rows asserting a supertype and a type parameter are not indexed as declarations.",
       "replacement": "tests/test_julia_name_depth.py::test_a_type_head_is_named_at_any_depth",
-      "commit": "PENDING",
+      "commit": "12ee7fc4",
       "date": "2026-09-18"
     }
   ]
