@@ -157,6 +157,40 @@ def test_the_supertype_is_not_indexed_as_a_declaration():
     )
 
 
+def test_a_combined_head_names_the_type_and_not_its_supertype():
+    """⚠⚠ The row a mutation pass added, because the two above CANNOT see the
+    failure they were written for.
+
+    Planting the obvious wrong fix -- "take the first identifier anywhere under
+    the head", breadth-first -- left both of them GREEN. On `struct S <: Super`
+    and `struct Box{T}` a breadth-first walk reaches the left operand first and
+    happens to be right, so the resolver fabricates nothing and the rows pass.
+
+    It is only the COMBINED head that separates the two rules. In
+    `abstract type C{T} <: A end` the name is one level deeper than the
+    supertype -- `binary_expression > parametrized_type_expression > identifier`
+    against `binary_expression > identifier` -- so a breadth-first walk reaches
+    `A` first and publishes the SUPERTYPE as the declaration. Measured: the
+    planted fix failed one row, and it was this shape's positive assertion, not
+    either guard named after the hazard.
+
+    ⚠ That is [[a-fixture-that-cannot-express-the-reported-shape-cannot-fail-on-it]]
+    inside the guard written against the hazard: both rows describe the right
+    property and neither can be answered wrongly by the shapes they use.
+    """
+    symbols = _symbols("abstract type C{T} <: A end\n")
+
+    assert ("C", "type") in symbols, (
+        f"the combined head `C{{T}} <: A` yields {sorted(symbols)}, not `C`"
+    )
+    assert not [s for s in symbols if s[0] == "A"], (
+        f"the SUPERTYPE `A` is indexed as the declaration of "
+        f"`abstract type C{{T}} <: A end`: {sorted(symbols)}. A resolver that "
+        f"searches for an identifier instead of taking the left operand reaches "
+        f"`A` first here, and is correct on every simpler shape."
+    )
+
+
 def test_a_type_parameter_is_not_indexed_as_a_declaration():
     """The same asymmetry one wrapper over: `{T}` binds T for the head, and a
     walk that took every identifier would publish `T` as a type of its own.
