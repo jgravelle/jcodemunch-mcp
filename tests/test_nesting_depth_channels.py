@@ -172,22 +172,38 @@ def test_source_carries_no_stray_control_characters():
     the scan walks `src/`, `tests/` and `.claude/hooks/` -- one `rglob`, cheaper
     than a per-case row in each consumer, and it covers the files written next.
     """
-    roots = [_REPO / "src", _REPO / "tests", _REPO / ".claude" / "hooks"]
+    roots = {
+        "src": _REPO / "src",
+        "tests": _REPO / "tests",
+        ".claude/hooks": _REPO / ".claude" / "hooks",
+    }
     offenders: dict[str, list[str]] = {}
-    scanned = 0
-    for root in roots:
+    scanned: dict[str, int] = {}
+    for label, root in roots.items():
+        count = 0
         for path in sorted(root.rglob("*.py")):
             try:
                 text = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            scanned += 1
+            count += 1
             bad = sorted(
                 {hex(ord(c)) for c in text if ord(c) < 32 and c not in "\n\t"}
             )
             if bad:
                 offenders[str(path.relative_to(_REPO))] = bad
+        scanned[label] = count
 
     assert not offenders, f"control characters in source: {offenders}"
-    # ⚠ Non-vacuity: a walk that reached no FILES would report clean forever.
-    assert scanned > 500, f"only {scanned} files scanned; the walk is not reaching the tree"
+
+    # ⚠⚠ PER ROOT, because an aggregate floor cannot see a dead root -- which
+    # is the property the widening exists for. `tests/` alone holds ~596 files
+    # and would clear any total worth setting, so a moved or mistyped
+    # `.claude/hooks` path would stop covering the exact tree where the 0x08
+    # recurred while the check stayed green: the single-file blind side this
+    # replaced, re-created one level up. Found in review.
+    empty = sorted(label for label, count in scanned.items() if count < 5)
+    assert not empty, (
+        f"{empty} yielded almost no .py files ({scanned}); the walk is not "
+        f"reaching those roots, so they are unguarded"
+    )

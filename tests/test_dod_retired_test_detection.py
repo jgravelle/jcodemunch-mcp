@@ -170,6 +170,31 @@ def test_a_rename_below_the_threshold_is_an_accepted_false_positive(dod, tmp_pat
     )
 
 
+def test_a_test_in_a_DELETED_file_is_keyed_to_that_file(dod, tmp_path):
+    """⚠⚠ git writes `+++ /dev/null` for a deleted file, so the path must come
+    from `--- a/` as well.
+
+    Reading only `+++ b/` left `current` on the PREVIOUS file, and every test
+    removed with a deleted file was reported under that file's name -- measured
+    as `tests/test_a.py::test_from_the_deleted_file`. The row was still counted,
+    so the grade survived, but the evidence named a `file::name` that does not
+    exist and both the survival check and the rename comparison consulted the
+    wrong file. Found in review.
+    """
+    repo = _repo(tmp_path, {"tests/test_a.py": "def test_kept():" + NL + "    assert 2" + NL})
+    diff = _diff(
+        "--- a/tests/test_a.py" + NL + "+++ b/tests/test_a.py" + NL + "@@ -1 +1 @@" + NL
+        + "-def test_kept():" + NL + "-    assert 1" + NL
+        + "+def test_kept():" + NL + "+    assert 2",
+        "--- a/tests/test_b.py" + NL + "+++ /dev/null" + NL + "@@ -1 +0,0 @@" + NL
+        + "-def test_from_the_deleted_file():" + NL + "-    assert True",
+    )
+
+    assert dod.retired_test_functions(diff, repo) == [
+        "tests/test_b.py::test_from_the_deleted_file"
+    ]
+
+
 def test_a_move_to_another_file_in_the_same_diff_is_not_a_retirement(dod, tmp_path):
     """A test that leaves one file and arrives in another has not been retired."""
     repo = _repo(tmp_path, {"tests/test_b.py": "def test_moved():\n    assert True\n"})

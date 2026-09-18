@@ -203,10 +203,18 @@ def harness_pass(summary: str | None) -> bool | None:
 #: the strength of two samples -- `b9dfcb19`, the one retirement in
 #: `harness/retired.json`, at **0.571**, and #753's rename (`880a9061`) at
 #: **0.851**. A sweep of the last 800 commits touching `tests/` falsifies that:
-#: **517 removal/addition pairs scored, only 15 clear 0.75, and 64 sit inside
-#: the 0.571-0.851 band.** The rename class straddles the line -- genuine
+#: **499 removal/addition pairs reach this rule, only 6 clear 0.75, and 58 sit
+#: inside the 0.571-0.851 band.** The rename class straddles the line -- genuine
 #: renames measured at 0.735, 0.696 and 0.689 -- so there is margin against the
 #: two samples and NONE against the class.
+#:
+#: ⚠⚠ **Those are PRODUCTION-PATH figures and the first version's were not.**
+#: `name not in moved` runs BEFORE `_is_a_rename`, so a name re-added anywhere in
+#: the diff never reaches the body comparison. Scoring those 16 pairs too gave
+#: 517 / 15 / 64 and told a reader the constant excludes 15 of 517 when on the
+#: path it governs it excludes 6 of 499 -- the near-identical bodies of re-added
+#: names are what doubled the count. Found in review. **A measurement quoted to
+#: justify a rule has to be taken on the path that rule runs on.**
 #:
 #: ⚠⚠ It stays at 0.75 anyway, and the reason is the direction of the error.
 #: A missed retirement loses the lesson permanently and silently; a reported
@@ -291,8 +299,14 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
         if line.startswith("+++ b/") or line.startswith("--- a/"):
             _flush()
             side, block_name, block = "", "", []
-            if line.startswith("+++ b/"):
-                current = line[len("+++ b/"):].strip()
+            # ⚠⚠ BOTH headers set the path, and reading only `+++ b/` misattributed
+            # every test in a DELETED file: git emits `+++ /dev/null` there, so
+            # `current` kept the previous file and the removed tests were keyed to
+            # it -- measured, `tests/test_b.py`'s test reported as
+            # `tests/test_a.py::test_from_the_deleted_file`. That feeds the wrong
+            # file to the survival check AND to the rename comparison. A modified
+            # file and a rename both overwrite this from `+++ b/` on the next line.
+            current = line[len("+++ b/"):].strip()
             continue
         if line.startswith("@@"):
             _flush()
