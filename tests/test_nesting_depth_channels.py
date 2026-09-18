@@ -202,8 +202,21 @@ def test_source_carries_no_stray_control_characters():
     # `.claude/hooks` path would stop covering the exact tree where the 0x08
     # recurred while the check stayed green: the single-file blind side this
     # replaced, re-created one level up. Found in review.
-    empty = sorted(label for label, count in scanned.items() if count < 5)
+    #
+    # ⚠⚠ The floor is ONE FILE, and the first version said five. The property is
+    # "the walk reaches this tree", and the failure it catches -- a moved,
+    # renamed or mistyped root -- yields ZERO; the measured non-vacuity run gave
+    # `.claude/hooks: 0`. A margin of three bought nothing and cost a wrong
+    # diagnosis: deleting four hooks legitimately would fail this test saying the
+    # walk is not reaching the root, which is false, and the cheapest escape
+    # would be lowering the constant -- the nudge this PR added a pinned test
+    # elsewhere to prevent. **1 is the property, not a calibration, so there is
+    # nothing to nudge.**
+    missing = sorted(label for label, root in roots.items() if not root.is_dir())
+    assert not missing, f"{missing} are not directories; the roots have moved"
+
+    empty = sorted(label for label, count in scanned.items() if count < 1)
     assert not empty, (
-        f"{empty} yielded almost no .py files ({scanned}); the walk is not "
-        f"reaching those roots, so they are unguarded"
+        f"{empty} yielded no .py files ({scanned}); the walk is not reaching "
+        f"those roots, so they are unguarded"
     )
