@@ -258,21 +258,30 @@ def _name_helpers() -> dict[str, ast.FunctionDef]:
     }
 
 
-def _callers_of(helper: str) -> set[str]:
-    """Which inner helpers (or the walker) call `helper`."""
-    callers = set()
+def _calls_in_branch_for(node_type: str) -> set[str]:
+    """Every function called inside the walker branch that handles `node_type`.
+
+    ⚠⚠ **BRANCH-scoped, because function-scoped could not see the defect.**
+    The first version of this file asked "is `_type_head_name` defined, and does
+    `_walk` call it anywhere" -- which stays GREEN when one branch keeps the
+    shared resolver and the other is given a fifth bespoke helper, i.e. green
+    against exactly the duplication the fix exists to end. Measured by the
+    reviewer against that mutant, not inferred.
+    """
+    calls: set[str] = set()
     for node in ast.walk(_julia_tree()):
-        if not isinstance(node, ast.FunctionDef):
+        if not isinstance(node, ast.If) or not isinstance(node.test, ast.Compare):
             continue
-        for inner in ast.walk(node):
-            if (
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Name)
-                and inner.func.id == helper
-                and node.name != helper
-            ):
-                callers.add(node.name)
-    return callers
+        if not any(
+            isinstance(c, ast.Constant) and c.value == node_type
+            for c in node.test.comparators
+        ):
+            continue
+        for statement in node.body:
+            for inner in ast.walk(statement):
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name):
+                    calls.add(inner.func.id)
+    return calls
 
 
 def test_every_type_form_asks_the_same_resolver():
@@ -287,6 +296,16 @@ def test_every_type_form_asks_the_same_resolver():
     ⚠ A guard over the SOURCE, not over behaviour, because the behavioural
     tests above pass equally well against five copies of the same walk -- and
     five copies is exactly how this function reached four name helpers.
+
+    ⚠⚠ **Asserted PER BRANCH, and the first version was not.** Asking whether
+    `_type_head_name` exists and whether `_walk` calls it somewhere is satisfied
+    by one branch keeping the resolver while the other gets a fifth bespoke
+    helper -- the reviewer planted `_abstract_head_name` on `abstract_definition`
+    and this test stayed green, with every behavioural row green too, because a
+    correct duplicate is still correct. A guard that cannot fail on the
+    duplication it names is the [[a-guard-covered-only-by-positive-tests-can-be-deleted]]
+    shape, and it is the second instance of it in this file (`mutation.md` row 4
+    was the first).
     """
     helpers = _name_helpers()
     assert "_type_head_name" in helpers, (
@@ -295,42 +314,35 @@ def test_every_type_form_asks_the_same_resolver():
         f"type form, not a fifth bespoke helper."
     )
 
-    assert "_walk" in _callers_of("_type_head_name"), (
-        "`_type_head_name` is defined and the walker does not ask it"
-    )
+    for node_type in ("struct_definition", "abstract_definition"):
+        calls = _calls_in_branch_for(node_type)
+        assert calls, f"no `{node_type}` branch found in `_parse_julia_symbols`"
+        assert "_type_head_name" in calls, (
+            f"the `{node_type}` branch names its type with {sorted(calls)} and "
+            f"does not ask `_type_head_name`. Every type form asks ONE resolver "
+            f"(#749); a second helper that happens to be correct today is how "
+            f"this function reached four of them."
+        )
 
 
 def test_the_macro_branch_stopped_asking_for_a_direct_child():
     """The #748 half of the same property.
 
-    ⚠ Asserted by what the macro branch CALLS, not by the absence of
-    `_direct_name` -- that helper legitimately names Julia modules, and a test
-    that banned the name would be satisfied by renaming it.
+    ⚠ Asserted POSITIVELY -- the branch must ask `_func_name` -- and the first
+    version did not match this docstring: it banned the name `_direct_name`,
+    which a bespoke `_macro_name` helper would have satisfied while reinstating
+    the defect. Banning a name is the thing the sentence above says to avoid,
+    written one line below it. Found in review.
     """
-    macro_calls: set[str] = set()
-    for node in ast.walk(_julia_tree()):
-        if not isinstance(node, ast.If):
-            continue
-        test = node.test
-        if not isinstance(test, ast.Compare):
-            continue
-        named = [
-            c.value
-            for c in test.comparators
-            if isinstance(c, ast.Constant) and c.value == "macro_definition"
-        ]
-        if not named:
-            continue
-        for statement in node.body:
-            for inner in ast.walk(statement):
-                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name):
-                    macro_calls.add(inner.func.id)
+    macro_calls = _calls_in_branch_for("macro_definition")
 
     assert macro_calls, "no `macro_definition` branch found in `_parse_julia_symbols`"
-    assert "_direct_name" not in macro_calls, (
-        f"the macro branch still calls `_direct_name`, which takes the first "
-        f"DIRECT identifier child -- a macro has none (#748). It calls "
-        f"{sorted(macro_calls)}."
+    assert "_func_name" in macro_calls, (
+        f"the macro branch names its symbol with {sorted(macro_calls)} rather "
+        f"than `_func_name`. A macro's `signature` nests its name exactly where "
+        f"a function's does, so the two forms are ONE question (#748); "
+        f"`_direct_name` asks for a direct identifier child, which a macro does "
+        f"not have."
     )
 
 

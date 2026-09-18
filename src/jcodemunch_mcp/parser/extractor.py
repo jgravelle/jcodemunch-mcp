@@ -7903,6 +7903,20 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     source = ByteSlicedSource(source_bytes)
     symbols: list[Symbol] = []
 
+    #: How many wrappers a name resolver here will unwrap before giving up.
+    #:
+    #: ⚠⚠ ONE constant, asked by both resolvers. It was a literal `8` written
+    #: twice, and "a third caller will copy it a third time" is not speculation
+    #: in this function -- four bespoke name helpers were reached exactly that
+    #: way (#738, #748, #749). Found in review of the second copy.
+    #:
+    #: ⚠ Conservative: the deepest real head nests TWICE
+    #: (`binary_expression > parametrized_type_expression > identifier`), and
+    #: overflow returns `None`, so an overrun fails closed to the pre-fix
+    #: absence rather than to a fabricated name. Not a Floor -- it bounds a walk
+    #: over a fixed wrapper set, it does not grade anything.
+    _MAX_NAME_WRAPPERS = 8
+
     #: Nodes Julia wraps a callable head in without changing what it names:
     #: a `where` clause and a declared return type.
     _NAME_WRAPPERS = frozenset({"where_expression", "typed_expression"})
@@ -7940,7 +7954,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         depth = 0
         while node is not None and node.type in _NAME_WRAPPERS:
-            if depth >= 8:
+            if depth >= _MAX_NAME_WRAPPERS:
                 return None
             named = [c for c in node.children if c.is_named]
             node = named[0] if named else None
@@ -8020,7 +8034,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         current = named[0] if named else None
         depth = 0
         while current is not None and current.type in _TYPE_HEAD_WRAPPERS:
-            if depth >= 8:
+            if depth >= _MAX_NAME_WRAPPERS:
                 return None
             inner = [c for c in current.children if c.is_named]
             current = inner[0] if inner else None
