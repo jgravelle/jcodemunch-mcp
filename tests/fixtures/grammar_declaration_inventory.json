@@ -37,11 +37,6 @@
     "solidity": [
       "constructor_definition",
       "error_declaration"
-    ],
-    "swift": [
-      "protocol_function_declaration",
-      "protocol_property_declaration",
-      "subscript_declaration"
     ]
   },
   "sources": {
@@ -404,9 +399,6 @@
       "macro_definition",
       "operator_declaration",
       "precedence_group_declaration",
-      "protocol_function_declaration",
-      "protocol_property_declaration",
-      "subscript_declaration",
       "tuple_type_item"
     ],
     "tsx": [

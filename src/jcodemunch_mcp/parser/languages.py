@@ -842,6 +842,16 @@ SWIFT_SPEC = LanguageSpec(
         "init_declaration": "method",
         "deinit_declaration": "method",
         "property_declaration": "constant",
+        # #733. A protocol's requirements ARE the protocol: the contract a
+        # caller reads, and the names a caller searches for. Both take the kind
+        # their in-class counterpart takes, and the container promotion turns
+        # the function form into a `method` because `protocol_declaration` is
+        # already a container below.
+        "protocol_function_declaration": "function",
+        "protocol_property_declaration": "constant",
+        # #733. Spelled identically in a protocol body and a class body, so one
+        # entry covers a requirement and an implementation.
+        "subscript_declaration": "function",
     },
     name_fields={
         "function_declaration": "name",  # simple_identifier child
@@ -851,6 +861,23 @@ SWIFT_SPEC = LanguageSpec(
         "init_declaration": "name",      # "init" keyword token
         "deinit_declaration": "name",    # "deinit" keyword token
         "property_declaration": "name",  # pattern child
+        "protocol_function_declaration": "name",  # simple_identifier child
+        # ⚠⚠ `protocol_property_declaration` and `subscript_declaration` are
+        # ABSENT BY DESIGN and must stay absent (#733). Both HAVE a `name`
+        # field, and on both it is the wrong thing:
+        #
+        #   protocol_property_declaration -> `pattern`, whose text is
+        #       `var value`, because inside a protocol body the binding keyword
+        #       moves INSIDE the pattern. The same field on
+        #       `property_declaration` yields the bare name, because there the
+        #       keyword is a SIBLING. One field, two nestings.
+        #   subscript_declaration -> `user_type`, which is the RETURN type. An
+        #       entry here would index every subscript in a corpus as `Int`.
+        #
+        # Their names are resolved in `_extract_name`'s swift branch, before
+        # this map is consulted, and `_RESOLVED_BEFORE_NAME_FIELDS` in
+        # `tests/test_language_spec_maps_agree.py` records that with a test
+        # that fails if the branch is not there.
     },
     param_fields={},  # Swift params are unnamed children; signature captured via source range
     return_type_fields={},  # return type shares field "name" with function identifier

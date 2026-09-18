@@ -113,11 +113,6 @@ _KNOWN_GHOSTS = {
 # outlive the defect it records.
 _CONFIRMED_GAPS = {
     "go": [("var_spec", "a package-level `var Client = 1` yields no symbol")],
-    "swift": [
-        ("protocol_function_declaration", "a protocol's method requirements are absent"),
-        ("protocol_property_declaration", "a protocol's property requirements are absent"),
-        ("subscript_declaration", "a subscript yields no symbol"),
-    ],
     "scala": [("given_definition", "a Scala 3 `given` yields no symbol")],
     "solidity": [
         ("constructor_definition", "a Solidity `constructor(...)` yields no symbol"),
@@ -563,14 +558,46 @@ def _literals_reachable_outside(language):
 # does not, and the measurement that says it is not an inflated gap.
 _HELPER_LITERAL_EXCEPTIONS = {
     "sql": (
-        {"function_declaration", "function_body"},
+        {"function_declaration", "function_body", "subscript"},
         "reached through the SHARED `_extract_name` and `_build_signature`, which "
         "NAME and SIGN a node rather than decide whether it is a symbol: "
         "`_parse_sql_symbols` recognises `create_function`, and "
         "`CREATE FUNCTION add_one(...)` yields ('add_one', 'function'), so the "
-        "inventory row is honest",
+        "inventory row is honest. `subscript` (#733) is a different case and a "
+        "weaker one: it is not a node type this extractor matches at all, it is "
+        "the BUILT NAME the swift branch returns for `subscript_declaration`, "
+        "and the literal collides with a kind tree-sitter-sql happens to emit. "
+        "It cannot inflate a gap because `subscript` is not among sql's "
+        "inventory rows -- those are array_size_definition, frame_definition, "
+        "function_declaration and var_declaration -- so there is no row for it "
+        "to remove. Asserted, not argued, by "
+        "`test_an_excused_literal_that_names_no_inventory_row_removes_nothing`",
     ),
 }
+
+
+def test_an_excused_literal_that_names_no_inventory_row_removes_nothing():
+    """The measurement behind the `sql/subscript` excuse (#733).
+
+    ⚠⚠ An entry in `_HELPER_LITERAL_EXCEPTIONS` buys SILENCE, which is
+    the thing this file keeps warning about, so each one needs a check that
+    fails when its reason stops being true. The reason here is narrow and
+    checkable: a literal can only INFLATE a gap that exists, and `subscript` is
+    not one of sql's inventory rows.
+
+    ⚠ This deliberately does NOT assert the other two sql entries, whose
+    reason is different -- `function_declaration` IS an sql inventory row, and
+    its excuse rests on the product measurement quoted beside it.
+    """
+    rows = set(json.loads(BASELINE.read_text(encoding="utf-8"))["inventory"].get("sql") or [])
+    assert "subscript" not in rows, (
+        "`subscript` is an sql inventory row now, so the excuse above no longer "
+        "holds: the literal in `_extract_name` could be hiding it (#733)."
+    )
+    assert "function_declaration" in rows, (
+        "the control is gone; if sql has no inventory rows at all this test "
+        "proves nothing about the excuse it guards"
+    )
 
 
 def test_no_inline_language_recognises_node_types_outside_its_parse_function():

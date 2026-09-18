@@ -1303,6 +1303,40 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
                             return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
         return None
 
+    # Swift (#733): two forms whose `name` field exists and points at the wrong
+    # thing, so a `name_fields` entry would be worse than the absence it fixes.
+    #
+    # ⚠⚠ The grammar spells ONE field name over TWO nestings. A
+    # `property_declaration` in a class body carries its `value_binding_pattern`
+    # (the `let`/`var`) as a SIBLING of the pattern, so its `name` field is
+    # already the bare identifier. A `protocol_property_declaration` carries the
+    # keyword INSIDE the pattern, so the identical field reads `var value` -- a
+    # name with a space in it, which no reader can type and which cannot be told
+    # apart from a fabricated identity (#734's rule for anonymous `given`s).
+    #
+    # ⚠ Keyed on the PROTOCOL node type, never on "a Swift pattern". A
+    # blanket descent would also rewrite `let (a, b) = (1, 2)`, which binds two
+    # names and today yields one symbol called `(a, b)`: that is the N-names
+    # channel argument from #731/#735 reaching `property_declaration`, a
+    # separate defect, and picking `a` there would silently drop `b`.
+    if spec.ts_language == "swift" and node.type == "protocol_property_declaration":
+        pattern = node.child_by_field_name("name")
+        if pattern is not None:
+            return _swift_bound_identifier(pattern, source_bytes)
+        return None
+
+    if spec.ts_language == "swift" and node.type == "subscript_declaration":
+        # No identifier anywhere, and the `name` field is the return type. The
+        # name is BUILT, #714's remedy for the C# indexer, and it is spelled the
+        # way a Swift developer writes the declaration, so searching the
+        # declaration's own text finds it.
+        #
+        # ⚠ A type may declare several subscripts and they share this name.
+        # That is #714's accepted limit, taken deliberately: the alternative is
+        # committing the name to a parameter list that overloads disagree about.
+        # They stay distinct by id and by line.
+        return "subscript"
+
     if node.type not in spec.name_fields:
         return None
     
@@ -1324,6 +1358,32 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
     
     return None
+
+
+def _swift_bound_identifier(pattern_node, source_bytes: bytes) -> Optional[str]:
+    """The single identifier a Swift binding pattern binds, or None.
+
+    ⚠ None for a pattern that binds NOTHING or SEVERAL names, because an
+    unnamed node is dropped and that is the pre-fix status quo, while picking
+    the first of several would publish one name and lose the rest without a
+    trace. The N-names case belongs to a channel, not to a name resolver
+    (#731's argument).
+    """
+    found = []
+    stack = list(pattern_node.children)
+    while stack:
+        current = stack.pop(0)
+        if current.type == "simple_identifier":
+            found.append(current)
+            continue
+        # The binding keyword lives in its own node and holds no identifier;
+        # descending through it costs nothing and keeps the walk shape-agnostic.
+        stack.extend(current.children)
+
+    if len(found) != 1:
+        return None
+    name_node = found[0]
+    return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
 
 
 def _extract_cpp_name(name_node, source_bytes: bytes) -> Optional[str]:

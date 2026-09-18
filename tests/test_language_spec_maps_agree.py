@@ -45,6 +45,15 @@ _RESOLVED_BEFORE_NAME_FIELDS = {
         "conversion_operator_declaration": "csharp branch builds `explicit operator string`",
         "indexer_declaration": "csharp branch builds `this[]`",
     },
+    "swift": {
+        # #733. Both HAVE a `name` field and on both it points at the wrong
+        # thing -- a `pattern` whose text carries the binding keyword
+        # (`var value`), and the subscript's RETURN type. The swift branch
+        # resolves the first and BUILDS the second, #714's remedy for a form
+        # with no identifier to borrow.
+        "protocol_property_declaration": "swift branch descends the pattern to its identifier",
+        "subscript_declaration": "swift branch builds `subscript`",
+    },
     "python": {"type_alias_statement": "explicit branch for the 3.12 type statement"},
     "dart": {
         "type_alias": "explicit branch keyed on the language",

@@ -2,6 +2,59 @@
 
 ## [Unreleased]
 
+### Fixed - a Swift protocol's requirements and every subscript are symbols (#733)
+
+A protocol indexed as a bare name. `func required()` and `var value: Int { get }`
+inside it yielded nothing, and so did every `subscript`, while an ordinary method
+in a struct beside them extracted. A protocol's requirements ARE the protocol --
+they are the contract a caller reads and the names a caller searches for, since
+the call site writes the requirement's name and never the conforming type's --
+so the one Swift declaration whose members are its whole meaning was the one
+whose members were absent. Found by #724's grammar inventory, which had all three
+node types recorded in `_CONFIRMED_GAPS`, verified by running the product.
+
+The seventh language in the class #698 named: a form the grammar spells that the
+spec never names. ⚠⚠ **And the reflex remedy -- add the node type, add its name
+field -- is right for exactly one of the three, which is why this is not three
+lines in a spec.** Both other forms HAVE a `name` field, and on both it points at
+the wrong thing:
+
+- `protocol_property_declaration`'s `name` field is a `pattern` whose text is
+  **`var value`**, because inside a protocol body the binding keyword sits INSIDE
+  the pattern. The identical field on `property_declaration` in a class body
+  yields the bare name, because there the keyword is a SIBLING. One field name,
+  two nestings, and the entry that works in one place indexes a symbol with a
+  space in its name in the other -- unsearchable, and indistinguishable from a
+  fabricated identity.
+- `subscript_declaration`'s `name` field is a `user_type` holding the RETURN
+  type, so an entry there is not merely useless: every subscript in a corpus
+  would index as `Int`, `String` or `Element`. Its name is BUILT in
+  `_extract_name`, which is #714's remedy for the three C# forms with no
+  identifier to borrow, and it is spelled `subscript` for #714's stated reason --
+  it is what a developer writes at the declaration, so searching the
+  declaration's own text finds it.
+
+⚠ **The blanket fix was available and refused.** Descending every Swift pattern
+to its identifier covers the protocol case in one line and silently changes
+`property_declaration`, where `let (a, b) = (1, 2)` binds two names: it would
+publish `a` and drop `b` without a trace. `_swift_bound_identifier` returns None
+for a pattern binding none or several, so that case stays where it belongs --
+a channel, not a name resolver (#731's argument) -- and
+`test_a_tuple_binding_is_a_known_separate_gap` pins today's behaviour in both
+directions so the decision is visible rather than accidental.
+
+⚠ A type may declare several subscripts and they share the built name. That is
+#714's accepted limit, recorded here rather than discovered later: the
+alternative is committing the name to a parameter list that overloads disagree
+about. They stay distinct by id and by line.
+
+Impossible now: a protocol requirement or a subscript that reaches the index
+under its return type, under a name carrying a binding keyword, or not at all.
+The Swift inventory goes 272 -> 269 and the `swift` `_CONFIRMED_GAPS` entry is
+deleted, so the record cannot outlive the defect. ⚠ Untouched and still tracked:
+Swift `deinit` (#754, PR #756's gap table) and `associatedtype_declaration`,
+which is in the inventory and has never been confirmed by running the product.
+
 ### Fixed - every Java field is a symbol, not only the `static final` ones (#735)
 
 A Java class indexed with its methods and none of its state. `private int
