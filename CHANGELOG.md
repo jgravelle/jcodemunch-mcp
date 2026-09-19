@@ -2,6 +2,68 @@
 
 ## [Unreleased]
 
+### Fixed - a file summary counts every kind of class state, and names each one (#760)
+
+A class whose members carry any kind but `field` summarised as having none. Java
+and PHP reach the index through the same channel and differ only in the word
+each language uses:
+
+    Java, 2 methods + 5 fields      ->  Defines A class (2 methods, 5 fields)
+    PHP,  2 methods + 5 properties  ->  Defines C class (2 methods)
+
+⚠⚠ **The file summary is what a reader sees BEFORE opening a file**, so a PHP
+class read as having no state at all -- the symptom #743 and #735 were about,
+surviving one layer up from the fix that closed them.
+
+The cause is one hardcoded string against a vocabulary that has four state kinds:
+
+    field_count = sum(1 for s in symbols if s.kind == "field" and ...)
+
+`constant` and `variable` joined `KIND_ORDER` in #741/#742 and `property` in
+#732, so a consumer keyed on one string sees one of four. **"Which kinds are
+declared state" is a property of the KIND VOCABULARY**, so it is answered beside
+`KIND_ORDER` as `STATE_KINDS` and imported -- a second copy in the summariser is
+how this returns for the fifth kind, and
+`test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind` scans the
+module for a state-kind literal.
+
+⚠⚠ **`STATE_KINDS` says what a kind IS, never where it lives.** `constant` and
+`variable` are reached at module scope AND as class members -- a Svelte
+component's bindings are parented to the component (#752) -- which is exactly
+the mixing `KIND_ORDER`'s own `variable` comment warns about. The PARENT filter
+is what keeps them apart, and widening the kinds is the change that could drop
+it. A component with three bindings summarised as `Defines C class (0 methods)`
+before this and reads `(1 constant, 1 property, 1 variable)` now, which also
+closes the consumer loss #768's entry disclosed.
+
+⚠ **Naming a kind in prose forces a plural rule**: `property` -> `properties` is
+irregular, so `kind + "s"` is wrong, and `plural_kind` is why `1 methods` is now
+`1 method`. A zero count is omitted, so a class with no members has no empty
+parenthetical.
+
+**What is impossible now:** a class member cannot be absent from its file's
+summary because of the word its language uses for it, and a summary cannot name
+a count without naming which kind it counted.
+
+⚠ **A C++ class still summarises with no members, and that is #755, not this.**
+Its data members yield no symbol at all, so the summary is faithful to the
+index; counting more kinds cannot conjure a symbol the parser never emitted.
+`test_cpp_is_not_this_issue` pins that so the two absences are not confused, and
+fails -- correctly -- when #755 is fixed.
+
+⚠ `signature_fallback` in `batch_summarize.py` also branches on
+`kind == "constant"` and is deliberately NOT changed: it asks a per-kind DISPLAY
+question, not "is this class state", and its `else` already handles every kind,
+so it loses nothing. A shared set there would answer a question it is not asking.
+
+⚠ The one blind guard, found by the non-vacuity pass and recorded because the
+fix was invisible without it: `test_a_module_scope_binding_is_not_a_class_member`
+first asserted `"2 constants" not in summary`, which is true whether or not the
+module constant is counted -- a planted removal of the parent filter left all
+twelve tests green. It asserts the whole string now
+(`4 plants, all observed`, `.claude/state/evidence/plants.md`).
+
+
 ### Fixed - a destructured JS binding declares names, and a Vue or Svelte script block has bindings (#751, #752)
 
 `const { a, b } = obj` yielded no symbol in javascript, typescript or tsx, and a

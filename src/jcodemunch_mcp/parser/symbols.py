@@ -88,6 +88,40 @@ KIND_ORDER: tuple[str, ...] = (
 
 VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)
 
+#: The kinds that name DECLARED STATE rather than behaviour or wiring (#760).
+#:
+#: ⚠⚠ **A consumer keyed on ONE kind string sees one of four.** `file_summarize`
+#: counted a class's members with `s.kind == "field"`, so a Java class read as
+#: `(2 methods, 5 fields)` and a PHP class with five properties read as
+#: `(2 methods)` -- the same channel, different word, and the reader sees a class
+#: with no state at all. "Which kinds are declared state" is a property of THIS
+#: vocabulary, so it is answered here and imported, never re-derived: a second
+#: copy is how the defect returns for the fifth kind.
+#:
+#: ⚠⚠ **This says what a kind IS, never where it lives.** `constant` and
+#: `variable` are reached at module scope AND as class members (a Svelte
+#: component's bindings are parented to the component), which is exactly the
+#: mixing `KIND_ORDER`'s `variable` comment warns about. Scope is the CALLER's
+#: question and the caller answers it with the `parent` field; widening the
+#: kinds without keeping that filter is the way to break it.
+#:
+#: ⚠ Derived from `KIND_ORDER` so the order is the vocabulary's, which makes a
+#: rendered summary deterministic and puts a newly added kind where the tuple
+#: puts it rather than where a literal was typed.
+_STATE_KINDS: frozenset[str] = frozenset({"constant", "field", "property", "variable"})
+STATE_KINDS: tuple[str, ...] = tuple(k for k in KIND_ORDER if k in _STATE_KINDS)
+
+#: Plurals that `kind + "s"` gets wrong. Naming a kind in prose forces this:
+#: "1 properties" would be worse than the count being absent.
+_IRREGULAR_PLURALS: dict[str, str] = {"property": "properties"}
+
+
+def plural_kind(kind: str, count: int) -> str:
+    """`kind` pluralised for `count`, for prose that names the kind."""
+    if count == 1:
+        return kind
+    return _IRREGULAR_PLURALS.get(kind, kind + "s")
+
 
 def make_symbol_id(file_path: str, qualified_name: str, kind: str = "") -> str:
     """Generate unique symbol ID.

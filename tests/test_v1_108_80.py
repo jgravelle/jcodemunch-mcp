@@ -140,5 +140,10 @@ class TestDataclassFields:
         )
         syms = parse_file(src, "m.py", "python")
         summary = _heuristic_summary("m.py", syms)
-        assert "1 methods" in summary
+        # ⚠ "1 methods" until #760. This test's subject is that fields are
+        # counted SEPARATELY, and the plural was incidental to it; naming each
+        # kind in the summary forced a plural rule (`property` -> `properties`
+        # is irregular), and applying it to `method` is the same rule, not a
+        # second one.
+        assert "1 method" in summary
         assert "2 fields" in summary

@@ -2,8 +2,22 @@
 
 from typing import Optional
 
-from ..parser.symbols import Symbol
+from ..parser.symbols import STATE_KINDS, Symbol, plural_kind
 from ..parser.context.base import ContextProvider
+
+
+def _counted(symbols: list[Symbol], kinds: tuple[str, ...]) -> list[str]:
+    """`["2 methods", "5 properties"]` for the kinds present, in vocabulary order.
+
+    ⚠ A zero count is omitted rather than rendered: "0 methods" on a class whose
+    state IS its content read as an empty file, which is the symptom this fixes.
+    """
+    bits = []
+    for kind in kinds:
+        count = sum(1 for s in symbols if s.kind == kind)
+        if count:
+            bits.append(f"{count} {plural_kind(kind, count)}")
+    return bits
 
 
 def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
@@ -14,19 +28,23 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
     classes = [s for s in symbols if s.kind == "class"]
     functions = [s for s in symbols if s.kind == "function"]
     methods = [s for s in symbols if s.kind == "method"]
-    constants = [s for s in symbols if s.kind == "constant"]
+    state = [s for s in symbols if s.kind in STATE_KINDS]
     types = [s for s in symbols if s.kind == "type"]
 
     parts = []
     if classes:
         for cls in classes[:2]:
             suffix = f"::{cls.name}#class"
-            method_count = sum(1 for s in symbols if s.kind == "method" and s.parent and s.parent.endswith(suffix))
-            field_count = sum(1 for s in symbols if s.kind == "field" and s.parent and s.parent.endswith(suffix))
-            desc = f"Defines {cls.name} class ({method_count} methods"
-            if field_count:
-                desc += f", {field_count} fields"
-            desc += ")"
+            # ⚠⚠ The PARENT filter is what keeps module-scope bindings out of a
+            # class's member count -- `constant` and `variable` are reached in
+            # both scopes, and `KIND_ORDER`'s own comment names that mixing as
+            # the thing to avoid. Widening the KINDS is safe only because the
+            # SCOPE question is still asked here.
+            members = [s for s in symbols if s.parent and s.parent.endswith(suffix)]
+            bits = _counted(members, ("method",) + STATE_KINDS)
+            desc = f"Defines {cls.name} class"
+            if bits:
+                desc += f" ({', '.join(bits)})"
             parts.append(desc)
     if functions:
         if len(functions) <= 3:
@@ -38,8 +56,10 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
     if types and not parts:
         names = ", ".join(t.name for t in types[:3])
         parts.append(f"Defines types: {names}")
-    if constants and not parts:
-        parts.append(f"Defines {len(constants)} constants")
+    if state and not parts:
+        # The same defect a few lines up: this counted `constant` alone, so a
+        # file of `let`/`var` bindings (#741, #742) summarised as having none.
+        parts.append("Defines " + ", ".join(_counted(state, STATE_KINDS)))
 
     return ". ".join(parts) if parts else ""
 
