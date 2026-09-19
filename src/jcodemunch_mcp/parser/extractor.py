@@ -292,6 +292,19 @@ def _extract_call_references(
     _attribute_calls_to_symbols(symbols, calls)
 
 
+#: Languages in which a bare `_` is the language's own DISCARD: it cannot be
+#: referenced, several may sit in one scope, and it declares no name. Go's blank
+#: identifier, Rust's unnamed `const _` (the static-assertion idiom), Swift's and
+#: Scala's wildcard pattern.
+#:
+#: ⚠⚠ An ALLOWLIST, and it must stay one. In JavaScript, TypeScript and Python
+#: `_` is an ordinary identifier (lodash is conventionally bound to it), so a
+#: rule keyed on the spelling would delete real symbols. Add a language only
+#: when its reference says `_` cannot be read back. Only the BARE underscore:
+#: `_x` and `__` are names.
+_BLANK_IDENTIFIER_LANGUAGES: frozenset[str] = frozenset({"go", "rust", "swift", "scala"})
+
+
 def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None, repo: Optional[str] = None) -> list[Symbol]:
     """Parse source code and extract symbols using tree-sitter.
 
@@ -441,6 +454,13 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
     # Extract call references for custom parsers that created a tree
     if root_node is not None:
         _extract_call_references(root_node, symbols, source_bytes, language)
+
+    # A language's DISCARD binds nothing, so it names nothing (#763). Dropped
+    # here, once, rather than in each extraction channel: Go's `var` channel
+    # had its own skip and its `const` channel did not, which is how the report
+    # arrived. BEFORE disambiguation, or two `_` leave `~1`/`~2` ordinals behind.
+    if language in _BLANK_IDENTIFIER_LANGUAGES:
+        symbols = [s for s in symbols if s.name != "_"]
 
     # Disambiguate overloaded symbols + compute complexity in a single pass
     symbols = _disambiguate_and_compute_complexity(symbols, source_bytes)

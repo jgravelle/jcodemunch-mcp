@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - a language's discard is not a symbol (#763, fix by @fathirramadhan-web)
+
+Go's blank identifier was indexed as a constant. `_` is a discard target: it
+cannot be referenced, several can sit in one file, and each became a symbol
+called `_` competing in every ranking. `const ( _ = iota; KB; MB )` indexed
+three constants where two are real, and two discards in one file collected
+`~1`/`~2` ordinals on top.
+
+@fathirramadhan-web found the fix and proposed it in PR #765: skip `_` inside
+the per-spec loop, never at the spec level, so `const _, B = 1, 2` still yields
+`B`, with the iota ladder as the case that matters. The CLA was still unsigned
+when the PR's window closed, so none of that PR's code is in this change; the
+implementation and tests here were written independently, and the credit for
+finding the fix is theirs.
+
+The rule went one layer down from where it was proposed, because the report was
+itself the result of fixing one channel: #741's review gave Go's `var` channel a
+`_` skip and left the `const` channel named in a comment. **A discard dropped
+per channel is dropped in the channels someone remembered**, so it is dropped
+once, in `parse_file`, before disambiguation. Probing the same shape elsewhere
+found it indexed in Rust (`const _: () = ...`, the static-assertion idiom),
+Swift (`let _`) and Scala (`val _`) too.
+
+⚠⚠ **An allowlist of languages, never a rule about the spelling.** In JavaScript
+and TypeScript `_` is an ordinary identifier, and lodash is conventionally bound
+to it; a rule keyed on the name would delete a real symbol. That direction was
+written as a test before the fix, and only the bare underscore counts: `_x` and
+`__` are names. Existing indexes are re-parsed by the unreleased
+`PARSER_GENERATION` bump already in this block.
+
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
 
 `check_delete_safe` and `get_group_contracts` asked `runtime_calls` for
