@@ -55,12 +55,21 @@ def test_create_time_of_dead_pid_is_none():
 
 # --- registry: recycled-PID rows are pruned --------------------------------
 
-def _write_row(tmp_path, pid, extra=""):
+_LONG_AGO = "2020-01-01T00:00:00+00:00"
+
+
+def _now_iso():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _write_row(tmp_path, pid, extra="", started_at=_LONG_AGO):
     d = tmp_path / registry._DIR_NAME
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{pid}.json").write_text(
         '{"pid": %d, "client_id": "ghost", "transport": "stdio",'
-        ' "version": "0", "started_at": "2020-01-01T00:00:00+00:00"%s}' % (pid, extra),
+        ' "version": "0", "started_at": "%s"%s}' % (pid, started_at, extra),
         encoding="utf-8",
     )
     return d / f"{pid}.json"
@@ -78,8 +87,14 @@ def test_recycled_pid_row_is_pruned(tmp_path):
 
 def test_row_without_create_time_keeps_old_behavior(tmp_path):
     """Back-compat: rows written by pre-fix versions have no create_time and
-    must still be reported when the PID is alive."""
-    _write_row(tmp_path, os.getpid())
+    must still be reported when the PID is alive.
+
+    #728: this fixture used to date the row 2020 while naming THIS process, i.e.
+    a row years older than the process holding its PID -- the reported defect,
+    asserted as correct. The property it guards is unchanged (a genuine legacy
+    holder stays live); the row is dated by the process that wrote it now.
+    """
+    _write_row(tmp_path, os.getpid(), started_at=_now_iso())
     entries = registry.live_processes(str(tmp_path))
     assert [e.pid for e in entries] == [os.getpid()]
 
@@ -121,11 +136,15 @@ def test_lock_with_recycled_pid_is_reclaimable(tmp_path):
 
 def test_lock_without_create_time_still_held(tmp_path):
     """Back-compat: a lock written by a pre-fix version (no create_time) whose
-    PID is alive must still read as held."""
+    PID is alive must still read as held.
+
+    #728: dated 2020 until now, which is the reported defect's exact shape (see
+    the registry twin above). Dated by the process that holds it.
+    """
     lock_fp = locks.lock_path("testscope", "bc/target", str(tmp_path))
     lock_fp.write_text(
         '{"scope": "testscope", "target": "bc/target", "pid": %d,'
-        ' "client_id": "old", "started_at": "2020-01-01T00:00:00+00:00"}' % os.getpid(),
+        ' "client_id": "old", "started_at": "%s"}' % (os.getpid(), _now_iso()),
         encoding="utf-8",
     )
     holder = locks.inspect("testscope", "bc/target", str(tmp_path))

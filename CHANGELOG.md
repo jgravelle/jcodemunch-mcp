@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - a lock older than the process holding its PID is not that process's lock (#728, @Matt-hew93)
+
+`get_watch_status` and `list-repos` reported a repository as watched because
+the PID in its `_watcher_*.lock` was alive. On the reporter's machine that PID
+belonged to an `OpenConsole.exe` created a month after the lock was written. The
+repo had not been watched since, its index went stale, and everything said
+healthy. A new watcher would also decline the folder as already claimed.
+
+#450 (`1c7fa623`) closed PID reuse by recording the holder's creation time and
+comparing it exactly. It left one case on liveness alone: a lock with no
+`create_time`, because "there is nothing to compare against". ⚠⚠ **That is every
+lock written before #450, and a stale lock is by definition an old one** -- the
+fix could not reach the population it was for. Fixing a producer does not fix
+its history.
+
+There was something to compare against. Every lock ever written records
+`started_at`, and a process cannot hold a lock that was written before the
+process existed. A holder created more than five minutes after `started_at` is a
+recycled PID. The rule is one-directional and the margin absorbs a corrected
+wall clock: a genuine holder was created BEFORE it wrote its lock, so its
+difference is negative, while a recycled PID's is the age of the stale lock.
+
+The rule lives in `_is_live_holder`, which `inspect`, `acquire` and the process
+registry already share, so `sprawl_report`'s pre-#450 rows inherit it; a test
+fails if any caller stops handing over `started_at`. UNKNOWN is never a verdict:
+an unparseable `started_at` or an unreadable creation time keeps the holder
+live, as before.
+
+⚠ **Two of #450's own tests were this defect's witnesses.** Their fixtures dated
+a lock and a registry row to 2020 while naming the live test process, then
+asserted "held": a lock years older than the process holding its PID, which is
+the report. The property they guard is kept (a genuine legacy holder stays
+live); the fixtures are dated by the process that writes them now.
+
+Not taken from the report: expiring field-less locks by age, which would kill a
+genuine long-running legacy watcher where this rule does not, and matching on
+the executable name, since `python.exe` is every Python program. Platforms with
+no creation-time source (macOS) stay on liveness alone, unchanged from #450.
+Thanks to @Matt-hew93 for a report that carried the lock contents, the process
+table and the contrast case where the check works.
+
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
 
 `check_delete_safe` and `get_group_contracts` asked `runtime_calls` for
