@@ -62,6 +62,18 @@ already asking the shared binder, which is the argument for fixing this one
 layer down, and `test_astro_frontmatter_inherited_the_fix_with_no_astro_change`
 is what fails if it is ever given a fourth copy.
 
+⚠⚠ **The cost, found by the full tier and not by the touched files: a
+destructured import binding now CROWDS the thing it imports.**
+`const { process } = require('./service')` is a symbol named `process` in
+`main.js`, so a lookup by bare name is ambiguous where it used to be unique --
+which is what broke `tests/test_call_graph_ast.py::test_js_call_hierarchy`, a
+test with no obvious relationship to this change. The new symbol is correct
+(#751 names that spelling explicitly) and the crowding is the real price of
+indexing it, the #699 shape one axis over. Both survive with distinct ids and
+files; the broken test selects by file now, and
+`test_a_destructured_import_does_not_displace_what_it_imports` pins the property
+so the next consumer does not rediscover it by breaking.
+
 `tests/test_js_bindings.py::test_a_destructuring_pattern_is_a_known_separate_gap`
 was written to FAIL when this gap closed and it did; it is retired in
 `harness/retired.json` with the replacement that carries its lesson.

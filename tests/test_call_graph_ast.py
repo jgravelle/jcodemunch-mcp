@@ -151,7 +151,17 @@ class TestCallGraphE2E:
         symbols_by_name = {s["name"]: s for s in index.symbols if s.get("language") == "javascript"}
 
         # process calls helper
-        process_sym = next((s for s in index.symbols if s["name"] == "process" and s.get("language") == "javascript"), None)
+        # ⚠ Selected BY FILE, not by bare name. Since #751 the destructured
+        # import `const { process } = require('./service')` in main.js is itself
+        # a symbol named `process`, so a name-only lookup is ambiguous and
+        # picked whichever the walk emitted first. The test meant the function.
+        process_sym = next(
+            (s for s in index.symbols
+             if s["name"] == "process"
+             and s.get("language") == "javascript"
+             and s["file"].endswith("service.js")),
+            None,
+        )
         assert process_sym is not None
         assert "helper" in process_sym.get("call_references", [])
 

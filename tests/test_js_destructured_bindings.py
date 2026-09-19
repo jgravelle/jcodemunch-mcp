@@ -185,6 +185,46 @@ def test_var_destructuring_carries_the_variable_kind(language, filename):
 
 
 # ---------------------------------------------------------------------------
+# The consequence: a destructured import is a symbol, and it CROWDS
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("language,filename", LANGUAGES)
+def test_a_destructured_import_binding_is_a_symbol(language, filename):
+    """`const { readFile } = require('fs/promises')` is named in #751 as a case
+    that must index. It does.
+    """
+    source = "const { readFile } = require('fs/promises');\n"
+    assert _pairs(source, language, filename) == {("readFile", "constant")}
+
+
+def test_a_destructured_import_does_not_displace_what_it_imports():
+    """⚠⚠ **Found by the FULL tier, not by the touched files.**
+    `tests/test_call_graph_ast.py::test_js_call_hierarchy` broke: it looked up
+    `process` by bare name across the index, and since this change
+    `const { process } = require('./service')` in `main.js` is ALSO a symbol
+    named `process`, so the lookup became ambiguous and answered with the
+    import.
+
+    ⚠ The new symbol is correct -- #751 names this spelling explicitly -- and
+    the crowding is the real cost of indexing it, the #699 shape one axis over.
+    What must hold is that both survive with distinct ids and files, so a
+    consumer can tell them apart; the test that broke now selects by file.
+    """
+    importer = parse_file(
+        "const { process } = require('./service');\n", "main.js", "javascript"
+    )
+    defining = parse_file("function process() { return 1; }\n", "service.js", "javascript")
+
+    imported = [s for s in importer if s.name == "process"]
+    defined = [s for s in defining if s.name == "process"]
+    assert len(imported) == 1 and len(defined) == 1
+    assert imported[0].kind == "constant"
+    assert defined[0].kind == "function"
+    assert imported[0].id != defined[0].id
+    assert imported[0].file != defined[0].file
+
+
+# ---------------------------------------------------------------------------
 # Blast radius: what was already right stays right
 # ---------------------------------------------------------------------------
 
