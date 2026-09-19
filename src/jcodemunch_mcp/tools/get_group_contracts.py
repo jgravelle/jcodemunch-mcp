@@ -23,7 +23,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
-from ..storage.generation import connect_readonly
+from ..runtime.confidence import symbol_hit_count
 from .package_registry import build_package_registry, extract_root_package_from_specifier
 from ._utils import symbol_span_bytes
 
@@ -107,24 +107,17 @@ def _last_breaking_change(symbol_id: str, owner: str, name: str, storage_path: O
 def _runtime_hits_for(
     store: IndexStore, owner: str, name: str, symbol_id: str,
 ) -> Optional[int]:
-    """Best-effort runtime hit count over the indexed trace window."""
+    """Best-effort runtime hit count over the indexed trace window.
+
+    Delegates to the one reader (#717); a local copy of this query is how
+    `hit_count` outlived the schema that never had it.
+    """
     try:
         db_path = store._sqlite._db_path(owner, name)
-        if not db_path.exists():
-            return None
-        conn = connect_readonly(db_path, isolation_level="")
-        try:
-            cur = conn.execute(
-                "SELECT COALESCE(SUM(hit_count), 0) FROM runtime_calls WHERE symbol_id = ?",
-                (symbol_id,),
-            )
-            row = cur.fetchone()
-            return int(row[0]) if row and row[0] else None
-        finally:
-            conn.close()
     except Exception as exc:  # noqa: BLE001
-        logger.debug("get_group_contracts: runtime hits lookup failed: %s", exc, exc_info=True)
+        logger.debug("_runtime_hits_for: db path unavailable: %s", exc, exc_info=True)
         return None
+    return symbol_hit_count(db_path, symbol_id)
 
 
 def get_group_contracts(
