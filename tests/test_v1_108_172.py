@@ -208,15 +208,23 @@ def test_sprawl_report_excludes_self_from_others(tmp_path):
 
 
 def test_sprawl_hint_appears_only_past_the_threshold(tmp_path):
-    """Fabricate live entries by reusing this PID, which is genuinely alive."""
+    """Fabricate live entries by reusing this PID, which is genuinely alive.
+
+    #728: the rows were dated 2020, i.e. years older than the process holding
+    their PID, which is a recycled PID by definition and is pruned now. A row
+    this process could have written is dated by this process.
+    """
+    from datetime import datetime, timezone
+
     directory = tmp_path / registry._DIR_NAME
     directory.mkdir(parents=True)
     me = os.getpid()
+    now = datetime.now(timezone.utc).isoformat()
     for i in range(registry._SPRAWL_HINT_THRESHOLD):
         # Distinct filenames, all pointing at a live PID.
         (directory / f"{me}_{i}.json").write_text(
             f'{{"pid": {me}, "client_id": "c{i}", "transport": "stdio",'
-            f' "version": "0", "started_at": "2020-01-01T00:00:00+00:00"}}',
+            f' "version": "0", "started_at": "{now}"}}',
             encoding="utf-8",
         )
     report = registry.sprawl_report(str(tmp_path))

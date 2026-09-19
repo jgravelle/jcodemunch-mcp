@@ -30,11 +30,12 @@ fails if any caller stops handing over `started_at`. UNKNOWN is never a verdict:
 an unparseable `started_at` or an unreadable creation time keeps the holder
 live, as before.
 
-⚠ **Two of #450's own tests were this defect's witnesses.** Their fixtures dated
-a lock and a registry row to 2020 while naming the live test process, then
-asserted "held": a lock years older than the process holding its PID, which is
-the report. The property they guard is kept (a genuine legacy holder stays
-live); the fixtures are dated by the process that writes them now.
+⚠ **Three existing tests were this defect's witnesses**: two of #450's own, and
+the sprawl-hint test, which the full tier found after the touched files were
+green. Each dated a lock or a registry row to 2020 while naming the live test
+process, then asserted it live: a row years older than the process holding its
+PID, which is the report. The property each guards is kept (a genuine legacy
+holder stays live); the fixtures are dated by the process that writes them now.
 
 Not taken from the report: expiring field-less locks by age, which would kill a
 genuine long-running legacy watcher where this rule does not, and matching on
