@@ -22,6 +22,13 @@
       "replacement": "tests/test_julia_name_depth.py::test_a_type_head_is_named_at_any_depth",
       "commit": "12ee7fc4",
       "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_js_bindings.py::test_a_destructuring_pattern_is_a_known_separate_gap",
+      "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `_js_declarator_names` required the declarator's `name` field to be an `identifier`, and a destructuring spells that field `object_pattern` or `array_pattern`, so every destructured binding was declined in javascript, typescript and tsx (#751). The lesson it carried -- that a disclosed gap is better than a silent absence, because `const { useState } = React` and `export const { GET, POST } = handlers` are ordinary module surface and a file whose exports are all destructured indexed with NONE of them -- is carried by the replacement named below. Its two samples (`const { a, b }` and `let [c, d]`) could express neither the nesting nor the anti-fabrication half: a pattern nests, and a walk collecting every `identifier` under it publishes `a` for `const { a: renamed }` and `const { a: { b } }`, where `a` names a property of the right-hand object and is bound to nothing. That half is `test_a_nested_pattern_binds_its_leaves_and_not_its_path`, whose `unbound` column fails 15 rows against the planted naive walk, and `test_a_parameter_pattern_binds_no_module_symbol`, which is what fails if the walk is ever reached from a parameter position -- the same node types, in the one place they are locals.",
+      "replacement": "tests/test_js_destructured_bindings.py::test_an_object_pattern_binds_every_name",
+      "commit": "99ef0583",
+      "date": "2026-09-18"
     }
   ]
 }
