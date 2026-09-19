@@ -20,8 +20,8 @@ The cause is one hardcoded string against a vocabulary that has four state kinds
     field_count = sum(1 for s in symbols if s.kind == "field" and ...)
 
 `property` joined `KIND_ORDER` in #732 and `variable` in #741/#742, beside
-`field` and a `constant` that has been there since v1.5.1 -- so a consumer keyed
-on one string sees one of four. **"Which kinds are
+`field` and a `constant` that has been in `KIND_ORDER` since the tuple existed
+(v1.5.1) -- so a consumer keyed on one string sees one of four. **"Which kinds are
 declared state" is a property of the KIND VOCABULARY**, so it is answered beside
 `KIND_ORDER` as `STATE_KINDS` and imported -- a second copy in the summariser is
 how this returns for the fifth kind, and
@@ -69,6 +69,18 @@ top-level one's member and lost its own two. The leak PRE-DATES this change and
 carried `field` alone. Matching the class's own `id` closes it outright; the
 `Foo`/`MyFoo` prefix shape was always safe, so the separator was the defect.
 
+⚠⚠ **Two classes of one name report the UNION of their members, and the
+first draft of the nested-class fix reported NEITHER.** When a file holds two
+same-named classes, `_disambiguate_and_compute_complexity` rewrites the CLASS id
+to `...#class~1`/`~2` and never rewrites its children's `parent` -- so matching
+`s.parent == cls.id` exactly found nothing, and every C# `partial class` and
+Swift `class` + `extension` summarised as empty. That is this entry's own
+symptom, shipped by the remedy for a different one, and no plant could express
+it. The comparison strips the ordinal now. The union is what the old name-suffix
+match produced too, is CORRECT for a partial class (they are one class), and is
+an over-count rather than an absence for the rest; separating them needs the
+producer to renumber children, filed as #771.
+
 ⚠ **A C++ class still summarises with no members, and that is #755, not this.**
 Its data members yield no symbol at all, so the summary is faithful to the
 index; counting more kinds cannot conjure a symbol the parser never emitted.
@@ -85,7 +97,7 @@ fix was invisible without it: `test_a_module_scope_binding_is_not_a_class_member
 first asserted `"2 constants" not in summary`, which is true whether or not the
 module constant is counted -- a planted removal of the parent filter left all
 twelve tests green. It asserts the whole string now
-(`4 plants, all observed`, `.claude/state/evidence/plants.md`).
+(`.claude/state/evidence/plants.md`, every plant observed).
 
 
 ### Fixed - a destructured JS binding declares names, and a Vue or Svelte script block has bindings (#751, #752)

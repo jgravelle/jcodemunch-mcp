@@ -175,9 +175,58 @@ def test_a_nested_class_does_not_borrow_a_top_level_namesake_s_members():
     assert summary == "Defines Outer class (1 method, 1 property). Defines Inner class (2 properties)"
 
 
+@pytest.mark.parametrize("source,filename,language,expected", [
+    (
+        "public partial class C {\n"
+        "    private int a = 0;\n"
+        "    public void M1() {}\n"
+        "}\n"
+        "public partial class C {\n"
+        "    private int b = 0;\n"
+        "    public void M2() {}\n"
+        "}\n",
+        "c.cs", "csharp",
+        "Defines C class (2 methods, 2 constants). Defines C class (2 methods, 2 constants)",
+    ),
+    (
+        "class Sw {\n    var count: Int = 0\n    func f() {}\n}\n"
+        "extension Sw {\n    var doubled: Int { count * 2 }\n}\n",
+        "s.swift", "swift",
+        "Defines Sw class (1 method, 2 constants). Defines Sw class (1 method, 2 constants)",
+    ),
+])
+def test_two_classes_of_one_name_still_report_their_members(
+    source, filename, language, expected
+):
+    """⚠⚠ **The regression the FIRST fix for the nested case shipped, and the
+    shape no existing plant could express.**
+
+    When one file holds two classes of the same name,
+    `_disambiguate_and_compute_complexity` rewrites the CLASS id to
+    `...#class~1`/`~2` and never rewrites its children's `parent`. So a bare
+    `s.parent == cls.id` matches NOTHING and both classes summarise as empty --
+    this module's own symptom, reintroduced by the remedy for a different one.
+
+    ⚠ A C# `partial class` and a Swift `class` + `extension` are idiomatic, not
+    edge cases: the first draft unindexed the members of every one of them.
+
+    ⚠ Each namesake reports the UNION of their members, which the old name
+    suffix match also did. That is CORRECT for a partial class -- they are one
+    class -- and an over-count, not an absence, for two genuinely distinct
+    namesakes. Separating those needs the producer to renumber children's
+    `parent`, which is #771.
+    """
+    assert _summary(source, filename, language) == expected
+
+
 def test_a_class_whose_name_is_a_suffix_of_another_keeps_its_own_members():
-    """The prefix shape, pinned in both directions so the id match cannot
-    regress to a suffix match without failing.
+    """The prefix shape, pinned as an OUTPUT.
+
+    ⚠ It does not discriminate between the two matchers and the docstring
+    used to claim it did: `"F.php::MyFoo#class".endswith("::Foo#class")` is
+    False, so a suffix match answers this case correctly too. The separator was
+    the defect, not the prefix -- `test_a_nested_class_...` is the row that
+    fails against a suffix match, and it is the only one.
     """
     source = (
         "<?php\n"
@@ -252,23 +301,33 @@ def test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind():
     this defect returns for the fifth kind, so the summariser must hold no
     state-kind literal of its own.
     """
+    import ast
     import pathlib
 
     import jcodemunch_mcp.summarizer.file_summarize as mod
     from jcodemunch_mcp.parser.symbols import STATE_KINDS
 
     source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
-    # ⚠ Scans for the kind as a STRING LITERAL in any spelling, not just
-    # `== "field"`. The first version matched equality alone, and
-    # `s.kind in ("field",)` -- the shape a re-introduction is likelier to take,
-    # since `_counted` already compares against a loop variable -- walked past
-    # it. Comments are stripped first so the module may still EXPLAIN itself.
-    code = chr(10).join(ln.split("#", 1)[0] for ln in source.splitlines())
-    for kind in STATE_KINDS:
-        for spelling in (f'"{kind}"', f"'{kind}'"):
-            assert spelling not in code, (
-                f"file_summarize names {kind!r} directly; ask STATE_KINDS"
-            )
+
+    # ⚠⚠ Parsed, not scanned. Two earlier versions were blind:
+    #   1. matching `== "field"` only -- `s.kind in ("field",)` evaded it, which
+    #      is the likelier spelling since `_counted` already compares against a
+    #      loop variable;
+    #   2. stripping comments by cutting each line at the first `#` -- which
+    #      truncates at a `#` inside a STRING too, so the literal pre-change
+    #      line `...endswith(f"::{cls.name}#class") and s.kind in ("method",
+    #      "field")` passed the guard. The `#class` in the very line the guard
+    #      exists to refuse is what hid the `"field"` after it.
+    # Walking the AST finds a string literal wherever it sits and cannot be
+    # fooled by punctuation, while leaving comments and docstrings free to
+    # EXPLAIN the kinds.
+    literals = {
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    named = sorted(set(STATE_KINDS) & literals)
+    assert not named, f"file_summarize names {named} directly; ask STATE_KINDS"
     assert "STATE_KINDS" in source
 
 

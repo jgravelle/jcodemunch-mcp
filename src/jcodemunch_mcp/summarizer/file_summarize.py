@@ -1,9 +1,16 @@
 """Generate per-file summaries from symbol information and optional context providers."""
 
+import re
 from typing import Optional
 
 from ..parser.symbols import STATE_KINDS, Symbol, plural_kind
 from ..parser.context.base import ContextProvider
+
+
+#: The `~1` / `~2` a duplicate symbol id carries after disambiguation
+#: (`extractor._disambiguate_and_compute_complexity`). Anchored at the end and
+#: digits-only, so a `~` inside a real qualified name is left alone.
+_ORDINAL_SUFFIX = re.compile(r"~\d+$")
 
 
 def _counted(symbols: list[Symbol], kinds: tuple[str, ...]) -> list[str]:
@@ -49,7 +56,23 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
             # with `::Inner#class` while `::Inner#class` does. That leak
             # pre-dates this change and carried `field` alone; widening the
             # kinds would have given it three more to mis-attribute.
-            members = [s for s in symbols if s.parent == cls.id]
+            #
+            # ⚠⚠ Compared against the ordinal-STRIPPED id. When one file holds
+            # two classes of the same name -- a C# `partial class`, a Swift
+            # `class` + `extension`, two namespaces with a namesake --
+            # `_disambiguate_and_compute_complexity` rewrites the CLASS id to
+            # `...#class~1`/`~2` and never rewrites its children's `parent`, so
+            # a bare `s.parent == cls.id` matches NOTHING and every one of those
+            # classes summarises as empty. That is this module's own symptom,
+            # and the first draft of the nested-class fix shipped it.
+            #
+            # ⚠ For duplicates each namesake then reports the union of their
+            # members. That is what the name-suffix match did too, it is
+            # CORRECT for a partial class (they are one class), and it is an
+            # over-count rather than an absence for the rest. Telling them apart
+            # needs the producer to renumber children; filed separately.
+            owner = _ORDINAL_SUFFIX.sub("", cls.id)
+            members = [s for s in symbols if s.parent == owner]
             bits = _counted(members, ("method",) + STATE_KINDS)
             desc = f"Defines {cls.name} class"
             if bits:
