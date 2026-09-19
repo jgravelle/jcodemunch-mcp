@@ -301,10 +301,11 @@ def test_naming_the_kind_publishes_whatever_the_parser_decided(
 
     Counting only `field` omitted these members silently. Naming the kind
     publishes the parser's word for them — and for Swift and C# that word is
-    WRONG, so a silent omission became a visible false statement. Filed as its
-    own issue rather than papered over here: this module reports what the index
-    says, and the index is what needs fixing (#741's lesson, "a JS `let` is not
-    a constant", in two more languages).
+    WRONG, so a silent omission became a visible false statement. Filed as
+    #769 (swift `var`) and #770 (csharp fields and auto-properties) rather than
+    papered over here: this module reports what the index says, and the index is
+    what needs fixing (#741's lesson, "a JS `let` is not a constant", in two
+    more languages).
 
     ⚠ Pinned to the CURRENT WRONG OUTPUT deliberately, the way
     `test_cpp_is_not_this_issue` pins #755. It fails when the parser is fixed,

@@ -54,7 +54,8 @@ Measured: swift `class Sw { var count: Int = 0 }` reads
 plus an auto-property `Name { get; set; }` both read as `constant`
 (`1 method, 2 constants`). That is #741's own lesson -- "a JS `let` is not a
 constant" -- in two more languages, and it is a PARSER defect this module can
-only report: filed separately rather than papered over here.
+only report: filed as #769 (swift) and #770 (csharp) rather than papered over
+here.
 `test_naming_the_kind_publishes_whatever_the_parser_decided` pins the current
 wrong output, the way the C++ row below pins #755, so it fails when the parser
 is fixed and the disclosure can go.
