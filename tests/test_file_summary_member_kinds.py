@@ -219,6 +219,28 @@ def test_two_classes_of_one_name_still_report_their_members(
     assert _summary(source, filename, language) == expected
 
 
+def test_a_namespaced_class_counts_its_members():
+    """⚠ A second defect the id match closed, found in review rather than aimed
+    at: a class whose qualified name carries a NAMESPACE had its members
+    uncounted, for the same reason the nested class did.
+
+    `tests/fixtures/cpp/sample.cpp` holds `cpp/sample.cpp::sample.Box#class`,
+    which does not end with `::Box#class`, so `origin/main` read
+    `Defines Box class (0 methods)` for a class with four. Every namespaced
+    C++, C# or Elixir class was affected. Uses the checked-in fixture rather
+    than an inline source, so the case is the one the repo already carries.
+    """
+    import pathlib
+
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "cpp" / "sample.cpp"
+    syms = parse_file(fixture.read_text(encoding="utf-8"), "cpp/sample.cpp", "cpp")
+    box = [s for s in syms if s.kind == "class"]
+    assert [s.id for s in box] == ["cpp/sample.cpp::sample.Box#class"]
+    assert _heuristic_summary("cpp/sample.cpp", syms).startswith(
+        "Defines Box class (4 methods)"
+    )
+
+
 def test_a_class_whose_name_is_a_suffix_of_another_keeps_its_own_members():
     """The prefix shape, pinned as an OUTPUT.
 
@@ -314,10 +336,15 @@ def test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind():
     #      is the likelier spelling since `_counted` already compares against a
     #      loop variable;
     #   2. stripping comments by cutting each line at the first `#` -- which
-    #      truncates at a `#` inside a STRING too, so the literal pre-change
-    #      line `...endswith(f"::{cls.name}#class") and s.kind in ("method",
-    #      "field")` passed the guard. The `#class` in the very line the guard
-    #      exists to refuse is what hid the `"field"` after it.
+    #      truncates at a `#` inside a STRING too, so any line carrying a `#`
+    #      before the literal hid it. A reviewer demonstrated it with a
+    #      CONSTRUCTED line joining the old suffix match to a `"field"` test;
+    #      that exact line is not in the history, and on `origin/main`'s real
+    #      source the `#class` sat on its own `suffix = ...` line while the
+    #      `field_count` line carried no `#` at all, so the cutting guard would
+    #      have caught it there. The evasion is real and the reachable spelling
+    #      is one line away -- `plants.md` runs it -- but it is a probe, not a
+    #      quotation.
     # Walking the AST finds a string literal wherever it sits and cannot be
     # fooled by punctuation, while leaving comments and docstrings free to
     # EXPLAIN the kinds.

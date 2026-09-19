@@ -19,9 +19,11 @@ The cause is one hardcoded string against a vocabulary that has four state kinds
 
     field_count = sum(1 for s in symbols if s.kind == "field" and ...)
 
-`property` joined `KIND_ORDER` in #732 and `variable` in #741/#742, beside
-`field` and a `constant` that has been in `KIND_ORDER` since the tuple existed
-(v1.5.1) -- so a consumer keyed on one string sees one of four. **"Which kinds are
+The vocabulary grew four times: `constant` is the old one, `field` arrived with
+the `KIND_ORDER` tuple itself in #571 (`ef259ce8`), `property` in #732 and
+`variable` in #741/#742 -- so a consumer keyed on one string sees one of four.
+`field` is the string this consumer was keyed on, and it has never been the only
+answer since the commit that introduced it. **"Which kinds are
 declared state" is a property of the KIND VOCABULARY**, so it is answered beside
 `KIND_ORDER` as `STATE_KINDS` and imported -- a second copy in the summariser is
 how this returns for the fifth kind, and
@@ -80,6 +82,14 @@ it. The comparison strips the ordinal now. The union is what the old name-suffix
 match produced too, is CORRECT for a partial class (they are one class), and is
 an over-count rather than an absence for the rest; separating them needs the
 producer to renumber children, filed as #771.
+
+⚠ **A second defect closed on the way, found in review rather than aimed at:**
+a class whose qualified name carries a NAMESPACE had its members uncounted, for
+the same reason the nested class did. `tests/fixtures/cpp/sample.cpp` holds
+`cpp/sample.cpp::sample.Box#class`, which does not end with `::Box#class`, so it
+read `Defines Box class (0 methods)` and now reads `(4 methods)`. Every
+namespaced C++, C# or Elixir class was affected. Pinned by
+`test_a_namespaced_class_counts_its_members`.
 
 ⚠ **A C++ class still summarises with no members, and that is #755, not this.**
 Its data members yield no symbol at all, so the summary is faithful to the
