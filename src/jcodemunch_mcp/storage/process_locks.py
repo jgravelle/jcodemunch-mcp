@@ -397,9 +397,23 @@ def _flock_proves_a_holder(lock_fp: Path, expected_create_time: object) -> bool:
     obtained probe is released at once and proves nothing (the stale verdict
     stands). Any error is UNKNOWN and proves nothing either.
 
-    Legacy locks only: a lock carrying ``create_time`` is decided exactly by
-    #450, and a modern ``acquire`` writes ``create_time`` BEFORE it takes its
-    flock, so this probe can never sit between another writer's create and lock.
+    ⚠ "Some live process", NOT necessarily the recorded PID. A forked child that
+    inherited the descriptor keeps the flock after the recorded parent dies, so
+    a DEAD-pid lock can read as held here (it was reclaimed before #728), and
+    the ``LockHolder`` built from the file still names the dead PID. Something
+    does hold the lock, so refusing to reclaim is right; a reader chasing that
+    PID is looking at the wrong process.
+
+    Legacy locks only: a lock carrying a numeric ``create_time`` is decided
+    exactly by #450. Callers consult this only AFTER ``_is_live_holder`` said
+    stale, and a writer between its create and its flock has a live PID and
+    (Linux, Windows) a numeric ``create_time`` or (macOS, no creation-time
+    source) a live verdict, so the probe cannot reach the file IT READ while
+    that file's writer is mid-acquire. The residual window is a reader stalled
+    >50 ms between its read and its open while another ``acquire`` replaces the
+    file: that acquirer loses its flock race and returns False. Safe direction
+    (no watcher starts, a retry succeeds), and two racing ``acquire`` calls
+    already had it. Where flock is a no-op (some NFS mounts) this proves nothing.
     Windows has no flock layer; there the residual false-stale needs a BACKWARD
     step over the margin between process creation and the lock write.
     """

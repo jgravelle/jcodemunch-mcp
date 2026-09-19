@@ -15,7 +15,8 @@ comparing it exactly. It left one case on liveness alone: a lock with no
 `create_time`, because "there is nothing to compare against". ⚠⚠ **That is every
 lock written by a pre-#450 version, and a stale lock is by definition an old
 one** -- the fix could not reach the population it was for. (The reporter's lock
-is dated five days AFTER #450 merged; an older installed version wrote it.) Fixing a producer does not fix
+is dated 2026-08-17 and #450 was committed 2026-08-13, so an older installed
+version wrote it: the population is versions, never dates.) Fixing a producer does not fix
 its history.
 
 There was something to compare against. Every lock ever written records
@@ -55,7 +56,17 @@ holder stays live); the fixtures are dated by the process that writes them now.
 Not taken from the report: expiring field-less locks by age, which would kill a
 genuine long-running legacy watcher where this rule does not, and matching on
 the executable name, since `python.exe` is every Python program. Platforms with
-no creation-time source (macOS) stay on liveness alone, unchanged from #450.
+no creation-time source (macOS) keep liveness alone for the TIMESTAMP rule,
+unchanged from #450.
+
+⚠ **One behaviour change the probe brings, on every Unix:** a lock whose recorded
+PID is DEAD but whose flock is still held -- a forked child that inherited the
+descriptor -- now reads as held and blocks `acquire`, where it used to be
+reclaimed. Something does hold the lock, so the verdict is right; but the
+`LockHolder` that `inspect` returns still names the recorded PID, which is not
+the process holding it. On macOS every lock carries `create_time: null`, so
+this reaches modern locks there too. On a filesystem where flock is a no-op
+(some NFS mounts) the probe proves nothing and the clock-step limit stands.
 Thanks to @Matt-hew93 for a report that carried the lock contents, the process
 table and the contrast case where the check works.
 
