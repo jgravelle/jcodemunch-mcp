@@ -131,6 +131,24 @@ GITHUB_TOKEN="" gh release create vX.Y.Z dist/*X.Y.Z* --repo jgravelle/<repo> --
 #    command, run from the repo root (publish reads server.json from the CWD).
 #    The device flow blocks on a browser and its prompt does not surface from an
 #    agent shell, so jjg runs this in-session with the `!` prefix.
+#    ⚠⚠ **DEFAULT ROUTE: THE TOKEN LOGIN, RUN BY THE AGENT AS A TOOL CALL. jjg
+#    TYPES NOTHING** (ported from jdocmunch-mcp's delta table, 2026-09-19).
+#    Passing the existing gh token skips the device flow entirely, so nothing
+#    blocks on a browser and the agent shell can run it:
+#        cd /c/MCPs/<repo> && GITHUB_TOKEN="" /c/Users/j/mcp-publisher.exe login github --token "$(GITHUB_TOKEN="" gh auth token)" && /c/Users/j/mcp-publisher.exe publish
+#    Measured in jdoc: published first try from the agent shell for 1.141.0
+#    (2026-09-17), the same day a handed-over device flow died with
+#    `incorrect_device_code`. 1.142.0 (2026-09-19) handed the device flow over
+#    anyway because this block named no other route; it worked, and cost jjg a
+#    browser round trip for nothing.
+#    ⚠ The method must be `github`. `github-oidc` has NO `--token` flag -- it
+#    prints the `login` usage block and EXITS 0, so it reads as a usage error.
+#    ⚠ A TIMEOUT IS NOT AN EXPIRED TOKEN. If `login` or `publish` dies on
+#    `dial tcp ... failed to respond`, check the registry host is reachable
+#    before re-authenticating; re-logging in burns the five minutes on the
+#    wrong problem.
+#    **EVERYTHING BELOW ABOUT WHAT jjg TYPES IS THE FALLBACK**, for when the
+#    token route fails for a reason that is not a timeout.
 #    ⚠⚠ THE DEV PLATFORM IS WINDOWS. `~` IS NOT A PATH HERE. cmd.exe treats it as
 #    a literal directory name and fails with "The system cannot find the path
 #    specified" -- 2026-08-13, mid-release, because this line used to read
