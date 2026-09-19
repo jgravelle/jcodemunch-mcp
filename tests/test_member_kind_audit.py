@@ -1,0 +1,468 @@
+"""One class, four kinds of member, every class-bearing language, one table.
+
+"Members of kind X are wrong or missing in language Y" arrived as #733, #735,
+#743, #755, #759, #769 and #770: one defect class, found one language per fix,
+each time by a reviewer looking at something else. This file enumerates it.
+
+Each sample is one class holding up to four ROLES:
+
+    method     a callable member
+    mutable    state that can be reassigned
+    immutable  state that cannot
+    property   an accessor the language distinguishes from plain state
+
+`_TABLE` pins what `parse_file` answers for every (language, role) cell: the
+kind, or ABSENT, plus whether the member is OWNED by the class. `_RULE` says
+what a right answer is. Every cell that breaks the rule must be in `_GAPS` with
+the issue that tracks it, and every `_GAPS` entry must still be broken -- so a
+parser fix FAILS this file until the gap entry and the table cell are updated,
+which is the notification that a gap closed.
+
+⚠ The roles are about what the LANGUAGE says, never what the parser can see.
+A role is omitted only where the language has no such concept (Go has no
+property), never because the answer is inconvenient.
+"""
+
+import re
+
+import pytest
+
+from jcodemunch_mcp.parser.extractor import parse_file
+from jcodemunch_mcp.parser.symbols import STATE_KINDS
+
+ABSENT = "ABSENT"
+
+#: Ownership. `parent` is what consumers filter on (the file summary's member
+#: count, #760), so a member that carries the class only in its qualified name
+#: is NOT owned: it is invisible to every parent-keyed reader.
+OWNED = "owned"          # parent is the class's id
+QUALIFIED = "qualified"  # parent is None, qualified name starts with the class
+NO_OWNER = "none"        # neither, or the member is ABSENT
+
+#: What a right answer is. `constant` for a member the language lets you
+#: reassign is #741's lesson (a JS `let` is not a constant) in member position.
+_RULE: dict[str, frozenset[str]] = {
+    "method": frozenset({"method"}),
+    "mutable": frozenset(STATE_KINDS) - {"constant"},
+    "immutable": frozenset(STATE_KINDS),
+    "property": frozenset({"property", "field", "method"}),
+}
+
+#: language -> (filename, class name, {role: member name}, source)
+_SAMPLES: dict[str, tuple[str, str, dict[str, str], str]] = {
+    "python": ("a.py", "Audit", {
+        "method": "run_it", "mutable": "tally", "immutable": "LIMIT", "property": "view",
+    }, (
+        "class Audit:\n"
+        "    LIMIT = 3\n"
+        "    tally: int = 0\n"
+        "    def run_it(self):\n"
+        "        return 1\n"
+        "    @property\n"
+        "    def view(self):\n"
+        "        return 2\n"
+    )),
+    "javascript": ("a.js", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT", "property": "view",
+    }, (
+        "class Audit {\n"
+        "  static LIMIT = 3;\n"
+        "  tally = 0;\n"
+        "  runIt() { return 1; }\n"
+        "  get view() { return 2; }\n"
+        "}\n"
+    )),
+    "typescript": ("a.ts", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit", "property": "view",
+    }, (
+        "class Audit {\n"
+        "  readonly limit: number = 3;\n"
+        "  tally: number = 0;\n"
+        "  runIt(): number { return 1; }\n"
+        "  get view(): number { return 2; }\n"
+        "}\n"
+    )),
+    "tsx": ("a.tsx", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit", "property": "view",
+    }, (
+        "class Audit {\n"
+        "  readonly limit: number = 3;\n"
+        "  tally: number = 0;\n"
+        "  runIt(): number { return 1; }\n"
+        "  get view(): number { return 2; }\n"
+        "}\n"
+    )),
+    "java": ("Audit.java", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "class Audit {\n"
+        "    static final int LIMIT = 3;\n"
+        "    int tally = 0;\n"
+        "    int runIt() { return 1; }\n"
+        "}\n"
+    )),
+    "csharp": ("Audit.cs", "Audit", {
+        "method": "RunIt", "mutable": "tally", "immutable": "Limit", "property": "View",
+    }, (
+        "class Audit {\n"
+        "    const int Limit = 3;\n"
+        "    private int tally;\n"
+        "    public int View { get; set; }\n"
+        "    int RunIt() { return 1; }\n"
+        "}\n"
+    )),
+    "cpp": ("a.cpp", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit",
+    }, (
+        "class Audit {\n"
+        "public:\n"
+        "    const int limit = 3;\n"
+        "    int tally = 0;\n"
+        "    int runIt() { return 1; }\n"
+        "};\n"
+    )),
+    "arduino": ("a.ino", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit",
+    }, (
+        "class Audit {\n"
+        "public:\n"
+        "    const int limit = 3;\n"
+        "    int tally = 0;\n"
+        "    int runIt() { return 1; }\n"
+        "};\n"
+    )),
+    "php": ("a.php", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "<?php\n"
+        "class Audit {\n"
+        "    const LIMIT = 3;\n"
+        "    public $tally = 0;\n"
+        "    function runIt() { return 1; }\n"
+        "}\n"
+    )),
+    "ruby": ("a.rb", "Audit", {
+        "method": "run_it", "immutable": "LIMIT", "property": "view",
+    }, (
+        "class Audit\n"
+        "  LIMIT = 3\n"
+        "  attr_accessor :view\n"
+        "  def run_it\n"
+        "    1\n"
+        "  end\n"
+        "end\n"
+    )),
+    "kotlin": ("a.kt", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit", "property": "view",
+    }, (
+        "class Audit {\n"
+        "    val limit: Int = 3\n"
+        "    var tally: Int = 0\n"
+        "    val view: Int\n"
+        "        get() = 2\n"
+        "    fun runIt(): Int { return 1 }\n"
+        "}\n"
+    )),
+    "swift": ("a.swift", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit", "property": "view",
+    }, (
+        "class Audit {\n"
+        "    let limit: Int = 3\n"
+        "    var tally: Int = 0\n"
+        "    var view: Int { return 2 }\n"
+        "    func runIt() -> Int { return 1 }\n"
+        "}\n"
+    )),
+    "scala": ("a.scala", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit",
+    }, (
+        "class Audit {\n"
+        "  val limit: Int = 3\n"
+        "  var tally: Int = 0\n"
+        "  def runIt(): Int = 1\n"
+        "}\n"
+    )),
+    "dart": ("a.dart", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit", "property": "view",
+    }, (
+        "class Audit {\n"
+        "  final int limit = 3;\n"
+        "  int tally = 0;\n"
+        "  int get view => 2;\n"
+        "  int runIt() { return 1; }\n"
+        "}\n"
+    )),
+    "groovy": ("a.groovy", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "class Audit {\n"
+        "    static final int LIMIT = 3\n"
+        "    int tally = 0\n"
+        "    int runIt() { return 1 }\n"
+        "}\n"
+    )),
+    "apex": ("Audit.cls", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT_N", "property": "View",
+    }, (
+        "public class Audit {\n"
+        "    static final Integer LIMIT_N = 3;\n"
+        "    Integer tally = 0;\n"
+        "    public Integer View { get; set; }\n"
+        "    Integer runIt() { return 1; }\n"
+        "}\n"
+    )),
+    "objc": ("a.m", "Audit", {
+        "method": "runIt", "mutable": "tally", "property": "view",
+    }, (
+        "@interface Audit : NSObject {\n"
+        "    int tally;\n"
+        "}\n"
+        "@property int view;\n"
+        "- (int)runIt;\n"
+        "@end\n"
+    )),
+    "gdscript": ("a.gd", "Audit", {
+        "method": "run_it", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "class Audit:\n"
+        "\tconst LIMIT = 3\n"
+        "\tvar tally = 0\n"
+        "\tfunc run_it():\n"
+        "\t\treturn 1\n"
+    )),
+    "dlang": ("a.d", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "limit",
+    }, (
+        "class Audit {\n"
+        "    immutable int limit = 3;\n"
+        "    int tally = 0;\n"
+        "    int runIt() { return 1; }\n"
+        "}\n"
+    )),
+    "solidity": ("a.sol", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "contract Audit {\n"
+        "    uint constant LIMIT = 3;\n"
+        "    uint tally = 0;\n"
+        "    function runIt() public returns (uint) { return 1; }\n"
+        "}\n"
+    )),
+    "go": ("a.go", "Audit", {
+        "method": "RunIt", "mutable": "Tally",
+    }, (
+        "package a\n"
+        "type Audit struct {\n"
+        "\tTally int\n"
+        "}\n"
+        "func (a *Audit) RunIt() int { return 1 }\n"
+    )),
+    "rust": ("a.rs", "Audit", {
+        "method": "run_it", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "struct Audit {\n"
+        "    tally: i32,\n"
+        "}\n"
+        "impl Audit {\n"
+        "    const LIMIT: i32 = 3;\n"
+        "    fn run_it(&self) -> i32 { 1 }\n"
+        "}\n"
+    )),
+}
+
+
+@pytest.fixture(autouse=True)
+def _all_languages_enabled(monkeypatch):
+    """`parse_file` consults the config gate first; this box disables several
+    languages, and a disabled one reads as ABSENT across its whole row. Patch
+    `jcodemunch_mcp.config`: the parser's import of the gate is function-local.
+    """
+    import jcodemunch_mcp.config as config
+
+    monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
+
+
+def _observe(language: str) -> dict[str, tuple[str, str]]:
+    """{role: (kind or ABSENT, ownership)} for one sample."""
+    filename, class_name, members, source = _SAMPLES[language]
+    symbols = parse_file(source, filename, language)
+    owners = {s.id for s in symbols if s.name == class_name}
+    row = {}
+    for role, member in members.items():
+        hits = [s for s in symbols if s.name == member]
+        if not hits:
+            row[role] = (ABSENT, NO_OWNER)
+            continue
+        assert len(hits) == 1, (language, role, [(s.name, s.kind) for s in hits])
+        hit = hits[0]
+        if hit.parent in owners:
+            ownership = OWNED
+        elif (hit.qualified_name or "").startswith(class_name + "."):
+            ownership = QUALIFIED
+        else:
+            ownership = NO_OWNER
+        row[role] = (hit.kind, ownership)
+    return row
+
+
+#: Class-bearing by spec, deliberately without a row, with the reason.
+_NOT_SAMPLED: dict[str, str] = {
+    "perl": "a Perl class is a `package`; the language has no member declarations to audit",
+}
+
+#: Written by observation, then frozen. A cell is (kind or ABSENT, ownership).
+_TABLE: dict[str, dict[str, tuple[str, str]]] = {
+    "python": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "javascript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "typescript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "tsx": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "java": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", NO_OWNER)},
+    "csharp": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED), "property": ("constant", OWNED)},
+    "cpp": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "arduino": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "php": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", NO_OWNER)},
+    "ruby": {"method": ("method", OWNED), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "kotlin": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("property", OWNED), "property": ("property", OWNED)},
+    "swift": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED), "property": ("constant", OWNED)},
+    "scala": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED)},
+    "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "groovy": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "apex": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "objc": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "dlang": {"method": ("function", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "solidity": {"method": ("function", QUALIFIED), "mutable": ("constant", QUALIFIED), "immutable": ("constant", QUALIFIED)},
+    "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
+    "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
+}
+
+#: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
+#: gap, never a tolerated one: the entry FAILS when the cell is fixed.
+_GAPS: dict[tuple[str, str], str] = {
+    ("apex", "immutable"): "unfiled",
+    ("apex", "method"): "unfiled",
+    ("apex", "mutable"): "unfiled",
+    ("apex", "property"): "unfiled",
+    ("arduino", "immutable"): "#755",
+    ("arduino", "mutable"): "#755",
+    ("cpp", "immutable"): "#755",
+    ("cpp", "mutable"): "#755",
+    ("csharp", "mutable"): "#770",
+    ("csharp", "property"): "#770",
+    ("dart", "immutable"): "unfiled",
+    ("dart", "mutable"): "unfiled",
+    ("dlang", "immutable"): "unfiled",
+    ("dlang", "method"): "unfiled",
+    ("dlang", "mutable"): "unfiled",
+    ("gdscript", "immutable"): "unfiled",
+    ("gdscript", "mutable"): "unfiled",
+    ("go", "method"): "unfiled",
+    ("go", "mutable"): "unfiled",
+    ("groovy", "immutable"): "unfiled",
+    ("groovy", "method"): "unfiled",
+    ("groovy", "mutable"): "unfiled",
+    ("java", "immutable"): "unfiled",
+    ("javascript", "immutable"): "unfiled",
+    ("javascript", "mutable"): "unfiled",
+    ("objc", "method"): "unfiled",
+    ("objc", "mutable"): "unfiled",
+    ("objc", "property"): "unfiled",
+    ("php", "immutable"): "unfiled",
+    ("python", "immutable"): "unfiled",
+    ("python", "mutable"): "unfiled",
+    ("ruby", "immutable"): "unfiled",
+    ("ruby", "property"): "unfiled",
+    ("rust", "mutable"): "unfiled",
+    ("scala", "mutable"): "unfiled",
+    ("solidity", "immutable"): "unfiled",
+    ("solidity", "method"): "unfiled",
+    ("solidity", "mutable"): "unfiled",
+    ("swift", "mutable"): "#769",
+    ("swift", "property"): "#769",
+    ("tsx", "immutable"): "unfiled",
+    ("tsx", "mutable"): "unfiled",
+    ("typescript", "immutable"): "unfiled",
+    ("typescript", "mutable"): "unfiled",
+}
+
+def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:
+    """Every (language, role) cell that is not a right answer."""
+    return {
+        (language, role)
+        for language, row in table.items()
+        for role, (kind, ownership) in row.items()
+        if kind not in _RULE[role] or ownership != OWNED
+    }
+
+
+@pytest.mark.parametrize("language", sorted(_SAMPLES))
+def test_the_table_is_what_the_parser_answers(language):
+    """A parser change that moves a cell fails HERE, for better or worse.
+
+    Better: update the cell, and if it now satisfies `_RULE`, delete its `_GAPS`
+    entry (the next test fails until you do). Worse: the message is the diff.
+    """
+    assert _observe(language) == _TABLE[language]
+
+
+def test_every_broken_cell_is_tracked_and_every_tracked_cell_is_broken():
+    """Both directions. An untracked broken cell is a defect nobody owns; a
+    tracked cell that is no longer broken is a gap that closed unannounced."""
+    broken = _violations(_TABLE)
+    tracked = set(_GAPS)
+    assert broken - tracked == set(), f"broken and untracked: {sorted(broken - tracked)}"
+    assert tracked - broken == set(), f"tracked and fixed: {sorted(tracked - broken)}"
+
+
+def test_the_table_and_the_samples_cover_the_same_cells():
+    assert {(lang, role) for lang, row in _TABLE.items() for role in row} == {
+        (lang, role) for lang, (_, _, members, _) in _SAMPLES.items() for role in members
+    }
+
+
+def test_every_sample_yields_its_class():
+    """A sample whose class is missing makes its whole row ABSENT for a reason
+    that has nothing to do with members, and every cell would still 'pin'."""
+    for language, (filename, class_name, _, source) in _SAMPLES.items():
+        names = {s.name for s in parse_file(source, filename, language)}
+        assert class_name in names, language
+
+
+def test_a_gap_names_its_tracker():
+    """`#N`, or the literal `unfiled`. Never free text: a gap whose tracker is
+    prose cannot be searched for, and #758 is what an unverifiable cite costs."""
+    for cell, tracker in _GAPS.items():
+        assert re.fullmatch(r"#\d+|unfiled", tracker), (cell, tracker)
+
+
+def test_every_class_bearing_spec_is_sampled_or_excused():
+    """A language whose spec can emit a `class` owes this file a row.
+
+    ⚠ One-directional by construction: languages with a custom extractor
+    (groovy, apex, objc, dlang, solidity) declare no `symbol_node_types` and are
+    sampled above by hand, so a NEW custom extractor is not caught here.
+    """
+    from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+
+    class_bearing = {
+        language for language, spec in LANGUAGE_REGISTRY.items()
+        if "class" in set(getattr(spec, "symbol_node_types", {}).values())
+    }
+    unaccounted = class_bearing - set(_SAMPLES) - set(_NOT_SAMPLED)
+    assert not unaccounted, sorted(unaccounted)
+    assert not set(_SAMPLES) & set(_NOT_SAMPLED)
+
+
+@pytest.mark.parametrize("cell, expected", [
+    (("mutable", ("constant", OWNED)), True),    # #769 / #770's shape
+    (("mutable", ("field", OWNED)), False),
+    (("mutable", ("field", QUALIFIED)), True),   # right kind, no owner
+    (("immutable", ("constant", OWNED)), False),
+    (("immutable", (ABSENT, NO_OWNER)), True),   # #755's shape
+    (("method", ("function", OWNED)), True),
+    (("property", ("constant", OWNED)), True),
+])
+def test_the_rule_fires(cell, expected):
+    """Non-vacuity: the rule is what decides `_GAPS`, so it is tested alone."""
+    role, answer = cell
+    assert bool(_violations({"probe": {role: answer}})) is expected
