@@ -293,16 +293,24 @@ def _extract_call_references(
 
 
 #: Languages in which a bare `_` is the language's own DISCARD: it cannot be
-#: referenced, several may sit in one scope, and it declares no name. Go's blank
-#: identifier, Rust's unnamed `const _` (the static-assertion idiom), Swift's and
-#: Scala's wildcard pattern.
+#: read back, several may sit in one scope, and it declares no name. Go's blank
+#: identifier, Rust's unnamed `const _` (the static-assertion idiom), Swift's,
+#: Scala's and OCaml's wildcard pattern (`let _ = main ()`), Nim's `let _`, and
+#: Julia, where an all-underscore identifier is write-only.
+#:
+#: ⚠ EVERY KIND is dropped, not only constants: Go's `func _() {}` is the
+#: compile-time-assertion idiom and `type _ int` is legal, and neither can be
+#: referenced any more than `const _` can. A backticked Scala `` `_` `` is a
+#: real name, keeps its backticks in the symbol name, and is untouched.
 #:
 #: ⚠⚠ An ALLOWLIST, and it must stay one. In JavaScript, TypeScript and Python
 #: `_` is an ordinary identifier (lodash is conventionally bound to it), so a
 #: rule keyed on the spelling would delete real symbols. Add a language only
 #: when its reference says `_` cannot be read back. Only the BARE underscore:
 #: `_x` and `__` are names.
-_BLANK_IDENTIFIER_LANGUAGES: frozenset[str] = frozenset({"go", "rust", "swift", "scala"})
+_BLANK_IDENTIFIER_LANGUAGES: frozenset[str] = frozenset(
+    {"go", "julia", "nim", "ocaml", "rust", "scala", "swift"}
+)
 
 
 def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None, repo: Optional[str] = None) -> list[Symbol]:

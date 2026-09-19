@@ -10,26 +10,40 @@ called `_` competing in every ranking. `const ( _ = iota; KB; MB )` indexed
 three constants where two are real, and two discards in one file collected
 `~1`/`~2` ordinals on top.
 
-@fathirramadhan-web found the fix and proposed it in PR #765: skip `_` inside
-the per-spec loop, never at the spec level, so `const _, B = 1, 2` still yields
-`B`, with the iota ladder as the case that matters. The CLA was still unsigned
-when the PR's window closed, so none of that PR's code is in this change; the
-implementation and tests here were written independently, and the credit for
-finding the fix is theirs.
+@fathirramadhan-web found the fix and proposed it in PR #765: drop the discard
+where each name is read, so a real name declared beside it survives. The CLA was
+still unsigned when the PR's window closed, so none of that PR's code is in this
+change; the implementation and tests here were written independently, and the
+credit for finding the fix is theirs.
 
 The rule went one layer down from where it was proposed, because the report was
 itself the result of fixing one channel: #741's review gave Go's `var` channel a
 `_` skip and left the `const` channel named in a comment. **A discard dropped
 per channel is dropped in the channels someone remembered**, so it is dropped
-once, in `parse_file`, before disambiguation. Probing the same shape elsewhere
-found it indexed in Rust (`const _: () = ...`, the static-assertion idiom),
-Swift (`let _`) and Scala (`val _`) too.
+once, in `parse_file`, before disambiguation.
 
-⚠⚠ **An allowlist of languages, never a rule about the spelling.** In JavaScript
-and TypeScript `_` is an ordinary identifier, and lodash is conventionally bound
-to it; a rule keyed on the name would delete a real symbol. That direction was
-written as a test before the fix, and only the bare underscore counts: `_x` and
-`__` are names. Existing indexes are re-parsed by the unreleased
+⚠⚠ **An allowlist of languages, never a rule about the spelling, and the first
+draft of the allowlist was itself four spellings of the property.** My probe
+found the discard indexed in Rust (`const _: () = ...`, the static-assertion
+idiom), Swift and Scala; review ran a wider one and found OCaml (`let _ = main
+()`, the entry-point idiom) and Nim, whose two discards collected the same
+ordinals this fix removes for Go. Julia joins them: an all-underscore identifier
+is write-only there. A test fails if the allowlist and the
+cases in its test file ever disagree.
+
+Every KIND is dropped, not only constants: Go's `func _() {}` is the
+compile-time-assertion idiom and `type _ int` is legal, and neither can be
+referenced any more than `const _` can. A backticked Scala `` `_` `` is a name
+someone chose; it keeps its backticks and its members.
+
+In JavaScript, TypeScript, PHP, Ruby, Lua and C# `_` is an ordinary identifier
+(lodash, gettext) and stays; the JS and TS direction was written as a test
+before the fix. Only the bare underscore counts: `_x` and `__` are names. ⚠ Not
+ruled on: Gleam, Zig, Kotlin, Elixir and Java emit a `_` symbol for source that
+is not valid in those languages (`const _ = 1` is not Zig; a Java field cannot
+be named `_` since 9), so nothing a user can write is affected and they are
+left alone. Python, Haskell, F#, Dart, C, C++, R and Perl emitted no `_` symbol
+in review's probe. Existing indexes are re-parsed by the unreleased
 `PARSER_GENERATION` bump already in this block.
 
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
