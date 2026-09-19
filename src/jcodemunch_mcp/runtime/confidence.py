@@ -330,3 +330,40 @@ def _summary_for_files(
             if r[1] and r[1] > last_seen:
                 last_seen = r[1]
     return sources, last_seen
+
+
+def symbol_hit_count(db_path, symbol_id: str) -> Optional[int]:
+    """Total observed hits for one symbol across every trace source.
+
+    THE ONE READER of ``runtime_calls.count`` for a single symbol (#717).
+    ``check_delete_safe`` and ``get_group_contracts`` each carried a copy that
+    asked for ``hit_count``, a column the table never had; both swallowed the
+    error at DEBUG, so ingested evidence read as none and a delete preflight
+    could certify a symbol with live traffic.
+
+    Returns None for "no hits recorded" AND for "could not ask"; callers treat
+    None as no runtime evidence, never as proof of absence. A query the schema
+    rejects is logged at WARNING: that is drift in this package, not a
+    condition of the user's data, and DEBUG is how it stayed hidden.
+    """
+    try:
+        if not db_path.exists():
+            return None
+        conn = _generation.connect_readonly(db_path, isolation_level="")
+        try:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(count), 0) FROM runtime_calls WHERE symbol_id = ?",
+                (symbol_id,),
+            ).fetchone()
+            return int(row[0]) if row and row[0] else None
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as exc:
+        if "no such column" in str(exc):
+            logger.warning("runtime hit count query rejected by the schema: %s", exc)
+        else:
+            logger.debug("runtime hit count skipped: %s", exc, exc_info=True)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("runtime hit count skipped: %s", exc, exc_info=True)
+        return None

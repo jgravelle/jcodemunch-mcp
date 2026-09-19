@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
+
+`check_delete_safe` and `get_group_contracts` asked `runtime_calls` for
+`SUM(hit_count)`. The column is `count`, and `git log -S` finds no commit that
+ever called it anything else: both queries were wrong from the day they were
+written (`58901412`, `07b8e507`). Each caught the `OperationalError`, logged it
+at DEBUG and returned `None`, which every caller reads as "no runtime evidence".
+
+⚠⚠ **So ingesting traces changed nothing on the surface built to act on them.**
+A symbol with no static references and live production traffic graded as
+deletable, where the verdict should be `runtime_observed`. The reach was four
+surfaces, not the two reported: `check_edit_safe` and the deletion-safety
+investigator import the same helper.
+
+It survived because no test had ever inserted a `runtime_calls` row; every
+runtime test asserted the no-data path, so the query never executed against a
+populated table. The new tests insert through the database `index_folder`
+creates and contain no `CREATE TABLE`, because a fixture written from the
+consumer's idea of the schema would carry `hit_count` and pass.
+
+The two helpers were copies, so the query lives once now, in
+`runtime.confidence.symbol_hit_count`, and a test refuses a returning copy. A
+second test compiles every `SELECT ... FROM runtime_*` literal in `src/`,
+f-strings included, against the shipped schema; it found only these two sites.
+A query the schema rejects is logged at WARNING, since that is a defect in this
+package and DEBUG is where it hid for four months. Thanks to @Torolosko for a
+report that named both call sites and the correct column.
+
 ### Fixed - a file summary counts every kind of class state, and names each one (#760)
 
 A class whose members carry any kind but `field` summarised as having none. Java
