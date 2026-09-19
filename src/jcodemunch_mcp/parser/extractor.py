@@ -6609,9 +6609,10 @@ def _unlit_haskell(source_bytes: bytes) -> bytes:
         body = line.rstrip(b"\r\n")
         ending = line[len(body):]
         stripped = body.strip()
-        if stripped == b"\\begin{code}":
+        # By prefix: `\\begin{code}[hide]` and other trailing options are real.
+        if stripped.startswith(b"\\begin{code}"):
             in_block, keep = True, b" " * len(body)
-        elif stripped == b"\\end{code}":
+        elif stripped.startswith(b"\\end{code}"):
             in_block, keep = False, b" " * len(body)
         elif in_block:
             keep = body
@@ -6653,10 +6654,13 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """
     from .grammar_pack import get_parser as _get_parser
 
+    # Two views of one file, byte for byte the same length. TEXT (names,
+    # signatures, docstrings) is read from the unlit view, or a several-line
+    # signature in a bird-track file publishes its `>` characters; SPANS and
+    # hashes are read from the original, which is what a caller slices.
     literate = filename.lower().endswith(".lhs")
-    tree = _get_parser("haskell").parse(
-        _unlit_haskell(source_bytes) if literate else source_bytes
-    )
+    code_bytes = _unlit_haskell(source_bytes) if literate else source_bytes
+    tree = _get_parser("haskell").parse(code_bytes)
     symbols: list[Symbol] = []
     spec = LANGUAGE_REGISTRY["haskell"]
     kinds = spec.symbol_node_types
@@ -6667,7 +6671,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return node.child_by_field_name(field) if field else None
 
     def _text(node) -> str:
-        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+        return code_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
     def _docstring(node) -> str:
         lines: list[str] = []

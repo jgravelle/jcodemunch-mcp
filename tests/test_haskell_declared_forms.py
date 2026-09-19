@@ -146,6 +146,30 @@ def test_literate_haskell_is_read_and_spans_index_the_original_file(label, sourc
     assert source.splitlines()[push.line - 1].endswith("push :: Int -> Stack")
 
 
+def test_a_several_line_signature_in_a_bird_track_file_carries_no_track():
+    """The two round-one fixes composed into a defect neither test could see:
+    text was sliced from the ORIGINAL bytes, so every continuation line of a
+    signature published its `>`. Text reads the unlit view; spans do not."""
+    source = (
+        "> module M where\n"
+        "> -- | Adds.\n"
+        "> f :: Int\n>   -> Int\n> f x = x\n"
+        "> class Shape a where\n>   area :: a\n>     -> Double\n"
+    )
+    found = {s.qualified_name: s for s in parse_file(source, "M.lhs", "haskell")}
+    assert found["f"].signature == "f :: Int -> Int"
+    assert found["f"].docstring == "Adds."
+    assert found["Shape.area"].signature == "area :: a -> Double"
+    f = found["f"]
+    raw = source.encode()[f.byte_offset:f.byte_offset + f.byte_length].decode()
+    assert raw == "f :: Int\n>   -> Int\n> f x = x"
+
+
+def test_a_code_block_marker_may_carry_options():
+    source = "Prose.\n\\begin{code}[hide]\nmodule M where\nf = 1\n\\end{code}\n"
+    assert [s.name for s in parse_file(source, "M.lhs", "haskell")] == ["f"]
+
+
 def test_a_bird_track_is_prose_in_an_ordinary_hs_file():
     """The unlit pass is keyed on `.lhs`: in `.hs` a leading `>` is not code."""
     assert parse_file("> f = 1\n", "M.hs", "haskell") == []

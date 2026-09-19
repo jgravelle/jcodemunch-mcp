@@ -75,7 +75,8 @@ table and the contrast case where the check works.
 A valid Haskell file with a data type, a newtype, a type synonym, a class and a
 function indexed as an empty list, and had for the life of the language. The
 grammar was installed and parsed the file without error, which is why a
-"supported" row said nothing about it. Two causes, either one sufficient.
+"supported" row said nothing about it. There were two causes and either one
+was sufficient.
 `HASKELL_SPEC` declared five node types and a name field for none, so every
 declaration resolved to no name and was dropped. And `type_synon` is a node
 type the grammar never emits: upstream spells it `type_synomym`, its own typo.
@@ -95,7 +96,11 @@ comments are docstrings, including on a module's first declaration, which sits
 outside the node a sibling walk reads. A signature written over several lines
 is kept whole. Literate Haskell (`.lhs`) was on the supported row and yielded
 nothing in either style; bird tracks and `\begin{code}` blocks are both read
-now, with the prose blanked in place so every span indexes the original file.
+now, a block marker may carry options (`\begin{code}[hide]`), and the prose is
+blanked in place so every span indexes the original file. Names, signatures
+and docstrings are read from the blanked view, or a several-line signature in
+a bird-track file publishes its `>` characters; review found that one, in the
+gap between two fixes that each had a test.
 
 ⚠ The first draft of that extractor hardcoded its node types, and the #745
 register failed every Haskell row: removing a spec entry changed nothing, so the spec
@@ -106,7 +111,8 @@ Not indexed, stated: an operator defined infix (`s |> x = ...`) carries no name
 field in this grammar, while the prefix form `(|>) s x = ...` has one and is
 indexed. Pattern bindings (`(p, q) = ...`), type and data families, an
 associated type inside a class, `foreign import` and Template Haskell splices
-are not declared forms. In `a, b :: Int` the signature joins `a` only. Closing #722 emptied two tracked-gap registers, and
+are not declared forms. In `a, b :: Int` the signature joins `a` only. A bird-tracked line inside a
+`\begin{code}` block is not unlit. Closing #722 emptied two tracked-gap registers, and
 both guards loop inside the test, so an empty register passes instead of
 spending a skip. Existing indexes re-parse under the `PARSER_GENERATION` bump
 already in this block.
