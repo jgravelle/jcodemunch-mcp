@@ -70,6 +70,43 @@ this reaches modern locks there too. On a filesystem where flock is a no-op
 Thanks to @Matt-hew93 for a report that carried the lock contents, the process
 table and the contrast case where the check works.
 
+### Fixed - Haskell extracted no symbols at all (#722)
+
+A valid Haskell file with a data type, a newtype, a type synonym, a class and a
+function indexed as an empty list, and had for the life of the language. The
+grammar was installed and parsed the file without error, which is why a
+"supported" row said nothing about it. Two causes, either one sufficient.
+`HASKELL_SPEC` declared five node types and a name field for none, so every
+declaration resolved to no name and was dropped. And `type_synon` is a node
+type the grammar never emits: upstream spells it `type_synomym`, its own typo.
+Found by the map-agreement ratchet written for #712, which is how a
+one-language report became a survey.
+
+Naming the fields would not have been enough. One Haskell function is several
+sibling nodes, a signature plus a node per pattern-matched clause, so the
+generic walk would have indexed a function once per clause and handed out
+`~1`/`~2` ordinals (the #763 shape); `main = ...` is a node type (`bind`) the spec never
+listed; a class method is usually a signature and nothing else; and the `->` of
+a type is a node the grammar also calls `function`. Haskell has its own
+extractor now. A signature and its clauses are one function spanning all of
+them, with the signature as its signature. Classes and instances are owners
+(`instance Shape A` and `instance Shape B` are two), and their methods belong
+to them. `where` and `let` bindings are locals and are not indexed. Haddock
+comments are docstrings, including on a module's first declaration, which sits
+outside the node a sibling walk reads.
+
+⚠ The first draft of that extractor hardcoded its node types, and the #745
+register failed seven rows: removing a spec entry changed nothing, so the spec
+was a second copy nobody consulted, the mechanism this project keeps paying
+for. The extractor reads node types, kinds and name fields from `HASKELL_SPEC`.
+
+Not covered, stated: an operator definition (`s |> x = ...`) carries no name
+field in this grammar, and type families and `foreign import` are not declared
+forms; none is indexed. Closing #722 emptied two tracked-gap registers, and
+both guards loop inside the test, so an empty register passes instead of
+spending a skip. Existing indexes re-parse under the `PARSER_GENERATION` bump
+already in this block.
+
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
 
 `check_delete_safe` and `get_group_contracts` asked `runtime_calls` for

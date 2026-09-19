@@ -326,6 +326,10 @@ def _observe(language: str) -> dict[str, tuple[str, str]]:
 #: Class-bearing by spec, deliberately without a row, with the reason.
 _NOT_SAMPLED: dict[str, str] = {
     "perl": "a Perl class is a `package`; the language has no member declarations to audit",
+    "haskell": (
+        "a typeclass declares methods and no state, so three of the four roles cannot "
+        "be written; the method's kind and owner are pinned in test_haskell_declared_forms.py"
+    ),
 }
 
 #: Written by observation, then frozen. A cell is (kind or ABSENT, ownership).

@@ -356,6 +356,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         symbols = _parse_erlang_symbols(source_bytes, filename)
     elif language == "fortran":
         symbols = _parse_fortran_symbols(source_bytes, filename)
+    elif language == "haskell":
+        symbols = _parse_haskell_symbols(source_bytes, filename)
     elif language == "sql":
         symbols = _parse_sql_symbols(source_bytes, filename)
     elif language == "objc":
@@ -6587,6 +6589,147 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     _walk(tree.root_node)
     symbols.sort(key=lambda s: s.line)
+    return symbols
+
+
+_HASKELL_COMMENT_NODES = frozenset({"comment", "haddock"})
+
+
+def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from Haskell source (#722).
+
+    The generic walk cannot express three things this grammar does:
+
+    - One function is N sibling nodes: an optional ``signature`` and one
+      ``function`` (or, with no arguments, ``bind``) per pattern-matched
+      clause. They are merged into one symbol spanning all of them.
+    - A class method is often a ``signature`` and nothing else, so inside
+      ``class_declarations`` a signature alone is a method.
+    - The ``->`` of a type is also a node called ``function``. It has no
+      ``name`` field, which is what keeps it out.
+
+    ⚠ Which node types are read, their kinds and their name fields all come
+    from ``HASKELL_SPEC``. A node type hardcoded here would make the spec a
+    second copy that nothing consults, and ``test_declared_forms_extract.py``
+    fails on exactly that: it removes each spec entry and requires the symbol
+    to disappear.
+
+    ``where``/``let`` bindings are locals and are never visited: only the
+    module's ``declarations`` and a class or instance body are read.
+    ⚠ An operator definition (``x |> f = ...``) carries no ``name`` field in
+    this grammar and is not indexed.
+    """
+    from .grammar_pack import get_parser as _get_parser
+
+    tree = _get_parser("haskell").parse(source_bytes)
+    symbols: list[Symbol] = []
+    spec = LANGUAGE_REGISTRY["haskell"]
+    kinds = spec.symbol_node_types
+    equation_nodes = {nt for nt, kind in kinds.items() if kind == "function"}
+
+    def _name(node):
+        field = spec.name_fields.get(node.type)
+        return node.child_by_field_name(field) if field else None
+
+    def _text(node) -> str:
+        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+
+    def _docstring(node) -> str:
+        lines: list[str] = []
+        prev = node.prev_named_sibling
+        if prev is None and node.parent is not None:
+            # The comment above a module's FIRST declaration is a sibling of
+            # `declarations`, not a child of it.
+            prev = node.parent.prev_named_sibling
+        while prev is not None and prev.type in _HASKELL_COMMENT_NODES:
+            lines[:0] = [ln.strip().lstrip("-").lstrip(" |^") for ln in _text(prev).splitlines()]
+            prev = prev.prev_named_sibling
+        return "\n".join(ln for ln in lines if ln).strip()
+
+    def _emit(first, last, name: str, kind: str, parent: Optional[Symbol], signature: str) -> Symbol:
+        qualified = f"{parent.qualified_name}.{name}" if parent else name
+        body = source_bytes[first.start_byte:last.end_byte]
+        symbol = Symbol(
+            id=make_symbol_id(filename, qualified, kind),
+            file=filename,
+            name=name,
+            qualified_name=qualified,
+            kind=kind,
+            language="haskell",
+            signature=" ".join(signature.split()),
+            docstring=_docstring(first),
+            parent=parent.id if parent else None,
+            line=first.start_point[0] + 1,
+            end_line=last.end_point[0] + 1,
+            byte_offset=first.start_byte,
+            byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        )
+        symbols.append(symbol)
+        return symbol
+
+    def _equations(body, kind: str, parent: Optional[Symbol]) -> None:
+        """Group a run of same-named signature/clause siblings into one symbol."""
+        group: list = []
+        group_name: Optional[str] = None
+
+        def _flush() -> None:
+            if not group:
+                return
+            has_clause = any(n.type in equation_nodes for n in group)
+            # A bare top-level signature declares nothing a caller can reach.
+            if has_clause or parent is not None:
+                _emit(group[0], group[-1], group_name, kind, parent,
+                      _text(group[0]).splitlines()[0])
+            group.clear()
+
+        for child in body.named_children:
+            if child.type in _HASKELL_COMMENT_NODES:
+                continue
+            # A signature is glue, not a declared form: it only ever joins or
+            # opens a group, and a group with no clause is a method or nothing.
+            name_node = (
+                child.child_by_field_name("name") if child.type == "signature"
+                else _name(child) if child.type in equation_nodes else None
+            )
+            named = name_node is not None
+            if named and group and _text(name_node) == group_name:
+                group.append(child)
+                continue
+            _flush()
+            if named:
+                group_name = _text(name_node)
+                group.append(child)
+            else:
+                _declaration(child)
+        _flush()
+
+    def _declaration(node) -> None:
+        kind = kinds.get(node.type)
+        name_node = _name(node)
+        if kind is None or name_node is None:
+            return
+        head = _text(node).splitlines()[0]
+        if kind == "type":
+            _emit(node, node, _text(name_node), kind, None, head)
+        elif kind == "class":
+            name = _text(name_node)
+            if node.type == "instance":
+                # `instance Shape A` and `instance Shape B` are two owners.
+                patterns = next(
+                    (c for c in node.named_children if c.type == "type_patterns"), None
+                )
+                if patterns is not None:
+                    name = f"{name} {' '.join(_text(patterns).split())}"
+            owner = _emit(node, node, name, kind, None, head)
+            for child in node.named_children:
+                if child.type in ("class_declarations", "instance_declarations"):
+                    _equations(child, "method", owner)
+
+    for top in tree.root_node.named_children:
+        if top.type == "declarations":
+            _equations(top, "function", None)
+
     return symbols
 
 

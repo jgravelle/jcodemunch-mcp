@@ -1,0 +1,154 @@
+"""#722: Haskell extracted no symbols at all.
+
+`HASKELL_SPEC` declared five node types and a name field for none of them, so
+every declaration resolved to no name and was dropped; and `type_synon` is not
+a node type the grammar emits (it spells it `type_synomym`, its own typo). The
+grammar was installed and parsed every fixture here without error, so a green
+"haskell is supported" row said nothing about it.
+
+Each test below is one decision made while fixing it, outcome first.
+"""
+
+import pytest
+
+from jcodemunch_mcp.parser.extractor import parse_file
+
+
+@pytest.fixture(autouse=True)
+def _all_languages_enabled(monkeypatch):
+    """Answer the parser, not the developer's config file (#411)."""
+    import jcodemunch_mcp.config as config
+
+    monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
+
+
+def _rows(source):
+    symbols = parse_file(source, "M.hs", "haskell")
+    by_id = {s.id: s for s in symbols}
+    return [
+        (s.kind, s.name, by_id[s.parent].name if s.parent else None) for s in symbols
+    ]
+
+
+REPORTED = (
+    "module M where\n"
+    "data Color = Red | Green\n"
+    "newtype Wrap = Wrap Int\n"
+    "type Syn = Int\n"
+    "class Show a where\n"
+    "  showIt :: a -> String\n"
+    "adder :: Int -> Int\n"
+    "adder x = x + 1\n"
+)
+
+
+def test_the_reported_file_yields_every_declaration():
+    assert _rows(REPORTED) == [
+        ("type", "Color", None),
+        ("type", "Wrap", None),
+        ("type", "Syn", None),
+        ("class", "Show", None),
+        ("method", "showIt", "Show"),
+        ("function", "adder", None),
+    ]
+
+
+def test_a_top_level_signature_does_not_double_count_its_function():
+    """`adder :: ...` and `adder x = ...` are one function, not two symbols."""
+    names = [name for _, name, _ in _rows(REPORTED)]
+    assert names.count("adder") == 1
+
+
+def test_a_multi_clause_function_is_one_symbol_spanning_its_clauses():
+    """Pattern-matched clauses are one function. Indexed separately they
+    collected `~1`/`~2` ordinals, the #763 shape."""
+    source = "module M where\nfact :: Int -> Int\nfact 0 = 1\nfact n = n * fact (n - 1)\nother = 2\n"
+    symbols = parse_file(source, "M.hs", "haskell")
+    assert [(s.name, "~" in s.id) for s in symbols] == [("fact", False), ("other", False)]
+    fact = symbols[0]
+    # The signature is part of the function: `get_symbol_source` should show it.
+    assert (fact.line, fact.end_line) == (2, 4)
+    assert fact.signature == "fact :: Int -> Int"
+
+
+def test_a_binding_with_no_arguments_is_a_function():
+    """`main = do ...` is the grammar's `bind`, not its `function`, and it is
+    the entry point of every Haskell program."""
+    source = 'module Main where\nmain :: IO ()\nmain = putStrLn "x"\n'
+    assert _rows(source) == [("function", "main", None)]
+
+
+def test_a_class_method_with_a_default_is_one_method():
+    source = "module M where\nclass Shape a where\n  area :: a -> Int\n  area _ = 0\n"
+    assert _rows(source) == [("class", "Shape", None), ("method", "area", "Shape")]
+
+
+def test_instance_methods_are_owned_by_the_instance_not_the_module():
+    """Left at module level they were two more functions called `area`."""
+    source = (
+        "module M where\n"
+        "data A = A\n"
+        "data B = B\n"
+        "class Shape a where\n"
+        "  area :: a -> Int\n"
+        "instance Shape A where\n"
+        "  area _ = 1\n"
+        "instance Shape B where\n"
+        "  area _ = 2\n"
+    )
+    rows = _rows(source)
+    assert ("method", "area", "Shape A") in rows
+    assert ("method", "area", "Shape B") in rows
+    assert all("~" not in s.id for s in parse_file(source, "M.hs", "haskell"))
+
+
+def test_a_where_binding_is_a_local_and_is_not_indexed():
+    source = "module M where\nouter x = helper x\n  where helper y = y + 1\n        k = 2\n"
+    assert _rows(source) == [("function", "outer", None)]
+
+
+def test_a_haddock_comment_is_the_docstring_including_on_the_first_declaration():
+    """The comment above the module's first declaration sits outside the
+    `declarations` node, so a sibling walk alone finds it for every
+    declaration except the first."""
+    source = (
+        "module M where\n"
+        "-- | A stack.\n"
+        "data Stack = Empty\n"
+        "-- | Push a value.\n"
+        "push :: Int -> Stack\n"
+        "push _ = Empty\n"
+    )
+    docs = {s.name: s.docstring for s in parse_file(source, "M.hs", "haskell")}
+    assert docs == {"Stack": "A stack.", "push": "Push a value."}
+
+
+def test_the_type_arrow_is_not_a_function():
+    """The grammar names the `->` of a type `function` as well. It carries no
+    name, and this pins that it never becomes a symbol."""
+    source = "module M where\ntype F = Int -> Int\n"
+    assert _rows(source) == [("type", "F", None)]
+
+
+def test_every_spec_node_type_is_one_the_grammar_emits():
+    """`type_synon` sat in the spec for the life of the language and matched
+    nothing. Walk a fixture holding every form and require each spec key."""
+    from tree_sitter_language_pack import get_parser
+
+    from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
+
+    source = (
+        "module M where\ndata D = D\nnewtype N = N Int\ntype S = Int\n"
+        "class C a where\n  m :: a\ninstance C D where\n  m = D\nf x = x\nb = 1\n"
+    )
+    seen = set()
+
+    def walk(node):
+        seen.add(node.type)
+        for child in node.children:
+            walk(child)
+
+    walk(get_parser("haskell").parse(source.encode()).root_node)
+    spec = LANGUAGE_REGISTRY["haskell"]
+    assert set(spec.symbol_node_types) <= seen
+    assert set(spec.symbol_node_types) <= set(spec.name_fields)

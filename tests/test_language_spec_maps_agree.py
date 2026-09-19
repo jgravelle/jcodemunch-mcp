@@ -85,14 +85,10 @@ _RESOLVED_BEFORE_NAME_FIELDS = {
     },
 }
 
-_KNOWN_GAPS = {
-    # language: (node types, issue) -- a gap that is TRACKED, not tolerated.
-    "haskell": (
-        {"function", "data_type", "type_synon", "newtype", "class"},
-        "#722: name_fields is empty and type_synon is not the grammar's spelling, "
-        "so the language extracts nothing",
-    ),
-}
+# language: (node types, issue) -- a gap that is TRACKED, not tolerated.
+# EMPTY since #722 (Haskell's five unnamed node types) was fixed; the guard
+# loops inside the test, so an empty register passes rather than skipping.
+_KNOWN_GAPS: dict[str, tuple[set[str], str]] = {}
 
 
 def _unpaired(spec) -> set[str]:
