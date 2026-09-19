@@ -6595,6 +6595,34 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 _HASKELL_COMMENT_NODES = frozenset({"comment", "haddock"})
 
 
+def _unlit_haskell(source_bytes: bytes) -> bytes:
+    """Blank the prose of a literate Haskell file, keeping every byte offset.
+
+    Both literate styles: bird tracks (code lines start with ``>``) and
+    ``\\begin{code}`` blocks. Prose becomes spaces and a bird track becomes a
+    space, so lines, columns and byte offsets of the code are unchanged and a
+    symbol's span still indexes the ORIGINAL file.
+    """
+    out: list[bytes] = []
+    in_block = False
+    for line in source_bytes.splitlines(keepends=True):
+        body = line.rstrip(b"\r\n")
+        ending = line[len(body):]
+        stripped = body.strip()
+        if stripped == b"\\begin{code}":
+            in_block, keep = True, b" " * len(body)
+        elif stripped == b"\\end{code}":
+            in_block, keep = False, b" " * len(body)
+        elif in_block:
+            keep = body
+        elif body.startswith(b">"):
+            keep = b" " + body[1:]
+        else:
+            keep = b" " * len(body)
+        out.append(keep + ending)
+    return b"".join(out)
+
+
 def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Haskell source (#722).
 
@@ -6616,12 +6644,19 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     ``where``/``let`` bindings are locals and are never visited: only the
     module's ``declarations`` and a class or instance body are read.
-    ⚠ An operator definition (``x |> f = ...``) carries no ``name`` field in
-    this grammar and is not indexed.
+    ⚠ Not indexed, because the grammar gives them no ``name`` field or the spec
+    does not declare them: an operator defined INFIX (``x |> f = ...``; the
+    prefix form ``(|>) x f = ...`` has a name and is indexed), a pattern
+    binding (``(p, q) = ...``), type and data families, an associated type in
+    a class, ``foreign import`` and Template Haskell splices. In
+    ``a, b :: Int`` the signature joins ``a`` only.
     """
     from .grammar_pack import get_parser as _get_parser
 
-    tree = _get_parser("haskell").parse(source_bytes)
+    literate = filename.lower().endswith(".lhs")
+    tree = _get_parser("haskell").parse(
+        _unlit_haskell(source_bytes) if literate else source_bytes
+    )
     symbols: list[Symbol] = []
     spec = LANGUAGE_REGISTRY["haskell"]
     kinds = spec.symbol_node_types
@@ -6679,8 +6714,12 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             has_clause = any(n.type in equation_nodes for n in group)
             # A bare top-level signature declares nothing a caller can reach.
             if has_clause or parent is not None:
-                _emit(group[0], group[-1], group_name, kind, parent,
-                      _text(group[0]).splitlines()[0])
+                # A signature may run over several lines; a clause's first
+                # line stands in when the function has no signature.
+                first = group[0]
+                _emit(first, group[-1], group_name, kind, parent,
+                      _text(first) if first.type == "signature"
+                      else _text(first).splitlines()[0])
             group.clear()
 
         for child in body.named_children:

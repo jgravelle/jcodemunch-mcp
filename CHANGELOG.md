@@ -79,8 +79,7 @@ grammar was installed and parsed the file without error, which is why a
 `HASKELL_SPEC` declared five node types and a name field for none, so every
 declaration resolved to no name and was dropped. And `type_synon` is a node
 type the grammar never emits: upstream spells it `type_synomym`, its own typo.
-Found by the map-agreement ratchet written for #712, which is how a
-one-language report became a survey.
+Found by the map-agreement ratchet written for #712.
 
 Naming the fields would not have been enough. One Haskell function is several
 sibling nodes, a signature plus a node per pattern-matched clause, so the
@@ -93,16 +92,21 @@ them, with the signature as its signature. Classes and instances are owners
 (`instance Shape A` and `instance Shape B` are two), and their methods belong
 to them. `where` and `let` bindings are locals and are not indexed. Haddock
 comments are docstrings, including on a module's first declaration, which sits
-outside the node a sibling walk reads.
+outside the node a sibling walk reads. A signature written over several lines
+is kept whole. Literate Haskell (`.lhs`) was on the supported row and yielded
+nothing in either style; bird tracks and `\begin{code}` blocks are both read
+now, with the prose blanked in place so every span indexes the original file.
 
 ⚠ The first draft of that extractor hardcoded its node types, and the #745
-register failed seven rows: removing a spec entry changed nothing, so the spec
+register failed every Haskell row: removing a spec entry changed nothing, so the spec
 was a second copy nobody consulted, the mechanism this project keeps paying
 for. The extractor reads node types, kinds and name fields from `HASKELL_SPEC`.
 
-Not covered, stated: an operator definition (`s |> x = ...`) carries no name
-field in this grammar, and type families and `foreign import` are not declared
-forms; none is indexed. Closing #722 emptied two tracked-gap registers, and
+Not indexed, stated: an operator defined infix (`s |> x = ...`) carries no name
+field in this grammar, while the prefix form `(|>) s x = ...` has one and is
+indexed. Pattern bindings (`(p, q) = ...`), type and data families, an
+associated type inside a class, `foreign import` and Template Haskell splices
+are not declared forms. In `a, b :: Int` the signature joins `a` only. Closing #722 emptied two tracked-gap registers, and
 both guards loop inside the test, so an empty register passes instead of
 spending a skip. Existing indexes re-parse under the `PARSER_GENERATION` bump
 already in this block.

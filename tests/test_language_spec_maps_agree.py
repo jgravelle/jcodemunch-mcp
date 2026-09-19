@@ -14,7 +14,8 @@ passes while the symbol is still lost. The two maps are a contract and nothing
 asserted they agree.
 
 The ratchet below found a second defect on its first run -- Haskell's
-`name_fields` is empty, so the whole language extracts nothing (#722). That is
+`name_fields` was empty, so the whole language extracted nothing (#722, fixed
+since). That is
 what a property test is for, and it is why the reported list was not the list.
 """
 
@@ -33,9 +34,9 @@ from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
 # code path exists -- an entry cannot be used to silence a gap that has no
 # handler behind it.
 #
-# ⚠ `haskell` is NOT here. Its five node types have no handler and no name
-# field, so the language extracts nothing; that is #722, tracked separately
-# rather than excused with an entry.
+# ⚠ `haskell` was never here. Its five node types had no handler and no name
+# field, so the language extracted nothing; that was #722, tracked in
+# `_KNOWN_GAPS` until it was fixed rather than excused with an entry.
 _RESOLVED_BEFORE_NAME_FIELDS = {
     "csharp": {
         "field_declaration": "walks variable_declaration -> variable_declarator",
@@ -320,8 +321,8 @@ def test_typescript_generators_are_covered_too():
 def test_a_known_gap_is_still_a_gap():
     """A tracked gap must FAIL once it is fixed, or it becomes an exemption.
 
-    `_KNOWN_GAPS` excuses Haskell's five node types while #722 is open. Nothing
-    else would notice when #722 closes: the entry would sit there permanently
+    `_KNOWN_GAPS` excused Haskell's five node types while #722 was open, and is
+    empty now that it is fixed. Nothing else would notice when a tracked issue closes: the entry would sit there permanently
     excusing a language that no longer needs it, which is how a gap becomes a
     hole. This fails the moment the gap is repaired, and the failure message
     says the remedy is to DELETE the entry, not to widen it.

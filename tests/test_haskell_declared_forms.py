@@ -123,6 +123,41 @@ def test_a_haddock_comment_is_the_docstring_including_on_the_first_declaration()
     assert docs == {"Stack": "A stack.", "push": "Push a value."}
 
 
+def test_a_signature_written_over_several_lines_is_kept_whole():
+    """Review found the first draft kept a signature's first LINE, so the
+    standard long-signature layout published `signature='f'`."""
+    source = "module M where\nf\n  :: Int\n  -> Int\nf x = x\n"
+    (f,) = parse_file(source, "M.hs", "haskell")
+    assert (f.signature, f.line, f.end_line) == ("f :: Int -> Int", 2, 5)
+
+
+@pytest.mark.parametrize("label, source", [
+    ("bird tracks", "A stack module.\n\n> module M where\n> data Stack = Empty\n\nProse.\n\n> push :: Int -> Stack\n> push _ = Empty\n"),
+    ("code blocks", "Intro.\n\\begin{code}\nmodule M where\ndata Stack = Empty\n\\end{code}\nProse.\n\\begin{code}\npush :: Int -> Stack\npush _ = Empty\n\\end{code}\n"),
+])
+def test_literate_haskell_is_read_and_spans_index_the_original_file(label, source):
+    """`.lhs` is on the supported row and yielded nothing in either style. The
+    prose is blanked in place, so a span must slice the ORIGINAL bytes."""
+    symbols = parse_file(source, "M.lhs", "haskell")
+    assert [(s.kind, s.name) for s in symbols] == [("type", "Stack"), ("function", "push")], label
+    push = symbols[1]
+    raw = source.encode()[push.byte_offset:push.byte_offset + push.byte_length].decode()
+    assert "push :: Int -> Stack" in raw and "push _ = Empty" in raw
+    assert source.splitlines()[push.line - 1].endswith("push :: Int -> Stack")
+
+
+def test_a_bird_track_is_prose_in_an_ordinary_hs_file():
+    """The unlit pass is keyed on `.lhs`: in `.hs` a leading `>` is not code."""
+    assert parse_file("> f = 1\n", "M.hs", "haskell") == []
+
+
+def test_an_operator_is_indexed_in_prefix_form_only():
+    """Pinned because the first CHANGELOG draft said no operator is indexed.
+    The infix form has no `name` field in this grammar."""
+    source = "module M where\n(<+>) a b = a\nx |> f = f x\n"
+    assert _rows(source) == [("function", "(<+>)", None)]
+
+
 def test_the_type_arrow_is_not_a_function():
     """The grammar names the `->` of a type `function` as well. It carries no
     name, and this pins that it never becomes a symbol."""
