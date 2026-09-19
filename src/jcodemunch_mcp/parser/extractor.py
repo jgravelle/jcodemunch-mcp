@@ -307,10 +307,24 @@ def _extract_call_references(
 #: `_` is an ordinary identifier (lodash is conventionally bound to it), so a
 #: rule keyed on the spelling would delete real symbols. Add a language only
 #: when its reference says `_` cannot be read back. Only the BARE underscore:
-#: `_x` and `__` are names.
+#: `_x` is a name everywhere, and `__` is a name everywhere EXCEPT Julia, whose
+#: rule is "all-underscore identifiers are write-only" -- so there `__` and
+#: `___` are the discard too (`_is_discard_name`).
 _BLANK_IDENTIFIER_LANGUAGES: frozenset[str] = frozenset(
     {"go", "julia", "nim", "ocaml", "rust", "scala", "swift"}
 )
+
+
+def _is_discard_name(name: str, language: str) -> bool:
+    """Is `name` the discard of a language in `_BLANK_IDENTIFIER_LANGUAGES`?
+
+    The bare `_` for all of them. Julia's property is wider than that spelling:
+    ANY all-underscore identifier is write-only there, so keying Julia on `_`
+    alone would be a guard against one spelling of its own rule.
+    """
+    if name == "_":
+        return True
+    return language == "julia" and bool(name) and set(name) == {"_"}
 
 
 def parse_file(content: str, filename: str, language: str, source_bytes: Optional[bytes] = None, repo: Optional[str] = None) -> list[Symbol]:
@@ -468,7 +482,7 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
     # had its own skip and its `const` channel did not, which is how the report
     # arrived. BEFORE disambiguation, or two `_` leave `~1`/`~2` ordinals behind.
     if language in _BLANK_IDENTIFIER_LANGUAGES:
-        symbols = [s for s in symbols if s.name != "_"]
+        symbols = [s for s in symbols if not _is_discard_name(s.name, language)]
 
     # Disambiguate overloaded symbols + compute complexity in a single pass
     symbols = _disambiguate_and_compute_complexity(symbols, source_bytes)

@@ -73,10 +73,23 @@ def test_an_ordinary_identifier_spelled_underscore_stays(filename, language, sou
 @pytest.mark.parametrize("filename, language, source, kept", [
     ("a.rs", "rust", "static _S: u8 = 0;\nconst _UNUSED: u8 = 1;\n", ["_S", "_UNUSED"]),
     ("a.go", "go", "package m\n\nconst _x = 1\nvar __ = 2\n", ["_x", "__"]),
+    ("a.jl", "julia", "_keep(x) = x\n_a_(x) = x\n", ["_keep", "_a_"]),
 ])
 def test_only_the_bare_underscore_is_the_discard(filename, language, source, kept):
-    """A leading underscore is a naming convention; `_x` and `__` are names."""
+    """A leading underscore is a naming convention; `_x` is a name everywhere,
+    and `__` is a name in Go, where it can be read back."""
     assert _names(source, filename, language) == kept
+
+
+def test_julia_drops_every_all_underscore_name():
+    """Julia's rule is "all-underscore identifiers are write-only", not "`_` is".
+
+    Review found the first draft keyed Julia on the single `_`, so an equally
+    unreferenceable `__` stayed indexed: a guard against one spelling of the
+    very property that put Julia on the allowlist.
+    """
+    source = "_(x) = x\n__(x) = x\n___(x) = x\nkeep(x) = x\n"
+    assert _names(source, "a.jl", "julia") == ["keep"]
 
 
 def test_a_backticked_underscore_is_a_real_scala_name():

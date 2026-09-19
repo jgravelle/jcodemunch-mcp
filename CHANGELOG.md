@@ -4,11 +4,11 @@
 
 ### Fixed - a language's discard is not a symbol (#763, fix by @fathirramadhan-web)
 
-Go's blank identifier was indexed as a constant. `_` is a discard target: it
-cannot be referenced, several can sit in one file, and each became a symbol
-called `_` competing in every ranking. `const ( _ = iota; KB; MB )` indexed
-three constants where two are real, and two discards in one file collected
-`~1`/`~2` ordinals on top.
+Go's blank identifier was indexed as a constant. `_` binds nothing: it cannot be
+referenced, several can sit in one file, and each became a symbol called `_`
+competing in every ranking. The iota ladder `const ( _ = iota; KB; MB )` put a
+symbol named `_` in the index beside `KB` and `MB`, and two discards in one file
+collected `~1`/`~2` ordinals on top.
 
 @fathirramadhan-web found the fix and proposed it in PR #765: drop the discard
 where each name is read, so a real name declared beside it survives. The CLA was
@@ -36,14 +36,17 @@ compile-time-assertion idiom and `type _ int` is legal, and neither can be
 referenced any more than `const _` can. A backticked Scala `` `_` `` is a name
 someone chose; it keeps its backticks and its members.
 
-In JavaScript, TypeScript, PHP, Ruby, Lua and C# `_` is an ordinary identifier
-(lodash, gettext) and stays; the JS and TS direction was written as a test
-before the fix. Only the bare underscore counts: `_x` and `__` are names. ⚠ Not
+In JavaScript, TypeScript, PHP, Perl, Ruby, Lua and C# `_` is an ordinary
+identifier (lodash, gettext) and stays; the JS and TS direction was written as a
+test before the fix. Only the bare underscore counts, with one exception that
+review found: `_x` is a name everywhere, and `__` is a name everywhere except
+Julia, whose rule is that ANY all-underscore identifier is write-only, so `__`
+and `___` are dropped there too. ⚠ Not
 ruled on: Gleam, Zig, Kotlin, Elixir and Java emit a `_` symbol for source that
 is not valid in those languages (`const _ = 1` is not Zig; a Java field cannot
 be named `_` since 9), so nothing a user can write is affected and they are
-left alone. Python, Haskell, F#, Dart, C, C++, R and Perl emitted no `_` symbol
-in review's probe. Existing indexes are re-parsed by the unreleased
+left alone (Elixir's `def _` could not be confirmed invalid). Python, Haskell,
+F#, Dart, C and C++ emitted no `_` symbol for a `_` binding in review's probe. Existing indexes are re-parsed by the unreleased
 `PARSER_GENERATION` bump already in this block.
 
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
