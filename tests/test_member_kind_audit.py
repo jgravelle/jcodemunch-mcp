@@ -20,7 +20,15 @@ which is the notification that a gap closed.
 
 ⚠ The roles are about what the LANGUAGE says, never what the parser can see.
 A role is omitted only where the language has no such concept (Go has no
-property), never because the answer is inconvenient.
+property; a JS class field is always reassignable, so JS has no immutable
+role), never because the answer is inconvenient. Two labels are looser than
+they read and are graded correctly anyway: Python's `LIMIT` is immutable by
+the language's documented naming convention only, and a Rust struct field is
+mutable only through a `mut` binding.
+
+⚠ What this file CANNOT see, stated: `immutable` accepts every state kind, so a
+language that collapses `val` and `var` into one kind grades clean (Kotlin does,
+deliberately, #732).
 """
 
 import re
@@ -45,7 +53,10 @@ _RULE: dict[str, frozenset[str]] = {
     "method": frozenset({"method"}),
     "mutable": frozenset(STATE_KINDS) - {"constant"},
     "immutable": frozenset(STATE_KINDS),
-    "property": frozenset({"property", "field", "method"}),
+    # `method` because a getter IS a method to Python, JS and Dart. Not `field`:
+    # where the language declares a property distinctly (C#, Apex, Swift), `field`
+    # is the answer #770 rejects, and accepting it would close the cell wrongly.
+    "property": frozenset({"property", "method"}),
 }
 
 #: language -> (filename, class name, {role: member name}, source)
@@ -63,10 +74,9 @@ _SAMPLES: dict[str, tuple[str, str, dict[str, str], str]] = {
         "        return 2\n"
     )),
     "javascript": ("a.js", "Audit", {
-        "method": "runIt", "mutable": "tally", "immutable": "LIMIT", "property": "view",
+        "method": "runIt", "mutable": "tally", "property": "view",
     }, (
         "class Audit {\n"
-        "  static LIMIT = 3;\n"
         "  tally = 0;\n"
         "  runIt() { return 1; }\n"
         "  get view() { return 2; }\n"
@@ -282,11 +292,17 @@ def _all_languages_enabled(monkeypatch):
     monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
 
 
+#: The kind of the CONTAINER, pinned so that a class regressing to some other
+#: kind cannot hide behind a lookup by name.
+_CONTAINER_KIND: dict[str, str] = {"go": "type", "rust": "type"}
+
+
 def _observe(language: str) -> dict[str, tuple[str, str]]:
     """{role: (kind or ABSENT, ownership)} for one sample."""
     filename, class_name, members, source = _SAMPLES[language]
     symbols = parse_file(source, filename, language)
-    owners = {s.id for s in symbols if s.name == class_name}
+    container = _CONTAINER_KIND.get(language, "class")
+    owners = {s.id for s in symbols if s.name == class_name and s.kind == container}
     row = {}
     for role, member in members.items():
         hits = [s for s in symbols if s.name == member]
@@ -313,7 +329,7 @@ _NOT_SAMPLED: dict[str, str] = {
 #: Written by observation, then frozen. A cell is (kind or ABSENT, ownership).
 _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "python": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "javascript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "javascript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "typescript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "tsx": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "java": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", NO_OWNER)},
@@ -362,7 +378,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("groovy", "method"): "unfiled",
     ("groovy", "mutable"): "unfiled",
     ("java", "immutable"): "unfiled",
-    ("javascript", "immutable"): "unfiled",
     ("javascript", "mutable"): "unfiled",
     ("objc", "method"): "unfiled",
     ("objc", "mutable"): "unfiled",
@@ -420,12 +435,22 @@ def test_the_table_and_the_samples_cover_the_same_cells():
     }
 
 
-def test_every_sample_yields_its_class():
-    """A sample whose class is missing makes its whole row ABSENT for a reason
-    that has nothing to do with members, and every cell would still 'pin'."""
-    for language, (filename, class_name, _, source) in _SAMPLES.items():
-        names = {s.name for s in parse_file(source, filename, language)}
-        assert class_name in names, language
+def test_every_sample_yields_its_container_and_nothing_it_did_not_declare():
+    """Both directions of the symbol SET, which the table cannot see.
+
+    A missing container makes a whole row ABSENT for a reason unrelated to
+    members. And a FABRICATED symbol -- a parameter or a local published as a
+    member, the direction #751's row calls worse than an absence -- moves no
+    cell: review appended a fake `constant` to every sample and all 22 rows
+    stayed green. Every sample declares exactly its container and its members,
+    so anything else in the answer is a fabrication.
+    """
+    for language, (filename, class_name, members, source) in _SAMPLES.items():
+        symbols = parse_file(source, filename, language)
+        container = _CONTAINER_KIND.get(language, "class")
+        assert (class_name, container) in {(s.name, s.kind) for s in symbols}, language
+        undeclared = {s.name for s in symbols} - {class_name} - set(members.values())
+        assert not undeclared, (language, sorted(undeclared))
 
 
 def test_a_gap_names_its_tracker():
@@ -461,6 +486,7 @@ def test_every_class_bearing_spec_is_sampled_or_excused():
     (("immutable", (ABSENT, NO_OWNER)), True),   # #755's shape
     (("method", ("function", OWNED)), True),
     (("property", ("constant", OWNED)), True),
+    (("property", ("field", OWNED)), True),      # the answer #770 rejects
 ])
 def test_the_rule_fires(cell, expected):
     """Non-vacuity: the rule is what decides `_GAPS`, so it is tested alone."""
