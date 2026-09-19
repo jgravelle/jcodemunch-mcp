@@ -170,6 +170,32 @@ def test_a_code_block_marker_may_carry_options():
     assert [s.name for s in parse_file(source, "M.lhs", "haskell")] == ["f"]
 
 
+def test_the_code_environment_is_named_code_and_nothing_longer():
+    """Options or whitespace may follow the brace; another environment may not
+    open a block. ⚠ The `codeblock` row is a PIN, not a regression: review
+    reported it as broken under the prefix match, and it was not (the prefix
+    included the closing brace). The `{code}x` row is the one the prefix match
+    got wrong."""
+    source = (
+        "\\begin{codeblock}\nprose = 1\n\\end{codeblock}\n"
+        "\\begin{code}x\nalso_prose = 1\n\\end{code}x\n"
+        "\\begin{code}\nreal = 2\n\\end{code}\n"
+    )
+    assert [s.name for s in parse_file(source, "M.lhs", "haskell")] == ["real"]
+
+
+def test_a_block_haddock_comment_loses_its_delimiters():
+    source = "module M where\n{- | Block doc\n   second line -}\nf = 1\n"
+    (f,) = parse_file(source, "M.hs", "haskell")
+    assert f.docstring == "Block doc\nsecond line"
+
+
+def test_an_instance_head_written_over_several_lines_is_kept_whole():
+    source = "module M where\ndata C = C\nclass S a where\n  m :: a\ninstance S\n    C where\n  m = C\n"
+    heads = {s.name: s.signature for s in parse_file(source, "M.hs", "haskell") if s.kind == "class"}
+    assert heads == {"S": "class S a where", "S C": "instance S C where"}
+
+
 def test_a_bird_track_is_prose_in_an_ordinary_hs_file():
     """The unlit pass is keyed on `.lhs`: in `.hs` a leading `>` is not code."""
     assert parse_file("> f = 1\n", "M.hs", "haskell") == []

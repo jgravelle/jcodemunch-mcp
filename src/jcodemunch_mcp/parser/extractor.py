@@ -6593,6 +6593,10 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
 
 _HASKELL_COMMENT_NODES = frozenset({"comment", "haddock"})
+# The environment is named `code` exactly: options or whitespace may follow the
+# brace, another letter may not (`\\begin{codeblock}` is someone's prose).
+_HASKELL_CODE_MARKER = re.compile(rb"\\(begin|end)\{code\}(?=$|[\[\s])")
+_HASKELL_HEAD_END = re.compile(r"\bwhere\b")
 
 
 def _unlit_haskell(source_bytes: bytes) -> bytes:
@@ -6609,11 +6613,9 @@ def _unlit_haskell(source_bytes: bytes) -> bytes:
         body = line.rstrip(b"\r\n")
         ending = line[len(body):]
         stripped = body.strip()
-        # By prefix: `\\begin{code}[hide]` and other trailing options are real.
-        if stripped.startswith(b"\\begin{code}"):
-            in_block, keep = True, b" " * len(body)
-        elif stripped.startswith(b"\\end{code}"):
-            in_block, keep = False, b" " * len(body)
+        marker = _HASKELL_CODE_MARKER.match(stripped)
+        if marker is not None:
+            in_block, keep = marker.group(1) == b"begin", b" " * len(body)
         elif in_block:
             keep = body
         elif body.startswith(b">"):
@@ -6681,7 +6683,10 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # `declarations`, not a child of it.
             prev = node.parent.prev_named_sibling
         while prev is not None and prev.type in _HASKELL_COMMENT_NODES:
-            lines[:0] = [ln.strip().lstrip("-").lstrip(" |^") for ln in _text(prev).splitlines()]
+            raw = _text(prev).strip()
+            if raw.startswith("{-") and raw.endswith("-}"):
+                raw = raw[2:-2]
+            lines[:0] = [ln.strip().lstrip("-").lstrip(" |^") for ln in raw.splitlines()]
             prev = prev.prev_named_sibling
         return "\n".join(ln for ln in lines if ln).strip()
 
@@ -6756,6 +6761,11 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if kind == "type":
             _emit(node, node, _text(name_node), kind, None, head)
         elif kind == "class":
+            # A class or instance head may run over several lines; it ends at
+            # `where`, or is the whole node when there is no body.
+            text = _text(node)
+            end = _HASKELL_HEAD_END.search(text)
+            head = text[:end.end()] if end else text
             name = _text(name_node)
             if node.type == "instance":
                 # `instance Shape A` and `instance Shape B` are two owners.
