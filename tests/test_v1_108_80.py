@@ -145,5 +145,7 @@ class TestDataclassFields:
         # kind in the summary forced a plural rule (`property` -> `properties`
         # is irregular), and applying it to `method` is the same rule, not a
         # second one.
-        assert "1 method" in summary
-        assert "2 fields" in summary
+        # ⚠⚠ The whole string, because `"1 method" in "1 methods"` is True --
+        # the first replacement for the old `"1 methods"` assertion passed on
+        # the PRE-change tree too and discriminated nothing.
+        assert summary == "Defines C class (1 method, 2 fields)"

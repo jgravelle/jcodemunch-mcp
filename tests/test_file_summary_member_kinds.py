@@ -142,6 +142,53 @@ def test_a_module_scope_binding_is_not_a_class_member():
     assert _heuristic_summary("C.php", syms) == "Defines C class (1 method, 1 property)"
 
 
+def test_a_nested_class_does_not_borrow_a_top_level_namesake_s_members():
+    """⚠⚠ The member filter matched `parent.endswith(f"::{cls.name}#class")`,
+    which cannot tell `Outer.Inner` from a top-level `Inner`.
+
+    Measured before the fix: the nested `Inner` was reported with the TOP-LEVEL
+    `Inner`'s member, because `::Outer.Inner#class` does NOT end with
+    `::Inner#class` while `::Inner#class` does — so the nested class's own two
+    properties were dropped and a stranger's one was counted in their place.
+
+    ⚠ The leak PRE-DATES this change and carried `field` alone; widening the
+    kinds would have handed it `property`, `constant` and `variable` as well.
+    Matching the class's own `id` closes it outright.
+
+    ⚠ The `Foo` / `MyFoo` shape was always safe — `"::MyFoo#class"` does not end
+    with `"::Foo#class"` — so the separator, not the prefix, was the defect.
+    """
+    source = (
+        "class Outer {\n"
+        "    class Inner {\n"
+        "        val a: Int = 1\n"
+        "        val b: Int = 2\n"
+        "    }\n"
+        "    val o: Int = 3\n"
+        "    fun mo() {}\n"
+        "}\n"
+        "class Inner {\n"
+        "    val z: Int = 9\n"
+        "}\n"
+    )
+    summary = _summary(source, "O.kt", "kotlin")
+    assert summary == "Defines Outer class (1 method, 1 property). Defines Inner class (2 properties)"
+
+
+def test_a_class_whose_name_is_a_suffix_of_another_keeps_its_own_members():
+    """The prefix shape, pinned in both directions so the id match cannot
+    regress to a suffix match without failing.
+    """
+    source = (
+        "<?php\n"
+        "class Foo {\n    private int $f1;\n}\n"
+        "class MyFoo {\n    private int $m1;\n    private int $m2;\n}\n"
+    )
+    summary = _summary(source, "F.php", "php")
+    assert "Defines Foo class (1 property)" in summary
+    assert "Defines MyFoo class (2 properties)" in summary
+
+
 # ---------------------------------------------------------------------------
 # Prose: naming each kind forces correct plurals
 # ---------------------------------------------------------------------------
@@ -211,15 +258,60 @@ def test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind():
     from jcodemunch_mcp.parser.symbols import STATE_KINDS
 
     source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+    # ⚠ Scans for the kind as a STRING LITERAL in any spelling, not just
+    # `== "field"`. The first version matched equality alone, and
+    # `s.kind in ("field",)` -- the shape a re-introduction is likelier to take,
+    # since `_counted` already compares against a loop variable -- walked past
+    # it. Comments are stripped first so the module may still EXPLAIN itself.
+    code = chr(10).join(ln.split("#", 1)[0] for ln in source.splitlines())
     for kind in STATE_KINDS:
-        assert f'== "{kind}"' not in source, f"file_summarize names {kind!r} directly"
-        assert f"== '{kind}'" not in source, f"file_summarize names {kind!r} directly"
+        for spelling in (f'"{kind}"', f"'{kind}'"):
+            assert spelling not in code, (
+                f"file_summarize names {kind!r} directly; ask STATE_KINDS"
+            )
     assert "STATE_KINDS" in source
 
 
 # ---------------------------------------------------------------------------
 # What this issue is NOT
 # ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("source,filename,language,summary,wrong_about", [
+    (
+        "class Sw {\n    var count: Int = 0\n    func bump() { count += 1 }\n}\n",
+        "Sw.swift", "swift",
+        "Defines Sw class (1 method, 1 constant)",
+        "a Swift `var` is mutable and is declared `constant`",
+    ),
+    (
+        "public class Cs {\n"
+        "    private int counter = 0;\n"
+        "    public string Name { get; set; }\n"
+        "    public void M() {}\n"
+        "}\n",
+        "Cs.cs", "csharp",
+        "Defines Cs class (1 method, 2 constants)",
+        "a C# field and an auto-property are both declared `constant`",
+    ),
+])
+def test_naming_the_kind_publishes_whatever_the_parser_decided(
+    source, filename, language, summary, wrong_about
+):
+    """⚠⚠ **The cost of naming the kind, stated rather than discovered.**
+
+    Counting only `field` omitted these members silently. Naming the kind
+    publishes the parser's word for them — and for Swift and C# that word is
+    WRONG, so a silent omission became a visible false statement. Filed as its
+    own issue rather than papered over here: this module reports what the index
+    says, and the index is what needs fixing (#741's lesson, "a JS `let` is not
+    a constant", in two more languages).
+
+    ⚠ Pinned to the CURRENT WRONG OUTPUT deliberately, the way
+    `test_cpp_is_not_this_issue` pins #755. It fails when the parser is fixed,
+    which is the notification that this disclosure can go.
+    """
+    assert _summary(source, filename, language) == summary, wrong_about
+
 
 def test_cpp_is_not_this_issue():
     """⚠ A C++ class summarises with no members because its data members yield
@@ -230,6 +322,6 @@ def test_cpp_is_not_this_issue():
     one's, and so this test fails -- correctly -- when #755 is fixed.
     """
     source = "class K {\npublic:\n    int a;\n    int b;\n    void m1() {}\n};\n"
-    syms = parse_file(source, "K.cpp", "K.cpp".split("/")[-1] and "cpp")
+    syms = parse_file(source, "K.cpp", "cpp")
     assert [s.kind for s in syms if s.kind in ("field", "property")] == []
     assert _summary(source, "K.cpp", "cpp") == "Defines K class (1 method)"

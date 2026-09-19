@@ -19,8 +19,9 @@ The cause is one hardcoded string against a vocabulary that has four state kinds
 
     field_count = sum(1 for s in symbols if s.kind == "field" and ...)
 
-`constant` and `variable` joined `KIND_ORDER` in #741/#742 and `property` in
-#732, so a consumer keyed on one string sees one of four. **"Which kinds are
+`property` joined `KIND_ORDER` in #732 and `variable` in #741/#742, beside
+`field` and a `constant` that has been there since v1.5.1 -- so a consumer keyed
+on one string sees one of four. **"Which kinds are
 declared state" is a property of the KIND VOCABULARY**, so it is answered beside
 `KIND_ORDER` as `STATE_KINDS` and imported -- a second copy in the summariser is
 how this returns for the fifth kind, and
@@ -44,6 +45,28 @@ parenthetical.
 **What is impossible now:** a class member cannot be absent from its file's
 summary because of the word its language uses for it, and a summary cannot name
 a count without naming which kind it counted.
+
+⚠⚠ **Naming the kind publishes whatever the parser decided, and for two
+languages that word is wrong.** Counting only `field` omitted these members
+SILENTLY; naming the kind turns the omission into a visible false statement.
+Measured: swift `class Sw { var count: Int = 0 }` reads
+`(1 method, 1 constant)` for a MUTABLE `var`, and csharp's `private int counter`
+plus an auto-property `Name { get; set; }` both read as `constant`
+(`1 method, 2 constants`). That is #741's own lesson -- "a JS `let` is not a
+constant" -- in two more languages, and it is a PARSER defect this module can
+only report: filed separately rather than papered over here.
+`test_naming_the_kind_publishes_whatever_the_parser_decided` pins the current
+wrong output, the way the C++ row below pins #755, so it fails when the parser
+is fixed and the disclosure can go.
+
+⚠⚠ **A nested class borrowed a top-level namesake's members, and this change
+would have handed that leak three more kinds.** The member filter matched
+`parent.endswith(f"::{cls.name}#class")`, which cannot tell `Outer.Inner` from a
+top-level `Inner` -- `::Outer.Inner#class` does not end with `::Inner#class`
+while `::Inner#class` does -- so kotlin's nested `Inner` was reported with the
+top-level one's member and lost its own two. The leak PRE-DATES this change and
+carried `field` alone. Matching the class's own `id` closes it outright; the
+`Foo`/`MyFoo` prefix shape was always safe, so the separator was the defect.
 
 ⚠ **A C++ class still summarises with no members, and that is #755, not this.**
 Its data members yield no symbol at all, so the summary is faithful to the

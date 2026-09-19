@@ -34,13 +34,22 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
     parts = []
     if classes:
         for cls in classes[:2]:
-            suffix = f"::{cls.name}#class"
             # ⚠⚠ The PARENT filter is what keeps module-scope bindings out of a
             # class's member count -- `constant` and `variable` are reached in
             # both scopes, and `KIND_ORDER`'s own comment names that mixing as
             # the thing to avoid. Widening the KINDS is safe only because the
             # SCOPE question is still asked here.
-            members = [s for s in symbols if s.parent and s.parent.endswith(suffix)]
+            #
+            # ⚠⚠ Matched against the class's OWN id, not by name suffix. The old
+            # `parent.endswith(f"::{cls.name}#class")` could not tell a NESTED
+            # class from a top-level one of the same name: Kotlin's
+            # `class Outer { class Inner { val a; val b } }` beside a top-level
+            # `class Inner { val z }` reported the nested `Inner` with the
+            # TOP-LEVEL one's member, because `::Outer.Inner#class` does not end
+            # with `::Inner#class` while `::Inner#class` does. That leak
+            # pre-dates this change and carried `field` alone; widening the
+            # kinds would have given it three more to mis-attribute.
+            members = [s for s in symbols if s.parent == cls.id]
             bits = _counted(members, ("method",) + STATE_KINDS)
             desc = f"Defines {cls.name} class"
             if bits:
