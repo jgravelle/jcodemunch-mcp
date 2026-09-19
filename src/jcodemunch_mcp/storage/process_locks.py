@@ -323,23 +323,154 @@ def _process_create_time(pid: int) -> Optional[float]:
 _CREATE_TIME_TOLERANCE_S = 2.0
 
 
-def _is_live_holder(pid: int, expected_create_time: object) -> bool:
+# #728: how far AFTER a lock's `started_at` a process may have been created and
+# still be believed to hold it. A genuine holder was created BEFORE it wrote the
+# lock, so the true difference is negative; the margin only absorbs a wall clock
+# that was corrected between the two readings. A recycled PID's difference is
+# the age of the stale lock -- a month, in the report -- never this.
+_STARTED_AT_MARGIN_S = 300.0
+
+
+def _process_wall_create_time(pid: int) -> Optional[float]:
+    """Creation time of ``pid`` as Unix-epoch seconds, or None if unreadable.
+
+    ⚠ NOT interchangeable with ``_process_create_time``, which on Linux is
+    deliberately boot-relative so that its EXACT comparison survives a clock
+    step. This one exists for a single question with a five-minute margin
+    ("was this process created after the lock was written?"), where a wall
+    clock is the only thing a lock's ``started_at`` can be compared with.
+
+    ⚠ NOT step-proof, and the weak direction is the common one: on Linux
+    ``btime`` is re-derived from the CURRENT clock, so a forward step larger
+    than the margin after the lock was written makes a genuine holder look
+    newer than its lock. ``_flock_proves_a_holder`` exists for that case; a
+    caller that acts on a stale verdict without it (the process registry, which
+    has no flock) can only mis-PRUNE a diagnostics row, never start a watcher.
+    """
+    if sys.platform == "win32":
+        return _process_create_time(pid)  # already epoch seconds there
+    if sys.platform.startswith("linux"):
+        since_boot = _process_create_time(pid)
+        if since_boot is None:
+            return None
+        try:
+            with open("/proc/stat", "rb") as fh:
+                for line in fh:
+                    if line.startswith(b"btime "):
+                        return float(line.split()[1]) + since_boot
+        except (OSError, ValueError, IndexError):
+            return None
+    return None
+
+
+def _parse_started_at(started_at: object) -> Optional[float]:
+    """A lock's ``started_at`` as epoch seconds; None if it cannot be read.
+
+    Naive timestamps are UTC: that is what ``acquire`` has always written.
+    """
+    if not isinstance(started_at, str) or not started_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _flock_proves_a_holder(lock_fp: Path, expected_create_time: object) -> bool:
+    """True when a LEGACY lock file is flock-held by some live process (Unix).
+
+    ⚠⚠ The ``started_at`` rule compares a process's creation time with a
+    timestamp FROZEN when the lock was written, so a wall clock stepped forward
+    by more than the margin in between (a board with no RTC corrected by NTP, a
+    WSL2 or VM clock that lagged through host sleep) makes a GENUINE legacy
+    holder read as recycled. On Linux the creation time is ``btime`` + ticks
+    and ``btime`` moves with every step, so that is the common direction. A
+    false STALE is the destructive verdict: ``acquire`` unlinks the file and a
+    second watcher starts beside the live one.
+
+    Every lock writer this project has shipped takes ``flock(LOCK_EX)`` on Unix
+    and holds it for the life of the process, so a REFUSED probe is positive
+    proof of a live holder and outranks any arithmetic on timestamps. An
+    obtained probe is released at once and proves nothing (the stale verdict
+    stands). Any error is UNKNOWN and proves nothing either.
+
+    ⚠ "Some live process", NOT necessarily the recorded PID. A forked child that
+    inherited the descriptor keeps the flock after the recorded parent dies, so
+    a DEAD-pid lock can read as held here (it was reclaimed before #728), and
+    the ``LockHolder`` built from the file still names the dead PID. Something
+    does hold the lock, so refusing to reclaim is right; a reader chasing that
+    PID is looking at the wrong process.
+
+    Legacy locks only: a lock carrying a numeric ``create_time`` is decided
+    exactly by #450. Callers consult this only AFTER ``_is_live_holder`` said
+    stale, and a writer between its create and its flock has a live PID and
+    (Linux, Windows) a numeric ``create_time`` or (macOS, no creation-time
+    source) a live verdict, so the probe cannot reach the file IT READ while
+    that file's writer is mid-acquire. The residual window is a reader stalled
+    >50 ms between its read and its open while another ``acquire`` replaces the
+    file: that acquirer loses its flock race and returns False. Safe direction
+    (no watcher starts, a retry succeeds), and two racing ``acquire`` calls
+    already had it. Where flock is a no-op (some NFS mounts) this proves nothing.
+    Windows has no flock layer; there the residual false-stale needs a BACKWARD
+    step over the margin between process creation and the lock write.
+    """
+    if fcntl is None or isinstance(expected_create_time, (int, float)):
+        return False
+    try:
+        fd = os.open(str(lock_fp), os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        return False
+    finally:
+        os.close(fd)
+
+
+def _is_live_holder(
+    pid: int, expected_create_time: object, started_at: object = None,
+) -> bool:
     """Liveness + identity: the PID is alive AND is still the recorded process.
 
-    ``expected_create_time`` is the value recorded at write time (may be absent
-    or None for files written by pre-jcm#450 versions — those keep the old
-    liveness-only behavior; there is nothing to compare against). If the
-    current creation time cannot be read while the PID is alive, fall back to
+    ``expected_create_time`` is the value recorded at write time. When it is
+    present the comparison is exact (jcm#450) and nothing else is consulted.
+
+    ⚠⚠ When it is ABSENT -- every lock written before #450 -- this used to fall
+    back to liveness alone, "there is nothing to compare against". There is
+    (#728): ``started_at`` is in every lock ever written, and a process cannot
+    hold a lock that was written before the process existed. A holder created
+    more than ``_STARTED_AT_MARGIN_S`` after ``started_at`` is a recycled PID.
+
+    UNKNOWN is never a verdict: if ``started_at`` does not parse, or the
+    creation time cannot be read while the PID is alive, fall back to
     liveness-only rather than declaring a possibly-live holder dead.
     """
     if not _is_pid_alive(pid):
         return False
-    if not isinstance(expected_create_time, (int, float)):
+    if isinstance(expected_create_time, (int, float)):
+        actual = _process_create_time(pid)
+        if actual is None:
+            return True
+        return abs(actual - float(expected_create_time)) <= _CREATE_TIME_TOLERANCE_S
+    written = _parse_started_at(started_at)
+    if written is None:
         return True
-    actual = _process_create_time(pid)
-    if actual is None:
+    created = _process_wall_create_time(pid)
+    if created is None:
         return True
-    return abs(actual - float(expected_create_time)) <= _CREATE_TIME_TOLERANCE_S
+    return created - written <= _STARTED_AT_MARGIN_S
 
 
 def inspect(scope: str, target: str, storage_path: Optional[str] = None) -> Optional[LockHolder]:
@@ -359,7 +490,9 @@ def inspect(scope: str, target: str, storage_path: Optional[str] = None) -> Opti
     pid = data.get("pid")
     if pid is None or not isinstance(pid, int):
         return None
-    if not _is_live_holder(pid, data.get("create_time")):
+    if not _is_live_holder(
+        pid, data.get("create_time"), data.get("started_at"),
+    ) and not _flock_proves_a_holder(lock_fp, data.get("create_time")):
         return None
     return LockHolder(
         scope=scope,
@@ -443,7 +576,9 @@ def acquire(scope: str, target: str, storage_path: Optional[str] = None) -> bool
         existing_pid = existing.get("pid")
         if existing_pid is None:
             logger.info("Removing stale %s lock for %s (no pid)", scope, target)
-        elif _is_live_holder(existing_pid, existing.get("create_time")):
+        elif _is_live_holder(
+            existing_pid, existing.get("create_time"), existing.get("started_at"),
+        ) or _flock_proves_a_holder(lock_fp, existing.get("create_time")):
             client = existing.get("client_id", "unknown")
             logger.info(
                 "%s lock held for %s by pid %s (%s)",

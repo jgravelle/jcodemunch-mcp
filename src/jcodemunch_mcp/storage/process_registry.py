@@ -184,7 +184,9 @@ def live_processes(storage_path: Optional[str] = None, prune: bool = True) -> li
             continue
 
         pid = data.get("pid")
-        if not isinstance(pid, int) or not _is_live_holder(pid, data.get("create_time")):
+        if not isinstance(pid, int) or not _is_live_holder(
+            pid, data.get("create_time"), data.get("started_at"),
+        ):
             if prune:
                 try:
                     path.unlink(missing_ok=True)
