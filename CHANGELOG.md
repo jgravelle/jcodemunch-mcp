@@ -13,16 +13,31 @@ healthy. A new watcher would also decline the folder as already claimed.
 #450 (`1c7fa623`) closed PID reuse by recording the holder's creation time and
 comparing it exactly. It left one case on liveness alone: a lock with no
 `create_time`, because "there is nothing to compare against". ⚠⚠ **That is every
-lock written before #450, and a stale lock is by definition an old one** -- the
-fix could not reach the population it was for. Fixing a producer does not fix
+lock written by a pre-#450 version, and a stale lock is by definition an old
+one** -- the fix could not reach the population it was for. (The reporter's lock
+is dated five days AFTER #450 merged; an older installed version wrote it.) Fixing a producer does not fix
 its history.
 
 There was something to compare against. Every lock ever written records
 `started_at`, and a process cannot hold a lock that was written before the
 process existed. A holder created more than five minutes after `started_at` is a
-recycled PID. The rule is one-directional and the margin absorbs a corrected
-wall clock: a genuine holder was created BEFORE it wrote its lock, so its
+recycled PID. A genuine holder was created BEFORE it wrote its lock, so its
 difference is negative, while a recycled PID's is the age of the stale lock.
+
+⚠⚠ **The rule compares against a timestamp frozen when the lock was written,
+so it is not step-proof, and review found the weak direction is the common
+one.** On Linux a process's creation time is `btime` plus ticks, and `btime`
+moves with every clock step: a forward correction larger than the margin (a
+board with no RTC, a WSL2 or VM clock that lagged through host sleep) makes a
+GENUINE legacy holder read as recycled. A false stale is the destructive
+verdict, because `acquire` unlinks the file and a second watcher starts beside
+the live one. So on Unix a stale verdict on a legacy lock is checked against
+positive evidence first: every lock writer this project has shipped holds
+`flock(LOCK_EX)` for the life of the process, and a refused probe proves a live
+holder whatever the timestamps say. Exercised for real under WSL. Windows has no
+flock layer; there a false stale needs a BACKWARD step over the margin between
+process creation and the lock write. The process registry has no flock either,
+so a stepped clock can mis-prune a legacy diagnostics row, never start a watcher.
 
 The rule lives in `_is_live_holder`, which `inspect`, `acquire` and the process
 registry already share, so `sprawl_report`'s pre-#450 rows inherit it; a test

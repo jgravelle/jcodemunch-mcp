@@ -196,3 +196,82 @@ def test_every_caller_hands_over_started_at():
                 calls.append((path.name, node.lineno, len(node.args) + len(node.keywords)))
     assert len(calls) >= 3, calls
     assert all(count == 3 for _, _, count in calls), calls
+
+
+# --------------------------------------------------------------------------- #
+# Review, round 1: the started_at rule reads a timestamp FROZEN when the lock  #
+# was written. A wall clock stepped forward past the margin in between makes a #
+# genuine legacy holder read as recycled, and a false STALE starts a second    #
+# watcher beside a live one. A held flock is positive proof and outranks it.   #
+# --------------------------------------------------------------------------- #
+
+def test_a_held_flock_outranks_a_stale_verdict_on_inspect(tmp_path, monkeypatch):
+    target = str(tmp_path / "repo")
+    _write_legacy_lock(tmp_path, target, _iso(timedelta(days=-30)))
+    monkeypatch.setattr(process_locks, "_is_live_holder", lambda *a, **k: False)
+    monkeypatch.setattr(process_locks, "_flock_proves_a_holder", lambda fp, ct: True)
+    assert process_locks.inspect(SCOPE, target, str(tmp_path)) is not None
+
+
+def test_a_held_flock_outranks_a_stale_verdict_on_acquire(tmp_path, monkeypatch):
+    """The destructive half: acquire must NOT unlink a flock-held lock."""
+    target = str(tmp_path / "repo")
+    lock_fp = _write_legacy_lock(tmp_path, target, _iso(timedelta(days=-30)))
+    monkeypatch.setattr(process_locks, "_is_live_holder", lambda *a, **k: False)
+    monkeypatch.setattr(process_locks, "_flock_proves_a_holder", lambda fp, ct: True)
+    assert process_locks.acquire(SCOPE, target, str(tmp_path)) is False
+    assert lock_fp.exists()
+
+
+class _RefusingFcntl:
+    """A flock layer on which every probe is refused, i.e. someone holds it.
+    Injected so the legacy-only gate is tested on Windows too, where the real
+    `fcntl` is None and every probe answer would be trivially False."""
+
+    LOCK_EX, LOCK_NB, LOCK_UN = 2, 4, 8
+
+    @staticmethod
+    def flock(fd, flags):
+        raise BlockingIOError()
+
+
+def test_the_probe_is_for_legacy_locks_only(tmp_path, monkeypatch):
+    """A lock with create_time is #450's to decide, exactly. The probe must not
+    touch it: a modern acquire sits between its create and its flock."""
+    monkeypatch.setattr(process_locks, "fcntl", _RefusingFcntl)
+    target = str(tmp_path / "repo")
+    lock_fp = _write_legacy_lock(tmp_path, target, _iso(timedelta(0)))
+    assert process_locks._flock_proves_a_holder(lock_fp, None) is True   # premise
+    assert process_locks._flock_proves_a_holder(lock_fp, 12345.0) is False
+    assert process_locks._flock_proves_a_holder(lock_fp, 12345) is False
+
+
+def test_a_missing_file_proves_nothing(tmp_path):
+    assert process_locks._flock_proves_a_holder(tmp_path / "absent.lock", None) is False
+
+
+def test_a_real_flock_on_a_month_old_legacy_lock_keeps_it_live(tmp_path):
+    """End to end, no mocks, Unix only: the forward-clock-step victim.
+
+    The lock is a month older than this process, so the started_at rule says
+    recycled. This process HOLDS the flock, as every shipped writer does, so it
+    is live. ⚠ On Windows there is no flock layer and this returns having
+    asserted nothing; CI's ubuntu jobs are what run it.
+    """
+    if process_locks.fcntl is None:
+        return
+    target = str(tmp_path / "repo")
+    lock_fp = _write_legacy_lock(tmp_path, target, _iso(timedelta(days=-30)))
+    fd = os.open(str(lock_fp), os.O_RDWR)
+    try:
+        process_locks.fcntl.flock(fd, process_locks.fcntl.LOCK_EX | process_locks.fcntl.LOCK_NB)
+        holder = process_locks.inspect(SCOPE, target, str(tmp_path))
+        assert holder is not None and holder.pid == os.getpid()
+        assert process_locks.acquire(SCOPE, target, str(tmp_path)) is False
+        assert lock_fp.exists()
+    finally:
+        os.close(fd)
+    # Released: the same lock is stale again, and the probe left no lock behind.
+    assert process_locks.inspect(SCOPE, target, str(tmp_path)) is None
+    assert process_locks._flock_proves_a_holder(lock_fp, None) is False
+    assert process_locks._flock_proves_a_holder(lock_fp, None) is False
