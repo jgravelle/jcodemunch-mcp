@@ -274,6 +274,46 @@ def test_a_script_function_is_not_rebound_as_a_binding():
     assert ("fn", "variable") not in pairs
 
 
+@pytest.mark.parametrize("source,expected", [
+    ("<script>\n  export const load = async ({ params }) => {};\n</script>\n",
+     ("load", "constant")),
+    ("<script>\n  export const handler = function () {};\n</script>\n",
+     ("handler", "constant")),
+    # An exported `let` holding a callback is a prop like any other `export let`.
+    ("<script>\n  export let onClick = () => {};\n</script>\n", ("onClick", "property")),
+])
+def test_an_exported_function_valued_binding_is_still_a_symbol(source, expected):
+    """⚠⚠ **A regression this PR introduced and review caught, measured on both
+    refs.** The first draft copied the JS binder's "decline a function-valued
+    declarator" line into the Svelte export branch. In the JS binder that is a
+    HAND-OFF -- `_extract_variable_function` emits it as a `function`. This
+    walker has no such branch, so the line deleted the symbol outright:
+    `export const load = async () => {}` -- SvelteKit's `load`, a module's whole
+    API -- was `('load', 'constant')` on `origin/main` and NOTHING at HEAD.
+
+    ⚠ The lesson is that borrowing a guard also borrows the owner it assumes,
+    and that an absence introduced by an absence-closing change is exactly the
+    kind nobody goes looking for.
+    """
+    assert expected in _pairs(source, "C.svelte", "svelte")
+
+
+def test_a_local_function_binding_is_a_disclosed_gap():
+    """⚠ A LOCAL `const fn = () => {}` in a script block yields no symbol, and
+    did not on `origin/main` either -- measured, both refs.
+
+    Pinned so it is disclosed rather than assumed absent, and so the asymmetry
+    with the exported form above is written down: nothing here emits a
+    function-valued declarator as a `function`, and emitting it as a
+    `constant` would name a function with a data kind.
+    """
+    for source in (
+        "<script>\n  const fn = () => {};\n</script>\n",
+        "<script>\n  const fn = function () {};\n</script>\n",
+    ):
+        assert {s.name for s in parse_file(source, "C.svelte", "svelte")} == {"C"}
+
+
 # ---------------------------------------------------------------------------
 # The third framework, which needed no code change
 # ---------------------------------------------------------------------------

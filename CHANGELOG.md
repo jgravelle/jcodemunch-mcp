@@ -53,7 +53,7 @@ makes the locality rule something that must be asked EXPLICITLY:
 `js_binding_is_member`, #741's gate, reused rather than re-derived. That row was
 missing from the first version of the new test file, and a planted removal of
 both gates was not seen at all until it was added; it now fails
-(`4 failed, 20 passed`, `.claude/state/evidence/plants.md`).
+(`4 failed, 24 passed`, `.claude/state/evidence/plants.md`).
 
 **What is impossible now:** a JS/TS binding declaration whose names the grammar
 spells as a pattern cannot index as nothing, in any of the three languages or in
@@ -73,14 +73,31 @@ one of them", now with one more kind to miss. **The kind is right and the
 consumer is wrong**, which is why this entry names the loss instead of reverting
 the kind; #760 is the fix and is next.
 
-⚠⚠ **An existing index keeps the old answer until it is re-parsed.** This
-changes what the parser emits for files whose CONTENT never changes -- a
-destructured binding becomes a symbol, and a Svelte prop's kind change also
-changes its `make_symbol_id`. That is the 08-05 #414 lesson ("fixing a producer
-does not fix its history"), whose mechanism is `PARSER_GENERATION`, and this
-release does not bump it. Re-index or `jcodemunch-mcp refresh` to pick the fix
-up; the bump is a release-step decision because it invalidates every user's
-index, and it is owed by whichever release carries this.
+⚠ `PARSER_GENERATION` is NOT bumped, for the reason #735's and #743's
+entries give: #732 took it 7 to 8 and every one of those entries is still under
+`[Unreleased]`, so any index a release of this can reach re-parses under that
+bump already. This change does alter what the parser emits for files whose
+CONTENT never changes -- a destructured binding becomes a symbol, and a Svelte
+prop's kind change also moves its `make_symbol_id` -- which is the 08-05 #414
+lesson ("fixing a producer does not fix its history"); the pending bump is what
+answers it. The uncovered population is a tree indexed from source BETWEEN the
+commits -- a maintainer's own box, whose remedy is the re-index Practice 11
+already requires.
+
+⚠⚠ **A regression this change introduced, caught in review and measured on
+both refs: an exported function-valued Svelte binding stopped being a symbol.**
+The first draft copied the JS binder's "decline a function-valued declarator"
+line into the Svelte export branch. There that line is a HAND-OFF --
+`_extract_variable_function` emits it as a `function` -- and this walker has no
+such branch, so it deleted the symbol outright:
+`export const load = async () => {}`, a SvelteKit module's whole API, was
+`('load', 'constant')` on `origin/main` and nothing at HEAD. **Borrowing a guard
+also borrows the owner it assumes**, and an absence introduced by an
+absence-closing change is the kind nobody goes looking for. Restored, with the
+three exported spellings pinned. A LOCAL `const fn = () => {}` still yields no
+symbol, as it did on `origin/main`, and is now pinned as a disclosed gap rather
+than left to look like the same defect. Planting the copied line back fails the
+guard (`3 failed, 25 passed`, `.claude/state/evidence/plants.md`).
 
 ⚠⚠ **The cost, found by the full tier and not by the touched files: a
 destructured import binding now CROWDS the thing it imports.**

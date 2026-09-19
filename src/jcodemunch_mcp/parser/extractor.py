@@ -5039,7 +5039,8 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     continue
                 val_node = decl.child_by_field_name("value")
                 if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
-                    # the declaration branch above owns `const fn = () => {}`
+                    # ⚠ Same as Svelte: no branch here emits it either, so this
+                    # is a disclosed pre-existing gap rather than a hand-off.
                     continue
                 sig = _node_text(node).split("\n")[0].rstrip("{").strip()
                 for name in _js_binding_pattern_names(name_node, script_bytes):
@@ -5412,9 +5413,17 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         name_node = decl.child_by_field_name("name")
                         if name_node is None:
                             continue
-                        value_node = decl.child_by_field_name("value")
-                        if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
-                            continue
+                        # ⚠⚠ A function-valued declarator is NOT skipped here.
+                        # The JS binder declines one because
+                        # `_extract_variable_function` owns it and emits it as a
+                        # `function`; this walker has NO such branch --
+                        # `arrow_function` is in `skip_recurse` -- so skipping it
+                        # DROPS the symbol entirely. That is what the first draft
+                        # did, and it silently unindexed
+                        # `export const load = async () => {}`, a SvelteKit
+                        # module's whole API, in the PR that exists to close
+                        # absences. Borrowing a guard also borrows the owner it
+                        # assumes.
                         is_prop = name_node.type == "identifier" and keyword_kind == "variable"
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
                             _emit_const(
@@ -5446,7 +5455,16 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         continue
                     val_node = decl.child_by_field_name("value")
                     if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
-                        # `_walk`'s declaration branch owns `const fn = () => {}`
+                        # ⚠⚠ DROPPED, and nothing else emits it: this walker has
+                        # no branch for a function-valued declarator and
+                        # `arrow_function` is in `skip_recurse`. A local
+                        # `const fn = () => {}` has yielded no symbol for this
+                        # extractor's whole life and still does -- a disclosed
+                        # PRE-EXISTING gap, pinned by
+                        # `test_a_local_function_binding_is_a_disclosed_gap`,
+                        # not something this change removed. The EXPORT branch
+                        # must not copy this line: there it deleted symbols
+                        # `origin/main` published.
                         continue
                     rune = _rune_name(val_node)
                     if rune == "$props" and name_node.type == "object_pattern":
