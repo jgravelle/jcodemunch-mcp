@@ -225,6 +225,35 @@ def test_a_destructured_import_does_not_displace_what_it_imports():
 
 
 # ---------------------------------------------------------------------------
+# The depth cap, which is a silent drop and therefore needs a boundary
+# ---------------------------------------------------------------------------
+
+def _nested(depth: int) -> str:
+    """`const { a: { a: ... { z } ... } } = o;` nested `depth` levels."""
+    return "const " + "{ a: " * depth + "{ z }" + " }" * depth + " = o;\n"
+
+
+@pytest.mark.parametrize("depth,found", [(1, True), (8, True), (15, True), (16, False)])
+def test_the_pattern_depth_cap_is_where_it_says_it_is(depth, found):
+    """⚠⚠ Past `_MAX_BINDING_PATTERN_DEPTH` the walk returns NOTHING, silently
+    -- which is the absence this change exists to close, one depth over.
+
+    ⚠⚠ **The boundary is MEASURED, and it is not the constant.**
+    `_MAX_BINDING_PATTERN_DEPTH` is 32 and the last depth that resolves is
+    **15**, because one level of `{ a: ... }` costs TWO walk steps
+    (`object_pattern` then `pair_pattern`). A test asserting 32 would have been
+    written from the constant rather than from the behaviour, and would have
+    passed while describing the wrong number.
+
+    The cap is a stack guard, not a rule about JavaScript, and 15 levels of
+    nesting does not occur in real code. It is pinned anyway because an unpinned
+    silent drop is indistinguishable from the defect, and because a later change
+    to the constant would otherwise move the boundary unobserved.
+    """
+    assert (_names(_nested(depth), "javascript", "a.js") == {"z"}) is found
+
+
+# ---------------------------------------------------------------------------
 # Blast radius: what was already right stays right
 # ---------------------------------------------------------------------------
 

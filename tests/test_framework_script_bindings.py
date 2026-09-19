@@ -102,6 +102,20 @@ def test_a_vue_script_indexes_every_binding():
 # The kind, which is the half that was wrong rather than absent
 # ---------------------------------------------------------------------------
 
+def test_an_exported_destructuring_is_not_a_prop_declaration():
+    """⚠ Svelte declares a prop with a PLAIN IDENTIFIER. `export let { p1, p2 }
+    = obj` is an exported destructuring, not two prop declarations, and the
+    first fix published both as props because it decided per STATEMENT instead
+    of per declarator.
+    """
+    source = "<script>\n  export let { p1, p2 } = obj;\n  export let real;\n</script>\n"
+    pairs = _pairs(source, "C.svelte", "svelte")
+    assert ("p1", "variable") in pairs
+    assert ("p2", "variable") in pairs
+    assert ("real", "property") in pairs
+    assert ("p1", "property") not in pairs
+
+
 def test_a_svelte_4_prop_is_not_a_constant():
     """The parent assigns it. `constant` is the one kind it cannot be."""
     assert _kinds(SVELTE_4, "C.svelte", "svelte", "name") == ["property"]

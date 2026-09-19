@@ -5400,9 +5400,27 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # (#752); an `export const` is a readonly export Svelte does
                     # not let the parent set, so it stays a `constant`. The same
                     # keyword authority decides both (#741).
-                    kind = "constant" if js_binding_is_constant(inner) else "property"
-                    for pname in _js_declarator_names(inner, script_bytes):
-                        _emit_const(pname, inner, node, _first_line(node), kind=kind)
+                    # ⚠ A prop is declared by a PLAIN IDENTIFIER. Svelte does
+                    # not treat `export let { p1, p2 } = obj` as declaring two
+                    # props -- it is an exported destructuring, so it keeps the
+                    # kind its keyword implies. Deciding per DECLARATOR rather
+                    # than per statement is what tells them apart.
+                    keyword_kind = "constant" if js_binding_is_constant(inner) else "variable"
+                    for decl in inner.children:
+                        if decl.type != "variable_declarator":
+                            continue
+                        name_node = decl.child_by_field_name("name")
+                        if name_node is None:
+                            continue
+                        value_node = decl.child_by_field_name("value")
+                        if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
+                            continue
+                        is_prop = name_node.type == "identifier" and keyword_kind == "variable"
+                        for pname in _js_binding_pattern_names(name_node, script_bytes):
+                            _emit_const(
+                                pname, decl, node, _first_line(node),
+                                kind="property" if is_prop else keyword_kind,
+                            )
                     return
                 # `export function` / `export class` → recurse so the declaration
                 # branch above handles the wrapped node.

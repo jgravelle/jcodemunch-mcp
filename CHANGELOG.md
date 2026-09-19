@@ -26,8 +26,8 @@ object and is bound to no declaration. **An absence shows up as a missing search
 result; a fabricated symbol does not**, which is the direction #741's member gate
 already took. The bound side is read BY FIELD, because the other side of a
 `pair_pattern` is a `property_identifier` and the other side of the two
-assignment forms is arbitrary code. Planting the naive walk fails 15 rows of
-`test_a_nested_pattern_binds_its_leaves_and_not_its_path`.
+assignment forms is arbitrary code. Planting the naive walk fails the guard
+(`18 failed, 59 passed`, `.claude/state/evidence/plants.md`).
 
 **#752 -- two extractors kept their own copy of a decision that already had an
 authority.** `_parse_vue_symbols` and `_parse_svelte_symbols` matched specific
@@ -51,8 +51,9 @@ out.** The old rune/macro check meant a block-scoped `const` had no matching
 right-hand side and was silently never published, so asking for every binding
 makes the locality rule something that must be asked EXPLICITLY:
 `js_binding_is_member`, #741's gate, reused rather than re-derived. That row was
-missing from the first version of the new test file and a planted removal of
-both gates passed all seventeen of its tests.
+missing from the first version of the new test file, and a planted removal of
+both gates was not seen at all until it was added; it now fails
+(`4 failed, 20 passed`, `.claude/state/evidence/plants.md`).
 
 **What is impossible now:** a JS/TS binding declaration whose names the grammar
 spells as a pattern cannot index as nothing, in any of the three languages or in
@@ -61,6 +62,25 @@ under a kind their keyword contradicts. Astro needed no change at all -- it was
 already asking the shared binder, which is the argument for fixing this one
 layer down, and `test_astro_frontmatter_inherited_the_fix_with_no_astro_change`
 is what fails if it is ever given a fourth copy.
+
+⚠⚠ **A Svelte prop leaves the `constant` bucket, and that is #760's
+documented consumer class.** Measured: `export let title` was
+`('title', 'constant')` and is `('title', 'property')`. `summarizer/file_summarize.py`
+selects `s.kind == "constant"` and `summarizer/batch_summarize.py` branches on
+`kind == "constant"`, so a Svelte component's props leave the constants count
+and enter no other one -- #760's own words, "a consumer keyed on one string sees
+one of them", now with one more kind to miss. **The kind is right and the
+consumer is wrong**, which is why this entry names the loss instead of reverting
+the kind; #760 is the fix and is next.
+
+⚠⚠ **An existing index keeps the old answer until it is re-parsed.** This
+changes what the parser emits for files whose CONTENT never changes -- a
+destructured binding becomes a symbol, and a Svelte prop's kind change also
+changes its `make_symbol_id`. That is the 08-05 #414 lesson ("fixing a producer
+does not fix its history"), whose mechanism is `PARSER_GENERATION`, and this
+release does not bump it. Re-index or `jcodemunch-mcp refresh` to pick the fix
+up; the bump is a release-step decision because it invalidates every user's
+index, and it is owed by whichever release carries this.
 
 ⚠⚠ **The cost, found by the full tier and not by the touched files: a
 destructured import binding now CROWDS the thing it imports.**
