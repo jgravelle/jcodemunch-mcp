@@ -28,6 +28,7 @@ root is taken from the argument, never from the process CWD.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -308,3 +309,56 @@ def test_nothing_removed_is_nothing_retired(dod, tmp_path):
     repo = _repo(tmp_path, {"tests/test_a.py": "def test_new():\n    assert True\n"})
 
     assert dod.retired_test_functions(_added("tests/test_a.py", "test_new"), repo) == []
+
+
+# ---------------------------------------------------------------------------
+# Row 11 grades COVERAGE, not a touched file
+# ---------------------------------------------------------------------------
+
+def _ledger(tmp_path: Path, paths: list[str]) -> Path:
+    (tmp_path / "harness").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "harness" / "retired.json").write_text(
+        json.dumps({"schema": "jcm-harness-retired/v1", "retired": [
+            {"path": p, "lesson": "x", "replacement": "f.py::t", "commit": "abc", "date": "2026-01-01"}
+            for p in paths
+        ]}),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_a_retirement_with_no_entry_of_its_own_is_uncovered(dod, tmp_path):
+    """The defect this closes: row 11 asked only whether harness/retired.json
+    appeared in the diff, so filing ONE entry for THREE retirements graded met.
+    """
+    repo = _ledger(tmp_path, ["tests/a.py::test_one"])
+    assert dod.ledger_uncovered(
+        ["tests/a.py::test_one", "tests/a.py::test_two", "tests/b.py::test_three"], repo
+    ) == ["tests/a.py::test_two", "tests/b.py::test_three"]
+
+
+def test_every_retirement_covered_is_empty(dod, tmp_path):
+    repo = _ledger(tmp_path, ["tests/a.py::test_one", "tests/a.py::test_two"])
+    assert dod.ledger_uncovered(["tests/a.py::test_one", "tests/a.py::test_two"], repo) == []
+
+
+def test_a_deleted_file_is_covered_by_a_file_entry_or_a_test_inside_it(dod, tmp_path):
+    """Both spellings are legal in the ledger's own note."""
+    assert dod.ledger_uncovered(["tests/a.py"], _ledger(tmp_path, ["tests/a.py"])) == []
+    assert dod.ledger_uncovered(["tests/a.py"], _ledger(tmp_path, ["tests/a.py::test_one"])) == []
+
+
+def test_an_entry_for_one_test_does_not_cover_a_DIFFERENT_file(dod, tmp_path):
+    """`startswith` without the `::` separator would let tests/a.py cover
+    tests/a_extra.py -- the prefix trap this detector already paid for once.
+    """
+    repo = _ledger(tmp_path, ["tests/a.py::test_one"])
+    assert dod.ledger_uncovered(["tests/a_extra.py"], repo) == ["tests/a_extra.py"]
+
+
+def test_an_unreadable_ledger_covers_nothing(dod, tmp_path):
+    """UNKNOWN blocks: an unparseable ledger records nothing."""
+    (tmp_path / "harness").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "harness" / "retired.json").write_text("{not json", encoding="utf-8")
+    assert dod.ledger_uncovered(["tests/a.py::test_one"], tmp_path) == ["tests/a.py::test_one"]
+    assert dod.ledger_uncovered(["tests/a.py::test_one"], tmp_path / "absent") == ["tests/a.py::test_one"]

@@ -231,6 +231,36 @@ def harness_pass(summary: str | None) -> bool | None:
 _RENAME_BODY_SIMILARITY = 0.75
 
 
+def ledger_uncovered(subjects: list[str], repo: pathlib.Path) -> list[str]:
+    """Which retirements have no `harness/retired.json` entry of their own.
+
+    ⚠⚠ **A check that the ledger FILE was touched is not a check that what it
+    must record is recorded.** Row 11 asked only whether `harness/retired.json`
+    appeared in the diff, so a PR retiring three test functions and filing ONE
+    entry graded `met` -- which happened on the very PR that taught the row to
+    detect retired functions at all, and was found by reading the row's own
+    evidence string rather than by any test.
+
+    ⚠ A DELETED FILE is covered by an entry for the file OR for any test inside
+    it (`path` is `file` or `file::name`), because both spellings are legal in
+    the ledger's own note and a file entry is the stronger claim.
+
+    ⚠ Unreadable or malformed ledger returns every subject as uncovered: an
+    unparseable ledger records nothing, and UNKNOWN blocks.
+    """
+    try:
+        entries = json.loads(
+            (repo / "harness" / "retired.json").read_text(encoding="utf-8", errors="replace")
+        )["retired"]
+        recorded = {str(e.get("path", "")) for e in entries}
+    except Exception:
+        return list(subjects)
+    return [
+        s for s in subjects
+        if s not in recorded and not any(p.startswith(s + "::") for p in recorded)
+    ]
+
+
 def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
     r"""Test FUNCTIONS removed and not redefined, keyed `file::name`.
 
@@ -629,11 +659,14 @@ def main() -> int:
             "no:cacheprovider",
         )
         subject = ", ".join(deleted_test_files + retired_functions) or "(none)"
+        uncovered = ledger_uncovered(deleted_test_files + retired_functions, REPO)
         row(
             11,
-            "met" if rc == 0 and "harness/retired.json" in changed else "unmet",
+            "met" if rc == 0 and "harness/retired.json" in changed and not uncovered
+            else "unmet",
             f"retired: {subject}; ledger test rc={rc}; harness/retired.json "
-            f"changed={'harness/retired.json' in changed}",
+            f"changed={'harness/retired.json' in changed}; "
+            f"without a ledger entry: {', '.join(uncovered) or '(none)'}",
         )
 
     # 12 threshold moved
