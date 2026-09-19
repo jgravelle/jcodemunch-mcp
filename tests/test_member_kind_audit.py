@@ -28,10 +28,12 @@ mutable only through a `mut` binding.
 
 ⚠ What this file CANNOT see, stated: `immutable` accepts every state kind, so a
 language that collapses `val` and `var` into one kind grades clean (Kotlin does,
-deliberately, #732).
+deliberately, #732). And a symbol's `line` is not pinned: a wrong span moves
+nothing here.
 """
 
 import re
+from collections import Counter
 
 import pytest
 
@@ -355,49 +357,49 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
-    ("apex", "immutable"): "unfiled",
-    ("apex", "method"): "unfiled",
-    ("apex", "mutable"): "unfiled",
-    ("apex", "property"): "unfiled",
+    ("apex", "immutable"): "#774",
+    ("apex", "method"): "#774",
+    ("apex", "mutable"): "#774",
+    ("apex", "property"): "#774",
     ("arduino", "immutable"): "#755",
     ("arduino", "mutable"): "#755",
     ("cpp", "immutable"): "#755",
     ("cpp", "mutable"): "#755",
     ("csharp", "mutable"): "#770",
     ("csharp", "property"): "#770",
-    ("dart", "immutable"): "unfiled",
-    ("dart", "mutable"): "unfiled",
-    ("dlang", "immutable"): "unfiled",
-    ("dlang", "method"): "unfiled",
-    ("dlang", "mutable"): "unfiled",
-    ("gdscript", "immutable"): "unfiled",
-    ("gdscript", "mutable"): "unfiled",
-    ("go", "method"): "unfiled",
-    ("go", "mutable"): "unfiled",
-    ("groovy", "immutable"): "unfiled",
-    ("groovy", "method"): "unfiled",
-    ("groovy", "mutable"): "unfiled",
-    ("java", "immutable"): "unfiled",
-    ("javascript", "mutable"): "unfiled",
-    ("objc", "method"): "unfiled",
-    ("objc", "mutable"): "unfiled",
-    ("objc", "property"): "unfiled",
-    ("php", "immutable"): "unfiled",
-    ("python", "immutable"): "unfiled",
-    ("python", "mutable"): "unfiled",
-    ("ruby", "immutable"): "unfiled",
-    ("ruby", "property"): "unfiled",
-    ("rust", "mutable"): "unfiled",
-    ("scala", "mutable"): "unfiled",
-    ("solidity", "immutable"): "unfiled",
-    ("solidity", "method"): "unfiled",
-    ("solidity", "mutable"): "unfiled",
+    ("dart", "immutable"): "#775",
+    ("dart", "mutable"): "#775",
+    ("dlang", "immutable"): "#776",
+    ("dlang", "method"): "#776",
+    ("dlang", "mutable"): "#776",
+    ("gdscript", "immutable"): "#777",
+    ("gdscript", "mutable"): "#777",
+    ("go", "method"): "#778",
+    ("go", "mutable"): "#778",
+    ("groovy", "immutable"): "#779",
+    ("groovy", "method"): "#779",
+    ("groovy", "mutable"): "#779",
+    ("java", "immutable"): "#780",
+    ("javascript", "mutable"): "#781",
+    ("objc", "method"): "#782",
+    ("objc", "mutable"): "#782",
+    ("objc", "property"): "#782",
+    ("php", "immutable"): "#783",
+    ("python", "immutable"): "#784",
+    ("python", "mutable"): "#784",
+    ("ruby", "immutable"): "#785",
+    ("ruby", "property"): "#785",
+    ("rust", "mutable"): "#786",
+    ("scala", "mutable"): "#787",
+    ("solidity", "immutable"): "#788",
+    ("solidity", "method"): "#788",
+    ("solidity", "mutable"): "#788",
     ("swift", "mutable"): "#769",
     ("swift", "property"): "#769",
-    ("tsx", "immutable"): "unfiled",
-    ("tsx", "mutable"): "unfiled",
-    ("typescript", "immutable"): "unfiled",
-    ("typescript", "mutable"): "unfiled",
+    ("tsx", "immutable"): "#781",
+    ("tsx", "mutable"): "#781",
+    ("typescript", "immutable"): "#781",
+    ("typescript", "mutable"): "#781",
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:
@@ -449,8 +451,13 @@ def test_every_sample_yields_its_container_and_nothing_it_did_not_declare():
         symbols = parse_file(source, filename, language)
         container = _CONTAINER_KIND.get(language, "class")
         assert (class_name, container) in {(s.name, s.kind) for s in symbols}, language
-        undeclared = {s.name for s in symbols} - {class_name} - set(members.values())
-        assert not undeclared, (language, sorted(undeclared))
+        # A Counter, never a set: review cloned the class symbol as a second
+        # `Audit` of kind `constant` and a set comparison stayed green on all 22
+        # samples (CLAUDE.md 08-27, "a set cannot count"). ABSENT members are
+        # subtracted because the declaration is what is pinned here, not the gap.
+        answered = Counter(s.name for s in symbols)
+        declared = Counter([class_name, *members.values()])
+        assert not answered - declared, (language, dict(answered - declared))
 
 
 def test_a_gap_names_its_tracker():
