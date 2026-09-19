@@ -6,13 +6,15 @@ ran `SUM(hit_count)`; the schema's column is `count`. Both swallowed the
 "no runtime evidence" -- and `check_delete_safe` could certify a symbol with
 observed traffic as `safe_to_delete`.
 
-The existing tests never ingested a runtime row, so the query had never once
-executed against a populated table. These insert one through the REAL schema
+No test of THESE tools inserted a `runtime_calls` row (the phase-4 and phase-7
+runtime tests do, for other readers), so these two queries had never executed
+against a populated table. These insert one through the REAL schema
 (the db `index_folder` creates), never a hand-built table: a fixture authored
 from the consumer's idea of the schema would carry `hit_count` and pass.
 """
 
 import ast
+import re
 import sqlite3
 from pathlib import Path
 
@@ -98,69 +100,120 @@ def test_check_edit_safe_sees_the_same_hits(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# The property: every SQL literal in src/ that reads a runtime_* table        #
-# compiles against the schema the product actually creates.                   #
+# The property: every SQL statement in src/ that touches a runtime-evidence    #
+# table compiles against the schema the product actually creates.             #
+#                                                                             #
+# Scoped by TABLE NAME (any verb, JOINs included), never by the spelling      #
+# `SELECT ... FROM runtime_`: the first draft was, and a `hit_count` planted   #
+# in find_hot_paths' `JOIN runtime_calls rc` sailed through it.               #
 # --------------------------------------------------------------------------- #
 
-def _sql_literals(tree: ast.AST):
-    """Yield (lineno, sql) for str constants and f-strings; `{...}` -> `?`."""
+_EVIDENCE_TABLES = [
+    t for t in re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", _SCHEMA_SQL)
+    if t.startswith(("runtime_", "scip_")) or t == "diagnostics"
+]
+_TABLE_RE = re.compile(r"\b(" + "|".join(_EVIDENCE_TABLES) + r")\b")
+_VERB_RE = re.compile(r"^\s*(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
+_COLUMN_ERRORS = ("no such column", "no such table", "has no column")
+
+# An f-string hole may stand for a bind list, a clause or nothing, and a literal
+# may be the PREFIX of a concatenated statement (`... IN (` + marks + `)`).
+# Every filling and completion is tried; one clean compile checks every column.
+_FILLS = ("?", "", "1", "x")
+_TAILS = ("", " ?)", " 1", " ?")
+
+
+def _statements(tree: ast.AST):
+    """Yield (lineno, parts); an f-string hole is None."""
     for node in ast.walk(tree):
         if isinstance(node, ast.JoinedStr):
-            text = "".join(
-                part.value if isinstance(part, ast.Constant) else "?"
-                for part in node.values
-            )
-            yield node.lineno, text
+            yield node.lineno, [
+                p.value if isinstance(p, ast.Constant) else None for p in node.values
+            ]
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            yield node.lineno, node.value
+            yield node.lineno, [node.value]
 
 
-def _runtime_selects():
-    found = []
+def _verdict(parts):
+    """('ok'|'bad'|'uncompilable', detail). A column error in ANY variant is bad."""
+    first_error = None
+    for fill in _FILLS:
+        for tail in _TAILS:
+            sql = " ".join("".join(fill if p is None else p for p in parts).split()) + tail
+            conn = sqlite3.connect(":memory:")
+            try:
+                conn.executescript(_SCHEMA_SQL)
+                conn.execute("EXPLAIN " + sql, [None] * sql.count("?"))
+                return "ok", None
+            except sqlite3.Error as exc:
+                if any(marker in str(exc) for marker in _COLUMN_ERRORS):
+                    return "bad", str(exc)
+                first_error = first_error or str(exc)
+            finally:
+                conn.close()
+    return "uncompilable", first_error
+
+
+def _scan(root: Path):
+    results = {}
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for lineno, parts in _statements(tree):
+            flat = "".join("?" if p is None else p for p in parts)
+            if _VERB_RE.match(flat) and _TABLE_RE.search(flat):
+                where = f"{path.relative_to(root).as_posix()}:{lineno}"
+                results[where] = _verdict(parts)
+    return results
+
+
+def test_every_statement_on_an_evidence_table_names_real_columns():
+    results = _scan(SRC)
+    assert len(results) >= 60, len(results)  # a scan that finds little is blind
+    # A statement the guard cannot compile is a FAILURE, never a silent pass:
+    # that branch is where a wrong column would hide.
+    not_ok = {where: v for where, v in results.items() if v[0] != "ok"}
+    assert not not_ok, not_ok
+
+
+def test_the_scan_reaches_joins_prefixes_and_writes():
+    """Blindness check on the shapes the first draft could not see."""
+    results = _scan(SRC)
+    for needle in (
+        "tools/find_hot_paths.py",      # JOIN runtime_calls rc
+        "tools/get_pr_risk_profile.py",  # a concatenated `IN (` prefix
+        "runtime/ingest.py",            # INSERT / DELETE
+        "tools/_diagnostics_consume.py",
+    ):
+        assert any(where.startswith(needle) for where in results), needle
+
+
+@pytest.mark.parametrize("parts", [
+    # the reported query
+    ["SELECT COALESCE(SUM(hit_count), 0) FROM runtime_calls WHERE symbol_id = ?"],
+    # through a JOIN alias, with an f-string clause hole (find_hot_paths' shape)
+    ["SELECT s.id, SUM(rc.hit_count) FROM symbols s JOIN runtime_calls rc "
+     "ON rc.symbol_id = s.id ", None, " GROUP BY s.id"],
+    # the prefix of a concatenated statement
+    ["SELECT symbol_id, SUM(hit_count) AS n FROM runtime_calls WHERE symbol_id IN ("],
+    # a write, lowercase
+    ["insert into runtime_calls (symbol_id, source, hit_count) values (?, ?, ?)"],
+])
+def test_the_guard_sees_a_wrong_column_in_every_shape(parts):
+    verdict, detail = _verdict(parts)
+    assert verdict == "bad" and "hit_count" in detail, (verdict, detail)
+
+
+def test_an_uncompilable_statement_is_not_waved_through():
+    assert _verdict(["SELECT FROM WHERE runtime_calls"])[0] == "uncompilable"
+
+
+def test_one_reader_of_a_symbols_hit_count():
+    """The two helpers were copies; a copy in ANY module is how the next drift ships."""
+    owners = []
     for path in sorted(SRC.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for lineno, sql in _sql_literals(tree):
-            flat = " ".join(sql.split())
-            if flat.upper().startswith("SELECT") and "FROM runtime_" in flat:
-                found.append((f"{path.relative_to(SRC).as_posix()}:{lineno}", flat))
-    return found
-
-
-def _compile_error(sql: str):
-    conn = sqlite3.connect(":memory:")
-    try:
-        conn.executescript(_SCHEMA_SQL)
-        try:
-            conn.execute("EXPLAIN " + sql, [None] * sql.count("?"))
-        except sqlite3.OperationalError as exc:
-            if "no such column" in str(exc) or "no such table" in str(exc):
-                return str(exc)
-        except sqlite3.Error:
-            pass  # binding-shape noise from a flattened f-string; not this guard's question
-        return None
-    finally:
-        conn.close()
-
-
-def test_every_runtime_select_in_src_names_real_columns():
-    selects = _runtime_selects()
-    assert len(selects) >= 5, selects  # the scan finds the known consumers, or it is blind
-    broken = {where: err for where, sql in selects if (err := _compile_error(sql))}
-    assert not broken, broken
-
-
-def test_the_column_guard_sees_the_reported_query():
-    """Non-vacuity: the reported spelling must fail the compile check."""
-    err = _compile_error(
-        "SELECT COALESCE(SUM(hit_count), 0) FROM runtime_calls WHERE symbol_id = ?"
-    )
-    assert err and "hit_count" in err
-
-
-@pytest.mark.parametrize("module", ["check_delete_safe", "get_group_contracts"])
-def test_one_reader_not_two(module):
-    """The two helpers were copies; a second copy is how the next drift ships."""
-    text = (SRC / "tools" / f"{module}.py").read_text(encoding="utf-8")
-    tree = ast.parse(text)
-    own = [sql for _, sql in _sql_literals(tree) if "runtime_calls WHERE symbol_id" in sql]
-    assert not own, own
+        for _, parts in _statements(tree):
+            flat = " ".join("".join("?" if p is None else p for p in parts).split())
+            if re.search(r"SUM\(\w*count\).*FROM runtime_calls WHERE symbol_id = \?", flat, re.I):
+                owners.append(path.relative_to(SRC).as_posix())
+    assert owners == ["runtime/confidence.py"], owners

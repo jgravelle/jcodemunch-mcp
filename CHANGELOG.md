@@ -16,16 +16,24 @@ deletable, where the verdict should be `runtime_observed`. The reach was four
 surfaces, not the two reported: `check_edit_safe` and the deletion-safety
 investigator import the same helper.
 
-It survived because no test had ever inserted a `runtime_calls` row; every
-runtime test asserted the no-data path, so the query never executed against a
-populated table. The new tests insert through the database `index_folder`
+It survived because no test of these tools inserted a `runtime_calls` row. The
+phase-4 and phase-7 runtime tests do, for other readers and with the right
+column; the tests of `check_delete_safe`, `check_edit_safe` and
+`get_group_contracts` asserted only the no-data path, so these two queries never
+executed against a populated table. The new tests insert through the database `index_folder`
 creates and contain no `CREATE TABLE`, because a fixture written from the
 consumer's idea of the schema would carry `hit_count` and pass.
 
 The two helpers were copies, so the query lives once now, in
 `runtime.confidence.symbol_hit_count`, and a test refuses a returning copy. A
-second test compiles every `SELECT ... FROM runtime_*` literal in `src/`,
-f-strings included, against the shipped schema; it found only these two sites.
+second test compiles every statement in `src/` that names a `runtime_*`,
+`scip_*` or `diagnostics` table against the shipped schema: any verb, JOINs,
+f-strings, and the prefix of a concatenated statement. It found only these two
+sites. ⚠ Its first draft was scoped to the spelling `SELECT ... FROM runtime_`,
+and review planted `hit_count` behind `find_hot_paths`' `JOIN runtime_calls rc`
+and watched it pass; it also waved through any statement it could not compile,
+which is the branch a wrong column would hide in. A statement that cannot be
+compiled fails now.
 A query the schema rejects is logged at WARNING, since that is a defect in this
 package and DEBUG is where it hid for four months. Thanks to @Torolosko for a
 report that named both call sites and the correct column.
