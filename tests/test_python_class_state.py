@@ -95,6 +95,22 @@ def test_what_is_not_a_single_name_binding_adds_nothing(body):
     assert [(s.kind, s.name) for s in symbols] == [("class", "C")]
 
 
+def test_a_chained_assignment_binds_every_name_in_the_chain():
+    """`a = b = 1` binds two names. Review found the first draft indexing `a`
+    and dropping `b` under a docstring that said "every binding"."""
+    symbols = parse_file("class C:\n    a = b = LIMIT = 1\n", "m.py", "python")
+    assert [(s.kind, s.name) for s in symbols] == [
+        ("class", "C"), ("field", "a"), ("field", "b"), ("constant", "LIMIT"),
+    ]
+
+
+def test_a_name_that_is_a_field_and_then_a_method_is_both():
+    """Stated, because "a method is never also state" would be false: the class
+    body binds `y` twice, and both bindings are real declarations."""
+    symbols = parse_file("class C:\n    y = 1\n    def y(self): pass\n", "m.py", "python")
+    assert [(s.kind, s.name) for s in symbols] == [("class", "C"), ("field", "y"), ("method", "y")]
+
+
 def test_a_binding_inside_a_method_is_a_local_and_never_class_state():
     source = (
         "class C:\n"

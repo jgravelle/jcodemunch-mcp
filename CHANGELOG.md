@@ -329,30 +329,33 @@ The owner reversed both on 2026-09-19, for consistency with Java (#735), PHP
 two `#784` cells are closed and deleted here.
 
 Every binding of ONE plain name in a class body is a symbol owned by its class:
-`x: int`, `x: int = 0`, `x = 0`. UPPER_CASE is a `constant`, by the module-level
+`x: int`, `x: int = 0`, `x = 0`, and each name of `a = b = 0`. UPPER_CASE is a `constant`, by the module-level
 convention, and anything else a `field`. A `ClassVar` is class state and is
 indexed. Dunders (`__slots__`) are class machinery and stay out, as do tuple,
 subscript and attribute targets, augmented assignments, and anything under an
-`if` or inside a method.
+`if` or inside a method. A class whose body does not parse yields no state at
+all; that was #355's guard and it reaches every class now.
 
 ⚠ The gate that went was also a guard written against a spelling. A model
 that inherits `BaseModel` INDIRECTLY (`class Child(Base)`) matched no name and
-got no fields: 221 of the 314 class-body names missing from the `mcp` package.
+got no fields.
 
 ⚠⚠ **This moves symbol counts, deliberately, and moves no grade.** Python
 symbols before and after, from `symbol_growth.txt` of this change: this repo's
 `src/` 4800 to 4831, starlette 713 to 761, httpx 570 to 653, mcp 1559 to 1873,
 pydantic 2604 to 3207. `get_dead_code_v2` and `get_untested_symbols` read
 `function` and `method` alone, so #428's worry about published dead-code grades
-does not hold; `total_symbols` and what competes in a search do change. ⚠ One
+does not hold. Counts do change: `total_symbols`, what competes in a search,
+and the rows `find_dead_code(granularity="symbol")` lists for a dead file. ⚠ One
 id move: a field of a NESTED dataclass was `Meta.x` and is `Outer.Meta.x`, its
 owner's qualified name. Existing indexes re-parse under the `PARSER_GENERATION`
 bump already in this block.
 
-Two older tests pinned the absence and are inverted: `test_v1_108_80.py`'s
-`test_plain_class_fields_not_extracted` is retired in `harness/retired.json`
-(its surviving half, that a constant is not a field, is what the replacement
-asserts), and `test_v1_108_281.py` now proves the constant CHANNEL still
+Three older tests pinned the old rule. `test_v1_108_80.py`'s
+`test_plain_class_fields_not_extracted` and `test_classvar_is_not_a_field` are
+retired in `harness/retired.json`. The second kept PASSING after the change,
+because its one ClassVar was spelled `REGISTRY` and is a `constant` now: it was
+grading the case of a name. And `test_v1_108_281.py` now proves the constant CHANNEL still
 declines a Python class body by switching the class-state channel off.
 
 ### Fixed - a destructured JS binding declares names, and a Vue or Svelte script block has bindings (#751, #752)

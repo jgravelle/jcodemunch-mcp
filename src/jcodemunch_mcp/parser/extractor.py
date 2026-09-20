@@ -1813,11 +1813,13 @@ def _extract_python_class_fields(
     other class's state absent on purpose. jjg reversed that on 2026-09-19, for
     consistency with Java (#735), PHP (#743), Kotlin, Swift and C++ (#755). The
     gate was also a guard written against a spelling: `class Child(Base)` with
-    `Base(BaseModel)` got nothing, which was 221 of the 314 class-body names
-    missing from the `mcp` package.
+    `Base(BaseModel)` matched no name and got nothing.
 
     ⚠ A `ClassVar` is class state and is indexed. #355 skipped it because it
     is not a DATACLASS field, which answers a narrower question than this one.
+
+    ⚠ A class whose body does not parse (`has_error`) yields no state at all,
+    which was #355's guard and now reaches every class.
 
     ⚠ Not a binding of one plain name, and so not indexed: a dunder
     (`__slots__`, class machinery), a tuple, subscript or attribute target, an
@@ -1839,34 +1841,47 @@ def _extract_python_class_fields(
             stmt = stmt.named_children[0]
         if stmt.type != "assignment":
             continue
-        left = stmt.child_by_field_name("left")
-        if left is None or left.type != "identifier":
-            continue  # tuple / subscript / attribute target
-        fname = source_bytes[left.start_byte:left.end_byte].decode("utf-8", errors="replace")
-        if fname.startswith("__") and fname.endswith("__"):
-            continue
-        kind = "constant" if _python_name_is_constant(fname) else "field"
-        qualified_name = f"{class_symbol.qualified_name}.{fname}"
-        signature = source_bytes[stmt.start_byte:stmt.end_byte].decode("utf-8", errors="replace").strip()
-        fields.append(Symbol(
-            id=make_symbol_id(filename, qualified_name, kind),
-            file=filename,
-            name=fname,
-            qualified_name=qualified_name,
-            kind=kind,
-            language=language,
-            signature=signature,
-            docstring="",
-            decorators=[],
-            keywords=[],
-            parent=class_symbol.id,
-            line=stmt.start_point[0] + 1,
-            end_line=stmt.end_point[0] + 1,
-            byte_offset=stmt.start_byte,
-            byte_length=stmt.end_byte - stmt.start_byte,
-            content_hash=compute_content_hash(source_bytes[stmt.start_byte:stmt.end_byte]),
-        ))
+        # `a = b = 1` nests: the right side of the outer assignment is the
+        # inner one, and every plain name in the chain is bound. A tuple,
+        # subscript or attribute target is not a name and is passed over.
+        link = stmt
+        while link is not None and link.type == "assignment":
+            left = link.child_by_field_name("left")
+            if left is not None and left.type == "identifier":
+                fname = source_bytes[left.start_byte:left.end_byte].decode("utf-8", errors="replace")
+                if not (fname.startswith("__") and fname.endswith("__")):
+                    fields.append(_python_class_state_symbol(
+                        fname, stmt, class_symbol, source_bytes, filename, language
+                    ))
+            link = link.child_by_field_name("right")
     return fields
+
+
+def _python_class_state_symbol(
+    fname: str, stmt, class_symbol, source_bytes: bytes, filename: str, language: str
+) -> Symbol:
+    """One class-state symbol spanning its whole statement."""
+    kind = "constant" if _python_name_is_constant(fname) else "field"
+    qualified_name = f"{class_symbol.qualified_name}.{fname}"
+    body = source_bytes[stmt.start_byte:stmt.end_byte]
+    return Symbol(
+        id=make_symbol_id(filename, qualified_name, kind),
+        file=filename,
+        name=fname,
+        qualified_name=qualified_name,
+        kind=kind,
+        language=language,
+        signature=body.decode("utf-8", errors="replace").strip(),
+        docstring="",
+        decorators=[],
+        keywords=[],
+        parent=class_symbol.id,
+        line=stmt.start_point[0] + 1,
+        end_line=stmt.end_point[0] + 1,
+        byte_offset=stmt.start_byte,
+        byte_length=len(body),
+        content_hash=compute_content_hash(body),
+    )
 
 
 _VARIABLE_FUNCTION_TYPES = frozenset({
@@ -2657,7 +2672,7 @@ def _extract_constant(
         if left and left.type == "identifier":
             name = source_bytes[left.start_byte:left.end_byte].decode("utf-8")
             # Check if UPPER_CASE (constant convention)
-            if name.isupper() or (len(name) > 1 and name[0].isupper() and "_" in name):
+            if _python_name_is_constant(name):
                 # Get the full assignment text as signature
                 sig = source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip()
                 const_bytes = source_bytes[node.start_byte:node.end_byte]

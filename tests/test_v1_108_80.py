@@ -37,7 +37,14 @@ class TestDataclassFields:
         assert cols.parent.endswith("::TableSpec#class")
         assert cols.line == 7
 
-    def test_classvar_is_not_a_field(self):
+    def test_a_classvar_is_class_state_under_its_names_own_kind(self):
+        """Was `test_classvar_is_not_a_field`, which #355 meant literally: a
+        `ClassVar` is not a DATACLASS field, so it was skipped. Since #784 it is
+        class state and is indexed. ⚠ Review found the old test still passing,
+        for the wrong reason: its one ClassVar was spelled `REGISTRY`, which is
+        now a `constant`, so it graded the name's CASE and said nothing about
+        `ClassVar`. Both spellings are here. Retired in `harness/retired.json`.
+        """
         src = (
             "from dataclasses import dataclass\n"
             "from typing import ClassVar\n\n"
@@ -45,8 +52,12 @@ class TestDataclassFields:
             "class C:\n"
             "    x: int\n"
             "    REGISTRY: ClassVar[dict] = {}\n"
+            "    counter: ClassVar[int] = 0\n"
         )
-        assert [f.name for f in _fields(src)] == ["x"]
+        kinds = {s.name: s.kind for s in parse_file(src, "m.py", "python")}
+        assert kinds == {
+            "C": "class", "x": "field", "REGISTRY": "constant", "counter": "field",
+        }
 
     def test_frozen_dataclass_call_decorator(self):
         src = (
