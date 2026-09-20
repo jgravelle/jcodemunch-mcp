@@ -78,15 +78,23 @@ class TestDataclassFields:
         )
         assert [f.name for f in _fields(src)] == ["n", "m"]
 
-    def test_plain_class_fields_not_extracted(self):
-        """A non-field-centric class's typed attributes are left alone — fields
-        must not be conflated with ordinary class attributes/constants."""
+    def test_a_plain_classs_state_is_indexed_and_a_constant_is_not_a_field(self):
+        """Was `test_plain_class_fields_not_extracted`, which asserted `== []`:
+        #355 left a plain class's attributes alone on purpose. jjg reversed that
+        on 2026-09-19 (#784), so the absence it pinned is the defect now. Retired
+        in `harness/retired.json`.
+
+        ⚠ The half of the old docstring that survives: a field must not be
+        conflated with a CONSTANT. `MAX` is state and is not a `field`.
+        """
         src = (
             "class Plain:\n"
             "    MAX: int = 5\n"
             "    name: str = 'z'\n"
         )
-        assert _fields(src) == []
+        assert [f.name for f in _fields(src)] == ["name"]
+        kinds = {s.name: s.kind for s in parse_file(src, "m.py", "python")}
+        assert kinds == {"Plain": "class", "MAX": "constant", "name": "field"}
 
     def test_methods_still_extracted_once(self):
         src = (

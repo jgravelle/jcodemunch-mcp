@@ -334,7 +334,7 @@ _NOT_SAMPLED: dict[str, str] = {
 
 #: Written by observation, then frozen. A cell is (kind or ABSENT, ownership).
 _TABLE: dict[str, dict[str, tuple[str, str]]] = {
-    "python": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "python": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("method", OWNED)},
     "javascript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "typescript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "tsx": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
@@ -389,8 +389,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("objc", "mutable"): "#782",
     ("objc", "property"): "#782",
     ("php", "immutable"): "#783",
-    ("python", "immutable"): "#784",
-    ("python", "mutable"): "#784",
     ("ruby", "immutable"): "#785",
     ("ruby", "property"): "#785",
     ("rust", "mutable"): "#786",
