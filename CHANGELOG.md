@@ -457,7 +457,8 @@ both. A function field that SHADOWS a real method (`use = () => {}` beside
 ordinal and pushed the real method's id to `~1`, measured on NestJS. And a field
 is published only under a CLASS symbol: a class expression
 (`const C = class { x = 1 }`) has none, so its field came out bare, or owned by
-whatever function enclosed it. Those are withheld.
+whatever function enclosed it. Those are withheld until the class expression
+itself is a symbol (#803).
 
 ⚠⚠ **This moves symbol counts and moves no grade.** On NestJS
 (`packages/`, 823 files), from `symbol_growth.txt` of this change: 3975 symbols
