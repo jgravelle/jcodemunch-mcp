@@ -28,9 +28,13 @@ into a gap later.
 ASTs of those five functions and fails on a re-transcription inside them, in
 either spelling — an f-string or a `+ "." +` — and a companion test asserts the
 positive half, that each of the five calls the helper and passes a `parent`. It
-is a hard-coded list of five: a sixth parser inherits nothing from it, and a
-scan over all 27 would fire on the 22 that build a dotted name from a module
-path, an arity or a namespace. The parametrized tests are what grade the five.
+is a hard-coded list of five: a sixth parser inherits nothing from it, and
+widening the scan would fire on the other 22 custom parsers that build a dotted
+name from a module path, an arity or a namespace. The parametrized tests are
+what grade the five. And a parser can pass `parent=` at one construction and
+not another: dropping it from the NESTED-class site alone left every ratchet
+green, so `test_a_nested_class_owns_its_members_and_is_owned_itself` pins both
+links of `Outer -> Inner -> member` in the three languages whose walks recurse.
 
 ⚠⚠ **Objective-C gets the qualified-name half only, and that is #771, not this.**
 `@interface Audit` and `@implementation Audit` are two symbols with one id, so

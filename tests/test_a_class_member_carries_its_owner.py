@@ -148,6 +148,60 @@ def test_every_member_carries_its_owners_id(
             )
 
 
+#: (language, filename, source). A class INSIDE a class, in the three of the
+#: five whose walk recurses into a nested container. Solidity contracts do not
+#: nest and Objective-C has no nested `@interface`, so neither has a row.
+_NESTED: list[tuple[str, str, str]] = [
+    ("apex", "Outer.cls",
+     "public class Outer {\n"
+     "    public class Inner {\n"
+     "        public Integer runIt() { return 1; }\n"
+     "    }\n"
+     "}\n"),
+    ("dlang", "outer.d",
+     "class Outer {\n"
+     "    class Inner {\n"
+     "        int runIt() { return 1; }\n"
+     "    }\n"
+     "}\n"),
+    ("groovy", "Outer.groovy",
+     "class Outer {\n"
+     "    class Inner {\n"
+     "        int runIt() { return 1 }\n"
+     "    }\n"
+     "}\n"),
+]
+
+
+@pytest.mark.parametrize(
+    "language,filename,source", _NESTED, ids=[r[0] for r in _NESTED],
+)
+def test_a_nested_class_owns_its_members_and_is_owned_itself(
+    language, filename, source
+):
+    """⚠⚠ The path the ratchets cannot see, and it is a SECOND owner site.
+
+    `test_every_governed_parser_asks_the_helper` asserts that a parser passes
+    `parent=` somewhere, not at every `Symbol(...)`. Dropping it from the
+    NESTED-class construction alone leaves both ratchets and every other test
+    in this file green, because nothing else declares a class inside a class.
+    Asserting it is cheaper than widening the ratchet into a per-site count,
+    which would have to know which constructions are members and which are not.
+
+    ⚠ The nested class is itself a member of the outer one, so this pins both
+    links of the chain: `Outer -> Inner -> runIt`.
+    """
+    found = _by_name(language, filename, source)
+    outer = found["Outer"][0]
+    inner = found["Inner"][0]
+    member = found["runIt"][0]
+    assert outer.parent is None, (language, outer.parent)
+    assert inner.parent == outer.id, (language, inner.parent, outer.id)
+    assert member.parent == inner.id, (language, member.parent, inner.id)
+    assert inner.qualified_name == "Outer.Inner"
+    assert member.qualified_name == "Outer.Inner.runIt"
+
+
 def test_objc_is_the_only_language_here_that_needs_the_ordinal_stripped():
     """Non-vacuity for the helper above: it must not be quietly load-bearing
     for the other four.
