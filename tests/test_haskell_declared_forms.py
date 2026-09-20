@@ -196,6 +196,45 @@ def test_an_instance_head_written_over_several_lines_is_kept_whole():
     assert heads == {"S": "class S a where", "S C": "instance S C where"}
 
 
+def test_a_backward_pointing_comment_is_not_the_next_declarations_docstring():
+    """`-- ^` documents the item BEFORE it. An absence assertion: read forwards,
+    it published a constructor's note as the docstring of an unrelated function."""
+    source = (
+        "module M where\n"
+        "data T = A -- ^ about A\n"
+        "  | B -- ^ about B\n"
+        "f :: Int\n"
+        "f = 1\n"
+        "-- ^ trailing on f\n"
+        "-- | About g.\n"
+        "g :: Int\n"
+        "g = 2\n"
+    )
+    docs = {s.name: s.docstring for s in parse_file(source, "M.hs", "haskell")}
+    assert docs["f"] == ""
+    assert docs["g"] == "About g."
+
+
+def test_a_type_signature_is_the_declaration_without_its_comments():
+    source = "module M where\ndata T = A -- ^ about A\n  | B -- ^ about B\n"
+    (t,) = parse_file(source, "M.hs", "haskell")
+    assert t.signature == "data T = A | B"
+
+
+def test_a_long_type_signature_is_capped_and_says_so():
+    constructors = " | ".join(f"Constructor{i}" for i in range(40))
+    (t,) = parse_file(f"module M where\ndata Big = {constructors}\n", "M.hs", "haskell")
+    assert t.signature.startswith("data Big = Constructor0 | ")
+    assert t.signature.endswith(" ...") and len(t.signature) <= 204
+
+
+def test_a_class_head_ends_at_its_body_not_at_the_word_where():
+    """The head was cut by a `where` regex over text that included comments."""
+    source = "module M where\nclass C a -- no where here\n  where\n  m :: a\n"
+    heads = [s.signature for s in parse_file(source, "M.hs", "haskell") if s.kind == "class"]
+    assert heads == ["class C a where"]
+
+
 def test_a_bird_track_is_prose_in_an_ordinary_hs_file():
     """The unlit pass is keyed on `.lhs`: in `.hs` a leading `>` is not code."""
     assert parse_file("> f = 1\n", "M.hs", "haskell") == []

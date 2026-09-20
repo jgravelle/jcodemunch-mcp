@@ -15,8 +15,7 @@ asserted they agree.
 
 The ratchet below found a second defect on its first run -- Haskell's
 `name_fields` was empty, so the whole language extracted nothing (#722, fixed
-since). That is
-what a property test is for, and it is why the reported list was not the list.
+since). That is what a property test is for, and it is why the reported list was not the list.
 """
 
 import ast

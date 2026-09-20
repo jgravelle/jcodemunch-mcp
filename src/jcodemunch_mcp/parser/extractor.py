@@ -6638,7 +6638,8 @@ _HASKELL_COMMENT_NODES = frozenset({"comment", "haddock"})
 # The environment is named `code` exactly: options or whitespace may follow the
 # brace, another letter may not (`\\begin{codeblock}` is someone's prose).
 _HASKELL_CODE_MARKER = re.compile(rb"\\(begin|end)\{code\}(?=$|[\[\s])")
-_HASKELL_HEAD_END = re.compile(r"\bwhere\b")
+_HASKELL_BODY_NODES = frozenset({"class_declarations", "instance_declarations"})
+_HASKELL_SIGNATURE_MAX = 200
 
 
 def _unlit_haskell(source_bytes: bytes) -> bytes:
@@ -6717,20 +6718,65 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _text(node) -> str:
         return code_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
+    def _code(node, end_byte: Optional[int] = None) -> str:
+        """A node's text with every comment inside it removed, from the tree
+        and not by pattern: `where` or `=` inside a comment is not syntax."""
+        end = node.end_byte if end_byte is None else end_byte
+        cuts: list[tuple[int, int]] = []
+
+        def _collect(n) -> None:
+            for child in n.children:
+                if child.start_byte >= end:
+                    break
+                if child.type in _HASKELL_COMMENT_NODES:
+                    cuts.append((child.start_byte, min(child.end_byte, end)))
+                else:
+                    _collect(child)
+
+        _collect(node)
+        parts: list[bytes] = []
+        at = node.start_byte
+        for start, stop in cuts:
+            parts.append(code_bytes[at:start])
+            at = stop
+        parts.append(code_bytes[at:end])
+        text = " ".join(b" ".join(parts).decode("utf-8", errors="replace").split())
+        if len(text) > _HASKELL_SIGNATURE_MAX:
+            text = text[:_HASKELL_SIGNATURE_MAX].rstrip() + " ..."
+        return text
+
     def _docstring(node) -> str:
-        lines: list[str] = []
+        comments: list[str] = []
         prev = node.prev_named_sibling
         if prev is None and node.parent is not None:
             # The comment above a module's FIRST declaration is a sibling of
             # `declarations`, not a child of it.
             prev = node.parent.prev_named_sibling
         while prev is not None and prev.type in _HASKELL_COMMENT_NODES:
-            raw = _text(prev).strip()
+            comments.insert(0, _text(prev).strip())
+            prev = prev.prev_named_sibling
+        # Read line by line, because the grammar merges adjacent `--` lines
+        # into ONE node. `-- ^` documents the item BEFORE it: reading it
+        # forwards would publish someone else's documentation as this one's,
+        # so a `^` line discards what was gathered and mutes its continuation
+        # lines until a `|` line (or a new comment) points forwards again.
+        lines: list[str] = []
+        for raw in comments:
+            forwards = True
             if raw.startswith("{-") and raw.endswith("-}"):
                 raw = raw[2:-2]
-            lines[:0] = [ln.strip().lstrip("-").lstrip(" |^") for ln in raw.splitlines()]
-            prev = prev.prev_named_sibling
-        return "\n".join(ln for ln in lines if ln).strip()
+            for line in raw.splitlines():
+                body = line.strip().lstrip("-").strip()
+                if body.startswith("^"):
+                    forwards = False
+                    lines.clear()
+                    continue
+                if body.startswith("|"):
+                    forwards = True
+                    body = body[1:].strip()
+                if forwards and body:
+                    lines.append(body)
+        return "\n".join(lines)
 
     def _emit(first, last, name: str, kind: str, parent: Optional[Symbol], signature: str) -> Symbol:
         qualified = f"{parent.qualified_name}.{name}" if parent else name
@@ -6769,7 +6815,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 # line stands in when the function has no signature.
                 first = group[0]
                 _emit(first, group[-1], group_name, kind, parent,
-                      _text(first) if first.type == "signature"
+                      _code(first) if first.type == "signature"
                       else _text(first).splitlines()[0])
             group.clear()
 
@@ -6799,15 +6845,17 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         name_node = _name(node)
         if kind is None or name_node is None:
             return
-        head = _text(node).splitlines()[0]
         if kind == "type":
-            _emit(node, node, _text(name_node), kind, None, head)
+            # The whole declaration, comments removed, capped: a type's
+            # constructors ARE its signature, and may run over many lines.
+            _emit(node, node, _text(name_node), kind, None, _code(node))
         elif kind == "class":
-            # A class or instance head may run over several lines; it ends at
-            # `where`, or is the whole node when there is no body.
-            text = _text(node)
-            end = _HASKELL_HEAD_END.search(text)
-            head = text[:end.end()] if end else text
+            # A class or instance head may run over several lines; it ends
+            # where the body node starts, or is the whole node with no body.
+            body = next(
+                (c for c in node.named_children if c.type in _HASKELL_BODY_NODES), None
+            )
+            head = _code(node, body.start_byte if body is not None else None)
             name = _text(name_node)
             if node.type == "instance":
                 # `instance Shape A` and `instance Shape B` are two owners.

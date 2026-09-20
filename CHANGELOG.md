@@ -142,8 +142,12 @@ them, with the signature as its signature. Classes and instances are owners
 to them. `where` and `let` bindings are locals and are not indexed. Haddock
 comments are docstrings, including on a module's first declaration, which sits
 outside the node a sibling walk reads; a block comment (`{- | ... -}`) loses its
-delimiters. A signature written over several lines is kept whole, and so is a
-class or instance head, up to its `where`. Literate Haskell (`.lhs`) was on the supported row and yielded
+delimiters. A `-- ^` comment documents the item BEFORE it, so it is never read
+forwards: the fourth review found a constructor's note published as the
+docstring of the unrelated function below it. A signature written over several
+lines is kept whole. A class or instance head ends where its body starts, and a
+type's signature is its whole declaration; both have their comments removed
+from the tree, and a type's is capped at 200 characters with a trailing ` ...`. Literate Haskell (`.lhs`) was on the supported row and yielded
 nothing in either style; bird tracks and `\begin{code}` blocks are both read
 now, a block marker may carry options (`\begin{code}[hide]`) while the environment
 must be named `code` exactly, and the prose is
