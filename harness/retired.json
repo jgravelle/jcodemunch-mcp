@@ -55,7 +55,7 @@
    "path": "tests/test_v1_108_80.py::test_classvar_is_not_a_field",
    "lesson": "#355 meant the name literally: a `ClassVar` is not a DATACLASS field, so it was skipped. #784 indexes class state in every class by owner ruling (2026-09-19), and a `ClassVar` is class state. The old test kept PASSING after that change, for the wrong reason: its one ClassVar was spelled `REGISTRY`, which is a `constant` now, so `_fields(src) == ['x']` graded the case of a name and said nothing about `ClassVar`. A reviewer's all-`field` mutation is what showed it. The lesson: a test that survives a reversal of the thing it names has stopped testing it. The replacement carries both spellings and asserts the whole kind map.",
    "replacement": "tests/test_v1_108_80.py::test_a_classvar_is_class_state_under_its_names_own_kind",
-   "commit": "pending",
+   "commit": "181b43c8",
    "date": "2026-09-19"
   }
  ]
