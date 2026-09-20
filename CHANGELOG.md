@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed - a class constant is owned by its class, in every language that has one (#780, #783)
+
+A Java `static final` field, a PHP class `const` and a Kotlin `const val` were
+indexed with `parent = None` and a bare qualified name. `Audit.java`'s `LIMIT`
+came back as `LIMIT`, not `Audit.LIMIT`, and belonged to nothing.
+
+A member with no parent is invisible to every parent-keyed reader, which is what
+makes this a defect and not a naming preference: the file summary counts members
+by `parent` (#760), so a PHP class whose only members are constants reported as
+having none, and `get_class_hierarchy` could not place them.
+
+The mechanism is one line and it had a language name in it. `_constant_symbol`
+hardcodes `qualified_name = name` and takes no parent, because for the
+file-scope languages it was written for that is the right answer. `_walk_tree`
+is the only place that knows the owner, and it repaired the bare name there --
+under `if language == "rust"`. Rust got the repair because the Rust fidelity
+harness could see the loss once it learned to compare qualified names, and
+nothing scores Java, Kotlin or PHP the same way. The condition is now
+`parent_symbol is not None`, which is the question actually being asked.
+
+⚠ The fix cannot widen what is EXTRACTED. The gate above this line already
+decided which constants become symbols, so every constant reaching the repair is
+one that gate admitted; a file-scope constant still has no parent and keeps its
+bare name, asserted in both directions.
+
+⚠ Kotlin carries no issue and is fixed here because
+`tests/test_class_constant_owner.py` asserts the property over
+`_CLASS_SCOPED_CONSTANT_LANGUAGES` rather than over the two languages that were
+reported. The audit that found #780 and #783 could not see the Kotlin cell at
+all: its Kotlin sample reaches the `property` channel.
+
+Ids move for these members (`LIMIT#constant` becomes `Audit.LIMIT#constant`).
+⚠ `PARSER_GENERATION` is NOT bumped, for the reason #735's and #743's entries
+give: #732 took it 7 to 8 and that bump is still under `[Unreleased]`, so any
+index a release of this can reach re-parses under it already.
+
+Found by the member-kind audit (`tests/test_member_kind_audit.py`); both cells
+are updated and both `_GAPS` entries deleted, which is the register's own
+closure path.
+
 ### Fixed - a language's discard is not a symbol (#763, fix by @fathirramadhan-web)
 
 Go's blank identifier was indexed as a constant. `_` binds nothing and cannot be

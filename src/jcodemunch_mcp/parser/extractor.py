@@ -725,13 +725,24 @@ def _walk_tree(
         consts = _extract_constants(node, spec, source_bytes, filename, language)
         # ⚠⚠ `_constant_symbol` hardcodes `qualified_name = name` and takes no
         # parent, so a `const` declared inside `impl HyperlinkFormat` came out
-        # as a bare `BORROWED`. Qualifying at the CALL SITE keeps this to Rust:
-        # threading a parent through `_extract_constants` reaches the Bash, Go,
-        # PHP and Java binders too, which is the blast radius the note above
-        # declines to take. Found by the fidelity harness only AFTER it learned
-        # to compare qualified names -- 35 constants on ripgrep, invisible to
-        # every bucket that shipped with it.
-        if language == "rust" and parent_symbol is not None:
+        # as a bare `BORROWED`. Qualifying at the CALL SITE is right --
+        # `_walk_tree` is the only place that knows the parent -- but it was
+        # written as `if language == "rust"`, and Java's `static final` field,
+        # PHP's class `const` and Kotlin's `const val` reach this same line
+        # through the gate above and came out bare (#780, #783). A guard written
+        # against a spelling is fixed for that spelling only.
+        #
+        # ⚠⚠ **`parent_symbol is not None` is the whole condition, and it cannot
+        # widen what is EXTRACTED.** The gate above already decided that; every
+        # constant reaching here with a parent is one the gate admitted, so a
+        # file-scope constant still has nothing to be owned by and keeps its
+        # bare name. Naming languages here a second time would be the same
+        # defect in a new spelling.
+        #
+        # ⚠ The FIELD channel eight lines below has qualified unconditionally
+        # since #735 for exactly this reason. Both halves of Java's
+        # `field_declaration` answer to one rule now.
+        if parent_symbol is not None:
             for c in consts:
                 c.qualified_name = f"{parent_symbol.qualified_name}.{c.name}"
                 c.id = make_symbol_id(filename, c.qualified_name, "constant")

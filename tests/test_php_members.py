@@ -243,21 +243,29 @@ def test_an_enum_body_is_a_container_and_that_took_a_second_fix():
         "}\n"
     )
     rows = {(s.name, s.kind, s.qualified_name) for s in parse_file(source, "a.php", "php")}
-    assert ("EK", "constant", "EK") in rows
+    # ⚠ The qualified name was bare `EK` until #780/#783 gave every class-scoped
+    # constant its owner. What this test is about is that `EK` is extracted AT
+    # ALL, which is what naming the enum body a container bought.
+    assert ("EK", "constant", "E.EK") in rows
     assert ("m", "method", "E.m") in rows
 
 
-def test_a_class_constant_keeps_the_bare_name_java_and_kotlin_give_it():
-    """⚠ `C.K` would be more useful and it is NOT what this change does.
+def test_a_class_constant_is_owned_by_its_class():
+    """⚠⚠ This REVERSES `test_a_class_constant_keeps_the_bare_name_java_and_
+    kotlin_give_it`, retired in `harness/retired.json` (#780, #783).
 
-    `_constant_symbol` hardcodes `qualified_name = name` and only Rust
-    qualifies at the call site, so a Java and a Kotlin class constant are both
-    bare today. Qualifying PHP alone would make the answer depend on which
-    language you asked, so the inconsistency is recorded and left whole --
-    #746's note about this same asymmetry, one language on.
+    That test recorded the asymmetry rather than fixing it: `_constant_symbol`
+    hardcodes `qualified_name = name` and `_walk_tree` qualified at the call
+    site under `if language == "rust"`, so PHP, Java and Kotlin were all bare
+    and qualifying PHP alone would have made the answer depend on which
+    language you asked. The condition is `parent_symbol is not None` now, so all
+    three are qualified together and the asymmetry it was recording is gone.
+
+    ⚠ The half that has NOT changed is which constants are extracted; see
+    `test_a_function_local_constant_is_still_not_a_constant` below.
     """
     source = "<?php\nclass C {\n  const K = 3;\n}\n"
-    assert _by_name(source, "K") == [("K", "constant", "K")]
+    assert _by_name(source, "K") == [("K", "constant", "C.K")]
 
 
 def test_a_function_local_constant_is_still_not_a_constant():
