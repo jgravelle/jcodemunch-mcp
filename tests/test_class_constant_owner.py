@@ -142,15 +142,20 @@ def test_a_kotlin_const_val_in_a_companion_object_is_owned_by_the_CLASS():
     assert member.qualified_name == "Audit.LIMIT"
 
 
-def test_two_classes_sharing_a_constant_name_no_longer_collide():
-    """The second-order consequence, and the one that ADDS symbols to an index.
+def test_two_same_named_constants_are_told_apart_by_owner_not_ordinal():
+    """The second-order consequence, and it is id STABILITY, not a new symbol.
 
-    ⚠⚠ Before the fix both constants minted the SAME id (`x.php::K#constant`),
-    because the id is built from the qualified name and both were bare. Two
-    declarations sharing one id is the shape #571 and #741 each paid for: one of
-    them is unreachable by lookup. Qualifying separates them, so a file holding
-    two same-named class constants gains a distinct symbol rather than merely
-    renaming one.
+    ⚠⚠ **No collision existed and this test exists partly to stop one being
+    claimed again.** Measured on `origin/main`: these two constants came back as
+    `x.php::K#constant~1` and `~2`, because `_disambiguate_overloads` had already
+    separated them. The count is 4 either way and neither was unreachable. An
+    earlier draft of this test and of the CHANGELOG entry said otherwise, from
+    reading the code rather than running it.
+
+    What DOES change is what distinguishes them. A `~2` is assigned by source
+    order, so reordering the two classes swaps which constant owns it; an owner's
+    name does not move. That is the gain, and it is smaller than the one first
+    claimed.
     """
     symbols = _symbols("php", "x.php", (
         "<?php\n"

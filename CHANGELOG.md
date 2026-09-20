@@ -34,12 +34,14 @@ reported. The audit that found #780 and #783 could not see the Kotlin cell at
 all: its Kotlin sample reaches the `property` channel.
 
 Ids move for these members (`LIMIT#constant` becomes `Audit.LIMIT#constant`).
-⚠⚠ **Two constants of the same name in one file used to share an id, and now do
-not**, which is the one shape here that ADDS a symbol rather than renaming one:
-`class A { const K = 1; } class B { const K = 2; }` minted `x.php::K#constant`
-twice, so one of the two was unreachable by lookup. A file with same-named class
-constants gains a distinct symbol per container. Review found this; the first
-version of this entry described the change as renaming only.
+⚠ **Two constants of the same name in one file stop being told apart by an
+ORDINAL and start being told apart by their owner.** `class A { const K = 1; }
+class B { const K = 2; }` minted `x.php::K#constant~1` and `~2`; it mints
+`x.php::A.K#constant` and `x.php::B.K#constant` now. The symbol count does not
+move — `_disambiguate_overloads` was already separating them — so this is
+readability and id stability, not a recovered symbol: a `~2` is assigned by
+source order and moves when a class is reordered, where the owner's name does
+not.
 ⚠ `PARSER_GENERATION` is NOT bumped, for the reason #735's and #743's entries
 give: #732 took it 7 to 8 and that bump is still under `[Unreleased]`, so any
 index a release of this can reach re-parses under it already.
