@@ -753,6 +753,12 @@ def _walk_tree(
     # name is better than dropping the declaration.
     if node.type in spec.field_patterns:
         fields = _extract_fields(node, spec, source_bytes, filename, language)
+        if language in _JS_BINDING_LANGUAGES and (
+            parent_symbol is None or parent_symbol.kind != "class"
+        ):
+            # A class EXPRESSION has no symbol, so its field would be published
+            # bare, or under whatever function encloses it. Withheld (#698).
+            fields = []
         if parent_symbol is not None:
             for f in fields:
                 f.qualified_name = f"{parent_symbol.qualified_name}.{f.name}"
@@ -2257,6 +2263,22 @@ _JS_FUNCTION_VALUE_TYPES = frozenset({
 })
 
 
+def _js_class_declares_method(class_body, name: str, source_bytes: bytes) -> bool:
+    """Does this class body declare a real method called `name`?"""
+    if class_body is None:
+        return False
+    for member in class_body.named_children:
+        if member.type not in ("method_definition", "abstract_method_signature", "method_signature"):
+            continue
+        member_name = member.child_by_field_name("name")
+        if member_name is not None and (
+            source_bytes[member_name.start_byte:member_name.end_byte].decode("utf-8", errors="replace")
+            == name
+        ):
+            return True
+    return False
+
+
 def _extract_js_class_field(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:
@@ -2271,6 +2293,12 @@ def _extract_js_class_field(
     - A TypeScript `readonly` field is a `constant`: the language says so.
       JavaScript has no immutable field, so no JS field is one.
     - Anything else is a `field`.
+
+    ⚠⚠ **A function field that SHADOWS a real method is a `field`.** As a
+    second `method` of that name it would take a `~2` ordinal and push the real
+    method's published id to `~1`; review measured exactly that on NestJS
+    (`use#method` became `use#method~1`). A class's declared method keeps its
+    id, and the field beside it is still found, under `#field`.
 
     ⚠ The two grammars disagree on the name's field name (`property` in JS,
     `name` in TS and TSX), the same trap `_js_field_scope` records. A COMPUTED
@@ -2287,7 +2315,11 @@ def _extract_js_class_field(
         return []
     name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
     value = node.child_by_field_name("value")
-    if value is not None and value.type in _JS_FUNCTION_VALUE_TYPES:
+    if (
+        value is not None
+        and value.type in _JS_FUNCTION_VALUE_TYPES
+        and not _js_class_declares_method(node.parent, name, source_bytes)
+    ):
         kind = "method"
     elif any(child.type == "readonly" for child in node.children):
         kind = "constant"

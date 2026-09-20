@@ -446,14 +446,25 @@ A field whose VALUE is a function is a `method`, the way a module-level
 `readonly` field is a `constant`, because the language says so; JavaScript has
 no immutable field, so no JS field is one. Anything else is a `field`. `static`,
 `#private`, `declare`, `abstract`, optional and definite (`!`) fields all name
-their member. A computed key (`['k'] = 1`) is an expression and adds nothing.
+their member. A computed, string or numeric key (`['k']`, `'quoted'`, `0`) is
+not an identifier and adds nothing.
 What a field HOLDS is still attributed to the field and never to the class
 (#571's guard, asserted again here).
 
+⚠ Two rules protect what was already published, and review found the need for
+both. A function field that SHADOWS a real method (`use = () => {}` beside
+`use() {}`) is a `field`, not a second `method`: as a method it took a `~2`
+ordinal and pushed the real method's id to `~1`, measured on NestJS. And a field
+is published only under a CLASS symbol: a class expression
+(`const C = class { x = 1 }`) has none, so its field came out bare, or owned by
+whatever function enclosed it. Those are withheld.
+
 ⚠⚠ **This moves symbol counts and moves no grade.** On NestJS
 (`packages/`, 823 files), from `symbol_growth.txt` of this change: 3975 symbols
-to 4555, as 349 fields, 223 more constants and 8 more methods. The grading tools
-read `function` and `method` alone, so only those 8 can reach a grade. Existing
+to 4533, as 328 fields, 223 more constants and 7 more methods. The grading tools
+read `function` and `method` alone, so only those 7 can reach a grade. An id by
+id comparison (`regression_sweep.txt`) found 0 ids missing, 0 whose kind or
+parent changed, and 0 additions without a parent. Existing
 indexes re-parse under the `PARSER_GENERATION` bump already in this block.
 
 ⚠ The channel is gated on the spec and NOT on `_JS_CLASS_FIELD_NODE_TYPES`.

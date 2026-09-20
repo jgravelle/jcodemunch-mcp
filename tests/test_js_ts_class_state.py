@@ -111,6 +111,43 @@ def test_an_abstract_field_is_state_of_the_abstract_class(language, filename):
 
 
 @pytest.mark.parametrize("language, filename", _ALL)
+def test_a_function_field_never_renames_the_real_method_it_shadows(language, filename):
+    """Review measured this on NestJS: `use = (...) => {}` beside `use() {}`
+    turned the published `use#method` into `use#method~1`. A class's real
+    method keeps the id it had; the field that shadows it is a `field`."""
+    source = "class A {\n  use() {}\n  use = () => {};\n  other = () => {};\n}\n"
+    symbols = parse_file(source, filename, language)
+    assert [(s.kind, s.name, s.id.rsplit("::", 1)[1]) for s in symbols] == [
+        ("class", "A", "A#class"),
+        ("method", "use", "A.use#method"),
+        ("field", "use", "A.use#field"),
+        ("method", "other", "A.other#method"),
+    ]
+
+
+@pytest.mark.parametrize("language, filename", _ALL)
+@pytest.mark.parametrize("source", [
+    "const C = class { x = 1; };\n",
+    "export default class { z = 1; }\n",
+    "function f() { return class { w = 1; }; }\n",
+    "class M { meth() { return class { inM = 1; }; } }\n",
+])
+def test_a_field_with_no_class_symbol_to_own_it_is_not_published(language, filename, source):
+    """An ABSENCE assertion. A class EXPRESSION has no symbol, so its field
+    came out bare (`x`, parent None) or owned by whatever function enclosed it
+    (`f.w`, `M.meth.inM`). A member with no owner is #698's defect."""
+    assert [s for s in parse_file(source, filename, language) if s.kind in ("field", "constant")
+            and s.name in ("x", "z", "w", "inM")] == []
+
+
+@pytest.mark.parametrize("language, filename", _ALL)
+def test_a_string_or_numeric_key_adds_nothing(language, filename):
+    """Stated with the computed key: neither is an identifier a reader types."""
+    symbols = parse_file("class C {\n  'quoted' = 1;\n  0 = 2;\n}\n", filename, language)
+    assert [(s.kind, s.name) for s in symbols] == [("class", "C")]
+
+
+@pytest.mark.parametrize("language, filename", _ALL)
 def test_a_computed_key_adds_nothing(language, filename):
     """An absence assertion: `['k']` is an expression, not a name."""
     symbols = parse_file("class C {\n  ['k'] = 1;\n  [Symbol.iterator] = null;\n}\n", filename, language)
