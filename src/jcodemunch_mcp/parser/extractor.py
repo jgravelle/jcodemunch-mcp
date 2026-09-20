@@ -762,6 +762,12 @@ def _walk_tree(
                 f.id = make_symbol_id(filename, f.qualified_name, f.kind)
                 f.parent = parent_symbol.id
         symbols.extend(fields)
+        # `struct { int ax; } inst;` -- the members are reached as `inst.ax`,
+        # so the declarator owns them. With NO declarator (an anonymous union)
+        # `fields` is empty and they stay with the enclosing class, which is
+        # the language's own rule in both cases.
+        if fields and _cpp_field_holds_an_anonymous_type(node, language):
+            next_parent = fields[0]
 
     # Mutable module-level bindings: a JS/TS `let` or `var` (#741, #742) and
     # Go's package-level `var` (#731).
@@ -1602,9 +1608,15 @@ def _is_cpp_function_declaration(node) -> bool:
         # ⚠ `declaration` keeps the subtree rule below: a file-scope variable
         # has no channel in C++, so re-grading `int (*gfp)(int);` there would
         # trade a wrong kind for an absence.
-        leaf = _cpp_declarator_leaf(declarator)
-        return leaf.parent is not None and leaf.parent.type == "function_declarator"
+        return _cpp_declarator_is_function(declarator)
     return _has_function_declarator(declarator)
+
+
+def _cpp_declarator_is_function(declarator) -> bool:
+    """Does THIS declarator declare a function? The one question both member
+    channels ask, per declarator: `int g(), y;` is a method and a field."""
+    leaf = _cpp_declarator_leaf(declarator)
+    return leaf.parent is not None and leaf.parent.type == "function_declarator"
 
 
 #: Declarator nodes between a declaration and the name it binds: `int *p`,
@@ -1629,8 +1641,10 @@ def _cpp_declarator_leaf(declarator):
     """
     node = declarator
     while node.type in _CPP_DECLARATOR_WRAPPERS:
+        # ⚠ Never into an ERROR node: the grammar errors on the `H::` of a
+        # pointer-to-member and still exposes the declarator beside it.
         inner = node.child_by_field_name("declarator") or next(
-            (c for c in node.named_children), None
+            (c for c in node.named_children if c.type != "ERROR"), None
         )
         if inner is None:
             break
@@ -2288,6 +2302,19 @@ def _extract_fields(
 #: reaches half the product (#698).
 _CPP_FIELD_LANGUAGES = frozenset({"cpp", "arduino"})
 
+def _cpp_field_holds_an_anonymous_type(node, language: str) -> bool:
+    """Is this member's type a struct, union or class spelled in place with no
+    name of its own?"""
+    if language not in _CPP_FIELD_LANGUAGES or node.type != "field_declaration":
+        return False
+    type_node = node.child_by_field_name("type")
+    return (
+        type_node is not None
+        and _is_cpp_type_container(type_node)
+        and type_node.child_by_field_name("name") is None
+    )
+
+
 def _cpp_declarator_name(declarator, source_bytes: bytes) -> Optional[str]:
     """The `field_identifier` a data-member declarator binds, or None."""
     node = _cpp_declarator_leaf(declarator)
@@ -2307,20 +2334,22 @@ def _extract_cpp_fields(
     that path declined -- every data member -- had no channel to fall to: #735
     in a second language family.
 
-    ⚠⚠ **Both channels ask `_is_cpp_function_declaration`, the predicate
-    `_walk_tree` already gates the function path on.** A second answer to "is
-    this a function?" would emit a prototype twice, once as a method and once
-    as a field, or drop a form both declined. The predicate reads the FIRST
-    declarator, so the (legal, unidiomatic) `int x, f();` yields `x` alone.
+    ⚠⚠ **Both channels ask `_cpp_declarator_is_function`, per DECLARATOR.**
+    A second answer to "is this a function?" emits a prototype twice or
+    publishes a function as data, and the first draft did the latter: it gated
+    the NODE on its first declarator, then unwrapped every declarator's
+    `function_declarator` to a name, so `int x, f();` published `f` as a field
+    under a docstring that said it was absent. ⚠ The method channel names a
+    declaration's first declarator only, so a function in a LATER position
+    (`f` there) is absent. A data member in any position is a field.
 
     ⚠ No scope gate: C++ spells a local `declaration`, a different node type.
     `test_cpp_data_members.py` asserts it rather than trusting it (#732).
     """
-    if _is_cpp_function_declaration(node):
-        return []
     names = [
         _cpp_declarator_name(child, source_bytes)
         for child in node.children_by_field_name("declarator")
+        if not _cpp_declarator_is_function(child)
     ]
     return [
         _field_symbol(name, node, source_bytes, filename, language)

@@ -168,15 +168,19 @@ the member-kind audit, whose four `#755` cells are closed and deleted here.
 Data members go through `field_patterns`, the N-names channel #735 added:
 `int a, b, *c;` is one node and three fields. Pointers, references, arrays,
 bit-fields, default values, `static`, `const` and `mutable` all name their
-member; an anonymous union's members belong to the enclosing class, which is
-the language's own rule; a local is a different node type and is asserted
-absent. Both channels ask one predicate, `_is_cpp_function_declaration`, so a
-declaration is a method or a field and never both.
+member; a local is a different node type and is asserted absent. Ownership
+follows how the member is reached: an anonymous union's members belong to the
+enclosing class (`h.u1`), and the members of `struct { int ax; } inst;` belong
+to `inst` (`h.inst.ax`). Both channels ask one question per DECLARATOR,
+`_cpp_declarator_is_function`, so `int g(), y;` is a method and a field and no
+name is ever both.
 
 That predicate changed for members. It asked whether a `function_declarator`
 appeared ANYWHERE in the declaration, so `void (*fp)(int);`, a function-pointer
 member, was indexed as a `method`. It asks which declarator binds the NAME now:
 `fp` is a field, `int (*getfp())(int);` and `int &at(int);` are still methods.
+A pointer-to-member (`void (H::*pmf)();`) is a field too: the grammar errors on
+its `H::` and still exposes the name beside the error.
 ⚠ File-scope `declaration` keeps the old rule on purpose. C++ has no channel
 for a file-scope variable, so re-grading `int (*gfp)(int);` there would trade a
 wrong kind for an absence.
@@ -185,10 +189,18 @@ wrong kind for an absence.
 sample in every register. Three older tests went red and each had encoded the
 absence: two file-summary assertions (`(4 methods)`, `(1 method)`) and a
 `test_languages.py` case whose docstring said "not indexed as functions" and
-whose assertion said "not indexed". Not ruled on, stated: `int x, f();` yields
-`x` alone (the predicate reads the first declarator), a pointer-to-member
-(`void (H::*pmf)();`) is absent, and plain C struct fields are still not
-indexed, which needs C to have containers first and is #797.
+whose assertion said "not indexed".
+
+⚠ The first draft of this entry said `int x, f();` yields `x` alone. Review ran
+it and got `f` published as a FIELD: the node was gated on its first declarator
+and every declarator's `function_declarator` was then unwrapped to a name. The
+sentence was written from the design and never executed, in a repository whose
+standing lessons say to run it first. It is true now, and tested. Not indexed,
+stated: a function in a LATER declarator position (`f` in `int x, f();`),
+because the method channel names a declaration's first declarator; a member
+template variable (`template<class U> static U tv;`), which is not a
+`field_declaration`; and plain C struct fields, which need C to have
+containers first and are #797.
 Existing indexes re-parse under the `PARSER_GENERATION` bump already in this
 block.
 

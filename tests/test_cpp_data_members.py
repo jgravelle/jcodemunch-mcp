@@ -141,17 +141,49 @@ def test_an_anonymous_unions_members_belong_to_the_enclosing_class():
 @pytest.mark.parametrize("member, name", [
     ("void (*fp)(int);", "fp"),
     ("int (*table[4])(void);", "table"),
-    ("void (H::*pmf)();", None),
+    # The grammar ERRORs on `H::*` and still exposes the name beside the error.
+    # Review found the first draft walked into the ERROR node and dropped both,
+    # trading the old wrong kind (`method`) for an absence.
+    ("void (H::*pmf)();", "pmf"),
+    ("int (H::*pmd);", "pmd"),
 ])
 def test_a_function_pointer_member_is_data(member, name):
     """`void (*fp)(int);` holds a `function_declarator`, and the NAME is bound
     by the pointer inside it. It was indexed as a `method` while data had no
-    channel; the shared predicate asks which declarator binds the name now.
-    A pointer-to-member-function has no `field_identifier` this grammar
-    exposes, and is pinned as absent rather than guessed at."""
+    channel; the shared predicate asks which declarator binds the name now."""
     symbols = parse_file(f"class H {{\n  {member}\n}};\n", "a.cpp", "cpp")
-    expected = [("class", "H")] + ([("field", name)] if name else [])
-    assert [(s.kind, s.name) for s in symbols] == expected
+    assert [(s.kind, s.name) for s in symbols] == [("class", "H"), ("field", name)]
+
+
+@pytest.mark.parametrize("language, filename", _LANGUAGES)
+@pytest.mark.parametrize("member, expected", [
+    # The method channel names a declaration's FIRST declarator, so a function
+    # in second position has no channel: absent, and never a field.
+    ("int x, f();", [("field", "x")]),
+    ("int g(), y;", [("method", "g"), ("field", "y")]),
+])
+def test_a_declaration_mixing_data_and_functions_is_asked_per_declarator(
+    language, filename, member, expected
+):
+    """Review ran `int x, f();` and got `f` published as a FIELD while the
+    docstring and the CHANGELOG both said it was absent: the node-level
+    predicate read the first declarator and the name walk unwrapped the
+    second's `function_declarator`. Each declarator answers for itself now."""
+    symbols = parse_file(f"class H {{\n  {member}\n}};\n", filename, language)
+    assert [(s.kind, s.name) for s in symbols if s.name != "H"] == expected
+
+
+def test_a_named_anonymous_structs_members_belong_to_the_member_that_holds_them():
+    """`h.inst.ax` is how it is reached. With NO declarator the members are the
+    enclosing class's (the test above); with one, they are the declarator's."""
+    source = "class H {\n  struct { int ax; } inst;\n  union { int u1; };\n};\n"
+    rows = _rows(source, "cpp", "a.cpp")
+    assert rows == [
+        ("class", "H", None),
+        ("field", "H.inst", "H"),
+        ("field", "H.inst.ax", "inst"),
+        ("field", "H.u1", "H"),
+    ]
 
 
 def test_a_function_returning_a_reference_or_pointer_is_a_method():
