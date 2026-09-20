@@ -146,8 +146,10 @@ delimiters. A `-- ^` comment documents the item BEFORE it, so it is never read
 forwards: the fourth review found a constructor's note published as the
 docstring of the unrelated function below it. A signature written over several
 lines is kept whole. A class or instance head ends where its body starts, and a
-type's signature is its whole declaration; both have their comments removed
-from the tree, and a type's is capped at 200 characters with a trailing ` ...`. Literate Haskell (`.lhs`) was on the supported row and yielded
+type's signature is its whole declaration. Every signature has its comments
+removed from the tree and is capped at 200 characters with a trailing ` ...`.
+One known absence: a forward doc with a later line that starts with `^` loses
+its docstring, the safe direction. Literate Haskell (`.lhs`) was on the supported row and yielded
 nothing in either style; bird tracks and `\begin{code}` blocks are both read
 now, a block marker may carry options (`\begin{code}[hide]`) while the environment
 must be named `code` exactly, and the prose is
