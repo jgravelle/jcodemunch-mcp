@@ -43,6 +43,20 @@
       "replacement": "tests/test_svelte.py::test_svelte5_runes_carry_the_keyword_kind",
       "commit": "99ef0583",
       "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_v1_108_80.py::test_plain_class_fields_not_extracted",
+      "lesson": "It asserted `_fields(src) == []` for a plain class holding `MAX: int = 5` and `name: str = 'z'`, because #355 indexed annotated names for dataclass, attrs and direct `BaseModel` classes only and left every other class's state absent on purpose. jjg reversed that on 2026-09-19 (#784): class-body state is a symbol in every class, as it already was for Java (#735), PHP (#743), Kotlin, Swift and C++ (#755). The lesson that survives is the second half of its docstring, that a field must not be conflated with a constant, and the replacement asserts it: `MAX` is state and its kind is `constant`, never `field`. The gate it guarded was also keyed on a spelling: a model inheriting `BaseModel` indirectly got no fields at all.",
+      "replacement": "tests/test_v1_108_80.py::test_a_plain_classs_state_is_indexed_and_a_constant_is_not_a_field",
+      "commit": "8b1fc94a",
+      "date": "2026-09-19"
+    },
+    {
+      "path": "tests/test_v1_108_80.py::test_classvar_is_not_a_field",
+      "lesson": "#355 meant the name literally: a `ClassVar` is not a DATACLASS field, so it was skipped. #784 indexes class state in every class by owner ruling (2026-09-19), and a `ClassVar` is class state. The old test kept PASSING after that change, for the wrong reason: its one ClassVar was spelled `REGISTRY`, which is a `constant` now, so `_fields(src) == ['x']` graded the case of a name and said nothing about `ClassVar`. A reviewer's all-`field` mutation is what showed it. The lesson: a test that survives a reversal of the thing it names has stopped testing it. The replacement carries both spellings and asserts the whole kind map.",
+      "replacement": "tests/test_v1_108_80.py::test_a_classvar_is_class_state_under_its_names_own_kind",
+      "commit": "181b43c8",
+      "date": "2026-09-19"
     }
   ]
 }

@@ -213,6 +213,9 @@ def test_only_named_languages_reach_constants_through_a_container():
     constants they have never emitted, moving symbol counts in every index and
     every published dead-code grade. This test is what makes the narrow choice
     durable: widen the set deliberately, with a sample, or not at all.
+    ⚠ (#784) Python class state IS indexed now, by a different channel and by
+    ruling. The grade half of that worry was measured and does not hold: the
+    dead-code and untested tools read `function` and `method` alone.
 
     ⚠⚠ **This asserted `== frozenset({"java"})` until #732, and that was the
     MECHANISM rather than the outcome.** Its own rule, one line up, is "widen
@@ -235,9 +238,23 @@ def test_only_named_languages_reach_constants_through_a_container():
 
     # A Python class body holds an UPPER_CASE assignment, which is the exact
     # shape the general widening would have admitted.
+    #
+    # ⚠⚠ This asserted `== ["MODULE_LEVEL"]` until #784, i.e. that `TIMEOUT`
+    # was ABSENT. The decision above was about the constant CHANNEL, and it
+    # still holds: python is not in the set. What changed is that jjg ruled on
+    # 2026-09-19 that class state is indexed, so `TIMEOUT` arrives through the
+    # class-state channel, owned by `Config`. The two are told apart the only
+    # way that cannot be fooled: switch the class-state channel off and the
+    # constant channel must still decline the class body.
     source = "class Config:\n    TIMEOUT = 30\n\n\nMODULE_LEVEL = 1\n"
-    assert _constants(source, "conf.py", "python") == ["MODULE_LEVEL"]
     assert "python" not in _CLASS_SCOPED_CONSTANT_LANGUAGES
+    with mock.patch.object(extractor, "_extract_python_class_fields", lambda *a, **k: []):
+        assert _constants(source, "conf.py", "python") == ["MODULE_LEVEL"]
+    owned = [
+        (s.name, s.parent is not None)
+        for s in parse_file(source, "conf.py", "python") if s.kind == "constant"
+    ]
+    assert owned == [("TIMEOUT", True), ("MODULE_LEVEL", False)]
 
     # The other half of the rule, which nothing enforced before: a language in
     # the set must have a sample proving what membership bought it. Without

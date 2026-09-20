@@ -377,6 +377,52 @@ twelve tests green. It asserts the whole string now
 (`.claude/state/evidence/plants.md`, every plant observed).
 
 
+### Changed - a Python class's state is indexed, in every class (#784)
+
+`tally: int = 0` and `LIMIT = 3` in a plain class yielded no symbol, so the
+class read as methods-only to `search_symbols`, the outline and the file
+summary. Not an oversight: #355 indexed annotated names for a dataclass, an
+attrs class or a class with a base NAMED `BaseModel`, and left every other
+class alone on purpose; #428 declined to widen it, to keep symbol counts still.
+The owner reversed both on 2026-09-19, for consistency with Java (#735), PHP
+(#743), Kotlin, Swift and C++ (#755). Enumerated by the member-kind audit, whose
+two `#784` cells are closed and deleted here.
+
+Every binding of ONE plain name in a class body is a symbol owned by its class:
+`x: int`, `x: int = 0`, `x = 0`, and each name of `a = b = 0`. UPPER_CASE is a `constant`, by the module-level
+convention, and anything else a `field`. A `ClassVar` is class state and is
+indexed. Dunders (`__slots__`) are class machinery and stay out, as do tuple,
+subscript and attribute targets, augmented assignments, and anything under an
+`if` or inside a method. A class whose body does not parse yields no state at
+all; that was #355's guard and it reaches every class now.
+
+⚠ The gate that went was also a guard written against a spelling. A model
+that inherits `BaseModel` INDIRECTLY (`class Child(Base)`) matched no name and
+got no fields.
+
+⚠⚠ **This moves symbol counts, deliberately, and moves no grade.** Python
+symbols before and after, from `symbol_growth.txt` of this change: this repo's
+`src/` 4800 to 4831, starlette 713 to 761, httpx 570 to 653, mcp 1559 to 1873,
+pydantic 2604 to 3207. `get_dead_code_v2` and `get_untested_symbols` read
+`function` and `method` alone, so #428's worry about published dead-code grades
+does not hold. Counts do change: `total_symbols`, what competes in a search,
+and the rows `find_dead_code(granularity="symbol")` lists for a dead file.
+⚠ One PUBLISHED figure will move and has not yet: `benchmarks/jcm_reference.json`
+records `fastapi/fastapi` at `symbol_count` 13240, mirrored in the README and
+`benchmarks/results.md`. It is a stamped earlier run, so nothing here is false
+today; the next `run_benchmark.py --reference` re-measures it under this parser
+and moves that cell and its mirrors. By how much was not measured in this change. ⚠ One
+id move: a field of a NESTED dataclass was `Meta.x` and is `Outer.Meta.x`, its
+owner's qualified name. Existing indexes re-parse under the `PARSER_GENERATION`
+bump already in this block.
+
+Three older tests pinned the old rule. `test_v1_108_80.py`'s
+`test_plain_class_fields_not_extracted` and `test_classvar_is_not_a_field` are
+retired in `harness/retired.json`. The second kept PASSING after the change,
+because its one ClassVar was spelled `REGISTRY` and is a `constant` now: it was
+grading the case of a name. And `test_v1_108_281.py` now proves the constant CHANNEL still
+declines a Python class body by switching the class-state channel off.
+
 ### Fixed - a destructured JS binding declares names, and a Vue or Svelte script block has bindings (#751, #752)
 
 `const { a, b } = obj` yielded no symbol in javascript, typescript or tsx, and a
