@@ -158,7 +158,7 @@ report that named both call sites and the correct column.
 
 `class Holder { int probe; };` indexed as a class and nothing else, while
 `void probe();` in the same position was a method. A struct that is nothing but
-data, which is most structs, indexed as an empty name. The grammar spells a data
+data indexed as an empty name. The grammar spells a data
 member and a member function prototype with ONE node type, `field_declaration`,
 told apart by a `function_declarator`; both specs claimed the node type for
 functions, so everything that path declined had no channel to fall to. #735 in
@@ -175,7 +175,15 @@ enclosing class (`h.u1`), the members of `struct { int ax; } inst;` belong to
 `typedef struct { int x; } Point;` belong to `Point`. An anonymous struct that
 nothing owns, a file-scope or function-local object, publishes no fields: a
 member with no owner is #698's defect, and one inside a method would have been
-attributed to the enclosing class. Both channels ask one question per DECLARATOR,
+attributed to the enclosing class. That is asked up the WHOLE chain of anonymous
+types: a struct nested inside one nothing owns is not owned either, which the
+first guard, reading one level, got wrong.
+
+⚠ Two ids that `main` already published move with the owner. A function defined
+inside `typedef struct { void m() {} } T;` was `m#function` and is
+`T.m#method`; a method of `struct { void im(); } inst;` inside `class H` was
+`H.im#method` and is `H.inst.im#method`, its parent a field. Both follow the
+same reach rule as the fields beside them. Both channels ask one question per DECLARATOR,
 `_cpp_declarator_is_function`, so `int g(), y;` is a method and a field and no
 name is ever both.
 

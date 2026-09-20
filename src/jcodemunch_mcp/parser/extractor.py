@@ -2340,13 +2340,26 @@ def _cpp_member_has_an_owner(node) -> bool:
 
     A NAMED struct, union or class always does. An anonymous one does only
     where `_CPP_ANONYMOUS_TYPE_OWNERS` says something stands in for its name.
+
+    ⚠⚠ **Asked UP THE WHOLE CHAIN, never of the immediate holder alone.** A
+    nested anonymous struct's holder is a member declaration, which is on the
+    allowlist -- and that member may itself sit in an anonymous struct nothing
+    owns. The one-level version published a method-local's `deep` as `K.deep`
+    and a file-scope one as a bare name, the two shapes the guard was written
+    to stop, one nesting level down.
     """
-    body = node.parent
-    container = body.parent if body is not None else None
-    if container is None or not _cpp_anonymous_container(container):
-        return True
-    holder = container.parent
-    return holder is not None and holder.type in _CPP_ANONYMOUS_TYPE_OWNERS
+    while True:
+        body = node.parent
+        container = body.parent if body is not None else None
+        if container is None or not _cpp_anonymous_container(container):
+            return True
+        holder = container.parent
+        if holder is None or holder.type not in _CPP_ANONYMOUS_TYPE_OWNERS:
+            return False
+        if holder.type == "type_definition":
+            return True
+        # A member declaration: it stands in for the name only if IT is owned.
+        node = holder
 
 
 def _cpp_field_holds_an_anonymous_type(node, language: str) -> bool:

@@ -220,6 +220,13 @@ def test_a_typedefd_anonymous_structs_fields_belong_to_the_typedef_name(language
     "struct { int fs; } g1;\n",
     "void fn() { struct { int loc; } l; }\n",
     "class K { void m() { struct { int inm; } q; } };\n",
+    # One level down. The first guard asked only the IMMEDIATE holder, and a
+    # nested struct's holder is a member declaration -- one that had itself
+    # been withheld. `deep` came out as `K.deep` and as a bare file-level name.
+    "struct { struct { int deep; } in; int top; } g1;\n",
+    "void fn() { struct { struct { int deep; } in; } l; }\n",
+    "class K { void m() { struct { struct { int deep; } in; int inm; } q; } };\n",
+    "class K { void m() { struct { union { int u; }; } q; } };\n",
 ])
 def test_an_anonymous_struct_nothing_owns_publishes_no_fields(language, filename, source):
     """An ABSENCE assertion. A file-scope or function-local object of an
