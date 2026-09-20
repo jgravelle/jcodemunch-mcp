@@ -196,6 +196,39 @@ def test_a_function_returning_a_reference_or_pointer_is_a_method():
     ]
 
 
+def test_two_holders_of_one_anonymous_struct_share_one_set_of_members():
+    """A stated choice: one symbol per source declaration, owned by the FIRST
+    holder. `b` is a field with no members of its own."""
+    rows = _rows("class H { struct { int ax; } a, b; };\n", "cpp", "a.cpp")
+    assert [q for _, q, _ in rows] == ["H", "H.a", "H.b", "H.a.ax"]
+
+
+@pytest.mark.parametrize("language, filename", _LANGUAGES)
+def test_a_typedefd_anonymous_structs_fields_belong_to_the_typedef_name(language, filename):
+    """The commonest struct spelling in C-style C++ and Arduino headers. Review
+    found it publishing bare, parentless `x` and `y` at file level."""
+    rows = _rows("typedef struct { int x; int y; } Point;\n", language, filename)
+    assert rows == [
+        ("type", "Point", None),
+        ("field", "Point.x", "Point"),
+        ("field", "Point.y", "Point"),
+    ]
+
+
+@pytest.mark.parametrize("language, filename", _LANGUAGES)
+@pytest.mark.parametrize("source", [
+    "struct { int fs; } g1;\n",
+    "void fn() { struct { int loc; } l; }\n",
+    "class K { void m() { struct { int inm; } q; } };\n",
+])
+def test_an_anonymous_struct_nothing_owns_publishes_no_fields(language, filename, source):
+    """An ABSENCE assertion. A file-scope or function-local object of an
+    anonymous type has no symbol to own its members, and a member with no
+    owner is #698's defect: `fs` and `loc` were bare top-level names, and
+    `inm`, a LOCAL inside a method, was published as `K.inm`."""
+    assert [s for s in parse_file(source, filename, language) if s.kind == "field"] == []
+
+
 def test_the_two_specs_carry_the_same_field_channel():
     """`arduino` carries its own copy of the spec, and a fix applied to one
     reaches half the product (#698)."""

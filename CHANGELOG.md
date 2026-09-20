@@ -170,8 +170,12 @@ Data members go through `field_patterns`, the N-names channel #735 added:
 bit-fields, default values, `static`, `const` and `mutable` all name their
 member; a local is a different node type and is asserted absent. Ownership
 follows how the member is reached: an anonymous union's members belong to the
-enclosing class (`h.u1`), and the members of `struct { int ax; } inst;` belong
-to `inst` (`h.inst.ax`). Both channels ask one question per DECLARATOR,
+enclosing class (`h.u1`), the members of `struct { int ax; } inst;` belong to
+`inst` (`h.inst.ax`, and to the first holder of `} a, b;`), and the fields of
+`typedef struct { int x; } Point;` belong to `Point`. An anonymous struct that
+nothing owns, a file-scope or function-local object, publishes no fields: a
+member with no owner is #698's defect, and one inside a method would have been
+attributed to the enclosing class. Both channels ask one question per DECLARATOR,
 `_cpp_declarator_is_function`, so `int g(), y;` is a method and a field and no
 name is ever both.
 
@@ -191,15 +195,11 @@ absence: two file-summary assertions (`(4 methods)`, `(1 method)`) and a
 `test_languages.py` case whose docstring said "not indexed as functions" and
 whose assertion said "not indexed".
 
-⚠ The first draft of this entry said `int x, f();` yields `x` alone. Review ran
-it and got `f` published as a FIELD: the node was gated on its first declarator
-and every declarator's `function_declarator` was then unwrapped to a name. The
-sentence was written from the design and never executed, in a repository whose
-standing lessons say to run it first. It is true now, and tested. Not indexed,
-stated: a function in a LATER declarator position (`f` in `int x, f();`),
+Not indexed, stated: a function in a LATER declarator position (`f` in `int x, f();`),
 because the method channel names a declaration's first declarator; a member
 template variable (`template<class U> static U tv;`), which is not a
-`field_declaration`; and plain C struct fields, which need C to have
+`field_declaration`; the fields of an anonymous struct nothing owns, above;
+and plain C struct fields, which need C to have
 containers first and are #797.
 Existing indexes re-parse under the `PARSER_GENERATION` bump already in this
 block.

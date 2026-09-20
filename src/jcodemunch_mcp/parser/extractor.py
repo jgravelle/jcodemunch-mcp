@@ -648,7 +648,9 @@ def _walk_tree(
             if symbol:
                 symbols.append(symbol)
                 if is_cpp:
-                    if _is_cpp_type_container(node):
+                    # `typedef struct { int x; } Point;` -- the struct has no
+                    # name of its own, so the typedef's is the owner (#755).
+                    if _is_cpp_type_container(node) or _cpp_typedef_of_anonymous_type(node):
                         next_parent = symbol
                         next_class_scope_depth = class_scope_depth + 1
                 else:
@@ -751,6 +753,11 @@ def _walk_tree(
     # name is better than dropping the declaration.
     if node.type in spec.field_patterns:
         fields = _extract_fields(node, spec, source_bytes, filename, language)
+        if is_cpp and not _cpp_member_has_an_owner(node):
+            # A file-scope or function-local object of an ANONYMOUS type. No
+            # symbol owns its members, and `parent_symbol` here is whatever
+            # class happens to enclose the function: withheld, never guessed.
+            fields = []
         if parent_symbol is not None:
             for f in fields:
                 f.qualified_name = f"{parent_symbol.qualified_name}.{f.name}"
@@ -765,7 +772,9 @@ def _walk_tree(
         # `struct { int ax; } inst;` -- the members are reached as `inst.ax`,
         # so the declarator owns them. With NO declarator (an anonymous union)
         # `fields` is empty and they stay with the enclosing class, which is
-        # the language's own rule in both cases.
+        # the language's own rule in both cases. ⚠ `} a, b;` has two holders
+        # and one declaration: the FIRST owns the members, one symbol per
+        # source declaration, and `b` is a field with none.
         if fields and _cpp_field_holds_an_anonymous_type(node, language):
             next_parent = fields[0]
 
@@ -2302,17 +2311,50 @@ def _extract_fields(
 #: reaches half the product (#698).
 _CPP_FIELD_LANGUAGES = frozenset({"cpp", "arduino"})
 
-def _cpp_field_holds_an_anonymous_type(node, language: str) -> bool:
-    """Is this member's type a struct, union or class spelled in place with no
-    name of its own?"""
-    if language not in _CPP_FIELD_LANGUAGES or node.type != "field_declaration":
-        return False
-    type_node = node.child_by_field_name("type")
+def _cpp_anonymous_container(type_node) -> bool:
     return (
         type_node is not None
         and _is_cpp_type_container(type_node)
         and type_node.child_by_field_name("name") is None
     )
+
+
+def _cpp_typedef_of_anonymous_type(node) -> bool:
+    """`typedef struct { ... } Name;`, where `Name` is the only name there is."""
+    return node.type == "type_definition" and _cpp_anonymous_container(
+        node.child_by_field_name("type")
+    )
+
+
+#: What may hold an anonymous struct, union or class so that its members have
+#: an owner: a member declaration (the declarator, or the enclosing class for
+#: an anonymous union) and a typedef (its name).
+#:
+#: ⚠ An ALLOWLIST. Anything else -- a file-scope or function-local
+#: `declaration` today, a form nobody probed tomorrow -- withholds the fields.
+_CPP_ANONYMOUS_TYPE_OWNERS = frozenset({"field_declaration", "type_definition"})
+
+
+def _cpp_member_has_an_owner(node) -> bool:
+    """Does the type this `field_declaration` sits in have a symbol to own it?
+
+    A NAMED struct, union or class always does. An anonymous one does only
+    where `_CPP_ANONYMOUS_TYPE_OWNERS` says something stands in for its name.
+    """
+    body = node.parent
+    container = body.parent if body is not None else None
+    if container is None or not _cpp_anonymous_container(container):
+        return True
+    holder = container.parent
+    return holder is not None and holder.type in _CPP_ANONYMOUS_TYPE_OWNERS
+
+
+def _cpp_field_holds_an_anonymous_type(node, language: str) -> bool:
+    """Is this member's type a struct, union or class spelled in place with no
+    name of its own?"""
+    if language not in _CPP_FIELD_LANGUAGES or node.type != "field_declaration":
+        return False
+    return _cpp_anonymous_container(node.child_by_field_name("type"))
 
 
 def _cpp_declarator_name(declarator, source_bytes: bytes) -> Optional[str]:
