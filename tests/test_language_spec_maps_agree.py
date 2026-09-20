@@ -356,6 +356,10 @@ _EXTRACTION_CHANNELS = {
             # the two languages to lie about its own members to satisfy a test,
             # so a sample may carry its own kind as an optional third element.
             "php": ("a.php", "<?php\nclass A { public $probe = 1; }\n", "property"),
+            # #755. One sample EACH: `arduino` carries its own copy of the C++
+            # spec, and a fix applied to one spec reaches half the product.
+            "cpp": ("a.cpp", "class A {\n  int probe;\n};\n"),
+            "arduino": ("a.ino", "class A {\n  int probe;\n};\n"),
         },
     ),
     "variable_patterns": (
