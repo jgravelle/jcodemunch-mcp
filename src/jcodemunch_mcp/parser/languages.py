@@ -983,6 +983,10 @@ CPP_SPEC = LanguageSpec(
     container_node_types=["class_specifier", "struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
     type_patterns=["class_specifier", "struct_specifier", "union_specifier", "enum_specifier", "type_definition", "alias_declaration"],
+    # #755: a data member. The SAME node type as a member function prototype
+    # (`symbol_node_types` above); `_is_cpp_function_declaration` keeps the two
+    # channels disjoint.
+    field_patterns=["field_declaration"],
 )
 
 
@@ -1026,6 +1030,10 @@ ARDUINO_SPEC = LanguageSpec(
     container_node_types=["class_specifier", "struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
     type_patterns=["class_specifier", "struct_specifier", "union_specifier", "enum_specifier", "type_definition", "alias_declaration"],
+    # #755: a data member. The SAME node type as a member function prototype
+    # (`symbol_node_types` above); `_is_cpp_function_declaration` keeps the two
+    # channels disjoint.
+    field_patterns=["field_declaration"],
 )
 
 

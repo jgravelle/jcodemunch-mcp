@@ -209,6 +209,66 @@ A query the schema rejects is logged at WARNING, since that is a defect in this
 package and DEBUG is where it hid for four months. Thanks to @Torolosko for a
 report that named both call sites and the correct column.
 
+### Fixed - a C++ or Arduino data member is a symbol, and a function-pointer member is data (#755)
+
+`class Holder { int probe; };` indexed as a class and nothing else, while
+`void probe();` in the same position was a method. A struct that is nothing but
+data indexed as an empty name. The grammar spells a data
+member and a member function prototype with ONE node type, `field_declaration`,
+told apart by a `function_declarator`; both specs claimed the node type for
+functions, so everything that path declined had no channel to fall to. #735 in
+a second language family, found by #745's behavioural guard and enumerated by
+the member-kind audit, whose four `#755` cells are closed and deleted here.
+
+Data members go through `field_patterns`, the N-names channel #735 added:
+`int a, b, *c;` is one node and three fields. Pointers, references, arrays,
+bit-fields, default values, `static`, `const` and `mutable` all name their
+member; a local VARIABLE is a different node type and is asserted absent (the
+fields of a function-local NAMED struct are its members and are indexed under
+it, like the struct itself). Ownership
+follows how the member is reached: an anonymous union's members belong to the
+enclosing class (`h.u1`), the members of `struct { int ax; } inst;` belong to
+`inst` (`h.inst.ax`, and to the first holder of `} a, b;`), and the fields of
+`typedef struct { int x; } Point;` belong to `Point`. An anonymous struct that
+nothing owns, a file-scope or function-local object, publishes no fields: a
+member with no owner is #698's defect, and one inside a method would have been
+attributed to the enclosing class. That is asked up the WHOLE chain of anonymous
+types: a struct nested inside one nothing owns is not owned either, which the
+first guard, reading one level, got wrong.
+
+⚠ Two ids that `main` already published move with the owner. A function defined
+inside `typedef struct { void m() {} } T;` was `m#function` and is
+`T.m#method`; a method of `struct { void im(); } inst;` inside `class H` was
+`H.im#method` and is `H.inst.im#method`, its parent a field. Both follow the
+same reach rule as the fields beside them. Both channels ask one question per DECLARATOR,
+`_cpp_declarator_is_function`, so `int g(), y;` is a method and a field and no
+name is ever both.
+
+That predicate changed for members. It asked whether a `function_declarator`
+appeared ANYWHERE in the declaration, so `void (*fp)(int);`, a function-pointer
+member, was indexed as a `method`. It asks which declarator binds the NAME now:
+`fp` is a field, `int (*getfp())(int);` and `int &at(int);` are still methods.
+A pointer-to-member (`void (H::*pmf)();`) is a field too: the grammar errors on
+its `H::` and still exposes the name beside the error.
+⚠ File-scope `declaration` keeps the old rule on purpose. C++ has no channel
+for a file-scope variable, so re-grading `int (*gfp)(int);` there would trade a
+wrong kind for an absence.
+
+`arduino` carries its own copy of the spec and got the same line, with its own
+sample in every register. Three older tests went red and each had encoded the
+absence: two file-summary assertions (`(4 methods)`, `(1 method)`) and a
+`test_languages.py` case whose docstring said "not indexed as functions" and
+whose assertion said "not indexed".
+
+Not indexed, stated: a function in a LATER declarator position (`f` in `int x, f();`),
+because the method channel names a declaration's first declarator; a member
+template variable (`template<class U> static U tv;`), which is not a
+`field_declaration`; the fields of an anonymous struct nothing owns, above;
+and plain C struct fields, which need C to have
+containers first and are #797.
+Existing indexes re-parse under the `PARSER_GENERATION` bump already in this
+block.
+
 ### Fixed - a file summary counts every kind of class state, and names each one (#760)
 
 A class whose members carry any kind but `field` summarised as having none. Java
