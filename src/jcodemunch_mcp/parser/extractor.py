@@ -1594,7 +1594,48 @@ def _is_cpp_function_declaration(node) -> bool:
     declarator = node.child_by_field_name("declarator")
     if not declarator:
         return False
+    if node.type == "field_declaration":
+        # A MEMBER is a function when the declarator that binds its NAME is a
+        # `function_declarator`. `void (*fp)(int);` holds one too, but the name
+        # is bound by the pointer inside it: a function-pointer member is data,
+        # and it was indexed as a method until #755 gave data a channel.
+        # ⚠ `declaration` keeps the subtree rule below: a file-scope variable
+        # has no channel in C++, so re-grading `int (*gfp)(int);` there would
+        # trade a wrong kind for an absence.
+        leaf = _cpp_declarator_leaf(declarator)
+        return leaf.parent is not None and leaf.parent.type == "function_declarator"
     return _has_function_declarator(declarator)
+
+
+#: Declarator nodes between a declaration and the name it binds: `int *p`,
+#: `int &r`, `int arr[3]`, `int (x)`, and the `function_declarator` of both a
+#: prototype and a function pointer.
+_CPP_DECLARATOR_WRAPPERS = frozenset({
+    "pointer_declarator",
+    "reference_declarator",
+    "array_declarator",
+    "parenthesized_declarator",
+    "function_declarator",
+})
+
+
+def _cpp_declarator_leaf(declarator):
+    """The node a declarator finally binds: an identifier, an operator name, a
+    destructor name.
+
+    ⚠ A reference declarator exposes its inner declarator as a CHILD with no
+    field name, where the other forms use the `declarator` field, so both are
+    tried.
+    """
+    node = declarator
+    while node.type in _CPP_DECLARATOR_WRAPPERS:
+        inner = node.child_by_field_name("declarator") or next(
+            (c for c in node.named_children), None
+        )
+        if inner is None:
+            break
+        node = inner
+    return node
 
 
 def _has_function_declarator(node) -> bool:
@@ -2236,7 +2277,56 @@ def _extract_fields(
         return _extract_java_fields(node, source_bytes, filename, language)
     if node.type == "property_declaration" and language == "php":
         return _extract_php_properties(node, source_bytes, filename, language)
+    if node.type == "field_declaration" and language in _CPP_FIELD_LANGUAGES:
+        return _extract_cpp_fields(node, source_bytes, filename, language)
     return []
+
+
+#: The specs whose grammar spells a data member `field_declaration`.
+#:
+#: ⚠ `arduino` carries its own copy of `CPP_SPEC`, and a fix applied to one spec
+#: reaches half the product (#698).
+_CPP_FIELD_LANGUAGES = frozenset({"cpp", "arduino"})
+
+def _cpp_declarator_name(declarator, source_bytes: bytes) -> Optional[str]:
+    """The `field_identifier` a data-member declarator binds, or None."""
+    node = _cpp_declarator_leaf(declarator)
+    if node.type != "field_identifier":
+        return None
+    return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+
+
+def _extract_cpp_fields(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Every C++ data member, N declarators per node (#755).
+
+    ⚠⚠ **The grammar spells a data member and a member function prototype
+    with ONE node type**, told apart by a `function_declarator`.
+    `symbol_node_types` claims `field_declaration` for functions, so everything
+    that path declined -- every data member -- had no channel to fall to: #735
+    in a second language family.
+
+    ⚠⚠ **Both channels ask `_is_cpp_function_declaration`, the predicate
+    `_walk_tree` already gates the function path on.** A second answer to "is
+    this a function?" would emit a prototype twice, once as a method and once
+    as a field, or drop a form both declined. The predicate reads the FIRST
+    declarator, so the (legal, unidiomatic) `int x, f();` yields `x` alone.
+
+    ⚠ No scope gate: C++ spells a local `declaration`, a different node type.
+    `test_cpp_data_members.py` asserts it rather than trusting it (#732).
+    """
+    if _is_cpp_function_declaration(node):
+        return []
+    names = [
+        _cpp_declarator_name(child, source_bytes)
+        for child in node.children_by_field_name("declarator")
+    ]
+    return [
+        _field_symbol(name, node, source_bytes, filename, language)
+        for name in names
+        if name
+    ]
 
 
 

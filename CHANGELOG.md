@@ -154,6 +154,44 @@ A query the schema rejects is logged at WARNING, since that is a defect in this
 package and DEBUG is where it hid for four months. Thanks to @Torolosko for a
 report that named both call sites and the correct column.
 
+### Fixed - a C++ or Arduino data member is a symbol, and a function-pointer member is data (#755)
+
+`class Holder { int probe; };` indexed as a class and nothing else, while
+`void probe();` in the same position was a method. A struct that is nothing but
+data, which is most structs, indexed as an empty name. The grammar spells a data
+member and a member function prototype with ONE node type, `field_declaration`,
+told apart by a `function_declarator`; both specs claimed the node type for
+functions, so everything that path declined had no channel to fall to. #735 in
+a second language family, found by #745's behavioural guard and enumerated by
+the member-kind audit, whose four `#755` cells are closed and deleted here.
+
+Data members go through `field_patterns`, the N-names channel #735 added:
+`int a, b, *c;` is one node and three fields. Pointers, references, arrays,
+bit-fields, default values, `static`, `const` and `mutable` all name their
+member; an anonymous union's members belong to the enclosing class, which is
+the language's own rule; a local is a different node type and is asserted
+absent. Both channels ask one predicate, `_is_cpp_function_declaration`, so a
+declaration is a method or a field and never both.
+
+That predicate changed for members. It asked whether a `function_declarator`
+appeared ANYWHERE in the declaration, so `void (*fp)(int);`, a function-pointer
+member, was indexed as a `method`. It asks which declarator binds the NAME now:
+`fp` is a field, `int (*getfp())(int);` and `int &at(int);` are still methods.
+⚠ File-scope `declaration` keeps the old rule on purpose. C++ has no channel
+for a file-scope variable, so re-grading `int (*gfp)(int);` there would trade a
+wrong kind for an absence.
+
+`arduino` carries its own copy of the spec and got the same line, with its own
+sample in every register. Three older tests went red and each had encoded the
+absence: two file-summary assertions (`(4 methods)`, `(1 method)`) and a
+`test_languages.py` case whose docstring said "not indexed as functions" and
+whose assertion said "not indexed". Not ruled on, stated: `int x, f();` yields
+`x` alone (the predicate reads the first declarator), a pointer-to-member
+(`void (H::*pmf)();`) is absent, and plain C struct fields are still not
+indexed, which needs C to have containers first and is #797.
+Existing indexes re-parse under the `PARSER_GENERATION` bump already in this
+block.
+
 ### Fixed - a file summary counts every kind of class state, and names each one (#760)
 
 A class whose members carry any kind but `field` summarised as having none. Java

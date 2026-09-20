@@ -1039,7 +1039,11 @@ def test_parse_cpp_declaration_filter_ignores_variables():
     """Variable declarations should not be indexed as functions in C++."""
     symbols = parse_file(CPP_EDGE_SOURCE, "edge.cpp", "cpp")
     variable_names = {"value"}
-    assert all(s.name not in variable_names for s in symbols)
+    # ⚠ This asserted the name was ABSENT, which is more than the sentence above
+    # says and was only true while a data member had no channel (#755). The
+    # property is the kind: never a function or a method.
+    kinds = {s.name: s.kind for s in symbols if s.name in variable_names}
+    assert kinds == {"value": "field"}
 
 
 def test_parse_cpp_mixed_header_deterministic_selection():

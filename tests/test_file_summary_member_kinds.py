@@ -236,8 +236,10 @@ def test_a_namespaced_class_counts_its_members():
     syms = parse_file(fixture.read_text(encoding="utf-8"), "cpp/sample.cpp", "cpp")
     box = [s for s in syms if s.kind == "class"]
     assert [s.id for s in box] == ["cpp/sample.cpp::sample.Box#class"]
+    # `, 1 field` since #755: `T value_;` is a member the parser never emitted
+    # before, so the closing paren used to follow the methods directly.
     assert _heuristic_summary("cpp/sample.cpp", syms).startswith(
-        "Defines Box class (4 methods)"
+        "Defines Box class (4 methods, 1 field)"
     )
 
 
@@ -401,14 +403,15 @@ def test_naming_the_kind_publishes_whatever_the_parser_decided(
 
 
 def test_cpp_is_not_this_issue():
-    """⚠ A C++ class summarises with no members because its data members yield
-    no symbol AT ALL (#755, open). The summary is faithful to the index, and
-    counting more kinds cannot conjure a symbol the parser never emitted.
+    """A C++ class used to summarise with no state because its data members
+    yielded no symbol AT ALL (#755). This pinned `(1 method)` while #755 was
+    open and said it would fail, correctly, when #755 was fixed. It did.
 
-    Pinned so a reader comparing languages does not read #755's absence as this
-    one's, and so this test fails -- correctly -- when #755 is fixed.
+    The summary was always faithful to the index; the index was missing the
+    members. Same source, the assertion inverted, and the name still true:
+    C++ was never #760's defect.
     """
     source = "class K {\npublic:\n    int a;\n    int b;\n    void m1() {}\n};\n"
     syms = parse_file(source, "K.cpp", "cpp")
-    assert [s.kind for s in syms if s.kind in ("field", "property")] == []
-    assert _summary(source, "K.cpp", "cpp") == "Defines K class (1 method)"
+    assert [s.kind for s in syms if s.kind in ("field", "property")] == ["field", "field"]
+    assert _summary(source, "K.cpp", "cpp") == "Defines K class (1 method, 2 fields)"
