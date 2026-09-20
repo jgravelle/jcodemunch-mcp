@@ -267,15 +267,22 @@ def test_a_method_stays_a_method_in_all_four():
         assert hits[0].kind == "method", (language, hits[0].kind)
 
 
-def test_solidity_ownership_is_a_separate_issue_and_still_open():
-    """⚠ #788 has TWO halves and this PR fixes one. Its members are qualified by
-    the contract's name and carry no `parent`, which is PR 3's family
-    (#774, #776, #779, #782, #778). Pinned so that closing #788 here would fail,
-    and so the owner fix has a witness that flips when it arrives."""
-    members = [
-        s for s in parse_file(_SOLIDITY, "a.sol", "solidity")
-        if s.name in ("LIMIT", "tally")
-    ]
+def test_solidity_ownership_arrived_and_this_is_the_witness():
+    """⚠ #788 had TWO halves. This file fixed the kind half and pinned the
+    other as still open, so that the owner fix would have a witness that
+    flipped when it arrived. It arrived: the five custom parsers ask
+    `_member_of` for the owner id they had already computed, and Solidity's
+    members carry their contract's id.
+
+    ⚠⚠ Kept, inverted, rather than deleted. The pin's job was to notice the
+    change, and a test that records WHICH way a cell moved is worth more than
+    one that recorded only that it was broken -- the `test_cpp_is_not_this_issue`
+    precedent. `test_a_class_member_carries_its_owner.py` is where the property
+    lives for all five languages.
+    """
+    symbols = parse_file(_SOLIDITY, "a.sol", "solidity")
+    owners = {s.id for s in symbols if s.name == "Audit" and s.kind == "class"}
+    members = [s for s in symbols if s.name in ("LIMIT", "tally")]
     assert len(members) == 2
-    assert all(s.parent is None for s in members)
+    assert all(s.parent in owners for s in members)
     assert all((s.qualified_name or "").startswith("Audit.") for s in members)

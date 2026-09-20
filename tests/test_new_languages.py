@@ -297,8 +297,12 @@ def test_solidity_parsing():
     iface = [s for s in symbols if s.name == "IToken"][0]
     assert iface.kind == "type"
     func = [s for s in symbols if s.name == "setValue"][0]
-    assert func.kind == "function"
+    # #788: this asserted `function` for a member of `MyContract`, which is the
+    # defect -- Solidity has had free functions since 0.7.0, so the kind is
+    # decided by whether the declaration has an owner.
+    assert func.kind == "method"
     assert "MyContract" in func.qualified_name
+    assert func.parent == [s for s in symbols if s.name == "MyContract"][0].id
 
 
 # ── Zig ─────────────────────────────────────────────────────────────────────

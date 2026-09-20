@@ -320,8 +320,13 @@ def test_dlang_parsing():
     assert "Person" in names
     assert names["Person"].kind == "class"
     assert "greet" in names
-    assert names["greet"].kind == "function"
+    # #776: this asserted `function` for a member of `Person`, which is the
+    # defect -- D spells a free function and a method with the same node type,
+    # so the owner is the only thing that separates them. `add` above is the
+    # control and stays a `function`.
+    assert names["greet"].kind == "method"
     assert names["greet"].qualified_name == "Person.greet"
+    assert names["greet"].parent == names["Person"].id
     assert "Point" in names
     assert names["Point"].kind == "class"
     assert "struct" in names["Point"].signature

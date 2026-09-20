@@ -1367,6 +1367,32 @@ def solidity_state_variable_kind(node) -> Optional[str]:
     return "constant" if any(c.type == "constant" for c in node.children) else "field"
 
 
+def _member_of(parent: Optional[Symbol], name: str) -> tuple[str, Optional[str]]:
+    """The qualified name and owner id for a member of `parent` (#788).
+
+    ⚠⚠ **ONE function, asked by five custom parsers, and that is the point.**
+    Apex, D, Groovy, Objective-C and Solidity each threaded the enclosing
+    class's NAME down their own walk and rebuilt `f"{scope}.{name}"` by hand,
+    so every one of them qualified its members correctly and left `parent` at
+    None -- invisible to the file summary's member count (#760), to
+    `get_class_hierarchy`, and to every other parent-keyed reader. The owner's
+    id was already computed one frame up and thrown away.
+
+    ⚠ The qualified name is deliberately byte-identical to what those five
+    parsers already emitted, because `make_symbol_id` is keyed on it: this
+    populates `parent` and moves no id.
+    `test_the_qualified_name_does_not_move` is the witness.
+
+    ⚠ `None` in, bare name out. A free function belongs to nothing, and
+    inventing an owner for it is the error #780/#783 kept out of the constant
+    channel.
+    """
+    if parent is None:
+        return name, None
+    owner = parent.qualified_name or parent.name
+    return f"{owner}.{name}", parent.id
+
+
 #: language -> (node, source_bytes) -> kind, consulted by `_extract_symbol`
 #: whenever `symbol_node_types` maps a node to a STATE kind.
 #:
@@ -8004,14 +8030,16 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return ":".join(identifiers) + ":"
         return identifiers[0]
 
-    current_class: list[Optional[str]] = [None]
+    #: The enclosing `@interface`/`@implementation`, as a SYMBOL rather than a
+    #: name (#782). It held the name alone, so every method was qualified
+    #: correctly and owned by nothing.
+    current_class: list[Optional[Symbol]] = [None]
 
     def _walk(node) -> None:
         if node.type in CLASS_NODE_TYPES:
             name = _get_class_name(node)
             if name:
                 prev_class = current_class[0]
-                current_class[0] = name
                 sym = Symbol(
                     id=make_symbol_id(filename, name, CLASS_NODE_TYPES[node.type]),
                     file=filename,
@@ -8028,6 +8056,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 )
                 symbols.append(sym)
+                current_class[0] = sym
                 for child in node.children:
                     _walk(child)
                 current_class[0] = prev_class
@@ -8035,7 +8064,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type in ("method_declaration", "method_definition") and current_class[0]:
             selector = _get_selector(node)
             if selector:
-                qualified = f"{current_class[0]}.{selector}"
+                qualified, owner_id = _member_of(current_class[0], selector)
                 raw_sig = source[node.start_byte:node.start_byte + min(120, node.end_byte - node.start_byte)]
                 sym = Symbol(
                     id=make_symbol_id(filename, qualified, "method"),
@@ -8051,6 +8080,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
                 )
                 symbols.append(sym)
                 return
@@ -9028,7 +9058,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         return t
         return None
 
-    def _walk_commands(nodes, scope: str = "") -> None:
+    def _walk_commands(nodes, parent: Optional[Symbol] = None) -> None:
         """Walk a list of sibling nodes looking for command patterns."""
         for node in nodes:
             if node.type != "command":
@@ -9054,7 +9084,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         class_name = _first_id_in_unit(block_units[0])
 
                 if class_name:
-                    qualified = f"{scope}.{class_name}" if scope else class_name
+                    qualified, owner_id = _member_of(parent, class_name)
                     kind = "type" if first_kw in ("interface", "enum", "trait") else "class"
                     sym = Symbol(
                         id=make_symbol_id(filename, qualified, kind),
@@ -9070,10 +9100,11 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         byte_offset=node.start_byte,
                         byte_length=node.end_byte - node.start_byte,
                         content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                        parent=owner_id,
                     )
                     symbols.append(sym)
                     # Recurse into class body
-                    _walk_commands(block.children, scope=qualified)
+                    _walk_commands(block.children, parent=sym)
                 continue
 
             # Method / function: has a unit containing a func node.
@@ -9087,8 +9118,8 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for unit in units_to_check:
                 method_name = _func_name_in_unit(unit)
                 if method_name:
-                    qualified = f"{scope}.{method_name}" if scope else method_name
-                    kind = "method" if scope else "function"
+                    qualified, owner_id = _member_of(parent, method_name)
+                    kind = "method" if parent is not None else "function"
                     # Build a readable signature from source
                     raw = source[node.start_byte:node.start_byte + min(120, node.end_byte - node.start_byte)]
                     sig = raw.split("{")[0].strip()
@@ -9106,6 +9137,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         byte_offset=node.start_byte,
                         byte_length=node.end_byte - node.start_byte,
                         content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                        parent=owner_id,
                     )
                     symbols.append(sym)
                     break
@@ -11543,12 +11575,12 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         "constructor_definition": "function",
     }
 
-    def _walk(node, scope: str = "") -> None:
+    def _walk(node, parent: Optional[Symbol] = None) -> None:
         if node.type in _CONTRACT_TYPES:
             name = _first_identifier(node)
             if name:
                 kind = _CONTRACT_TYPES[node.type]
-                symbols.append(Symbol(
+                container = Symbol(
                     id=make_symbol_id(filename, name, kind),
                     file=filename, name=name, qualified_name=name,
                     kind=kind, language="solidity",
@@ -11559,11 +11591,12 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                ))
+                )
+                symbols.append(container)
                 for child in node.children:
                     if child.type == "contract_body":
                         for member in child.children:
-                            _walk(member, name)
+                            _walk(member, container)
                 return
 
         if node.type in _MEMBER_TYPES:
@@ -11580,7 +11613,16 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 name = "constructor"
             if name:
                 kind = _MEMBER_TYPES[node.type]
-                qualified = f"{scope}.{name}" if scope else name
+                # #788: every `function_definition` was a `function`, including
+                # the ones inside a contract. Solidity has had free functions
+                # since 0.7.0, so the owner is the only thing that separates
+                # them -- the question `_member_of` just answered, not a second
+                # rule. ⚠ A modifier stays a `function`: it is not a method in
+                # Solidity's own vocabulary, and moving it would re-id a
+                # released language for a question nobody asked.
+                if kind == "function" and parent is not None and node.type == "function_definition":
+                    kind = "method"
+                qualified, owner_id = _member_of(parent, name)
                 sig_line = _text(node).split("{")[0].split(";")[0].strip()
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, kind),
@@ -11593,13 +11635,14 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
                 ))
                 return
 
         if node.type == "state_variable_declaration":
             name = _first_identifier(node)
             if name:
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 # ⚠ `uint tally = 0` is reassignable and was published as a
                 # constant (#788). The rule lives in one place for every
                 # language that asks it; this parser is custom and cannot reach
@@ -11613,11 +11656,12 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     docstring="",
                     line=node.start_point[0] + 1,
                     end_line=node.end_point[0] + 1,
+                    parent=owner_id,
                 ))
                 return
 
         for child in node.children:
-            _walk(child, scope)
+            _walk(child, parent)
 
     _walk(tree.root_node)
     return symbols
@@ -11902,14 +11946,14 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     _CLASS_TYPES = {"class_declaration": "class", "interface_declaration": "type", "enum_declaration": "type"}
 
-    def _walk(node, scope: str = "") -> None:
+    def _walk(node, parent: Optional[Symbol] = None) -> None:
         if node.type in _CLASS_TYPES:
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
                 kind = _CLASS_TYPES[node.type]
-                qualified = f"{scope}.{name}" if scope else name
-                symbols.append(Symbol(
+                qualified, owner_id = _member_of(parent, name)
+                container = Symbol(
                     id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
                     kind=kind, language="apex",
@@ -11920,23 +11964,26 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                ))
+                    parent=owner_id,
+                )
+                symbols.append(container)
                 body = _first_child_of_type(node, "class_body", "interface_body", "enum_body")
                 if body:
                     for child in body.children:
-                        _walk(child, qualified)
+                        _walk(child, container)
                 return
 
         elif node.type == "method_declaration":
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 sig = _text(node).split("{")[0].strip()[:120]
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, "method"),
                     file=filename, name=name, qualified_name=qualified,
                     kind="method", language="apex",
+                    parent=owner_id,
                     signature=sig,
                     docstring="",
                     line=node.start_point[0] + 1,
@@ -11967,7 +12014,7 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
 
         for child in node.children:
-            _walk(child, scope)
+            _walk(child, parent)
 
     _walk(tree.root_node)
     return symbols
@@ -12651,18 +12698,23 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return child
         return None
 
-    def _walk(node, scope: str = ""):
+    def _walk(node, parent: Optional[Symbol] = None):
         if node.type == "module_def":
             # Walk children (module_declaration, then actual definitions)
             for child in node.children:
-                _walk(child, scope)
+                _walk(child, parent)
             return
 
         elif node.type == "function_declaration":
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
+                # #776: a function declared inside an aggregate is a method. D
+                # spells both with `function_declaration`, so the owner is the
+                # only thing that tells them apart -- the same question
+                # `_member_of` just answered, not a second rule.
+                kind = "method" if parent is not None else "function"
                 ret_type = _first_child_of_type(node, "type")
                 params = _first_child_of_type(node, "parameters")
                 sig = ""
@@ -12672,9 +12724,9 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 if params:
                     sig += _text(params)
                 symbols.append(Symbol(
-                    id=make_symbol_id(filename, qualified, "function"),
+                    id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
-                    kind="function", language="dlang",
+                    kind=kind, language="dlang",
                     signature=sig[:120],
                     docstring="",
                     line=node.start_point[0] + 1,
@@ -12682,6 +12734,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
                 ))
             return
 
@@ -12690,9 +12743,9 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 keyword = node.type.replace("_declaration", "")
-                symbols.append(Symbol(
+                container = Symbol(
                     id=make_symbol_id(filename, qualified, "class"),
                     file=filename, name=name, qualified_name=qualified,
                     kind="class", language="dlang",
@@ -12703,19 +12756,21 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                ))
+                    parent=owner_id,
+                )
+                symbols.append(container)
                 # Walk into body for methods
                 body = _first_child_of_type(node, "aggregate_body")
                 if body:
                     for child in body.children:
-                        _walk(child, qualified)
+                        _walk(child, container)
                 return
 
         elif node.type == "enum_declaration":
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, "type"),
                     file=filename, name=name, qualified_name=qualified,
@@ -12727,6 +12782,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
                 ))
             return
 
@@ -12734,7 +12790,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, "function"),
                     file=filename, name=name, qualified_name=qualified,
@@ -12746,11 +12802,12 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
                 ))
             return
 
         for child in node.children:
-            _walk(child, scope)
+            _walk(child, parent)
 
     _walk(tree.root_node)
     return symbols

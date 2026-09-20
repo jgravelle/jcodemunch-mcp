@@ -348,12 +348,12 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "swift": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "scala": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "groovy": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "apex": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
-    "objc": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "groovy": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "apex": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "objc": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
     "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "dlang": {"method": ("function", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "solidity": {"method": ("function", QUALIFIED), "mutable": ("field", QUALIFIED), "immutable": ("constant", QUALIFIED)},
+    "dlang": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
     "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
 }
@@ -361,35 +361,30 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
+    # ⚠⚠ Apex, D, Groovy and Objective-C each lost their OWNERSHIP entry when
+    # the five custom parsers started asking `_member_of` for the owner id
+    # they had already computed. What is left of each issue is the OTHER
+    # mechanism in the same function: the class state these parsers never
+    # extract at all. Solidity has no entry any more -- it already extracted
+    # its state, so #788 closed when ownership arrived.
     ("apex", "immutable"): "#774",
-    ("apex", "method"): "#774",
     ("apex", "mutable"): "#774",
     ("apex", "property"): "#774",
     ("dart", "immutable"): "#775",
     ("dart", "mutable"): "#775",
     ("dlang", "immutable"): "#776",
-    ("dlang", "method"): "#776",
     ("dlang", "mutable"): "#776",
     ("gdscript", "immutable"): "#777",
     ("gdscript", "mutable"): "#777",
     ("go", "method"): "#778",
     ("go", "mutable"): "#778",
     ("groovy", "immutable"): "#779",
-    ("groovy", "method"): "#779",
     ("groovy", "mutable"): "#779",
-    ("objc", "method"): "#782",
     ("objc", "mutable"): "#782",
     ("objc", "property"): "#782",
     ("ruby", "immutable"): "#785",
     ("ruby", "property"): "#785",
     ("rust", "mutable"): "#786",
-    ("solidity", "immutable"): "#788",
-    ("solidity", "method"): "#788",
-    # ⚠ The KIND half of #788 shipped with the mutable-is-not-a-constant fix
-    # and this cell is STILL broken: `field` is right, `QUALIFIED` is not, so
-    # it stays tracked until the ownership family (#774/#776/#779/#782/#778)
-    # reaches Solidity. A cell can be half-fixed; the register is per CELL.
-    ("solidity", "mutable"): "#788",
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:

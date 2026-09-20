@@ -2,6 +2,78 @@
 
 ## [Unreleased]
 
+### Fixed - a class member carries its owner, not just its owner's name (#788)
+
+Apex, D, Groovy, Objective-C and Solidity are parsed by custom extractors rather
+than the spec walk. Each threaded the enclosing class's NAME down its own walk
+and rebuilt `f"{scope}.{name}"` by hand, so every member came back correctly
+qualified — `Audit.runIt` — and carrying `parent=None`. That makes it invisible
+to every parent-keyed reader: the file summary counts members by `parent`
+(#760), `get_class_hierarchy` cannot place them, and the class reports as having
+no members at all. Four of the five get both readers back; see the
+Objective-C carve-out below.
+
+The owner's id was not unavailable. Each parser had computed it one frame up, as
+`make_symbol_id(filename, qualified, kind)`, and threw it away.
+
+**All five ask one function now.** `_member_of(parent, name)` returns the
+qualified name and the owner id together, and the parsers thread the owner
+SYMBOL instead of a scope string. The alternative — `parent=owner.id` at each of
+the ~15 `Symbol(...)` constructions across the five — is the sixth, seventh and
+eighth transcription of one rule, and `java_field_is_constant`'s docstring
+already says what happens next: it works on the day it is written and drifts
+into a gap later.
+
+⚠ **What the ratchet beside it does and does not cover, measured.** It walks the
+ASTs of those five functions and fails on a re-transcription inside them, in
+either spelling — an f-string or a `+ "." +` — and a companion test asserts the
+positive half, that each of the five calls the helper and passes a `parent`. It
+is a hard-coded list of five: a sixth parser inherits nothing from it, and a
+scan over all 27 would fire on the 22 that build a dotted name from a module
+path, an arity or a namespace. The parametrized tests are what grade the five.
+
+⚠⚠ **Objective-C gets the qualified-name half only, and that is #771, not this.**
+`@interface Audit` and `@implementation Audit` are two symbols with one id, so
+`_disambiguate_overloads` renumbers the CLASS to `~1`/`~2` while the member's
+`parent` names the un-suffixed id. `build_symbol_tree` requires
+`symbol.parent in node_map`, so `get_class_hierarchy` still leaves ObjC members
+unplaced — measured at this commit, byte-identical to before. The file summary
+strips the ordinal and does benefit. C# `partial class` and Swift `extension`
+have shipped in that state since #771; this change neither fixes nor worsens it,
+and no consumer errors on the dangling id because all five guard membership
+before dereferencing.
+
+Two kinds move with it, and for the same reason: Solidity has had free functions
+since 0.7.0 and D spells a free function and a method with one node type, so
+both called every contract or class method a `function`. The owner is what
+separates them — the question `_member_of` has just answered, not a second rule.
+A Solidity `modifier` stays a `function`; it is not a method in Solidity's own
+vocabulary and moving it would re-id a released language for a question nobody
+asked.
+
+⚠ **Populating `parent` moves no id.** `make_symbol_id` is keyed on the
+qualified name, and every member of these five was already qualified
+`Owner.member`; `test_the_qualified_name_does_not_move` is the witness, and it
+passed on the red tree. The ids that do move are the two kind changes above.
+
+⚠⚠ **The reported list was not the list.** An AST scan for a custom parser that
+builds a dotted name and never passes `parent=` found twelve more beyond the
+five; probing each narrowed it to three with this exact defect — Zig, PowerShell
+and MATLAB (#809). They are deliberately not in this change: none has a row in
+the member-kind audit, and Zig's kind half moves ids. The scan is what made the
+gap a tracked issue rather than a rediscovery.
+
+⚠ `tests/test_member_state_is_not_a_constant.py::test_solidity_ownership_is_a_separate_issue_and_still_open`
+was written to fail when this arrived, and it did. It is retired into
+`harness/retired.json` and replaced by
+`test_solidity_ownership_arrived_and_this_is_the_witness`, which records which
+way the cell moved rather than only that it was broken. The lesson it carried —
+a cell can be HALF fixed, so the gap register is per cell — is kept.
+
+⚠ #774, #776, #779 and #782 stay open. Each also says "some class members are
+not indexed", which is the second mechanism in the same five functions and ships
+next, on top of this helper.
+
 ### Fixed - a member you can reassign is not a constant (#769, #770, #787, #788)
 
 A C# field and auto-property, a Swift `var`, a Scala `var` and a Solidity state
