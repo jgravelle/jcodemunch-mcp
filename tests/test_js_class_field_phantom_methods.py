@@ -185,7 +185,10 @@ def test_fix_renames_and_never_removes():
     finally:
         ex._JS_CLASS_FIELD_NODE_TYPES = saved
 
-    assert len(before) == len(after) == 5, (
+    # 7 since #781, which indexes the two FIELDS themselves (`handlers`, `cb`)
+    # on both sides of the toggle; it was 5. The property is the equality: the
+    # #571 walker renames what a field holds and removes nothing.
+    assert len(before) == len(after) == 7, (
         f"symbol COUNT changed: {len(before)} -> {len(after)}. A removal means "
         f"this needs a PARSER_GENERATION bump."
     )

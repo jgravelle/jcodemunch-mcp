@@ -431,6 +431,42 @@ was written to FAIL when this gap closed and it did; it is retired in
 `harness/retired.json` with the replacement that carries its lesson.
 
 
+### Changed - a JavaScript, TypeScript or TSX class field is a symbol (#781)
+
+`tally = 0;` in a class body yielded no symbol, so a class read as methods-only,
+and a React class component lost every arrow-function handler
+(`onDone = () => {}`) with it. The grammars spell the member `field_definition`
+(JS) and `public_field_definition` (TS, TSX) and no channel named either.
+Indexed under the same 2026-09-19 ruling as Python's class state (#784), and
+enumerated by the member-kind audit, whose five `#781` cells are closed and
+deleted here.
+
+A field whose VALUE is a function is a `method`, the way a module-level
+`const f = () => {}` is already a `function` and not a `constant`. A TypeScript
+`readonly` field is a `constant`, because the language says so; JavaScript has
+no immutable field, so no JS field is one. Anything else is a `field`. `static`,
+`#private`, `declare`, `abstract`, optional and definite (`!`) fields all name
+their member. A computed key (`['k'] = 1`) is an expression and adds nothing.
+What a field HOLDS is still attributed to the field and never to the class
+(#571's guard, asserted again here).
+
+⚠⚠ **This moves symbol counts and moves no grade.** On NestJS
+(`packages/`, 823 files), from `symbol_growth.txt` of this change: 3975 symbols
+to 4555, as 349 fields, 223 more constants and 8 more methods. The grading tools
+read `function` and `method` alone, so only those 8 can reach a grade. Existing
+indexes re-parse under the `PARSER_GENERATION` bump already in this block.
+
+⚠ The channel is gated on the spec and NOT on `_JS_CLASS_FIELD_NODE_TYPES`.
+That set is #571's walker switch, and `test_fix_renames_and_never_removes`
+empties it to reproduce the pre-#571 walk; reading it here made that emulation
+delete fields, which the test caught. Its count literal moved from 5 to 7 (the
+two fields themselves); its property, that the toggle removes nothing, holds.
+
+Not indexed, stated: a TypeScript constructor parameter property
+(`constructor(private readonly svc: Svc) {}`), which is most of a NestJS or
+Angular class's state and is a different node with a different owner (#802);
+and an interface's property signatures, which are not class state.
+
 ### Fixed - a Julia macro and every wrapped type head are symbols (#748, #749)
 
 A Julia macro yielded no symbol, and a `struct` or `abstract type` yielded one

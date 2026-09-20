@@ -356,6 +356,11 @@ _EXTRACTION_CHANNELS = {
             # the two languages to lie about its own members to satisfy a test,
             # so a sample may carry its own kind as an optional third element.
             "php": ("a.php", "<?php\nclass A { public $probe = 1; }\n", "property"),
+            # #781. One sample EACH: the three specs are copies, and the two
+            # grammars spell the form differently.
+            "javascript": ("a.js", "class A {\n  probe = 1;\n}\n"),
+            "typescript": ("a.ts", "class A {\n  probe: number = 1;\n}\n"),
+            "tsx": ("a.tsx", "class A {\n  probe: number = 1;\n}\n"),
         },
     ),
     "variable_patterns": (

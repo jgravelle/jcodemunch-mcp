@@ -263,7 +263,6 @@
       "package_declaration"
     ],
     "javascript": [
-      "field_definition",
       "using_declaration"
     ],
     "julia": [
@@ -388,12 +387,10 @@
       "tuple_type_item"
     ],
     "tsx": [
-      "ambient_declaration",
-      "public_field_definition"
+      "ambient_declaration"
     ],
     "typescript": [
-      "ambient_declaration",
-      "public_field_definition"
+      "ambient_declaration"
     ]
   }
 }

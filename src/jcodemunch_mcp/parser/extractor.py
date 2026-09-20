@@ -2238,9 +2238,62 @@ def _extract_fields(
         return _extract_java_fields(node, source_bytes, filename, language)
     if node.type == "property_declaration" and language == "php":
         return _extract_php_properties(node, source_bytes, filename, language)
+    # ⚠ Gated on the SPEC's `field_patterns` by the caller, deliberately NOT on
+    # `_JS_CLASS_FIELD_NODE_TYPES`: that set is #571's walker switch, and
+    # `test_fix_renames_and_never_removes` empties it to reproduce the pre-#571
+    # walk. Reading it here would make that emulation delete fields too.
+    if language in _JS_BINDING_LANGUAGES and node.type in ("field_definition", "public_field_definition"):
+        return _extract_js_class_field(node, source_bytes, filename, language)
     return []
 
 
+
+
+#: Values that make a class field a callable member.
+_JS_FUNCTION_VALUE_TYPES = frozenset({
+    "arrow_function",
+    "function_expression",
+    "generator_function",
+})
+
+
+def _extract_js_class_field(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """A JS, TS or TSX class field (#781).
+
+    `tally = 0;` in a class body yielded no symbol, so a class read as
+    methods-only and a React class component lost every arrow-function handler.
+    Class state is indexed by the owner's 2026-09-19 ruling (#784).
+
+    - A field whose VALUE is a function is a `method`, the way a module-level
+      `const f = () => {}` is a `function` and not a `constant`.
+    - A TypeScript `readonly` field is a `constant`: the language says so.
+      JavaScript has no immutable field, so no JS field is one.
+    - Anything else is a `field`.
+
+    ⚠ The two grammars disagree on the name's field name (`property` in JS,
+    `name` in TS and TSX), the same trap `_js_field_scope` records. A COMPUTED
+    key (`['k'] = 1`) is an expression, not a name, and yields nothing.
+
+    ⚠ What the field HOLDS is walked separately and attributed to the field,
+    never to the class (`_js_field_scope`, #571). This only names the member.
+    """
+    name_node = node.child_by_field_name("property") or node.child_by_field_name("name")
+    if name_node is None or name_node.type not in (
+        "property_identifier",
+        "private_property_identifier",
+    ):
+        return []
+    name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+    value = node.child_by_field_name("value")
+    if value is not None and value.type in _JS_FUNCTION_VALUE_TYPES:
+        kind = "method"
+    elif any(child.type == "readonly" for child in node.children):
+        kind = "constant"
+    else:
+        kind = "field"
+    return [_field_symbol(name, node, source_bytes, filename, language, kind)]
 
 
 # ---------------------------------------------------------------------------

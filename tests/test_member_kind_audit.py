@@ -335,9 +335,9 @@ _NOT_SAMPLED: dict[str, str] = {
 #: Written by observation, then frozen. A cell is (kind or ABSENT, ownership).
 _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "python": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "javascript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "typescript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "tsx": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "javascript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "property": ("method", OWNED)},
+    "typescript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("method", OWNED)},
+    "tsx": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("method", OWNED)},
     "java": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", NO_OWNER)},
     "csharp": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED), "property": ("constant", OWNED)},
     "cpp": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
@@ -384,7 +384,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("groovy", "method"): "#779",
     ("groovy", "mutable"): "#779",
     ("java", "immutable"): "#780",
-    ("javascript", "mutable"): "#781",
     ("objc", "method"): "#782",
     ("objc", "mutable"): "#782",
     ("objc", "property"): "#782",
@@ -400,10 +399,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("solidity", "mutable"): "#788",
     ("swift", "mutable"): "#769",
     ("swift", "property"): "#769",
-    ("tsx", "immutable"): "#781",
-    ("tsx", "mutable"): "#781",
-    ("typescript", "immutable"): "#781",
-    ("typescript", "mutable"): "#781",
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:

@@ -363,6 +363,10 @@ JAVASCRIPT_SPEC = LanguageSpec(
     constant_patterns=["lexical_declaration"],
     # `const` and `let` are the same node type; `var` is its own (#741, #742).
     variable_patterns=["lexical_declaration", "variable_declaration"],
+    # #781: a class field. JS spells it `field_definition`, TS and TSX
+    # `public_field_definition`; the three specs are copies and each needs
+    # its own line (#698).
+    field_patterns=["field_definition"],
     type_patterns=[],
 )
 
@@ -415,6 +419,10 @@ TSX_SPEC = LanguageSpec(
     constant_patterns=["lexical_declaration"],
     # `const` and `let` are the same node type; `var` is its own (#741, #742).
     variable_patterns=["lexical_declaration", "variable_declaration"],
+    # #781: a class field. JS spells it `field_definition`, TS and TSX
+    # `public_field_definition`; the three specs are copies and each needs
+    # its own line (#698).
+    field_patterns=["public_field_definition"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
@@ -475,6 +483,10 @@ TYPESCRIPT_SPEC = LanguageSpec(
     constant_patterns=["lexical_declaration"],
     # `const` and `let` are the same node type; `var` is its own (#741, #742).
     variable_patterns=["lexical_declaration", "variable_declaration"],
+    # #781: a class field. JS spells it `field_definition`, TS and TSX
+    # `public_field_definition`; the three specs are copies and each needs
+    # its own line (#698).
+    field_patterns=["public_field_definition"],
     type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
