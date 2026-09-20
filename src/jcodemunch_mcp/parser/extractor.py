@@ -1071,6 +1071,21 @@ def _extract_symbol(
         refine = _STATE_KIND_REFINERS.get(language)
         if refine is not None:
             kind = refine(node, source_bytes) or kind
+        # ⚠⚠ A MEMBER word for something that belongs to no type is the other
+        # half of #769's own sentence: "`variable` is the module-scope word and
+        # a class member belongs to a type." `KIND_ORDER` says the same where
+        # `variable` is defined -- reusing `property` for a top-level binding
+        # "would mix module bindings into every consumer asking about a class's
+        # members." The first draft of #769/#787 took the class half and left a
+        # Swift top-level `var` reading `property` with `parent=None`.
+        #
+        # ⚠ Generic, not per language, because the question is not about a
+        # grammar: a binding with no container to own it is module scope in
+        # every language that has one. Java, PHP and C++ fields are unaffected
+        # by construction -- their declarations only occur inside a type -- and
+        # the `field_patterns` channel is a different code path entirely.
+        if kind in _MEMBER_ONLY_STATE_KINDS and not parent_is_container:
+            kind = "variable"
 
     # Extract name first. A cleanly-named symbol is kept even when a syntax
     # error sits deeper in its body: the old blanket `node.has_error` bail
@@ -1371,6 +1386,14 @@ _STATE_KIND_REFINERS: dict[str, Any] = {
     "csharp": _csharp_member_kind,
     "swift": _swift_member_kind,
 }
+
+#: The state kinds that assert MEMBERSHIP of a type. A binding with no container
+#: to own it cannot carry one; `variable` is the module-scope word (`KIND_ORDER`).
+#:
+#: ⚠ `constant` is deliberately absent: a top-level `let`, `val` or `const` is a
+#: constant wherever it sits, and demoting it would change what a module-scope
+#: immutable has always been indexed as.
+_MEMBER_ONLY_STATE_KINDS = frozenset({"field", "property"})
 
 
 def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str]:

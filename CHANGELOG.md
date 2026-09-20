@@ -54,10 +54,32 @@ pinned to the wrong output and is inverted, not retired, the way
 contract's name and carry no `parent`, so its cell stays in `_GAPS` and it
 closes with the ownership family (#774, #776, #779, #782, #778), not here.
 
+⚠⚠ **A binding with no type to belong to is a `variable`, not a member kind**,
+and the first draft of this change got that wrong: a Swift top-level `var` came
+out `property` with `parent=None`. #769 says it in one sentence -- "`variable`
+is the module-scope word and a class member belongs to a type" -- and this fix
+had taken the class half. `KIND_ORDER`'s own entry for `variable` gives the
+cost: reusing a member kind for a module binding mixes it into every consumer
+asking about a class's members. The demotion is generic rather than per
+language, because a binding with no container to own it is module scope in
+every language that has one. Found in review; the fixture held only class
+bodies, so nothing in the change could fail on it (#699's lesson, inside the
+fix for it).
+
 Ids move for these members (`Cs.counter#constant` becomes `Cs.counter#field`).
 ⚠ `PARSER_GENERATION` is NOT bumped: #732 took it 7 to 8 and that bump is still
 under `[Unreleased]`, so any index a release of this can reach re-parses under
 it already.
+
+⚠ **#806 is filed from this change and is NOT fixed here.** Five tools
+(`get_group_contracts`, `get_repo_map`, `get_repo_outline`,
+`get_symbol_importance`, `find_implementations`) carry a literal kind set that
+predates `field` and `property`, so a member arriving under its real kind is
+excluded outright or ranked by an unchosen default. The gap is older than this
+fix -- Java fields, PHP and Kotlin properties, C++ data members and Python/JS
+class state already land there -- and this widens it to four more languages,
+which is what made it visible. `STATE_KINDS` exists for exactly this and
+`file_summarize` already asks it (#760).
 
 ### Fixed - a class constant is owned by its class, in every language that has one (#780, #783)
 

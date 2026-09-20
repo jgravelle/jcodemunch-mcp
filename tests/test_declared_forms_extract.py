@@ -210,7 +210,12 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "trait_definition": ("a.scala", "trait Probe\n"),
         "type_definition": ("a.scala", "type Probe = String\n"),
         "val_definition": ("a.scala", "val probe = 1\n"),
-        "var_definition": ("a.scala", "var probe = 1\n"),
+        # ⚠ IN A CLASS, unlike `val_definition` above, and the difference is the
+        # declared kind. `var_definition` is a `field`, and a field asserts
+        # membership of a type -- at module scope the same declaration is a
+        # `variable` (#769/#787). A file-scope sample would test the spec's row
+        # against a kind that row does not claim there.
+        "var_definition": ("a.scala", "class Holder {\n  var probe = 1\n}\n"),
     },
     "swift": {
         "class_declaration": ("a.swift", "class Probe {}\n"),

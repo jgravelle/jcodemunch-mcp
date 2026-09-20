@@ -154,6 +154,49 @@ def test_csharp_static_readonly_is_a_field_and_that_is_a_ruling():
     assert _kinds("csharp", "Audit.cs", _CSHARP)["Ro"] == "field"
 
 
+#: (language, filename, source, {name: kind}) at MODULE scope, where nothing
+#: owns the binding. The mutable one is `variable`, never a member word.
+_MODULE_SCOPE: list[tuple[str, str, str, dict[str, str]]] = [
+    ("swift", "top.swift", "let topLet = 1\nvar topVar = 2\n",
+     {"topLet": "constant", "topVar": "variable"}),
+    ("scala", "top.scala", "val topVal = 1\nvar topTally = 0\n",
+     {"topVal": "constant", "topTally": "variable"}),
+    ("csharp", "Top.cs", "class Holder {\n    int inner = 0;\n}\n",
+     {"inner": "field"}),
+]
+
+
+@pytest.mark.parametrize(
+    "language,filename,source,expected", _MODULE_SCOPE,
+    ids=[r[0] for r in _MODULE_SCOPE],
+)
+def test_a_binding_with_no_type_to_belong_to_is_a_variable(
+    language, filename, source, expected
+):
+    """⚠⚠ The half the first draft of this fix dropped, and the fixture above
+    could not have caught it.
+
+    #769 says it in one sentence: "`variable` is the module-scope word and a
+    class member belongs to a type." Giving Swift's `property_declaration` the
+    kind `property` is right inside a class and wrong at file scope, where a
+    top-level `var` came out `property` with `parent=None`. `KIND_ORDER`'s own
+    entry for `variable` gives the reason: reusing a member kind for a module
+    binding mixes it into every consumer asking about a class's members.
+
+    ⚠ The C# row is the control. Its members only occur inside a type, so it
+    must NOT move -- a demotion rule written too widely would take it.
+    """
+    assert _kinds(language, filename, source) == expected
+
+
+def test_the_class_sample_and_the_module_sample_disagree_on_purpose():
+    """Non-vacuity for the rule above: the SAME declaration yields a different
+    kind by scope, so a rule that ignored scope cannot pass both."""
+    in_class = _kinds("swift", "Audit.swift", _SWIFT)["tally"]
+    at_module = _kinds("swift", "top.swift", "var topVar = 2\n")["topVar"]
+    assert (in_class, at_module) == ("property", "variable")
+
+
 def test_a_method_stays_a_method_in_all_four():
     """The channel next door, unmoved. A predicate that reclassified too widely
     would take the methods with it, and no assertion above would see it."""
