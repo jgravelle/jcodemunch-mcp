@@ -116,6 +116,52 @@ def test_one_declaration_binding_two_names_owns_both():
     assert {s.qualified_name for s in symbols if s.kind == "constant"} == {"A.X", "A.Y"}
 
 
+def test_a_kotlin_const_val_in_a_companion_object_is_owned_by_the_CLASS():
+    """The form the prose names, which the roster sample does not exercise.
+
+    ⚠ `_CLASS_SCOPED` uses a SCREAMING_CASE `val` for Kotlin, and `const val` is
+    the spelling every docstring and the CHANGELOG entry reach for. They are
+    different declarations and only one of them was under a test; review caught
+    that the named one was not.
+
+    ⚠⚠ The owner is `Audit`, not the companion object. A companion object is not
+    a symbol here, so `parent_symbol` at that depth is still the class -- which
+    is the answer a reader wants (`Audit.LIMIT` is how the constant is written
+    at the call site) and is worth pinning rather than leaving to inspection.
+    """
+    symbols = _symbols("kotlin", "Audit.kt", (
+        "class Audit {\n"
+        "    companion object { const val LIMIT = 3 }\n"
+        "}\n"
+    ))
+    owner = _one(symbols, "Audit")
+    assert owner.kind == "class"
+    member = _one(symbols, "LIMIT")
+    assert member.kind == "constant"
+    assert member.parent == owner.id
+    assert member.qualified_name == "Audit.LIMIT"
+
+
+def test_two_classes_sharing_a_constant_name_no_longer_collide():
+    """The second-order consequence, and the one that ADDS symbols to an index.
+
+    ⚠⚠ Before the fix both constants minted the SAME id (`x.php::K#constant`),
+    because the id is built from the qualified name and both were bare. Two
+    declarations sharing one id is the shape #571 and #741 each paid for: one of
+    them is unreachable by lookup. Qualifying separates them, so a file holding
+    two same-named class constants gains a distinct symbol rather than merely
+    renaming one.
+    """
+    symbols = _symbols("php", "x.php", (
+        "<?php\n"
+        "class A { const K = 1; }\n"
+        "class B { const K = 2; }\n"
+    ))
+    ids = [s.id for s in symbols if s.kind == "constant"]
+    assert ids == ["x.php::A.K#constant", "x.php::B.K#constant"]
+    assert len(set(ids)) == 2
+
+
 def test_a_file_scope_constant_stays_bare():
     """The other half, and the one a widening would break.
 
