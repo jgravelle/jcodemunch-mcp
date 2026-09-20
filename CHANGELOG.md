@@ -34,7 +34,10 @@ name from a module path, an arity or a namespace. The parametrized tests are
 what grade the five. And a parser can pass `parent=` at one construction and
 not another: dropping it from the NESTED-class site alone left every ratchet
 green, so `test_a_nested_class_owns_its_members_and_is_owned_itself` pins both
-links of `Outer -> Inner -> member` in the three languages whose walks recurse.
+links of `Outer -> Inner -> member` in the three languages whose walks recurse,
+and `test_a_d_aggregate_owns_its_enum_and_its_template_too` closes the last two
+sites no fixture reached. All 12 owner sites across the five are gated, each
+demonstrated by deleting it and watching exactly one test fire.
 
 ⚠⚠ **Objective-C gets the qualified-name half only, and that is #771, not this.**
 `@interface Audit` and `@implementation Audit` are two symbols with one id, so

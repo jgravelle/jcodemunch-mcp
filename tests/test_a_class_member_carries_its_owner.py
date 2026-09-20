@@ -202,6 +202,33 @@ def test_a_nested_class_owns_its_members_and_is_owned_itself(
     assert member.qualified_name == "Outer.Inner.runIt"
 
 
+def test_a_d_aggregate_owns_its_enum_and_its_template_too():
+    """⚠⚠ The last two ungated owner sites, named rather than left to be found.
+
+    `_parse_dlang_symbols` passes `parent=` at FOUR constructions, and the
+    tests above reach two of them. Deleting it from the `enum_declaration` or
+    `template_declaration` site left the whole file at 21 passed, because no
+    fixture anywhere in this repo declares either inside an aggregate. Both
+    are members of the class by D's own rules, so both are asserted.
+
+    ⚠ `template` yields kind `function` and that is this parser's existing
+    convention, unexamined here; only the owner is the claim.
+    """
+    source = (
+        "class Outer {\n"
+        "    enum Color { red, green }\n"
+        "    template Wrap(T) { alias Wrap = T; }\n"
+        "    int runIt() { return 1; }\n"
+        "}\n"
+    )
+    found = _by_name("dlang", "outer.d", source)
+    outer = found["Outer"][0]
+    for name, qualified in (("Color", "Outer.Color"), ("Wrap", "Outer.Wrap")):
+        hit = found[name][0]
+        assert hit.parent == outer.id, (name, hit.parent, outer.id)
+        assert hit.qualified_name == qualified, (name, hit.qualified_name)
+
+
 def test_objc_is_the_only_language_here_that_needs_the_ordinal_stripped():
     """Non-vacuity for the helper above: it must not be quietly load-bearing
     for the other four.
@@ -408,10 +435,21 @@ def test_every_governed_parser_asks_the_helper():
         }
         if "_member_of" not in calls:
             missing.append(f"{target}: never calls _member_of")
-        parents = [
-            n for n in ast.walk(tree)
-            if isinstance(n, ast.keyword) and n.arg == "parent"
+        # ⚠ `Symbol(...)` calls ONLY. A first draft counted any `parent=`
+        # keyword in the function, and Groovy's recursion is
+        # `_walk_commands(block.children, parent=sym)` -- so dropping BOTH of
+        # its `Symbol(parent=...)` sites left this green while its message
+        # said "never passes parent= to Symbol(...)". A message that overstates
+        # its own scan is the thing this file keeps finding elsewhere.
+        symbol_parents = [
+            kw
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "Symbol"
+            for kw in n.keywords
+            if kw.arg == "parent"
         ]
-        if not parents:
+        if not symbol_parents:
             missing.append(f"{target}: never passes parent= to Symbol(...)")
     assert missing == [], missing
