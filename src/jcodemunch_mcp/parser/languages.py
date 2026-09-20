@@ -1551,26 +1551,37 @@ SCALA_SPEC = LanguageSpec(
 
 
 # Haskell specification
-# NOTE: Haskell's tree-sitter grammar represents declarations as complex nested
-# nodes without standard named fields. Full extraction is deferred to a future
-# custom parser. Files are indexed for text search; symbol extraction is minimal.
+# NOTE: extraction is `extractor._parse_haskell_symbols` (#722), because one
+# function is N sibling nodes (a signature plus a node per clause). This spec
+# describes the node types that parser reads. ⚠ `type_synomym` is the grammar's
+# own spelling; "minimal extraction" here meant NONE until #722.
 HASKELL_SPEC = LanguageSpec(
     ts_language="haskell",
     symbol_node_types={
         "function": "function",
+        "bind": "function",
         "data_type": "type",
-        "type_synon": "type",
+        "type_synomym": "type",
         "newtype": "type",
-        "class": "type",
+        "class": "class",
+        "instance": "class",
     },
-    name_fields={},
+    name_fields={
+        "function": "name",
+        "bind": "name",
+        "data_type": "name",
+        "type_synomym": "name",
+        "newtype": "name",
+        "class": "name",
+        "instance": "name",
+    },
     param_fields={},
     return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=["data_type", "type_synon", "newtype"],
+    type_patterns=["data_type", "type_synomym", "newtype"],
 )
 
 

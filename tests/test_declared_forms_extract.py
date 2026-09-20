@@ -129,11 +129,13 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "type_declaration": ("a.go", "package p\n\ntype Probe struct{}\n"),
     },
     "haskell": {
+        "bind": ("a.hs", "probe :: Int\nprobe = 1\n"),
         "class": ("a.hs", "class Probe a where\n  probe :: a -> Int\n"),
+        "instance": ("a.hs", "data T = T\ninstance Probe T where\n  probe _ = 1\n"),
         "data_type": ("a.hs", "data Probe = Probe Int\n"),
         "function": ("a.hs", "probe :: Int -> Int\nprobe x = x\n"),
         "newtype": ("a.hs", "newtype Probe = Probe Int\n"),
-        "type_synon": ("a.hs", "type Probe = Int\n"),
+        "type_synomym": ("a.hs", "type Probe = Int\n"),
     },
     "java": {
         "annotation_type_declaration": ("A.java", "public @interface Probe { }\n"),
@@ -260,17 +262,8 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
 #: `_CONFIRMED_GAPS` has and #712's `_KNOWN_GAPS` has; an excuse list without
 #: it is the record that survives its own repair.
 _KNOWN_GAPS: dict[str, dict[str, str]] = {
-    # #722: `name_fields` is EMPTY and `type_synon` is not the grammar's
-    # spelling (it is `type_synomym`, upstream's typo), so the language
-    # extracts nothing at all. Every declared form fails, which is why this is
-    # the whole spec rather than a row.
-    "haskell": {
-        "class": "#722: haskell extracts nothing",
-        "data_type": "#722: haskell extracts nothing",
-        "function": "#722: haskell extracts nothing",
-        "newtype": "#722: haskell extracts nothing",
-        "type_synon": "#722: haskell extracts nothing, and this is not the grammar's spelling",
-    },
+    # #722 (the whole Haskell spec, which extracted nothing) left by the usual
+    # route: the forms extract, this file's guard said so, the entry went.
     # ⚠⚠ #743 was the motivating instance and its entry is GONE, but NOT by the
     # usual route. `test_a_known_gap_is_still_a_gap` fails when a gap closes
     # while the form stays declared; this form stopped being DECLARED at all --
