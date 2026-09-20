@@ -672,18 +672,21 @@ def test_parse_csharp():
     assert record is not None
     assert record.kind == "class"
 
-    # Properties, Fields, Constants, Events, Destructors
+    # Properties, Fields, Constants, Events, Destructors. ⚠ This block named
+    # four different member kinds and asserted `constant` for all of them, which
+    # is #770 stated in its own section heading: CSHARP_SPEC mapped every one of
+    # the four node types to the literal `constant`.
     prop = next((s for s in symbols if s.name == "Id"), None)
     assert prop is not None
-    assert prop.kind == "constant"
+    assert prop.kind == "property"
     
     field = next((s for s in symbols if s.name == "Username"), None)
     assert field is not None
-    assert field.kind == "constant"
+    assert field.kind == "field"
     
     multi_field = next((s for s in symbols if s.name == "MultiA"), None)
     assert multi_field is not None
-    assert multi_field.kind == "constant"
+    assert multi_field.kind == "field"
     # Note: jcodemunch implements a 1:1 mapping between AST nodes and symbols. 
     # Therefore, a single field_declaration node with multiple variable_declarators 
     # will only be indexed under the name of the first declarator (MultiA).
@@ -695,7 +698,7 @@ def test_parse_csharp():
     
     evt = next((s for s in symbols if s.name == "OnLogin"), None)
     assert evt is not None
-    assert evt.kind == "constant"
+    assert evt.kind == "field"
     
     dtor = next((s for s in symbols if s.name == "ComplexEntity" and s.kind == "method"), None)
     assert dtor is not None

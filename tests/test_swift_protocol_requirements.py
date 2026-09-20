@@ -75,7 +75,7 @@ def test_a_protocol_method_requirement_is_a_symbol():
 
 
 def test_a_protocol_property_requirement_is_a_symbol():
-    assert ("value", "constant") in pairs(REPORTED)
+    assert ("value", "property") in pairs(REPORTED)
 
 
 def test_a_subscript_is_a_symbol():
@@ -91,7 +91,7 @@ def test_the_reported_case_in_full():
     assert pairs(REPORTED) == {
         ("P", "type"),
         ("required", "method"),
-        ("value", "constant"),
+        ("value", "property"),
         ("S", "class"),
         ("subscript[]", "method"),
         ("ordinary", "method"),
@@ -105,7 +105,7 @@ def test_a_requirement_is_owned_by_the_protocol_that_declares_it():
     """
     assert {
         ("required", "method", "P.required"),
-        ("value", "constant", "P.value"),
+        ("value", "property", "P.value"),
     } <= qualified(REPORTED)
 
 
@@ -125,15 +125,18 @@ def test_a_protocol_property_requirement_drops_its_binding_keyword():
 
 def test_a_get_set_requirement_is_a_symbol():
     """A settable requirement is the same node type and must not be treated as
-    a different form. ⚠ It takes kind `constant` because SWIFT_SPEC maps every
-    `property_declaration` that way, including a mutable `var`; that convention
-    is pre-existing and changing it moves every Swift symbol's kind.
+    a different form. ⚠⚠ It took kind `constant` because SWIFT_SPEC mapped every
+    `property_declaration` that way, including a mutable `var`. This docstring
+    recorded that as pre-existing and warned that changing it moves every Swift
+    symbol's kind. #769 made exactly that change: a `var` is a `property` now,
+    and the kinds here moved with it. The form this test is about -- a settable
+    requirement being the same node type as a gettable one -- is unchanged.
     """
     source = """protocol P {
   var rw: Int { get set }
 }
 """
-    assert pairs(source) == {("P", "type"), ("rw", "constant")}
+    assert pairs(source) == {("P", "type"), ("rw", "property")}
 
 
 def test_a_static_requirement_is_a_symbol():
@@ -167,7 +170,7 @@ OTHER_SHAPES = {
     ),
     "static property requirement": (
         "protocol P {\n  static var shared: P { get }\n}\n",
-        ("shared", "constant"),
+        ("shared", "property"),
     ),
     "generic subscript": (
         "struct S {\n  subscript<T>(i: T) -> T { return i }\n}\n",
@@ -582,7 +585,7 @@ def test_an_ordinary_property_keeps_its_bare_name():
   var x = 2
 }
 """
-    assert pairs(source) == {("S", "class"), ("MAX", "constant"), ("x", "constant")}
+    assert pairs(source) == {("S", "class"), ("MAX", "constant"), ("x", "property")}
 
 
 def test_a_tuple_binding_is_a_known_separate_gap():

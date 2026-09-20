@@ -48,7 +48,9 @@ def test_parse_razor_mixed_symbols():
 
     csharp_field = next((s for s in symbols if s.name == "Count"), None)
     assert csharp_field is not None
-    assert csharp_field.kind == "constant"
+    # ⚠ A Razor `@functions` block is parsed AS C#, so it inherits #770: this
+    # local was already named `csharp_field` and asserted `constant`.
+    assert csharp_field.kind == "field"
     assert csharp_field.language == "csharp"
     assert csharp_field.parent == view.id
 

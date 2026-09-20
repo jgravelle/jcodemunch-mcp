@@ -73,10 +73,12 @@ def test_parse_scala3():
     assert val_field is not None
     assert val_field.kind == "constant"
 
-    # var field
+    # var field. #787: a `var` is a `field`, and this line called it one while
+    # asserting `constant` -- SCALA_SPEC mapped `var_definition` to the literal
+    # `constant` and nothing consulted the node type.
     var_field = next((s for s in symbols if s.name == "mutableCount"), None)
     assert var_field is not None
-    assert var_field.kind == "constant"
+    assert var_field.kind == "field"
 
     # type alias
     alias = next((s for s in symbols if s.name == "MyAlias"), None)
@@ -93,10 +95,11 @@ def test_parse_scala3():
     assert obj_val is not None
     assert obj_val.kind == "constant"
 
-    # var in object
+    # var in object. Same #787 rule one scope over: an object body is still a
+    # container, and a `var` in it is reassignable.
     obj_var = next((s for s in symbols if s.name == "Counter"), None)
     assert obj_var is not None
-    assert obj_var.kind == "constant"
+    assert obj_var.kind == "field"
 
     # enum
     enum_type = next((s for s in symbols if s.name == "Status"), None)

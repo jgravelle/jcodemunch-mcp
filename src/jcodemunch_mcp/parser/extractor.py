@@ -9,7 +9,7 @@ from .grammar_pack import get_parser  # #608: records a grammar failure, then re
 from .racket_reader import read_racket
 
 from .astro_shared import mask_html_comments_keep_offsets, split_astro_frontmatter
-from .symbols import Symbol, make_symbol_id, compute_content_hash
+from .symbols import Symbol, make_symbol_id, compute_content_hash, STATE_KINDS
 from .languages import LanguageSpec, LANGUAGE_REGISTRY, template_underlying_language
 from .template_shared import (
     TEMPLATE_ENGINES,
@@ -1062,6 +1062,15 @@ def _extract_symbol(
 ) -> Optional[Symbol]:
     """Extract a Symbol from an AST node."""
     kind = spec.symbol_node_types[node.type]
+    # ⚠⚠ A member you can reassign is not a constant (#769, #770, #787, #788).
+    # `symbol_node_types` maps a node type to a LITERAL kind, so four specs
+    # answered `constant` for every member they bound without ever consulting
+    # the declaration's own keyword. Refined here, at the one place the mapped
+    # kind is first read, rather than in four callers.
+    if kind in STATE_KINDS:
+        refine = _STATE_KIND_REFINERS.get(language)
+        if refine is not None:
+            kind = refine(node, source_bytes) or kind
 
     # Extract name first. A cleanly-named symbol is kept even when a syntax
     # error sits deeper in its body: the old blanket `node.has_error` bail
@@ -1262,6 +1271,106 @@ def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
     if name is None:
         return False
     return name.isupper() or (len(name) > 1 and name[0].isupper() and "_" in name)
+
+
+def _csharp_member_kind(node, source_bytes: bytes) -> Optional[str]:
+    """Only a `const` field is a constant in C# (#770).
+
+    ⚠⚠ **A NARROWING, and the spec states the rest.** `CSHARP_SPEC` declares
+    `field_declaration` a `field`, `property_declaration` a `property` and the
+    two event forms likewise, because that is what the member IS.
+    `tests/test_declared_forms_extract.py` asserts that what a spec advertises
+    is what the product emits, so a predicate that contradicted the map would
+    fail there -- correctly. This only removes the one case the map cannot see.
+
+    ⚠ `static readonly` is deliberately NOT a constant. Java's rule needs both
+    `static` and `final` because Java has no other way to spell one; C# has
+    `const`, so `readonly` is the keyword chosen when you do not mean it.
+
+    ⚠ A `modifier` node wraps its keyword as a typed CHILD (`const`, `readonly`,
+    `static`), so the test is on the grandchild's type, not on the modifier's
+    text. Reading the text would work until someone writes a comment between.
+    """
+    if node.type == "field_declaration" and _csharp_has_modifier(node, "const"):
+        return "constant"
+    return None
+
+
+def _csharp_has_modifier(node, keyword: str) -> bool:
+    return any(
+        child.type == "modifier"
+        and any(g.type == keyword for g in child.children)
+        for child in node.children
+    )
+
+
+def _swift_member_kind(node, source_bytes: bytes) -> Optional[str]:
+    """Only a `let` is a constant in Swift (#769).
+
+    ⚠⚠ A NARROWING, like the C# one: `SWIFT_SPEC` declares both property forms
+    `property`, which is Swift's own word for a class member (stored or
+    computed) and what Kotlin's `var` already carries (#732). This removes the
+    `let` case, which the map cannot see because `let` and `var` share one node.
+
+    ⚠ A protocol requirement with no binder is left to the spec's `property`:
+    a requirement is never a constant, so there is nothing to narrow.
+    """
+    if node.type not in ("property_declaration", "protocol_property_declaration"):
+        return None
+    binding = next(
+        (c for c in node.children if c.type == "value_binding_pattern"), None
+    )
+    if binding is None:
+        return None
+    return "constant" if any(g.type == "let" for g in binding.children) else None
+
+
+def solidity_state_variable_kind(node) -> Optional[str]:
+    """A contract's state variable is a member, and only `constant` is one (#788).
+
+    ⚠⚠ Public because `_parse_solidity_symbols` is a CUSTOM parser and does not
+    go through `_extract_symbol`, so the registry below cannot reach it. It asks
+    this same function rather than carrying its own copy of the rule -- the #732
+    lesson that a second transcription drifts.
+
+    ⚠ `immutable` is a `field`, for the reason C# `readonly` is: Solidity has a
+    dedicated `constant` keyword, so `immutable` is the one you choose when you
+    do not mean it. The grammar spells `constant` as an ANONYMOUS child and
+    `immutable` as a named one, which is why this tests types and not `is_named`.
+    """
+    if node.type != "state_variable_declaration":
+        return None
+    return "constant" if any(c.type == "constant" for c in node.children) else "field"
+
+
+#: language -> (node, source_bytes) -> kind, consulted by `_extract_symbol`
+#: whenever `symbol_node_types` maps a node to a STATE kind.
+#:
+#: ⚠⚠ ONE registry, not N free functions, and that is the point. Four
+#: per-language mutability predicates already existed
+#: (`kotlin_property_is_constant`, `java_field_is_constant`,
+#: `js_binding_is_constant`, `_python_name_is_constant`), each reached from its
+#: own call site, and #770 is what happens when a fifth language needs the
+#: question and nobody sees that it was already asked four times.
+#: `java_field_is_constant` says it outright: "the rule must be MOVED rather
+#: than copied -- a second transcription works on the day it is written and
+#: drifts into a gap or a double-emit later."
+#:
+#: ⚠ The RULE the four share, stated once: a member is `constant` only when the
+#: language's own dedicated constant keyword is used. C# has `const`, so
+#: `readonly` is not it; Solidity has `constant`, so `immutable` is not it;
+#: Swift has `let` and Scala has `val`. Everything else is the language's word
+#: for a member -- `field` where it calls them fields, `property` where it calls
+#: them properties (#743's split, which is why this returns three words).
+#:
+#: ⚠⚠ **Scala is deliberately ABSENT and that is the shape to copy.** It spells
+#: `val` and `var` as different NODE TYPES, so `SCALA_SPEC.symbol_node_types`
+#: answers on its own and a predicate here would be a second place to look. A
+#: language belongs in this table only when one node type carries both meanings.
+_STATE_KIND_REFINERS: dict[str, Any] = {
+    "csharp": _csharp_member_kind,
+    "swift": _swift_member_kind,
+}
 
 
 def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str]:
@@ -11436,10 +11545,15 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name = _first_identifier(node)
             if name:
                 qualified = f"{scope}.{name}" if scope else name
+                # ⚠ `uint tally = 0` is reassignable and was published as a
+                # constant (#788). The rule lives in one place for every
+                # language that asks it; this parser is custom and cannot reach
+                # `_STATE_KIND_REFINERS`, so it asks the same function.
+                kind = solidity_state_variable_kind(node) or "constant"
                 symbols.append(Symbol(
-                    id=make_symbol_id(filename, qualified, "constant"),
+                    id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
-                    kind="constant", language="solidity",
+                    kind=kind, language="solidity",
                     signature=_text(node).split(";")[0].strip()[:120],
                     docstring="",
                     line=node.start_point[0] + 1,

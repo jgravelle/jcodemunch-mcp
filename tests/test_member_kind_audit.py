@@ -339,21 +339,21 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "typescript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("method", OWNED)},
     "tsx": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("method", OWNED)},
     "java": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
-    "csharp": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED), "property": ("constant", OWNED)},
+    "csharp": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "cpp": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "arduino": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "php": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED)},
     "ruby": {"method": ("method", OWNED), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
     "kotlin": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("property", OWNED), "property": ("property", OWNED)},
-    "swift": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED), "property": ("constant", OWNED)},
-    "scala": {"method": ("method", OWNED), "mutable": ("constant", OWNED), "immutable": ("constant", OWNED)},
+    "swift": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "scala": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
     "groovy": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
     "apex": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
     "objc": {"method": ("method", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
     "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
     "dlang": {"method": ("function", QUALIFIED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "solidity": {"method": ("function", QUALIFIED), "mutable": ("constant", QUALIFIED), "immutable": ("constant", QUALIFIED)},
+    "solidity": {"method": ("function", QUALIFIED), "mutable": ("field", QUALIFIED), "immutable": ("constant", QUALIFIED)},
     "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
     "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
 }
@@ -365,8 +365,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("apex", "method"): "#774",
     ("apex", "mutable"): "#774",
     ("apex", "property"): "#774",
-    ("csharp", "mutable"): "#770",
-    ("csharp", "property"): "#770",
     ("dart", "immutable"): "#775",
     ("dart", "mutable"): "#775",
     ("dlang", "immutable"): "#776",
@@ -385,12 +383,13 @@ _GAPS: dict[tuple[str, str], str] = {
     ("ruby", "immutable"): "#785",
     ("ruby", "property"): "#785",
     ("rust", "mutable"): "#786",
-    ("scala", "mutable"): "#787",
     ("solidity", "immutable"): "#788",
     ("solidity", "method"): "#788",
+    # ⚠ The KIND half of #788 shipped with the mutable-is-not-a-constant fix
+    # and this cell is STILL broken: `field` is right, `QUALIFIED` is not, so
+    # it stays tracked until the ownership family (#774/#776/#779/#782/#778)
+    # reaches Solidity. A cell can be half-fixed; the register is per CELL.
     ("solidity", "mutable"): "#788",
-    ("swift", "mutable"): "#769",
-    ("swift", "property"): "#769",
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:

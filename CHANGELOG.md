@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Fixed - a member you can reassign is not a constant (#769, #770, #787, #788)
+
+A C# field and auto-property, a Swift `var`, a Scala `var` and a Solidity state
+variable were all indexed as `kind="constant"`. A reader filtering `constant` on
+a C# repo got every field, property and event in it, and a reader filtering
+`field` or `property` got none of them.
+
+`LanguageSpec.symbol_node_types` maps a node type to a LITERAL kind, and four
+specs answered `constant` for every member they bound without ever consulting
+the declaration's own keyword. #741 settled this for JS/TS ("a JS `let` is not a
+constant") and #732 refused the same shortcut for Kotlin; nothing carried the
+question to the next four languages.
+
+**The spec now declares what the member IS and a predicate only narrows it.**
+`field_declaration` is a `field`, `property_declaration` a `property`, both C#
+event forms likewise, and Swift's two property forms are `property` — which is
+Swift's own word for a class member and what Kotlin's `var` already carries
+(#732). `_csharp_member_kind` and `_swift_member_kind` remove exactly one case
+each, the one the map cannot see: `const` and `let`.
+
+⚠⚠ The first draft put every rule in the predicates and left the specs
+advertising `constant`. `tests/test_declared_forms_extract.py` failed on
+`csharp.event_declaration`, which is its whole purpose: what a spec advertises
+is what the product must emit. The spec was wrong and the predicate was covering
+for it.
+
+⚠ **Scala needed no predicate at all** and is deliberately absent from the
+registry: it spells `val` and `var` as different node types, so the map answers
+alone. A language belongs there only when one node type carries both meanings.
+Its `var_definition` also leaves `constant_patterns`, where it disagreed with
+`symbol_node_types` about the same node — inert today (`_extract_constant` has
+no Scala branch, so nothing was double-emitted) and the #732 configuration
+waiting for someone to add the missing branch.
+
+⚠ **One ruling, argued rather than inherited: `static readonly` is a `field`.**
+Java's `java_field_is_constant` requires both `static` and `final` because Java
+has no other way to spell a constant. C# has `const`, so `readonly` is the
+keyword you choose when you do not mean one; Solidity's `immutable` is the same
+shape beside its `constant`. The rule the four share: a member is `constant`
+only when the language's own dedicated constant keyword is used.
+
+The kinds published in a file summary move with them. `Defines Cs class (1
+method, 2 constants)` reads `(1 method, 1 field, 1 property)`, and #760's
+disclosure that the summary could publish a word the parser got wrong is
+withdrawn — `test_naming_the_kind_publishes_whatever_the_parser_decided` was
+pinned to the wrong output and is inverted, not retired, the way
+`test_cpp_is_not_this_issue` was when #755 closed.
+
+⚠ **#788 is half of its issue.** Its Solidity members are qualified by the
+contract's name and carry no `parent`, so its cell stays in `_GAPS` and it
+closes with the ownership family (#774, #776, #779, #782, #778), not here.
+
+Ids move for these members (`Cs.counter#constant` becomes `Cs.counter#field`).
+⚠ `PARSER_GENERATION` is NOT bumped: #732 took it 7 to 8 and that bump is still
+under `[Unreleased]`, so any index a release of this can reach re-parses under
+it already.
+
 ### Fixed - a class constant is owned by its class, in every language that has one (#780, #783)
 
 A Java `static final` field, a PHP class `const` and a Kotlin `const val` were

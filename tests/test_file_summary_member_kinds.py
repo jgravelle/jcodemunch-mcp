@@ -186,13 +186,13 @@ def test_a_nested_class_does_not_borrow_a_top_level_namesake_s_members():
         "    public void M2() {}\n"
         "}\n",
         "c.cs", "csharp",
-        "Defines C class (2 methods, 2 constants). Defines C class (2 methods, 2 constants)",
+        "Defines C class (2 methods, 2 fields). Defines C class (2 methods, 2 fields)",
     ),
     (
         "class Sw {\n    var count: Int = 0\n    func f() {}\n}\n"
         "extension Sw {\n    var doubled: Int { count * 2 }\n}\n",
         "s.swift", "swift",
-        "Defines Sw class (1 method, 2 constants). Defines Sw class (1 method, 2 constants)",
+        "Defines Sw class (1 method, 2 properties). Defines Sw class (1 method, 2 properties)",
     ),
 ])
 def test_two_classes_of_one_name_still_report_their_members(
@@ -368,8 +368,8 @@ def test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind():
     (
         "class Sw {\n    var count: Int = 0\n    func bump() { count += 1 }\n}\n",
         "Sw.swift", "swift",
-        "Defines Sw class (1 method, 1 constant)",
-        "a Swift `var` is mutable and is declared `constant`",
+        "Defines Sw class (1 method, 1 property)",
+        "a Swift `var` used to be declared `constant` (#769)",
     ),
     (
         "public class Cs {\n"
@@ -378,26 +378,28 @@ def test_the_summariser_asks_the_vocabulary_instead_of_naming_a_kind():
         "    public void M() {}\n"
         "}\n",
         "Cs.cs", "csharp",
-        "Defines Cs class (1 method, 2 constants)",
-        "a C# field and an auto-property are both declared `constant`",
+        "Defines Cs class (1 method, 1 field, 1 property)",
+        "a C# field and an auto-property both used to be `constant` (#770)",
     ),
 ])
 def test_naming_the_kind_publishes_whatever_the_parser_decided(
     source, filename, language, summary, wrong_about
 ):
-    """⚠⚠ **The cost of naming the kind, stated rather than discovered.**
+    """⚠⚠ **The cost of naming the kind, and it has now been paid back.**
 
     Counting only `field` omitted these members silently. Naming the kind
-    publishes the parser's word for them — and for Swift and C# that word is
-    WRONG, so a silent omission became a visible false statement. Filed as
-    #769 (swift `var`) and #770 (csharp fields and auto-properties) rather than
-    papered over here: this module reports what the index says, and the index is
-    what needs fixing (#741's lesson, "a JS `let` is not a constant", in two
-    more languages).
+    publishes the parser's word for them — and for Swift and C# that word WAS
+    wrong, so a silent omission became a visible false statement. It was filed
+    as #769 and #770 rather than papered over here, because this module reports
+    what the index says and the index is what needed fixing (#741's lesson, "a
+    JS `let` is not a constant", in two more languages).
 
-    ⚠ Pinned to the CURRENT WRONG OUTPUT deliberately, the way
-    `test_cpp_is_not_this_issue` pins #755. It fails when the parser is fixed,
-    which is the notification that this disclosure can go.
+    ⚠⚠ This test was pinned to the WRONG output and said it would fail when the
+    parser was fixed. It did, on #769/#770/#787/#788. **Inverted rather than
+    retired**, the way `test_cpp_is_not_this_issue` below was when #755 closed:
+    same sources, the assertion flipped, and the name still true — the summary
+    publishes whatever the parser decided, and what it decides is now right.
+    #760's disclosure about publishing a wrong kind goes with it.
     """
     assert _summary(source, filename, language) == summary, wrong_about
 

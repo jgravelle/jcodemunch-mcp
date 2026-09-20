@@ -761,10 +761,15 @@ CSHARP_SPEC = LanguageSpec(
         "delegate_declaration": "type",
         "method_declaration": "method",
         "constructor_declaration": "method",
-        "property_declaration": "constant",
-        "field_declaration": "constant",
-        "event_field_declaration": "constant",
-        "event_declaration": "constant",
+        # ⚠⚠ #770. These four declared the literal `constant` and C# spells all
+        # four differently, so a reader filtering `constant` on a C# repo got
+        # every field, property and event in it. The map states what the member
+        # IS; `_csharp_member_kind` narrows a `const` field to `constant`, which
+        # is the only one of the four that can be one.
+        "property_declaration": "property",
+        "field_declaration": "field",
+        "event_field_declaration": "field",
+        "event_declaration": "property",
         "destructor_declaration": "method",
         # ⚠⚠ #714. Three callable members that were declared nowhere, so a type
         # resolved while the operations inside it did not exist: `Vec + Vec`
@@ -895,14 +900,19 @@ SWIFT_SPEC = LanguageSpec(
         "typealias_declaration": "type",
         "init_declaration": "method",
         "deinit_declaration": "method",
-        "property_declaration": "constant",
+        # ⚠⚠ #769. `let` and `var` are one node type here, and this declared the
+        # literal `constant` for both, so every `var` in every Swift file claimed
+        # to be immutable. `property` is Swift's own word for a class member,
+        # stored or computed, and is what Kotlin's `var` already carries (#732);
+        # `_swift_member_kind` narrows a `let` back to `constant`.
+        "property_declaration": "property",
         # #733. A protocol's requirements ARE the protocol: the contract a
         # caller reads, and the names a caller searches for. Both take the kind
         # their in-class counterpart takes, and the container promotion turns
         # the function form into a `method` because `protocol_declaration` is
         # already a container below.
         "protocol_function_declaration": "function",
-        "protocol_property_declaration": "constant",
+        "protocol_property_declaration": "property",
         # #733. Spelled identically in a protocol body and a class body, so one
         # entry covers a requirement and an implementation.
         "subscript_declaration": "function",
@@ -1519,8 +1529,11 @@ SCALA_SPEC = LanguageSpec(
         "type_definition": "type",
         "function_definition": "function",
         "function_declaration": "function",
+        # ⚠⚠ #787. Scala spells the two as different NODE TYPES, so this map is
+        # the whole answer and no predicate is needed: a `var` is reassignable
+        # and was declared `constant` only because both rows said so.
         "val_definition": "constant",
-        "var_definition": "constant",
+        "var_definition": "field",
         # ⚠ `constant`, the kind the `val` it replaced already takes: a `given`
         # is a stable value, and a new kind would have to be APPENDED to
         # `KIND_ORDER` (published in the cached schema prefix) to say that a
@@ -1565,7 +1578,12 @@ SCALA_SPEC = LanguageSpec(
     # arriving through the FIX for a different form. Measured against `main`,
     # not reasoned about.
     container_node_types=["class_definition", "object_definition", "trait_definition", "enum_definition", "given_definition"],
-    constant_patterns=["val_definition", "var_definition"],
+    # ⚠ `var_definition` is NOT here: it is a `field` since #787, and this list
+    # is the constant channel. Both rows were inert (`_extract_constant` has no
+    # Scala branch, so nothing was ever double-emitted), but a list that
+    # disagrees with `symbol_node_types` about the same node is the #732
+    # configuration waiting for someone to add the missing branch.
+    constant_patterns=["val_definition"],
     type_patterns=["trait_definition", "enum_definition", "type_definition"],
 )
 
