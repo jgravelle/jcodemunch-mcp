@@ -118,6 +118,61 @@ this reaches modern locks there too. On a filesystem where flock is a no-op
 Thanks to @Matt-hew93 for a report that carried the lock contents, the process
 table and the contrast case where the check works.
 
+### Fixed - Haskell extracted no symbols at all (#722)
+
+A valid Haskell file with a data type, a newtype, a type synonym, a class and a
+function indexed as an empty list, and had for the life of the language. The
+grammar was installed and parsed the file without error, which is why a
+"supported" row said nothing about it. There were two causes and either one
+was sufficient.
+`HASKELL_SPEC` declared five node types and a name field for none, so every
+declaration resolved to no name and was dropped. And `type_synon` is a node
+type the grammar never emits: upstream spells it `type_synomym`, its own typo.
+Found by the map-agreement ratchet written for #712.
+
+Naming the fields would not have been enough. One Haskell function is several
+sibling nodes, a signature plus a node per pattern-matched clause, so the
+generic walk would have indexed a function once per clause and handed out
+`~1`/`~2` ordinals (the #763 shape); `main = ...` is a node type (`bind`) the spec never
+listed; a class method is usually a signature and nothing else; and the `->` of
+a type is a node the grammar also calls `function`. Haskell has its own
+extractor now. A signature and its clauses are one function spanning all of
+them, with the signature as its signature. Classes and instances are owners
+(`instance Shape A` and `instance Shape B` are two), and their methods belong
+to them. `where` and `let` bindings are locals and are not indexed. Haddock
+comments are docstrings, including on a module's first declaration, which sits
+outside the node a sibling walk reads; a block comment (`{- | ... -}`) loses its
+delimiters. A `-- ^` comment documents the item BEFORE it, so it is never read
+forwards: the fourth review found a constructor's note published as the
+docstring of the unrelated function below it. A signature written over several
+lines is kept whole. A class or instance head ends where its body starts, and a
+type's signature is its whole declaration. Every signature has its comments
+removed from the tree and is capped at 200 characters with a trailing ` ...`.
+One known absence: a forward doc with a later line that starts with `^` loses
+its docstring, the safe direction. Literate Haskell (`.lhs`) was on the supported row and yielded
+nothing in either style; bird tracks and `\begin{code}` blocks are both read
+now, a block marker may carry options (`\begin{code}[hide]`) while the environment
+must be named `code` exactly, and the prose is
+blanked in place so every span indexes the original file. Names, signatures
+and docstrings are read from the blanked view, or a several-line signature in
+a bird-track file publishes its `>` characters; review found that one, in the
+gap between two fixes that each had a test.
+
+⚠ The first draft of that extractor hardcoded its node types, and the #745
+register failed every Haskell row: removing a spec entry changed nothing, so the spec
+was a second copy nobody consulted, the mechanism this project keeps paying
+for. The extractor reads node types, kinds and name fields from `HASKELL_SPEC`.
+
+Not indexed, stated: an operator defined infix (`s |> x = ...`) carries no name
+field in this grammar, while the prefix form `(|>) s x = ...` has one and is
+indexed. Pattern bindings (`(p, q) = ...`), type and data families, an
+associated type inside a class, `foreign import` and Template Haskell splices
+are not declared forms. In `a, b :: Int` the signature joins `a` only. A bird-tracked line inside a
+`\begin{code}` block is not unlit. Closing #722 emptied two tracked-gap registers, and
+both guards loop inside the test, so an empty register passes instead of
+spending a skip. Existing indexes re-parse under the `PARSER_GENERATION` bump
+already in this block.
+
 ### Fixed - a delete preflight reads the runtime hits it was given (#717, @Torolosko)
 
 `check_delete_safe` and `get_group_contracts` asked `runtime_calls` for

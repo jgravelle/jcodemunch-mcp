@@ -89,12 +89,13 @@ BASELINE = pathlib.Path(__file__).parent / "fixtures" / "grammar_declaration_inv
 # free of rows a reviewer dismisses in a second.
 _DECLARATION_SUFFIXES = ("_declaration", "_definition", "_item", "_spec")
 
-# Property A's one standing exception. Same rule as #712's `_KNOWN_GAPS`: the
-# entry names the issue, and `test_a_known_ghost_is_still_a_ghost` fails when
-# the gap closes, so an excuse cannot outlive the defect it excuses.
-_KNOWN_GHOSTS = {
-    "haskell": ({"type_synon"}, "#722: the grammar spells it `type_synomym`"),
-}
+# Property A's standing exceptions, EMPTY since #722 (Haskell's `type_synon`,
+# which the grammar spells `type_synomym`) was fixed. Same rule as #712's
+# `_KNOWN_GAPS`: an entry names the issue, and
+# `test_a_known_ghost_is_still_a_ghost` fails when the gap closes, so an excuse
+# cannot outlive the defect it excuses. It loops inside the test, so an empty
+# register passes rather than skipping.
+_KNOWN_GHOSTS: dict[str, tuple[set[str], str]] = {}
 
 # The gaps this inventory found on review, each CONFIRMED by parsing a snippet
 # through `parse_file` and watching the symbol not appear -- never by reading
