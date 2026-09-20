@@ -75,8 +75,15 @@ Neither word is obviously right, and the decision moves ids in a released
 language, so it is **#807** rather than a silent ride-along here. The two
 languages in the set are safe by construction: their refiners turn every
 immutable module-scope binding into a `constant` first, so whatever still
-carries a member word is reassignable. The exclusion is pinned by a test, so
-widening it is deliberate.
+carries a member word is reassignable -- Swift from `_swift_member_kind`, Scala
+from its spec map, since Scala has no refiner. The exclusion is pinned by a
+test, so widening it is deliberate.
+
+⚠ The demotion's condition is **no type to own it**, which is wider than module
+scope: a mutable FUNCTION-LOCAL takes `variable` too, with its function as
+parent. That is the right answer -- a local is a member of nothing -- and it is
+asserted, because an earlier draft of the rule's comment said "module scope"
+while the branch already fired on locals.
 
 Ids move for these members (`Cs.counter#constant` becomes `Cs.counter#field`).
 ⚠ `PARSER_GENERATION` is NOT bumped: #732 took it 7 to 8 and that bump is still

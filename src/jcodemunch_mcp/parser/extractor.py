@@ -1079,11 +1079,16 @@ def _extract_symbol(
         # members." The first draft of #769/#787 took the class half and left a
         # Swift top-level `var` reading `property` with `parent=None`.
         #
-        # ⚠ Generic, not per language, because the question is not about a
-        # grammar: a binding with no container to own it is module scope in
-        # every language that has one. Java, PHP and C++ fields are unaffected
-        # by construction -- their declarations only occur inside a type -- and
-        # the `field_patterns` channel is a different code path entirely.
+        # ⚠⚠ The condition is NO TYPE TO OWN IT, which is wider than module
+        # scope and deliberately so: `parent_is_container` is false for a
+        # FUNCTION parent too, so a mutable local (`func f() { var v = 3 }`)
+        # takes `variable` with its function as parent. That is the right answer
+        # -- a local is not a member of anything -- and it is asserted, because
+        # an earlier draft of this comment said "module scope" while the branch
+        # fired on locals, and a comment that describes a narrower rule than the
+        # code is how the next reader writes the wrong test. Java, PHP and C++
+        # fields are unaffected by construction -- their declarations only occur
+        # inside a type -- and `field_patterns` is a different code path.
         if (
             kind in _MEMBER_ONLY_STATE_KINDS
             and not parent_is_container
@@ -1410,12 +1415,16 @@ _MEMBER_ONLY_STATE_KINDS = frozenset({"field", "property"})
 #: `variable` is obviously right for it, that decision is outside #769/#770/
 #: #787/#788, and it moves ids in a released language. Filed instead.
 #:
-#: ⚠ Membership is safe for these two BY CONSTRUCTION: their refiners have
-#: already turned every immutable module-scope binding into a `constant`, so
+#: ⚠ Membership is safe for these two BY CONSTRUCTION: their refiner OR SPEC MAP
+#: has already turned every immutable module-scope binding into a `constant`, so
 #: whatever still carries a member word here is reassignable, which is exactly
-#: what `variable` means. A language added to this set needs that same property
-#: checked, plus a module-scope row in
-#: `tests/test_member_state_is_not_a_constant.py`.
+#: what `variable` means. **Swift gets that from `_swift_member_kind` and Scala
+#: from `SCALA_SPEC.symbol_node_types`** -- Scala has no refiner at all, and an
+#: earlier version of this sentence said "their refiners" and would have sent
+#: the next author hunting for one. A language added to this set needs that same
+#: property checked, by whichever of the two answers for it, plus a row in
+#: `tests/test_member_state_is_not_a_constant.py` -- the constant side of each
+#: row is what proves the property holds.
 _MODULE_SCOPE_VARIABLE_LANGUAGES = frozenset({"swift", "scala"})
 
 

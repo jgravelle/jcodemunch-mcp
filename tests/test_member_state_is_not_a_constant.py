@@ -189,6 +189,35 @@ def test_a_binding_with_no_type_to_belong_to_is_a_variable(
     assert _kinds(language, filename, source) == expected
 
 
+#: (language, filename, source, {name: kind}) inside a FUNCTION body.
+_FUNCTION_LOCAL: list[tuple[str, str, str, dict[str, str]]] = [
+    ("swift", "f.swift", "func f() {\n    var localV = 3\n    let localL = 4\n}\n",
+     {"localV": "variable", "localL": "constant"}),
+    ("scala", "g.scala", "class A {\n  def g(): Int = { var localV = 3; 1 }\n}\n",
+     {"localV": "variable"}),
+]
+
+
+@pytest.mark.parametrize(
+    "language,filename,source,expected", _FUNCTION_LOCAL,
+    ids=[r[0] for r in _FUNCTION_LOCAL],
+)
+def test_a_mutable_local_is_a_variable_not_a_member(
+    language, filename, source, expected
+):
+    """⚠⚠ The demotion's condition is NO TYPE TO OWN IT, not module scope.
+
+    `parent_is_container` is false for a FUNCTION parent too, so a mutable local
+    takes `variable` with its function as parent. That is the right answer -- a
+    local is a member of nothing -- but the first version of the rule's comment
+    claimed module scope while the branch fired here as well, and review found
+    it. Asserted rather than left to the comment: this is the same unpinned-
+    scope shape that made the module-scope half invisible in round one.
+    """
+    observed = _kinds(language, filename, source)
+    assert {k: observed.get(k) for k in expected} == expected
+
+
 def test_kotlin_is_excluded_from_the_module_scope_demotion_and_that_is_recorded():
     """⚠⚠ The boundary of the rule above, pinned so widening it is deliberate.
 
@@ -201,8 +230,10 @@ def test_kotlin_is_excluded_from_the_module_scope_demotion_and_that_is_recorded(
     and it moves ids in a released language.
 
     ⚠ The two languages that ARE in the set are safe by construction: their
-    refiners turn every immutable module-scope binding into a `constant` first,
-    so whatever still carries a member word is reassignable.
+    refiner OR SPEC MAP turns every immutable module-scope binding into a
+    `constant` first, so whatever still carries a member word is reassignable.
+    Swift gets that from `_swift_member_kind`; Scala has no refiner and gets it
+    from `SCALA_SPEC.symbol_node_types`.
     """
     from jcodemunch_mcp.parser.extractor import _MODULE_SCOPE_VARIABLE_LANGUAGES
 
