@@ -189,6 +189,28 @@ def test_a_binding_with_no_type_to_belong_to_is_a_variable(
     assert _kinds(language, filename, source) == expected
 
 
+def test_kotlin_is_excluded_from_the_module_scope_demotion_and_that_is_recorded():
+    """⚠⚠ The boundary of the rule above, pinned so widening it is deliberate.
+
+    Kotlin has published a top-level `val`/`var` as `property` since #732. That
+    contradicts `KIND_ORDER`'s rule, and demoting it here would be wrong a
+    SECOND way: `variable` is defined as a module-scope MUTABLE binding, and a
+    Kotlin top-level `val` is immutable without being SCREAMING_CASE, so
+    `kotlin_property_is_constant` has already declined to call it a constant.
+    Neither word is obviously right, the decision is outside these four issues,
+    and it moves ids in a released language.
+
+    ⚠ The two languages that ARE in the set are safe by construction: their
+    refiners turn every immutable module-scope binding into a `constant` first,
+    so whatever still carries a member word is reassignable.
+    """
+    from jcodemunch_mcp.parser.extractor import _MODULE_SCOPE_VARIABLE_LANGUAGES
+
+    assert _MODULE_SCOPE_VARIABLE_LANGUAGES == {"swift", "scala"}
+    kinds = _kinds("kotlin", "Top.kt", "val topLevel = 1\nvar topVar = 2\n")
+    assert kinds == {"topLevel": "property", "topVar": "property"}
+
+
 def test_the_class_sample_and_the_module_sample_disagree_on_purpose():
     """Non-vacuity for the rule above: the SAME declaration yields a different
     kind by scope, so a rule that ignored scope cannot pass both."""

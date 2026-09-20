@@ -1084,7 +1084,11 @@ def _extract_symbol(
         # every language that has one. Java, PHP and C++ fields are unaffected
         # by construction -- their declarations only occur inside a type -- and
         # the `field_patterns` channel is a different code path entirely.
-        if kind in _MEMBER_ONLY_STATE_KINDS and not parent_is_container:
+        if (
+            kind in _MEMBER_ONLY_STATE_KINDS
+            and not parent_is_container
+            and language in _MODULE_SCOPE_VARIABLE_LANGUAGES
+        ):
             kind = "variable"
 
     # Extract name first. A cleanly-named symbol is kept even when a syntax
@@ -1394,6 +1398,25 @@ _STATE_KIND_REFINERS: dict[str, Any] = {
 #: constant wherever it sits, and demoting it would change what a module-scope
 #: immutable has always been indexed as.
 _MEMBER_ONLY_STATE_KINDS = frozenset({"field", "property"})
+
+#: Languages whose module-scope binding is demoted out of a member kind.
+#:
+#: ⚠⚠ **A NAMED SET, not "every language", and Kotlin is the reason.** Kotlin
+#: has published a top-level `val`/`var` as `property` since #732, which
+#: contradicts `KIND_ORDER`'s own rule -- and demoting it here would be wrong a
+#: SECOND way: `variable` is defined there as a module-scope MUTABLE binding,
+#: and a Kotlin top-level `val` is immutable without being SCREAMING_CASE, so
+#: `kotlin_property_is_constant` has already declined it. Neither `property` nor
+#: `variable` is obviously right for it, that decision is outside #769/#770/
+#: #787/#788, and it moves ids in a released language. Filed instead.
+#:
+#: ⚠ Membership is safe for these two BY CONSTRUCTION: their refiners have
+#: already turned every immutable module-scope binding into a `constant`, so
+#: whatever still carries a member word here is reassignable, which is exactly
+#: what `variable` means. A language added to this set needs that same property
+#: checked, plus a module-scope row in
+#: `tests/test_member_state_is_not_a_constant.py`.
+_MODULE_SCOPE_VARIABLE_LANGUAGES = frozenset({"swift", "scala"})
 
 
 def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str]:

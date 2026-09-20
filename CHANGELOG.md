@@ -61,10 +61,22 @@ is the module-scope word and a class member belongs to a type" -- and this fix
 had taken the class half. `KIND_ORDER`'s own entry for `variable` gives the
 cost: reusing a member kind for a module binding mixes it into every consumer
 asking about a class's members. The demotion is generic rather than per
-language, because a binding with no container to own it is module scope in
-every language that has one. Found in review; the fixture held only class
-bodies, so nothing in the change could fail on it (#699's lesson, inside the
-fix for it).
+language for the languages it covers. Found in review; the fixture held only
+class bodies, so nothing in the change could fail on it (#699's lesson, inside
+the fix for it).
+
+⚠⚠ **The demotion NAMES its languages (`swift`, `scala`) and Kotlin is the
+reason.** The first draft applied it everywhere and turned Kotlin's top-level
+`property` -- published since #732 -- into `variable`, which would be wrong a
+second way: `variable` is defined as a module-scope MUTABLE binding and a Kotlin
+top-level `val` is immutable without being SCREAMING_CASE, so
+`kotlin_property_is_constant` has already declined to call it a constant.
+Neither word is obviously right, and the decision moves ids in a released
+language, so it is **#807** rather than a silent ride-along here. The two
+languages in the set are safe by construction: their refiners turn every
+immutable module-scope binding into a `constant` first, so whatever still
+carries a member word is reassignable. The exclusion is pinned by a test, so
+widening it is deliberate.
 
 Ids move for these members (`Cs.counter#constant` becomes `Cs.counter#field`).
 ⚠ `PARSER_GENERATION` is NOT bumped: #732 took it 7 to 8 and that bump is still
