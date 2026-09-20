@@ -64,6 +64,13 @@
       "replacement": "tests/test_php_members.py::test_a_class_constant_is_owned_by_its_class",
       "commit": "9163dde7",
       "date": "2026-09-20"
+    },
+    {
+      "path": "tests/test_member_state_is_not_a_constant.py::test_solidity_ownership_is_a_separate_issue_and_still_open",
+      "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did. #788 had two halves: a member you can reassign is not a constant, and a member carries its owner. The kind half shipped in #808 and this pin asserted the other half was still open (`parent is None`). It closed when the five custom parsers stopped rebuilding `f\"{scope}.{name}\"` by hand and asked `_member_of` for the owner id each had already computed. The lesson it carried -- that a cell can be HALF fixed, so a gap register is per cell and closing the issue early would hide the rest -- is kept, and the replacement records which way the cell moved rather than only that it was broken.",
+      "replacement": "tests/test_member_state_is_not_a_constant.py::test_solidity_ownership_arrived_and_this_is_the_witness",
+      "commit": "826aa01e",
+      "date": "2026-09-20"
     }
   ]
 }
