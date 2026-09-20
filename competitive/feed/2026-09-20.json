@@ -1,0 +1,185 @@
+{
+ "date": "2026-09-20",
+ "tools": [
+  {
+   "tool": "aider",
+   "registry": "pypi",
+   "package": "aider-chat",
+   "pinned": "0.86.2",
+   "latest": "0.86.0",
+   "release_title": "Aider v0.86.0",
+   "release_url": "https://github.com/Aider-AI/aider/releases/tag/v0.86.0",
+   "release_date": "2025-08-09T17:42:19Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "cocoindex",
+   "registry": "pypi",
+   "package": "cocoindex-code",
+   "pinned": "0.2.41",
+   "latest": "0.2.41",
+   "release_title": "v0.2.41",
+   "release_url": "https://github.com/cocoindex-io/cocoindex-code/releases/tag/v0.2.41",
+   "release_date": "2026-08-07T00:15:51Z",
+   "new": false,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "code_review_graph",
+   "registry": "pypi",
+   "package": "code-review-graph",
+   "pinned": "2.3.8",
+   "latest": "2.3.9",
+   "release_title": "v2.3.9",
+   "release_url": "https://github.com/tirth8205/code-review-graph/releases/tag/v2.3.9",
+   "release_date": "2026-09-18T19:41:30Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "token",
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "codebase_memory",
+   "registry": "github-release",
+   "package": "DeusData/codebase-memory-mcp",
+   "pinned": "0.10.8",
+   "latest": "0.11.0",
+   "release_title": "v0.11.0",
+   "release_url": "https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.11.0",
+   "release_date": "2026-09-15T23:40:39Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "token",
+     "faster",
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "codegraph",
+   "registry": "github-release",
+   "package": "colbymchenry/codegraph",
+   "pinned": "1.6.0",
+   "latest": "1.6.0",
+   "release_title": "v1.6.0",
+   "release_url": "https://github.com/colbymchenry/codegraph/releases/tag/v1.6.0",
+   "release_date": "2026-08-26T17:07:30Z",
+   "new": false,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "cymbal",
+   "registry": "github-release",
+   "package": "1broseidon/cymbal",
+   "pinned": "0.14.0",
+   "latest": "0.15.0",
+   "release_title": "v0.15.0",
+   "release_url": "https://github.com/1broseidon/cymbal/releases/tag/v0.15.0",
+   "release_date": "2026-09-05T14:22:01Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "index"
+    ]
+   },
+   "status": "read"
+  },
+  {
+   "tool": "graft",
+   "registry": "npm",
+   "package": "@nanonets/graft",
+   "pinned": "0.16.0",
+   "latest": "0.18.0",
+   "release_title": null,
+   "release_url": null,
+   "release_date": null,
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "serena",
+   "registry": "pypi",
+   "package": "serena-agent",
+   "pinned": "1.7.0",
+   "latest": "1.7.0",
+   "release_title": "v1.7.0",
+   "release_url": "https://github.com/oraios/serena/releases/tag/v1.7.0",
+   "release_date": "2026-08-09T18:38:06Z",
+   "new": false,
+   "rules": {
+    "capability_words": [],
+    "axis_words": []
+   },
+   "status": "read"
+  },
+  {
+   "tool": "zvec_grep",
+   "registry": "npm",
+   "package": "@zvec/zvec-grep",
+   "pinned": "0.2.2",
+   "latest": "0.2.0",
+   "release_title": "v0.2.0",
+   "release_url": "https://github.com/zvec-ai/zvec-grep/releases/tag/v0.2.0",
+   "release_date": "2026-08-27T16:15:11Z",
+   "new": true,
+   "rules": {
+    "capability_words": [],
+    "axis_words": [
+     "index"
+    ]
+   },
+   "status": "read"
+  }
+ ],
+ "rerun": [
+  {
+   "tool": "code_review_graph",
+   "version": "2.3.9",
+   "reason": "release:code_review_graph@2.3.9",
+   "words": [
+    "token",
+    "index"
+   ]
+  },
+  {
+   "tool": "codebase_memory",
+   "version": "0.11.0",
+   "reason": "release:codebase_memory@0.11.0",
+   "words": [
+    "token",
+    "faster",
+    "index"
+   ]
+  }
+ ],
+ "rerun_already_dispatched": [
+  "release:cymbal@0.15.0",
+  "release:zvec_grep@0.2.0"
+ ]
+}
