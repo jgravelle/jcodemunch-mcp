@@ -1,62 +1,62 @@
 {
- "schema": "jcm-harness-retired/v1",
- "note": "A test file listed in docs/harness/ARCHAEOLOGY.md, or one test function in it (path = file::test_name), may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
- "retired": [
-  {
-   "path": "tests/test_inbound_triage_apply.py::test_malformed_result_file_escalates_and_applies_nothing",
-   "lesson": "Escalating is a write. The test asserted called == [] on a malformed triage result, so the fixed escalation (inbound:unknown + needs-human, dequeue) was planned and discarded and the item re-triaged every 15 minutes (#670). The rule it meant to encode, that the MODEL'S classification never reaches gh, is kept; the escalation carries nothing the model said and is written to the issue the workflow named.",
-   "replacement": "tests/test_inbound_triage_apply.py::test_malformed_result_escalates_ON_THE_ISSUE_THE_WORKFLOW_NAMED",
-   "commit": "5a38f16a",
-   "date": "2026-09-13"
-  },
-  {
-   "path": "tests/test_julia_short_functions.py::test_a_macro_is_a_known_separate_gap",
-   "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `macro_definition` is in the grammar and matched, and the extractor read the name with `_direct_name` (first DIRECT identifier child) while a macro's name sits at `signature > call_expression > identifier` (#748). The lesson it carried -- that a name helper looking one level too shallow drops the form in silence, with no ghost and no unmatched node type to find -- is carried by the replacement named below, which asserts a macro and a function are named by the SAME path and is why the fix reuses `_func_name` instead of a fifth bespoke helper. The four argument spellings the gap test's single sample could not cover are `test_a_macro_is_a_symbol` in the same file, and the branch is pinned by `test_the_macro_branch_stopped_asking_for_a_direct_child`.",
-   "replacement": "tests/test_julia_name_depth.py::test_a_macro_and_a_function_are_named_by_the_same_path",
-   "commit": "12ee7fc4",
-   "date": "2026-09-18"
-  },
-  {
-   "path": "tests/test_julia_short_functions.py::test_a_parametric_or_subtyped_type_head_is_a_known_gap",
-   "lesson": "The same lifecycle, one node type over: `_struct_name` read `type_head > identifier`, which is only the bare spelling, so seven of nine Julia type shapes yielded nothing while the two that worked were the least common in real code (#749). The lesson -- that a fixture holding only the shapes that work reports a healthy language, so it was not wrong but narrow -- is carried by the replacement named below, which parametrizes all nine shapes. The gap test's OTHER half, that a deeper walk must not FABRICATE a symbol, is carried by `test_the_supertype_is_not_indexed_as_a_declaration`, `test_a_type_parameter_is_not_indexed_as_a_declaration` and -- because neither of those can observe a breadth-first resolver -- `test_a_combined_head_names_the_type_and_not_its_supertype`.",
-   "replacement": "tests/test_julia_name_depth.py::test_a_type_head_is_named_at_any_depth",
-   "commit": "12ee7fc4",
-   "date": "2026-09-18"
-  },
-  {
-   "path": "tests/test_js_bindings.py::test_a_destructuring_pattern_is_a_known_separate_gap",
-   "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `_js_declarator_names` required the declarator's `name` field to be an `identifier`, and a destructuring spells that field `object_pattern` or `array_pattern`, so every destructured binding was declined in javascript, typescript and tsx (#751). The lesson it carried -- that a disclosed gap is better than a silent absence, because `const { useState } = React` and `export const { GET, POST } = handlers` are ordinary module surface and a file whose exports are all destructured indexed with NONE of them -- is carried by the replacement named below. Its two samples (`const { a, b }` and `let [c, d]`) could express neither the nesting nor the anti-fabrication half: a pattern nests, and a walk collecting every `identifier` under it publishes `a` for `const { a: renamed }` and `const { a: { b } }`, where `a` names a property of the right-hand object and is bound to nothing. That half is `test_a_nested_pattern_binds_its_leaves_and_not_its_path`, whose `unbound` column fails 15 rows against the planted naive walk, and `test_a_parameter_pattern_binds_no_module_symbol`, which is what fails if the walk is ever reached from a parameter position -- the same node types, in the one place they are locals.",
-   "replacement": "tests/test_js_destructured_bindings.py::test_an_object_pattern_binds_every_name",
-   "commit": "99ef0583",
-   "date": "2026-09-18"
-  },
-  {
-   "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
-   "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
-   "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
-   "commit": "99ef0583",
-   "date": "2026-09-18"
-  },
-  {
-   "path": "tests/test_svelte.py::test_svelte5_runes_become_constants",
-   "lesson": "`become_constants` was the rule and the rule was wrong: the Svelte extractor emitted every matched rune through a helper hardcoding `kind=\"constant\"`, so `let count = $state(0)` -- reactive, reassigned, the whole point of the rune -- was published immutable (#752). The lesson that survives is that the KEYWORD decides and the rune does not: `$state` is reached by `let` and `$derived` by either, so a rune-keyed kind table would have been a fourth transcription of #741's rule instead of a use of it. The replacement asserts the same three rune spellings under `let`, plus a `const $derived` that the old test could not express because it had no case where the two answers differ.",
-   "replacement": "tests/test_svelte.py::test_svelte5_runes_carry_the_keyword_kind",
-   "commit": "99ef0583",
-   "date": "2026-09-18"
-  },
-  {
-   "path": "tests/test_v1_108_80.py::test_plain_class_fields_not_extracted",
-   "lesson": "It asserted `_fields(src) == []` for a plain class holding `MAX: int = 5` and `name: str = 'z'`, because #355 indexed annotated names for dataclass, attrs and direct `BaseModel` classes only and left every other class's state absent on purpose. jjg reversed that on 2026-09-19 (#784): class-body state is a symbol in every class, as it already was for Java (#735), PHP (#743), Kotlin, Swift and C++ (#755). The lesson that survives is the second half of its docstring, that a field must not be conflated with a constant, and the replacement asserts it: `MAX` is state and its kind is `constant`, never `field`. The gate it guarded was also keyed on a spelling: a model inheriting `BaseModel` indirectly got no fields at all.",
-   "replacement": "tests/test_v1_108_80.py::test_a_plain_classs_state_is_indexed_and_a_constant_is_not_a_field",
-   "commit": "8b1fc94a",
-   "date": "2026-09-19"
-  },
-  {
-   "path": "tests/test_v1_108_80.py::test_classvar_is_not_a_field",
-   "lesson": "#355 meant the name literally: a `ClassVar` is not a DATACLASS field, so it was skipped. #784 indexes class state in every class by owner ruling (2026-09-19), and a `ClassVar` is class state. The old test kept PASSING after that change, for the wrong reason: its one ClassVar was spelled `REGISTRY`, which is a `constant` now, so `_fields(src) == ['x']` graded the case of a name and said nothing about `ClassVar`. A reviewer's all-`field` mutation is what showed it. The lesson: a test that survives a reversal of the thing it names has stopped testing it. The replacement carries both spellings and asserts the whole kind map.",
-   "replacement": "tests/test_v1_108_80.py::test_a_classvar_is_class_state_under_its_names_own_kind",
-   "commit": "181b43c8",
-   "date": "2026-09-19"
-  }
- ]
+  "schema": "jcm-harness-retired/v1",
+  "note": "A test file listed in docs/harness/ARCHAEOLOGY.md, or one test function in it (path = file::test_name), may be deleted only with an entry here: path, lesson, replacement (file::test_name that now carries the lesson), commit, date. tests/test_retirement_ledger.py enforces it. Empty on 2026-09-03: the archaeology found nothing to retire.",
+  "retired": [
+    {
+      "path": "tests/test_inbound_triage_apply.py::test_malformed_result_file_escalates_and_applies_nothing",
+      "lesson": "Escalating is a write. The test asserted called == [] on a malformed triage result, so the fixed escalation (inbound:unknown + needs-human, dequeue) was planned and discarded and the item re-triaged every 15 minutes (#670). The rule it meant to encode, that the MODEL'S classification never reaches gh, is kept; the escalation carries nothing the model said and is written to the issue the workflow named.",
+      "replacement": "tests/test_inbound_triage_apply.py::test_malformed_result_escalates_ON_THE_ISSUE_THE_WORKFLOW_NAMED",
+      "commit": "5a38f16a",
+      "date": "2026-09-13"
+    },
+    {
+      "path": "tests/test_julia_short_functions.py::test_a_macro_is_a_known_separate_gap",
+      "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `macro_definition` is in the grammar and matched, and the extractor read the name with `_direct_name` (first DIRECT identifier child) while a macro's name sits at `signature > call_expression > identifier` (#748). The lesson it carried -- that a name helper looking one level too shallow drops the form in silence, with no ghost and no unmatched node type to find -- is carried by the replacement named below, which asserts a macro and a function are named by the SAME path and is why the fix reuses `_func_name` instead of a fifth bespoke helper. The four argument spellings the gap test's single sample could not cover are `test_a_macro_is_a_symbol` in the same file, and the branch is pinned by `test_the_macro_branch_stopped_asking_for_a_direct_child`.",
+      "replacement": "tests/test_julia_name_depth.py::test_a_macro_and_a_function_are_named_by_the_same_path",
+      "commit": "12ee7fc4",
+      "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_julia_short_functions.py::test_a_parametric_or_subtyped_type_head_is_a_known_gap",
+      "lesson": "The same lifecycle, one node type over: `_struct_name` read `type_head > identifier`, which is only the bare spelling, so seven of nine Julia type shapes yielded nothing while the two that worked were the least common in real code (#749). The lesson -- that a fixture holding only the shapes that work reports a healthy language, so it was not wrong but narrow -- is carried by the replacement named below, which parametrizes all nine shapes. The gap test's OTHER half, that a deeper walk must not FABRICATE a symbol, is carried by `test_the_supertype_is_not_indexed_as_a_declaration`, `test_a_type_parameter_is_not_indexed_as_a_declaration` and -- because neither of those can observe a breadth-first resolver -- `test_a_combined_head_names_the_type_and_not_its_supertype`.",
+      "replacement": "tests/test_julia_name_depth.py::test_a_type_head_is_named_at_any_depth",
+      "commit": "12ee7fc4",
+      "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_js_bindings.py::test_a_destructuring_pattern_is_a_known_separate_gap",
+      "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `_js_declarator_names` required the declarator's `name` field to be an `identifier`, and a destructuring spells that field `object_pattern` or `array_pattern`, so every destructured binding was declined in javascript, typescript and tsx (#751). The lesson it carried -- that a disclosed gap is better than a silent absence, because `const { useState } = React` and `export const { GET, POST } = handlers` are ordinary module surface and a file whose exports are all destructured indexed with NONE of them -- is carried by the replacement named below. Its two samples (`const { a, b }` and `let [c, d]`) could express neither the nesting nor the anti-fabrication half: a pattern nests, and a walk collecting every `identifier` under it publishes `a` for `const { a: renamed }` and `const { a: { b } }`, where `a` names a property of the right-hand object and is bound to nothing. That half is `test_a_nested_pattern_binds_its_leaves_and_not_its_path`, whose `unbound` column fails 15 rows against the planted naive walk, and `test_a_parameter_pattern_binds_no_module_symbol`, which is what fails if the walk is ever reached from a parameter position -- the same node types, in the one place they are locals.",
+      "replacement": "tests/test_js_destructured_bindings.py::test_an_object_pattern_binds_every_name",
+      "commit": "99ef0583",
+      "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
+      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
+      "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
+      "commit": "99ef0583",
+      "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_svelte.py::test_svelte5_runes_become_constants",
+      "lesson": "`become_constants` was the rule and the rule was wrong: the Svelte extractor emitted every matched rune through a helper hardcoding `kind=\"constant\"`, so `let count = $state(0)` -- reactive, reassigned, the whole point of the rune -- was published immutable (#752). The lesson that survives is that the KEYWORD decides and the rune does not: `$state` is reached by `let` and `$derived` by either, so a rune-keyed kind table would have been a fourth transcription of #741's rule instead of a use of it. The replacement asserts the same three rune spellings under `let`, plus a `const $derived` that the old test could not express because it had no case where the two answers differ.",
+      "replacement": "tests/test_svelte.py::test_svelte5_runes_carry_the_keyword_kind",
+      "commit": "99ef0583",
+      "date": "2026-09-18"
+    },
+    {
+      "path": "tests/test_v1_108_80.py::test_plain_class_fields_not_extracted",
+      "lesson": "It asserted `_fields(src) == []` for a plain class holding `MAX: int = 5` and `name: str = 'z'`, because #355 indexed annotated names for dataclass, attrs and direct `BaseModel` classes only and left every other class's state absent on purpose. jjg reversed that on 2026-09-19 (#784): class-body state is a symbol in every class, as it already was for Java (#735), PHP (#743), Kotlin, Swift and C++ (#755). The lesson that survives is the second half of its docstring, that a field must not be conflated with a constant, and the replacement asserts it: `MAX` is state and its kind is `constant`, never `field`. The gate it guarded was also keyed on a spelling: a model inheriting `BaseModel` indirectly got no fields at all.",
+      "replacement": "tests/test_v1_108_80.py::test_a_plain_classs_state_is_indexed_and_a_constant_is_not_a_field",
+      "commit": "8b1fc94a",
+      "date": "2026-09-19"
+    },
+    {
+      "path": "tests/test_v1_108_80.py::test_classvar_is_not_a_field",
+      "lesson": "#355 meant the name literally: a `ClassVar` is not a DATACLASS field, so it was skipped. #784 indexes class state in every class by owner ruling (2026-09-19), and a `ClassVar` is class state. The old test kept PASSING after that change, for the wrong reason: its one ClassVar was spelled `REGISTRY`, which is a `constant` now, so `_fields(src) == ['x']` graded the case of a name and said nothing about `ClassVar`. A reviewer's all-`field` mutation is what showed it. The lesson: a test that survives a reversal of the thing it names has stopped testing it. The replacement carries both spellings and asserts the whole kind map.",
+      "replacement": "tests/test_v1_108_80.py::test_a_classvar_is_class_state_under_its_names_own_kind",
+      "commit": "181b43c8",
+      "date": "2026-09-19"
+    }
+  ]
 }

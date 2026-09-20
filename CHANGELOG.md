@@ -346,7 +346,12 @@ symbols before and after, from `symbol_growth.txt` of this change: this repo's
 pydantic 2604 to 3207. `get_dead_code_v2` and `get_untested_symbols` read
 `function` and `method` alone, so #428's worry about published dead-code grades
 does not hold. Counts do change: `total_symbols`, what competes in a search,
-and the rows `find_dead_code(granularity="symbol")` lists for a dead file. ⚠ One
+and the rows `find_dead_code(granularity="symbol")` lists for a dead file.
+⚠ One PUBLISHED figure will move and has not yet: `benchmarks/jcm_reference.json`
+records `fastapi/fastapi` at `symbol_count` 13240, mirrored in the README and
+`benchmarks/results.md`. It is a stamped earlier run, so nothing here is false
+today; the next `run_benchmark.py --reference` re-measures it under this parser
+and moves that cell and its mirrors. By how much was not measured in this change. ⚠ One
 id move: a field of a NESTED dataclass was `Meta.x` and is `Outer.Meta.x`, its
 owner's qualified name. Existing indexes re-parse under the `PARSER_GENERATION`
 bump already in this block.
