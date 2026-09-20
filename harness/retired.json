@@ -57,6 +57,13 @@
       "replacement": "tests/test_v1_108_80.py::test_a_classvar_is_class_state_under_its_names_own_kind",
       "commit": "181b43c8",
       "date": "2026-09-19"
+    },
+    {
+      "path": "tests/test_php_members.py::test_a_class_constant_keeps_the_bare_name_java_and_kotlin_give_it",
+      "lesson": "It asserted that a PHP class constant keeps a BARE qualified name, and its docstring said why: `_constant_symbol` hardcodes `qualified_name = name` and `_walk_tree` qualified at the call site under `if language == \"rust\"`, so Java and Kotlin were bare too, and qualifying PHP alone would have made the answer depend on which language you asked. That reasoning was right and the conclusion it reached -- record the asymmetry and leave it whole -- made the test the defect's witness: #780 and #783 report exactly the cell it pinned, a member with parent=None being invisible to every parent-keyed reader (#760's file summary counts by parent). The lesson that survives is the one the docstring already held: a per-language repair at a shared call site is a guard written against a spelling, and the fix is to ask the question the site is actually asking (`parent_symbol is not None`). The replacement asserts the positive form, and `tests/test_class_constant_owner.py` asserts it over `_CLASS_SCOPED_CONSTANT_LANGUAGES` so all three languages move together.",
+      "replacement": "tests/test_php_members.py::test_a_class_constant_is_owned_by_its_class",
+      "commit": "9163dde7",
+      "date": "2026-09-20"
     }
   ]
 }
