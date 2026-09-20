@@ -168,7 +168,9 @@ the member-kind audit, whose four `#755` cells are closed and deleted here.
 Data members go through `field_patterns`, the N-names channel #735 added:
 `int a, b, *c;` is one node and three fields. Pointers, references, arrays,
 bit-fields, default values, `static`, `const` and `mutable` all name their
-member; a local is a different node type and is asserted absent. Ownership
+member; a local VARIABLE is a different node type and is asserted absent (the
+fields of a function-local NAMED struct are its members and are indexed under
+it, like the struct itself). Ownership
 follows how the member is reached: an anonymous union's members belong to the
 enclosing class (`h.u1`), the members of `struct { int ax; } inst;` belong to
 `inst` (`h.inst.ax`, and to the first holder of `} a, b;`), and the fields of
