@@ -343,15 +343,15 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "cpp": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "arduino": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "php": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED)},
-    "ruby": {"method": ("method", OWNED), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "ruby": {"method": ("method", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "kotlin": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("property", OWNED), "property": ("property", OWNED)},
     "swift": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "scala": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
-    "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
+    "dart": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED), "property": ("method", OWNED)},
     "groovy": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "apex": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "objc": {"method": ("method", OWNED), "mutable": ("field", OWNED), "property": ("property", OWNED)},
-    "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "gdscript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
@@ -366,12 +366,14 @@ _GAPS: dict[tuple[str, str], str] = {
     # parsers never extracted (#774, #776, #779, #782). Every remaining row is
     # a SPEC-driven language, which is a different mechanism again: nothing
     # here is a parser reproducing a rule it could have asked for.
-    ("dart", "immutable"): "#775",
-    ("dart", "mutable"): "#775",
-    ("gdscript", "immutable"): "#777",
-    ("gdscript", "mutable"): "#777",
-    ("ruby", "immutable"): "#785",
-    ("ruby", "property"): "#785",
+    #
+    # ⚠⚠ ONE ENTRY LEFT, and it is held back on purpose. Rust's struct field is
+    # not a spec gap like the three above: `fidelity.rust.extra` gates at 0 and
+    # is computed by NAME over every symbol we emit with no kind filter, while
+    # the `syn` oracle carries no `field` def at all. Adding the field would
+    # fail the fast tier, and exempting it would ship the extraction unscored
+    # in BOTH directions -- the macro ceiling `benchmarks/rust_fidelity/` already
+    # warns about. #786 teaches the oracle first.
     ("rust", "mutable"): "#786",
 }
 

@@ -745,6 +745,12 @@ DART_SPEC = LanguageSpec(
     decorator_node_type="annotation",
     container_node_types=["class_definition", "mixin_declaration", "extension_declaration"],
     constant_patterns=[],
+    # ⚠⚠ #775. A Dart data member is a `declaration` and was in no channel at
+    # all, so every class reported its methods and its getters and none of its
+    # state. `_extract_dart_members` reads BOTH declarator spellings and
+    # `_dart_member_kind` reserves `constant` for `const` -- `final` is a
+    # field, because Dart has its own `const` to reserve the word for.
+    field_patterns=["declaration"],
     type_patterns=["type_alias", "enum_declaration"],
 )
 
@@ -1145,6 +1151,12 @@ RUBY_SPEC = LanguageSpec(
     decorator_node_type=None,
     container_node_types=["class", "module"],
     constant_patterns=[],
+    # ⚠⚠ #785. Both node types are also how an ordinary local and an ordinary
+    # method call are spelled, so `_extract_ruby_members` decides on SCOPE (a
+    # direct statement of a class or module body) and, for `call`, on the
+    # receiver being one of the three `attr_*` forms. Declaring the node types
+    # here alone would index `include Comparable` as a member.
+    field_patterns=["assignment", "call"],
     type_patterns=["module"],
 )
 
@@ -1179,6 +1191,12 @@ GDSCRIPT_SPEC = LanguageSpec(
     decorator_node_type="annotation",
     container_node_types=["class_definition"],
     constant_patterns=["const_statement"],
+    # ⚠⚠ #777. `var` is ONE node type whether it declares class state or a
+    # local, so the channel is gated on the statement being a direct child of
+    # a `class_body`. The `const` half needed no channel: it was already in
+    # `constant_patterns` and only the class-body SCOPE was out of reach, which
+    # `_CLASS_SCOPED_CONSTANT_LANGUAGES` is the authority for.
+    field_patterns=["variable_statement"],
     type_patterns=["enum_definition"],
 )
 
