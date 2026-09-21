@@ -348,11 +348,11 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "swift": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "scala": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "groovy": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "apex": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
-    "objc": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "groovy": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "apex": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "objc": {"method": ("method", OWNED), "mutable": ("field", OWNED), "property": ("property", OWNED)},
     "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "dlang": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
     "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
@@ -361,27 +361,17 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
-    # ⚠⚠ Apex, D, Groovy and Objective-C each lost their OWNERSHIP entry when
-    # the five custom parsers started asking `_member_of` for the owner id
-    # they had already computed. What is left of each issue is the OTHER
-    # mechanism in the same function: the class state these parsers never
-    # extract at all. Solidity has no entry any more -- it already extracted
-    # its state, so #788 closed when ownership arrived.
-    ("apex", "immutable"): "#774",
-    ("apex", "mutable"): "#774",
-    ("apex", "property"): "#774",
+    # ⚠⚠ The five CUSTOM-PARSER languages have no entry left. Ownership went
+    # first (#788, one helper the five ask), then the class state those four
+    # parsers never extracted (#774, #776, #779, #782). Every remaining row is
+    # a SPEC-driven language, which is a different mechanism again: nothing
+    # here is a parser reproducing a rule it could have asked for.
     ("dart", "immutable"): "#775",
     ("dart", "mutable"): "#775",
-    ("dlang", "immutable"): "#776",
-    ("dlang", "mutable"): "#776",
     ("gdscript", "immutable"): "#777",
     ("gdscript", "mutable"): "#777",
     ("go", "method"): "#778",
     ("go", "mutable"): "#778",
-    ("groovy", "immutable"): "#779",
-    ("groovy", "mutable"): "#779",
-    ("objc", "mutable"): "#782",
-    ("objc", "property"): "#782",
     ("ruby", "immutable"): "#785",
     ("ruby", "property"): "#785",
     ("rust", "mutable"): "#786",

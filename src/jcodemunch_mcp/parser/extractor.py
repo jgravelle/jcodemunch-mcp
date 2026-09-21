@@ -1315,17 +1315,90 @@ def _csharp_member_kind(node, source_bytes: bytes) -> Optional[str]:
     `static`), so the test is on the grandchild's type, not on the modifier's
     text. Reading the text would work until someone writes a comment between.
     """
-    if node.type == "field_declaration" and _csharp_has_modifier(node, "const"):
+    if node.type == "field_declaration" and has_modifier_keyword(node, "const"):
         return "constant"
     return None
 
 
-def _csharp_has_modifier(node, keyword: str) -> bool:
-    return any(
-        child.type == "modifier"
-        and any(g.type == keyword for g in child.children)
-        for child in node.children
-    )
+def has_modifier_keyword(node, keyword: str) -> bool:
+    """Does this declaration carry `keyword` as a modifier?
+
+    ⚠⚠ **Two grammar shapes, one question, and that is why this is shared.**
+    C# hangs `modifier` nodes directly off the declaration; Apex wraps them in
+    a `modifiers` node first. Writing the Apex answer as a second function is
+    the 08-19 standing lesson exactly -- a second derivation of a settled rule
+    -- and `java_field_is_constant`'s docstring already says what happens next.
+
+    ⚠ A `modifier` node wraps its keyword as a typed CHILD (`const`, `final`,
+    `static`), so the test is on the grandchild's type, not on the modifier's
+    text. Reading the text would work until someone writes a comment between.
+
+    ⚠ Public because `_parse_apex_symbols` is a CUSTOM parser and cannot reach
+    `_STATE_KIND_REFINERS`; `solidity_state_variable_kind` is the same shape.
+    """
+    for child in node.children:
+        if child.type == "modifier":
+            if any(g.type == keyword for g in child.children):
+                return True
+        elif child.type == "modifiers":
+            if any(
+                m.type == "modifier" and any(g.type == keyword for g in m.children)
+                for m in child.children
+            ):
+                return True
+    return False
+
+
+def dlang_variable_kind(node) -> Optional[str]:
+    """What a D `variable_declaration` declares (#776).
+
+    ⚠⚠ **`immutable` IS a constant here, the opposite of Solidity's ruling, and
+    the discriminator is the PAIR each language offers.** Solidity spells a
+    real constant `constant`, so its `immutable` is the keyword you choose when
+    you do not mean one and `solidity_state_variable_kind` returns `field` for
+    it. D has no such pair: `immutable` is a true immutability guarantee and
+    the nearest alternative, a manifest `enum`, is a different declaration form
+    rather than a competing modifier. `const` is the same guarantee through a
+    different qualifier and gets the same answer.
+
+    ⚠ The qualifier is a `type_ctor` inside the `type` node, not a modifier, so
+    this cannot use `has_modifier_keyword` -- D spells it as part of the type.
+    """
+    if node.type != "variable_declaration":
+        return None
+    for child in node.children:
+        if child.type != "type":
+            continue
+        for g in child.children:
+            if g.type == "type_ctor" and any(
+                k.type in ("immutable", "const") for k in g.children
+            ):
+                return "constant"
+    return "field"
+
+
+def apex_member_kind(node) -> Optional[str]:
+    """What an Apex `field_declaration` declares (#774).
+
+    ⚠⚠ **`static final` is a `constant` here, and that is the OPPOSITE of the
+    C# ruling one function up.** `java_field_is_constant` requires both because
+    Java has no other way to spell a constant, and Apex is the same shape: it
+    has no `const`. C# does, which is why `static readonly` is a `field` there
+    -- `readonly` is the keyword you choose when you specifically do not mean a
+    constant, and Apex offers no such choice.
+
+    ⚠ A PROPERTY is the same node carrying an `accessor_list`
+    (`public Integer View { get; set; }`) -- the Apex grammar's spelling of
+    C#'s property, which C# gives its own node type. The channel is not the
+    kind (#743), so the accessor list is checked before the modifiers.
+    """
+    if node.type != "field_declaration":
+        return None
+    if any(c.type == "accessor_list" for c in node.children):
+        return "property"
+    if has_modifier_keyword(node, "static") and has_modifier_keyword(node, "final"):
+        return "constant"
+    return "field"
 
 
 def _swift_member_kind(node, source_bytes: bytes) -> Optional[str]:
@@ -8030,6 +8103,21 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return ":".join(identifiers) + ":"
         return identifiers[0]
 
+    def _struct_declarations(node):
+        """Every `struct_declaration` under a member node, at either depth.
+
+        ⚠ `@property int view;` carries it directly; an ivar block wraps each
+        one in an `instance_variable` first. One walk, so a grammar that later
+        adds a wrapper does not silently drop the member.
+        """
+        for child in node.children:
+            if child.type == "struct_declaration":
+                yield child
+            elif child.type == "instance_variable":
+                for g in child.children:
+                    if g.type == "struct_declaration":
+                        yield g
+
     #: The enclosing `@interface`/`@implementation`, as a SYMBOL rather than a
     #: name (#782). It held the name alone, so every method was qualified
     #: correctly and owned by nothing.
@@ -8061,6 +8149,45 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     _walk(child)
                 current_class[0] = prev_class
                 return
+        elif node.type in ("instance_variables", "property_declaration") and current_class[0]:
+            # #782: a class's state was never extracted. ⚠⚠ TWO grammar nodes
+            # and TWO words: an ivar inside `{ }` is a `field`, and `@property`
+            # is what ObjC calls a property and declares separately. Routing
+            # both through one branch would be wrong in one of them -- #743's
+            # split, where the CHANNEL is not the kind.
+            kind = "field" if node.type == "instance_variables" else "property"
+            for declaration in _struct_declarations(node):
+                for declarator in declaration.children:
+                    if declarator.type != "struct_declarator":
+                        continue
+                    ident = next(
+                        (c for c in declarator.children if c.type == "identifier"), None
+                    )
+                    if ident is None:
+                        continue
+                    name = source[ident.start_byte:ident.end_byte]
+                    qualified, owner_id = _member_of(current_class[0], name)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, qualified, kind),
+                        file=filename,
+                        name=name,
+                        qualified_name=qualified,
+                        kind=kind,
+                        language="objc",
+                        signature=source[
+                            declaration.start_byte:declaration.end_byte
+                        ].split(";")[0].strip()[:120],
+                        docstring="",
+                        line=declaration.start_point[0] + 1,
+                        end_line=declaration.end_point[0] + 1,
+                        byte_offset=declaration.start_byte,
+                        byte_length=declaration.end_byte - declaration.start_byte,
+                        content_hash=compute_content_hash(
+                            source_bytes[declaration.start_byte:declaration.end_byte]
+                        ),
+                        parent=owner_id,
+                    ))
+            return
         elif node.type in ("method_declaration", "method_definition") and current_class[0]:
             selector = _get_selector(node)
             if selector:
@@ -9115,6 +9242,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             units_to_check = list(units)
             if block:
                 units_to_check += [c for c in block.children if c.type == "unit"]
+            found_method = False
             for unit in units_to_check:
                 method_name = _func_name_in_unit(unit)
                 if method_name:
@@ -9140,7 +9268,55 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         parent=owner_id,
                     )
                     symbols.append(sym)
+                    found_method = True
                     break
+            if found_method or parent is None:
+                continue
+
+            # #779: a class's state was never extracted. This grammar has NO
+            # field node -- a field is a `command` of bare identifier units
+            # carrying an `operators` child holding `=`.
+            #
+            # ⚠⚠ The `=` is what keeps a METHOD CALL out of the index. `int
+            # tally` and `foo bar` are the same shape here -- two bare units,
+            # no operator -- so an uninitialised field is deliberately not
+            # extracted, and `test_a_groovy_field_without_an_initialiser_is_
+            # not_extracted_and_that_is_the_limit` pins that boundary. Widening
+            # it needs a fixture proving calls still stay out.
+            if not any(
+                c.type == "operators" and any(g.type == "=" for g in c.children)
+                for c in node.children
+            ):
+                continue
+            words = [w for w in (_first_id_in_unit(u) for u in units) if w]
+            if len(words) < 2:
+                continue
+            field_name = words[-1]
+            # `static final` is Groovy's constant spelling, as in Java and
+            # Apex: the language has no `const` to prefer over it.
+            kind = (
+                "constant"
+                if {"static", "final"} <= set(words[:-1])
+                else "field"
+            )
+            qualified, owner_id = _member_of(parent, field_name)
+            raw = source[node.start_byte:node.end_byte]
+            symbols.append(Symbol(
+                id=make_symbol_id(filename, qualified, kind),
+                file=filename,
+                name=field_name,
+                qualified_name=qualified,
+                kind=kind,
+                language="groovy",
+                signature=raw.strip().splitlines()[0][:120] if raw.strip() else field_name,
+                docstring="",
+                line=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                byte_offset=node.start_byte,
+                byte_length=node.end_byte - node.start_byte,
+                content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                parent=owner_id,
+            ))
 
     _walk_commands(tree.root_node.children)
     return symbols
@@ -11994,6 +12170,34 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ))
                 return
 
+        elif node.type == "field_declaration":
+            # #774: a class's state was never extracted at all. Every
+            # `variable_declarator` is one member -- `Integer a = 1, b = 2;`
+            # declares two, and reading only the first would index half a line.
+            kind = apex_member_kind(node) or "field"
+            for declarator in node.children:
+                if declarator.type != "variable_declarator":
+                    continue
+                ident = _first_child_of_type(declarator, "identifier")
+                if not ident:
+                    continue
+                name = _text(ident)
+                qualified, owner_id = _member_of(parent, name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind=kind, language="apex",
+                    signature=_text(node).split("{")[0].split(";")[0].strip()[:120],
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
+            return
+
         elif node.type == "trigger_declaration":
             ident = _first_child_of_type(node, "identifier")
             if ident:
@@ -12776,6 +12980,36 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     file=filename, name=name, qualified_name=qualified,
                     kind="type", language="dlang",
                     signature=f"enum {name}",
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
+            return
+
+        elif node.type == "variable_declaration":
+            # #776: a D aggregate's state was never extracted. ⚠ Only INSIDE an
+            # aggregate: a module-scope `int x = 1;` is the same node type, and
+            # `variable` is the word for a binding no type owns (`KIND_ORDER`).
+            kind = dlang_variable_kind(node) or "field"
+            if parent is None and kind != "constant":
+                kind = "variable"
+            for declarator in node.children:
+                if declarator.type != "declarator":
+                    continue
+                ident = _first_child_of_type(declarator, "identifier")
+                if not ident:
+                    continue
+                name = _text(ident)
+                qualified, owner_id = _member_of(parent, name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind=kind, language="dlang",
+                    signature=_text(node).split(";")[0].strip()[:120],
                     docstring="",
                     line=node.start_point[0] + 1,
                     end_line=node.end_point[0] + 1,
