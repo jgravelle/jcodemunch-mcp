@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Fixed - a Go method belongs to its receiver, and a struct's fields are indexed (#778)
+
+`func (a *Audit) RunIt() int` came back as `RunIt` — not qualified by its type,
+not owned by it, owner unknown. And an `Audit` struct's fields were absent
+outright, so the type reported as holding nothing.
+
+Go was the one ownership issue deliberately left out of #788's family. The other
+five qualified their members correctly and lost only the `parent`; Go's method
+was not qualified **at all**, because Go attaches a method to a RECEIVER instead
+of nesting it inside the type, so there was no enclosing node to be a parent.
+Same symptom, different cause, and mixing the two would have made one change
+carry two mechanisms and one of them badly.
+
+**Resolving a receiver needs a second pass, and the language forces that.** Go
+does not require a type to be declared before a method on it, so a walk that
+resolved a receiver as it met one would answer `unknown` for every method
+declared first — and would look correct on any fixture written in the other
+order. `_attach_go_receivers_and_fields` runs against the types the walk found,
+and a test declares the method before its type.
+
+The receiver's type sits at three different depths — `(i ID)` is bare,
+`(a *Audit)` wraps it in `pointer_type`, `(b *Box[T])` wraps that in
+`generic_type` — and all three resolve to the base type. A struct's
+`X, Y int` is two fields, and an EMBEDDED field, which the grammar gives no
+name at all, takes its type's base name, because `a.Reader` is how Go itself
+reads it.
+
+⚠⚠ **Ids MOVE for every Go method.** `make_symbol_id` is keyed on the qualified
+name, and `RunIt` becomes `Audit.RunIt`. Go is the only language in this family
+that pays that; the other five were already qualified and only lacked a parent.
+
+⚠ **A receiver whose type is not in this file keeps today's answer.** Go allows
+it to live in another file of the same package, this parser sees one file, and
+inventing an owner id would be worse than leaving the method unqualified.
+Absence over fabrication, and a test holds the line so cross-file resolution has
+to move it.
+
+⚠ **Kotlin is NOT swept in, and that is a ruling.** Scanning for other languages
+that attach a callable to a type declared elsewhere found exactly one more:
+`fun Audit.r()` is a top-level `function` with no owner. A Go method IS the
+type's method and can reach unexported state; a Kotlin extension is resolved
+statically, cannot see private members and is not inherited, so calling it a
+member would claim more than the language does. Swift already disagrees with
+Kotlin here — its `extension` nests in the grammar and is owned — and that
+inconsistency predates this change. It is pinned rather than harmonised inside a
+PR about Go.
 ### Fixed - an Apex, D, Groovy or Objective-C class's state is indexed (#774, #776, #779, #782)
 
 Four custom parsers walked a class body and emitted the METHODS only. Every

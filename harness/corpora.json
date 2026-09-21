@@ -44,7 +44,7 @@
     "goldset_gold": {
       "path": "benchmarks/goldset/gold.json",
       "pattern": null,
-      "sha256": "be3cba5e60b9d5fd438ef21d2b9a34219cb290d37b446adb13c34b3fa621e34b"
+      "sha256": "e09ae66adc408ca60ae3019e8fee902a51bca5be4636b66220ac59dce1f97a0e"
     },
     "route_queries": {
       "path": "benchmarks/route_recall/queries.json",

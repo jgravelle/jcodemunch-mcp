@@ -354,7 +354,7 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
     "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
-    "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
+    "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
     "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
 }
 
@@ -370,8 +370,6 @@ _GAPS: dict[tuple[str, str], str] = {
     ("dart", "mutable"): "#775",
     ("gdscript", "immutable"): "#777",
     ("gdscript", "mutable"): "#777",
-    ("go", "method"): "#778",
-    ("go", "mutable"): "#778",
     ("ruby", "immutable"): "#785",
     ("ruby", "property"): "#785",
     ("rust", "mutable"): "#786",
