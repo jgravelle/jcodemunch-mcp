@@ -33,6 +33,26 @@ reads it.
 name, and `RunIt` becomes `Audit.RunIt`. Go is the only language in this family
 that pays that; the other five were already qualified and only lacked a parent.
 
+⚠⚠ **Neither join is on a name or a line, and review is why.** The first draft
+keyed owners on the bare type name, so a function-local `type Config` inside a
+function body took the package-level `Config`'s method and field: the method got
+a wrong owner, a wrong qualified name and a wrong id, the local type gained a
+field it does not declare, and the real type was left reporting zero members —
+the very symptom this entry is about, reintroduced one scope over, and worse
+than the defect it replaced because the old answer was an honest absence. Only a
+package-level type can carry a method in Go, so both loops read the file's own
+children and never enter a body. Methods were keyed on the start LINE, which
+collapsed `func (a A) X() {}; func (a A) Y() {}` — the second won and `X` stayed
+bare. gofmt splits that line, which is why such a defect survives review and
+surfaces in the one file nobody formatted. Both joins are on the declaration's
+start byte now, and a miss leaves the member with today's answer.
+
+⚠ **A struct nested anonymously inside a field contributes the field and not
+its own members**, and a grouped `type ( A …; B … )` yields one symbol for the
+whole declaration, so B stays unindexed rather than having its fields filed
+under A. Both under-report in the direction the tree already did; both are
+pinned as limits so a later change has to move the line rather than discover it.
+
 ⚠ **A receiver whose type is not in this file keeps today's answer.** Go allows
 it to live in another file of the same package, this parser sees one file, and
 inventing an owner id would be worse than leaving the method unqualified.

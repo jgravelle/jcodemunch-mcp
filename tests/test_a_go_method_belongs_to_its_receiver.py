@@ -207,6 +207,85 @@ def test_an_embedded_field_is_named_after_its_type():
     assert found["N"][0].parent == owner.id
 
 
+def test_a_function_local_type_does_not_steal_the_package_types_members():
+    """⚠⚠ The shadowing case, and it is why nothing here joins on a NAME.
+
+    A `type` inside a function body is a different type that happens to share
+    a name. An owner table keyed on the bare name gave the function-local
+    `Config` the package-level `Config`'s method and field: `Use` came back as
+    `helper.Config.Use` with a wrong owner, a wrong qualified name and a wrong
+    id, the local type gained a `Real` it does not declare, and the real type
+    was left reporting ZERO members -- the exact symptom this issue fixes,
+    reintroduced one scope over.
+
+    ⚠ It is worse than the defect it replaced: before #778 the same file
+    answered `Use` unqualified with no parent, which is an honest absence. A
+    wrong owner is fabrication, and this file's own rule is absence over
+    fabrication.
+    """
+    source = (
+        "package a\n"
+        "type Config struct {\n\tReal int\n}\n"
+        "func (c *Config) Use() int { return c.Real }\n"
+        "func helper() {\n"
+        "\ttype Config struct{ Fake int }\n"
+        "\t_ = Config{}\n"
+        "}\n"
+    )
+    found = _by_name(source, "shadow.go")
+    package_type = next(s for s in found["Config"] if s.parent is None)
+    assert found["Use"][0].qualified_name == "Config.Use"
+    assert found["Use"][0].parent == package_type.id
+    assert found["Real"][0].qualified_name == "Config.Real"
+    assert found["Real"][0].parent == package_type.id
+    # The local type declares `Fake` and owns nothing of the package type's.
+    assert "Fake" not in found, "a function-local struct's fields were adopted"
+
+
+def test_two_methods_declared_on_one_line_both_resolve():
+    """⚠⚠ A LINE IS NOT AN IDENTITY. Keying methods on the start LINE
+    collapsed these two: the second write won, `Y` resolved and `X` stayed
+    bare. gofmt splits the line, which is precisely why such a defect survives
+    review and reaches the one file nobody formatted."""
+    source = "package a\ntype A int\nfunc (a A) X() {}; func (a A) Y() {}\n"
+    found = _by_name(source, "oneline.go")
+    owner = found["A"][0]
+    for name in ("X", "Y"):
+        assert found[name][0].qualified_name == f"A.{name}", name
+        assert found[name][0].parent == owner.id, name
+
+
+def test_a_grouped_type_declaration_does_not_hand_one_types_fields_to_another():
+    """⚠ A grouped `type ( A ...; B ... )` yields ONE symbol for the whole
+    declaration -- a gap that predates this change -- so joining every spec in
+    it to that symbol would give B's fields to A. B stays unindexed, which is
+    what it already was; what must not happen is A growing a member it does
+    not declare."""
+    source = (
+        "package a\n"
+        "type (\n"
+        "\tA struct{ Mine int }\n"
+        "\tB struct{ Theirs int }\n"
+        ")\n"
+    )
+    found = _by_name(source, "grouped.go")
+    owner = found["A"][0]
+    assert found["Mine"][0].parent == owner.id
+    assert "Theirs" not in found, "B's field was filed under A"
+
+
+def test_a_nested_anonymous_struct_is_not_descended_and_that_is_a_limit():
+    """⚠ The limit, pinned rather than claimed. Only the outer
+    `field_declaration_list` is read, so an anonymous struct inside a field
+    contributes the field and not its own members. That under-reports in the
+    same direction the pre-#778 tree did; a later change must move this line
+    rather than discover it."""
+    source = "package a\ntype A struct {\n\tInner struct{ Deep int }\n}\n"
+    found = _by_name(source, "nested.go")
+    assert found["Inner"][0].parent == found["A"][0].id
+    assert "Deep" not in found
+
+
 def test_a_local_variable_is_not_a_member():
     """The channel next door. A `var` inside a function belongs to no type, and
     a fix reaching too widely would give it one."""
