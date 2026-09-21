@@ -41,12 +41,20 @@ directly off a declaration and Apex wraps them in a `modifiers` node; one
 grammar question, two shapes, and writing the second as its own function is what
 the 08-19 standing lesson names.
 
-⚠ **A known limit, pinned rather than discovered later.** Groovy's grammar
-cannot tell `int tally` from the method call `foo bar` — both are a `command` of
-two bare identifier units with no operator. Requiring the `=` is what keeps a
-call out of the index, and the cost is the uninitialised field.
-`test_a_groovy_field_without_an_initialiser_is_not_extracted_and_that_is_the_limit`
-holds that boundary, so widening it needs a fixture proving calls still stay out.
+**Groovy's rule is the operator's source text, and three grammar facts forced
+that.** It has no field node and no assignment node — only `unit` runs and
+`operators` tokens — and `==` is TWO ADJACENT `operators` nodes each holding a
+bare `=`, `!=` is ONE `operators(=)` with the `!` dropped from the tree
+entirely, and `<=` puts an `ERROR` node where the name would be. So no count,
+adjacency or ERROR test can separate a declaration from a comparison: the
+contiguous operator run must read exactly `=`, with nothing but whitespace
+between it and the name. Eighteen statements are parametrized over that rule,
+declarations and calls alike.
+
+⚠ **A known limit, pinned rather than discovered later.** `int tally` and the
+call `foo bar` are the same two bare units with no operator, so an
+uninitialised field is deliberately not extracted. That is the cost of keeping
+calls out, and a test holds the line.
 
 ⚠⚠ **The reported list was not the list, again.** Probing every class-bearing
 language with a custom parser found six more whose class state is absent and
@@ -59,6 +67,16 @@ construction for custom extractors, because a custom parser declares no
 `symbol_node_types` for the check to read. The enumeration built to stop this
 defect class being found one language per fix cannot see the languages it does
 not sample.
+
+⚠ **Scope, stated because the node type does not draw it.** D spells a
+module-scope `int x = 1;` with the same `variable_declaration` it uses inside an
+aggregate, so this extracts members only. Whether a module-scope D binding
+should be indexed at all, and as which kind, is its own decision with #807's
+shape; a test asserts it has not been made here by accident.
+
+Multi-declarator lines give every name, in Apex, D and Groovy alike —
+`int a = 1, b = 2` is two fields. Reading only one of them would index half a
+line.
 
 Nine `_GAPS` entries close with this. No custom-parser language has one left;
 every remaining row in the audit is spec-driven.

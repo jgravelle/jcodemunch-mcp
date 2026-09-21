@@ -193,24 +193,87 @@ def test_d_immutable_is_a_constant_and_that_is_a_ruling():
     ) == {"cap": "field"}
 
 
+def _groovy_class_body(body: str) -> dict[str, str]:
+    """One statement at CLASS-BODY level, which is where the field branch runs.
+
+    ⚠⚠ A fixture inside a METHOD body cannot exercise this rule at all -- the
+    walk never descends there -- so an assertion written that way passes for a
+    reason unrelated to what it claims to pin. That is how the first version of
+    the boundary test below was vacuous.
+    """
+    return _state("groovy", "c.groovy", "class C {\n    " + body + "\n}\n")
+
+
+#: (label, statement, expected state). ⚠⚠ Every operator spelling, because the
+#: rule that separates a declaration from a call is about the OPERATOR and the
+#: grammar spells operators in three different shapes.
+_GROOVY_STATEMENTS: list[tuple[str, str, dict[str, str]]] = [
+    ("plain field", "int tally = 0", {"tally": "field"}),
+    ("constant", "static final int L = 3", {"L": "constant"}),
+    ("def field", "def x = 1", {"x": "field"}),
+    ("string field", "String s = 'a'", {"s": "field"}),
+    ("expression value", "int x = a + b", {"x": "field"}),
+    ("comparison as value", "boolean f = a == b", {"f": "field"}),
+    ("two declarators", "int a = 1, b = 2", {"a": "field", "b": "field"}),
+    ("two def declarators", "def p = 1, q = 2", {"p": "field", "q": "field"}),
+    ("equality call", "check tally == 1", {}),
+    ("inequality call", "check tally != 1", {}),
+    ("lte call", "check tally <= 1", {}),
+    ("gte call", "check tally >= 1", {}),
+    ("spaceship call", "check tally <=> 1", {}),
+    ("compound assign", "tally += 1", {}),
+    ("boolean call", "check a && b", {}),
+    ("elvis call", "check a ?: b", {}),
+    ("bare reassignment", "tally = 1", {}),
+    ("uninitialised", "int p", {}),
+]
+
+
+@pytest.mark.parametrize(
+    "label,statement,expected", _GROOVY_STATEMENTS,
+    ids=[r[0].replace(" ", "_") for r in _GROOVY_STATEMENTS],
+)
+def test_groovy_separates_a_declaration_from_a_call_by_the_operator(
+    label, statement, expected
+):
+    """⚠⚠ The rule, and the four spellings that defeated its first version.
+
+    tree-sitter-groovy has no field node and no assignment node: it emits
+    `unit` runs and `operators` tokens. Three measurements shaped this:
+
+    - `==` is TWO ADJACENT `operators` nodes each holding a bare `=`, so a
+      scan for "an `operators` child containing `=`" indexed
+      `check tally == 1` as a field named `tally`.
+    - `!=` is ONE `operators(=)` with the `!` dropped from the tree, making it
+      structurally IDENTICAL to a real `=`. No count, adjacency or
+      ERROR-sibling test can separate them.
+    - `<=` and `>=` put an `ERROR` node where the name would be.
+
+    So the test is the SOURCE TEXT: the contiguous operator run must read
+    exactly `=`, and nothing but whitespace may sit between the name and it.
+    Everything short of that was a spelling, which is the 09-01 standing
+    lesson.
+
+    ⚠ A bare statement at class-body level is not valid Groovy, so the call
+    rows are synthetic. They are what the BRANCH sees, which is the point: the
+    rule has to hold on the input, not on the input someone would write.
+    """
+    assert _groovy_class_body(statement) == expected
+
+
 def test_a_groovy_field_without_an_initialiser_is_not_extracted_and_that_is_the_limit():
     """⚠⚠ The boundary of the Groovy rule, pinned because the grammar cannot
     draw it.
 
-    tree-sitter-groovy has no field node. A field is a `command` of bare
-    identifier units inside a class block, and `int tally` -- a declaration
-    with no initialiser -- is indistinguishable from the method call
-    `foo bar`. Requiring an `=` is what keeps a call out of the index, and the
-    cost is the uninitialised field.
+    `int tally` and the call `foo bar` are the same two bare units with no
+    operator, so an uninitialised field is deliberately not extracted.
+    Requiring the assignment is what keeps calls out, and this is the cost.
 
     ⚠ Asserted rather than left to a comment: a later widening must move this
-    line, with a fixture proving calls stay out.
+    line, with fixtures proving every row above still holds.
     """
-    assert _state("groovy", "u.groovy", "class U {\n    int pending\n}\n") == {}
-    called = parse_file(
-        "class C {\n    int go() { println tally }\n}\n", "c.groovy", "groovy"
-    )
-    assert [s.name for s in called if s.kind in STATE_KINDS] == []
+    assert _groovy_class_body("int pending") == {}
+    assert _groovy_class_body("private int alsoPending") == {}
 
 
 def test_an_objc_ivar_and_a_property_are_different_kinds():
@@ -224,20 +287,31 @@ def test_an_objc_ivar_and_a_property_are_different_kinds():
     assert _state("objc", "a.m", _OBJC) == {"tally": "field", "view": "property"}
 
 
-def test_a_module_scope_declaration_is_not_a_class_member():
-    """⚠⚠ The half that has no owner, and the shape #699 and #807 both name.
+def test_a_module_scope_declaration_does_not_become_a_class_member():
+    """⚠⚠ The scope boundary, asserted as ABSENCE rather than as a kind.
 
-    A binding outside any class belongs to no type. It must not acquire a
-    member kind, and it must not acquire a parent.
+    D spells a module-scope `int x = 1;` with the SAME `variable_declaration`
+    node it uses inside an aggregate, so an unguarded branch would add a whole
+    new symbol class to every D file in every user's index -- a scope change
+    nobody asked for, under an issue about class state. The first draft of
+    this fix carried a comment saying "only inside an aggregate" with no test
+    under it, and shipped exactly that: two new module-scope symbols. Review
+    measured them by diffing parse output against the parent branch.
+
+    ⚠ It is asserted as absence, not as `variable`, because whether a D
+    module-scope binding should be indexed at all -- and as which kind -- is
+    its own decision with #807's shape. This pins that the decision has not
+    been made here by accident.
+
+    ⚠ Objective-C is the control: its member branch is guarded by
+    `current_class[0]`, so a top-level declaration was never reachable.
     """
     for language, filename, source in (
-        ("dlang", "top.d", "int topTally = 0;\n"),
+        ("dlang", "top.d", "int topTally = 0;\nimmutable int topK = 1;\n"),
         ("objc", "top.m", "int topTally;\n"),
     ):
-        hits = [
-            s for s in parse_file(source, filename, language)
-            if s.name == "topTally"
+        state = [
+            (s.name, s.kind) for s in parse_file(source, filename, language)
+            if s.kind in STATE_KINDS
         ]
-        for hit in hits:
-            assert hit.parent is None, (language, hit.parent)
-            assert hit.kind not in ("field", "property"), (language, hit.kind)
+        assert state == [], (language, state)

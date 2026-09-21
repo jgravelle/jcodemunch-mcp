@@ -9185,6 +9185,54 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         return t
         return None
 
+    def _assigned_names(node) -> list[tuple[int, str]]:
+        """Every name this `command` ASSIGNS, as (child index, name) (#779).
+
+        ⚠⚠ **The test is the SOURCE TEXT of the operator, not the shape of the
+        tree, and the first version got that wrong.** tree-sitter-groovy has no
+        field node and no assignment node: it emits `unit` runs and `operators`
+        tokens, and it splits `==` into TWO adjacent `operators` nodes each
+        holding a bare `=`. So a scan for "has an `operators` child containing
+        `=`" indexed `check tally == 1` as a field named `tally`. Worse,
+        `!=` yields ONE `operators(=)` with the `!` dropped, making it
+        byte-identical in the tree to a real `=` -- no count, adjacency or
+        ERROR-sibling test can separate them.
+
+        Reading the bytes between the name and the value settles all of them:
+        `=` is an assignment, `==`, `!=`, `<=`, `>=`, `&&` and `+` are not.
+        That is the property; everything else was a spelling.
+
+        ⚠ Returning every assignment, not the first, is what makes
+        `int a = 1, b = 2` two fields. The Apex branch already says why
+        (`reading only the first would index half a line`); this grammar
+        separates them with `arg_spliter` and the loop does not care.
+        """
+        kids = [c for c in node.children if c.type != "\n"]
+        found: list[tuple[int, str]] = []
+        for i, child in enumerate(kids):
+            if child.type != "operators" or i == 0:
+                continue
+            name_node = kids[i - 1]
+            if name_node.type != "unit":
+                continue
+            # The whole contiguous run of `operators`, because `==` is two
+            # adjacent nodes and stopping at the first reads it as `=`.
+            end = i
+            while end + 1 < len(kids) and kids[end + 1].type == "operators":
+                end += 1
+            if end + 1 >= len(kids):
+                continue  # nothing assigned
+            if source[child.start_byte:kids[end].end_byte] != "=":
+                continue  # `==`, `<=>`, `&&`, ...
+            # Nothing but whitespace between the name and the operator: `!=`
+            # drops its `!` from the tree and is otherwise identical to `=`.
+            if source[name_node.end_byte:child.start_byte].strip():
+                continue
+            name = _first_id_in_unit(name_node)
+            if name:
+                found.append((node.children.index(name_node), name))
+        return found
+
     def _walk_commands(nodes, parent: Optional[Symbol] = None) -> None:
         """Walk a list of sibling nodes looking for command patterns."""
         for node in nodes:
@@ -9274,49 +9322,48 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 continue
 
             # #779: a class's state was never extracted. This grammar has NO
-            # field node -- a field is a `command` of bare identifier units
-            # carrying an `operators` child holding `=`.
-            #
-            # ⚠⚠ The `=` is what keeps a METHOD CALL out of the index. `int
-            # tally` and `foo bar` are the same shape here -- two bare units,
-            # no operator -- so an uninitialised field is deliberately not
-            # extracted, and `test_a_groovy_field_without_an_initialiser_is_
-            # not_extracted_and_that_is_the_limit` pins that boundary. Widening
-            # it needs a fixture proving calls still stay out.
-            if not any(
-                c.type == "operators" and any(g.type == "=" for g in c.children)
-                for c in node.children
-            ):
+            # field node -- a field is a `command` whose units are bare
+            # identifiers and which ASSIGNS, so the assignment is what has to
+            # be identified, and `_assigned_names` is where that lives.
+            assignments = _assigned_names(node)
+            if not assignments:
                 continue
-            words = [w for w in (_first_id_in_unit(u) for u in units) if w]
-            if len(words) < 2:
+            first_name_index = assignments[0][0]
+            leading = [
+                _first_id_in_unit(c)
+                for c in node.children[:first_name_index]
+                if c.type == "unit"
+            ]
+            leading = [w for w in leading if w]
+            # ⚠ At least one unit before the name -- a type or `def`. Without
+            # it this is `tally = 1`, an assignment to an existing field rather
+            # than a declaration of a new one.
+            if not leading:
                 continue
-            field_name = words[-1]
             # `static final` is Groovy's constant spelling, as in Java and
-            # Apex: the language has no `const` to prefer over it.
-            kind = (
-                "constant"
-                if {"static", "final"} <= set(words[:-1])
-                else "field"
-            )
-            qualified, owner_id = _member_of(parent, field_name)
+            # Apex: the language has no `const` to prefer over it. Declarators
+            # after the first share the line's modifiers, as they do in Java.
+            kind = "constant" if {"static", "final"} <= set(leading) else "field"
             raw = source[node.start_byte:node.end_byte]
-            symbols.append(Symbol(
-                id=make_symbol_id(filename, qualified, kind),
-                file=filename,
-                name=field_name,
-                qualified_name=qualified,
-                kind=kind,
-                language="groovy",
-                signature=raw.strip().splitlines()[0][:120] if raw.strip() else field_name,
-                docstring="",
-                line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
-                byte_offset=node.start_byte,
-                byte_length=node.end_byte - node.start_byte,
-                content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                parent=owner_id,
-            ))
+            signature = raw.strip().splitlines()[0][:120] if raw.strip() else ""
+            for _, field_name in assignments:
+                qualified, owner_id = _member_of(parent, field_name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename,
+                    name=field_name,
+                    qualified_name=qualified,
+                    kind=kind,
+                    language="groovy",
+                    signature=signature or field_name,
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
 
     _walk_commands(tree.root_node.children)
     return symbols
@@ -12991,12 +13038,20 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         elif node.type == "variable_declaration":
-            # #776: a D aggregate's state was never extracted. ⚠ Only INSIDE an
-            # aggregate: a module-scope `int x = 1;` is the same node type, and
-            # `variable` is the word for a binding no type owns (`KIND_ORDER`).
+            # #776: a D aggregate's state was never extracted.
+            #
+            # ⚠⚠ **Only INSIDE an aggregate, and the guard is here rather than
+            # in a comment.** A module-scope `int x = 1;` is the SAME node
+            # type, so an unguarded branch adds a whole new symbol class to
+            # every D file in every user's index -- a scope change nobody asked
+            # for, under an issue about class state. The first draft carried
+            # this sentence with no `parent is None` test under it, which is a
+            # comment describing a rule the code did not have. Module-scope
+            # bindings are their own decision, with their own kind question
+            # (`variable` vs `constant`, #807's shape) and their own issue.
+            if parent is None:
+                return
             kind = dlang_variable_kind(node) or "field"
-            if parent is None and kind != "constant":
-                kind = "variable"
             for declarator in node.children:
                 if declarator.type != "declarator":
                     continue
