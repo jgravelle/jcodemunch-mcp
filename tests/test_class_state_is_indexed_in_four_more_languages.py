@@ -225,7 +225,16 @@ _GROOVY_STATEMENTS: list[tuple[str, str, dict[str, str]]] = [
     ("boolean call", "check a && b", {}),
     ("elvis call", "check a ?: b", {}),
     ("bare reassignment", "tally = 1", {}),
+    ("qualified reassignment", "this.tally = 1", {}),
     ("uninitialised", "int p", {}),
+    # ⚠⚠ `b` is an assignment to something already declared, so emitting it
+    # would FABRICATE a member. Absence is the safe error; invention is not.
+    ("chained assignment", "int a = b = 1", {"a": "field"}),
+    ("ternary value", "int a = b ? 1 : 2", {"a": "field"}),
+    ("elvis value", "int a = b ?: 1", {"a": "field"}),
+    ("map literal value", "def m = [a: 1]", {"m": "field"}),
+    ("string holding an operator", "def q = 'x == y'", {"q": "field"}),
+    ("annotated field", "@Inject int a = 1", {"a": "field"}),
 ]
 
 
@@ -261,19 +270,44 @@ def test_groovy_separates_a_declaration_from_a_call_by_the_operator(
     assert _groovy_class_body(statement) == expected
 
 
-def test_a_groovy_field_without_an_initialiser_is_not_extracted_and_that_is_the_limit():
-    """⚠⚠ The boundary of the Groovy rule, pinned because the grammar cannot
-    draw it.
+#: Real Groovy fields this rule MISSES, each measured rather than reasoned.
+#: ⚠⚠ Named individually because "uninitialised fields are missed" understates
+#: it, and an understated limit is the kind of sentence a reader reuses.
+_GROOVY_MISSED: list[tuple[str, str]] = [
+    # No operator at all: `int tally` and the call `foo bar` are the same two
+    # bare units, so requiring the assignment is what keeps calls out.
+    ("uninitialised", "int pending"),
+    ("uninitialised with modifier", "private int alsoPending"),
+    # A generic type splits on its own comma -- `Map<String` / `,` /
+    # `Integer` / ERROR(`> m`) -- so the name never reaches a `unit`.
+    ("generic type", "Map<String, Integer> m = [:]"),
+    # The "nothing but whitespace between the name and the operator" rule,
+    # paying for itself: a comment or a newline there is not whitespace.
+    ("comment before the operator", "int tally /*c*/ = 1"),
+    ("newline before the operator", "int tally\n        = 1"),
+]
 
-    `int tally` and the call `foo bar` are the same two bare units with no
-    operator, so an uninitialised field is deliberately not extracted.
-    Requiring the assignment is what keeps calls out, and this is the cost.
 
-    ⚠ Asserted rather than left to a comment: a later widening must move this
-    line, with fixtures proving every row above still holds.
+@pytest.mark.parametrize(
+    "label,statement", _GROOVY_MISSED,
+    ids=[r[0].replace(" ", "_") for r in _GROOVY_MISSED],
+)
+def test_the_groovy_rule_misses_these_real_fields_and_that_is_the_cost(
+    label, statement
+):
+    """⚠⚠ The boundary, pinned per shape because the GRAMMAR draws it here,
+    not the rule's author.
+
+    Every row is valid Groovy declaring a real field that this does not index.
+    Two of them follow directly from the whitespace clause the rule needs to
+    reject `!=`, and one from the grammar splitting a generic on its own comma.
+
+    ⚠ These fail in the SAFE direction -- absence, never fabrication -- which
+    is the trade the rule makes deliberately. A later widening must move these
+    lines and re-run every row of `_GROOVY_STATEMENTS`, because the calls this
+    keeps out are the reason the limit exists.
     """
-    assert _groovy_class_body("int pending") == {}
-    assert _groovy_class_body("private int alsoPending") == {}
+    assert _groovy_class_body(statement) == {}
 
 
 def test_an_objc_ivar_and_a_property_are_different_kinds():

@@ -9215,6 +9215,13 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name_node = kids[i - 1]
             if name_node.type != "unit":
                 continue
+            # ⚠ A declared name sits at the START of the command (after its
+            # type and modifiers) or after an `arg_spliter`. One preceded by an
+            # `operators` is on the VALUE side: `int a = b = 1` declares `a`
+            # and assigns to an existing `b`, and emitting `b` would FABRICATE
+            # a member. Absence is the safe error here; invention is not.
+            if i < 2 or kids[i - 2].type == "operators":
+                continue
             # The whole contiguous run of `operators`, because `==` is two
             # adjacent nodes and stopping at the first reads it as `=`.
             end = i

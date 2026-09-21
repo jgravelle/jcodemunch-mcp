@@ -51,10 +51,17 @@ contiguous operator run must read exactly `=`, with nothing but whitespace
 between it and the name. Eighteen statements are parametrized over that rule,
 declarations and calls alike.
 
-⚠ **A known limit, pinned rather than discovered later.** `int tally` and the
-call `foo bar` are the same two bare units with no operator, so an
-uninitialised field is deliberately not extracted. That is the cost of keeping
-calls out, and a test holds the line.
+⚠ **What that rule costs, measured per shape rather than summarised.** Five
+kinds of real Groovy field go unindexed: one with no initialiser (`int tally`
+and the call `foo bar` are the same two bare units), one whose type is generic
+(`Map<String, Integer>` splits on its own comma and the name lands in an ERROR
+node), and one with a comment or a newline between the name and the `=`, which
+the whitespace clause needed to reject `!=`. Every one fails toward absence,
+never fabrication, and each is pinned so a later widening has to move a line and
+re-run the calls this keeps out.
+
+⚠ A name on the VALUE side is not a declaration: `int a = b = 1` declares `a`
+and assigns to an existing `b`, and emitting `b` would invent a member.
 
 ⚠⚠ **The reported list was not the list, again.** Probing every class-bearing
 language with a custom parser found six more whose class state is absent and
