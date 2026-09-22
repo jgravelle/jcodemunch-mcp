@@ -58,6 +58,15 @@ def test_no_archaeology_row_is_split_across_lines():
 
     ⚠ Asserted over the whole file rather than section 1, because a split row
     is corruption wherever it lands.
+
+    ⚠⚠ **The predicate is PIPE BALANCE and the property is one logical row per
+    line; they are not the same thing, and this says so rather than letting a
+    reader assume otherwise.** A split whose second half happened to both open
+    and close with `|` would pass. No cell in the file has that shape and it
+    takes a contrived one to build, so the proxy is kept and named instead of
+    replaced by a parser. The other direction fails LOUDLY and deliberately: a
+    fenced block whose lines start with `|` would break this, the file carries
+    no fences today, and a future one is worth a decision rather than silence.
     """
     offenders = []
     for number, line in enumerate(ARCH.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
