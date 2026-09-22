@@ -200,6 +200,11 @@ _CLASS_SCOPED_SAMPLES = {
     # the node type was already in `constant_patterns` and only the scope gate
     # refused it, so membership is the whole fix.
     "php": ("Probe.php", "<?php\nclass Probe {\n  const K = 1;\n}\n", "K"),
+    # GDScript joined in #777, the fourth with the shape and the second whose
+    # node type was already declared -- `const_statement` was in
+    # `constant_patterns` and a file-scope `const` already indexed, so like
+    # PHP's, membership is the whole fix and it buys the class body only.
+    "gdscript": ("Probe.gd", "class Probe:\n\tconst K = 1\n", "K"),
 }
 
 

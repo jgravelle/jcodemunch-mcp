@@ -287,10 +287,17 @@ def test_the_class_scoped_set_is_still_a_named_set():
     symbol counts in every index and every published dead-code grade. The set
     is the blast-radius control (#428's note, kept by #732), so its size is
     asserted rather than left to a comment.
+
+    ⚠ gdscript joined in #777, and it is the one entry that widened nothing:
+    `const_statement` was already the language's declared constant pattern and
+    a file-scope `const` already indexed, so the name here buys the class-body
+    SCOPE and no new node type. Its sample is in
+    `test_constant_extraction_guard.py::test_gdscript_class_scoped_constants_are_extracted`,
+    which is what `test_every_class_scoped_language_has_a_sample` enforces.
     """
     from jcodemunch_mcp.parser.extractor import _CLASS_SCOPED_CONSTANT_LANGUAGES
 
-    assert _CLASS_SCOPED_CONSTANT_LANGUAGES == {"java", "kotlin", "php"}
+    assert _CLASS_SCOPED_CONSTANT_LANGUAGES == {"java", "kotlin", "php", "gdscript"}
 
 
 # ---------------------------------------------------------------------------

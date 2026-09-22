@@ -60,6 +60,13 @@ _CLASS_SCOPED: dict[str, tuple[str, str, str, str, str]] = {
         "    const LIMIT = 3;\n"
         "}\n"
     )),
+    # #777. ⚠ The cheapest entry this set has taken: `const_statement` was
+    # already in GDSCRIPT_SPEC.constant_patterns and a file-scope `const`
+    # already indexed, so only the class-body SCOPE was ever out of reach.
+    "gdscript": ("a.gd", "Audit", "class", "LIMIT", (
+        "class Audit:\n"
+        "\tconst LIMIT = 3\n"
+    )),
 }
 
 
