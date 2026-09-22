@@ -2795,6 +2795,14 @@ def _extract_fields(
 #: `mixin_body`: a `mixin_declaration` holds a `class_body`, so that third
 #: entry would have been inert, a guard written against a spelling the grammar
 #: does not use. Only `extension_body` is its own node type.
+#:
+#: ⚠ **This set no longer carries the decision and is kept only to name the two
+#: body types.** `_dart_member_has_an_owner` asks
+#: `DART_SPEC.container_node_types` for the part that matters, and every owner
+#: of these two bodies is already in that list -- so the set is derivable from
+#: it. Flagged in review as the shape that rots (`entry_point_patterns` was
+#: written in one place and read in none). If a third body type ever appears,
+#: check whether this set should be computed rather than listed.
 _DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body"})
 
 
@@ -3470,13 +3478,20 @@ def _extract_ruby_members(
     # the discriminator: reading the node type alone would index half a class
     # body as members.
     #
-    # ⚠⚠ **And the name is not enough on its own -- an explicit RECEIVER makes
-    # it somebody else's method.** `foo.attr_accessor :sneaky` in a class body
-    # declares nothing about this class, and reading only the `method` field
-    # published `Audit.sneaky` as an owned property that appears nowhere in the
-    # source. That is fabrication, and this family fails toward ABSENCE. An
-    # `attr_*` declaration is always an implicit-self call, so a receiver of
-    # any kind disqualifies it. Found in review.
+    # ⚠⚠ **And the name is not enough on its own.** `foo.attr_accessor
+    # :sneaky` in a class body declares nothing about this class, and reading
+    # only the `method` field published `Audit.sneaky` as an owned property
+    # appearing nowhere in the source. That is fabrication, and this family
+    # fails toward ABSENCE. Found in review.
+    #
+    # ⚠⚠ **The rule is that we CANNOT RESOLVE a receiver, not that there is
+    # never one** -- the first draft of this comment claimed the latter and it
+    # is false. `self.attr_accessor :x` and `Audit.attr_accessor :x` in a class
+    # body are valid Ruby and really do declare accessors. A receiver is an
+    # arbitrary expression, this parser does not evaluate expressions, and an
+    # unresolved receiver is UNKNOWN -- which this family renders as absence.
+    # So those two are false NEGATIVES, deliberately, and are pinned as limits
+    # rather than special-cased by spelling. Found in review, twice.
     if node.child_by_field_name("receiver") is not None:
         return []
     method = node.child_by_field_name("method")

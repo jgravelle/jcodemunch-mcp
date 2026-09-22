@@ -392,21 +392,39 @@ def test_a_ruby_call_with_an_explicit_receiver_declares_nothing():
     assert "sneaky" not in _by_name(source, "recv.rb", "ruby")
 
 
-@pytest.mark.parametrize("label,source", [
-    ("singleton class",
+@pytest.mark.parametrize("label,absent,source", [
+    ("singleton class", "view",
      "class Audit\n  class << self\n    attr_accessor :view\n  end\nend\n"),
-    ("splat argument",
+    ("splat argument", "NAMES",
      "class Audit\n  attr_accessor *NAMES\nend\n"),
+    # ⚠⚠ These two are FALSE NEGATIVES and are here to say so. Both really do
+    # declare an accessor in Ruby, and both are refused because the receiver is
+    # an expression this parser does not evaluate -- UNKNOWN, rendered as
+    # absence. The rule is that we cannot RESOLVE a receiver, not that an
+    # `attr_*` call never has one; the first draft's comment claimed the
+    # latter, which is simply false. Found in review.
+    ("explicit self receiver", "selfish",
+     "class Audit\n  self.attr_accessor :selfish\nend\n"),
+    ("class-named receiver", "named",
+     "class Audit\n  Audit.attr_accessor :named\nend\n"),
 ])
-def test_two_more_ruby_forms_are_absent_and_both_are_limits(label, source):
-    """⚠ Written down rather than left to be discovered. `class << self` gives
-    a `singleton_class` node, which is not a `class` or `module` and so is not
-    a member scope here; a splat names no symbol this parser can resolve. Both
-    fail toward ABSENCE, which is the right direction, and both are shapes a
-    later change should move deliberately."""
-    found = _by_name(source, f"{label.replace(' ', '_')}.rb", "ruby")
-    for hit in found.get("view", []) + found.get("NAMES", []):
-        assert hit.kind not in ("field", "property", "constant"), hit.kind
+def test_four_more_ruby_forms_are_absent_and_all_are_limits(label, absent, source):
+    """⚠ Written down rather than left to be discovered.
+
+    `class << self` gives a `singleton_class` node, which is neither `class`
+    nor `module` and so is not a member scope here. A splat names no symbol
+    this parser can resolve. The two receiver forms are explained above.
+
+    All four fail toward ABSENCE, which is the right direction, and all four
+    are shapes a later change should move deliberately.
+
+    ⚠⚠ Asserted as `not in`, not as a loop over `.get(name, [])`. The splat row
+    shipped in the loop form and was VACUOUS: the name is never extracted, so
+    the body never ran and the row passed against an empty implementation --
+    the same shape as the file-scope-constant test one round earlier. An
+    absence assertion has to assert the absence.
+    """
+    assert absent not in _by_name(source, f"{label.replace(' ', '_')}.rb", "ruby")
 
 
 def test_a_ruby_method_is_unchanged():
