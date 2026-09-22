@@ -2772,7 +2772,7 @@ def _extract_fields(
     # body. Asking the node its own ancestry keeps the two languages out of the
     # locality-predicate business #732 and #776 both paid for.
     if language == "dart" and node.type == "declaration":
-        if node.parent is None or node.parent.type not in _DART_MEMBER_HOLDERS:
+        if not _dart_member_has_an_owner(node, spec):
             return []
         return _extract_dart_members(node, source_bytes, filename, language)
     if language == "gdscript" and node.type == "variable_statement":
@@ -2787,7 +2787,7 @@ def _extract_fields(
     return []
 
 
-#: What may hold a Dart data member.
+#: The BODY node types a Dart data member may sit directly in.
 #:
 #: ⚠⚠ **MEASURED against the grammar, not named from the language.** DART_SPEC
 #: lists three containers -- class, mixin and extension -- so the obvious set
@@ -2796,6 +2796,31 @@ def _extract_fields(
 #: entry would have been inert, a guard written against a spelling the grammar
 #: does not use. Only `extension_body` is its own node type.
 _DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body"})
+
+
+def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
+    """Is this `declaration` a member of something that HAS a symbol?
+
+    ⚠⚠ **The body type alone is not the question, and taking it for the
+    question published a member with no owner.** An `extension type Meters(int
+    v) { static const int CAP = 1; }` holds a `class_body` like a class does,
+    but `extension_type_declaration` is in no spec's `container_node_types`, so
+    nothing stands above it to be the parent -- `CAP` came out bare, which is
+    #698's complaint and #788's whole subject one language later.
+
+    ⚠ So the holder's OWNER is asked of `DART_SPEC.container_node_types`, the
+    list that already decides what `_walk_tree` will have a parent symbol for.
+    Reproducing that list here would be a second copy of the same rule, which
+    is the mechanism this project keeps paying for.
+
+    ⚠ A Dart `enum` body and an `extension type` body therefore contribute no
+    members. Both fail toward absence and are pinned as limits.
+    """
+    holder = node.parent
+    if holder is None or holder.type not in _DART_MEMBER_HOLDERS:
+        return False
+    owner = holder.parent
+    return owner is not None and owner.type in spec.container_node_types
 
 
 def _gdscript_statement_names(node, source_bytes: bytes) -> list[str]:
@@ -3441,9 +3466,19 @@ def _extract_ruby_members(
         return []
 
     # `call`. ⚠⚠ The node type is also how `include Comparable`, `private` and
-    # every DSL macro in every Rails model is spelled, so the RECEIVER's name
-    # is the whole discriminator: reading the node type alone would index half
-    # a class body as members.
+    # every DSL macro in every Rails model is spelled, so the called NAME is
+    # the discriminator: reading the node type alone would index half a class
+    # body as members.
+    #
+    # ⚠⚠ **And the name is not enough on its own -- an explicit RECEIVER makes
+    # it somebody else's method.** `foo.attr_accessor :sneaky` in a class body
+    # declares nothing about this class, and reading only the `method` field
+    # published `Audit.sneaky` as an owned property that appears nowhere in the
+    # source. That is fabrication, and this family fails toward ABSENCE. An
+    # `attr_*` declaration is always an implicit-self call, so a receiver of
+    # any kind disqualifies it. Found in review.
+    if node.child_by_field_name("receiver") is not None:
+        return []
     method = node.child_by_field_name("method")
     if method is None:
         return []
@@ -3468,7 +3503,7 @@ def _extract_ruby_members(
     return out
 
 
-def _dart_member_kind(node, source: "ByteSlicedSource") -> str:
+def _dart_member_kind(node) -> str:
     """`constant` for a Dart `const` member, `field` for everything else.
 
     ⚠⚠ **`final` is NOT `constant`, and this is the shared rule deciding it
@@ -3502,11 +3537,13 @@ def _extract_dart_members(
 
     ⚠ `int a = 1, b = 2;` is two members. One list holds N declarators.
 
-    ⚠ Scoped to a `class_body` by `_dart_member_declaration`: a `declaration`
-    inside a method body is a local, and adopting one is the D defect of #776.
+    ⚠ Scoped by `_dart_member_has_an_owner`, which the `_extract_fields`
+    dispatcher asks before calling this: a member must sit in a body whose
+    OWNER is one of DART_SPEC's containers, so a `declaration` in an
+    `extension type` body has nothing to belong to and is not adopted.
     """
     source = ByteSlicedSource(source_bytes)
-    kind = _dart_member_kind(node, source)
+    kind = _dart_member_kind(node)
     names = []
     for child in node.children:
         if child.type not in (

@@ -7,8 +7,8 @@
 A Dart class reported its methods and its getters and none of its state:
 `final int limit`, `int tally` and `static const int CAP` were all absent. A
 GDScript class body's `const LIMIT` and `var tally` were absent. A Ruby class's
-`LIMIT = 3`, its `attr_accessor :view` and its `@@count` were absent. Seven
-cells of the member-kind audit, four languages' worth of class members that
+`LIMIT = 3`, its `attr_accessor :view` and its `@@count` were absent. Six cells
+of the member-kind audit, three languages' worth of class members that
 `search_symbols` could not find and that `get_file_outline` counted as nothing.
 
 **This is the fourth mechanism in the family and the first that is purely
@@ -52,6 +52,30 @@ containers too, so the obvious set was `class_body`, `extension_body` and
 `mixin_body` — and there is no `mixin_body`, because a `mixin_declaration`
 holds a `class_body`. That third entry would have been inert: a guard written
 against a spelling the grammar does not use.
+
+⚠⚠ **Two guards shipped in the first draft with no witness, and one of them
+fabricated.** `attr_accessor` is always an implicit-self call, and the Ruby
+branch read only the called name — so `foo.attr_accessor :sneaky` in a class
+body published `Audit.sneaky`, an owned property appearing nowhere in the
+source, where the old tree emitted only the class. A missing member is a gap; a
+member that does not exist is a lie told to every consumer downstream, and this
+family fails toward absence. The Dart holder gate had the mirror problem: an
+`extension type` holds a `class_body` exactly as a class does, but
+`extension_type_declaration` is in no spec's `container_node_types`, so its
+member was published with **no owner** — #698's complaint and #788's whole
+subject, one language later. The gate now asks `DART_SPEC.container_node_types`
+rather than keeping a second copy of it.
+
+⚠⚠ **And the tests that claimed to guard the Ruby scope rule did not.** All
+three stayed green when the gate was deleted, because their fixtures are
+excluded by a different mechanism — a lowercase left-hand side is not a
+`constant` node, and `puts` is not an `attr_*` name. They passed for a reason
+unrelated to the rule. The shapes that actually reach the channel and are
+stopped by scope alone — an uppercase assignment, a `@@` variable and an
+`attr_accessor` call, each inside a `def` — are pinned now, and each one goes
+red when the gate is removed. A test asserting a file-scope Ruby constant kept
+its bare name was fully vacuous in the same way: Ruby emits no file-scope
+constant at all, so its loop body never ran.
 
 ⚠ **A GDScript top-level `var` is still absent, and it is pinned as a limit.**
 A GDScript file is itself a class, so a file-scope `var` is arguably script
