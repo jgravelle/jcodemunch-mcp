@@ -66,6 +66,27 @@ impl Collector {
         };
         self.out.insert(Def { file: self.file.clone(), name, qual, kind, line });
     }
+
+    /// Every NAMED field of a struct or union (#786).
+    ///
+    /// ⚠⚠ `Fields::Unnamed` is a tuple struct and its members have
+    /// `ident: None` -- there is no name to emit, so both sides skip them by
+    /// CONSTRUCTION rather than by a rule either had to be told. The
+    /// tree-sitter grammar agrees: a tuple struct is an
+    /// `ordered_field_declaration_list` with no `field_identifier` in it.
+    ///
+    /// ⚠ Called from the struct and union visitors and NOT from `visit_field`,
+    /// which also fires for an enum VARIANT's fields. Reaching them through
+    /// the container is what keeps variants out without a second predicate.
+    fn push_named_fields(&mut self, fields: &syn::Fields) {
+        if let syn::Fields::Named(named) = fields {
+            for f in &named.named {
+                if let Some(id) = &f.ident {
+                    self.push(id.to_string(), "field", line_of(id.span()));
+                }
+            }
+        }
+    }
 }
 
 /// The type an `impl` block implements FOR.
@@ -116,9 +137,33 @@ impl<'ast> Visit<'ast> for Collector {
         self.scope.pop();
     }
 
+    /// ⚠⚠ The struct's own name is pushed onto `scope` around the descent, the
+    /// way `visit_item_fn` does, and WITHOUT that the fields below come out
+    /// qualified as bare names -- which is the collision `qual` exists to
+    /// remove. Nothing else is emitted from inside a struct, so no pre-#786
+    /// `qual` moves: regenerating the artifact only ADDS field rows.
     fn visit_item_struct(&mut self, i: &'ast syn::ItemStruct) {
         self.push(i.ident.to_string(), "struct", line_of(i.ident.span()));
+        self.scope.push(i.ident.to_string());
+        self.push_named_fields(&i.fields);
         syn::visit::visit_item_struct(self, i);
+        self.scope.pop();
+    }
+
+    /// A union's members are the same `Field` nodes a struct's are, and
+    /// tree-sitter spells them identically too. Excluding them would need a
+    /// condition written against the word `union` for no reason anyone could
+    /// state.
+    fn visit_item_union(&mut self, i: &'ast syn::ItemUnion) {
+        self.push(i.ident.to_string(), "union", line_of(i.ident.span()));
+        self.scope.push(i.ident.to_string());
+        for f in &i.fields.named {
+            if let Some(id) = &f.ident {
+                self.push(id.to_string(), "field", line_of(id.span()));
+            }
+        }
+        syn::visit::visit_item_union(self, i);
+        self.scope.pop();
     }
 
     fn visit_item_enum(&mut self, i: &'ast syn::ItemEnum) {
@@ -126,10 +171,6 @@ impl<'ast> Visit<'ast> for Collector {
         syn::visit::visit_item_enum(self, i);
     }
 
-    fn visit_item_union(&mut self, i: &'ast syn::ItemUnion) {
-        self.push(i.ident.to_string(), "union", line_of(i.ident.span()));
-        syn::visit::visit_item_union(self, i);
-    }
 
     fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
         self.push(i.ident.to_string(), "trait", line_of(i.ident.span()));
@@ -220,11 +261,24 @@ impl<'ast> Visit<'ast> for Collector {
         syn::visit::visit_trait_item_type(self, i);
     }
 
-    /// ⚠⚠ Deliberately NOT visited as definitions: struct fields, enum
-    /// variants, `let` bindings and closures. None of them binds a name another
-    /// module can reach, and emitting them would make the `extra` gate reject
-    /// correct extraction. Each omission is a decision recorded here; a
-    /// hand-rolled walker records the same omissions as silence.
+    /// ⚠⚠ **This no longer omits struct fields, and the reason the old note
+    /// gave was wrong twice over.** It said fields bind no name another module
+    /// can reach -- a `pub` field is reached as `s.field` -- and that emitting
+    /// them "would make the `extra` gate reject correct extraction", which was
+    /// true only while the extractor emitted none. Once it does, the omission
+    /// is what fails the gate on correct extraction, and the whole point of an
+    /// oracle is that it can be wrong in a way that blames the thing it scores
+    /// (#786). Named struct and union fields are emitted by their CONTAINERS,
+    /// via `push_named_fields`.
+    ///
+    /// ⚠ Still deliberately NOT emitted here: an enum VARIANT's fields, which
+    /// reach this visitor too. A variant is not a struct, variants themselves
+    /// are omitted, and indexing a variant's fields while the variant is
+    /// absent would be a half-answer. `let` bindings and closures stay out for
+    /// the original reason, which does hold for them.
+    ///
+    /// Each omission is a decision recorded here; a hand-rolled walker records
+    /// the same omissions as silence.
     fn visit_field(&mut self, i: &'ast syn::Field) {
         syn::visit::visit_field(self, i);
     }

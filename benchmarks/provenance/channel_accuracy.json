@@ -7,7 +7,7 @@
     "go"
   ],
   "scope": "Authored scenario corpus: measures channel discrimination on known implementation patterns and known false-positive traps (module-homonym bases, same-name-different-domain methods, substring decorator matches). Go scenarios exercise the duck channel exclusively \u2014 Go's implicit interfaces have no declared inheritance for the AST channel to walk, and Go has no decorators. It does NOT estimate in-the-wild base rates; n per channel is small and disclosed.",
-  "corpus_sha256": "4b8a530adfec0825b9bdc9872598ac88448258033af4ba7b55fef68fddc3bb3d",
+  "corpus_sha256": "fd37c8e06d28f2f17e959842556a810027f72b0168e48e94b3745079c081c3fd",
   "generator": "benchmarks/goldset/measure.py",
   "channels": {
     "ast": {

@@ -497,12 +497,24 @@ GO_SPEC = LanguageSpec(
     symbol_node_types={
         "function_declaration": "function",
         "method_declaration": "method",
-        "type_declaration": "type",
+        # ⚠⚠ **The SPEC, not the declaration (#817).** One `type_declaration`
+        # wraps every spec of a grouped `type ( A ...; B ... )`, and
+        # `_extract_symbol` returns at most ONE symbol per node -- so naming
+        # the declaration here indexed the first type in a block and lost
+        # every other one, its fields, and the ownership of every method on
+        # it. `type_spec` is what binds one name, and it is a direct child in
+        # both spellings, so the generic walk already visits it.
+        # ⚠ The recorded SPAN is still the declaration whenever the
+        # declaration binds this name alone -- `_go_type_span_node`, applied
+        # where the cpp template wrapper is. A spec-wide span would have
+        # dropped the `type` keyword from every Go type in every index to fix
+        # the grouped form.
+        "type_spec": "type",
     },
     name_fields={
         "function_declaration": "name",
         "method_declaration": "name",
-        "type_declaration": "name",
+        "type_spec": "name",
     },
     param_fields={
         "function_declaration": "parameters",
@@ -521,6 +533,12 @@ GO_SPEC = LanguageSpec(
     # the node a reader would open. `_extract_go_variables` walks down to the
     # specs, through `var_spec_list` when the block is grouped (#731).
     variable_patterns=["var_declaration"],
+    # ⚠ NOT the channel #817 was fixed in, whatever the name suggests:
+    # `type_patterns` is read by nothing in the whole tree (#725, asserted by
+    # `tests/test_grammar_spelled_forms.py::test_a_field_classified_unread_is_still_unread`),
+    # and Go's types come from `symbol_node_types` above. Left as it was
+    # rather than quietly corrected, because a dead field that looks maintained
+    # is how the next reader declares into it.
     type_patterns=["type_declaration"],
 )
 
@@ -582,6 +600,11 @@ RUST_SPEC = LanguageSpec(
     decorator_node_type="attribute_item",
     container_node_types=["impl_item", "trait_item"],
     constant_patterns=["const_item", "static_item"],
+    # ⚠⚠ #786. An enum VARIANT holds a `field_declaration_list` exactly as a
+    # struct does, so this node type alone would adopt `B { inner: u8 }`'s
+    # `inner` as a member of the enum. `_extract_rust_fields` gates on the
+    # holder's owner being a `struct_item` or `union_item`.
+    field_patterns=["field_declaration"],
     type_patterns=["struct_item", "enum_item", "union_item", "trait_item", "type_item"],
 )
 
@@ -745,6 +768,12 @@ DART_SPEC = LanguageSpec(
     decorator_node_type="annotation",
     container_node_types=["class_definition", "mixin_declaration", "extension_declaration"],
     constant_patterns=[],
+    # ⚠⚠ #775. A Dart data member is a `declaration` and was in no channel at
+    # all, so every class reported its methods and its getters and none of its
+    # state. `_extract_dart_members` reads BOTH declarator spellings and
+    # `_dart_member_kind` reserves `constant` for `const` -- `final` is a
+    # field, because Dart has its own `const` to reserve the word for.
+    field_patterns=["declaration"],
     type_patterns=["type_alias", "enum_declaration"],
 )
 
@@ -1145,6 +1174,12 @@ RUBY_SPEC = LanguageSpec(
     decorator_node_type=None,
     container_node_types=["class", "module"],
     constant_patterns=[],
+    # ⚠⚠ #785. Both node types are also how an ordinary local and an ordinary
+    # method call are spelled, so `_extract_ruby_members` decides on SCOPE (a
+    # direct statement of a class or module body) and, for `call`, on the
+    # receiver being one of the three `attr_*` forms. Declaring the node types
+    # here alone would index `include Comparable` as a member.
+    field_patterns=["assignment", "call"],
     type_patterns=["module"],
 )
 
@@ -1179,6 +1214,12 @@ GDSCRIPT_SPEC = LanguageSpec(
     decorator_node_type="annotation",
     container_node_types=["class_definition"],
     constant_patterns=["const_statement"],
+    # ⚠⚠ #777. `var` is ONE node type whether it declares class state or a
+    # local, so the channel is gated on the statement being a direct child of
+    # a `class_body`. The `const` half needed no channel: it was already in
+    # `constant_patterns` and only the class-body SCOPE was out of reach, which
+    # `_CLASS_SCOPED_CONSTANT_LANGUAGES` is the authority for.
+    field_patterns=["variable_statement"],
     type_patterns=["enum_definition"],
 )
 

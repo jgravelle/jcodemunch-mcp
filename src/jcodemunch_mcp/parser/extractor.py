@@ -33,7 +33,13 @@ logger = logging.getLogger(__name__)
 # same nodes to a channel that could not accept them: disjoint, but no longer
 # exhaustive. Measured before the fix: `MAX_SIZE`, `INNER_CONST` and
 # `BAR_CONST` were emitted by neither channel. Found in review.
-_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java", "kotlin", "php"})
+# ⚠⚠ gdscript joined in #777, and it is the cheapest entry this set has taken:
+# `const_statement` was ALREADY in `GDSCRIPT_SPEC.constant_patterns` and a
+# file-scope `const LIMIT = 3` already indexed, so the channel existed and the
+# class body was the one scope it could not reach. The gap read as "GDScript
+# constants are missing" and was really "the gate stops at file scope" -- which
+# is why the fix is a name in this set rather than a second extractor.
+_CLASS_SCOPED_CONSTANT_LANGUAGES = frozenset({"java", "kotlin", "php", "gdscript"})
 
 #: Languages whose constants may be declared inside a FUNCTION body and are
 #: still worth indexing. Separate from the class-scoped set above because it
@@ -518,6 +524,14 @@ def _parse_with_spec(
     if calls:
         _attribute_calls_to_symbols(symbols, calls)
 
+    # ⚠ AFTER call attribution, deliberately. A struct field's span sits inside
+    # its type's, so adding the fields first would let them claim calls the
+    # type should have carried.
+    if language == "go":
+        _attach_go_receivers_and_fields(
+            tree.root_node, symbols, source_bytes, filename
+        )
+
     return symbols
 
 
@@ -988,14 +1002,16 @@ def _detect_interface_keywords(node, language: str) -> list[str]:
     """
     ntype = node.type
 
-    # Go: type_declaration wrapping a type_spec whose value is interface_type
-    if language == "go" and ntype == "type_declaration":
-        for child in node.children:
-            if child.type == "type_spec":
-                for grandchild in child.children:
-                    if grandchild.type == "interface_type":
-                        return ["interface"]
-        return []
+    # Go: a type_spec whose value is interface_type.
+    # ⚠ The SPEC, since #817 made it the symbol node. Reading the declaration
+    # here would tag every type in a grouped block as an interface as soon as
+    # ONE of them was -- the keyword is a property of the spec, and it only
+    # looked like a property of the declaration while a declaration yielded one
+    # symbol.
+    if language == "go" and ntype == "type_spec":
+        return ["interface"] if any(
+            child.type == "interface_type" for child in node.children
+        ) else []
 
     # Rust: trait_item is always a trait definition
     if language == "rust" and ntype == "trait_item":
@@ -1131,6 +1147,8 @@ def _extract_symbol(
         wrapper = _nearest_cpp_template_wrapper(node)
         if wrapper:
             signature_node = wrapper
+    elif language == "go":
+        signature_node = _go_type_span_node(node)
 
     # Build signature
     signature = _build_signature(signature_node, spec, source_bytes)
@@ -1145,6 +1163,20 @@ def _extract_symbol(
     # Dart: function_signature/method_signature have their body as a next sibling
     end_byte = node.end_byte
     end_line_num = node.end_point[0] + 1
+    # ⚠⚠ **A WIDENED START NEEDS THE WIDENED END** (#817, found in review).
+    # `_go_type_span_node` moves the start out to the declaration; leaving the
+    # end on the spec recorded `type (\n\tA int` for a one-name grouped block
+    # -- bytes that do not close, a `content_hash` over a fragment, and an
+    # `end_line` disagreeing with the `signature` beside it, which is built
+    # from the span node. The two halves of one span must come from one node.
+    #
+    # ⚠ Scoped to Go rather than applied to `signature_node` generally,
+    # because the cpp template wrapper above shares this variable and its end
+    # is not known to coincide with the item's; moving every C++ template's
+    # span is not a thing to do inside a fix about Go.
+    if language == "go" and signature_node is not node:
+        end_byte = signature_node.end_byte
+        end_line_num = signature_node.end_point[0] + 1
     if node.type in ("function_signature", "method_signature"):
         next_sib = node.next_named_sibling
         if next_sib and next_sib.type == "function_body":
@@ -1315,17 +1347,90 @@ def _csharp_member_kind(node, source_bytes: bytes) -> Optional[str]:
     `static`), so the test is on the grandchild's type, not on the modifier's
     text. Reading the text would work until someone writes a comment between.
     """
-    if node.type == "field_declaration" and _csharp_has_modifier(node, "const"):
+    if node.type == "field_declaration" and has_modifier_keyword(node, "const"):
         return "constant"
     return None
 
 
-def _csharp_has_modifier(node, keyword: str) -> bool:
-    return any(
-        child.type == "modifier"
-        and any(g.type == keyword for g in child.children)
-        for child in node.children
-    )
+def has_modifier_keyword(node, keyword: str) -> bool:
+    """Does this declaration carry `keyword` as a modifier?
+
+    ⚠⚠ **Two grammar shapes, one question, and that is why this is shared.**
+    C# hangs `modifier` nodes directly off the declaration; Apex wraps them in
+    a `modifiers` node first. Writing the Apex answer as a second function is
+    the 08-19 standing lesson exactly -- a second derivation of a settled rule
+    -- and `java_field_is_constant`'s docstring already says what happens next.
+
+    ⚠ A `modifier` node wraps its keyword as a typed CHILD (`const`, `final`,
+    `static`), so the test is on the grandchild's type, not on the modifier's
+    text. Reading the text would work until someone writes a comment between.
+
+    ⚠ Public because `_parse_apex_symbols` is a CUSTOM parser and cannot reach
+    `_STATE_KIND_REFINERS`; `solidity_state_variable_kind` is the same shape.
+    """
+    for child in node.children:
+        if child.type == "modifier":
+            if any(g.type == keyword for g in child.children):
+                return True
+        elif child.type == "modifiers":
+            if any(
+                m.type == "modifier" and any(g.type == keyword for g in m.children)
+                for m in child.children
+            ):
+                return True
+    return False
+
+
+def dlang_variable_kind(node) -> Optional[str]:
+    """What a D `variable_declaration` declares (#776).
+
+    ⚠⚠ **`immutable` IS a constant here, the opposite of Solidity's ruling, and
+    the discriminator is the PAIR each language offers.** Solidity spells a
+    real constant `constant`, so its `immutable` is the keyword you choose when
+    you do not mean one and `solidity_state_variable_kind` returns `field` for
+    it. D has no such pair: `immutable` is a true immutability guarantee and
+    the nearest alternative, a manifest `enum`, is a different declaration form
+    rather than a competing modifier. `const` is the same guarantee through a
+    different qualifier and gets the same answer.
+
+    ⚠ The qualifier is a `type_ctor` inside the `type` node, not a modifier, so
+    this cannot use `has_modifier_keyword` -- D spells it as part of the type.
+    """
+    if node.type != "variable_declaration":
+        return None
+    for child in node.children:
+        if child.type != "type":
+            continue
+        for g in child.children:
+            if g.type == "type_ctor" and any(
+                k.type in ("immutable", "const") for k in g.children
+            ):
+                return "constant"
+    return "field"
+
+
+def apex_member_kind(node) -> Optional[str]:
+    """What an Apex `field_declaration` declares (#774).
+
+    ⚠⚠ **`static final` is a `constant` here, and that is the OPPOSITE of the
+    C# ruling one function up.** `java_field_is_constant` requires both because
+    Java has no other way to spell a constant, and Apex is the same shape: it
+    has no `const`. C# does, which is why `static readonly` is a `field` there
+    -- `readonly` is the keyword you choose when you specifically do not mean a
+    constant, and Apex offers no such choice.
+
+    ⚠ A PROPERTY is the same node carrying an `accessor_list`
+    (`public Integer View { get; set; }`) -- the Apex grammar's spelling of
+    C#'s property, which C# gives its own node type. The channel is not the
+    kind (#743), so the accessor list is checked before the modifiers.
+    """
+    if node.type != "field_declaration":
+        return None
+    if any(c.type == "accessor_list" for c in node.children):
+        return "property"
+    if has_modifier_keyword(node, "static") and has_modifier_keyword(node, "final"):
+        return "constant"
+    return "field"
 
 
 def _swift_member_kind(node, source_bytes: bytes) -> Optional[str]:
@@ -1365,6 +1470,223 @@ def solidity_state_variable_kind(node) -> Optional[str]:
     if node.type != "state_variable_declaration":
         return None
     return "constant" if any(c.type == "constant" for c in node.children) else "field"
+
+
+#: The node types a Go `type_declaration` uses to bind ONE name.
+#:
+#: ⚠ `type_alias` is here although no spec maps it and it yields no symbol: it
+#: is counted to decide whether the declaration binds one name, and
+#: `type ( A = int; B int )` binds two. Counting only `type_spec` there would
+#: hand `B` a span covering `A`'s line as well.
+_GO_TYPE_BINDING_NODE_TYPES = frozenset({"type_spec", "type_alias"})
+
+
+def _go_type_span_node(node):
+    """The widest node that addresses this Go type's name ALONE (#817).
+
+    The declaration when it binds one name -- `type S struct{...}`, keyword
+    included, which is what a reader opens and what every Go type in every
+    existing index already records -- and the spec itself when the declaration
+    binds several.
+
+    ⚠⚠ **Uniqueness is the requirement, not tidiness.** #778's receiver pass
+    joins a method to its owner by BYTE OFFSET, so three grouped types sharing
+    the declaration's span would collapse to one entry and leave two of them
+    unable to own anything. The `var` and `const` channels DO give every name
+    in a grouped block the declaration's span (`_variable_symbol`); that is
+    survivable there because nothing joins to a constant by offset, and it is
+    the one thing a type may not do.
+
+    ⚠ The narrowest such node is the spec in BOTH spellings, and taking it
+    uniformly is the simpler rule -- it was rejected because it moves the
+    offset of every Go type in every index and drops `type` from every
+    signature, to fix a form that is the minority of them.
+
+    ⚠ Returns the node unchanged for anything that is not a widenable spec, so
+    every other Go symbol keeps the node it had.
+    """
+    if node.type != "type_spec":
+        return node
+    decl = node.parent
+    if decl is None or decl.type != "type_declaration":
+        return node
+    bound = sum(1 for c in decl.children if c.type in _GO_TYPE_BINDING_NODE_TYPES)
+    return decl if bound == 1 else node
+
+
+def _go_receiver_type_name(method_node, source: "ByteSlicedSource") -> Optional[str]:
+    """The NAME of the type a Go method hangs off, or None (#778).
+
+    The receiver is the method's FIRST `parameter_list`, and its type sits at
+    one of three depths: `(i ID)` is a bare `type_identifier`, `(a *Audit)`
+    wraps it in `pointer_type`, and `(b *Box[T])` wraps that in `generic_type`.
+    The first `type_identifier` in a depth-first walk is the base type in all
+    three -- the receiver's own variable is an `identifier`, a different node
+    type, so it cannot be mistaken for one.
+    """
+    receiver = next(
+        (c for c in method_node.children if c.type == "parameter_list"), None
+    )
+    if receiver is None:
+        return None
+    stack = list(receiver.children)
+    while stack:
+        node = stack.pop(0)
+        if node.type == "type_identifier":
+            return source[node.start_byte:node.end_byte]
+        stack = list(node.children) + stack
+    return None
+
+
+def _go_field_names(field_node, source: "ByteSlicedSource") -> list[str]:
+    """Every member name one Go `field_declaration` declares.
+
+    `X, Y int` carries TWO `field_identifier` children and is two members --
+    reading one indexes half a line. An EMBEDDED field carries NONE: the
+    grammar gives only the type, and Go's own selector for it is the type's
+    base name (`a.Reader` for an embedded `io.Reader`), so that is the name it
+    takes. Skipping it would report a struct as having fewer members than it
+    has.
+    """
+    named = [
+        source[c.start_byte:c.end_byte]
+        for c in field_node.children
+        if c.type == "field_identifier"
+    ]
+    if named:
+        return named
+    embedded = [c for c in field_node.children if c.type != "field_identifier"]
+    while embedded:
+        node = embedded.pop(0)
+        if node.type == "type_identifier":
+            return [source[node.start_byte:node.end_byte]]
+        embedded = list(node.children) + embedded
+    return []
+
+
+def _attach_go_receivers_and_fields(
+    root_node, symbols: list[Symbol], source_bytes: bytes, filename: str
+) -> None:
+    """Give a Go method its receiver and a Go struct its fields (#778).
+
+    ⚠⚠ **A SECOND PASS, and that is forced by the language.** Go does not
+    require a type to be declared before a method on it, so a walk that
+    resolved a receiver as it met one would answer `unknown` for every method
+    that came first -- and would look correct on any fixture written in the
+    other order. This runs against the types the walk already found.
+
+    ⚠⚠ **Ids MOVE for every Go method**: `make_symbol_id` is keyed on the
+    qualified name, and `RunIt` becomes `Audit.RunIt`. Go is the only language
+    in this family that pays that, because the other five were already
+    qualified and only lacked `parent`.
+
+    ⚠⚠ **Scope is what makes a Go type name an identity, and only a
+    package-level type can carry a method.** A `type` inside a function body
+    is a DIFFERENT type that happens to share a name, so an owner table keyed
+    on the bare name let a function-local `type Config` take the package-level
+    `Config`'s method AND its fields: the method got a wrong owner, a wrong
+    qualified name and a wrong id, the local type gained a field it does not
+    declare, and the real type was left reporting zero members -- the very
+    symptom #778 exists to fix. **That is fabrication where the pre-#778
+    answer was an honest absence.** Both loops below read `root_node.children`
+    and never enter a body.
+
+    ⚠⚠ **A LINE IS NOT AN IDENTITY EITHER.** Keying methods on `start_point`
+    collapsed two declarations beginning on one line -- `func (a A) X() {};
+    func (a A) Y() {}` resolved `Y` and left `X` bare, because the second write
+    to the dict won. gofmt splits that line, which is why such a bug survives
+    review and surfaces in the one file nobody formatted. Both joins are on the
+    declaration node's START BYTE, which is what the spec walk records as a
+    symbol's `byte_offset`; if that ever stops holding, the lookup misses and
+    the member keeps today's answer, which is the safe direction.
+
+    ⚠ A receiver whose type is not in THIS file keeps today's answer. Go allows
+    the type to live in another file of the package, this parser sees one file,
+    and inventing an owner id would be worse than leaving the method
+    unqualified -- absence over fabrication.
+
+    ⚠ A struct nested anonymously inside a field (`Inner struct { Deep int }`)
+    contributes `Inner` and not `Deep`: only the outer `field_declaration_list`
+    is read. That under-reports in the same direction the pre-#778 tree did and
+    is pinned as a limit, not a claim.
+    """
+    source = ByteSlicedSource(source_bytes)
+    type_at = {s.byte_offset: s for s in symbols if s.kind == "type"}
+    method_at = {s.byte_offset: s for s in symbols if s.kind == "method"}
+    if not type_at:
+        return
+
+    # PACKAGE-LEVEL specs only, so a function-local type of the same name is
+    # never a candidate owner.
+    types_by_name: dict[str, Symbol] = {}
+    spec_owners: list[tuple[object, Symbol]] = []
+    for decl in root_node.children:
+        if decl.type != "type_declaration":
+            continue
+        for spec in decl.children:
+            if spec.type != "type_spec":
+                continue
+            # ⚠⚠ **The join asks `_go_type_span_node`, which is the same
+            # function the walk used to record the offset** -- not a second
+            # copy of the rule that would drift from it (08-19). Every spec in
+            # a grouped block resolves to its OWN symbol since #817; before
+            # that, a declaration yielded one symbol and this loop needed a
+            # name check to stop the second spec handing its fields to the
+            # first (retired, `harness/retired.json`).
+            owner = type_at.get(_go_type_span_node(spec).start_byte)
+            if owner is None:
+                continue
+            # ⚠ The owner's NAME comes off the symbol rather than being read
+            # back out of the spec: `type ID int` carries two
+            # `type_identifier` children and the second is what it is defined
+            # AS, so re-deriving it here was a second chance to pick the wrong
+            # one.
+            types_by_name.setdefault(owner.name, owner)
+            spec_owners.append((spec, owner))
+    if not types_by_name:
+        return
+
+    # A Go method is only ever declared at package scope, so this does not
+    # descend either.
+    for node in root_node.children:
+        if node.type != "method_declaration":
+            continue
+        owner = types_by_name.get(_go_receiver_type_name(node, source) or "")
+        method = method_at.get(node.start_byte)
+        if owner is None or method is None:
+            continue
+        qualified, owner_id = _member_of(owner, method.name)
+        method.qualified_name = qualified
+        method.parent = owner_id
+        method.id = make_symbol_id(filename, qualified, method.kind)
+
+    for node, owner in spec_owners:
+        struct = next((c for c in node.children if c.type == "struct_type"), None)
+        if struct is None:
+            continue
+        for field_list in struct.children:
+            if field_list.type != "field_declaration_list":
+                continue
+            for field in field_list.children:
+                if field.type != "field_declaration":
+                    continue
+                for name in _go_field_names(field, source):
+                    qualified, owner_id = _member_of(owner, name)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, qualified, "field"),
+                        file=filename, name=name, qualified_name=qualified,
+                        kind="field", language="go",
+                        signature=source[field.start_byte:field.end_byte].strip()[:120],
+                        docstring="",
+                        line=field.start_point[0] + 1,
+                        end_line=field.end_point[0] + 1,
+                        byte_offset=field.start_byte,
+                        byte_length=field.end_byte - field.start_byte,
+                        content_hash=compute_content_hash(
+                            source_bytes[field.start_byte:field.end_byte]
+                        ),
+                        parent=owner_id,
+                    ))
 
 
 def _member_of(parent: Optional[Symbol], name: str) -> tuple[str, Optional[str]]:
@@ -1473,15 +1795,6 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         if kotlin_property_is_constant(node, source_bytes):
             return None
         return kotlin_property_name(node, source_bytes)
-
-    # Handle type_declaration in Go - name is in type_spec child
-    if node.type == "type_declaration":
-        for child in node.children:
-            if child.type == "type_spec":
-                name_node = child.child_by_field_name("name")
-                if name_node:
-                    return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
-        return None
 
     # Dart: mixin_declaration has identifier as direct child (no field name)
     if node.type == "mixin_declaration":
@@ -2501,7 +2814,135 @@ def _extract_fields(
     # walk. Reading it here would make that emulation delete fields too.
     if language in _JS_BINDING_LANGUAGES and node.type in ("field_definition", "public_field_definition"):
         return _extract_js_class_field(node, source_bytes, filename, language)
+    # ⚠⚠ Dart and GDScript spell a member and a LOCAL with the same node type,
+    # so each is gated on what encloses it. `_walk_tree` cannot supply that --
+    # its `parent_symbol` is the nearest SYMBOL, which inside a method body is
+    # the method -- and the grammar can: a member is a direct child of a class
+    # body. Asking the node its own ancestry keeps the two languages out of the
+    # locality-predicate business #732 and #776 both paid for.
+    if language == "dart" and node.type == "declaration":
+        if not _dart_member_has_an_owner(node, spec):
+            return []
+        return _extract_dart_members(node, source_bytes, filename, language)
+    if language == "gdscript" and node.type == "variable_statement":
+        if node.parent is None or node.parent.type != "class_body":
+            return []
+        return [
+            _field_symbol(name, node, source_bytes, filename, language)
+            for name in _gdscript_statement_names(node, source_bytes)
+        ]
+    if language == "ruby" and node.type in ("assignment", "call"):
+        return _extract_ruby_members(node, source_bytes, filename, language)
+    if language == "rust" and node.type == "field_declaration":
+        return _extract_rust_fields(node, source_bytes, filename, language)
     return []
+
+
+#: What may hold a Rust data member: a struct or a union, never an enum
+#: variant. All three spell their body `field_declaration_list`.
+_RUST_FIELD_HOLDERS = frozenset({"struct_item", "union_item"})
+
+
+def _extract_rust_fields(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """A named field of a Rust struct or union (#786).
+
+    ⚠⚠ **The oracle had to be taught this BEFORE the extractor could emit it.**
+    `fidelity.rust.extra` gates at 0 and is computed by NAME over every symbol
+    we emit with no kind filter, and `syn` carried no `field` def at all -- so
+    emitting fields would have failed the fast tier on CORRECT extraction. The
+    alternative, exempting the kind, ships the extraction unscored in both
+    directions, which is the macro ceiling the harness already lives with and
+    should not acquire a second instance of.
+
+    ⚠⚠ **An enum VARIANT holds a `field_declaration_list` exactly as a struct
+    does**, so a channel gated on the node type alone adopts `B { inner: u8 }`'s
+    `inner` as a member of the enum. The holder's OWNER is the discriminator,
+    and variants stay out because the oracle omits variants themselves --
+    indexing a variant's fields while the variant is absent is a half-answer.
+
+    ⚠ A TUPLE struct needs no exclusion: its members are an
+    `ordered_field_declaration_list` carrying no `field_identifier`, so there
+    is no name to read. `syn` reports `ident: None` for the same reason, which
+    is why both sides agree without either being told to.
+
+    ⚠ `pub limit: u8` carries a `visibility_modifier` the private form does
+    not, so the name is found by node TYPE rather than by position.
+    """
+    holder = node.parent
+    if holder is None or holder.type != "field_declaration_list":
+        return []
+    owner = holder.parent
+    if owner is None or owner.type not in _RUST_FIELD_HOLDERS:
+        return []
+    source = ByteSlicedSource(source_bytes)
+    return [
+        _field_symbol(
+            source[c.start_byte:c.end_byte], node, source_bytes, filename, language
+        )
+        for c in node.children
+        if c.type == "field_identifier"
+    ]
+
+
+#: The BODY node types a Dart data member may sit directly in.
+#:
+#: ⚠⚠ **MEASURED against the grammar, not named from the language.** DART_SPEC
+#: lists three containers -- class, mixin and extension -- so the obvious set
+#: was `class_body`, `extension_body` and `mixin_body`. There is no
+#: `mixin_body`: a `mixin_declaration` holds a `class_body`, so that third
+#: entry would have been inert, a guard written against a spelling the grammar
+#: does not use. Only `extension_body` is its own node type.
+#:
+#: ⚠ **This set no longer carries the decision and is kept only to name the two
+#: body types.** `_dart_member_has_an_owner` asks
+#: `DART_SPEC.container_node_types` for the part that matters, and every owner
+#: of these two bodies is already in that list -- so the set is derivable from
+#: it. Flagged in review as the shape that rots (`entry_point_patterns` was
+#: written in one place and read in none). If a third body type ever appears,
+#: check whether this set should be computed rather than listed.
+_DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body"})
+
+
+def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
+    """Is this `declaration` a member of something that HAS a symbol?
+
+    ⚠⚠ **The body type alone is not the question, and taking it for the
+    question published a member with no owner.** An `extension type Meters(int
+    v) { static const int CAP = 1; }` holds a `class_body` like a class does,
+    but `extension_type_declaration` is in no spec's `container_node_types`, so
+    nothing stands above it to be the parent -- `CAP` came out bare, which is
+    #698's complaint and #788's whole subject one language later.
+
+    ⚠ So the holder's OWNER is asked of `DART_SPEC.container_node_types`, the
+    list that already decides what `_walk_tree` will have a parent symbol for.
+    Reproducing that list here would be a second copy of the same rule, which
+    is the mechanism this project keeps paying for.
+
+    ⚠ A Dart `enum` body and an `extension type` body therefore contribute no
+    members. Both fail toward absence and are pinned as limits.
+    """
+    holder = node.parent
+    if holder is None or holder.type not in _DART_MEMBER_HOLDERS:
+        return False
+    owner = holder.parent
+    return owner is not None and owner.type in spec.container_node_types
+
+
+def _gdscript_statement_names(node, source_bytes: bytes) -> list[str]:
+    """The name a GDScript `var` statement binds.
+
+    The grammar gives it as a `name` child. ⚠ GDScript has no multi-declarator
+    form, so this is one name per statement -- stated rather than assumed,
+    because every other language in this family needed the plural.
+    """
+    source = ByteSlicedSource(source_bytes)
+    return [
+        source[c.start_byte:c.end_byte]
+        for c in node.children
+        if c.type == "name"
+    ]
 
 
 #: The specs whose grammar spells a data member `field_declaration`.
@@ -3065,6 +3506,177 @@ def _extract_java_fields(
     return [
         _field_symbol(name, node, source_bytes, filename, language)
         for name in _java_declarator_names(node, source_bytes)
+    ]
+
+
+#: The `attr_*` family. ⚠ All three, because a guard written against
+#: `attr_accessor` alone is fixed for that spelling only and `attr_reader` is
+#: the commonest of them in real Ruby.
+_RUBY_ATTR_CALLS = frozenset({"attr_accessor", "attr_reader", "attr_writer"})
+
+
+def _ruby_class_body(node) -> bool:
+    """Is this node a direct statement of a `class` or `module` body?
+
+    ⚠⚠ **Ruby spells a member and a local the same way.** `LIMIT = 3` in a
+    class body and `total = 1` in a method are both `assignment`, and
+    `attr_accessor :view` and `puts x` are both `call`. Node type alone cannot
+    separate them, so scope does: a member is a DIRECT child of the
+    `body_statement` of a class or module. A method body is its own
+    `body_statement` one level down, so nothing inside one reaches here.
+    """
+    holder = node.parent
+    if holder is None or holder.type != "body_statement":
+        return False
+    owner = holder.parent
+    return owner is not None and owner.type in ("class", "module")
+
+
+def _extract_ruby_members(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """A Ruby class's constants, class variables and `attr_*` properties (#785).
+
+    Three member forms, all of them absent before this: `LIMIT = 3`,
+    `@@count = 0` and `attr_accessor :view`. RUBY_SPEC declares only `method`,
+    `singleton_method`, `class` and `module`, so a Ruby class reported its
+    methods and nothing else.
+
+    ⚠⚠ **`constant` is the LHS NODE TYPE, not a naming convention.** Ruby's
+    grammar has a `constant` node and it is what `LIMIT` parses as, so this
+    asks the parser rather than testing whether a name is SCREAMING_CASE --
+    which would be a rule about style reproducing a rule the grammar already
+    states.
+
+    ⚠ `attr_accessor` generates a reader and a writer, so `property` is what it
+    is; `attr_reader` and `attr_writer` generate one each and are the same kind
+    of thing. One call may name several, and each is a member.
+    """
+    if not _ruby_class_body(node):
+        return []
+    source = ByteSlicedSource(source_bytes)
+
+    if node.type == "assignment":
+        target = node.child_by_field_name("left")
+        if target is None:
+            return []
+        name = source[target.start_byte:target.end_byte]
+        if target.type == "constant":
+            return [_field_symbol(
+                name, node, source_bytes, filename, language, kind="constant"
+            )]
+        if target.type == "class_variable":
+            return [_field_symbol(name, node, source_bytes, filename, language)]
+        # ⚠ An instance variable (`@x = 1`) at class-body scope is state of the
+        # CLASS OBJECT, not of an instance, and is rare enough that indexing it
+        # would be a guess about intent. Everything else here is a local.
+        return []
+
+    # `call`. ⚠⚠ The node type is also how `include Comparable`, `private` and
+    # every DSL macro in every Rails model is spelled, so the called NAME is
+    # the discriminator: reading the node type alone would index half a class
+    # body as members.
+    #
+    # ⚠⚠ **And the name is not enough on its own.** `foo.attr_accessor
+    # :sneaky` in a class body declares nothing about this class, and reading
+    # only the `method` field published `Audit.sneaky` as an owned property
+    # appearing nowhere in the source. That is fabrication, and this family
+    # fails toward ABSENCE. Found in review.
+    #
+    # ⚠⚠ **The rule is that we CANNOT RESOLVE a receiver, not that there is
+    # never one** -- the first draft of this comment claimed the latter and it
+    # is false. `self.attr_accessor :x` and `Audit.attr_accessor :x` in a class
+    # body are valid Ruby and really do declare accessors. A receiver is an
+    # arbitrary expression, this parser does not evaluate expressions, and an
+    # unresolved receiver is UNKNOWN -- which this family renders as absence.
+    # So those two are false NEGATIVES, deliberately, and are pinned as limits
+    # rather than special-cased by spelling. Found in review, twice.
+    if node.child_by_field_name("receiver") is not None:
+        return []
+    method = node.child_by_field_name("method")
+    if method is None:
+        return []
+    if source[method.start_byte:method.end_byte] not in _RUBY_ATTR_CALLS:
+        return []
+    args = node.child_by_field_name("arguments")
+    if args is None:
+        return []
+    out = []
+    for arg in args.children:
+        if arg.type == "simple_symbol":
+            # `:view` -> `view`; the colon is the literal's syntax, not the name.
+            name = source[arg.start_byte:arg.end_byte].lstrip(":")
+        elif arg.type == "string":
+            name = source[arg.start_byte:arg.end_byte].strip("\"'")
+        else:
+            continue
+        if name:
+            out.append(_field_symbol(
+                name, node, source_bytes, filename, language, kind="property"
+            ))
+    return out
+
+
+def _dart_member_kind(node) -> str:
+    """`constant` for a Dart `const` member, `field` for everything else.
+
+    ⚠⚠ **`final` is NOT `constant`, and this is the shared rule deciding it
+    again** (`_STATE_KIND_REFINERS`): a member is `constant` only where the
+    language's own dedicated constant keyword is used. Dart HAS `const`, so
+    `final int limit = 3` is a `field` -- the C# `static readonly` ruling. Apex
+    and Groovy went the other way on `static final` for the opposite reason:
+    neither has a `const` to reserve the word for.
+    """
+    return (
+        "constant"
+        if any(c.type == "const_builtin" for c in node.children)
+        else "field"
+    )
+
+
+def _extract_dart_members(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """Every member a Dart `declaration` binds (#775).
+
+    DART_SPEC declared `function_signature`, `method_signature` and the type
+    forms; a data member is a `declaration` and was in no channel, so a Dart
+    class reported its methods and its getters and none of its state.
+
+    ⚠⚠ **Two declarator spellings, and reading one indexes half the class.**
+    An ordinary member is `initialized_identifier_list > initialized_identifier
+    > identifier`; a `static const` / `static final` member is
+    `static_final_declaration_list > static_final_declaration > identifier`.
+    They are different node types for the same job, so both are read.
+
+    ⚠ `int a = 1, b = 2;` is two members. One list holds N declarators.
+
+    ⚠ Scoped by `_dart_member_has_an_owner`, which the `_extract_fields`
+    dispatcher asks before calling this: a member must sit in a body whose
+    OWNER is one of DART_SPEC's containers, so a `declaration` in an
+    `extension type` body has nothing to belong to and is not adopted.
+    """
+    source = ByteSlicedSource(source_bytes)
+    kind = _dart_member_kind(node)
+    names = []
+    for child in node.children:
+        if child.type not in (
+            "initialized_identifier_list", "static_final_declaration_list"
+        ):
+            continue
+        for declarator in child.children:
+            if declarator.type not in (
+                "initialized_identifier", "static_final_declaration"
+            ):
+                continue
+            name_node = next(
+                (c for c in declarator.children if c.type == "identifier"), None
+            )
+            if name_node is not None:
+                names.append(source[name_node.start_byte:name_node.end_byte])
+    return [
+        _field_symbol(name, node, source_bytes, filename, language, kind=kind)
+        for name in names
     ]
 
 
@@ -8030,6 +8642,21 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return ":".join(identifiers) + ":"
         return identifiers[0]
 
+    def _struct_declarations(node):
+        """Every `struct_declaration` under a member node, at either depth.
+
+        ⚠ `@property int view;` carries it directly; an ivar block wraps each
+        one in an `instance_variable` first. One walk, so a grammar that later
+        adds a wrapper does not silently drop the member.
+        """
+        for child in node.children:
+            if child.type == "struct_declaration":
+                yield child
+            elif child.type == "instance_variable":
+                for g in child.children:
+                    if g.type == "struct_declaration":
+                        yield g
+
     #: The enclosing `@interface`/`@implementation`, as a SYMBOL rather than a
     #: name (#782). It held the name alone, so every method was qualified
     #: correctly and owned by nothing.
@@ -8061,6 +8688,45 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     _walk(child)
                 current_class[0] = prev_class
                 return
+        elif node.type in ("instance_variables", "property_declaration") and current_class[0]:
+            # #782: a class's state was never extracted. ⚠⚠ TWO grammar nodes
+            # and TWO words: an ivar inside `{ }` is a `field`, and `@property`
+            # is what ObjC calls a property and declares separately. Routing
+            # both through one branch would be wrong in one of them -- #743's
+            # split, where the CHANNEL is not the kind.
+            kind = "field" if node.type == "instance_variables" else "property"
+            for declaration in _struct_declarations(node):
+                for declarator in declaration.children:
+                    if declarator.type != "struct_declarator":
+                        continue
+                    ident = next(
+                        (c for c in declarator.children if c.type == "identifier"), None
+                    )
+                    if ident is None:
+                        continue
+                    name = source[ident.start_byte:ident.end_byte]
+                    qualified, owner_id = _member_of(current_class[0], name)
+                    symbols.append(Symbol(
+                        id=make_symbol_id(filename, qualified, kind),
+                        file=filename,
+                        name=name,
+                        qualified_name=qualified,
+                        kind=kind,
+                        language="objc",
+                        signature=source[
+                            declaration.start_byte:declaration.end_byte
+                        ].split(";")[0].strip()[:120],
+                        docstring="",
+                        line=declaration.start_point[0] + 1,
+                        end_line=declaration.end_point[0] + 1,
+                        byte_offset=declaration.start_byte,
+                        byte_length=declaration.end_byte - declaration.start_byte,
+                        content_hash=compute_content_hash(
+                            source_bytes[declaration.start_byte:declaration.end_byte]
+                        ),
+                        parent=owner_id,
+                    ))
+            return
         elif node.type in ("method_declaration", "method_definition") and current_class[0]:
             selector = _get_selector(node)
             if selector:
@@ -9058,6 +9724,61 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         return t
         return None
 
+    def _assigned_names(node) -> list[tuple[int, str]]:
+        """Every name this `command` ASSIGNS, as (child index, name) (#779).
+
+        ⚠⚠ **The test is the SOURCE TEXT of the operator, not the shape of the
+        tree, and the first version got that wrong.** tree-sitter-groovy has no
+        field node and no assignment node: it emits `unit` runs and `operators`
+        tokens, and it splits `==` into TWO adjacent `operators` nodes each
+        holding a bare `=`. So a scan for "has an `operators` child containing
+        `=`" indexed `check tally == 1` as a field named `tally`. Worse,
+        `!=` yields ONE `operators(=)` with the `!` dropped, making it
+        byte-identical in the tree to a real `=` -- no count, adjacency or
+        ERROR-sibling test can separate them.
+
+        Reading the bytes between the name and the value settles all of them:
+        `=` is an assignment, `==`, `!=`, `<=`, `>=`, `&&` and `+` are not.
+        That is the property; everything else was a spelling.
+
+        ⚠ Returning every assignment, not the first, is what makes
+        `int a = 1, b = 2` two fields. The Apex branch already says why
+        (`reading only the first would index half a line`); this grammar
+        separates them with `arg_spliter` and the loop does not care.
+        """
+        kids = [c for c in node.children if c.type != "\n"]
+        found: list[tuple[int, str]] = []
+        for i, child in enumerate(kids):
+            if child.type != "operators" or i == 0:
+                continue
+            name_node = kids[i - 1]
+            if name_node.type != "unit":
+                continue
+            # ⚠ A declared name sits at the START of the command (after its
+            # type and modifiers) or after an `arg_spliter`. One preceded by an
+            # `operators` is on the VALUE side: `int a = b = 1` declares `a`
+            # and assigns to an existing `b`, and emitting `b` would FABRICATE
+            # a member. Absence is the safe error here; invention is not.
+            if i < 2 or kids[i - 2].type == "operators":
+                continue
+            # The whole contiguous run of `operators`, because `==` is two
+            # adjacent nodes and stopping at the first reads it as `=`.
+            end = i
+            while end + 1 < len(kids) and kids[end + 1].type == "operators":
+                end += 1
+            if end + 1 >= len(kids):
+                continue  # nothing assigned
+            if source[child.start_byte:kids[end].end_byte] != "=":
+                continue  # `==`, `<=>`, `&&`, ...
+            # Nothing but whitespace between the name and the operator: `!=`
+            # drops its `!` from the tree and is otherwise identical to `=`.
+            if source[name_node.end_byte:child.start_byte].strip():
+                continue
+            name = _first_id_in_unit(name_node)
+            if name:
+                found.append((node.children.index(name_node), name))
+        return found
+
     def _walk_commands(nodes, parent: Optional[Symbol] = None) -> None:
         """Walk a list of sibling nodes looking for command patterns."""
         for node in nodes:
@@ -9115,6 +9836,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             units_to_check = list(units)
             if block:
                 units_to_check += [c for c in block.children if c.type == "unit"]
+            found_method = False
             for unit in units_to_check:
                 method_name = _func_name_in_unit(unit)
                 if method_name:
@@ -9140,7 +9862,54 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         parent=owner_id,
                     )
                     symbols.append(sym)
+                    found_method = True
                     break
+            if found_method or parent is None:
+                continue
+
+            # #779: a class's state was never extracted. This grammar has NO
+            # field node -- a field is a `command` whose units are bare
+            # identifiers and which ASSIGNS, so the assignment is what has to
+            # be identified, and `_assigned_names` is where that lives.
+            assignments = _assigned_names(node)
+            if not assignments:
+                continue
+            first_name_index = assignments[0][0]
+            leading = [
+                _first_id_in_unit(c)
+                for c in node.children[:first_name_index]
+                if c.type == "unit"
+            ]
+            leading = [w for w in leading if w]
+            # ⚠ At least one unit before the name -- a type or `def`. Without
+            # it this is `tally = 1`, an assignment to an existing field rather
+            # than a declaration of a new one.
+            if not leading:
+                continue
+            # `static final` is Groovy's constant spelling, as in Java and
+            # Apex: the language has no `const` to prefer over it. Declarators
+            # after the first share the line's modifiers, as they do in Java.
+            kind = "constant" if {"static", "final"} <= set(leading) else "field"
+            raw = source[node.start_byte:node.end_byte]
+            signature = raw.strip().splitlines()[0][:120] if raw.strip() else ""
+            for _, field_name in assignments:
+                qualified, owner_id = _member_of(parent, field_name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename,
+                    name=field_name,
+                    qualified_name=qualified,
+                    kind=kind,
+                    language="groovy",
+                    signature=signature or field_name,
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
 
     _walk_commands(tree.root_node.children)
     return symbols
@@ -11994,6 +12763,34 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ))
                 return
 
+        elif node.type == "field_declaration":
+            # #774: a class's state was never extracted at all. Every
+            # `variable_declarator` is one member -- `Integer a = 1, b = 2;`
+            # declares two, and reading only the first would index half a line.
+            kind = apex_member_kind(node) or "field"
+            for declarator in node.children:
+                if declarator.type != "variable_declarator":
+                    continue
+                ident = _first_child_of_type(declarator, "identifier")
+                if not ident:
+                    continue
+                name = _text(ident)
+                qualified, owner_id = _member_of(parent, name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind=kind, language="apex",
+                    signature=_text(node).split("{")[0].split(";")[0].strip()[:120],
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
+            return
+
         elif node.type == "trigger_declaration":
             ident = _first_child_of_type(node, "identifier")
             if ident:
@@ -12776,6 +13573,44 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     file=filename, name=name, qualified_name=qualified,
                     kind="type", language="dlang",
                     signature=f"enum {name}",
+                    docstring="",
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                    parent=owner_id,
+                ))
+            return
+
+        elif node.type == "variable_declaration":
+            # #776: a D aggregate's state was never extracted.
+            #
+            # ⚠⚠ **Only INSIDE an aggregate, and the guard is here rather than
+            # in a comment.** A module-scope `int x = 1;` is the SAME node
+            # type, so an unguarded branch adds a whole new symbol class to
+            # every D file in every user's index -- a scope change nobody asked
+            # for, under an issue about class state. The first draft carried
+            # this sentence with no `parent is None` test under it, which is a
+            # comment describing a rule the code did not have. Module-scope
+            # bindings are their own decision, with their own kind question
+            # (`variable` vs `constant`, #807's shape) and their own issue.
+            if parent is None:
+                return
+            kind = dlang_variable_kind(node) or "field"
+            for declarator in node.children:
+                if declarator.type != "declarator":
+                    continue
+                ident = _first_child_of_type(declarator, "identifier")
+                if not ident:
+                    continue
+                name = _text(ident)
+                qualified, owner_id = _member_of(parent, name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind=kind, language="dlang",
+                    signature=_text(node).split(";")[0].strip()[:120],
                     docstring="",
                     line=node.start_point[0] + 1,
                     end_line=node.end_point[0] + 1,

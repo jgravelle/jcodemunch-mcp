@@ -2,6 +2,345 @@
 
 ## [Unreleased]
 
+### Fixed - a Go `type ( ... )` block binds every name in it (#817)
+
+`type ( A int; B int; C struct{ N int } )` indexed `A` and nothing else. Not
+mis-kinded, not unowned: `B`, `C`, `C`'s field and the ownership of every
+method on either were absent, while the same types on separate `type` lines all
+indexed. `var` and `const` had already been given the grouped form — #428 and
+#731 — so this was the third channel to arrive with one symptom, found
+separately each time.
+
+⚠⚠ **The diagnosis in the issue was wrong about where, and correcting it is
+the fix.** It read the gap as `type_patterns` naming the declaration with
+nothing walking down from it, and proposed sharing `_extract_go_variables`'
+descent. But `type_patterns` is read by NOTHING in the tree (#725, asserted by
+`tests/test_grammar_spelled_forms.py`): Go's type came from
+`symbol_node_types`, where `type_declaration` mapped to `type`, and
+`_extract_symbol` returns `Optional[Symbol]` — **at most one symbol per node,
+by signature.** No name extractor could have made that channel bind three
+names. There was no descent to share and no fourth channel to add: the
+declaration was the wrong node. `type_spec` is what binds one name, it is a
+direct child in both spellings, and the generic walk already visits it — so
+docstrings, interface keywords and lexical nesting keep working because none of
+them were ever Go's own code.
+
+⚠⚠ **A span must address one name, and that is what makes the grouped form
+work at all.** #778's receiver pass joins a method to its owner by BYTE OFFSET.
+Give three grouped types the declaration's span — which is what the `var` and
+`const` channels do with their own grouped blocks — and all three share one
+offset, so the join collapses and two of the three can own nothing. The rule is
+**the widest node that addresses this name alone**: the declaration when it
+binds one name, the spec when it binds several. The narrowest node is the spec
+in both spellings and taking it uniformly is simpler, but it moves the offset
+of every Go type in every existing index and drops `type` from every signature,
+to fix the minority form. Ungrouped types record byte-identical spans.
+
+⚠ **#778 needed a guard that this retires.** Because a grouped declaration
+yielded one symbol, the receiver pass had to refuse every spec but the first by
+name, or `B`'s fields went to `A`. The refusal is deleted and the test that
+pinned it is inverted rather than restored (Practice 9) — it was the gap's
+witness, not a guard on the pass. `harness/retired.json` carries the lesson.
+
+⚠⚠ **The guard that should have caught this passed, and correctly.**
+`tests/test_declared_forms_extract.py` asserts that every declared node type
+extracts its declared kind, and **every sample in it binds one name** — so the
+row for Go's type declaration was true and blind at once, and no row in that
+table can see this defect class for any language. The scan the issue asked for
+ran over thirteen spellings and found three more:
+`tests/test_one_declaration_binds_every_name.py` is the enumeration, with
+**#823** (a C and C++ `typedef int A, B;` binds only `A`) and **#824** (an F#
+`and`-chained type declares only the first) tracked as gaps that fail this
+suite when they close.
+
+### Fixed - a Rust struct's fields are indexed, and the oracle that scores us learned them first (#786)
+
+`struct Audit { tally: i32, pub limit: u8 }` reported the type and neither
+member. This was the last cell of the member-kind audit, and the only one that
+could not be fixed by wiring up a channel.
+
+⚠⚠ **The extractor was not the obstacle; the instrument was.**
+`fidelity.rust.extra` gates at **0** and is computed by NAME over every symbol
+we emit, with no kind filter — while the `syn` oracle carried no `field`
+definition at all. Emitting struct fields would therefore have failed the fast
+tier *on correct extraction*. The two ways out were to exempt the kind from the
+comparison, which ships the extraction unscored in **both** directions — the
+macro ceiling `benchmarks/rust_fidelity/README.md` already lives with, and not
+a thing to acquire a second instance of — or to teach the oracle. The oracle
+was taught, in the same PR, before a single field was emitted.
+
+⚠ **The omission was recorded and its reason was wrong twice over.** The note
+said fields bind no name another module can reach — a `pub` field is reached as
+`s.field` — and that emitting them "would make the `extra` gate reject correct
+extraction", which held only while we emitted none. Once we do, the *omission*
+is what fails the gate. The justification is replaced, not deleted.
+
+⚠⚠ **`visit_item_struct` did not push its own name onto the scope stack**, so
+fields would have been qualified as bare names — the collision `qual` exists to
+remove, and the defect the Rust harness was rewritten to catch (a set cannot
+count). It pushes now, and because nothing else is emitted from inside a
+struct, regenerating the frozen artifact **removed nothing**: 55 definitions
+became 62, the seven added all correctly qualified (`Config.depth`, `User.id`).
+
+⚠⚠ **An enum variant holds a `field_declaration_list` exactly as a struct
+does**, in the grammar and in `syn`, so a channel gated on the node type alone
+adopts `B { inner: u8 }`'s `inner` as a member of the enum. Both sides gate on
+the holder's owner instead. Variants themselves stay absent, and indexing a
+variant's fields while the variant is missing would be a half-answer.
+
+⚠ A **tuple struct** needs no exclusion on either side: its members carry no
+identifier at all (`ordered_field_declaration_list`; `ident: None` in `syn`),
+so both agree without either being told to. A **union**'s members are the same
+nodes a struct's are and are indexed for the same reason — excluding them would
+need a condition written against the word `union` for no statable reason.
+
+⚠ `tests/test_rust_fidelity.py::test_fields_variants_and_closures_are_not_symbols`
+asserted that `depth` must **not** be a symbol. It was the old decision's
+witness rather than a guard on the new one (Practice 9), so it is inverted, not
+worked around; the variant and closure names beside it are unchanged, which is
+what keeps the change scoped to the thing that moved.
+
+**`_GAPS` in `tests/test_member_kind_audit.py` is now empty.** The burn-down ran
+in five passes, one *mechanism* each rather than one language each: ownership
+(#788), the class state four custom parsers never extracted (#774, #776, #779,
+#782), Go's receiver (#778), the three spec-driven languages (#775, #777, #785),
+and this. ⚠⚠ An empty dict is not a solved problem: `_SAMPLES` covers the
+languages it covers, and #809, #811 and #812 are six languages it has never had
+a row for.
+
+### Fixed - a Dart, GDScript or Ruby class's state is indexed (#775, #777, #785)
+
+A Dart class reported its methods and its getters and none of its state:
+`final int limit`, `int tally` and `static const int CAP` were all absent. A
+GDScript class body's `const LIMIT` and `var tally` were absent. A Ruby class's
+`LIMIT = 3`, its `attr_accessor :view` and its `@@count` were absent. Six cells
+of the member-kind audit, three languages' worth of class members that
+`search_symbols` could not find and that `get_file_outline` counted as nothing.
+
+**This is the fourth mechanism in the family and the first that is purely
+spec-driven.** #788 gave five custom parsers an owner, #774/#776/#779/#782 gave
+four of them the class state they never extracted, and #778 resolved Go's
+receiver. Every language left reaches `_walk_tree` through a `LanguageSpec`, so
+nothing here is a parser reproducing a rule it could have asked for — the
+channels already existed and these three grammars were not wired into them.
+
+⚠⚠ **GDScript's `const` needed no channel at all, and that is the whole
+diagnosis.** `const_statement` was already in `GDSCRIPT_SPEC.constant_patterns`
+and a file-scope `const LIMIT = 3` already indexed. The gap read as "GDScript
+constants are missing" and was really "the gate stops at file scope", so the
+fix is one name in `_CLASS_SCOPED_CONSTANT_LANGUAGES` — the authority that
+question already had — rather than a second extractor answering it again.
+
+⚠⚠ **All three grammars spell a member and a LOCAL with the same node type**,
+so each channel is gated on what encloses the declaration. Ruby is the sharpest
+case: `LIMIT = 3` and `total = 1` are both `assignment`, and `attr_accessor
+:view` and `include Comparable` are both `call`. The node type alone would
+index half a Rails model as members, so a Ruby member must be a direct
+statement of a class or module body, and a `call` must name one of the three
+`attr_*` forms. Reading `attr_accessor` alone would have been fixed for that
+spelling only; `attr_reader` is the commoner of the three in real Ruby.
+
+⚠ **`final` is not `constant` in Dart**, by the same rule that made C#'s
+`static readonly` a field: a member is a constant only where the language's own
+dedicated constant keyword is used, and Dart has `const` to reserve the word
+for. Apex and Groovy went the other way on `static final` because neither has
+one. Ruby's constant is the grammar's own `constant` node on the left of the
+assignment, asked of the parser rather than inferred from SCREAMING_CASE.
+
+⚠ **Two declarator spellings in Dart**, because an ordinary member is an
+`initialized_identifier` and a `static const` member is a
+`static_final_declaration`: different node types for the same job, so reading
+one indexes half a class. `int a = 1, b = 2;` is two members, and one
+`attr_accessor :a, :b, :c` is three.
+
+⚠ **The Dart holder set was measured, not named.** A mixin and an extension are
+containers too, so the obvious set was `class_body`, `extension_body` and
+`mixin_body` — and there is no `mixin_body`, because a `mixin_declaration`
+holds a `class_body`. That third entry would have been inert: a guard written
+against a spelling the grammar does not use.
+
+⚠⚠ **Two guards shipped in the first draft with no witness, and one of them
+fabricated.** `attr_accessor` is always an implicit-self call, and the Ruby
+branch read only the called name — so `foo.attr_accessor :sneaky` in a class
+body published `Audit.sneaky`, an owned property appearing nowhere in the
+source, where the old tree emitted only the class. A missing member is a gap; a
+member that does not exist is a lie told to every consumer downstream, and this
+family fails toward absence. The Dart holder gate had the mirror problem: an
+`extension type` holds a `class_body` exactly as a class does, but
+`extension_type_declaration` is in no spec's `container_node_types`, so its
+member was published with **no owner** — #698's complaint and #788's whole
+subject, one language later. The gate now asks `DART_SPEC.container_node_types`
+rather than keeping a second copy of it.
+
+⚠⚠ **And the tests that claimed to guard the Ruby scope rule did not.** All
+three stayed green when the gate was deleted, because their fixtures are
+excluded by a different mechanism — a lowercase left-hand side is not a
+`constant` node, and `puts` is not an `attr_*` name. They passed for a reason
+unrelated to the rule. The shapes that actually reach the channel and are
+stopped by scope alone — an uppercase assignment, a `@@` variable and an
+`attr_accessor` call, each inside a `def` — are pinned now, and each one goes
+red when the gate is removed. A test asserting a file-scope Ruby constant kept
+its bare name was fully vacuous in the same way: Ruby emits no file-scope
+constant at all, so its loop body never ran.
+
+⚠ **A GDScript top-level `var` is still absent, and it is pinned as a limit.**
+A GDScript file is itself a class, so a file-scope `var` is arguably script
+state — but it is the same `variable_statement` node as a function local, and
+separating them at file scope needs a locality predicate this change does not
+have. Widening without it would publish every local in every script.
+
+### Fixed - a Go method belongs to its receiver, and a struct's fields are indexed (#778)
+
+`func (a *Audit) RunIt() int` came back as `RunIt` — not qualified by its type,
+not owned by it, owner unknown. And an `Audit` struct's fields were absent
+outright, so the type reported as holding nothing.
+
+Go was the one ownership issue deliberately left out of #788's family. The other
+five qualified their members correctly and lost only the `parent`; Go's method
+was not qualified **at all**, because Go attaches a method to a RECEIVER instead
+of nesting it inside the type, so there was no enclosing node to be a parent.
+Same symptom, different cause, and mixing the two would have made one change
+carry two mechanisms and one of them badly.
+
+**Resolving a receiver needs a second pass, and the language forces that.** Go
+does not require a type to be declared before a method on it, so a walk that
+resolved a receiver as it met one would answer `unknown` for every method
+declared first — and would look correct on any fixture written in the other
+order. `_attach_go_receivers_and_fields` runs against the types the walk found,
+and a test declares the method before its type.
+
+The receiver's type sits at three different depths — `(i ID)` is bare,
+`(a *Audit)` wraps it in `pointer_type`, `(b *Box[T])` wraps that in
+`generic_type` — and all three resolve to the base type. A struct's
+`X, Y int` is two fields, and an EMBEDDED field, which the grammar gives no
+name at all, takes its type's base name, because `a.Reader` is how Go itself
+reads it.
+
+⚠⚠ **Ids MOVE for every Go method.** `make_symbol_id` is keyed on the qualified
+name, and `RunIt` becomes `Audit.RunIt`. Go is the only language in this family
+that pays that; the other five were already qualified and only lacked a parent.
+
+⚠⚠ **Neither join is on a name or a line, and review is why.** The first draft
+keyed owners on the bare type name, so a function-local `type Config` inside a
+function body took the package-level `Config`'s method and field: the method got
+a wrong owner, a wrong qualified name and a wrong id, the local type gained a
+field it does not declare, and the real type was left reporting zero members —
+the very symptom this entry is about, reintroduced one scope over, and worse
+than the defect it replaced because the old answer was an honest absence. Only a
+package-level type can carry a method in Go, so both loops read the file's own
+children and never enter a body. Methods were keyed on the start LINE, which
+collapsed `func (a A) X() {}; func (a A) Y() {}` — the second won and `X` stayed
+bare. gofmt splits that line, which is why such a defect survives review and
+surfaces in the one file nobody formatted. Both joins are on the declaration's
+start byte now, and a miss leaves the member with today's answer.
+
+⚠ **A struct nested anonymously inside a field contributes the field and not
+its own members**, and a grouped `type ( A …; B … )` yields one symbol for the
+whole declaration, so B stays unindexed rather than having its fields filed
+under A. Both under-report in the direction the tree already did; both are
+pinned as limits so a later change has to move the line rather than discover it.
+
+⚠ **A receiver whose type is not in this file keeps today's answer.** Go allows
+it to live in another file of the same package, this parser sees one file, and
+inventing an owner id would be worse than leaving the method unqualified.
+Absence over fabrication, and a test holds the line so cross-file resolution has
+to move it.
+
+⚠ **Kotlin is NOT swept in, and that is a ruling.** Scanning for other languages
+that attach a callable to a type declared elsewhere found exactly one more:
+`fun Audit.r()` is a top-level `function` with no owner. A Go method IS the
+type's method and can reach unexported state; a Kotlin extension is resolved
+statically, cannot see private members and is not inherited, so calling it a
+member would claim more than the language does. Swift already disagrees with
+Kotlin here — its `extension` nests in the grammar and is owned — and that
+inconsistency predates this change. It is pinned rather than harmonised inside a
+PR about Go.
+### Fixed - an Apex, D, Groovy or Objective-C class's state is indexed (#774, #776, #779, #782)
+
+Four custom parsers walked a class body and emitted the METHODS only. Every
+field, every property and every constant in those four languages was absent from
+the index — not mis-kinded, absent — so a reader asking what a class holds was
+told it holds nothing, and the file summary's member count had nothing to count.
+The member-kind audit had carried nine ABSENT cells for them since it was
+written.
+
+This is the second mechanism in the same functions #788 touched. That change
+gave these parsers their owner and closed Solidity alone, because Solidity was
+the only one of the five already extracting its state. Ownership went first on
+purpose: doing this first would have meant writing owner-less `Symbol(...)`
+constructions and immediately fixing them. Every construction added here asks
+`_member_of`, and a test asserts it.
+
+**Each grammar was read, not guessed.** Apex hangs a member off
+`field_declaration > variable_declarator` and spells a PROPERTY as the same node
+carrying an `accessor_list`. D uses `variable_declaration > declarator` with the
+mutability qualifier as a `type_ctor` inside the type. Objective-C has two
+different nodes for the two words — an ivar inside `{ }` and `@property` — which
+is #743's split, where the channel is not the kind. Groovy has no field node at
+all: a field is a `command` of bare identifier units carrying an `=`.
+
+**Two of the kinds are rulings and they point opposite ways**, so each is pinned
+alone. Apex and Groovy are Java-shaped and have no `const`, so `static final` IS
+their constant spelling — the opposite of C#'s `static readonly`, which #770
+ruled a `field` precisely because C# also has `const` and `readonly` is the
+keyword you choose when you do not mean one. D's `immutable` is a `constant` for
+the same reason in reverse: Solidity's `immutable` is a `field` because Solidity
+also has `constant`, and D has no such pair. The shared rule under all four is
+the one `_STATE_KIND_REFINERS` already states — a member is `constant` only when
+the language's own dedicated constant keyword is used.
+
+`_csharp_has_modifier` is `has_modifier_keyword` now. C# hangs `modifier` nodes
+directly off a declaration and Apex wraps them in a `modifiers` node; one
+grammar question, two shapes, and writing the second as its own function is what
+the 08-19 standing lesson names.
+
+**Groovy's rule is the operator's source text, and three grammar facts forced
+that.** It has no field node and no assignment node — only `unit` runs and
+`operators` tokens — and `==` is TWO ADJACENT `operators` nodes each holding a
+bare `=`, `!=` is ONE `operators(=)` with the `!` dropped from the tree
+entirely, and `<=` puts an `ERROR` node where the name would be. So no count,
+adjacency or ERROR test can separate a declaration from a comparison: the
+contiguous operator run must read exactly `=`, with nothing but whitespace
+between it and the name. Eighteen statements are parametrized over that rule,
+declarations and calls alike.
+
+⚠ **What that rule costs, measured per shape rather than summarised.** Five
+kinds of real Groovy field go unindexed: one with no initialiser (`int tally`
+and the call `foo bar` are the same two bare units), one whose type is generic
+(`Map<String, Integer>` splits on its own comma and the name lands in an ERROR
+node), and one with a comment or a newline between the name and the `=`, which
+the whitespace clause needed to reject `!=`. Every one fails toward absence,
+never fabrication, and each is pinned so a later widening has to move a line and
+re-run the calls this keeps out.
+
+⚠ A name on the VALUE side is not a declaration: `int a = b = 1` declares `a`
+and assigns to an existing `b`, and emitting `b` would invent a member.
+
+⚠⚠ **The reported list was not the list, again.** Probing every class-bearing
+language with a custom parser found six more whose class state is absent and
+which the audit does not sample — Zig, PowerShell and MATLAB index their methods
+and lose their state (#811); Pascal, F# and Nim index the container and no
+members at all (#812). The reusable part is why nothing was tracking them: the
+audit's `_SAMPLES` covers 22 languages, and
+`test_every_class_bearing_spec_is_sampled_or_excused` is one-directional by
+construction for custom extractors, because a custom parser declares no
+`symbol_node_types` for the check to read. The enumeration built to stop this
+defect class being found one language per fix cannot see the languages it does
+not sample.
+
+⚠ **Scope, stated because the node type does not draw it.** D spells a
+module-scope `int x = 1;` with the same `variable_declaration` it uses inside an
+aggregate, so this extracts members only. Whether a module-scope D binding
+should be indexed at all, and as which kind, is its own decision with #807's
+shape; a test asserts it has not been made here by accident.
+
+Multi-declarator lines give every name, in Apex, D and Groovy alike —
+`int a = 1, b = 2` is two fields. Reading only one of them would index half a
+line.
+
+Nine `_GAPS` entries close with this. No custom-parser language has one left;
+every remaining row in the audit is spec-driven.
+
 ### Fixed - a class member carries its owner, not just its owner's name (#788)
 
 Apex, D, Groovy, Objective-C and Solidity are parsed by custom extractors rather

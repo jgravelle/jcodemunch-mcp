@@ -1156,6 +1156,23 @@ def _literals_reachable_outside(language):
 # The one language whose helpers hold a grammar-kind literal the parse function
 # does not, and the measurement that says it is not an inflated gap.
 _HELPER_LITERAL_EXCEPTIONS = {
+    "apex": (
+        {"accessor_list", "modifiers", "modifier", "static", "final"},
+        "reached through `apex_member_kind` and the SHARED `has_modifier_keyword`, "
+        "which decide a recognised member's KIND rather than whether it is a "
+        "symbol: `_parse_apex_symbols` recognises `field_declaration` itself "
+        "(#774). MEASURED against the inventory fixture, not reasoned from the "
+        "node names: none of these five appears in any language's rows (193 "
+        "distinct nodes, zero hits), so none of them can inflate a gap in "
+        "either direction. ⚠ An earlier wording here justified that by saying "
+        "the rows hold `*_declaration`-shaped nodes only, which is false -- 90 "
+        "of the 193 are `*_definition`, `*_item` or `*_spec` -- so the "
+        "measurement is stated directly and a reader cannot reuse a wrong "
+        "generalisation. `has_modifier_keyword` "
+        "is shared with C# deliberately -- one grammar question, two node "
+        "shapes -- and inlining it to satisfy this scan would be the second "
+        "derivation the 08-19 standing lesson names",
+    ),
     "sql": (
         {"function_declaration", "function_body"},
         "reached through the SHARED `_extract_name` and `_build_signature`, which "

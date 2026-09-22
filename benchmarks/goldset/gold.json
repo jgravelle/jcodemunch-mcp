@@ -74,7 +74,7 @@
       ]
     },
     {
-      "target": "go/collect/queue.go::Push#method",
+      "target": "go/collect/queue.go::Queue.Push#method",
       "language": "go",
       "description": "Go method target: implicit-interface conformers (duck is Go's native semantics) plus physical/advocacy traps. No AST channel — Go has no declared inheritance.",
       "labels": [

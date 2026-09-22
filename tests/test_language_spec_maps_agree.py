@@ -365,6 +365,20 @@ _EXTRACTION_CHANNELS = {
             "javascript": ("a.js", "class A {\n  probe = 1;\n}\n"),
             "typescript": ("a.ts", "class A {\n  probe: number = 1;\n}\n"),
             "tsx": ("a.tsx", "class A {\n  probe: number = 1;\n}\n"),
+            # #775/#777/#785. Three SPEC-driven languages, and each carries its
+            # own kind for the reason PHP does: `property` is Ruby's own word
+            # for what `attr_accessor` makes, and the channel does not get to
+            # rename it. ⚠ Each sample is a CLASS BODY on purpose -- all three
+            # grammars spell a member and a local with the same node type, so a
+            # file-scope sample would prove the channel runs and say nothing
+            # about the scope gate that makes it correct.
+            "dart": ("a.dart", "class A {\n  int probe = 1;\n}\n"),
+            "gdscript": ("a.gd", "class A:\n\tvar probe = 1\n"),
+            "ruby": ("a.rb", "class A\n  attr_accessor :probe\nend\n", "property"),
+            # #786. ⚠ A NAMED field: a tuple struct's members have no
+            # identifier in either the grammar or `syn`, so a sample written
+            # as `struct A(u8);` would prove the channel does nothing.
+            "rust": ("a.rs", "struct A {\n    probe: i32,\n}\n"),
         },
     ),
     "variable_patterns": (

@@ -343,48 +343,44 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "cpp": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "arduino": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED)},
     "php": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED)},
-    "ruby": {"method": ("method", OWNED), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
+    "ruby": {"method": ("method", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "kotlin": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("property", OWNED), "property": ("property", OWNED)},
     "swift": {"method": ("method", OWNED), "mutable": ("property", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "scala": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
-    "dart": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": ("method", OWNED)},
-    "groovy": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "apex": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
-    "objc": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "property": (ABSENT, NO_OWNER)},
-    "gdscript": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
-    "dlang": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": (ABSENT, NO_OWNER)},
+    "dart": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("field", OWNED), "property": ("method", OWNED)},
+    "groovy": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "apex": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "objc": {"method": ("method", OWNED), "mutable": ("field", OWNED), "property": ("property", OWNED)},
+    "gdscript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
-    "go": {"method": ("method", NO_OWNER), "mutable": (ABSENT, NO_OWNER)},
-    "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
+    "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
+    "rust": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
 }
 
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
-    # ⚠⚠ Apex, D, Groovy and Objective-C each lost their OWNERSHIP entry when
-    # the five custom parsers started asking `_member_of` for the owner id
-    # they had already computed. What is left of each issue is the OTHER
-    # mechanism in the same function: the class state these parsers never
-    # extract at all. Solidity has no entry any more -- it already extracted
-    # its state, so #788 closed when ownership arrived.
-    ("apex", "immutable"): "#774",
-    ("apex", "mutable"): "#774",
-    ("apex", "property"): "#774",
-    ("dart", "immutable"): "#775",
-    ("dart", "mutable"): "#775",
-    ("dlang", "immutable"): "#776",
-    ("dlang", "mutable"): "#776",
-    ("gdscript", "immutable"): "#777",
-    ("gdscript", "mutable"): "#777",
-    ("go", "method"): "#778",
-    ("go", "mutable"): "#778",
-    ("groovy", "immutable"): "#779",
-    ("groovy", "mutable"): "#779",
-    ("objc", "mutable"): "#782",
-    ("objc", "property"): "#782",
-    ("ruby", "immutable"): "#785",
-    ("ruby", "property"): "#785",
-    ("rust", "mutable"): "#786",
+    # ⚠⚠ **EMPTY, and keeping it that way is the point of this file.** Every
+    # cell of `_TABLE` satisfies `_RULE`. The burn-down ran in five passes, one
+    # MECHANISM each rather than one language each: ownership for five custom
+    # parsers (#788, one helper they all ask), the class state four of them
+    # never extracted (#774, #776, #779, #782), Go's receiver, which needs a
+    # second pass because a method may precede its type (#778), the three
+    # spec-driven languages whose channels existed and were not wired up
+    # (#775, #777, #785), and Rust, held back to last because its `syn` ORACLE
+    # had to learn fields before the extractor could emit any (#786).
+    #
+    # ⚠⚠ **An empty dict is not the same as a solved problem, and the file says
+    # so above**: `_SAMPLES` covers the languages it covers, and
+    # `test_every_class_bearing_spec_is_sampled_or_excused` is one-directional
+    # by construction for a custom extractor. #809, #811 and #812 are SIX
+    # languages this table has never had a row for -- Zig, PowerShell and
+    # MATLAB in the first two, Pascal, F# and Nim in the third. ⚠ It read
+    # "nine" until review: that is the count of MENTIONS across three issues,
+    # and #809 and #811 name the same three languages. **The enumeration built
+    # to stop this defect class being found one language per fix cannot see
+    # the languages it does not sample.**
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:

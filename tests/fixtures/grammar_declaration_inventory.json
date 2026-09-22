@@ -141,7 +141,6 @@
       "accessor_declaration",
       "constant_declaration",
       "constructor_declaration",
-      "field_declaration",
       "local_variable_declaration"
     ],
     "arduino": [
@@ -235,8 +234,8 @@
       "import_spec",
       "parameter_declaration",
       "short_var_declaration",
+      "type_declaration",
       "type_parameter_declaration",
-      "type_spec",
       "var_spec",
       "variadic_parameter_declaration"
     ],
@@ -302,10 +301,8 @@
       "implementation_definition",
       "parameter_declaration",
       "property_attributes_declaration",
-      "property_declaration",
       "protocol_forward_declaration",
       "qualified_protocol_interface_declaration",
-      "struct_declaration",
       "type_definition"
     ],
     "ocaml": [
@@ -344,7 +341,6 @@
     "rust": [
       "attribute_item",
       "extern_crate_declaration",
-      "field_declaration",
       "foreign_mod_item",
       "impl_item",
       "inner_attribute_item",

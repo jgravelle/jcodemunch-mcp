@@ -210,10 +210,31 @@ def test_macro_invocation_defines_nothing():
         assert forbidden not in names, f"{forbidden!r} is not a definition here"
 
 
-def test_fields_variants_and_closures_are_not_symbols():
-    """Struct fields, enum variants and `let`-bound closures bind no top-level name."""
+def test_variants_and_closures_are_not_symbols_but_a_field_now_is():
+    """Enum variants and `let`-bound closures bind no top-level name. A struct
+    field does, as of #786.
+
+    ⚠⚠ **This test used to forbid `depth` and it was the OLD decision's
+    witness, not a guard on the new one** (Practice 9). It was written when the
+    oracle deliberately omitted fields, and inverting it is the point of #786
+    rather than a casualty of it: a struct's members are members, the audit
+    tracked their absence as `("rust", "mutable")`, and every other language in
+    that family now answers.
+
+    ⚠ The three names beside it are NOT inverted and that is the whole reason
+    this test still exists. A variant and a closure remain absent, so the
+    change is scoped to the thing that moved.
+    """
     names = {s.name for s in _jcm("guards.rs")}
-    for forbidden in ("depth", "Alpha", "Beta", "helper"):
+    assert "depth" in names, "a named struct field is a member since #786"
+    # ⚠⚠ `shade` is the one that matters and the corpus had no shape for it
+    # until #786: `Gamma { shade: u8 }` spells its members with the SAME nodes
+    # a struct does, in the grammar and in `syn`, so it is what a channel
+    # gated on the node type alone would adopt on EITHER side. Without a
+    # variant carrying named fields, both halves of that exclusion were
+    # ungated and a change to either would have moved no number. Found in
+    # review.
+    for forbidden in ("Alpha", "Beta", "Gamma", "shade", "helper"):
         assert forbidden not in names, f"{forbidden!r} must not be a symbol"
 
 

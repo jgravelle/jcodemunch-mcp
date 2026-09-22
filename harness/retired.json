@@ -32,7 +32,7 @@
     },
     {
       "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
-      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
+      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). \u26a0\u26a0 Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
       "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
       "commit": "99ef0583",
       "date": "2026-09-18"
@@ -71,6 +71,20 @@
       "replacement": "tests/test_member_state_is_not_a_constant.py::test_solidity_ownership_arrived_and_this_is_the_witness",
       "commit": "826aa01e",
       "date": "2026-09-20"
+    },
+    {
+      "path": "tests/test_rust_fidelity.py::test_fields_variants_and_closures_are_not_symbols",
+      "lesson": "Struct fields, enum variants and let-bound closures were all asserted NOT to be symbols, in one test, because the syn oracle deliberately emitted none of them. #786 reverses that for FIELDS ONLY: a named struct or union field is a member, the audit tracked its absence as ('rust','mutable'), and every other language in that family answers. The test was the OLD decision's witness rather than a guard on the new one (Practice 9), so it was inverted rather than worked around -- and the three names beside it (Alpha, Beta, helper) are deliberately NOT inverted, which is what keeps the change scoped to the thing that moved. The reason the oracle omitted fields was itself wrong twice over: it said a field binds no name another module can reach (a pub field is reached as s.field) and that emitting them would make the extra gate reject correct extraction (true only while the extractor emitted none -- once it does, the OMISSION is what fails the gate).",
+      "replacement": "tests/test_rust_fidelity.py::test_variants_and_closures_are_not_symbols_but_a_field_now_is",
+      "commit": "fb192d8a",
+      "date": "2026-09-22"
+    },
+    {
+      "path": "tests/test_a_go_method_belongs_to_its_receiver.py::test_a_grouped_type_declaration_does_not_hand_one_types_fields_to_another",
+      "lesson": "The test pinned a REFUSAL that existed only because of a gap next door. A grouped Go `type ( A ...; B ... )` yielded one symbol for the whole declaration (#817), so #778's receiver pass had to check the owner's name and skip every spec but the first -- B's fields stayed unindexed, and the assertion `'Theirs' not in found` recorded that as the desired answer. It was the gap's witness, not a guard on the pass (Practice 9). #817 makes `type_spec` the symbol node, so each spec resolves to its own owner and the name check is deleted from the source; keeping the assertion would pin a state nothing produces. What the test was really protecting -- A never growing a member it does not declare -- survives in the replacement, which now asserts BOTH owners instead of one owner and one absence. The wider lesson is the one the guard could not carry: an absence assertion whose cause is a defect elsewhere ages into a claim that the defect is correct.",
+      "replacement": "tests/test_a_go_method_belongs_to_its_receiver.py::test_a_grouped_type_declaration_gives_each_types_fields_to_that_type",
+      "commit": "6d7edc78",
+      "date": "2026-09-22"
     }
   ]
 }
