@@ -132,9 +132,11 @@ def test_each_twins_member_is_owned_by_that_twin(language):
 def test_both_twins_keep_their_members_in_the_symbol_tree(language):
     """The consumer half, and the reason the failure is silent (#771).
 
-    `build_symbol_tree` drops a child whose `parent` does not resolve, so a
-    dangling pointer renders as a container that declares NOTHING rather than
-    as a container with somebody else's member.
+    `build_symbol_tree` sends a child whose `parent` does not resolve to
+    `roots`, so the member renders at FILE SCOPE rather than under either
+    twin -- and this is the test that demonstrates it: on the pre-fix tree it
+    fails `assert '' == 'd.py::Conf#class~1'`, the empty string being the
+    owner id of a node reached at depth 0.
     """
     _filename, _source, first, second = _TWINS[language]
     tree = build_symbol_tree(_syms(language))

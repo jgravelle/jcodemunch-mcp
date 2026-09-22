@@ -9,8 +9,10 @@ computed** one frame up as `make_symbol_id(filename, qualified, kind)`.
 
 So a member comes back qualified by its class and carrying `parent=None`, which
 makes it invisible to every parent-keyed reader: the file summary counts members
-by `parent` (#760), `get_class_hierarchy` cannot place them, and a class reports
-as having no members at all.
+by `parent` (#760), `get_file_outline`'s tree cannot place them under their
+class, and a class reports as having no members at all. ⚠ This named
+`get_class_hierarchy` until #821 measured it; that tool builds from
+`_parse_bases(signature)` and never reads `parent`.
 
 ⚠⚠ **This is the 08-19 standing lesson at scale -- a second generator, five
 times over.** Every one of these parsers reproduces ownership instead of asking
@@ -26,10 +28,11 @@ today under #809. The parametrized tests above are what grade the five.
 was #771.** `@interface Audit` and `@implementation Audit` are two symbols
 with one id, so the renumbering moved the CLASS to `~1`/`~2` while the
 member's `parent` still named the un-suffixed id -- an id no symbol had.
-`build_symbol_tree` requires `symbol.parent in node_map`, so
-`get_class_hierarchy` left ObjC members unplaced; `_heuristic_summary` strips
-the ordinal and did benefit. C# `partial class` and Swift `extension` had
-shipped in that state since #771.
+`build_symbol_tree` requires `symbol.parent in node_map` and sends everything
+else to `roots`, so `get_file_outline` rendered ObjC members at FILE SCOPE --
+not unplaced, and not through `get_class_hierarchy`, which never reads
+`parent` at all. `_heuristic_summary` stripped the ordinal and did benefit. C#
+`partial class` and Swift `extension` had shipped in that state since #771.
 
 #821 closes all three: the renumbering follows each member to the twin whose
 bytes CONTAIN it, so `@implementation`'s method is owned by `~2` and

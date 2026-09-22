@@ -83,6 +83,67 @@ def test_no_archaeology_row_is_split_across_lines():
     )
 
 
+def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
+    """The direction neither guard asked, and a typo slipped through it (#821).
+
+    ⚠⚠ **Two guards over one ledger, and the gap was between them.**
+    `test_ledger_is_well_formed` asks whether an entry has its fields;
+    `test_every_ledgered_replacement_exists_and_collects` asks whether the
+    REPLACEMENT is real; `.claude/hooks/dod_checklist.py` asks whether every
+    removed test has an entry. None asked whether an entry names a test that
+    actually left. A row reading `..._here_needs_the_ordinal_stripped` for a
+    test called `..._here_that_needs_the_ordinal_stripped` therefore passed
+    this file, failed the checklist, and sat wrong for two commits.
+
+    ⚠⚠ **Against the MERGE BASE, never the working diff.** A test added AND
+    retired inside one branch never existed on `main` and owes no row, so a
+    working-diff version of this check would demand one; `origin/main...HEAD`
+    asks what left the tree as `main` knows it.
+
+    ⚠ Scoped to entries whose `commit` is on this branch. An older row names a
+    commit whose diff is not in this range, and re-deriving history here would
+    make the test a git archaeologist rather than a guard on what is arriving.
+    """
+    import subprocess
+
+    base = subprocess.run(
+        ["git", "merge-base", "origin/main", "HEAD"],
+        capture_output=True, text=True, cwd=REPO,
+    ).stdout.strip()
+    if not base:  # pragma: no cover - no origin/main in this checkout
+        return
+    branch_commits = set(
+        subprocess.run(
+            ["git", "rev-list", f"{base}..HEAD", "--abbrev-commit", "--abbrev=8"],
+            capture_output=True, text=True, cwd=REPO,
+        ).stdout.split()
+    )
+    if not branch_commits:
+        return
+    diff = subprocess.run(
+        ["git", "diff", f"{base}...HEAD", "--", "tests/"],
+        capture_output=True, text=True, cwd=REPO,
+    ).stdout
+    removed = {
+        ln[len("-def "):].split("(")[0]
+        for ln in diff.splitlines()
+        if ln.startswith("-def test_")
+    }
+    missing = []
+    for r in _ledger():
+        if r.get("commit") not in branch_commits:
+            continue
+        name = r["path"].partition("::")[2]
+        if name and name not in removed:
+            missing.append(r["path"])
+    assert not missing, (
+        f"{missing} are ledgered against a commit on this branch, and no `def` "
+        f"of that name was removed between {base[:8]} and HEAD. Either the name "
+        f"is mistyped or the retirement did not happen; paste it from "
+        f"`git diff` rather than retyping it."
+    )
+
+
 def test_every_archaeology_test_still_exists_or_is_in_the_ledger():
     paths = _archaeology_paths()
     assert len(paths) >= 480, f"ARCHAEOLOGY.md section 1 parsed to only {len(paths)} rows"

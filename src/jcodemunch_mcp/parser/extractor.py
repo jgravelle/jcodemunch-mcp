@@ -1697,8 +1697,12 @@ def _member_of(parent: Optional[Symbol], name: str) -> tuple[str, Optional[str]]
     class's NAME down their own walk and rebuilt `f"{scope}.{name}"` by hand,
     so every one of them qualified its members correctly and left `parent` at
     None -- invisible to the file summary's member count (#760), to
-    `get_class_hierarchy`, and to every other parent-keyed reader. The owner's
-    id was already computed one frame up and thrown away.
+    `get_file_outline`'s tree, and to every other parent-keyed reader. The
+    owner's id was already computed one frame up and thrown away.
+
+    ⚠ This named `get_class_hierarchy` until #821 measured it: that tool does
+    not read `parent` at all, it builds from `_parse_bases(signature)`. The
+    only reader of `build_symbol_tree` under `src/` is `get_file_outline`.
 
     ⚠ The qualified name is deliberately byte-identical to what those five
     parsers already emitted, because `make_symbol_id` is keyed on it: this
@@ -4394,8 +4398,15 @@ def _repoint_members_at_renumbered_owners(
     `#[cfg(unix)]` struct, in valid compiling Rust, which is the corpus #821
     was filed from. That is worse than the defect it replaced, because a
     dangling pointer is visibly broken and a wrong owner is not. Absence over
-    fabrication, the family rule; `qualified_name` still carries `Conf.only_win`,
-    so only the POINTER says unknown.
+    fabrication, the family rule.
+
+    ⚠ **Only the POINTER says unknown.** `qualified_name` AND the `id` both
+    still read `Conf.only_win`, so an id-keyed consumer sees a named owner
+    while a parent-keyed one sees none. That is not an oversight: an id is a
+    NAME, not a pointer, and `make_symbol_id` is keyed on the qualified name,
+    so moving it would re-id the symbol to say something the parser cannot
+    establish either. Said here because the next reader will find the id and
+    think the pointer was dropped by mistake.
 
     ⚠ Only ids that were actually renumbered are touched. A file with no
     duplicates never reaches this function, and inside one that does, a member
