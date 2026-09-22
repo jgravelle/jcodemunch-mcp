@@ -375,6 +375,10 @@ _EXTRACTION_CHANNELS = {
             "dart": ("a.dart", "class A {\n  int probe = 1;\n}\n"),
             "gdscript": ("a.gd", "class A:\n\tvar probe = 1\n"),
             "ruby": ("a.rb", "class A\n  attr_accessor :probe\nend\n", "property"),
+            # #786. ⚠ A NAMED field: a tuple struct's members have no
+            # identifier in either the grammar or `syn`, so a sample written
+            # as `struct A(u8);` would prove the channel does nothing.
+            "rust": ("a.rs", "struct A {\n    probe: i32,\n}\n"),
         },
     ),
     "variable_patterns": (

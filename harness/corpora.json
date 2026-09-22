@@ -9,7 +9,7 @@
     "rust_oracle": {
       "path": "tests/fixtures/rust_oracle.json",
       "pattern": null,
-      "sha256": "467d14fd611270da03f1351f227d6f12b732d2850f6dd356b40110e78bc28aa8"
+      "sha256": "cc1dabcd57e5b574453ca9b354e6637ce58b040cbb31ae270c0a92f96f6895a3"
     },
     "racket_fixtures": {
       "path": "tests/fixtures/racket",

@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Fixed - a Rust struct's fields are indexed, and the oracle that scores us learned them first (#786)
+
+`struct Audit { tally: i32, pub limit: u8 }` reported the type and neither
+member. This was the last cell of the member-kind audit, and the only one that
+could not be fixed by wiring up a channel.
+
+⚠⚠ **The extractor was not the obstacle; the instrument was.**
+`fidelity.rust.extra` gates at **0** and is computed by NAME over every symbol
+we emit, with no kind filter — while the `syn` oracle carried no `field`
+definition at all. Emitting struct fields would therefore have failed the fast
+tier *on correct extraction*. The two ways out were to exempt the kind from the
+comparison, which ships the extraction unscored in **both** directions — the
+macro ceiling `benchmarks/rust_fidelity/README.md` already lives with, and not
+a thing to acquire a second instance of — or to teach the oracle. The oracle
+was taught, in the same PR, before a single field was emitted.
+
+⚠ **The omission was recorded and its reason was wrong twice over.** The note
+said fields bind no name another module can reach — a `pub` field is reached as
+`s.field` — and that emitting them "would make the `extra` gate reject correct
+extraction", which held only while we emitted none. Once we do, the *omission*
+is what fails the gate. The justification is replaced, not deleted.
+
+⚠⚠ **`visit_item_struct` did not push its own name onto the scope stack**, so
+fields would have been qualified as bare names — the collision `qual` exists to
+remove, and the defect the Rust harness was rewritten to catch (a set cannot
+count). It pushes now, and because nothing else is emitted from inside a
+struct, regenerating the frozen artifact **removed nothing**: 55 definitions
+became 62, the seven added all correctly qualified (`Config.depth`, `User.id`).
+
+⚠⚠ **An enum variant holds a `field_declaration_list` exactly as a struct
+does**, in the grammar and in `syn`, so a channel gated on the node type alone
+adopts `B { inner: u8 }`'s `inner` as a member of the enum. Both sides gate on
+the holder's owner instead. Variants themselves stay absent, and indexing a
+variant's fields while the variant is missing would be a half-answer.
+
+⚠ A **tuple struct** needs no exclusion on either side: its members carry no
+identifier at all (`ordered_field_declaration_list`; `ident: None` in `syn`),
+so both agree without either being told to. A **union**'s members are the same
+nodes a struct's are and are indexed for the same reason — excluding them would
+need a condition written against the word `union` for no statable reason.
+
+⚠ `tests/test_rust_fidelity.py::test_fields_variants_and_closures_are_not_symbols`
+asserted that `depth` must **not** be a symbol. It was the old decision's
+witness rather than a guard on the new one (Practice 9), so it is inverted, not
+worked around; the variant and closure names beside it are unchanged, which is
+what keeps the change scoped to the thing that moved.
+
+**`_GAPS` in `tests/test_member_kind_audit.py` is now empty.** The burn-down ran
+in four passes, one *mechanism* each rather than one language each: ownership
+(#788), the class state four custom parsers never extracted (#774, #776, #779,
+#782), Go's receiver (#778), the three spec-driven languages (#775, #777, #785),
+and this. ⚠⚠ An empty dict is not a solved problem: `_SAMPLES` covers the
+languages it covers, and #809, #811 and #812 are nine languages it has never had
+a row for.
+
 ### Fixed - a Dart, GDScript or Ruby class's state is indexed (#775, #777, #785)
 
 A Dart class reported its methods and its getters and none of its state:

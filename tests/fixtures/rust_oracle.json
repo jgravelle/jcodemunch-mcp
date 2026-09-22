@@ -72,6 +72,20 @@
     },
     {
       "file": "basics.rs",
+      "kind": "field",
+      "line": 10,
+      "name": "depth",
+      "qual": "Config.depth"
+    },
+    {
+      "file": "basics.rs",
+      "kind": "field",
+      "line": 20,
+      "name": "float",
+      "qual": "Raw.float"
+    },
+    {
+      "file": "basics.rs",
       "kind": "method",
       "line": 55,
       "name": "fmt",
@@ -83,6 +97,13 @@
       "line": 75,
       "name": "inner",
       "qual": "inner"
+    },
+    {
+      "file": "basics.rs",
+      "kind": "field",
+      "line": 19,
+      "name": "int",
+      "qual": "Raw.int"
     },
     {
       "file": "basics.rs",
@@ -174,6 +195,13 @@
       "line": 30,
       "name": "calls_macros",
       "qual": "calls_macros"
+    },
+    {
+      "file": "guards.rs",
+      "kind": "field",
+      "line": 60,
+      "name": "depth",
+      "qual": "HasFields.depth"
     },
     {
       "file": "guards.rs",
@@ -338,6 +366,13 @@
     },
     {
       "file": "qualification.rs",
+      "kind": "field",
+      "line": 57,
+      "name": "inner",
+      "qual": "Holder.inner"
+    },
+    {
+      "file": "qualification.rs",
       "kind": "method",
       "line": 15,
       "name": "new",
@@ -377,6 +412,20 @@
       "line": 17,
       "name": "authenticate",
       "qual": "authenticate"
+    },
+    {
+      "file": "sample.rs",
+      "kind": "field",
+      "line": 5,
+      "name": "id",
+      "qual": "User.id"
+    },
+    {
+      "file": "sample.rs",
+      "kind": "field",
+      "line": 6,
+      "name": "name",
+      "qual": "User.name"
     },
     {
       "file": "sample.rs",

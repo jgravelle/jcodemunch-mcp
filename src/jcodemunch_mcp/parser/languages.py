@@ -582,6 +582,11 @@ RUST_SPEC = LanguageSpec(
     decorator_node_type="attribute_item",
     container_node_types=["impl_item", "trait_item"],
     constant_patterns=["const_item", "static_item"],
+    # ⚠⚠ #786. An enum VARIANT holds a `field_declaration_list` exactly as a
+    # struct does, so this node type alone would adopt `B { inner: u8 }`'s
+    # `inner` as a member of the enum. `_extract_rust_fields` gates on the
+    # holder's owner being a `struct_item` or `union_item`.
+    field_patterns=["field_declaration"],
     type_patterns=["struct_item", "enum_item", "union_item", "trait_item", "type_item"],
 )
 

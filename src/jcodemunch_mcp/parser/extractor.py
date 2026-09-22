@@ -2784,7 +2784,57 @@ def _extract_fields(
         ]
     if language == "ruby" and node.type in ("assignment", "call"):
         return _extract_ruby_members(node, source_bytes, filename, language)
+    if language == "rust" and node.type == "field_declaration":
+        return _extract_rust_fields(node, source_bytes, filename, language)
     return []
+
+
+#: What may hold a Rust data member: a struct or a union, never an enum
+#: variant. All three spell their body `field_declaration_list`.
+_RUST_FIELD_HOLDERS = frozenset({"struct_item", "union_item"})
+
+
+def _extract_rust_fields(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """A named field of a Rust struct or union (#786).
+
+    ⚠⚠ **The oracle had to be taught this BEFORE the extractor could emit it.**
+    `fidelity.rust.extra` gates at 0 and is computed by NAME over every symbol
+    we emit with no kind filter, and `syn` carried no `field` def at all -- so
+    emitting fields would have failed the fast tier on CORRECT extraction. The
+    alternative, exempting the kind, ships the extraction unscored in both
+    directions, which is the macro ceiling the harness already lives with and
+    should not acquire a second instance of.
+
+    ⚠⚠ **An enum VARIANT holds a `field_declaration_list` exactly as a struct
+    does**, so a channel gated on the node type alone adopts `B { inner: u8 }`'s
+    `inner` as a member of the enum. The holder's OWNER is the discriminator,
+    and variants stay out because the oracle omits variants themselves --
+    indexing a variant's fields while the variant is absent is a half-answer.
+
+    ⚠ A TUPLE struct needs no exclusion: its members are an
+    `ordered_field_declaration_list` carrying no `field_identifier`, so there
+    is no name to read. `syn` reports `ident: None` for the same reason, which
+    is why both sides agree without either being told to.
+
+    ⚠ `pub limit: u8` carries a `visibility_modifier` the private form does
+    not, so the name is found by node TYPE rather than by position.
+    """
+    holder = node.parent
+    if holder is None or holder.type != "field_declaration_list":
+        return []
+    owner = holder.parent
+    if owner is None or owner.type not in _RUST_FIELD_HOLDERS:
+        return []
+    source = ByteSlicedSource(source_bytes)
+    return [
+        _field_symbol(
+            source[c.start_byte:c.end_byte], node, source_bytes, filename, language
+        )
+        for c in node.children
+        if c.type == "field_identifier"
+    ]
 
 
 #: The BODY node types a Dart data member may sit directly in.

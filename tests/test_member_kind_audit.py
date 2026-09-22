@@ -355,26 +355,29 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
-    "rust": {"method": ("method", OWNED), "mutable": (ABSENT, NO_OWNER), "immutable": ("constant", OWNED)},
+    "rust": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
 }
 
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
-    # ⚠⚠ The five CUSTOM-PARSER languages have no entry left. Ownership went
-    # first (#788, one helper the five ask), then the class state those four
-    # parsers never extracted (#774, #776, #779, #782). Every remaining row is
-    # a SPEC-driven language, which is a different mechanism again: nothing
-    # here is a parser reproducing a rule it could have asked for.
+    # ⚠⚠ **EMPTY, and keeping it that way is the point of this file.** Every
+    # cell of `_TABLE` satisfies `_RULE`. The burn-down ran in four passes, one
+    # MECHANISM each rather than one language each: ownership for five custom
+    # parsers (#788, one helper they all ask), the class state four of them
+    # never extracted (#774, #776, #779, #782), Go's receiver, which needs a
+    # second pass because a method may precede its type (#778), the three
+    # spec-driven languages whose channels existed and were not wired up
+    # (#775, #777, #785), and Rust, held back to last because its `syn` ORACLE
+    # had to learn fields before the extractor could emit any (#786).
     #
-    # ⚠⚠ ONE ENTRY LEFT, and it is held back on purpose. Rust's struct field is
-    # not a spec gap like the three above: `fidelity.rust.extra` gates at 0 and
-    # is computed by NAME over every symbol we emit with no kind filter, while
-    # the `syn` oracle carries no `field` def at all. Adding the field would
-    # fail the fast tier, and exempting it would ship the extraction unscored
-    # in BOTH directions -- the macro ceiling `benchmarks/rust_fidelity/` already
-    # warns about. #786 teaches the oracle first.
-    ("rust", "mutable"): "#786",
+    # ⚠⚠ **An empty dict is not the same as a solved problem, and the file says
+    # so above**: `_SAMPLES` covers the languages it covers, and
+    # `test_every_class_bearing_spec_is_sampled_or_excused` is one-directional
+    # by construction for a custom extractor. #809, #811 and #812 are nine
+    # languages this table has never had a row for. **The enumeration built to
+    # stop this defect class being found one language per fix cannot see the
+    # languages it does not sample.**
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:
