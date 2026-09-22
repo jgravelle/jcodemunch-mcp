@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Fixed - a Go `type ( ... )` block binds every name in it (#817)
+
+`type ( A int; B int; C struct{ N int } )` indexed `A` and nothing else. Not
+mis-kinded, not unowned: `B`, `C`, `C`'s field and the ownership of every
+method on either were absent, while the same types on separate `type` lines all
+indexed. `var` and `const` had already been given the grouped form — #428 and
+#731 — so this was the third channel to arrive with one symptom, found
+separately each time.
+
+⚠⚠ **The diagnosis in the issue was wrong about where, and correcting it is
+the fix.** It read the gap as `type_patterns` naming the declaration with
+nothing walking down from it, and proposed sharing `_extract_go_variables`'
+descent. But `type_patterns` is read by NOTHING in the tree (#725, asserted by
+`tests/test_grammar_spelled_forms.py`): Go's type came from
+`symbol_node_types`, where `type_declaration` mapped to `type`, and
+`_extract_symbol` returns `Optional[Symbol]` — **at most one symbol per node,
+by signature.** No name extractor could have made that channel bind three
+names. There was no descent to share and no fourth channel to add: the
+declaration was the wrong node. `type_spec` is what binds one name, it is a
+direct child in both spellings, and the generic walk already visits it — so
+docstrings, interface keywords and lexical nesting keep working because none of
+them were ever Go's own code.
+
+⚠⚠ **A span must address one name, and that is what makes the grouped form
+work at all.** #778's receiver pass joins a method to its owner by BYTE OFFSET.
+Give three grouped types the declaration's span — which is what the `var` and
+`const` channels do with their own grouped blocks — and all three share one
+offset, so the join collapses and two of the three can own nothing. The rule is
+**the widest node that addresses this name alone**: the declaration when it
+binds one name, the spec when it binds several. The narrowest node is the spec
+in both spellings and taking it uniformly is simpler, but it moves the offset
+of every Go type in every existing index and drops `type` from every signature,
+to fix the minority form. Ungrouped types record byte-identical spans.
+
+⚠ **#778 needed a guard that this retires.** Because a grouped declaration
+yielded one symbol, the receiver pass had to refuse every spec but the first by
+name, or `B`'s fields went to `A`. The refusal is deleted and the test that
+pinned it is inverted rather than restored (Practice 9) — it was the gap's
+witness, not a guard on the pass. `harness/retired.json` carries the lesson.
+
+⚠⚠ **The guard that should have caught this passed, and correctly.**
+`tests/test_declared_forms_extract.py` asserts that every declared node type
+extracts its declared kind, and **every sample in it binds one name** — so the
+row for Go's type declaration was true and blind at once, and no row in that
+table can see this defect class for any language. The scan the issue asked for
+ran over thirteen spellings and found three more:
+`tests/test_one_declaration_binds_every_name.py` is the enumeration, with
+**#823** (a C and C++ `typedef int A, B;` binds only `A`) and **#824** (an F#
+`and`-chained type declares only the first) tracked as gaps that fail this
+suite when they close.
+
 ### Fixed - a Rust struct's fields are indexed, and the oracle that scores us learned them first (#786)
 
 `struct Audit { tally: i32, pub limit: u8 }` reported the type and neither

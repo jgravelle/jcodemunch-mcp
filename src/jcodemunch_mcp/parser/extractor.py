@@ -1002,14 +1002,16 @@ def _detect_interface_keywords(node, language: str) -> list[str]:
     """
     ntype = node.type
 
-    # Go: type_declaration wrapping a type_spec whose value is interface_type
-    if language == "go" and ntype == "type_declaration":
-        for child in node.children:
-            if child.type == "type_spec":
-                for grandchild in child.children:
-                    if grandchild.type == "interface_type":
-                        return ["interface"]
-        return []
+    # Go: a type_spec whose value is interface_type.
+    # ⚠ The SPEC, since #817 made it the symbol node. Reading the declaration
+    # here would tag every type in a grouped block as an interface as soon as
+    # ONE of them was -- the keyword is a property of the spec, and it only
+    # looked like a property of the declaration while a declaration yielded one
+    # symbol.
+    if language == "go" and ntype == "type_spec":
+        return ["interface"] if any(
+            child.type == "interface_type" for child in node.children
+        ) else []
 
     # Rust: trait_item is always a trait definition
     if language == "rust" and ntype == "trait_item":
@@ -1145,6 +1147,8 @@ def _extract_symbol(
         wrapper = _nearest_cpp_template_wrapper(node)
         if wrapper:
             signature_node = wrapper
+    elif language == "go":
+        signature_node = _go_type_span_node(node)
 
     # Build signature
     signature = _build_signature(signature_node, spec, source_bytes)
@@ -1454,6 +1458,48 @@ def solidity_state_variable_kind(node) -> Optional[str]:
     return "constant" if any(c.type == "constant" for c in node.children) else "field"
 
 
+#: The node types a Go `type_declaration` uses to bind ONE name.
+#:
+#: ⚠ `type_alias` is here although no spec maps it and it yields no symbol: it
+#: is counted to decide whether the declaration binds one name, and
+#: `type ( A = int; B int )` binds two. Counting only `type_spec` there would
+#: hand `B` a span covering `A`'s line as well.
+_GO_TYPE_BINDING_NODE_TYPES = frozenset({"type_spec", "type_alias"})
+
+
+def _go_type_span_node(node):
+    """The widest node that addresses this Go type's name ALONE (#817).
+
+    The declaration when it binds one name -- `type S struct{...}`, keyword
+    included, which is what a reader opens and what every Go type in every
+    existing index already records -- and the spec itself when the declaration
+    binds several.
+
+    ⚠⚠ **Uniqueness is the requirement, not tidiness.** #778's receiver pass
+    joins a method to its owner by BYTE OFFSET, so three grouped types sharing
+    the declaration's span would collapse to one entry and leave two of them
+    unable to own anything. The `var` and `const` channels DO give every name
+    in a grouped block the declaration's span (`_variable_symbol`); that is
+    survivable there because nothing joins to a constant by offset, and it is
+    the one thing a type may not do.
+
+    ⚠ The narrowest such node is the spec in BOTH spellings, and taking it
+    uniformly is the simpler rule -- it was rejected because it moves the
+    offset of every Go type in every index and drops `type` from every
+    signature, to fix a form that is the minority of them.
+
+    ⚠ Returns the node unchanged for anything that is not a widenable spec, so
+    every other Go symbol keeps the node it had.
+    """
+    if node.type != "type_spec":
+        return node
+    decl = node.parent
+    if decl is None or decl.type != "type_declaration":
+        return node
+    bound = sum(1 for c in decl.children if c.type in _GO_TYPE_BINDING_NODE_TYPES)
+    return decl if bound == 1 else node
+
+
 def _go_receiver_type_name(method_node, source: "ByteSlicedSource") -> Optional[str]:
     """The NAME of the type a Go method hangs off, or None (#778).
 
@@ -1563,27 +1609,25 @@ def _attach_go_receivers_and_fields(
     for decl in root_node.children:
         if decl.type != "type_declaration":
             continue
-        owner = type_at.get(decl.start_byte)
-        if owner is None:
-            continue
         for spec in decl.children:
             if spec.type != "type_spec":
                 continue
-            # The type's OWN name is the first `type_identifier` child: `type
-            # ID int` carries two, and the second is what it is defined AS.
-            name_node = next(
-                (c for c in spec.children if c.type == "type_identifier"), None
-            )
-            if name_node is None:
+            # ⚠⚠ **The join asks `_go_type_span_node`, which is the same
+            # function the walk used to record the offset** -- not a second
+            # copy of the rule that would drift from it (08-19). Every spec in
+            # a grouped block resolves to its OWN symbol since #817; before
+            # that, a declaration yielded one symbol and this loop needed a
+            # name check to stop the second spec handing its fields to the
+            # first (retired, `harness/retired.json`).
+            owner = type_at.get(_go_type_span_node(spec).start_byte)
+            if owner is None:
                 continue
-            name = source[name_node.start_byte:name_node.end_byte]
-            # ⚠ A GROUPED `type ( A struct{...}; B struct{...} )` yields ONE
-            # symbol for the whole declaration, so the second spec would
-            # otherwise hand B's fields to A. The name check refuses that; B
-            # stays unindexed, which is what it already was.
-            if owner.name != name:
-                continue
-            types_by_name.setdefault(name, owner)
+            # ⚠ The owner's NAME comes off the symbol rather than being read
+            # back out of the spec: `type ID int` carries two
+            # `type_identifier` children and the second is what it is defined
+            # AS, so re-deriving it here was a second chance to pick the wrong
+            # one.
+            types_by_name.setdefault(owner.name, owner)
             spec_owners.append((spec, owner))
     if not types_by_name:
         return
@@ -1737,15 +1781,6 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         if kotlin_property_is_constant(node, source_bytes):
             return None
         return kotlin_property_name(node, source_bytes)
-
-    # Handle type_declaration in Go - name is in type_spec child
-    if node.type == "type_declaration":
-        for child in node.children:
-            if child.type == "type_spec":
-                name_node = child.child_by_field_name("name")
-                if name_node:
-                    return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
-        return None
 
     # Dart: mixin_declaration has identifier as direct child (no field name)
     if node.type == "mixin_declaration":

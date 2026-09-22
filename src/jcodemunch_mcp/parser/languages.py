@@ -497,12 +497,24 @@ GO_SPEC = LanguageSpec(
     symbol_node_types={
         "function_declaration": "function",
         "method_declaration": "method",
-        "type_declaration": "type",
+        # ⚠⚠ **The SPEC, not the declaration (#817).** One `type_declaration`
+        # wraps every spec of a grouped `type ( A ...; B ... )`, and
+        # `_extract_symbol` returns at most ONE symbol per node -- so naming
+        # the declaration here indexed the first type in a block and lost
+        # every other one, its fields, and the ownership of every method on
+        # it. `type_spec` is what binds one name, and it is a direct child in
+        # both spellings, so the generic walk already visits it.
+        # ⚠ The recorded SPAN is still the declaration whenever the
+        # declaration binds this name alone -- `_go_type_span_node`, applied
+        # where the cpp template wrapper is. A spec-wide span would have
+        # dropped the `type` keyword from every Go type in every index to fix
+        # the grouped form.
+        "type_spec": "type",
     },
     name_fields={
         "function_declaration": "name",
         "method_declaration": "name",
-        "type_declaration": "name",
+        "type_spec": "name",
     },
     param_fields={
         "function_declaration": "parameters",
@@ -521,6 +533,12 @@ GO_SPEC = LanguageSpec(
     # the node a reader would open. `_extract_go_variables` walks down to the
     # specs, through `var_spec_list` when the block is grouped (#731).
     variable_patterns=["var_declaration"],
+    # ⚠ NOT the channel #817 was fixed in, whatever the name suggests:
+    # `type_patterns` is read by nothing in the whole tree (#725, asserted by
+    # `tests/test_grammar_spelled_forms.py::test_a_field_classified_unread_is_still_unread`),
+    # and Go's types come from `symbol_node_types` above. Left as it was
+    # rather than quietly corrected, because a dead field that looks maintained
+    # is how the next reader declares into it.
     type_patterns=["type_declaration"],
 )
 

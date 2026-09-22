@@ -24,19 +24,24 @@ class TestDetectInterfaceKeywords:
             node.text = text.encode("utf-8") if isinstance(text, str) else text
         return node
 
+    # ⚠ The node handed in is the `type_spec` since #817 -- it is the symbol
+    # node now, and the `interface` keyword is a property of the spec rather
+    # than of the declaration above it. Passing a `type_declaration` here
+    # answers `[]`, which is why `test_go_struct_not_tagged` would have gone on
+    # passing while measuring nothing: a mock of the wrong node type is
+    # indistinguishable from a correct negative. The product-level assertion is
+    # `test_an_interface_in_a_block_keeps_the_keywords_dispatch_reads`.
     def test_go_interface(self):
         from jcodemunch_mcp.parser.extractor import _detect_interface_keywords
         interface_type = self._make_node("interface_type")
         type_spec = self._make_node("type_spec", children=[interface_type])
-        type_decl = self._make_node("type_declaration", children=[type_spec])
-        assert _detect_interface_keywords(type_decl, "go") == ["interface"]
+        assert _detect_interface_keywords(type_spec, "go") == ["interface"]
 
     def test_go_struct_not_tagged(self):
         from jcodemunch_mcp.parser.extractor import _detect_interface_keywords
         struct_type = self._make_node("struct_type")
         type_spec = self._make_node("type_spec", children=[struct_type])
-        type_decl = self._make_node("type_declaration", children=[type_spec])
-        assert _detect_interface_keywords(type_decl, "go") == []
+        assert _detect_interface_keywords(type_spec, "go") == []
 
     def test_rust_trait(self):
         from jcodemunch_mcp.parser.extractor import _detect_interface_keywords

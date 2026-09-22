@@ -255,12 +255,21 @@ def test_two_methods_declared_on_one_line_both_resolve():
         assert found[name][0].parent == owner.id, name
 
 
-def test_a_grouped_type_declaration_does_not_hand_one_types_fields_to_another():
-    """⚠ A grouped `type ( A ...; B ... )` yields ONE symbol for the whole
-    declaration -- a gap that predates this change -- so joining every spec in
-    it to that symbol would give B's fields to A. B stays unindexed, which is
-    what it already was; what must not happen is A growing a member it does
-    not declare."""
+def test_a_grouped_type_declaration_gives_each_types_fields_to_that_type():
+    """Each spec in a grouped block owns its own members (#817).
+
+    ⚠⚠ **This test asserted the opposite until #817, and it was the OLD gap's
+    witness rather than a guard on this pass** (Practice 9). A grouped
+    `type ( A ...; B ... )` yielded ONE symbol for the whole declaration, so
+    this pass had to refuse the second spec by name -- B stayed unindexed,
+    which is what it already was, and what must not happen was A growing a
+    member it does not declare. Both halves are live now: B is a type, and
+    `Theirs` is B's.
+
+    The refusal it pinned is gone from the source, so restoring the assertion
+    would pin a state nothing produces. `harness/retired.json` carries the
+    lesson and names this as the replacement.
+    """
     source = (
         "package a\n"
         "type (\n"
@@ -269,9 +278,9 @@ def test_a_grouped_type_declaration_does_not_hand_one_types_fields_to_another():
         ")\n"
     )
     found = _by_name(source, "grouped.go")
-    owner = found["A"][0]
-    assert found["Mine"][0].parent == owner.id
-    assert "Theirs" not in found, "B's field was filed under A"
+    assert found["Mine"][0].parent == found["A"][0].id
+    assert found["Theirs"][0].parent == found["B"][0].id
+    assert found["Theirs"][0].qualified_name == "B.Theirs"
 
 
 def test_a_nested_anonymous_struct_is_not_descended_and_that_is_a_limit():

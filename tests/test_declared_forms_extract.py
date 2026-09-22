@@ -126,7 +126,12 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
     "go": {
         "function_declaration": ("a.go", "package p\n\nfunc Probe() {}\n"),
         "method_declaration": ("a.go", "package p\n\ntype H struct{}\n\nfunc (h H) Probe() {}\n"),
-        "type_declaration": ("a.go", "package p\n\ntype Probe struct{}\n"),
+        # ⚠ The SPEC since #817: one `type_declaration` wraps every spec of a
+        # grouped `type ( ... )`, and a row here binds ONE name, so this table
+        # could not have seen the block form for any language. The N-binding
+        # property is asserted per spelling in
+        # `tests/test_a_grouped_go_type_block_binds_every_name.py`.
+        "type_spec": ("a.go", "package p\n\ntype Probe struct{}\n"),
     },
     "haskell": {
         "bind": ("a.hs", "probe :: Int\nprobe = 1\n"),
