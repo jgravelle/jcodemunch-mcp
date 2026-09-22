@@ -129,12 +129,21 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
         return p.returncode, p.stdout.strip()
 
     # ⚠⚠ **NOT A WORK TREE is a different answer from NO BASE, and conflating
-    # them breaks the suite for every sdist consumer.** This project ships
-    # `tests/` in its artifact -- 573 of the 1,138 entries in
-    # `dist/jcodemunch_mcp-1.108.317.tar.gz` -- and an extracted sdist has no
-    # `.git`, so a hard failure there tells a reader to set `fetch-depth: 0`
-    # in a workflow they are not running. `tests/test_claude_md_size.py`
-    # already carries this convention and this reuses its wording.
+    # them breaks the suite for every sdist consumer.** This project SHIPS its
+    # tests: `pyproject.toml`'s sdist `exclude` list names `.github/` and
+    # several dotfiles and has no `tests` entry, which
+    # `tests/test_sdist_exclusions.py` is the guard over. An extracted sdist
+    # therefore carries this file and no `.git`, so a hard failure there tells
+    # a reader to set `fetch-depth: 0` in a workflow the same exclude list
+    # keeps out of their artifact. `tests/test_claude_md_size.py` already
+    # carries this convention and this reuses its wording.
+    #
+    # ⚠ Cited from the RULE, not from a tarball: review's first draft of this
+    # comment quoted counts out of `dist/…-1.108.317.tar.gz`, which is
+    # gitignored (so unopenable for anyone else) and predates the `.github/`
+    # exclusion it was read for -- and reading it produced a confident wrong
+    # correction in the review thread. A figure whose source nobody can open
+    # is worse than no figure.
     #
     # ⚠ The skip costs nothing against `ci.skips_windows` (24 of 25): every CI
     # leg IS a work tree, so this branch cannot fire there. A shallow clone
