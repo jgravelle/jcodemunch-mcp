@@ -379,9 +379,8 @@ _GAPS: dict[tuple[str, str], str] = {
     # MATLAB in the first two, Pascal, F# and Nim in the third. ⚠ It read
     # "nine" until review: that is the count of MENTIONS across three issues,
     # and #809 and #811 name the same three languages. **The enumeration built
-    # to
-    # stop this defect class being found one language per fix cannot see the
-    # languages it does not sample.**
+    # to stop this defect class being found one language per fix cannot see
+    # the languages it does not sample.**
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:
