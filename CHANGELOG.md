@@ -37,9 +37,22 @@ comparison that cannot tell the right owner from the wrong owner from an id
 nothing carries. The helper is deleted and that file asserts exact ids, which
 is a strengthening.
 
+⚠⚠ **A consumer was compensating, and the compensation had to move in the
+SAME commit.** `_heuristic_summary` stripped the ordinal off its own side so
+that a member carrying the pre-renumbering id would still match, which made
+each namesake report the UNION of both halves' members. With the producer
+fixed, stripping there and a suffixed `parent` here match nothing at all — the
+workaround's failure mode is exactly the empty summary it was written to
+prevent. Each declaration now reports the members IT declares: for a
+`partial class` that is a per-declaration count rather than the class total,
+so the sentences sum to the file's real member count instead of reporting
+every member once per namesake, and a Swift `extension` no longer claims the
+class's method as well as its own property.
+
 ⚠ `_disambiguate_overloads`, the pre-merge copy of the renumbering, was still
 in the tree, called by nothing, carrying this defect unfixed. Deleted: the
-ordinal rule has one implementation.
+ordinal rule has one implementation. `_ORDINAL_SUFFIX` goes with its only
+reader.
 
 ### Fixed - a Go `type ( ... )` block binds every name in it (#817)
 

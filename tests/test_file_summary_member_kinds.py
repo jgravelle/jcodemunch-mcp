@@ -186,35 +186,43 @@ def test_a_nested_class_does_not_borrow_a_top_level_namesake_s_members():
         "    public void M2() {}\n"
         "}\n",
         "c.cs", "csharp",
-        "Defines C class (2 methods, 2 fields). Defines C class (2 methods, 2 fields)",
+        "Defines C class (1 method, 1 field). Defines C class (1 method, 1 field)",
     ),
     (
         "class Sw {\n    var count: Int = 0\n    func f() {}\n}\n"
         "extension Sw {\n    var doubled: Int { count * 2 }\n}\n",
         "s.swift", "swift",
-        "Defines Sw class (1 method, 2 properties). Defines Sw class (1 method, 2 properties)",
+        "Defines Sw class (1 method, 1 property). Defines Sw class (1 property)",
     ),
 ])
-def test_two_classes_of_one_name_still_report_their_members(
+def test_two_classes_of_one_name_report_the_members_they_declare(
     source, filename, language, expected
 ):
     """⚠⚠ **The regression the FIRST fix for the nested case shipped, and the
     shape no existing plant could express.**
 
-    When one file holds two classes of the same name,
-    `_disambiguate_and_compute_complexity` rewrites the CLASS id to
-    `...#class~1`/`~2` and never rewrites its children's `parent`. So a bare
-    `s.parent == cls.id` matches NOTHING and both classes summarise as empty --
-    this module's own symptom, reintroduced by the remedy for a different one.
+    When one file holds two classes of the same name, the renumbering rewrites
+    the CLASS id to `...#class~1`/`~2`. Until #821 it never rewrote its
+    children's `parent`, so a bare `s.parent == cls.id` matched NOTHING and
+    both classes summarised as empty -- this module's own symptom,
+    reintroduced by the remedy for a different one.
 
     ⚠ A C# `partial class` and a Swift `class` + `extension` are idiomatic, not
     edge cases: the first draft unindexed the members of every one of them.
 
-    ⚠ Each namesake reports the UNION of their members, which the old name
-    suffix match also did. That is CORRECT for a partial class -- they are one
-    class -- and an over-count, not an absence, for two genuinely distinct
-    namesakes. Separating those needs the producer to renumber children's
-    `parent`, which is #771.
+    ⚠⚠ **The expected strings CHANGED with #821 and the old ones were the
+    defect's witness** (Practice 9). This module used to strip the ordinal off
+    its own side, so each namesake reported the UNION of both halves'
+    members -- and this test pinned that union while its own docstring named
+    the producer fix it was waiting for. The producer follows children to
+    their twin now, so each declaration reports what IT declares.
+
+    ⚠ For a `partial class` the union was arguably the truer statement about
+    the CLASS, and the per-declaration count is the truer statement about the
+    FILE: the sentences sum to the real member count instead of reporting
+    every member once per namesake. Swift shows the difference plainly -- the
+    `extension` carries one property and says so, rather than claiming the
+    class's method as well.
     """
     assert _summary(source, filename, language) == expected
 

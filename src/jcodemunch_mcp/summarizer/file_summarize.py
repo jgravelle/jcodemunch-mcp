@@ -1,16 +1,15 @@
 """Generate per-file summaries from symbol information and optional context providers."""
 
-import re
 from typing import Optional
 
 from ..parser.symbols import STATE_KINDS, Symbol, plural_kind
 from ..parser.context.base import ContextProvider
 
 
-#: The `~1` / `~2` a duplicate symbol id carries after disambiguation
-#: (`extractor._disambiguate_and_compute_complexity`). Anchored at the end and
-#: digits-only, so a `~` inside a real qualified name is left alone.
-_ORDINAL_SUFFIX = re.compile(r"~\d+$")
+# ⚠ `_ORDINAL_SUFFIX` was deleted in #821 with its only reader. It stripped the
+# `~1`/`~2` off a class id to compensate for children whose `parent` kept the
+# pre-renumbering id; the producer follows them now, so stripping here would
+# match nothing and re-create the empty summaries it was written to prevent.
 
 
 def _counted(symbols: list[Symbol], kinds: tuple[str, ...]) -> list[str]:
@@ -57,22 +56,27 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
             # pre-dates this change and carried `field` alone; widening the
             # kinds would have given it three more to mis-attribute.
             #
-            # ⚠⚠ Compared against the ordinal-STRIPPED id. When one file holds
-            # two classes of the same name -- a C# `partial class`, a Swift
-            # `class` + `extension`, two namespaces with a namesake --
-            # `_disambiguate_and_compute_complexity` rewrites the CLASS id to
-            # `...#class~1`/`~2` and never rewrites its children's `parent`, so
-            # a bare `s.parent == cls.id` matches NOTHING and every one of those
-            # classes summarises as empty. That is this module's own symptom,
-            # and the first draft of the nested-class fix shipped it.
+            # ⚠⚠ Compared against the class's exact id, ordinal INCLUDED, since
+            # #821. Until then, when one file held two classes of the same name
+            # -- a C# `partial class`, a Swift `class` + `extension`, two
+            # namespaces with a namesake -- the renumbering rewrote the CLASS id
+            # to `...#class~1`/`~2` and never rewrote its children's `parent`,
+            # so a bare `s.parent == cls.id` matched NOTHING and every one of
+            # those classes summarised as empty. This module compensated by
+            # stripping the ordinal off its own side, which made each namesake
+            # report the UNION of both halves' members.
             #
-            # ⚠ For duplicates each namesake then reports the union of their
-            # members. That is what the name-suffix match did too, it is
-            # CORRECT for a partial class (they are one class), and it is an
-            # over-count rather than an absence for the rest. Telling them apart
-            # needs the producer to renumber children; filed separately.
-            owner = _ORDINAL_SUFFIX.sub("", cls.id)
-            members = [s for s in symbols if s.parent == owner]
+            # ⚠⚠ **The compensation had to go WITH the producer fix, not after
+            # it.** Stripping here and a suffixed `parent` there match nothing
+            # at all, so the workaround's failure mode was the symptom it was
+            # written to prevent. #821 renumbers children, so each declaration
+            # now reports the members IT declares.
+            #
+            # ⚠ For a `partial class` that is a per-declaration count rather
+            # than the class total, which is the honest reading of a file
+            # summary: the sentences sum to the file's real member count
+            # instead of reporting every member once per namesake.
+            members = [s for s in symbols if s.parent == cls.id]
             bits = _counted(members, ("method",) + STATE_KINDS)
             desc = f"Defines {cls.name} class"
             if bits:
