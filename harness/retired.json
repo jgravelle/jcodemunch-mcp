@@ -92,6 +92,13 @@
       "replacement": "tests/test_file_summary_member_kinds.py::test_two_classes_of_one_name_report_the_members_they_declare",
       "commit": "24d537d8",
       "date": "2026-09-22"
+    },
+    {
+      "path": "tests/test_a_class_member_carries_its_owner.py::test_objc_is_the_only_language_here_needs_the_ordinal_stripped",
+      "lesson": "A RENAME, not a deletion: the body and the measurement are unchanged. The test was called `..._needs_the_ordinal_stripped` and its docstring read 'Non-vacuity for the helper above', and #821 deleted that helper -- `_without_ordinal`, which had compensated for members carrying a pre-renumbering parent id. A test whose name and stated purpose describe code nobody can open sends the next reader hunting, which is the same cost as a stale ARCHAEOLOGY row. The measurement it makes is still worth making and is now named for what it measures: exactly one row of that table has a container carrying an ordinal, which is what keeps the neighbouring assertion honest. The general lesson is that deleting a helper is not finished until the tests that justified it are renamed too; grep the deleted name before calling the change complete.",
+      "replacement": "tests/test_a_class_member_carries_its_owner.py::test_objc_is_the_only_language_here_whose_container_carries_an_ordinal",
+      "commit": "69b5347f",
+      "date": "2026-09-22"
     }
   ]
 }
