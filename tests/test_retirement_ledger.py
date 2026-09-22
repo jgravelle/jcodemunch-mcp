@@ -12,6 +12,7 @@ The ledger starts empty: the archaeology found nothing to retire.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -103,39 +104,76 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     ⚠ Scoped to entries whose `commit` is on this branch. An older row names a
     commit whose diff is not in this range, and re-deriving history here would
     make the test a git archaeologist rather than a guard on what is arriving.
+
+    ⚠⚠ **AN UNESTABLISHABLE BASE FAILS; it must not return green.** The first
+    draft returned on a missing `origin/main`, and `actions/checkout` fetches
+    ONE ref at depth 1 -- so in the two jobs that collect this file the ref was
+    absent, `merge-base` exited 128, and the guard passed having asked nothing.
+    A green ratchet and an absent ratchet look identical, and this repo has
+    paid for that twice (Practice 6's `--depth=1`). `fast-harness` and `full`
+    carry `fetch-depth: 0` for this test; if the base cannot be found, the
+    remedy is in the message rather than in a silence.
+
+    ⚠ Two lenient-looking details are deliberate and both fail LOUD rather than
+    quiet: an `--abbrev=8` collision prints nine characters and stops matching
+    an eight-character ledger value, and `-def test_` misses an indented `def`
+    (a test method inside a class). Neither can produce a false pass, so do not
+    "fix" either into a substring match.
     """
     import subprocess
 
-    base = subprocess.run(
-        ["git", "merge-base", "origin/main", "HEAD"],
-        capture_output=True, text=True, cwd=REPO,
-    ).stdout.strip()
-    if not base:  # pragma: no cover - no origin/main in this checkout
-        return
-    branch_commits = set(
-        subprocess.run(
-            ["git", "rev-list", f"{base}..HEAD", "--abbrev-commit", "--abbrev=8"],
-            capture_output=True, text=True, cwd=REPO,
-        ).stdout.split()
+    def _git(*args: str) -> tuple[int, str]:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO)
+        return p.returncode, p.stdout.strip()
+
+    rc, base = _git("merge-base", "origin/main", "HEAD")
+    if rc != 0 or not base:
+        base_ref = os.environ.get("GITHUB_BASE_REF", "")
+        if base_ref:
+            rc, base = _git("merge-base", f"origin/{base_ref}", "HEAD")
+    assert base, (
+        "cannot establish the merge base with origin/main, so this guard would "
+        "check nothing. A shallow checkout is the usual cause: the jobs that "
+        "collect this file need `fetch-depth: 0` (.github/workflows/pr-gate.yml). "
+        "Failing rather than passing, because an absent check and a green one "
+        "are indistinguishable from the outside."
     )
+    rc, out = _git("rev-list", f"{base}..HEAD", "--abbrev-commit", "--abbrev=8")
+    branch_commits = set(out.split())
     if not branch_commits:
         return
-    diff = subprocess.run(
-        ["git", "diff", f"{base}...HEAD", "--", "tests/"],
-        capture_output=True, text=True, cwd=REPO,
-    ).stdout
+    _rc, diff = _git("diff", f"{base}...HEAD", "--", "tests/")
     removed = {
         ln[len("-def "):].split("(")[0]
         for ln in diff.splitlines()
         if ln.startswith("-def test_")
     }
-    missing = []
+    missing, unresolvable = [], []
     for r in _ledger():
-        if r.get("commit") not in branch_commits:
+        commit = r.get("commit", "")
+        if commit not in branch_commits:
+            # ⚠ A REBASE rewrites shas, so a row written on this branch can
+            # stop being in the range -- and the first draft skipped it in
+            # silence, which is how the typo this guard exists for would have
+            # survived a rebase. A sha that resolves is history; one that does
+            # not is a row nothing can check, and an un-checkable row is loud.
+            if commit and _git("cat-file", "-e", f"{commit}^{{commit}}")[0] != 0:
+                unresolvable.append(f"{r['path']} (commit {commit})")
             continue
         name = r["path"].partition("::")[2]
-        if name and name not in removed:
+        if not name:
+            # A whole-FILE retirement, which `harness/retired.json`'s own
+            # schema line allows: the file must actually be gone.
+            if (REPO / r["path"]).exists():
+                missing.append(r["path"] + " (file still present)")
+            continue
+        if name not in removed:
             missing.append(r["path"])
+    assert not unresolvable, (
+        f"{unresolvable} name a commit this repository does not have. A rebase "
+        f"rewrites shas; re-point the row at the commit that now carries the "
+        f"retirement rather than leaving a row nothing can verify."
+    )
     assert not missing, (
         f"{missing} are ledgered against a commit on this branch, and no `def` "
         f"of that name was removed between {base[:8]} and HEAD. Either the name "

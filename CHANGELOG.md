@@ -38,6 +38,13 @@ struct — valid, compiling Rust, and the exact shape #821 was filed from.
 broken and a wrong owner is not. `qualified_name` still carries
 `Conf.only_win`, so only the pointer says unknown. Absence over fabrication.
 
+⚠ **What that costs, stated because a reader diffing two indexes will find
+it**: the rule also discards the *coincidentally* correct attributions. Go's
+`A` and Rust's `only_unix` really do belong to the first twin, and both read
+unknown now. That correctness was an artifact of `setdefault` order — it was
+ordered, never established — so it is the same price `has_any()`'s tri-state
+pays, and the alternative is publishing the ones that are wrong alongside it.
+
 ⚠⚠ **The guard that already described this defect could not fail on it.** Its
 helper stripped the `~N` off the member's parent AND off the container's id
 before comparing, so `~1`, `~2` and the un-suffixed id all compared equal — a
