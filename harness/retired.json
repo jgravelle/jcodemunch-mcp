@@ -85,6 +85,13 @@
       "replacement": "tests/test_a_go_method_belongs_to_its_receiver.py::test_a_grouped_type_declaration_gives_each_types_fields_to_that_type",
       "commit": "6d7edc78",
       "date": "2026-09-22"
+    },
+    {
+      "path": "tests/test_file_summary_member_kinds.py::test_two_classes_of_one_name_still_report_their_members",
+      "lesson": "It pinned a UNION that only existed because of a defect one layer up, and its own docstring named the fix it was waiting for: 'Separating those needs the producer to renumber children's parent'. Until #821 a member of a renumbered twin kept the pre-renumbering parent id, so the summariser compensated by stripping the ordinal off ITS side, and each namesake then reported both halves' members. #821 makes the producer follow the member to the twin whose bytes contain it, so the compensation had to go in the same commit -- a stripped id here against a suffixed parent there matches nothing at all, which is the empty summary the workaround existed to prevent. The replacement is the same test with the same inputs and the honest expectations: each declaration reports the members it declares, the sentences sum to the file's real member count, and Swift's extension no longer claims the class's method. The general lesson is that a consumer-side workaround and the producer fix are ONE change; shipping either alone is worse than shipping neither.",
+      "replacement": "tests/test_file_summary_member_kinds.py::test_two_classes_of_one_name_report_the_members_they_declare",
+      "commit": "24d537d8",
+      "date": "2026-09-22"
     }
   ]
 }
