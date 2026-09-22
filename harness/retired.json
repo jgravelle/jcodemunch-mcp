@@ -32,7 +32,7 @@
     },
     {
       "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
-      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
+      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). \u26a0\u26a0 Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
       "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
       "commit": "99ef0583",
       "date": "2026-09-18"
@@ -71,6 +71,13 @@
       "replacement": "tests/test_member_state_is_not_a_constant.py::test_solidity_ownership_arrived_and_this_is_the_witness",
       "commit": "826aa01e",
       "date": "2026-09-20"
+    },
+    {
+      "path": "tests/test_rust_fidelity.py::test_fields_variants_and_closures_are_not_symbols",
+      "lesson": "Struct fields, enum variants and let-bound closures were all asserted NOT to be symbols, in one test, because the syn oracle deliberately emitted none of them. #786 reverses that for FIELDS ONLY: a named struct or union field is a member, the audit tracked its absence as ('rust','mutable'), and every other language in that family answers. The test was the OLD decision's witness rather than a guard on the new one (Practice 9), so it was inverted rather than worked around -- and the three names beside it (Alpha, Beta, helper) are deliberately NOT inverted, which is what keeps the change scoped to the thing that moved. The reason the oracle omitted fields was itself wrong twice over: it said a field binds no name another module can reach (a pub field is reached as s.field) and that emitting them would make the extra gate reject correct extraction (true only while the extractor emitted none -- once it does, the OMISSION is what fails the gate).",
+      "replacement": "tests/test_rust_fidelity.py::test_variants_and_closures_are_not_symbols_but_a_field_now_is",
+      "commit": "fb192d8a",
+      "date": "2026-09-22"
     }
   ]
 }
