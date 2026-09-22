@@ -103,9 +103,16 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     working-diff version of this check would demand one; `origin/main...HEAD`
     asks what left the tree as `main` knows it.
 
-    ⚠ Scoped to entries whose `commit` is on this branch. An older row names a
-    commit whose diff is not in this range, and re-deriving history here would
-    make the test a git archaeologist rather than a guard on what is arriving.
+    ⚠⚠ **Scoped to the rows this branch ADDED to the ledger -- the diff of
+    `harness/retired.json` against the base -- never to a row's `commit` sha.**
+    The first shipped draft keyed on the sha and failed CI on twelve historical
+    rows: this repo squash-merges with `--delete-branch`, so every row's
+    `commit` names a branch sha a fresh clone does not have. It passed here
+    because this box still held the dangling objects, which is a test green on
+    one machine and red on the next for a reason neither can see (#437). A
+    ledger `commit` is provenance a reader follows by hand, not a pointer a
+    guard can dereference. The ledger diff is the identity that survives both
+    a squash and a rebase.
 
     ⚠⚠ **AN UNESTABLISHABLE BASE FAILS; it must not return green.** The first
     draft returned on a missing `origin/main`, and `actions/checkout` fetches
@@ -116,11 +123,9 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     carry `fetch-depth: 0` for this test; if the base cannot be found, the
     remedy is in the message rather than in a silence.
 
-    ⚠ Two lenient-looking details are deliberate and both fail LOUD rather than
-    quiet: an `--abbrev=8` collision prints nine characters and stops matching
-    an eight-character ledger value, and `-def test_` misses an indented `def`
-    (a test method inside a class). Neither can produce a false pass, so do not
-    "fix" either into a substring match.
+    ⚠ `-def test_` misses an indented `def` (a test method inside a class),
+    which fails LOUD rather than quiet, so do not "fix" it into a substring
+    match.
     """
     import subprocess
 
@@ -164,33 +169,27 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
         "Failing rather than passing, because an absent check and a green one "
         "are indistinguishable from the outside."
     )
-    # ⚠ `rc` is checked: an empty `rev-list` after a successful `merge-base`
-    # means HEAD IS the base (nothing to grade, return), but a FAILED one means
-    # the question went unasked, and those two must not share an exit. Not
-    # reachable through any path constructed in review; asserted so the next
-    # reader does not have to re-derive that.
-    rc, out = _git("rev-list", f"{base}..HEAD", "--abbrev-commit", "--abbrev=8")
-    assert rc == 0, f"git rev-list {base[:8]}..HEAD failed; the guard cannot run"
-    branch_commits = set(out.split())
-    if not branch_commits:
-        return
+    # ⚠ `rc` is checked: a base that has no ledger (a branch older than the
+    # ledger itself) is an EMPTY prior ledger, but a `git show` that failed
+    # for any other reason means the question went unasked, and those two
+    # must not share an exit.
+    rc, prior = _git("show", f"{base}:{LEDGER.relative_to(REPO).as_posix()}")
+    if rc != 0:
+        assert "does not exist" in prior or "exists on disk, but not in" in prior or not prior, (
+            f"git show {base[:8]}:harness/retired.json failed; the guard cannot run"
+        )
+        prior_paths: set[str] = set()
+    else:
+        prior_paths = {r["path"] for r in json.loads(prior)["retired"]}
     _rc, diff = _git("diff", f"{base}...HEAD", "--", "tests/")
     removed = {
         ln[len("-def "):].split("(")[0]
         for ln in diff.splitlines()
         if ln.startswith("-def test_")
     }
-    missing, unresolvable = [], []
+    missing = []
     for r in _ledger():
-        commit = r.get("commit", "")
-        if commit not in branch_commits:
-            # ⚠ A REBASE rewrites shas, so a row written on this branch can
-            # stop being in the range -- and the first draft skipped it in
-            # silence, which is how the typo this guard exists for would have
-            # survived a rebase. A sha that resolves is history; one that does
-            # not is a row nothing can check, and an un-checkable row is loud.
-            if commit and _git("cat-file", "-e", f"{commit}^{{commit}}")[0] != 0:
-                unresolvable.append(f"{r['path']} (commit {commit})")
+        if r["path"] in prior_paths:
             continue
         name = r["path"].partition("::")[2]
         if not name:
@@ -201,13 +200,8 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
             continue
         if name not in removed:
             missing.append(r["path"])
-    assert not unresolvable, (
-        f"{unresolvable} name a commit this repository does not have. A rebase "
-        f"rewrites shas; re-point the row at the commit that now carries the "
-        f"retirement rather than leaving a row nothing can verify."
-    )
     assert not missing, (
-        f"{missing} are ledgered against a commit on this branch, and no `def` "
+        f"{missing} were added to the ledger on this branch, and no `def` "
         f"of that name was removed between {base[:8]} and HEAD. Either the name "
         f"is mistyped or the retirement did not happen; paste it from "
         f"`git diff` rather than retyping it."
