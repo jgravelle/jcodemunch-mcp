@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - a C struct or union indexes its members (#797, #825)
+
+A C `struct` or `union` yielded no member symbols at all. `struct S { int x;
+double y, *z; };` indexed as the bare name `S` in a `.c` file while the
+identical bytes in a `.cpp` file indexed `S`, `S.x`, `S.y` and `S.z`. A C
+struct is nothing but fields, so every C struct in every index was an empty
+name. Reported by @jgravelle in #797 (found while fixing #755) and again by
+the #817 scan as #825.
+
+⚠⚠ **A channel wired into one copy of a spec reaches one language, and this
+was the THIRD copy.** #755 gave C++ and Arduino the data-member channel
+(`field_patterns=["field_declaration"]`, one declarator walk that answers
+pointer, array, bit-field, N-names and function-pointer members); the C
+grammar spells the member with the same node type and `C_SPEC` was never
+given the entry, nor was `c` in `_CPP_FIELD_LANGUAGES`, the set both the
+dispatcher and the anonymous-owner guard read. The 09-15 standing lesson
+(#698) one spec over. Nothing new is written: C is added to the set and the
+spec, and inherits #755's whole answer, including that a file-scope object of
+an anonymous struct publishes no fields rather than bare ones.
+
+⚠⚠ **The enumeration built to catch this class could not see C, and the
+reason is worth more than the fix.** `test_member_kind_audit.py`'s gate asked
+which specs can emit a `class`. A C struct is a `type`, so C was reachable by
+the gate's own rule and excluded by it, and `_GAPS` read empty over a
+language that indexed no members. **A guard's reach defined by a KIND is a
+guard over whichever languages share that spelling.** The gate asks for a
+declared container now; measured before widening, that pulls in rust (already
+sampled) and C, and C has its row.
+
+⚠ **Measured, not assumed, before touching the spec:** #797 warned that
+making `struct_specifier` a container might move a nested struct's id from
+`In` to `Outer.In`. On `main` it was `Outer.In` with `parent` set already, so
+no id moves; `test_the_nested_struct_keeps_the_qualified_name_it_had` pins
+it. The new symbols on unchanged content ride `PARSER_GENERATION` 8, which
+now names #797 beside #698 and #821.
+
+`tests/test_a_c_struct_member_is_indexed.py` asserts C's answer EQUAL to
+C++'s for thirteen declarator and container shapes rather than restating each
+by hand -- a second table would be a second copy of the thing that drifted.
+Red on `main`: `17 failed, 2 passed`.
+
 ### Fixed - a member's owner survives the renumbering that disambiguates it (#821)
 
 Two same-named containers in one file are disambiguated to `~1` and `~2`. Their

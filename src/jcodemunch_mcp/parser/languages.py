@@ -908,9 +908,18 @@ C_SPEC = LanguageSpec(
     },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
-    container_node_types=[],
+    # #797: a struct or union holds members and so is a container. Measured
+    # before adding: a nested struct was ALREADY qualified `Outer.In` with its
+    # `parent` set, so no existing id moves.
+    container_node_types=["struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
     type_patterns=["type_definition", "enum_specifier", "struct_specifier", "union_specifier"],
+    # #797 / #825: the data-member channel #755 wired into `CPP_SPEC` and
+    # `ARDUINO_SPEC`. This spec is the THIRD copy of the same grammar shape
+    # (#698), and a channel wired into one copy reaches one language. Never
+    # `field_declaration` in `symbol_node_types` here: C has no member
+    # functions, and `_extract_cpp_fields` still asks per declarator.
+    field_patterns=["field_declaration"],
 )
 
 

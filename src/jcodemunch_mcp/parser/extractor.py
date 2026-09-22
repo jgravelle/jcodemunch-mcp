@@ -783,7 +783,7 @@ def _walk_tree(
         # ⚠ Two ownership guards, one per language family, and both answer the
         # same question: is there a symbol to own this member? A member with no
         # owner is #698's defect, so each withholds rather than guessing.
-        if is_cpp and not _cpp_member_has_an_owner(node):
+        if language in _CPP_FIELD_LANGUAGES and not _cpp_member_has_an_owner(node):
             # A file-scope or function-local object of an ANONYMOUS type (#755).
             fields = []
         if language in _JS_BINDING_LANGUAGES and (
@@ -2952,8 +2952,12 @@ def _gdscript_statement_names(node, source_bytes: bytes) -> list[str]:
 #: The specs whose grammar spells a data member `field_declaration`.
 #:
 #: ⚠ `arduino` carries its own copy of `CPP_SPEC`, and a fix applied to one spec
-#: reaches half the product (#698).
-_CPP_FIELD_LANGUAGES = frozenset({"cpp", "arduino"})
+#: reaches half the product (#698). ⚠⚠ `c` is the THIRD copy and was left out
+#: of this set for its whole life, so a C struct indexed as a bare name while
+#: the same bytes in a `.cpp` file indexed every member (#797, #825). ⚠ NOT the
+#: same set as `_walk_tree`'s `is_cpp`: that one also gates namespaces, the
+#: `declaration` filter and class-scope depth, none of which C has.
+_CPP_FIELD_LANGUAGES = frozenset({"c", "cpp", "arduino"})
 
 def _cpp_anonymous_container(type_node) -> bool:
     return (

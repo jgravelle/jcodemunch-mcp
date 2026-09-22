@@ -99,6 +99,13 @@
       "replacement": "tests/test_a_class_member_carries_its_owner.py::test_objc_is_the_only_language_here_whose_container_carries_an_ordinal",
       "commit": "69b5347f",
       "date": "2026-09-22"
+    },
+    {
+      "path": "tests/test_member_kind_audit.py::test_every_class_bearing_spec_is_sampled_or_excused",
+      "lesson": "A RENAME with a WIDENED predicate, the body's measurement kept. The gate asked which specs can emit a `class`, and the property the file measures is about MEMBERS: a C struct is a `type`, so C was reachable by the gate's own rule and excluded by it, its members sat outside the table by construction, and `_GAPS` read empty over a language that indexed no members at all (#825). A guard's REACH defined by a kind is a guard over the languages that happen to share that spelling; define it by the property (declares a container) and list what the widening pulls in -- measured: rust, already sampled, and C once #797 made its struct a container.",
+      "replacement": "tests/test_member_kind_audit.py::test_every_member_bearing_spec_is_sampled_or_excused",
+      "commit": "4e8afd57",
+      "date": "2026-09-22"
     }
   ]
 }

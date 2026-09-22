@@ -98,10 +98,14 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     test called `..._here_that_needs_the_ordinal_stripped` therefore passed
     this file, failed the checklist, and sat wrong for two commits.
 
-    ⚠⚠ **Against the MERGE BASE, never the working diff.** A test added AND
+    ⚠⚠ **Against the MERGE BASE, never against HEAD.** A test added AND
     retired inside one branch never existed on `main` and owes no row, so a
-    working-diff version of this check would demand one; `origin/main...HEAD`
-    asks what left the tree as `main` knows it.
+    HEAD-relative version of this check would demand one. ⚠ The WORKING TREE
+    against the base, not `base...HEAD`: the commit hook runs this tier
+    BEFORE the commit exists, so a retirement and its ledger row arriving in
+    one commit (DoD 11's own instruction) could never pass the hook under the
+    committed-diff form -- #797's first commit was refused exactly so. After
+    the commit the two forms agree.
 
     ⚠⚠ **Scoped to the rows this branch ADDED to the ledger -- the diff of
     `harness/retired.json` against the base -- never to a row's `commit` sha.**
@@ -181,7 +185,7 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
         prior_paths: set[str] = set()
     else:
         prior_paths = {r["path"] for r in json.loads(prior)["retired"]}
-    _rc, diff = _git("diff", f"{base}...HEAD", "--", "tests/")
+    _rc, diff = _git("diff", base, "--", "tests/")
     removed = {
         ln[len("-def "):].split("(")[0]
         for ln in diff.splitlines()

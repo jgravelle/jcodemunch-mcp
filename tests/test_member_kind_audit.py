@@ -280,6 +280,17 @@ _SAMPLES: dict[str, tuple[str, str, dict[str, str], str]] = {
         "    fn run_it(&self) -> i32 { 1 }\n"
         "}\n"
     )),
+    # #797 / #825. C has no method and no property; `const` is the only
+    # immutability the language can spell on a member, and it is still a
+    # `field` (the C++ cell one row up says the same).
+    "c": ("a.c", "Audit", {
+        "mutable": "tally", "immutable": "limit",
+    }, (
+        "struct Audit {\n"
+        "    int tally;\n"
+        "    const int limit;\n"
+        "};\n"
+    )),
 }
 
 
@@ -296,7 +307,7 @@ def _all_languages_enabled(monkeypatch):
 
 #: The kind of the CONTAINER, pinned so that a class regressing to some other
 #: kind cannot hide behind a lookup by name.
-_CONTAINER_KIND: dict[str, str] = {"go": "type", "rust": "type"}
+_CONTAINER_KIND: dict[str, str] = {"go": "type", "rust": "type", "c": "type"}
 
 
 def _observe(language: str) -> dict[str, tuple[str, str]]:
@@ -356,6 +367,7 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
     "rust": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "c": {"mutable": ("field", OWNED), "immutable": ("field", OWNED)},
 }
 
 #: Every cell of `_TABLE` that breaks `_RULE`, and what tracks it. ⚠⚠ A TRACKED
@@ -373,7 +385,7 @@ _GAPS: dict[tuple[str, str], str] = {
     #
     # ⚠⚠ **An empty dict is not the same as a solved problem, and the file says
     # so above**: `_SAMPLES` covers the languages it covers, and
-    # `test_every_class_bearing_spec_is_sampled_or_excused` is one-directional
+    # `test_every_member_bearing_spec_is_sampled_or_excused` is one-directional
     # by construction for a custom extractor. #809, #811 and #812 are SIX
     # languages this table has never had a row for -- Zig, PowerShell and
     # MATLAB in the first two, Pascal, F# and Nim in the third. ⚠ It read
@@ -448,8 +460,17 @@ def test_a_gap_names_its_tracker():
         assert re.fullmatch(r"#\d+|unfiled", tracker), (cell, tracker)
 
 
-def test_every_class_bearing_spec_is_sampled_or_excused():
-    """A language whose spec can emit a `class` owes this file a row.
+def test_every_member_bearing_spec_is_sampled_or_excused():
+    """A language whose spec can emit a `class` OR declares a container owes
+    this file a row.
+
+    ⚠⚠ **The gate asked which specs emit a `class`, and the property this file
+    measures is about MEMBERS (#825).** A C struct is a `type`, so C was
+    reachable by the gate's own rule and excluded by it, and its members sat
+    outside the table by construction while `_GAPS` read empty. Widened to
+    `container_node_types` as well; measured before widening, that pulled in
+    exactly one language not already sampled (rust, which was), and C once
+    #797 made its struct a container.
 
     ⚠ One-directional by construction: languages with a custom extractor
     (groovy, apex, objc, dlang, solidity) declare no `symbol_node_types` and are
@@ -457,11 +478,12 @@ def test_every_class_bearing_spec_is_sampled_or_excused():
     """
     from jcodemunch_mcp.parser.languages import LANGUAGE_REGISTRY
 
-    class_bearing = {
+    member_bearing = {
         language for language, spec in LANGUAGE_REGISTRY.items()
         if "class" in set(getattr(spec, "symbol_node_types", {}).values())
+        or getattr(spec, "container_node_types", None)
     }
-    unaccounted = class_bearing - set(_SAMPLES) - set(_NOT_SAMPLED)
+    unaccounted = member_bearing - set(_SAMPLES) - set(_NOT_SAMPLED)
     assert not unaccounted, sorted(unaccounted)
     assert not set(_SAMPLES) & set(_NOT_SAMPLED)
 

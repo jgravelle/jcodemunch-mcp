@@ -249,6 +249,10 @@ INDEX_VERSION = 17
 #   forces a re-parse. Gen 8 was unreleased when #821 merged, so this counter
 #   already covers it; the line is here because the rule is to NAME the
 #   repairs a bump carries, not to rely on one that happened to be open.
+#
+#   ⚠⚠ **And #797: C struct and union members.** New SYMBOLS on unchanged
+#   content, gen 5's and gen 8's Kotlin case in a third language -- every `.c`
+#   file already indexed holds its structs as bare names until re-parsed.
 PARSER_GENERATION = 8
 
 
