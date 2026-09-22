@@ -16,6 +16,8 @@ import os
 import re
 from pathlib import Path
 
+import pytest
+
 from harness import thresholds as T
 
 REPO = T.REPO_ROOT
@@ -126,6 +128,21 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
         p = subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO)
         return p.returncode, p.stdout.strip()
 
+    # ⚠⚠ **NOT A WORK TREE is a different answer from NO BASE, and conflating
+    # them breaks the suite for every sdist consumer.** This project ships
+    # `tests/` in its artifact -- 573 of the 1,138 entries in
+    # `dist/jcodemunch_mcp-1.108.317.tar.gz` -- and an extracted sdist has no
+    # `.git`, so a hard failure there tells a reader to set `fetch-depth: 0`
+    # in a workflow they are not running. `tests/test_claude_md_size.py`
+    # already carries this convention and this reuses its wording.
+    #
+    # ⚠ The skip costs nothing against `ci.skips_windows` (24 of 25): every CI
+    # leg IS a work tree, so this branch cannot fire there. A shallow clone
+    # answers `true` here and falls through to the assert below, which is the
+    # case that must stay loud.
+    if _git("rev-parse", "--is-inside-work-tree")[1] != "true":
+        pytest.skip("no usable git here (sdist checkout or git absent)")
+
     rc, base = _git("merge-base", "origin/main", "HEAD")
     if rc != 0 or not base:
         base_ref = os.environ.get("GITHUB_BASE_REF", "")
@@ -138,7 +155,13 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
         "Failing rather than passing, because an absent check and a green one "
         "are indistinguishable from the outside."
     )
+    # ⚠ `rc` is checked: an empty `rev-list` after a successful `merge-base`
+    # means HEAD IS the base (nothing to grade, return), but a FAILED one means
+    # the question went unasked, and those two must not share an exit. Not
+    # reachable through any path constructed in review; asserted so the next
+    # reader does not have to re-derive that.
     rc, out = _git("rev-list", f"{base}..HEAD", "--abbrev-commit", "--abbrev=8")
+    assert rc == 0, f"git rev-list {base[:8]}..HEAD failed; the guard cannot run"
     branch_commits = set(out.split())
     if not branch_commits:
         return
