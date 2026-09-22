@@ -4307,30 +4307,13 @@ def _extract_elixir_type_name(type_expr_node, source_bytes: bytes) -> Optional[s
     return None
 
 
-def _disambiguate_overloads(symbols: list[Symbol]) -> list[Symbol]:
-    """Append ordinal suffix to symbols with duplicate IDs.
-
-    E.g., if two symbols have ID "file.py::foo#function", they become
-    "file.py::foo#function~1" and "file.py::foo#function~2".
-    """
-    from collections import Counter
-
-    id_counts = Counter(s.id for s in symbols)
-    # Only process IDs that appear more than once
-    duplicated = {sid for sid, count in id_counts.items() if count > 1}
-
-    if not duplicated:
-        return symbols
-
-    # Track ordinals per duplicate ID
-    ordinals: dict[str, int] = {}
-    result = []
-    for sym in symbols:
-        if sym.id in duplicated:
-            ordinals[sym.id] = ordinals.get(sym.id, 0) + 1
-            sym.id = f"{sym.id}~{ordinals[sym.id]}"
-        result.append(sym)
-    return result
+# ⚠⚠ `_disambiguate_overloads` was deleted here in #821. It was the pre-merge
+# copy of the renumbering -- superseded by `_disambiguate_and_compute_complexity`
+# below, called by nothing in the tree, and carrying this issue's defect
+# UNFIXED. A second generator of one rule is the 08-19 standing lesson, and the
+# next reader reaching for it by name would have reintroduced the dangling
+# parent with the fix sitting one function away. The ordinal rule has one
+# implementation.
 
 
 _CALLABLE_KINDS = frozenset({"function", "method"})
@@ -4360,16 +4343,71 @@ def _disambiguate_and_compute_complexity(
         duplicated = {sid for sid, count in id_counts.items() if count > 1}
 
     result = []
+    # old id -> the symbols that carried it, in document order (#821).
+    renumbered: dict[str, list[Symbol]] = {}
     for sym in symbols:
         if has_duplicates and sym.id in duplicated:
-            ordinals[sym.id] = ordinals.get(sym.id, 0) + 1
-            sym.id = f"{sym.id}~{ordinals[sym.id]}"
+            old_id = sym.id
+            ordinals[old_id] = ordinals.get(old_id, 0) + 1
+            sym.id = f"{old_id}~{ordinals[old_id]}"
+            renumbered.setdefault(old_id, []).append(sym)
         if sym.kind in _CALLABLE_KINDS and sym.byte_length > 0:
             body = source_bytes[sym.byte_offset:sym.byte_offset + sym.byte_length].decode("utf-8", errors="replace")
             sym.cyclomatic, sym.max_nesting, sym.param_count = compute_complexity(body, sym.signature)
         result.append(sym)
 
+    if renumbered:
+        _repoint_members_at_renumbered_owners(result, renumbered)
+
     return result if has_duplicates else symbols
+
+
+def _repoint_members_at_renumbered_owners(
+    symbols: list[Symbol], renumbered: dict[str, list[Symbol]]
+) -> None:
+    """Follow a member whose owner's id just moved out from under it (#821).
+
+    Every member channel stamps `parent` with the owner's id DURING the walk,
+    and the ordinal is appended here, afterwards. Both twins were stamped with
+    the same string, so after renumbering that string belongs to neither and a
+    `parent`-keyed reader sees two containers with NO members --
+    `build_symbol_tree` drops a child whose parent does not resolve, so the
+    failure is silent and reads as a type that declares nothing (#771).
+
+    ⚠⚠ **The twin is chosen by CONTAINMENT, because that is the relationship
+    that made the member a member.** The stale string cannot say which twin it
+    meant -- both had it -- and neither a name nor a line is an identity. The
+    member's bytes sit inside exactly one twin's bytes, and the innermost
+    containing twin wins so that nesting cannot pick an outer one.
+
+    ⚠⚠ **A member no twin CONTAINS keeps the stamper's own choice: the first.**
+    Go attaches a method to a receiver rather than nesting it, so a method's
+    span is outside its owner's and containment cannot answer. The Go receiver
+    pass already resolved that method to the first twin
+    (`types_by_name.setdefault`), so pointing it at the first twin PRESERVES
+    the attribution rather than inventing one -- and two same-named types in
+    one Go file do not compile, Go's build tags being per-file, so there is no
+    valid program whose meaning this changes. Pinned in
+    `test_a_go_method_on_twin_types_resolves_and_the_owner_is_a_known_limit`.
+
+    ⚠ Only ids that were actually renumbered are touched. A file with no
+    duplicates never reaches this function, and inside one that does, a member
+    whose owner was unique keeps its pointer untouched.
+    """
+    for symbol in symbols:
+        twins = renumbered.get(symbol.parent or "")
+        if not twins:
+            continue
+        start, end = symbol.byte_offset, symbol.byte_offset + symbol.byte_length
+        containing = [
+            twin
+            for twin in twins
+            if twin.byte_offset <= start
+            and end <= twin.byte_offset + twin.byte_length
+        ]
+        # `max` by start byte is the INNERMOST of several containing twins.
+        owner = max(containing, key=lambda t: t.byte_offset) if containing else twins[0]
+        symbol.parent = owner.id
 
 
 # ---------------------------------------------------------------------------
