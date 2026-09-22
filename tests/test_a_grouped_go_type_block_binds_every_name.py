@@ -178,6 +178,28 @@ def test_an_ungrouped_type_still_spans_its_own_declaration():
     assert sym.signature.startswith("type S struct")
 
 
+def test_a_one_name_grouped_block_records_bytes_that_close():
+    """The shape that fell between the other two span tests, and it was broken.
+
+    ⚠⚠ A grouped block binding ONE name widens to the declaration, and the
+    first draft of that widening moved only the START: the end stayed on the
+    spec, so the recorded bytes were `type (\\n\\tA int` -- unbalanced Go, a
+    `content_hash` over a fragment, and an `end_line` disagreeing with the
+    `signature` built from the wider node. Neither existing test could see it:
+    one uses the ungrouped spelling, the other three names. Found in review.
+
+    The property is that one span comes from one node, so it is asserted as
+    agreement between what the symbol says and what the bytes are, not as a
+    literal length.
+    """
+    source = "package p\n\ntype (\n\tA int\n)\n"
+    sym = next(s for s in _syms(source) if s.kind == "type")
+    recorded = source.encode()[sym.byte_offset : sym.byte_offset + sym.byte_length]
+    assert recorded.decode() == "type (\n\tA int\n)"
+    assert sym.signature == recorded.decode()
+    assert sym.end_line == source.count("\n", 0, source.index(")") + 1) + 1
+
+
 def test_a_grouped_local_type_block_binds_every_name_under_its_function():
     """A local type is indexed today and keeps its function as owner.
 

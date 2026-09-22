@@ -1163,6 +1163,20 @@ def _extract_symbol(
     # Dart: function_signature/method_signature have their body as a next sibling
     end_byte = node.end_byte
     end_line_num = node.end_point[0] + 1
+    # ⚠⚠ **A WIDENED START NEEDS THE WIDENED END** (#817, found in review).
+    # `_go_type_span_node` moves the start out to the declaration; leaving the
+    # end on the spec recorded `type (\n\tA int` for a one-name grouped block
+    # -- bytes that do not close, a `content_hash` over a fragment, and an
+    # `end_line` disagreeing with the `signature` beside it, which is built
+    # from the span node. The two halves of one span must come from one node.
+    #
+    # ⚠ Scoped to Go rather than applied to `signature_node` generally,
+    # because the cpp template wrapper above shares this variable and its end
+    # is not known to coincide with the item's; moving every C++ template's
+    # span is not a thing to do inside a fix about Go.
+    if language == "go" and signature_node is not node:
+        end_byte = signature_node.end_byte
+        end_line_num = signature_node.end_point[0] + 1
     if node.type in ("function_signature", "method_signature"):
         next_sib = node.next_named_sibling
         if next_sib and next_sib.type == "function_body":
