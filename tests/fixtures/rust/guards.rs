@@ -54,15 +54,20 @@ pub fn holds_a_closure() -> u32 {
     helper(21)
 }
 
-/// Struct fields and enum variants are not standalone definitions. `depth`,
-/// `Alpha` and `Beta` must not appear as top-level symbols.
+/// A struct's named field IS a member as of #786; an enum variant is still not
+/// a standalone definition. `depth` is a symbol, `Alpha` and `Beta` are not.
 pub struct HasFields {
     pub depth: usize,
 }
 
+/// `Gamma` carries NAMED fields, which the grammar and `syn` both spell the
+/// same way a struct's are -- so `shade` is what a variant-field channel
+/// would wrongly adopt, on either side. Neither side emits it, and without
+/// this shape nothing in the corpus could tell.
 pub enum HasVariants {
     Alpha,
     Beta(u32),
+    Gamma { shade: u8 },
 }
 
 /// A trait implementation for a foreign type binds nothing new at module level.

@@ -4,12 +4,12 @@
     "rust_fixtures": {
       "path": "tests/fixtures/rust",
       "pattern": "*.rs",
-      "sha256": "2daa88d90f30a2696c17ca7e17dd2fca57517314f47abe57b721fd1c21f4ed65"
+      "sha256": "0bd23ecfdfe13e4181bc33ea58b177bdc5833cf6b61a28b0275d714ea4d6f450"
     },
     "rust_oracle": {
       "path": "tests/fixtures/rust_oracle.json",
       "pattern": null,
-      "sha256": "cc1dabcd57e5b574453ca9b354e6637ce58b040cbb31ae270c0a92f96f6895a3"
+      "sha256": "3517f81468fa852216e7501486699e0b3aa62a9d602769a93cdc8b00ab9f0f9a"
     },
     "racket_fixtures": {
       "path": "tests/fixtures/racket",

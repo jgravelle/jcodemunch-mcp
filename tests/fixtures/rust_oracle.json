@@ -164,28 +164,28 @@
     {
       "file": "guards.rs",
       "kind": "enum",
-      "line": 63,
+      "line": 67,
       "name": "HasVariants",
       "qual": "HasVariants"
     },
     {
       "file": "guards.rs",
       "kind": "constant",
-      "line": 81,
+      "line": 86,
       "name": "LOCAL_LIMIT",
       "qual": "holds_consts.LOCAL_LIMIT"
     },
     {
       "file": "guards.rs",
       "kind": "type",
-      "line": 70,
+      "line": 75,
       "name": "Output",
       "qual": "HasFields.Output"
     },
     {
       "file": "guards.rs",
       "kind": "method",
-      "line": 72,
+      "line": 77,
       "name": "add",
       "qual": "HasFields.add"
     },
@@ -213,7 +213,7 @@
     {
       "file": "guards.rs",
       "kind": "function",
-      "line": 80,
+      "line": 85,
       "name": "holds_consts",
       "qual": "holds_consts"
     },

@@ -50,11 +50,11 @@ worked around; the variant and closure names beside it are unchanged, which is
 what keeps the change scoped to the thing that moved.
 
 **`_GAPS` in `tests/test_member_kind_audit.py` is now empty.** The burn-down ran
-in four passes, one *mechanism* each rather than one language each: ownership
+in five passes, one *mechanism* each rather than one language each: ownership
 (#788), the class state four custom parsers never extracted (#774, #776, #779,
 #782), Go's receiver (#778), the three spec-driven languages (#775, #777, #785),
 and this. ⚠⚠ An empty dict is not a solved problem: `_SAMPLES` covers the
-languages it covers, and #809, #811 and #812 are nine languages it has never had
+languages it covers, and #809, #811 and #812 are six languages it has never had
 a row for.
 
 ### Fixed - a Dart, GDScript or Ruby class's state is indexed (#775, #777, #785)

@@ -362,7 +362,7 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
 #: gap, never a tolerated one: the entry FAILS when the cell is fixed.
 _GAPS: dict[tuple[str, str], str] = {
     # ⚠⚠ **EMPTY, and keeping it that way is the point of this file.** Every
-    # cell of `_TABLE` satisfies `_RULE`. The burn-down ran in four passes, one
+    # cell of `_TABLE` satisfies `_RULE`. The burn-down ran in five passes, one
     # MECHANISM each rather than one language each: ownership for five custom
     # parsers (#788, one helper they all ask), the class state four of them
     # never extracted (#774, #776, #779, #782), Go's receiver, which needs a
@@ -374,8 +374,12 @@ _GAPS: dict[tuple[str, str], str] = {
     # ⚠⚠ **An empty dict is not the same as a solved problem, and the file says
     # so above**: `_SAMPLES` covers the languages it covers, and
     # `test_every_class_bearing_spec_is_sampled_or_excused` is one-directional
-    # by construction for a custom extractor. #809, #811 and #812 are nine
-    # languages this table has never had a row for. **The enumeration built to
+    # by construction for a custom extractor. #809, #811 and #812 are SIX
+    # languages this table has never had a row for -- Zig, PowerShell and
+    # MATLAB in the first two, Pascal, F# and Nim in the third. ⚠ It read
+    # "nine" until review: that is the count of MENTIONS across three issues,
+    # and #809 and #811 name the same three languages. **The enumeration built
+    # to
     # stop this defect class being found one language per fix cannot see the
     # languages it does not sample.**
 }

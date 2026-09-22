@@ -227,7 +227,14 @@ def test_variants_and_closures_are_not_symbols_but_a_field_now_is():
     """
     names = {s.name for s in _jcm("guards.rs")}
     assert "depth" in names, "a named struct field is a member since #786"
-    for forbidden in ("Alpha", "Beta", "helper"):
+    # ⚠⚠ `shade` is the one that matters and the corpus had no shape for it
+    # until #786: `Gamma { shade: u8 }` spells its members with the SAME nodes
+    # a struct does, in the grammar and in `syn`, so it is what a channel
+    # gated on the node type alone would adopt on EITHER side. Without a
+    # variant carrying named fields, both halves of that exclusion were
+    # ungated and a change to either would have moved no number. Found in
+    # review.
+    for forbidden in ("Alpha", "Beta", "Gamma", "shade", "helper"):
         assert forbidden not in names, f"{forbidden!r} must not be a symbol"
 
 

@@ -155,8 +155,15 @@ def test_a_generic_struct_field_is_owned_by_the_base_name():
 def test_a_local_binding_is_not_a_member():
     """The channel next door. A `let` inside a function is not a field, and
     Rust spells it `let_declaration` -- stated rather than assumed, because
-    every other language in this family needed the scope gate."""
+    every other language in this family needed the scope gate.
+
+    ⚠⚠ Asserted as `not in`, not as a loop over `.get(name, [])`. The loop form
+    shipped here and was VACUOUS: nothing named `local` is emitted at all, so
+    the body never ran and the test passed against an empty implementation.
+    That is the third time this exact shape has been caught in this family, in
+    three different files. An absence assertion has to assert the absence.
+    """
     source = "fn f() {\n    let local = 1;\n    let _ = local;\n}\n"
-    for hit in _by_name(source, "l.rs").get("local", []):
-        assert hit.kind != "field", hit.kind
-        assert hit.parent is None, hit.parent
+    found = _by_name(source, "l.rs")
+    assert "f" in found, "the enclosing function should still be indexed"
+    assert "local" not in found, [(s.kind, s.parent) for s in found.get("local", [])]
