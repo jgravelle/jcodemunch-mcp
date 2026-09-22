@@ -241,6 +241,14 @@ INDEX_VERSION = 17
 #   re-parse this bump forces carries that fix to existing indexes too. It is
 #   named here rather than left as a silent side effect, because a repair
 #   nobody recorded is indistinguishable from one that did not happen.
+#
+#   ⚠⚠ **It carries #821 too, by the same rule and for the same reason.** A
+#   member of a renumbered twin held its owner's PRE-renumbering id -- an id no
+#   symbol carries -- and the fix changes `parent` for content that has NOT
+#   changed, so an existing index keeps the dangling pointers until something
+#   forces a re-parse. Gen 8 was unreleased when #821 merged, so this counter
+#   already covers it; the line is here because the rule is to NAME the
+#   repairs a bump carries, not to rely on one that happened to be open.
 PARSER_GENERATION = 8
 
 

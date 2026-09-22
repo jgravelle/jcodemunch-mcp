@@ -7,10 +7,17 @@ reached by three different member channels -- the class-field channel, the Go
 receiver pass and the Ruby `attr_*` channel -- all producing the same dangling
 string, which is what locates the shared site rather than a parser.
 
-⚠⚠ **A parent-keyed reader sees the containers with NO members, not with the
-wrong ones.** `build_symbol_tree` (`parser/hierarchy.py`) drops a child whose
-`parent` does not resolve, so the failure is silent and looks like a type that
-declares nothing. That is #771's residue.
+⚠⚠ **The member is PROMOTED TO TOP LEVEL, not lost.** `build_symbol_tree`
+(`parser/hierarchy.py`) appends a child whose `parent` does not resolve to
+`roots`, so `get_file_outline` renders a field or a method beside the classes
+as though it were module scope. ⚠ The consumer is `get_file_outline`;
+`get_class_hierarchy` never reads `parent` at all, and the first draft of this
+file said it did. That is #771's residue.
+
+⚠⚠ **A member no twin CONTAINS has an UNKNOWN owner and gets NONE, which
+review had to teach this file.** The first draft fell back to the first twin
+and filed `#[cfg(windows)]`'s method under the `#[cfg(unix)]` struct in valid
+Rust -- absence replaced by fabrication, the one direction this family refuses.
 
 ⚠⚠ **The identity is the SPAN, which is the lesson this file exists to carry
 one more time.** The renumbering cannot ask a string which twin it meant --
@@ -213,21 +220,55 @@ def test_an_objc_interface_and_implementation_each_own_their_own_members():
     assert {m.parent for m in methods} == {declared.id, implemented.id}
 
 
-def test_a_go_method_on_twin_types_resolves_and_the_owner_is_a_known_limit():
-    """Go's receiver pass picks the FIRST twin for every method, and that
-    predates this fix.
+def test_a_rust_cfg_twins_impl_method_has_no_owner_rather_than_a_guessed_one():
+    """The reported corpus, re-run through the product (#821, review round 1).
+
+    ⚠⚠ **The first draft of this fix filed `#[cfg(windows)]`'s method under
+    the `#[cfg(unix)]` struct** -- valid, compiling Rust, and the shape #821
+    was filed from. A Rust method lives in an `impl` block, not inside the
+    type, so containment cannot answer; the draft fell back to the first twin,
+    which reads as a fact and is a guess. **That is worse than the defect it
+    replaced**: a dangling pointer is visibly broken, a wrong owner is not.
+
+    Which twin an `impl Conf` belongs to is decided by a `cfg` predicate this
+    parser does not evaluate, so the honest answer is that the owner is
+    UNKNOWN. `qualified_name` still carries `Conf.only_win`, so the name half
+    survives and only the pointer says so.
+    """
+    source = (
+        "#[cfg(unix)]\npub struct Conf { root: String }\n"
+        "#[cfg(windows)]\npub struct Conf { root: String }\n"
+        "#[cfg(unix)]\nimpl Conf { pub fn only_unix(&self) {} }\n"
+        "#[cfg(windows)]\nimpl Conf { pub fn only_win(&self) {} }\n"
+    )
+    symbols = parse_file(source, "cfg.rs", "rust")
+    ids = {s.id for s in symbols}
+    assert not [s for s in symbols if s.parent and s.parent not in ids]
+    twins = [s for s in symbols if s.kind == "type"]
+    fields = [s for s in symbols if s.kind == "field"]
+    methods = {s.name: s for s in symbols if s.kind == "method"}
+    # A field IS inside its own twin, so containment answers for it.
+    assert [f.parent for f in fields] == [twins[0].id, twins[1].id]
+    # A method is not, and is not guessed at.
+    assert methods["only_unix"].parent is None
+    assert methods["only_win"].parent is None
+    assert methods["only_win"].qualified_name == "Conf.only_win"
+
+
+def test_a_go_method_on_twin_types_has_no_owner_rather_than_a_guessed_one():
+    """Go's half of the same rule, and Go's receiver pass had already guessed.
 
     ⚠⚠ A method is NOT inside its receiver's span -- Go attaches it to a
-    receiver rather than nesting it -- so containment cannot answer for one,
-    and the fallback preserves the attribution the stamper made
-    (`types_by_name.setdefault`, first twin wins) rather than inventing a
-    different one. `B` therefore lands on twin 1, which is the wrong owner.
+    receiver rather than nesting it -- so containment cannot answer, and the
+    receiver pass's own `types_by_name.setdefault` had already resolved both
+    methods to the FIRST twin before this pass runs. Preserving that choice
+    was the first draft's argument for it; the Rust case above shows why
+    preserving a guess is still publishing one.
 
-    ⚠ It is pinned rather than fixed because two same-named types in one Go
-    FILE do not compile -- Go's build tags are per-file, so the `#[cfg]` shape
-    that makes this valid in Rust has no Go spelling. The requirement this
-    fix owes is that the pointer RESOLVES; which twin an impossible program's
-    method belongs to is not a question with a right answer.
+    ⚠ Two same-named types in one Go FILE do not compile -- build tags are
+    per-file -- so unlike Rust there is no valid program here at all. It
+    answers UNKNOWN for the same reason anyway: the rule is about what can be
+    established, not about which languages deserve care.
     """
     source = (
         "package p\n\ntype Conf struct{ a int }\n\nfunc (c Conf) A() {}\n\n"
@@ -242,6 +283,5 @@ def test_a_go_method_on_twin_types_resolves_and_the_owner_is_a_known_limit():
     # The fields ARE inside their own twin, so containment answers for them.
     assert fields["a"].parent == twins[0].id
     assert fields["b"].parent == twins[1].id
-    # The methods are not, and both keep the stamper's first-twin choice.
-    assert methods["A"].parent == twins[0].id
-    assert methods["B"].parent == twins[0].id
+    assert methods["A"].parent is None
+    assert methods["B"].parent is None

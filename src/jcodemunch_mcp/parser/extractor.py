@@ -4369,10 +4369,14 @@ def _repoint_members_at_renumbered_owners(
 
     Every member channel stamps `parent` with the owner's id DURING the walk,
     and the ordinal is appended here, afterwards. Both twins were stamped with
-    the same string, so after renumbering that string belongs to neither and a
-    `parent`-keyed reader sees two containers with NO members --
-    `build_symbol_tree` drops a child whose parent does not resolve, so the
-    failure is silent and reads as a type that declares nothing (#771).
+    the same string, so after renumbering that string belongs to neither.
+
+    ⚠⚠ **The symptom is a member PROMOTED TO TOP LEVEL, not a member lost.**
+    `build_symbol_tree` (`parser/hierarchy.py`) appends a child whose `parent`
+    does not resolve to `roots`, so `get_file_outline` rendered a field or a
+    method beside the classes as though it were module scope. ⚠ The consumer
+    is `get_file_outline`; `get_class_hierarchy` never reads `parent` at all,
+    and an earlier draft of this comment sent a reader to it.
 
     ⚠⚠ **The twin is chosen by CONTAINMENT, because that is the relationship
     that made the member a member.** The stale string cannot say which twin it
@@ -4380,15 +4384,18 @@ def _repoint_members_at_renumbered_owners(
     member's bytes sit inside exactly one twin's bytes, and the innermost
     containing twin wins so that nesting cannot pick an outer one.
 
-    ⚠⚠ **A member no twin CONTAINS keeps the stamper's own choice: the first.**
-    Go attaches a method to a receiver rather than nesting it, so a method's
-    span is outside its owner's and containment cannot answer. The Go receiver
-    pass already resolved that method to the first twin
-    (`types_by_name.setdefault`), so pointing it at the first twin PRESERVES
-    the attribution rather than inventing one -- and two same-named types in
-    one Go file do not compile, Go's build tags being per-file, so there is no
-    valid program whose meaning this changes. Pinned in
-    `test_a_go_method_on_twin_types_resolves_and_the_owner_is_a_known_limit`.
+    ⚠⚠ **A member no twin CONTAINS has an UNKNOWN owner and is given NONE.**
+    Rust attaches a method to an `impl` block and Go to a receiver, so neither
+    sits inside the type it belongs to, and no syntax in the file says which
+    twin is meant: `#[cfg(unix)] impl Conf` and `#[cfg(windows)] impl Conf`
+    are distinguished by a predicate this parser does not evaluate. **A first
+    or nearest twin would be a guess that reads as a fact** -- the first draft
+    of this fix took `twins[0]` and filed `#[cfg(windows)]`'s method under the
+    `#[cfg(unix)]` struct, in valid compiling Rust, which is the corpus #821
+    was filed from. That is worse than the defect it replaced, because a
+    dangling pointer is visibly broken and a wrong owner is not. Absence over
+    fabrication, the family rule; `qualified_name` still carries `Conf.only_win`,
+    so only the POINTER says unknown.
 
     ⚠ Only ids that were actually renumbered are touched. A file with no
     duplicates never reaches this function, and inside one that does, a member
@@ -4402,12 +4409,20 @@ def _repoint_members_at_renumbered_owners(
         containing = [
             twin
             for twin in twins
-            if twin.byte_offset <= start
+            # ⚠ `is not symbol` costs one clause and removes a class: a symbol
+            # contains itself, so a container that ever shared an id with its
+            # own nested namesake would become its own parent, and
+            # `flatten_tree` would recurse without bound. No language reaches
+            # it today -- every one of them qualifies a nested namesake, so the
+            # ids differ -- which is exactly why it would arrive unannounced.
+            if twin is not symbol
+            and twin.byte_offset <= start
             and end <= twin.byte_offset + twin.byte_length
         ]
         # `max` by start byte is the INNERMOST of several containing twins.
-        owner = max(containing, key=lambda t: t.byte_offset) if containing else twins[0]
-        symbol.parent = owner.id
+        symbol.parent = (
+            max(containing, key=lambda t: t.byte_offset).id if containing else None
+        )
 
 
 # ---------------------------------------------------------------------------

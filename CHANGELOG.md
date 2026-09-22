@@ -8,10 +8,12 @@ Two same-named containers in one file are disambiguated to `~1` and `~2`. Their
 members were not: each one's `parent` still held the owner's PRE-renumbering
 id, which no emitted symbol carries.
 
-⚠⚠ **A parent-keyed reader saw the containers with NO members, not with the
-wrong ones.** `build_symbol_tree` drops a child whose `parent` does not
-resolve, so `get_class_hierarchy` rendered a type that declares nothing and
-nothing raised. That is #771's residue.
+⚠⚠ **The member was PROMOTED TO TOP LEVEL, not lost.** `build_symbol_tree`
+appends a child whose `parent` does not resolve to `roots`, so
+`get_file_outline` rendered a field or a method beside the classes as though
+it were module scope, and nothing raised. ⚠ The consumer is
+`get_file_outline`; `get_class_hierarchy` does not read `parent` at all, and
+an earlier draft of this entry named it. That is #771's residue.
 
 ⚠⚠ **It reached ordinary source in three languages, not only duplicated
 code.** An Objective-C `@interface` and `@implementation`, a C# `partial
@@ -24,11 +26,17 @@ different layer". This is that layer; all three are closed.
 ⚠⚠ **The twin is chosen by CONTAINMENT, because that is the relationship that
 made the member a member.** The stale string cannot say which twin it meant —
 both twins had it — and neither a name nor a line is an identity. The member's
-bytes sit inside exactly one twin's bytes. A member no twin contains keeps the
-attribution the stamper made: Go attaches a method to a receiver rather than
-nesting it, so the receiver pass's own first-twin choice is preserved rather
-than replaced by an invented one, and two same-named types in one Go file do
-not compile in any case.
+bytes sit inside exactly one twin's bytes.
+
+⚠⚠ **A member no twin CONTAINS has an UNKNOWN owner and is given none, and
+the first draft of this fix got that wrong in the reported corpus.** Rust
+attaches a method to an `impl` block and Go to a receiver, so neither sits
+inside its type and containment cannot answer. The draft fell back to the
+first twin, which filed `#[cfg(windows)]`'s method under the `#[cfg(unix)]`
+struct — valid, compiling Rust, and the exact shape #821 was filed from.
+**That is worse than the defect it replaced**: a dangling pointer is visibly
+broken and a wrong owner is not. `qualified_name` still carries
+`Conf.only_win`, so only the pointer says unknown. Absence over fabrication.
 
 ⚠⚠ **The guard that already described this defect could not fail on it.** Its
 helper stripped the `~N` off the member's parent AND off the container's id

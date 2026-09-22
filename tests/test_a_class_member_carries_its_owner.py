@@ -130,9 +130,14 @@ def test_every_member_carries_its_owners_id(
     "a different fix in a different layer", and #821 is that fix: the
     renumbering now follows the member to the twin whose bytes contain it.
 
-    Stripping would now ACCEPT a member filed under the wrong twin, because
-    `~1` and `~2` compare equal once the suffix is gone. The exact id is the
-    assertion.
+    ⚠ **What this assertion actually gained, stated precisely.** `owners` is
+    the set of BOTH twins' ids, so a member filed under the wrong twin still
+    passes here; what stripping used to hide, and no longer can, is a `parent`
+    naming an id NO symbol carries. The right-twin property is a different
+    assertion and lives in
+    `tests/test_a_members_parent_survives_disambiguation.py::test_each_twins_member_is_owned_by_that_twin`.
+    An earlier draft of this docstring claimed the wrong-twin case, which
+    review caught.
     """
     found = _by_name(language, filename, source)
     owners = {s.id for s in found.get(container, [])}
@@ -228,19 +233,26 @@ def test_a_d_aggregate_owns_its_enum_and_its_template_too():
         assert hit.qualified_name == qualified, (name, hit.qualified_name)
 
 
-def test_objc_is_the_only_language_here_that_needs_the_ordinal_stripped():
-    """Non-vacuity for the helper above: it must not be quietly load-bearing
-    for the other four.
+def test_objc_is_the_only_language_here_whose_container_carries_an_ordinal():
+    """Exactly one row of this table exercises the renumbering, and knowing
+    which is what keeps the assertion above honest.
+
+    ⚠⚠ It was named `..._needs_the_ordinal_stripped` and described as
+    "non-vacuity for the helper above", and #821 deleted that helper. The
+    measurement is unchanged and still worth making -- it is the difference
+    between an ObjC-shaped row and the other four -- so the test keeps its
+    body and loses a name that describes code nobody can open.
+    `harness/retired.json` carries the rename.
 
     ⚠ If a future change gave, say, Solidity two same-named contracts in one
     file, this fails and the question gets asked again rather than absorbed.
     """
-    needs_stripping = set()
+    carries_ordinal = set()
     for language, filename, source, container, _members in _OWNED:
         ids = [s.id for s in _by_name(language, filename, source).get(container, [])]
         if any("~" in i for i in ids):
-            needs_stripping.add(language)
-    assert needs_stripping == {"objc"}, needs_stripping
+            carries_ordinal.add(language)
+    assert carries_ordinal == {"objc"}, carries_ordinal
 
 
 @pytest.mark.parametrize("language,filename,source,container,members", _OWNED, ids=_IDS)

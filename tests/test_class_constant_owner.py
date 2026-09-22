@@ -154,7 +154,7 @@ def test_two_same_named_constants_are_told_apart_by_owner_not_ordinal():
 
     ⚠⚠ **No collision existed and this test exists partly to stop one being
     claimed again.** Measured on `origin/main`: these two constants came back as
-    `x.php::K#constant~1` and `~2`, because `_disambiguate_overloads` had already
+    `x.php::K#constant~1` and `~2`, because the renumbering pass had already
     separated them. The count is 4 either way and neither was unreachable. An
     earlier draft of this test and of the CHANGELOG entry said otherwise, from
     reading the code rather than running it.
