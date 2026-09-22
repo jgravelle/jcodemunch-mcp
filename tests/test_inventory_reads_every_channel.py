@@ -65,6 +65,13 @@ _CHANNEL_SAMPLES: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("java", "field_declaration"): (
         "A.java", "class A {\n  private int probe;\n}\n", "probe", "field",
     ),
+    # #786. ⚠ A NAMED field: a tuple struct's members carry no identifier in
+    # either the grammar or `syn`, so a `struct A(u8);` sample would prove the
+    # channel does nothing. ⚠ The node type is shared with an enum variant's
+    # body, which the channel refuses on the holder's owner.
+    ("rust", "field_declaration"): (
+        "a.rs", "struct A {\n    probe: i32,\n}\n", "probe", "field",
+    ),
     # #781. A class field cannot be written outside a class, so `A` is extracted
     # too, as with the PHP property below; `probe`/`field` is what the form
     # CONTRIBUTES. One row per spec: the three are copies (#698).
