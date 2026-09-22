@@ -197,7 +197,10 @@ def test_a_one_name_grouped_block_records_bytes_that_close():
     recorded = source.encode()[sym.byte_offset : sym.byte_offset + sym.byte_length]
     assert recorded.decode() == "type (\n\tA int\n)"
     assert sym.signature == recorded.decode()
-    assert sym.end_line == source.count("\n", 0, source.index(")") + 1) + 1
+    # ⚠ `rindex`, so a future fixture holding a `func()` or a parenthesised
+    # type cannot silently compute the wrong expected line. The closing paren
+    # of the block is the LAST one in this sample by construction.
+    assert sym.end_line == source.count("\n", 0, source.rindex(")") + 1) + 1
 
 
 def test_a_grouped_local_type_block_binds_every_name_under_its_function():

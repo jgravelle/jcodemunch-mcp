@@ -41,6 +41,39 @@ def test_ledger_is_well_formed():
         assert "::" in r["replacement"], f"{r['path']}: replacement must be file::test_name"
 
 
+def test_no_archaeology_row_is_split_across_lines():
+    """A row broken in two is a row the next reader cannot read (#817).
+
+    ⚠⚠ **This PR broke one and everything stayed green**, which is the whole
+    argument for the assertion. A raw newline written into a notes cell -- a
+    quoted source snippet whose escapes were expanded before they reached the
+    file -- ends the row mid-sentence and starts a one-cell row after it. GFM
+    renders both as garbage and a line-based reader sees a malformed row.
+
+    ⚠ `_archaeology_paths`' own floor cannot see it: the path regex matches
+    the FIRST half, so the count is unchanged and `>= 480` holds over a broken
+    table. A guard whose numerator and denominator move together is the
+    cache-hit-rate shape (08-27) -- it had to be a different question, not a
+    tighter floor.
+
+    ⚠ Asserted over the whole file rather than section 1, because a split row
+    is corruption wherever it lands.
+    """
+    offenders = []
+    for number, line in enumerate(ARCH.read_text(encoding="utf-8", errors="replace").split("\n"), 1):
+        stripped = line.rstrip()
+        if not stripped:
+            continue
+        opens = stripped.startswith("|")
+        closes = stripped.endswith("|")
+        if opens != closes:
+            offenders.append(f"{number}: {stripped[:60]!r}")
+    assert not offenders, (
+        "ARCHAEOLOGY.md row(s) split across lines -- a cell holds a literal "
+        f"newline: {offenders}"
+    )
+
+
 def test_every_archaeology_test_still_exists_or_is_in_the_ledger():
     paths = _archaeology_paths()
     assert len(paths) >= 480, f"ARCHAEOLOGY.md section 1 parsed to only {len(paths)} rows"
