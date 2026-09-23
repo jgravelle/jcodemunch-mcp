@@ -32,7 +32,7 @@
     },
     {
       "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
-      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
+      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). \u26a0\u26a0 Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
       "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
       "commit": "99ef0583",
       "date": "2026-09-18"
