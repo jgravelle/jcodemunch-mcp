@@ -178,9 +178,9 @@ _A_MEMBER_IN_EVERY_CONTAINER = {
 
 
 def test_every_container_in_the_spec_owns_a_member_and_every_container_is_sampled():
-    """The gate asks the container list and the grammar's `body` field, and
-    keeps no list of its own; this is what makes that true for the NEXT
-    container too."""
+    """The gate asks the container list ALONE (not a body-type list of its
+    own, and not the container's `body` field, which a mixin's body does not
+    carry); this is what makes that true for the NEXT container too."""
     from jcodemunch_mcp.parser.languages import DART_SPEC
 
     assert set(DART_SPEC.container_node_types) == set(_A_MEMBER_IN_EVERY_CONTAINER), (
