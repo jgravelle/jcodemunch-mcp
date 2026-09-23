@@ -2,6 +2,62 @@
 
 ## [Unreleased]
 
+### Fixed - Pascal, F# and Nim class members are indexed and owned (#812)
+
+`TAudit = class FTally: Integer; function RunIt: Integer; end` indexed
+`TAudit` and nothing in it. F#'s `type Audit() = let mutable tally = 0;
+member this.RunIt() = tally`, the language's own member syntax, indexed
+`Audit` alone. Nim's `type Audit = object; tally: int` indexed `Audit`. The
+container was the only symbol; a method declared on the type was as
+invisible as a field, so an F# class was a name with no contents. Found by
+@jgravelle probing every class-bearing custom parser after #774/#776/#779/
+#782 (#812); Zig, PowerShell and MATLAB, which lost only the state, are
+#809/#811.
+
+⚠⚠ **The walk never entered the body.** Each of the three parsers matched
+the container node, appended it and returned, so no member node was ever
+named, and a grammar node a parser never names reads as the language having
+no such thing: Standing lesson 09-15 (#698), one file over. The three walk
+the body now and thread the owner SYMBOL through `_member_of` (#788's one
+helper), never a scope string, so every member is qualified AND carries
+`parent` (Standing lesson 08-19: ask the authority). None of the three had a
+row in the member-kind audit, which is why nothing enumerated the hole;
+three rows join it, and `_CONTAINER_KIND` learns that an F# or Nim
+container is a `type`.
+
+⚠ **Rulings, per language, because a member-kind row is a design task and
+not a copy:**
+- Pascal: a `declField` (every name it declares) and a `class var` are
+  `field`; a class-scoped `const` is `constant`; `procedure`, `function`,
+  `constructor`, `destructor` and `class function` declared in the class are
+  `method`; a `property` is `property`. A record is walked the same way.
+- F#: `let mutable` is `field`, `let` is `constant`, a `let`-bound function
+  is `method` (a private method, which is how it compiles); `member x.M(args)`
+  is `method`; `with get`, `member val` and an argument-less `member` or
+  `static member` are `property`, because a member without a parameter list
+  IS a property in F#. A record's `with member` is owned by the record.
+- Nim: an object's fields are `field`, the export marker `*` stripped, in
+  every `case` branch and behind `ref`/`ptr`. A `proc` taking the type as its
+  first parameter stays a module-level `function`: UFCS is call syntax, not
+  membership, so the audit's method role is omitted with that reason.
+
+⚠ One id MOVES: a Pascal class-scoped `const` was emitted BARE (`LIMIT`, no
+owner) and is `TAudit.LIMIT` with an owner. Every other pre-existing
+qualified name is byte-identical. Named under `PARSER_GENERATION` 8, which
+already carries this release's other new-symbol changes. Four Nim node types
+(`object_declaration`, `field_declaration`, `symbol_declaration`,
+`variant_discriminator_declaration`) leave the unnamed-declaration inventory
+because the parser names them now.
+
+Measured beside it and filed, not folded in: a Nim exported `proc runIt*`
+and a Pascal implementation-section `function TAudit.RunIt` are absent
+because each parser asks for a direct `identifier` child and the name sits
+under `exported_symbol` / `genericDot`.
+
+Red on `main`: `16 failed, 40 passed` over the new file and the audit.
+Green: `934 passed` over every test file naming one of the three languages
+plus the node-type ratchets.
+
 ### Fixed - Zig, PowerShell and MATLAB class members are owned, and their state is indexed (#809, #811)
 
 `const Audit = struct { tally: u32 = 0, const LIMIT: u32 = 3; pub fn

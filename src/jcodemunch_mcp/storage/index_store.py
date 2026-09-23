@@ -286,6 +286,12 @@ INDEX_VERSION = 17
 #   populated `parent`s on unchanged content, plus one MOVED id: a Zig `fn`
 #   inside a container was `function` and is `method`, so its old id
 #   resolves to nothing until the file is re-parsed.
+#
+#   ⚠⚠ **And #812: Pascal, F# and Nim class members.** Every field, method
+#   and property of a Pascal class or record, an F# type and a Nim object
+#   is a NEW symbol on unchanged content, plus one MOVED id: a Pascal
+#   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
+#   with an owner, so its old id resolves to nothing until re-parsed.
 PARSER_GENERATION = 8
 
 

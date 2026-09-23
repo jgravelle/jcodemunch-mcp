@@ -281,13 +281,9 @@
       "conditional_declaration",
       "enum_declaration",
       "enum_field_declaration",
-      "field_declaration",
-      "object_declaration",
       "parameter_declaration",
-      "symbol_declaration",
       "tuple_deconstruct_declaration",
-      "variant_declaration",
-      "variant_discriminator_declaration"
+      "variant_declaration"
     ],
     "objc": [
       "atomic_declaration",

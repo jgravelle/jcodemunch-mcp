@@ -292,6 +292,39 @@ _SAMPLES: dict[str, tuple[str, str, dict[str, str], str]] = {
         "    end\n"
         "end\n"
     )),
+    # #812: the three parsers that indexed the container and nothing in it.
+    # Roles per language are decided in
+    # `test_pascal_fsharp_nim_members_are_owned.py` (Nim: a `proc` taking the
+    # type is a module function, UFCS being call syntax and not membership,
+    # so the method role is omitted; an object has no const or property
+    # member).
+    "pascal": ("a.pas", "TAudit", {
+        "method": "RunIt", "mutable": "FTally", "immutable": "LIMIT", "property": "Tally",
+    }, (
+        "type\n"
+        "  TAudit = class\n"
+        "    FTally: Integer;\n"
+        "    const LIMIT = 3;\n"
+        "    function RunIt: Integer;\n"
+        "    property Tally: Integer read FTally;\n"
+        "  end;\n"
+    )),
+    "fsharp": ("a.fs", "Audit", {
+        "method": "RunIt", "mutable": "tally", "immutable": "limit", "property": "Count",
+    }, (
+        "type Audit() =\n"
+        "    let mutable tally = 0\n"
+        "    let limit = 3\n"
+        "    member this.RunIt() = tally\n"
+        "    member this.Count with get() = tally\n"
+    )),
+    "nim": ("a.nim", "Audit", {
+        "mutable": "tally",
+    }, (
+        "type\n"
+        "  Audit = object\n"
+        "    tally: int\n"
+    )),
     "solidity": ("a.sol", "Audit", {
         "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
     }, (
@@ -348,7 +381,9 @@ def _all_languages_enabled(monkeypatch):
 
 #: The kind of the CONTAINER, pinned so that a class regressing to some other
 #: kind cannot hide behind a lookup by name.
-_CONTAINER_KIND: dict[str, str] = {"go": "type", "rust": "type", "c": "type"}
+_CONTAINER_KIND: dict[str, str] = {
+    "go": "type", "rust": "type", "c": "type", "fsharp": "type", "nim": "type",
+}
 
 
 def _observe(language: str) -> dict[str, tuple[str, str]]:
@@ -408,6 +443,9 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "zig": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "powershell": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
     "matlab": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "pascal": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "fsharp": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
+    "nim": {"mutable": ("field", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
     "rust": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
