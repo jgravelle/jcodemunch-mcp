@@ -265,6 +265,10 @@ _NAME_BORROWING_HELPERS = {
     "kotlin_property_name",
     "_swift_bound_identifier",
     "_extract_cpp_name",
+    # #823: the C declarator unwrap, extracted from `_extract_name`'s own body
+    # so a typedef's later declarators go through the same slice. It returns
+    # `source_bytes[a:b].decode(...)` and nothing wrapping it.
+    "_c_declarator_name",
 }
 
 #: How many interpolated builders `_extract_name` holds. ⚠⚠ PINNED, because the
