@@ -70,7 +70,7 @@ spills `with get, set` after a `static member val` out of the type body and
 every later member is lost (#848).
 
 Red on `main`: `16 failed, 40 passed` over the new file and the audit.
-Green: `938 passed` over every test file naming one of the three languages
+Green: `939 passed` over every test file naming one of the three languages
 plus the node-type ratchets.
 
 ### Fixed - Zig, PowerShell and MATLAB class members are owned, and their state is indexed (#809, #811)

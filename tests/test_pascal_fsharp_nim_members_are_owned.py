@@ -220,6 +220,17 @@ def test_fsharp_member_val_with_an_accessibility_modifier_is_named_after_the_nam
     assert "F.private" not in rows
 
 
+def test_fsharp_static_member_val_with_a_type_annotation_is_named_through_the_typed_pattern():
+    """Round 4: a type annotation wraps the name in `typed_pattern`, so the
+    last DIRECT pattern was the modifier again (`H.private`), and the
+    unmodified typed form yielded nothing at all."""
+    rows = _rows("type H() =\n    static member val private Count : int = 0 with get, set\n", "a.fs", "fsharp")
+    assert rows["H.Count"] == ("property", "H")
+    assert "H.private" not in rows
+    rows = _rows("type J() =\n    static member val Count : int = 0\n", "a.fs", "fsharp")
+    assert rows["J.Count"] == ("property", "J")
+
+
 def test_fsharp_static_let_state_is_owned():
     """Found in review: `static let` sits under `member_defn >
     value_declaration`, not directly under the type body, and was unread."""

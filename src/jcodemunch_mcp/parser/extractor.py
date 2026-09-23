@@ -13524,7 +13524,14 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # The LAST pattern: an accessibility modifier between
                         # `val` and the name (`val private Count`) arrives as a
                         # pattern of its own, ahead of the name (review, round 3).
-                        pats = [c for c in mpd.children if c.type == "identifier_pattern"]
+                        # A type annotation wraps the name in `typed_pattern`
+                        # (round 4), so the last pattern is read through it.
+                        pats = []
+                        for c in mpd.children:
+                            if c.type == "identifier_pattern":
+                                pats.append(c)
+                            elif c.type == "typed_pattern":
+                                pats.extend(g for g in c.children if g.type == "identifier_pattern")
                         if not pats:
                             continue
                         _member(el, owner, _text(pats[-1]), "property")
