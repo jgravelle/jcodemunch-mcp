@@ -32,7 +32,7 @@
     },
     {
       "path": "tests/test_svelte.py::test_svelte4_export_let_is_prop_constant",
-      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). \u26a0\u26a0 Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
+      "lesson": "The name was the defect: it asserted that a Svelte 4 prop carries kind `constant`, and a prop is the binding the PARENT assigns -- the most mutable in the file (#752). ⚠⚠ Its SECOND assertion was not the defect and caught this PR's first draft: `export const MAX` really is a constant, because Svelte does not let a parent set an `export const`, so it is not a prop at all and the first fix made it one. Practice 9 applies per ASSERTION, not per test -- half a test can be the defect's witness while the other half is a real fact nothing else records. The replacement keeps both halves and says which is which.",
       "replacement": "tests/test_svelte.py::test_svelte4_export_let_is_a_prop_and_export_const_is_not",
       "commit": "99ef0583",
       "date": "2026-09-18"
@@ -106,6 +106,13 @@
       "replacement": "tests/test_member_kind_audit.py::test_every_member_bearing_spec_is_sampled_or_excused",
       "commit": "fbd6b5b0",
       "date": "2026-09-22"
+    },
+    {
+      "path": "tests/test_a_c_struct_member_is_indexed.py::test_an_elaborated_type_reference_is_a_known_gap",
+      "lesson": "A gap test is written to FAIL when its defect is fixed, and this one did: `struct S { struct Other *link; }` published a nested type `S.Other` for a type the file never defines, because tree-sitter spells a definition, a reference and a forward declaration with ONE `struct_specifier` and three spec copies listed the node type without asking for a `body` (#830). The lesson it carried -- that an equality assertion between two languages would have FROZEN a fabrication in both, so the row was withheld and the gap pinned as a failing-when-fixed test instead -- is carried by the replacement named below, which asserts the absence in every reference position for `struct`, `union`, `enum` and C++ `class` in C, C++ and Arduino, and by the `pointer-to-another-struct` row restored to that file's equality table, which now pins the two languages EQUAL on the right answer.",
+      "replacement": "tests/test_a_c_type_reference_is_not_a_declaration.py::test_a_mention_of_a_type_declares_nothing",
+      "commit": "7198be13",
+      "date": "2026-09-23"
     }
   ]
 }
