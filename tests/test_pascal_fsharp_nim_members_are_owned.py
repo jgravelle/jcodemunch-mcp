@@ -187,6 +187,25 @@ def test_a_nim_ref_object_with_a_base_owns_its_fields():
     assert _rows(source, "a.nim", "nim")["Base.q"] == ("field", "Base")
 
 
+def test_a_nim_ptr_object_owns_its_fields():
+    """Found in review: the grammar spells `ptr object` as `pointer_type`,
+    and the first draft asked for `ptr_type`, so `ptr` yielded no fields
+    while the claim said otherwise (Standing lesson 09-01)."""
+    source = "type\n  P = ptr object\n    a*, b: int\n"
+    rows = _rows(source, "a.nim", "nim")
+    assert rows["P.a"] == ("field", "P")
+    assert rows["P.b"] == ("field", "P")
+
+
+def test_fsharp_static_let_state_is_owned():
+    """Found in review: `static let` sits under `member_defn >
+    value_declaration`, not directly under the type body, and was unread."""
+    source = "type A() =\n    static let mutable count = 0\n    static let cache = 1\n"
+    rows = _rows(source, "a.fs", "fsharp")
+    assert rows["A.count"] == ("field", "A")
+    assert rows["A.cache"] == ("constant", "A")
+
+
 def test_an_fsharp_indexer_property_is_a_property():
     source = "type A() =\n    member this.Item with get(i) = i\n"
     assert _rows(source, "a.fs", "fsharp")["A.Item"] == ("property", "A")

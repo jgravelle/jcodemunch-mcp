@@ -31,13 +31,18 @@ not a copy:**
   `field`; a class-scoped `const` is `constant`; `procedure`, `function`,
   `constructor`, `destructor` and `class function` declared in the class are
   `method`; a `property` is `property`. A record is walked the same way.
-- F#: `let mutable` is `field`, `let` is `constant`, a `let`-bound function
+- F#: `let mutable` is `field`, `let` is `constant`, `static let` the same
+  (review found it unread: it sits under `member_defn > value_declaration`,
+  a level the first draft never entered), a `let`-bound function
   is `method` (a private method, which is how it compiles); `member x.M(args)`
   is `method`; `with get`, `member val` and an argument-less `member` or
   `static member` are `property`, because a member without a parameter list
   IS a property in F#. A record's `with member` is owned by the record.
 - Nim: an object's fields are `field`, the export marker `*` stripped, in
-  every `case` branch and behind `ref`/`ptr`. A `proc` taking the type as its
+  every `case` branch and behind `ref`/`ptr` (review caught the first draft
+  asking for `ptr_type`, a node the grammar never emits; it is
+  `pointer_type`, and `ptr object` yielded nothing while the claim said
+  otherwise: Standing lesson 09-01). A `proc` taking the type as its
   first parameter stays a module-level `function`: UFCS is call syntax, not
   membership, so the audit's method role is omitted with that reason.
 
@@ -46,16 +51,20 @@ owner) and is `TAudit.LIMIT` with an owner. Every other pre-existing
 qualified name is byte-identical. Named under `PARSER_GENERATION` 8, which
 already carries this release's other new-symbol changes. Four Nim node types
 (`object_declaration`, `field_declaration`, `symbol_declaration`,
-`variant_discriminator_declaration`) leave the unnamed-declaration inventory
-because the parser names them now.
+`variant_discriminator_declaration`) and F#'s `value_declaration` leave the
+unnamed-declaration inventory because the parsers name them now.
 
 Measured beside it and filed, not folded in: a Nim exported `proc runIt*`
-and a Pascal implementation-section `function TAudit.RunIt` are absent
-because each parser asks for a direct `identifier` child and the name sits
-under `exported_symbol` / `genericDot`.
+(#843) and a Pascal implementation-section `function TAudit.RunIt` (#844)
+are absent because each parser asks for a direct `identifier` child and the
+name sits under `exported_symbol` / `genericDot`; a Pascal `interface`
+type's members and F# `abstract` members, `interface ... with` blocks and
+`new()` constructors are unread (#845); a generic Pascal class `TBox<T>` is
+absent entirely (#846); a Nim type declared with a pragma carries the pragma
+in its name, which the new field ids inherit (#847).
 
 Red on `main`: `16 failed, 40 passed` over the new file and the audit.
-Green: `934 passed` over every test file naming one of the three languages
+Green: `936 passed` over every test file naming one of the three languages
 plus the node-type ratchets.
 
 ### Fixed - Zig, PowerShell and MATLAB class members are owned, and their state is indexed (#809, #811)

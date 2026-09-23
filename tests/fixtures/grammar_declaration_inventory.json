@@ -218,8 +218,7 @@
       "argument_spec",
       "arguments_spec",
       "curried_spec",
-      "exception_definition",
-      "value_declaration"
+      "exception_definition"
     ],
     "gdscript": [
       "constructor_definition"

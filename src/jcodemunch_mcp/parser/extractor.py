@@ -13488,6 +13488,13 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             if tee.type != "type_extension_elements":
                 continue
             for el in tee.children:
+                if el.type == "member_defn":
+                    # `static let [mutable] x = ...` sits under member_defn >
+                    # value_declaration > function_or_value_defn (review of
+                    # #812); static state is the #809/#811 shape, same kinds.
+                    vd = _first_child_of_type(el, "value_declaration")
+                    if vd is not None:
+                        el = _first_child_of_type(vd, "function_or_value_defn") or el
                 if el.type == "function_or_value_defn":
                     fdl = _first_child_of_type(el, "function_declaration_left")
                     vdl = _first_child_of_type(el, "value_declaration_left")
@@ -13736,7 +13743,9 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _object_fields(type_decl, owner: Symbol) -> None:
         obj = _first_child_of_type(type_decl, "object_declaration")
         if obj is None:
-            wrapper = _first_child_of_type(type_decl, "ref_type", "ptr_type")
+            # `ref object` is `ref_type`; `ptr object` is `pointer_type` (review
+            # of #812 caught `ptr_type`, a spelling the grammar never emits).
+            wrapper = _first_child_of_type(type_decl, "ref_type", "pointer_type")
             if wrapper is not None:
                 obj = _first_child_of_type(wrapper, "object_declaration")
         if obj is None:
