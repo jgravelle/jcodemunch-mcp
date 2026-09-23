@@ -12,9 +12,12 @@ function body was not a scope. It is now: everything declared in a
 C++/Arduino function body is qualified under the function and owned by it,
 as in C and Python, never absent (#699 demotes locals in ranking and never
 filters them). A function body counts as one class-scope level for `kind`,
-because the only function-shaped symbol a C++ function body can hold is a
+because the only function DEFINITION a C++ function body can hold is a
 method of a local class (C++ has no nested functions; a lambda is not a
 symbol), so that method is `method` whether its class is named or anonymous.
+A block-scope PROTOTYPE (`void inner(int);` inside a body) declares a
+namespace-scope function and stays at file scope with no owner, as `main`
+answered it (found in review).
 
 Ids move for every function-local C++/Arduino type, field and method;
 `PARSER_GENERATION` names it. Reporter: @jgravelle.
@@ -126,6 +129,17 @@ def test_two_functions_each_declaring_a_local_of_the_same_name_do_not_collide(la
     names = sorted(s.qualified_name for s in symbols if s.name == "S")
     assert names == ["a.S", "b.S"]
     assert len({s.id for s in symbols if s.name == "S"}) == 2
+
+
+@pytest.mark.parametrize("language,filename", _CPP)
+def test_a_block_scope_prototype_stays_at_file_scope(language, filename):
+    """Found in review: `void inner(int);` inside a body declares a
+    namespace-scope function. The first draft made it `df.inner` of kind
+    `method`, a wrong kind and owner where `main` was right."""
+    rows = _rows("void df() {\n    void inner(int);\n    struct D { int d; };\n}\n", filename, language)
+    assert rows["inner"] == ("function", None)
+    assert rows["df.D"] == ("type", "df")
+    assert "df.inner" not in rows
 
 
 @pytest.mark.parametrize("language,filename", _CPP)

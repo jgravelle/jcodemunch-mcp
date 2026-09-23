@@ -125,7 +125,7 @@
       "path": "tests/test_a_c_typedef_binds_every_name.py::test_a_cpp_typedef_list_inside_a_function_is_a_known_gap",
       "lesson": "A tracked gap, never a tolerated one: it recorded that C++ published a function-local type at file scope with no owner because `_walk_tree`'s C++ branch moved the parent only at a type container, so a function body was not a scope. #833 made a `function_definition` a scope boundary (and with it #798, the same rule seen from inside a member function), so the gap's assertion is false by design now and the C-only local-typedef test beside it is widened to both languages.",
       "replacement": "tests/test_a_cpp_function_local_type_is_owned_by_the_function.py::test_the_free_function_answers_every_row_and_nothing_else",
-      "commit": "d8c8d40a",
+      "commit": "b1ffdbba",
       "date": "2026-09-23"
     }
   ]

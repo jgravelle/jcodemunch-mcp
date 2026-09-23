@@ -30,9 +30,13 @@ demotes same-named locals in ranking and never filters them. Inside a member
 function the local is `K.m.L`, owned by `m`. The anonymous local struct's
 method is `K.m.lm`, owned by `m` (the struct emits no symbol, the
 fall-through `main` already had). The body counts as one class-scope level
-for `kind`, because the only function-shaped symbol a C++ function body can
+for `kind`, because the only function DEFINITION a C++ function body can
 hold is a method of a local class (no nested functions; a lambda is not a
 symbol), so that method is `method` whether its class is named or anonymous.
+A block-scope PROTOTYPE (`void inner(int);` inside a body) declares a
+namespace-scope function and stays at file scope with no owner, as `main`
+answered it; review caught the first draft publishing it as `df.inner`, a
+`method`, a wrong kind and owner where `main` was right.
 
 ⚠ Ids MOVE for every function-local C++/Arduino type, field and method
 (`S` -> `f.S`, `K.L` -> `K.m.L`), named under `PARSER_GENERATION` 8.
@@ -45,7 +49,7 @@ for the same bytes, struct/class/union/enum/typedef/alias spellings, two
 same-named locals with two ids, and file scope and class scope unchanged.
 
 Red on `main`: `12 failed, 33 passed` over the new file and the typedef
-file. Green: `489 passed` over the new file, the typedef file and ten neighbouring C++ and ratchet files.
+file. Green: `491 passed` over the new file, the typedef file and the neighbouring C++ and ratchet files.
 
 ### Fixed - Pascal, F# and Nim class members are indexed and owned (#812)
 
