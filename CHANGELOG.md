@@ -25,7 +25,13 @@ filter cannot drift, and C inherits #833's block-scope exemption with it.
   bytes (kind, name and span), asserted over thirteen shapes.
 - A prototype followed (or preceded) by its definition in the same C file
   is ONE `f`, the definition: C has no overloading, so name equality is
-  exact and the prototype is a mention. C++ keeps its two, because
+  exact and the prototype is a mention. A second prototype of a name
+  already declared is a mention of the first, whose id does not move to a
+  `~1` twin when a redundant re-declaration is added (review). The drop
+  runs at the ROOT of the walk, so a `.h` that resolves to C inherits it
+  (review found the first draft's post-pass in one caller, and a header
+  publishing two `f` where a `.c` published one: Standing lesson 08-19,
+  the second call site). C++ keeps its two, because
   `int f(int); int f(double) {}` are two overloads under one qualified name
   and a by-name drop would lose a real declaration; the C++ twin is the
   overload problem, not this one's.
@@ -45,7 +51,7 @@ filter cannot drift, and C inherits #833's block-scope exemption with it.
 `tests/test_declared_forms_extract.py`.
 
 Red on `main`: `29 failed, 26 passed` over the new file and the C member
-file. Green: `1193 passed, 1 skipped` over every test file that parses C plus the node-type ratchets.
+file. Green: `1196 passed, 1 skipped` over every test file that parses C plus the node-type ratchets.
 
 ### Fixed - a C++ type declared inside a function is owned by the function (#833, #798)
 

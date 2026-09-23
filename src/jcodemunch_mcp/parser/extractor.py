@@ -521,9 +521,6 @@ def _parse_with_spec(
     _walk_tree(tree.root_node, spec, source_bytes, filename, language, symbols, None,
                call_types=ct, calls=calls if ct else None)
 
-    if language == "c":
-        symbols = _drop_c_prototypes_with_a_definition(symbols, source_bytes)
-
     # Attribute collected call sites to enclosing symbols (cheap — no AST walk)
     if calls:
         _attribute_calls_to_symbols(symbols, calls)
@@ -936,6 +933,11 @@ def _walk_tree(
             calls,
             next_is_container,
         )
+
+    # #835: at the ROOT, once the whole tree is walked, so every caller of
+    # this walk (the `.c` path and the `.h`-as-C fallback alike) inherits it.
+    if language == "c" and node.parent is None:
+        symbols[:] = _drop_redundant_c_prototypes(symbols, source_bytes)
 
 
 # Class field declarations in the JS grammar (`field_definition`) and the
@@ -2282,32 +2284,34 @@ def _is_bodiless_type_specifier(node) -> bool:
     return node.type in _C_FAMILY_TYPE_SPECIFIERS and node.child_by_field_name("body") is None
 
 
-def _drop_c_prototypes_with_a_definition(symbols: list[Symbol], source_bytes: bytes) -> list[Symbol]:
-    """A C prototype whose definition is in the same file yields nothing (#835).
+def _drop_redundant_c_prototypes(symbols: list[Symbol], source_bytes: bytes) -> list[Symbol]:
+    """A C prototype is a mention: one symbol per declared function (#835).
 
-    The definition is the symbol and the prototype is a mention of it; C has
-    no overloading, so name equality is exact. A prototype is the `function`
-    whose bytes end in `;` (a `declaration`); a definition's end in `}`.
-    ⚠ C only: in C++ `int f(int); int f(double) {}` are two overloads under
-    one qualified name, and a by-name drop would lose a real declaration.
+    A prototype whose definition is in the same file yields nothing (the
+    definition is the symbol), and a second prototype of a name already
+    declared yields nothing (the first is the symbol, and its id does not
+    move when a redundant re-declaration is added: review round 1). C has
+    no overloading, so name equality is exact. A prototype is the
+    `function` whose bytes end in `;` (a `declaration`); a definition's end
+    in `}`. ⚠ C only: in C++ `int f(int); int f(double) {}` are two
+    overloads under one qualified name, and a by-name drop would lose a real
+    declaration. ⚠ Applied at the ROOT of `_walk_tree`, not at a caller, so
+    the `.h`-as-C fallback in `_parse_cpp_symbols` inherits it (review
+    round 1 found a header publishing two `f` where a `.c` published one).
     """
-    defined = {
-        s.qualified_name
-        for s in symbols
-        if s.kind == "function"
-        and source_bytes[s.byte_offset:s.byte_offset + s.byte_length].rstrip().endswith(b"}")
-    }
-    if not defined:
-        return symbols
-    return [
-        s
-        for s in symbols
-        if not (
-            s.kind == "function"
-            and s.qualified_name in defined
-            and source_bytes[s.byte_offset:s.byte_offset + s.byte_length].rstrip().endswith(b";")
-        )
-    ]
+    def _text(s: Symbol) -> bytes:
+        return source_bytes[s.byte_offset:s.byte_offset + s.byte_length].rstrip()
+
+    defined = {s.qualified_name for s in symbols if s.kind == "function" and _text(s).endswith(b"}")}
+    kept: list[Symbol] = []
+    declared: set[str] = set()
+    for s in symbols:
+        if s.kind == "function" and _text(s).endswith(b";"):
+            if s.qualified_name in defined or s.qualified_name in declared:
+                continue
+            declared.add(s.qualified_name)
+        kept.append(s)
+    return kept
 
 
 def _is_c_family_function_declaration(node, language: str) -> bool:

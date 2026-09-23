@@ -95,6 +95,35 @@ def test_cpp_keeps_both_for_the_same_bytes_because_of_overloading():
     assert _rows(source, "cpp", "a.cpp") == [("function", "f", 0, 11), ("function", "f", 12, 26)]
 
 
+def test_a_header_resolved_to_c_absorbs_the_prototype_too():
+    """Found in review: `.h` maps to C++ and falls back to the C spec through
+    a SECOND walk in `_parse_cpp_symbols`, which the first draft's post-pass
+    never reached, so a header published two `f` where a `.c` published one.
+    The drop sits at the root of the walk now, so both callers inherit it."""
+    source = "static inline int f(int a) { return a; }\nint f(int);\n"
+    rows = _rows(source, "cpp", "a.h")
+    assert [r for r in rows if r[0] == "function"] == [("function", "f", 0, 40)]
+
+
+def test_a_second_prototype_of_the_same_name_is_a_mention_of_the_first():
+    """Decided in review: C has no overloading, so two prototypes declare one
+    function. The FIRST is the symbol, and adding a redundant re-declaration
+    does not move its id to a `~1` twin."""
+    source = "int f(int);\nint f(int);\n"
+    symbols = parse_file(source, "a.c", "c")
+    assert [(s.kind, s.qualified_name, s.byte_offset) for s in symbols] == [("function", "f", 0)]
+    assert symbols[0].id == parse_file("int f(int);\n", "a.c", "c")[0].id
+
+
+def test_a_block_scope_prototype_is_absorbed_by_a_definition_in_the_same_c_file():
+    """Consistent with the C-only drop (review note): C answers `f` and the
+    DEFINITION of `g`; C++ keeps `g`'s prototype beside its definition."""
+    source = "int f(void) { int g(int); return 0; }\nint g(int a) { return a; }\n"
+    assert _rows(source, "c", "a.c") == [("function", "f", 0, 37), ("function", "g", 38, 26)]
+    cpp = _rows(source, "cpp", "a.cpp")
+    assert [r[1] for r in cpp] == ["f", "g", "g"]
+
+
 def test_a_prototype_whose_definition_is_elsewhere_is_kept_in_c():
     """Only a definition in the SAME file absorbs the prototype."""
     source = "int f(int);\nint g(int a) { return a; }\n"
