@@ -280,6 +280,12 @@ INDEX_VERSION = 17
 #   enum body's data members**, are NEW symbols on unchanged content; an
 #   already-indexed `.dart` file serves a bare `doubled` with no owner and no
 #   `Meters` until re-parsed.
+#
+#   ⚠⚠ **And #809/#811: Zig, PowerShell and MATLAB class members.** New
+#   symbols (every struct field, class property and `properties` entry) and
+#   populated `parent`s on unchanged content, plus one MOVED id: a Zig `fn`
+#   inside a container was `function` and is `method`, so its old id
+#   resolves to nothing until the file is re-parsed.
 PARSER_GENERATION = 8
 
 

@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Fixed - Zig, PowerShell and MATLAB class members are owned, and their state is indexed (#809, #811)
+
+`const Audit = struct { tally: u32 = 0, const LIMIT: u32 = 3; pub fn
+runIt(...) }` indexed `Audit`, a `constant Audit.LIMIT` and a `function
+Audit.runIt` with `parent=None`, and no `tally`. PowerShell's `class Audit {
+[int] $tally = 0; [int] RunIt() {} }` indexed the class and an unowned
+method and no `tally`. MATLAB's `classdef Audit` with `properties`,
+`properties (Constant)` and `properties (Dependent)` blocks indexed the class,
+unowned methods and none of the three properties. A member with no `parent`
+is invisible to every parent-keyed reader (the file summary's member count,
+`get_file_outline`'s tree), and a class whose state is absent is told to
+hold nothing. Both found by @jgravelle from the AST scan #788's fix ran over
+every custom parser.
+
+⚠⚠ **A second derivation, three more times.** Each parser threaded the
+enclosing class's NAME down its own walk and rebuilt `f"{scope}.{name}"` by
+hand, discarding the owner Symbol it had built one frame up, while
+`_member_of` (#788) already answered both halves for five other custom
+parsers. The three ask it now; every qualified name is byte-identical to
+before, so `parent` is populated and only one id moves: a Zig `fn` inside a
+container was `function` and is `method`, the kind half D and Solidity had.
+The state was never read at all: Zig's `ContainerField` and container-level
+`var`, PowerShell's `class_property_definition`, MATLAB's `properties`
+entries -- a grammar node a parser never names reads as the language having
+no such thing (#698's shape).
+
+⚠ **Rulings, per language, because the member-kind audit says a row is a
+design task and not a copy:** Zig has no property concept (role omitted);
+its struct field and container-level `var` are `field`, a container-level
+`const` a `constant`; an enum's variants are `ContainerField`s with no
+identifier and are not indexed (the family's decision, #759). PowerShell has
+no readonly class property and no accessor property (two roles omitted);
+every class property is `field`, `static` and `hidden` being lifetime and
+visibility, and the `$` sigil is not part of the name. MATLAB's `properties`
+entry is `field`, `constant` under the `Constant` attribute and `property`
+under `Dependent` (the `get.` accessor form); the existing `get.view` getter
+keeps `method` and its bare name.
+
+New symbols and populated parents on unchanged content, plus the Zig id
+move, so this rides `PARSER_GENERATION` 8, which names it. Three rows join
+`tests/test_member_kind_audit.py` with no `_GAPS` entry, so the cells are
+tracked rather than rediscovered; `tests/test_zig_powershell_matlab_members_are_owned.py`
+asserts each class row for row and pins free functions, file-scope
+constants, enum variants and a nested Zig struct. Red on `main`: `15 failed,
+38 passed` over the new file and the audit. Green: `121 passed` over the new
+file, the audit, `test_file_summary_member_kinds.py`, `test_parser.py` and
+`test_one_declaration_binds_every_name.py`.
+
 ### Fixed - a Dart extension type is a symbol, and an enum body's data is owned (#819, #820)
 
 `extension type Meters(int v) { int get doubled => v * 2; static const int

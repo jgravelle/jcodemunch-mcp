@@ -12180,12 +12180,34 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return child
         return None
 
-    def _walk(node, scope: str = "") -> None:
+    def _property_kind(block) -> str:
+        """`properties (Constant)` -> constant, `(Dependent)` -> property, else field (#811)."""
+        attrs = _first_child_of_type(block, "attributes")
+        names = set()
+        if attrs is not None:
+            for attr in attrs.children:
+                if attr.type == "attribute":
+                    ident = _first_child_of_type(attr, "identifier")
+                    if ident is not None:
+                        names.add(_text(ident))
+        if "Constant" in names:
+            return "constant"
+        if "Dependent" in names:
+            return "property"
+        return "field"
+
+    # ⚠⚠ #809/#811: the walk threads the owner SYMBOL, not a scope string, and
+    # asks `_member_of` for both halves of a member's identity (#788's one
+    # helper), so `parent` is populated and no qualified name moves. A
+    # `properties` block's entries were never read; each is a `field`, or a
+    # `constant` under the `Constant` attribute, or a `property` under
+    # `Dependent` (MATLAB's accessor form, computed through `get.`).
+    def _walk(node, parent: Optional[Symbol] = None) -> None:
         if node.type == "function_definition":
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                qualified = f"{scope}.{name}" if scope else name
+                qualified, owner_id = _member_of(parent, name)
                 sig_parts = ["function"]
                 out = _first_child_of_type(node, "function_output")
                 if out:
@@ -12194,13 +12216,14 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 args = _first_child_of_type(node, "function_arguments")
                 if args:
                     sig_parts.append(_text(args))
-                kind = "method" if scope else "function"
+                kind = "method" if parent is not None else "function"
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
                     kind=kind, language="matlab",
                     signature=" ".join(sig_parts)[:120],
                     docstring="",
+                    parent=owner_id,
                     line=node.start_point[0] + 1,
                     end_line=node.end_point[0] + 1,
                     byte_offset=node.start_byte,
@@ -12208,11 +12231,35 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 ))
                 return  # Don't recurse into nested functions
+        elif node.type == "properties" and parent is not None:
+            kind = _property_kind(node)
+            for prop in node.children:
+                if prop.type != "property":
+                    continue
+                ident = _first_child_of_type(prop, "identifier")
+                if ident is None:
+                    continue
+                pname = _text(ident)
+                qualified, owner_id = _member_of(parent, pname)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, kind),
+                    file=filename, name=pname, qualified_name=qualified,
+                    kind=kind, language="matlab",
+                    signature=_text(prop).split("\n")[0].strip()[:120],
+                    docstring="",
+                    parent=owner_id,
+                    line=prop.start_point[0] + 1,
+                    end_line=prop.end_point[0] + 1,
+                    byte_offset=prop.start_byte,
+                    byte_length=prop.end_byte - prop.start_byte,
+                    content_hash=compute_content_hash(source_bytes[prop.start_byte:prop.end_byte]),
+                ))
+            return
         elif node.type == "class_definition":
             ident = _first_child_of_type(node, "identifier")
             if ident:
                 name = _text(ident)
-                symbols.append(Symbol(
+                container = Symbol(
                     id=make_symbol_id(filename, name, "class"),
                     file=filename, name=name, qualified_name=name,
                     kind="class", language="matlab",
@@ -12223,13 +12270,14 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                ))
+                )
+                symbols.append(container)
                 for child in node.children:
-                    _walk(child, name)
+                    _walk(child, container)
                 return
 
         for child in node.children:
-            _walk(child, scope)
+            _walk(child, parent)
 
     _walk(tree.root_node)
     return symbols
@@ -12703,7 +12751,33 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return kw
         return None
 
-    def _walk(node, scope: str = "") -> None:
+    # ⚠⚠ #809/#811: the walk threads the owner SYMBOL, not a scope string, and
+    # asks `_member_of` for both halves of a member's identity (#788's one
+    # helper); a `fn` inside a container is a `method` (ids move, named under
+    # PARSER_GENERATION); a struct's `ContainerField` and a container-level
+    # `var` are `field`, a container-level `const` a `constant`. An enum's
+    # variants are `ContainerField`s with no IDENTIFIER and are not indexed.
+    def _walk(node, parent: Optional[Symbol] = None) -> None:
+        if node.type == "ContainerField" and parent is not None:
+            ident = _first_child_of_type(node, "IDENTIFIER")
+            if ident:
+                name = _text(ident)
+                qualified, owner_id = _member_of(parent, name)
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, "field"),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind="field", language="zig",
+                    signature=_text(node).split("\n")[0].strip()[:120],
+                    docstring="",
+                    parent=owner_id,
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                ))
+            return
+
         if node.type == "Decl":
             fn_proto = _first_child_of_type(node, "FnProto")
             var_decl = _first_child_of_type(node, "VarDecl")
@@ -12712,14 +12786,16 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ident = _first_child_of_type(fn_proto, "IDENTIFIER")
                 if ident:
                     name = _text(ident)
-                    qualified = f"{scope}.{name}" if scope else name
+                    qualified, owner_id = _member_of(parent, name)
+                    kind = "method" if parent is not None else "function"
                     sig = _text(fn_proto)[:120]
                     symbols.append(Symbol(
-                        id=make_symbol_id(filename, qualified, "function"),
+                        id=make_symbol_id(filename, qualified, kind),
                         file=filename, name=name, qualified_name=qualified,
-                        kind="function", language="zig",
+                        kind=kind, language="zig",
                         signature=sig,
                         docstring="",
+                        parent=owner_id,
                         line=node.start_point[0] + 1,
                         end_line=node.end_point[0] + 1,
                         byte_offset=node.start_byte,
@@ -12732,7 +12808,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ident = _first_child_of_type(var_decl, "IDENTIFIER")
                 if ident:
                     name = _text(ident)
-                    qualified = f"{scope}.{name}" if scope else name
+                    qualified, owner_id = _member_of(parent, name)
                     # Check if it's a struct/enum/union definition
                     eq_found = False
                     for child in var_decl.children:
@@ -12742,32 +12818,36 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             type_kw = _is_type_expr(child)
                             if type_kw:
                                 kind = "class" if type_kw == "struct" else "type"
-                                symbols.append(Symbol(
+                                container = Symbol(
                                     id=make_symbol_id(filename, qualified, kind),
                                     file=filename, name=name, qualified_name=qualified,
                                     kind=kind, language="zig",
                                     signature=f"const {name} = {type_kw}",
                                     docstring="",
+                                    parent=owner_id,
                                     line=node.start_point[0] + 1,
                                     end_line=node.end_point[0] + 1,
                                     byte_offset=node.start_byte,
                                     byte_length=node.end_byte - node.start_byte,
                                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                                ))
+                                )
+                                symbols.append(container)
                                 # Walk inside the struct/enum for nested decls
                                 for sub in child.children:
-                                    _walk(sub, qualified)
+                                    _walk(sub, container)
                                 return
                             break
-                    # Plain constant
                     is_const = any(c.type == "const" for c in var_decl.children)
-                    if is_const:
+                    is_var = any(c.type == "var" for c in var_decl.children)
+                    if is_const or (is_var and parent is not None):
+                        kind = "constant" if is_const else "field"
                         symbols.append(Symbol(
-                            id=make_symbol_id(filename, qualified, "constant"),
+                            id=make_symbol_id(filename, qualified, kind),
                             file=filename, name=name, qualified_name=qualified,
-                            kind="constant", language="zig",
+                            kind=kind, language="zig",
                             signature=_text(var_decl).split("\n")[0].strip()[:120],
                             docstring="",
+                            parent=owner_id,
                             line=node.start_point[0] + 1,
                             end_line=node.end_point[0] + 1,
                         ))
@@ -12792,7 +12872,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
 
         for child in node.children:
-            _walk(child, scope)
+            _walk(child, parent)
 
     _walk(tree.root_node)
     return symbols
@@ -12852,7 +12932,7 @@ def _parse_powershell_symbols(source_bytes: bytes, filename: str) -> list[Symbol
             name_node = _first_child_of_type(node, "simple_name")
             if name_node:
                 name = _text(name_node)
-                symbols.append(Symbol(
+                container = Symbol(
                     id=make_symbol_id(filename, name, "class"),
                     file=filename, name=name, qualified_name=name,
                     kind="class", language="powershell",
@@ -12863,18 +12943,46 @@ def _parse_powershell_symbols(source_bytes: bytes, filename: str) -> list[Symbol
                     byte_offset=node.start_byte,
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                ))
+                )
+                symbols.append(container)
+                # ⚠⚠ #809/#811: members ask `_member_of` for both halves of
+                # their identity (#788's one helper), so `parent` is populated
+                # and the qualified name is byte-identical to before. A
+                # `class_property_definition` is a `field`: `static` and
+                # `hidden` are lifetime and visibility, not immutability, and
+                # PowerShell has no readonly class property. The `$` sigil is
+                # not part of the name.
                 for child in node.children:
                     if child.type == "class_method_definition":
                         mname_node = _first_child_of_type(child, "simple_name")
                         if mname_node:
                             mname = _text(mname_node)
+                            qualified, owner_id = _member_of(container, mname)
                             symbols.append(Symbol(
-                                id=make_symbol_id(filename, f"{name}.{mname}", "method"),
-                                file=filename, name=mname, qualified_name=f"{name}.{mname}",
+                                id=make_symbol_id(filename, qualified, "method"),
+                                file=filename, name=mname, qualified_name=qualified,
                                 kind="method", language="powershell",
                                 signature=_text(child).split("{")[0].strip()[:120],
                                 docstring="",
+                                parent=owner_id,
+                                line=child.start_point[0] + 1,
+                                end_line=child.end_point[0] + 1,
+                                byte_offset=child.start_byte,
+                                byte_length=child.end_byte - child.start_byte,
+                                content_hash=compute_content_hash(source_bytes[child.start_byte:child.end_byte]),
+                            ))
+                    elif child.type == "class_property_definition":
+                        var_node = _first_child_of_type(child, "variable")
+                        if var_node:
+                            pname = _text(var_node).lstrip("$")
+                            qualified, owner_id = _member_of(container, pname)
+                            symbols.append(Symbol(
+                                id=make_symbol_id(filename, qualified, "field"),
+                                file=filename, name=pname, qualified_name=qualified,
+                                kind="field", language="powershell",
+                                signature=_text(child).split("\n")[0].strip()[:120],
+                                docstring="",
+                                parent=owner_id,
                                 line=child.start_point[0] + 1,
                                 end_line=child.end_point[0] + 1,
                                 byte_offset=child.start_byte,

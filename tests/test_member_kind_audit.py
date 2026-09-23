@@ -251,6 +251,47 @@ _SAMPLES: dict[str, tuple[str, str, dict[str, str], str]] = {
         "    int runIt() { return 1; }\n"
         "}\n"
     )),
+    # #809/#811: the three custom parsers the #788 scan found and left for
+    # their own issues. Roles per language are decided in
+    # `test_zig_powershell_matlab_members_are_owned.py` (Zig: no property;
+    # PowerShell: no immutable member and no accessor property).
+    "zig": ("a.zig", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
+    }, (
+        "const Audit = struct {\n"
+        "    tally: u32 = 0,\n"
+        "    const LIMIT: u32 = 3;\n"
+        "    pub fn runIt(self: *Audit) u32 { return self.tally; }\n"
+        "};\n"
+    )),
+    "powershell": ("a.ps1", "Audit", {
+        "method": "RunIt", "mutable": "tally",
+    }, (
+        "class Audit {\n"
+        "    [int] $tally = 0\n"
+        "    [int] RunIt() { return 1 }\n"
+        "}\n"
+    )),
+    "matlab": ("a.m", "Audit", {
+        "method": "runIt", "mutable": "tally", "immutable": "LIMIT", "property": "view",
+    }, (
+        "classdef Audit\n"
+        "    properties\n"
+        "        tally = 0\n"
+        "    end\n"
+        "    properties (Constant)\n"
+        "        LIMIT = 3\n"
+        "    end\n"
+        "    properties (Dependent)\n"
+        "        view\n"
+        "    end\n"
+        "    methods\n"
+        "        function r = runIt(obj)\n"
+        "            r = 1;\n"
+        "        end\n"
+        "    end\n"
+        "end\n"
+    )),
     "solidity": ("a.sol", "Audit", {
         "method": "runIt", "mutable": "tally", "immutable": "LIMIT",
     }, (
@@ -364,6 +405,9 @@ _TABLE: dict[str, dict[str, tuple[str, str]]] = {
     "objc": {"method": ("method", OWNED), "mutable": ("field", OWNED), "property": ("property", OWNED)},
     "gdscript": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "dlang": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "zig": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
+    "powershell": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
+    "matlab": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED), "property": ("property", OWNED)},
     "solidity": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
     "go": {"method": ("method", OWNED), "mutable": ("field", OWNED)},
     "rust": {"method": ("method", OWNED), "mutable": ("field", OWNED), "immutable": ("constant", OWNED)},
@@ -386,13 +430,14 @@ _GAPS: dict[tuple[str, str], str] = {
     # ⚠⚠ **An empty dict is not the same as a solved problem, and the file says
     # so above**: `_SAMPLES` covers the languages it covers, and
     # `test_every_member_bearing_spec_is_sampled_or_excused` is one-directional
-    # by construction for a custom extractor. #809, #811 and #812 are SIX
-    # languages this table has never had a row for -- Zig, PowerShell and
-    # MATLAB in the first two, Pascal, F# and Nim in the third. ⚠ It read
-    # "nine" until review: that is the count of MENTIONS across three issues,
-    # and #809 and #811 name the same three languages. **The enumeration built
-    # to stop this defect class being found one language per fix cannot see
-    # the languages it does not sample.**
+    # by construction for a custom extractor. #809, #811 and #812 were SIX
+    # languages this table had never had a row for -- Zig, PowerShell and
+    # MATLAB in the first two (rows since #809/#811 closed), Pascal, F# and
+    # Nim in the third (#812, still without a row). ⚠ It read "nine" until
+    # review: that is the count of MENTIONS across three issues, and #809 and
+    # #811 name the same three languages. **The enumeration built to stop
+    # this defect class being found one language per fix cannot see the
+    # languages it does not sample.**
 }
 
 def _violations(table: dict[str, dict[str, tuple[str, str]]]) -> set[tuple[str, str]]:
