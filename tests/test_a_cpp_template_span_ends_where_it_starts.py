@@ -148,6 +148,39 @@ def test_a_member_template_inside_a_class_follows_the_same_rule(language, filena
     assert _recorded(source, inner) == b"template<class T> struct In { T v; };"
 
 
+@pytest.mark.parametrize(
+    "source,name,recorded",
+    [
+        pytest.param(
+            "template<> class Foo<int> { int n; };\n", "Foo", b"template<> class Foo<int> { int n; };",
+            id="explicit-specialisation",
+        ),
+        pytest.param(
+            "template<class T> struct S<T*> { T v; };\n", "S", b"template<class T> struct S<T*> { T v; };",
+            id="partial-specialisation",
+        ),
+    ],
+)
+@pytest.mark.parametrize("language,filename", _LANGUAGES)
+def test_a_specialisation_moves_with_the_rule(source, name, recorded, language, filename):
+    """Found in review: a specialisation is a `template_declaration` wrapping
+    a class too, so it gains its `;` by the same rule; pinned so a later spec
+    edit cannot un-move one spelling in silence."""
+    sym = _one(source, language, filename, name)
+    assert _recorded(source, sym) == recorded
+
+
+@pytest.mark.parametrize("language,filename", _LANGUAGES)
+def test_a_nested_template_wrapper_is_unchanged(language, filename):
+    """`_nearest_cpp_template_wrapper` walks to the OUTER wrapper; a member
+    template of a class template ends at its body's `}` before and after
+    (measured on `main`: 58 bytes)."""
+    source = "template<class T>\ntemplate<class U>\nvoid Foo<T>::m(U u) {}\n"
+    sym = _one(source, language, filename, "m")
+    assert _recorded(source, sym) == b"template<class T>\ntemplate<class U>\nvoid Foo<T>::m(U u) {}"
+    assert sym.byte_length == 58
+
+
 def test_cpp_and_arduino_answer_the_same_bytes():
     """Two spec copies, one wrapper rule."""
     for source in (_REPORTED, "template<typename T>\nstruct S { T v; };\n"):
