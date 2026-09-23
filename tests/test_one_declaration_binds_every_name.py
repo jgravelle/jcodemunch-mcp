@@ -79,8 +79,7 @@ _LANGUAGE_OF = {"go_var": "go", "go_const": "go", "cpp_typedef": "cpp"}
 #: declarator list, an F# `and` chain) and a fix for one is not a fix for the
 #: other.
 _GAPS: dict[str, str] = {
-    "c": "#823: a C typedef declarator list binds only its first name",
-    "cpp_typedef": "#823: same declaration node, the second of the two specs",
+    # #823 closed 2026-09-23: the `c` and `cpp_typedef` rows bind every name.
     "fsharp": "#824: an F# `and`-chained type declares only the first",
 }
 

@@ -253,6 +253,11 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And #797: C struct and union members.** New SYMBOLS on unchanged
 #   content, gen 5's and gen 8's Kotlin case in a third language -- every `.c`
 #   file already indexed holds its structs as bare names until re-parsed.
+#
+#   ⚠⚠ **And #823: every name of a C/C++ `typedef int A, B;`**, new symbols on
+#   unchanged content again, plus one MOVED id: a C function-pointer typedef
+#   was named the literal `(*Cb)` and is `Cb` now, so its old id resolves to
+#   nothing until the file is re-parsed.
 PARSER_GENERATION = 8
 
 

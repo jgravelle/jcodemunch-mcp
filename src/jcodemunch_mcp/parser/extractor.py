@@ -1,6 +1,7 @@
 """Generic AST symbol extractor using tree-sitter."""
 
 import bisect
+import dataclasses
 import logging
 import re
 from typing import Any, Optional
@@ -663,6 +664,26 @@ def _walk_tree(
             )
             if symbol:
                 symbols.append(symbol)
+                # #823: `typedef int A, B;` binds N names and the node yields
+                # one symbol. The others are that symbol under each remaining
+                # declarator's name -- the DECLARATION's bytes for every name,
+                # deliberately (a C declarator does not carry the base type
+                # that says what the name is; the decision is recorded in
+                # `tests/test_a_c_typedef_binds_every_name.py`).
+                for extra in _typedef_extra_names(node, spec, source_bytes):
+                    prefix = symbol.qualified_name[: len(symbol.qualified_name) - len(symbol.name)]
+                    qualified = prefix + extra
+                    symbols.append(
+                        dataclasses.replace(
+                            symbol,
+                            name=extra,
+                            qualified_name=qualified,
+                            id=make_symbol_id(filename, qualified, symbol.kind),
+                            keywords=list(symbol.keywords),
+                            decorators=list(symbol.decorators),
+                            call_references=list(symbol.call_references),
+                        )
+                    )
                 if is_cpp:
                     # `typedef struct { int x; } Point;` -- the struct has no
                     # name of its own, so the typedef's is the owner (#755).
@@ -1972,17 +1993,66 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         if spec.ts_language in ("cpp", "arduino"):
             return _extract_cpp_name(name_node, source_bytes)
 
-        # C function_definition: declarator is a function_declarator,
-        # which wraps the actual identifier. Unwrap recursively.
-        while name_node.type in ("function_declarator", "pointer_declarator", "reference_declarator"):
-            inner = name_node.child_by_field_name("declarator")
-            if inner:
-                name_node = inner
-            else:
-                break
-        return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
-    
+        return _c_declarator_name(name_node, source_bytes)
+
     return None
+
+
+#: The C declarator wrappers `_c_declarator_name` unwraps. ⚠ `parenthesized_declarator`
+#: and `array_declarator` were absent until #823, so `typedef void (*Cb)(int);`
+#: was named the literal `(*Cb)` in C while C++'s wider set named it `Cb`.
+_C_DECLARATOR_WRAPPERS = frozenset({
+    "function_declarator",
+    "pointer_declarator",
+    "reference_declarator",
+    "parenthesized_declarator",
+    "array_declarator",
+})
+
+
+def _c_declarator_name(name_node, source_bytes: bytes) -> str:
+    """The identifier a C declarator finally binds: a `function_definition`'s
+    `declarator` is a `function_declarator` wrapping it, a typedef's may be a
+    pointer, array or parenthesized function pointer wrapping it."""
+    while name_node.type in _C_DECLARATOR_WRAPPERS:
+        # ⚠ `parenthesized_declarator` carries its inner declarator as an
+        # UNNAMED child (no `declarator` field), which is why the pre-#823 loop
+        # stopped there and named `(*Cb)`.
+        inner = name_node.child_by_field_name("declarator") or next(
+            (c for c in name_node.named_children if c.type in _C_DECLARATOR_WRAPPERS or c.type.endswith("identifier")),
+            None,
+        )
+        if inner:
+            name_node = inner
+        else:
+            break
+    return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+
+
+#: The specs whose `type_definition` carries one `declarator` per bound name.
+_C_FAMILY_TYPEDEF_LANGUAGES = frozenset({"c", "cpp", "arduino"})
+
+
+def _typedef_extra_names(node, spec: LanguageSpec, source_bytes: bytes) -> list[str]:
+    """Every name a `typedef int A, B;` binds AFTER the first (#823).
+
+    ⚠⚠ `_extract_symbol` returns one symbol per node and `name_fields` reads
+    `child_by_field_name("declarator")`, which is the FIRST declarator, so a
+    declaration binding N names yielded one -- #817's mechanism one language
+    over, in three spec copies (#698). Each declarator goes through the SAME
+    unwrap `_extract_name` uses for the first, so the two cannot drift.
+    """
+    if node.type != "type_definition" or spec.ts_language not in _C_FAMILY_TYPEDEF_LANGUAGES:
+        return []
+    declarators = node.children_by_field_name("declarator")
+    if len(declarators) < 2:
+        return []
+    unwrap = (
+        (lambda d: _extract_cpp_name(d, source_bytes))
+        if spec.ts_language in ("cpp", "arduino")
+        else (lambda d: _c_declarator_name(d, source_bytes))
+    )
+    return [n for n in (unwrap(d) for d in declarators[1:]) if n]
 
 
 def _swift_bound_identifier(pattern_node, source_bytes: bytes) -> Optional[str]:

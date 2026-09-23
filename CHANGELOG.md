@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Fixed - a C or C++ typedef list binds every name it declares (#823)
+
+`typedef int A, B;` indexed `A` and nothing else, in C and in C++. `B` was
+not mis-kinded or unowned; it was absent, while the same two names on two
+lines both indexed. Reported by @jgravelle from the #817 scan.
+
+⚠⚠ **#817's mechanism one language over, in three spec copies.** The
+declaration carries one declarator per name; `_extract_symbol` returns one
+symbol per node and `name_fields` reads the FIRST declarator, so a
+declaration binding N names yielded one. Go's fix was a spec remap to a
+narrower node the grammar supplies; C has none, so the fix sits at the one
+site every `symbol_node_types` symbol passes through -- a C-family
+`type_definition` with N declarators yields N symbols -- and `arduino`
+inherits it with `c` and `cpp`. Every declarator is named through the SAME
+unwrap `_extract_name` uses for the first, so the two cannot drift.
+
+⚠ **Found by the same measurement and absorbed, because the fix has to name
+each declarator through that unwrap:** C named `typedef void (*Cb)(int);` as
+the literal `(*Cb)` while C++ named it `Cb`. `parenthesized_declarator`
+carries its inner declarator as an UNNAMED child, and the C loop stopped
+there. It is `Cb` now, which moves that id; `PARSER_GENERATION` 8 names it.
+
+⚠ **The span is a decision, not a default, because the issue asked for one:**
+every name of a multi-declarator typedef records the DECLARATION's bytes. A
+C declarator (`*PP`, `Arr[4]`) does not carry the base type that gives the
+name its meaning, unlike a Go `type_spec`, so the declaration is the smallest
+node that says what `B` is; nothing joins to a typedef by byte offset. That
+is the #826 shape, taken on purpose and recorded in the test's docstring.
+
+⚠ Measured on the way and filed as #833, not folded in: C++ publishes ANY
+function-local type at file scope with no owner (struct, typedef, enum
+alike), where C qualifies it under the function -- the scoping cousin of
+#798. Pinned as a tracked gap that fails when it closes.
+
+`tests/test_a_c_typedef_binds_every_name.py`; red on `main`: `28 failed,
+3 passed`. The `c` and `cpp_typedef` rows leave `_GAPS` in
+`tests/test_one_declaration_binds_every_name.py`.
+
 ### Fixed - a C struct or union indexes its members (#797, #825)
 
 A C `struct` or `union` yielded no member symbols at all. `struct S { int x;
