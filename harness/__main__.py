@@ -89,6 +89,18 @@ class _Tee:
             for ln in self.lines
             if ln.startswith(("   ", "  ")) and ("passed" in ln or "failed" in ln)
         ]
+        # F-35: the ids the tier printed for a non-zero pytest run, in the ONE
+        # form `_failed_id_lines` emits, so the console and this artifact are
+        # a single derivation. A pytest `FAILED` row sits at column 0 and the
+        # filter above never kept it: the artifact recorded `3 failed` and
+        # nothing that could say which three. Absent on a clean run -- no
+        # empty heading -- so "no failures" and "not recorded" read apart.
+        named = [
+            ln.strip()
+            for ln in self.lines
+            if ln.startswith(_FAILED_ID_INDENT)
+            and ln.strip().startswith(("FAILED ", "ERROR ", "... "))
+        ]
         head = f"## {title}: {'PASS' if ok else 'FAIL'}\n\n"
         body = (
             "\n".join(rows) if len(rows) > 2 else "_no threshold verdicts in this run_"
@@ -98,7 +110,10 @@ class _Tee:
             if extra
             else ""
         )
-        return head + body + tail + "\n"
+        failed_block = (
+            ("\n\n**Failed:**\n\n```\n" + "\n".join(named) + "\n```") if named else ""
+        )
+        return head + body + tail + failed_block + "\n"
 
     def annotations(self) -> list[str]:
         return [
@@ -206,6 +221,58 @@ _SUMMARY = re.compile(
 )
 
 
+#: A pytest short-summary row, anchored at COLUMN 0 (F-35). An indented line
+#: that merely contains the word -- a traceback, an assertion string -- is not
+#: a row, and only the anchor tells them apart.
+_FAILED_ROW_RE = re.compile(r"^(FAILED|ERROR)\s+(\S+)")
+
+#: How many ids a tier prints before DISCLOSING the remainder. A silently
+#: shortened list would be F-35's own defect one layer down: a count is not a
+#: diagnosis, and neither is a list that stops without saying so.
+_FAILED_ID_CAP = 25
+
+#: The indent every tier uses for the lines `summary_markdown` collects.
+_FAILED_ID_INDENT = "   "
+
+
+def _failed_rows(out: str) -> list[str]:
+    """Every column-0 `FAILED`/`ERROR` row of a pytest run, stripped, in order."""
+    return [ln.rstrip() for ln in out.splitlines() if _FAILED_ROW_RE.match(ln)]
+
+
+def _failed_ids(out: str) -> list[str]:
+    """Every test id pytest named as failed or errored, in order, deduplicated.
+
+    ONE derivation: `_annotate_failure` (the Checks tab) and
+    `_failed_id_lines` (the console and the summary artifact) both read the
+    rows this parses, so the three surfaces cannot disagree about which tests
+    failed. `ERROR` counts: a test that errored at setup did not run, which is
+    worse than one that failed (F-32's sdist guard).
+    """
+    seen: list[str] = []
+    for row in _failed_rows(out):
+        tid = _FAILED_ROW_RE.match(row).group(2)
+        if tid not in seen:
+            seen.append(tid)
+    return seen
+
+
+def _failed_id_lines(out: str) -> list[str]:
+    """The lines a tier prints for a non-zero pytest run: one per id, indented,
+    capped at `_FAILED_ID_CAP` with the remainder DISCLOSED by count."""
+    kind: dict[str, str] = {}
+    for row in _failed_rows(out):
+        m = _FAILED_ROW_RE.match(row)
+        kind.setdefault(m.group(2), m.group(1))
+    ids = list(kind)
+    lines = [f"{_FAILED_ID_INDENT}{kind[tid]} {tid}" for tid in ids[:_FAILED_ID_CAP]]
+    if len(ids) > _FAILED_ID_CAP:
+        lines.append(
+            f"{_FAILED_ID_INDENT}... {len(ids) - _FAILED_ID_CAP} more failures; see the log"
+        )
+    return lines
+
+
 def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
     """Surface a non-threshold failure (pytest, ruff, corpora) as check annotations.
 
@@ -216,9 +283,7 @@ def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
     """
     if not os.environ.get("GITHUB_ACTIONS"):
         return
-    failed = [
-        ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED ", "ERROR "))
-    ]
+    failed = _failed_rows(out)
     lines = (
         failed[:max_lines]
         if failed
@@ -600,6 +665,8 @@ def tier_fast(result: dict) -> bool:
     if rc != 0:
         ok = False
         print(out[-4000:])
+        for ln in _failed_id_lines(out):
+            print(ln)
         _annotate_failure("fast tier: pytest", out)
     # A skip ceiling here too: a rebuilt .venv without the watch extra took
     # this tier from 7 skips to 112 at exit 0 (2026-09-03, the 08-28 shape).
@@ -685,6 +752,11 @@ def tier_full(result: dict) -> bool:
     ok = rc == 0 and warm_ok
     if rc != 0:
         print(out[-6000:])
+        # F-35: the tail above can lose the short summary behind the coverage
+        # table, and `summary_markdown` never kept a column-0 row anyway. The
+        # names, in the form the artifact collects.
+        for ln in _failed_id_lines(out):
+            print(ln)
         _annotate_failure("full tier: pytest", out)
     m = re.search(r"^TOTAL\s+\d+\s+\d+\s+(\d+)%", out, re.M)
     cov_obs = int(m.group(1)) if m else None
