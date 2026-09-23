@@ -505,7 +505,7 @@ GO_SPEC = LanguageSpec(
         # it. `type_spec` is what binds one name, and it is a direct child in
         # both spellings, so the generic walk already visits it.
         # ⚠ The recorded SPAN is still the declaration whenever the
-        # declaration binds this name alone -- `_go_type_span_node`, applied
+        # declaration binds this name alone -- `_go_binding_span_node`, applied
         # where the cpp template wrapper is. A spec-wide span would have
         # dropped the `type` keyword from every Go type in every index to fix
         # the grouped form.
