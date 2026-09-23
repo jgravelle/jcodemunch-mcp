@@ -4,7 +4,7 @@ import bisect
 import dataclasses
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
 
 from .racket_reader import read_racket
@@ -1173,7 +1173,7 @@ def _extract_symbol(
         if wrapper:
             signature_node = wrapper
     elif language == "go":
-        signature_node = _go_type_span_node(node)
+        signature_node = _go_binding_span_node(node)
 
     # Build signature
     signature = _build_signature(signature_node, spec, source_bytes)
@@ -1189,7 +1189,7 @@ def _extract_symbol(
     end_byte = node.end_byte
     end_line_num = node.end_point[0] + 1
     # ⚠⚠ **A WIDENED START NEEDS THE WIDENED END** (#817, found in review).
-    # `_go_type_span_node` moves the start out to the declaration; leaving the
+    # `_go_binding_span_node` moves the start out to the declaration; leaving the
     # end on the spec recorded `type (\n\tA int` for a one-name grouped block
     # -- bytes that do not close, a `content_hash` over a fragment, and an
     # `end_line` disagreeing with the `signature` beside it, which is built
@@ -1506,37 +1506,57 @@ def solidity_state_variable_kind(node) -> Optional[str]:
 _GO_TYPE_BINDING_NODE_TYPES = frozenset({"type_spec", "type_alias"})
 
 
-def _go_type_span_node(node):
-    """The widest node that addresses this Go type's name ALONE (#817).
+#: Every Go spec that binds a package-level name, with the declaration that
+#: holds it and the function that lists the specs a declaration holds (#826).
+_GO_BINDING_SPECS: dict[str, tuple[str, Callable]] = {}
 
-    The declaration when it binds one name -- `type S struct{...}`, keyword
-    included, which is what a reader opens and what every Go type in every
-    existing index already records -- and the spec itself when the declaration
-    binds several.
+
+def _go_binding_span_node(node):
+    """The widest node that addresses this Go binding's name ALONE (#817, #826).
+
+    The declaration when it holds one spec -- `type S struct{...}`,
+    `const S = 3`, `var T = 4`, keyword included, which is what a reader opens
+    and what every existing index already records -- and the spec itself when
+    the declaration holds several (a grouped `( ... )` block).
 
     ⚠⚠ **Uniqueness is the requirement, not tidiness.** #778's receiver pass
     joins a method to its owner by BYTE OFFSET, so three grouped types sharing
     the declaration's span would collapse to one entry and leave two of them
-    unable to own anything. The `var` and `const` channels DO give every name
-    in a grouped block the declaration's span (`_variable_symbol`); that is
-    survivable there because nothing joins to a constant by offset, and it is
-    the one thing a type may not do.
+    unable to own anything. #817 fixed that for `type` alone; the `var` and
+    `const` channels kept giving every name in a grouped block the block's
+    span on the claim that no narrower node existed, which Go's grammar
+    refutes: a `const_spec` and a `var_spec` per line (#826). One rule, asked
+    here by all four spec types, so the two channels cannot answer differently
+    again.
+
+    ⚠ A spec that itself binds several names (`const D, E = 5, 6`) is the
+    narrowest node addressing either name, so both record it: the rule, not
+    an exception, and never a synthesised range (#414).
 
     ⚠ The narrowest such node is the spec in BOTH spellings, and taking it
     uniformly is the simpler rule -- it was rejected because it moves the
-    offset of every Go type in every index and drops `type` from every
-    signature, to fix a form that is the minority of them.
+    offset of every single-spec Go symbol in every index and drops the keyword
+    from every signature, to fix a form that is the minority of them.
 
-    ⚠ Returns the node unchanged for anything that is not a widenable spec, so
+    ⚠ Returns the node unchanged for anything that is not a binding spec, so
     every other Go symbol keeps the node it had.
     """
-    if node.type != "type_spec":
+    entry = _GO_BINDING_SPECS.get(node.type)
+    if entry is None:
         return node
+    decl_type, specs_of = entry
     decl = node.parent
-    if decl is None or decl.type != "type_declaration":
+    if decl is None or decl.type != decl_type:
         return node
-    bound = sum(1 for c in decl.children if c.type in _GO_TYPE_BINDING_NODE_TYPES)
-    return decl if bound == 1 else node
+    return decl if sum(1 for _ in specs_of(decl)) == 1 else node
+
+
+def _go_type_spec_nodes(decl):
+    return (c for c in decl.children if c.type in _GO_TYPE_BINDING_NODE_TYPES)
+
+
+def _go_const_spec_nodes(decl):
+    return (c for c in decl.children if c.type == "const_spec")
 
 
 def _go_receiver_type_name(method_node, source: "ByteSlicedSource") -> Optional[str]:
@@ -1651,14 +1671,14 @@ def _attach_go_receivers_and_fields(
         for spec in decl.children:
             if spec.type != "type_spec":
                 continue
-            # ⚠⚠ **The join asks `_go_type_span_node`, which is the same
+            # ⚠⚠ **The join asks `_go_binding_span_node`, which is the same
             # function the walk used to record the offset** -- not a second
             # copy of the rule that would drift from it (08-19). Every spec in
             # a grouped block resolves to its OWN symbol since #817; before
             # that, a declaration yielded one symbol and this loop needed a
             # name check to stop the second spec handing its fields to the
             # first (retired, `harness/retired.json`).
-            owner = type_at.get(_go_type_span_node(spec).start_byte)
+            owner = type_at.get(_go_binding_span_node(spec).start_byte)
             if owner is None:
                 continue
             # ⚠ The owner's NAME comes off the symbol rather than being read
@@ -2706,14 +2726,16 @@ def _declaration_symbol(
 def _constant_symbol(
     name: str, decl_node, source_bytes: bytes, filename: str, language: str
 ) -> Symbol:
-    """One constant symbol spanning its whole declaration.
+    """One constant symbol spanning the node it is handed.
 
-    The N-name languages all report the same span for every name they bind: the
-    declaration is what the reader opens, and `const ( A = 1; B = 2 )` has no
-    narrower node that contains `B` alone in Go's grammar anyway. Sharing the
-    span keeps `byte_offset`/`byte_length` pointing at real source text rather
-    than at a synthesised range (#414's rule: an offset must address bytes that
-    exist).
+    The N-name languages report the DECLARATION for every name they bind: it
+    is what the reader opens, and sharing it keeps `byte_offset`/`byte_length`
+    pointing at real source text rather than a synthesised range (#414's rule:
+    an offset must address bytes that exist). ⚠ Go is the exception, and the
+    reason is a node that exists: `const ( A = 1; B = 2 )` holds a `const_spec`
+    per line, so Go hands the widest node addressing the name ALONE
+    (`_go_binding_span_node`, #826) -- this docstring's old claim that no such
+    node existed is what gave every grouped constant the block's bytes.
     """
     return _declaration_symbol(name, decl_node, source_bytes, filename, language, "constant")
 
@@ -2822,6 +2844,14 @@ def _go_var_spec_nodes(node):
                     yield spec_node
 
 
+_GO_BINDING_SPECS.update({
+    "type_spec": ("type_declaration", _go_type_spec_nodes),
+    "type_alias": ("type_declaration", _go_type_spec_nodes),
+    "const_spec": ("const_declaration", _go_const_spec_nodes),
+    "var_spec": ("var_declaration", _go_var_spec_nodes),
+})
+
+
 def _extract_go_variables(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:
@@ -2859,19 +2889,24 @@ def _extract_go_variables(
                 # issue (#763).
                 if name == "_":
                     continue
-                found.append(_variable_symbol(name, node, source_bytes, filename, language))
+                found.append(
+                    _variable_symbol(name, _go_binding_span_node(spec_node), source_bytes, filename, language)
+                )
     return found
 
 
 def _variable_symbol(
     name: str, decl_node, source_bytes: bytes, filename: str, language: str
 ) -> Symbol:
-    """One variable symbol spanning its whole declaration.
+    """One variable symbol spanning the node it is handed.
 
-    The span is the DECLARATION for the reason `_constant_symbol` gives: the
-    declaration is what a reader opens, a grouped `var ( ... )` has no narrower
-    node containing one name alone, and a synthesised range would not address
-    bytes that exist (#414's rule).
+    `decl_node` is the DECLARATION for every language but Go, for the reason
+    `_constant_symbol` gives. ⚠ Go hands the widest node that addresses the
+    name ALONE (`_go_binding_span_node`, #826): the declaration when it holds
+    one spec, the `var_spec` when a grouped block holds several. This
+    docstring used to claim a grouped block "has no narrower node containing
+    one name alone"; Go's grammar has one per line, and the claim gave every
+    name in a block the block's bytes.
 
     ⚠ `qualified_name` is the bare name and stays that way, unlike
     `_field_symbol`'s: module-level state has no owner to qualify against, and
@@ -3507,7 +3542,9 @@ def _extract_go_constants(
                 break
             if child.type == "identifier":
                 name = source_bytes[child.start_byte:child.end_byte].decode("utf-8", "replace")
-                found.append(_constant_symbol(name, node, source_bytes, filename, language))
+                found.append(
+                    _constant_symbol(name, _go_binding_span_node(spec_node), source_bytes, filename, language)
+                )
     return found
 
 

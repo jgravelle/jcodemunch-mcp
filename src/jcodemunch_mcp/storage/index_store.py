@@ -265,6 +265,11 @@ INDEX_VERSION = 17
 #   each `struct S` it merely mentions (a field type, a parameter, a cast, a
 #   forward declaration) until re-parsed, and a consumer asking where `S` is
 #   defined keeps getting that file.
+#
+#   ⚠⚠ **And #826: spans MOVE for every grouped Go `var`/`const`.** Each name
+#   in a `const ( ... )` / `var ( ... )` block recorded the whole block; it
+#   records its own spec now, so an already-indexed `.go` file serves the
+#   block for every one of those names until re-parsed.
 PARSER_GENERATION = 8
 
 

@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - each name in a grouped Go var/const block records its own span (#826)
+
+`const ( P = 1; Q = 2 )` gave `P` and `Q` the same bytes, the whole block, so
+`get_symbol_source` on `P` returned `Q`'s declaration too and every consumer
+reading a span got the block for either name. Same for a grouped `var`, a
+block holding a typed-only spec, and an `iota` continuation. Found by
+@jgravelle fixing #817, which had answered the same question for `type`.
+
+⚠⚠ **A second derivation, and the second one was wrong in its own
+docstring.** `_variable_symbol` and `_constant_symbol` both justified the
+shared span with "a grouped block has no narrower node containing one name
+alone". Go's grammar has one per line, a `const_spec` and a `var_spec`, and
+#817 had already used the sibling `type_spec` under the rule *the widest node
+that addresses this name alone*: the declaration when it holds one spec, so
+the common case keeps the bytes it had, keyword included, and the spec when
+it holds several. That function is `_go_binding_span_node` now and all four
+Go spec types ask it, so the channels cannot answer differently again.
+
+⚠ A spec that itself binds several names (`const D, E = 5, 6`) is the
+narrowest node addressing either, so both record it: the rule, not an
+exception, and never a synthesised range (#414).
+
+⚠ Spans MOVE for every grouped Go `var`/`const` on unchanged content, so this
+rides `PARSER_GENERATION` 8, which names it. `signature` follows the span.
+`tests/test_a_grouped_go_binding_records_its_own_span.py` asserts each form
+and the property that no two symbols in a file share a span. Red on `main`:
+`7 failed, 3 passed`. Green: `136 passed` over the new file and seven
+related ones.
+
+⚠ Measured past Go and decided, not changed: Java's `private int a, b;`
+keeps the declaration for both, because a Java declarator does not carry the
+type (#823's reasoning for C). JS/TS's `let x = 1, y = 2;` is Go's shape (a
+`variable_declarator` addresses `y` alone and carries its initializer) and
+is #837.
+
 ### Fixed - a C-family type written as a reference is not a declaration (#830)
 
 `struct S { struct Other *link; };` declared a nested type `S.Other` that the
