@@ -39,8 +39,10 @@ definition followed by references is declared once; the tracked-gap test in
 `main`: `44 failed, 3 passed`. Green: `172 passed` over the new file and the
 four related ones.
 
-⚠ Measured beside it and unchanged by it: C publishes no `function g` for
-`void g(struct S *p);` where C++ does. Its own issue.
+⚠ Measured beside it and unchanged by it: a C file-scope PROTOTYPE yields
+no symbol in any shape (`int f(int);` included) where the same bytes in C++
+yield a `function`; `C_SPEC` has no `declaration` row at all. Its own issue,
+#835.
 
 ### Fixed - a C or C++ typedef list binds every name it declares (#823)
 
