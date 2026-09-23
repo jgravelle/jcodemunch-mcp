@@ -36,7 +36,12 @@ symbol), so that method is `method` whether its class is named or anonymous.
 A block-scope PROTOTYPE (`void inner(int);` inside a body) declares a
 namespace-scope function and stays at file scope with no owner, as `main`
 answered it; review caught the first draft publishing it as `df.inner`, a
-`method`, a wrong kind and owner where `main` was right.
+`method`, a wrong kind and owner where `main` was right. Measured beside it
+and filed, not folded in: a local function-pointer variable and a lambda
+variable are published as file-scope functions on `main` and here alike
+(#850), because `_is_cpp_function_declaration` reads the declarator's
+shape; and the retirement ledger entry arrived in the fix commit rather
+than its own, an unenforced rule recorded as harness F-37.
 
 ⚠ Ids MOVE for every function-local C++/Arduino type, field and method
 (`S` -> `f.S`, `K.L` -> `K.m.L`), named under `PARSER_GENERATION` 8.
