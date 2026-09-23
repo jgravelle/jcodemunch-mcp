@@ -110,7 +110,7 @@ _LOCAL = "int f(void) {\n    typedef int L1, L2;\n    L1 a = 0; L2 b = 0; return
 
 
 @pytest.mark.parametrize("language,filename", [("c", "a.c"), ("cpp", "a.cpp")])
-def test_a_typedef_list_inside_a_function_binds_under_the_function(language, filename):
+def test_a_c_typedef_list_inside_a_function_binds_under_the_function(language, filename):
     """A local typedef is legal C and C++; BOTH names are qualified under the
     function, not published as file-scope types. C++ joined C when #833
     closed (the tracked gap that sat here is retired in `harness/retired.json`)."""
