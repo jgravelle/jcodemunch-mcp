@@ -195,6 +195,30 @@ def test_a_zig_nested_struct_is_owned_and_its_members_are_owned_by_it():
     assert rows["Outer.Inner.q"] == ("field", "Inner")
 
 
+def test_a_matlab_dependent_property_coexists_with_its_getter():
+    """Found in review: `_rows` keys on the qualified name, so a `Dependent`
+    property and its `get.view` accessor (both `Audit.view`) collapsed to one
+    row and the ruling that the getter keeps `method` was asserted nowhere.
+    Two symbols, two kinds, two ids, one owner."""
+    source = (
+        "classdef Audit\n"
+        "    properties (Dependent)\n"
+        "        view\n"
+        "    end\n"
+        "    methods\n"
+        "        function v = get.view(obj)\n"
+        "            v = 1;\n"
+        "        end\n"
+        "    end\n"
+        "end\n"
+    )
+    symbols = parse_file(source, "a.m", "matlab")
+    by_id = {s.id: s for s in symbols}
+    views = sorted((s.kind, by_id[s.parent].name) for s in symbols if s.qualified_name == "Audit.view")
+    assert views == [("method", "Audit"), ("property", "Audit")]
+    assert len({s.id for s in symbols if s.qualified_name == "Audit.view"}) == 2
+
+
 def test_matlab_multiple_properties_in_one_block_are_all_indexed():
     source = "classdef A\n    properties\n        x\n        y = 2\n    end\nend\n"
     rows = _rows(source, "a.m", "matlab")
