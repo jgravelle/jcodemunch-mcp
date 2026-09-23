@@ -46,9 +46,12 @@ move, so this rides `PARSER_GENERATION` 8, which names it. Three rows join
 tracked rather than rediscovered; `tests/test_zig_powershell_matlab_members_are_owned.py`
 asserts each class row for row and pins free functions, file-scope
 constants, enum variants and a nested Zig struct. Red on `main`: `15 failed,
-38 passed` over the new file and the audit. Green: `121 passed` over the new
-file, the audit, `test_file_summary_member_kinds.py`, `test_parser.py` and
-`test_one_declaration_binds_every_name.py`.
+38 passed` over the new file and the audit. Green: `199 passed` over the new
+file, the audit, `test_file_summary_member_kinds.py`, `test_parser.py`,
+`test_one_declaration_binds_every_name.py`, `test_inventory_reads_every_channel.py`
+and `test_grammar_spelled_forms.py` (PowerShell's `class_property_definition`
+leaves the unnamed-declaration baseline, which the full tier refused
+without).
 
 ### Fixed - a Dart extension type is a symbol, and an enum body's data is owned (#819, #820)
 

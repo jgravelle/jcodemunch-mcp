@@ -327,7 +327,6 @@
       "use_declaration"
     ],
     "powershell": [
-      "class_property_definition",
       "function_parameter_declaration",
       "type_spec"
     ],
