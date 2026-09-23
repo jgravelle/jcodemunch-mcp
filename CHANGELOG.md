@@ -2,6 +2,73 @@
 
 ## [Unreleased]
 
+### Fixed - a member's owner survives the renumbering that disambiguates it (#821)
+
+Two same-named containers in one file are disambiguated to `~1` and `~2`. Their
+members were not: each one's `parent` still held the owner's PRE-renumbering
+id, which no emitted symbol carries.
+
+⚠⚠ **The member was PROMOTED TO TOP LEVEL, not lost.** `build_symbol_tree`
+appends a child whose `parent` does not resolve to `roots`, so
+`get_file_outline` rendered a field or a method beside the classes as though
+it were module scope, and nothing raised. ⚠ The consumer is
+`get_file_outline`; `get_class_hierarchy` does not read `parent` at all, and
+an earlier draft of this entry named it. That is #771's residue.
+
+⚠⚠ **It reached ordinary source in three languages, not only duplicated
+code.** An Objective-C `@interface` and `@implementation`, a C# `partial
+class` and a Swift `extension` are each one type written in two places — the
+language's own supported idiom — and all three produce two symbols with one
+id. `tests/test_a_class_member_carries_its_owner.py` had NAMED all three as
+shipping in that state since #771 and said this was "a different fix in a
+different layer". This is that layer; all three are closed.
+
+⚠⚠ **The twin is chosen by CONTAINMENT, because that is the relationship that
+made the member a member.** The stale string cannot say which twin it meant —
+both twins had it — and neither a name nor a line is an identity. The member's
+bytes sit inside exactly one twin's bytes.
+
+⚠⚠ **A member no twin CONTAINS has an UNKNOWN owner and is given none, and
+the first draft of this fix got that wrong in the reported corpus.** Rust
+attaches a method to an `impl` block and Go to a receiver, so neither sits
+inside its type and containment cannot answer. The draft fell back to the
+first twin, which filed `#[cfg(windows)]`'s method under the `#[cfg(unix)]`
+struct — valid, compiling Rust, and the exact shape #821 was filed from.
+**That is worse than the defect it replaced**: a dangling pointer is visibly
+broken and a wrong owner is not. `qualified_name` still carries
+`Conf.only_win`, so only the pointer says unknown. Absence over fabrication.
+
+⚠ **What that costs, stated because a reader diffing two indexes will find
+it**: the rule also discards the *coincidentally* correct attributions. Go's
+`A` and Rust's `only_unix` really do belong to the first twin, and both read
+unknown now. That correctness was an artifact of `setdefault` order — it was
+ordered, never established — so it is the same price `has_any()`'s tri-state
+pays, and the alternative is publishing the ones that are wrong alongside it.
+
+⚠⚠ **The guard that already described this defect could not fail on it.** Its
+helper stripped the `~N` off the member's parent AND off the container's id
+before comparing, so `~1`, `~2` and the un-suffixed id all compared equal — a
+comparison that cannot tell the right owner from the wrong owner from an id
+nothing carries. The helper is deleted and that file asserts exact ids, which
+is a strengthening.
+
+⚠⚠ **A consumer was compensating, and the compensation had to move in the
+SAME commit.** `_heuristic_summary` stripped the ordinal off its own side so
+that a member carrying the pre-renumbering id would still match, which made
+each namesake report the UNION of both halves' members. With the producer
+fixed, stripping there and a suffixed `parent` here match nothing at all — the
+workaround's failure mode is exactly the empty summary it was written to
+prevent. Each declaration now reports the members IT declares: for a
+`partial class` that is a per-declaration count rather than the class total,
+so the sentences sum to the file's real member count instead of reporting
+every member once per namesake, and a Swift `extension` no longer claims the
+class's method as well as its own property.
+
+⚠ `_disambiguate_overloads`, the pre-merge copy of the renumbering, was still
+in the tree, called by nothing, carrying this defect unfixed. Deleted: the
+ordinal rule has one implementation. `_ORDINAL_SUFFIX` goes with its only
+reader.
+
 ### Fixed - a Go `type ( ... )` block binds every name in it (#817)
 
 `type ( A int; B int; C struct{ N int } )` indexed `A` and nothing else. Not

@@ -12,8 +12,11 @@ The ledger starts empty: the archaeology found nothing to retire.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
+
+import pytest
 
 from harness import thresholds as T
 
@@ -80,6 +83,128 @@ def test_no_archaeology_row_is_split_across_lines():
     assert not offenders, (
         "ARCHAEOLOGY.md row(s) split across lines -- a cell holds a literal "
         f"newline: {offenders}"
+    )
+
+
+def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
+    """The direction neither guard asked, and a typo slipped through it (#821).
+
+    ⚠⚠ **Two guards over one ledger, and the gap was between them.**
+    `test_ledger_is_well_formed` asks whether an entry has its fields;
+    `test_every_ledgered_replacement_exists_and_collects` asks whether the
+    REPLACEMENT is real; `.claude/hooks/dod_checklist.py` asks whether every
+    removed test has an entry. None asked whether an entry names a test that
+    actually left. A row reading `..._here_needs_the_ordinal_stripped` for a
+    test called `..._here_that_needs_the_ordinal_stripped` therefore passed
+    this file, failed the checklist, and sat wrong for two commits.
+
+    ⚠⚠ **Against the MERGE BASE, never the working diff.** A test added AND
+    retired inside one branch never existed on `main` and owes no row, so a
+    working-diff version of this check would demand one; `origin/main...HEAD`
+    asks what left the tree as `main` knows it.
+
+    ⚠⚠ **Scoped to the rows this branch ADDED to the ledger -- the diff of
+    `harness/retired.json` against the base -- never to a row's `commit` sha.**
+    The first shipped draft keyed on the sha and failed CI on twelve historical
+    rows: this repo squash-merges with `--delete-branch`, so every row's
+    `commit` names a branch sha a fresh clone does not have. It passed here
+    because this box still held the dangling objects, which is a test green on
+    one machine and red on the next for a reason neither can see (#437). A
+    ledger `commit` is provenance a reader follows by hand, not a pointer a
+    guard can dereference. The ledger diff is the identity that survives both
+    a squash and a rebase.
+
+    ⚠⚠ **AN UNESTABLISHABLE BASE FAILS; it must not return green.** The first
+    draft returned on a missing `origin/main`, and `actions/checkout` fetches
+    ONE ref at depth 1 -- so in the two jobs that collect this file the ref was
+    absent, `merge-base` exited 128, and the guard passed having asked nothing.
+    A green ratchet and an absent ratchet look identical, and this repo has
+    paid for that twice (Practice 6's `--depth=1`). `fast-harness` and `full`
+    carry `fetch-depth: 0` for this test; if the base cannot be found, the
+    remedy is in the message rather than in a silence.
+
+    ⚠ `-def test_` misses an indented `def` (a test method inside a class),
+    which fails LOUD rather than quiet, so do not "fix" it into a substring
+    match.
+    """
+    import subprocess
+
+    def _git(*args: str) -> tuple[int, str]:
+        p = subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO)
+        return p.returncode, p.stdout.strip()
+
+    # ⚠⚠ **NOT A WORK TREE is a different answer from NO BASE, and conflating
+    # them breaks the suite for every sdist consumer.** This project SHIPS its
+    # tests: `pyproject.toml`'s sdist `exclude` list names `.github/` and
+    # several dotfiles and has no `tests` entry, which
+    # `tests/test_sdist_exclusions.py` is the guard over. An extracted sdist
+    # therefore carries this file and no `.git`, so a hard failure there tells
+    # a reader to set `fetch-depth: 0` in a workflow the same exclude list
+    # keeps out of their artifact. `tests/test_claude_md_size.py` already
+    # carries this convention and this reuses its wording.
+    #
+    # ⚠ Cited from the RULE, not from a tarball: review's first draft of this
+    # comment quoted counts out of `dist/…-1.108.317.tar.gz`, which is
+    # gitignored (so unopenable for anyone else) and predates the `.github/`
+    # exclusion it was read for -- and reading it produced a confident wrong
+    # correction in the review thread. A figure whose source nobody can open
+    # is worse than no figure.
+    #
+    # ⚠ The skip costs nothing against `ci.skips_windows` (24 of 25): every CI
+    # leg IS a work tree, so this branch cannot fire there. A shallow clone
+    # answers `true` here and falls through to the assert below, which is the
+    # case that must stay loud.
+    if _git("rev-parse", "--is-inside-work-tree")[1] != "true":
+        pytest.skip("no usable git here (sdist checkout or git absent)")
+
+    rc, base = _git("merge-base", "origin/main", "HEAD")
+    if rc != 0 or not base:
+        base_ref = os.environ.get("GITHUB_BASE_REF", "")
+        if base_ref:
+            rc, base = _git("merge-base", f"origin/{base_ref}", "HEAD")
+    assert base, (
+        "cannot establish the merge base with origin/main, so this guard would "
+        "check nothing. A shallow checkout is the usual cause: the jobs that "
+        "collect this file need `fetch-depth: 0` (.github/workflows/pr-gate.yml). "
+        "Failing rather than passing, because an absent check and a green one "
+        "are indistinguishable from the outside."
+    )
+    # ⚠ `rc` is checked: a base that has no ledger (a branch older than the
+    # ledger itself) is an EMPTY prior ledger, but a `git show` that failed
+    # for any other reason means the question went unasked, and those two
+    # must not share an exit.
+    rc, prior = _git("show", f"{base}:{LEDGER.relative_to(REPO).as_posix()}")
+    if rc != 0:
+        assert "does not exist" in prior or "exists on disk, but not in" in prior or not prior, (
+            f"git show {base[:8]}:harness/retired.json failed; the guard cannot run"
+        )
+        prior_paths: set[str] = set()
+    else:
+        prior_paths = {r["path"] for r in json.loads(prior)["retired"]}
+    _rc, diff = _git("diff", f"{base}...HEAD", "--", "tests/")
+    removed = {
+        ln[len("-def "):].split("(")[0]
+        for ln in diff.splitlines()
+        if ln.startswith("-def test_")
+    }
+    missing = []
+    for r in _ledger():
+        if r["path"] in prior_paths:
+            continue
+        name = r["path"].partition("::")[2]
+        if not name:
+            # A whole-FILE retirement, which `harness/retired.json`'s own
+            # schema line allows: the file must actually be gone.
+            if (REPO / r["path"]).exists():
+                missing.append(r["path"] + " (file still present)")
+            continue
+        if name not in removed:
+            missing.append(r["path"])
+    assert not missing, (
+        f"{missing} were added to the ledger on this branch, and no `def` "
+        f"of that name was removed between {base[:8]} and HEAD. Either the name "
+        f"is mistyped or the retirement did not happen; paste it from "
+        f"`git diff` rather than retyping it."
     )
 
 

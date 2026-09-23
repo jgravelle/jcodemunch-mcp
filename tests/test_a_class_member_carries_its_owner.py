@@ -9,8 +9,10 @@ computed** one frame up as `make_symbol_id(filename, qualified, kind)`.
 
 So a member comes back qualified by its class and carrying `parent=None`, which
 makes it invisible to every parent-keyed reader: the file summary counts members
-by `parent` (#760), `get_class_hierarchy` cannot place them, and a class reports
-as having no members at all.
+by `parent` (#760), `get_file_outline`'s tree cannot place them under their
+class, and a class reports as having no members at all. ⚠ This named
+`get_class_hierarchy` until #821 measured it; that tool builds from
+`_parse_bases(signature)` and never reads `parent`.
 
 ⚠⚠ **This is the 08-19 standing lesson at scale -- a second generator, five
 times over.** Every one of these parsers reproduces ownership instead of asking
@@ -22,14 +24,21 @@ nothing else.** They stop the rule being re-transcribed INSIDE them; they say
 nothing about a sixth parser, and Zig, PowerShell and MATLAB carry this defect
 today under #809. The parametrized tests above are what grade the five.
 
-⚠⚠ **Objective-C gets the qualified-name half only, and the reason is #771.**
-`@interface Audit` and `@implementation Audit` are two symbols with one id, so
-`_disambiguate_overloads` renumbers the CLASS to `~1`/`~2` while the member's
-`parent` still names the un-suffixed id -- an id no symbol has. `build_symbol_tree`
-requires `symbol.parent in node_map`, so `get_class_hierarchy` still leaves ObjC
-members unplaced; `_heuristic_summary` strips the ordinal and does benefit. C#
-`partial class` and Swift `extension` have shipped in that state since #771.
-This change does not fix it and does not make it worse.
+⚠⚠ **Objective-C got the qualified-name half only until #821, and the reason
+was #771.** `@interface Audit` and `@implementation Audit` are two symbols
+with one id, so the renumbering moved the CLASS to `~1`/`~2` while the
+member's `parent` still named the un-suffixed id -- an id no symbol had.
+`build_symbol_tree` requires `symbol.parent in node_map` and sends everything
+else to `roots`, so `get_file_outline` rendered ObjC members at FILE SCOPE --
+not unplaced, and not through `get_class_hierarchy`, which never reads
+`parent` at all. `_heuristic_summary` stripped the ordinal and did benefit. C#
+`partial class` and Swift `extension` had shipped in that state since #771.
+
+#821 closes all three: the renumbering follows each member to the twin whose
+bytes CONTAIN it, so `@implementation`'s method is owned by `~2` and
+`@interface`'s by `~1`. ⚠ This file's assertion no longer strips the ordinal
+off either side, because doing so would accept a member filed under the wrong
+twin.
 
 ⚠ **Go (#778) is NOT here.** Same symptom, different cause: Go's method is not
 qualified at ALL (`RunIt`, not `Audit.RunIt`), because Go attaches a method to a
@@ -44,8 +53,6 @@ mechanism in the same functions. It ships next, on top of this helper, so those
 four issues close there; #788 is the one this closes, because Solidity already
 extracts its state and only ownership was left.
 """
-
-from typing import Optional
 
 import pytest
 
@@ -111,39 +118,39 @@ def _by_name(language, filename, source):
     return out
 
 
-def _without_ordinal(symbol_id: Optional[str]) -> Optional[str]:
-    """An id with `_disambiguate_overloads`' `~N` suffix removed.
-
-    ⚠⚠ Needed for ObjC and ONLY ObjC here, and it is #771's residue, not a
-    weakening of the assertion below. `@interface Audit` and
-    `@implementation Audit` are two symbols with the same `(file, qualified,
-    kind)`, so the post-parse disambiguator renumbers the CLASS to `~1`/`~2`
-    while every child's `parent` still names the id the parser computed -- an
-    id no symbol has any more. A C# `partial class` and a Swift `extension`
-    have shipped that way since #771, and `_heuristic_summary` matches on the
-    stripped id for exactly this reason. Reproducing that rule here rather
-    than inventing a second one is deliberate; re-pointing children at a
-    chosen ordinal is a different fix in a different layer.
-    """
-    if symbol_id is None:
-        return None
-    return symbol_id.rsplit("~", 1)[0] if "~" in symbol_id else symbol_id
-
-
 @pytest.mark.parametrize("language,filename,source,container,members", _OWNED, ids=_IDS)
 def test_every_member_carries_its_owners_id(
     language, filename, source, container, members
 ):
-    """The defect, stated as the property all five share."""
+    """The defect, stated as the property all five share.
+
+    ⚠⚠ **The ordinal is no longer stripped off either side, and that is a
+    STRENGTHENING (#821).** `_without_ordinal` lived here because
+    `@interface Audit` and `@implementation Audit` are two symbols with one
+    id, so the renumbering moved the CLASS to `~1`/`~2` while every child's
+    `parent` still named the un-suffixed id -- an id no symbol had. The
+    helper's own docstring said re-pointing children at a chosen ordinal was
+    "a different fix in a different layer", and #821 is that fix: the
+    renumbering now follows the member to the twin whose bytes contain it.
+
+    ⚠ **What this assertion actually gained, stated precisely.** `owners` is
+    the set of BOTH twins' ids, so a member filed under the wrong twin still
+    passes here; what stripping used to hide, and no longer can, is a `parent`
+    naming an id NO symbol carries. The right-twin property is a different
+    assertion and lives in
+    `tests/test_a_members_parent_survives_disambiguation.py::test_each_twins_member_is_owned_by_that_twin`.
+    An earlier draft of this docstring claimed the wrong-twin case, which
+    review caught.
+    """
     found = _by_name(language, filename, source)
-    owners = {_without_ordinal(s.id) for s in found.get(container, [])}
+    owners = {s.id for s in found.get(container, [])}
     assert owners, f"{language}: the container {container!r} was not extracted"
     for member in members:
         hits = found.get(member) or []
         assert hits, f"{language}: {member!r} was not extracted"
         for hit in hits:
             assert hit.parent is not None, f"{language}: {member} carries no parent"
-            assert _without_ordinal(hit.parent) in owners, (
+            assert hit.parent in owners, (
                 f"{language}: {member} parent={hit.parent!r} is not the id of {container}"
             )
 
@@ -229,19 +236,26 @@ def test_a_d_aggregate_owns_its_enum_and_its_template_too():
         assert hit.qualified_name == qualified, (name, hit.qualified_name)
 
 
-def test_objc_is_the_only_language_here_that_needs_the_ordinal_stripped():
-    """Non-vacuity for the helper above: it must not be quietly load-bearing
-    for the other four.
+def test_objc_is_the_only_language_here_whose_container_carries_an_ordinal():
+    """Exactly one row of this table exercises the renumbering, and knowing
+    which is what keeps the assertion above honest.
+
+    ⚠⚠ It was named `..._needs_the_ordinal_stripped` and described as
+    "non-vacuity for the helper above", and #821 deleted that helper. The
+    measurement is unchanged and still worth making -- it is the difference
+    between an ObjC-shaped row and the other four -- so the test keeps its
+    body and loses a name that describes code nobody can open.
+    `harness/retired.json` carries the rename.
 
     ⚠ If a future change gave, say, Solidity two same-named contracts in one
     file, this fails and the question gets asked again rather than absorbed.
     """
-    needs_stripping = set()
+    carries_ordinal = set()
     for language, filename, source, container, _members in _OWNED:
         ids = [s.id for s in _by_name(language, filename, source).get(container, [])]
         if any("~" in i for i in ids):
-            needs_stripping.add(language)
-    assert needs_stripping == {"objc"}, needs_stripping
+            carries_ordinal.add(language)
+    assert carries_ordinal == {"objc"}, carries_ordinal
 
 
 @pytest.mark.parametrize("language,filename,source,container,members", _OWNED, ids=_IDS)
