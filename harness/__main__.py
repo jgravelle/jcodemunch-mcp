@@ -96,10 +96,9 @@ class _Tee:
         # nothing that could say which three. Absent on a clean run -- no
         # empty heading -- so "no failures" and "not recorded" read apart.
         named = [
-            ln.strip()
+            ln[len(_FAILED_ID_PREFIX) :]
             for ln in self.lines
-            if ln.startswith(_FAILED_ID_INDENT)
-            and ln.strip().startswith(("FAILED ", "ERROR ", "... "))
+            if ln.startswith(_FAILED_ID_PREFIX)
         ]
         head = f"## {title}: {'PASS' if ok else 'FAIL'}\n\n"
         body = (
@@ -231,44 +230,50 @@ _FAILED_ROW_RE = re.compile(r"^(FAILED|ERROR)\s+(\S+)")
 #: diagnosis, and neither is a list that stops without saying so.
 _FAILED_ID_CAP = 25
 
-#: The indent every tier uses for the lines `summary_markdown` collects.
-_FAILED_ID_INDENT = "   "
+#: The prefix every tier puts on the lines `summary_markdown` collects. A
+#: MARKER, not an indent: `_Tee` sees every printed line, including the raw
+#: pytest tail, and an indented traceback line can begin with `FAILED ` or
+#: `... `; nothing but `_failed_id_lines` prints a line beginning with this.
+_FAILED_ID_PREFIX = "   - "
 
 
 def _failed_rows(out: str) -> list[str]:
-    """Every column-0 `FAILED`/`ERROR` row of a pytest run, stripped, in order."""
-    return [ln.rstrip() for ln in out.splitlines() if _FAILED_ROW_RE.match(ln)]
+    """Every column-0 `FAILED`/`ERROR` row of a pytest run, in order, ONE per id.
+
+    THE derivation. `_failed_ids` (the ids), `_failed_id_lines` (the console
+    and the summary artifact) and `_annotate_failure` (the Checks tab) all
+    read this list, so the three surfaces cannot disagree about which tests
+    failed or how many. pytest can print an id twice (a rerun plugin, a
+    duplicated summary section); the first row wins. `ERROR` counts: a test
+    that errored at setup did not run, which is worse than one that failed
+    (F-32's sdist guard).
+    """
+    rows: list[str] = []
+    seen: set[str] = set()
+    for ln in out.splitlines():
+        m = _FAILED_ROW_RE.match(ln)
+        if m and m.group(2) not in seen:
+            seen.add(m.group(2))
+            rows.append(ln.rstrip())
+    return rows
 
 
 def _failed_ids(out: str) -> list[str]:
-    """Every test id pytest named as failed or errored, in order, deduplicated.
-
-    ONE derivation: `_annotate_failure` (the Checks tab) and
-    `_failed_id_lines` (the console and the summary artifact) both read the
-    rows this parses, so the three surfaces cannot disagree about which tests
-    failed. `ERROR` counts: a test that errored at setup did not run, which is
-    worse than one that failed (F-32's sdist guard).
-    """
-    seen: list[str] = []
-    for row in _failed_rows(out):
-        tid = _FAILED_ROW_RE.match(row).group(2)
-        if tid not in seen:
-            seen.append(tid)
-    return seen
+    """The test ids of `_failed_rows`, in order."""
+    return [_FAILED_ROW_RE.match(row).group(2) for row in _failed_rows(out)]
 
 
 def _failed_id_lines(out: str) -> list[str]:
-    """The lines a tier prints for a non-zero pytest run: one per id, indented,
+    """The lines a tier prints for a non-zero pytest run: one per row, marked,
     capped at `_FAILED_ID_CAP` with the remainder DISCLOSED by count."""
-    kind: dict[str, str] = {}
-    for row in _failed_rows(out):
-        m = _FAILED_ROW_RE.match(row)
-        kind.setdefault(m.group(2), m.group(1))
-    ids = list(kind)
-    lines = [f"{_FAILED_ID_INDENT}{kind[tid]} {tid}" for tid in ids[:_FAILED_ID_CAP]]
-    if len(ids) > _FAILED_ID_CAP:
+    rows = _failed_rows(out)
+    lines = [
+        f"{_FAILED_ID_PREFIX}{m.group(1)} {m.group(2)}"
+        for m in (_FAILED_ROW_RE.match(row) for row in rows[:_FAILED_ID_CAP])
+    ]
+    if len(rows) > _FAILED_ID_CAP:
         lines.append(
-            f"{_FAILED_ID_INDENT}... {len(ids) - _FAILED_ID_CAP} more failures; see the log"
+            f"{_FAILED_ID_PREFIX}... {len(rows) - _FAILED_ID_CAP} more failures; see the log"
         )
     return lines
 

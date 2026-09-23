@@ -92,6 +92,29 @@ def test_an_indented_line_containing_the_word_is_not_a_row():
     assert hm._failed_ids(noise) == []
 
 
+def test_a_raw_pytest_tail_cannot_forge_a_row_in_the_artifact():
+    """The tier also prints the raw pytest tail, so `_Tee` sees indented
+    traceback lines. One beginning `FAILED `, `ERROR ` or `... ` after its
+    indent must not become a row: the collector keys on a MARKER only
+    `_failed_id_lines` prints, never on the words."""
+    tee = _tee_with([
+        "   FAILED tests/forged.py::from_a_traceback",
+        "    ... # a source line inside a traceback",
+        "   ERROR tests/forged.py::also_from_a_traceback",
+        "   1 failed, 10 passed in 1.0s",
+    ])
+    md = tee.summary_markdown("harness fast", ok=False)
+    assert "forged" not in md
+    assert "**Failed:**" not in md
+
+
+def test_the_checks_tab_reads_the_same_deduplicated_rows():
+    """`_annotate_failure` reads `_failed_rows`, so an id pytest printed twice
+    reaches the Checks tab once, as it reaches the console once."""
+    out = "FAILED tests/a.py::t - boom\nFAILED tests/a.py::t - boom\nFAILED tests/b.py::u\n"
+    assert hm._failed_rows(out) == ["FAILED tests/a.py::t - boom", "FAILED tests/b.py::u"]
+
+
 def test_more_than_the_cap_lists_the_cap_and_discloses_the_rest():
     """A silently shortened list is F-35's own defect one layer down."""
     many = "\n".join(f"FAILED tests/test_many.py::test_{i}" for i in range(hm._FAILED_ID_CAP + 7))
@@ -100,7 +123,7 @@ def test_more_than_the_cap_lists_the_cap_and_discloses_the_rest():
     lines = hm._failed_id_lines(many)
     listed = [ln for ln in lines if "FAILED " in ln]
     assert len(listed) == hm._FAILED_ID_CAP
-    assert listed[0].strip() == "FAILED tests/test_many.py::test_0"
+    assert listed[0] == hm._FAILED_ID_PREFIX + "FAILED tests/test_many.py::test_0"
     assert any("7 more" in ln for ln in lines), lines
     md = _tee_with(lines).summary_markdown("harness full", ok=False)
     assert "7 more" in md
