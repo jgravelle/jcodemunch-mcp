@@ -103,9 +103,11 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     HEAD-relative version of this check would demand one. ⚠ The WORKING TREE
     against the base, not `base...HEAD`: the commit hook runs this tier
     BEFORE the commit exists, so a retirement and its ledger row arriving in
-    one commit (DoD 11's own instruction) could never pass the hook under the
-    committed-diff form -- #797's first commit was refused exactly so. After
-    the commit the two forms agree.
+    one commit -- the ordinary squash outcome -- could never pass the hook
+    under the committed-diff form; #797's first commit was refused exactly so.
+    After the commit the two forms agree, and in CI a clean checkout makes
+    them identical, which is the backstop against a local deletion that is
+    never committed.
 
     ⚠⚠ **Scoped to the rows this branch ADDED to the ledger -- the diff of
     `harness/retired.json` against the base -- never to a row's `commit` sha.**

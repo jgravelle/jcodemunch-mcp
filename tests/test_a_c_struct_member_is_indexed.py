@@ -65,7 +65,10 @@ _SHAPES = [
     pytest.param("typedef union { int i; float f; } V;\n", id="typedef-anonymous-union"),
     pytest.param("struct Outer { struct Inner { int q; } in_; int after; };\n", id="nested-named"),
     pytest.param("struct Outer { struct { int q; } anon; };\n", id="nested-anonymous-under-a-member"),
-    pytest.param("struct S { struct Other *link; };\n", id="pointer-to-another-struct"),
+    # ⚠ No `struct S { struct Other *link; };` row: both languages publish
+    # `S.Other` as a nested TYPE for a type this file never defines, and an
+    # equality assertion would freeze that in both. #830; pinned below as a
+    # tracked gap rather than as an answer.
 ]
 
 
@@ -114,6 +117,34 @@ def test_a_prototype_inside_a_struct_is_not_a_field():
     rows = _rows("struct S { int x; int (*fp)(void); };\n", "c", "a.c")
     assert ("field", "S.fp", "S") in rows
     assert ("field", "S.x", "S") in rows
+
+
+def test_a_file_scope_prototype_is_a_function_once():
+    """#797's own test list asked for this row. C yields ONE `f` for a
+    prototype followed by its definition; review measured it, so it is pinned
+    rather than assumed. ⚠ C++ yields two for the same bytes (pre-existing,
+    not this change's), which is why this is not an equality row above."""
+    rows = _rows("int f(int);\nint f(int a) { return a; }\n", "c", "a.c")
+    assert [r for r in rows if r[0] == "function"] == [("function", "f", None)]
+
+
+def test_an_elaborated_type_reference_is_a_known_gap():
+    """A TRACKED gap, never a tolerated one: this FAILS when #830 is fixed.
+
+    `struct Other *link` is a reference to a type this file does not define,
+    and both C and C++ publish it as a nested type `S.Other` because the
+    grammar spells a reference and a definition with one node type. Review of
+    #797 caught the equality assertion above about to freeze it in both
+    languages. The field itself is right; the fabricated type is the gap.
+    Delete this test and add the row back to `_SHAPES` when #830 closes.
+    """
+    for language, filename in (("c", "a.c"), ("cpp", "a.cpp")):
+        rows = _rows("struct S { struct Other *link; };\n", language, filename)
+        assert ("field", "S.link", "S") in rows, language
+        assert ("type", "S.Other", "S") in rows, (
+            f"{language}: the fabricated `S.Other` is gone, so #830 is fixed -- "
+            f"delete this test and restore the `pointer-to-another-struct` row"
+        )
 
 
 def test_the_nested_struct_keeps_the_qualified_name_it_had():
