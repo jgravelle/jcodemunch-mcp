@@ -65,6 +65,11 @@ _CHANNEL_SAMPLES: dict[tuple[str, str], tuple[str, str, str, str]] = {
     ("java", "field_declaration"): (
         "A.java", "class A {\n  private int probe;\n}\n", "probe", "field",
     ),
+    # #797. C's copy of the C-family spec joins #755's channel; `A` is
+    # extracted too, and `probe`/`field` is what the form CONTRIBUTES.
+    ("c", "field_declaration"): (
+        "a.c", "struct A {\n  int probe;\n};\n", "probe", "field",
+    ),
     # #786. ⚠ A NAMED field: a tuple struct's members carry no identifier in
     # either the grammar or `syn`, so a `struct A(u8);` sample would prove the
     # channel does nothing. ⚠ The node type is shared with an enum variant's

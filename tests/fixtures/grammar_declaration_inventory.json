@@ -165,7 +165,6 @@
     ],
     "c": [
       "attribute_declaration",
-      "field_declaration",
       "parameter_declaration"
     ],
     "cpp": [

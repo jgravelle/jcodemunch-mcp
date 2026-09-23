@@ -360,6 +360,9 @@ _EXTRACTION_CHANNELS = {
             # spec, and a fix applied to one spec reaches half the product.
             "cpp": ("a.cpp", "class A {\n  int probe;\n};\n"),
             "arduino": ("a.ino", "class A {\n  int probe;\n};\n"),
+            # #797. The THIRD copy of that spec, and the one #755 missed. A
+            # struct, because C has no class.
+            "c": ("a.c", "struct A {\n  int probe;\n};\n"),
             # #781. Same rule, three more copies, and the two grammars spell
             # the form differently.
             "javascript": ("a.js", "class A {\n  probe = 1;\n}\n"),
