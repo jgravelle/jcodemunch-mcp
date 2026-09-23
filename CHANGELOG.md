@@ -39,7 +39,7 @@ it. The new symbols on unchanged content ride `PARSER_GENERATION` 8, which
 now names #797 beside #698 and #821.
 
 `tests/test_a_c_struct_member_is_indexed.py` asserts C's answer EQUAL to
-C++'s for thirteen declarator and container shapes rather than restating each
+C++'s for twelve declarator and container shapes rather than restating each
 by hand -- a second table would be a second copy of the thing that drifted.
 Red on `main`: `17 failed, 2 passed`.
 
