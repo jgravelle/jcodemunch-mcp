@@ -37,11 +37,13 @@ asserts every row of both reported bodies and the property that every Dart
 member has an owner across all five containers; the two-row gap test in
 `tests/test_class_state_is_indexed_in_three_spec_languages.py` failed when
 fixed, as designed, and retires with a `harness/retired.json` entry. Red on
-`main`: `9 failed, 4 passed`. Green: `294 passed` over the new file, that
+`main`: `9 failed, 4 passed`. Green: `372 passed` over the new file, that
 file, `test_dart_imports.py`, `test_member_kind_audit.py`,
 `test_one_declaration_binds_every_name.py`, `test_parser.py`,
-`test_retirement_ledger.py` and `test_declared_forms_extract.py` (which
-gained the new node type's sample).
+`test_retirement_ledger.py`, `test_declared_forms_extract.py` (which gained
+the new node type's sample), `test_inventory_reads_every_channel.py` (the
+representation's channel sample) and `test_grammar_spelled_forms.py` (both
+node types leave the unnamed-declaration baseline).
 
 ### Fixed - a C++ template's span ends where the wrapper it starts at ends (#827)
 

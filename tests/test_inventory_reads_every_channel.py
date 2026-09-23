@@ -55,6 +55,11 @@ from tests.test_grammar_spelled_forms import _EXTRACTION_CHANNELS as _OTHER_CHAN
 #: widened — `test_every_widened_form_has_a_sample` fails by name — because the
 #: whole hazard here is a declaration that names a node type nothing extracts.
 _CHANNEL_SAMPLES: dict[tuple[str, str], tuple[str, str, str, str]] = {
+    # #819: an extension type's representation is a `field` it owns, its
+    # own `field_patterns` entry because the grammar gives it no `declaration`.
+    ("dart", "representation_declaration"): (
+        "a.dart", "extension type Holder(int probe) {}\n", "probe", "field",
+    ),
     ("go", "const_declaration"): (
         "a.go", "package p\n\nconst Probe = 1\n", "Probe", "constant",
     ),

@@ -200,12 +200,10 @@
       "variable_declaration"
     ],
     "dart": [
-      "extension_type_declaration",
       "initialized_variable_definition",
       "local_function_declaration",
       "local_variable_declaration",
       "pattern_variable_declaration",
-      "representation_declaration",
       "static_final_declaration"
     ],
     "erlang": [
