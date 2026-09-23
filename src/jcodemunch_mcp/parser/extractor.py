@@ -13521,10 +13521,13 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # the name and binds `Total` as `args` (review of #812;
                         # the trailing `with get, set` spills to file level and
                         # every later member is lost, filed). Name the property.
-                        pat = _first_child_of_type(mpd, "identifier_pattern")
-                        if pat is None:
+                        # The LAST pattern: an accessibility modifier between
+                        # `val` and the name (`val private Count`) arrives as a
+                        # pattern of its own, ahead of the name (review, round 3).
+                        pats = [c for c in mpd.children if c.type == "identifier_pattern"]
+                        if not pats:
                             continue
-                        _member(el, owner, _text(pat), "property")
+                        _member(el, owner, _text(pats[-1]), "property")
                         continue
                     if mpd is not None and mpd.child_by_field_name("args") is not None:
                         kind = "method"

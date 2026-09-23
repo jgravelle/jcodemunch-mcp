@@ -208,6 +208,18 @@ def test_fsharp_static_member_val_is_a_property_named_from_its_pattern():
     assert "A.val" not in rows
 
 
+def test_fsharp_member_val_with_an_accessibility_modifier_is_named_after_the_name():
+    """Found in review, round 3: `val private Count` puts the modifier in a
+    pattern of its own ahead of the name, and the first draft read the first
+    pattern, publishing `E.private` (Standing lesson 09-01 a second time)."""
+    rows = _rows("type E() =\n    static member val private Count = 0 with get, set\n", "a.fs", "fsharp")
+    assert rows["E.Count"] == ("property", "E")
+    assert "E.private" not in rows and "E.val" not in rows
+    rows = _rows("type F() =\n    member val private Size = 0 with get, set\n", "a.fs", "fsharp")
+    assert rows["F.Size"] == ("property", "F")
+    assert "F.private" not in rows
+
+
 def test_fsharp_static_let_state_is_owned():
     """Found in review: `static let` sits under `member_defn >
     value_declaration`, not directly under the type body, and was unread."""
