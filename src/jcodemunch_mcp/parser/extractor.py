@@ -1195,11 +1195,14 @@ def _extract_symbol(
     # `end_line` disagreeing with the `signature` beside it, which is built
     # from the span node. The two halves of one span must come from one node.
     #
-    # ⚠ Scoped to Go rather than applied to `signature_node` generally,
-    # because the cpp template wrapper above shares this variable and its end
-    # is not known to coincide with the item's; moving every C++ template's
-    # span is not a thing to do inside a fix about Go.
-    if language == "go" and signature_node is not node:
+    # ⚠ #817 scoped this to Go and left the C++ template wrapper, which shares
+    # this variable, for its own decision. #827 made it on its own measurement:
+    # the wrapper's end differs from the item's ONLY for a templated class or
+    # struct, whose `;` belongs to the `template_declaration`, and that span
+    # was the fragment shape this comment describes. One rule for both
+    # languages now; what moved is named in the CHANGELOG and under
+    # `PARSER_GENERATION`.
+    if signature_node is not node:
         end_byte = signature_node.end_byte
         end_line_num = signature_node.end_point[0] + 1
     if node.type in ("function_signature", "method_signature"):

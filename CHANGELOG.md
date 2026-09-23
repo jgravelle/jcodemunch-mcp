@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ template's span ends where the wrapper it starts at ends (#827)
+
+`template<typename T>\nclass Foo { public: int n; };` recorded 49 of its 51
+bytes and stopped before its own `;`: `content_hash` was computed over the
+fragment, and when the `;` sat on a later line, `end_line` disagreed with the
+bytes. Same for a templated `struct` and a member struct template inside a
+class, in C++ and Arduino. Found by @jgravelle reviewing #817.
+
+⚠⚠ **Two halves of one span from two nodes.** `_extract_symbol` widened the
+START of a templated C++ symbol to the nearest `template_declaration` and
+took the END from the inner node. #817 found the identical shape in Go,
+fixed it there, and scoped the fix to Go on purpose, leaving a comment that
+the C++ case was a decision for its own issue. Made here on its own
+measurement: the wrapper's end differs from the item's ONLY for a templated
+class or struct, whose `;` belongs to the wrapper, so the Go-only guard is
+the general rule now and no per-language end rule remains.
+
+⚠ **Decided, and what it is not:** the terminator is included because the
+span is the wrapper's bytes, not because a class should end at `;`. An
+UNTEMPLATED `class Bar { ... };` still records to its `}` -- that `;` is a
+sibling token under the file, not part of any node the symbol is built from,
+in C and C++ alike -- and moving every C-family class in every index does
+not belong inside a fix about templates. Pinned as a control row so the one
+is not read as a promise about the other.
+
+⚠ What moves, on unchanged content: every templated C++/Arduino class and
+struct gains its `;` in `byte_length` and `content_hash`, and `end_line`
+where the `;` sits on a later line. Rides `PARSER_GENERATION` 8, which names
+it. A templated function, alias, function declaration and member function
+template are byte-identical before and after, pinned by
+`tests/test_a_cpp_template_span_ends_where_it_starts.py`. Red on `main`:
+`10 failed, 11 passed`. Green: `160 passed` over the new file, the two Go
+span files, `test_cpp_data_members.py`, `test_a_go_method_belongs_to_its_receiver.py`,
+`test_parser.py` and `test_v1_108_277.py`. No third language sets the span
+node (only cpp/arduino and go do), which answers the issue's last line.
+
 ### Fixed - each name in a grouped Go var/const block records its own span (#826)
 
 `const ( P = 1; Q = 2 )` gave `P` and `Q` the same bytes, the whole block, so

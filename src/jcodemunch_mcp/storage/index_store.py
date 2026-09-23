@@ -270,6 +270,11 @@ INDEX_VERSION = 17
 #   in a `const ( ... )` / `var ( ... )` block recorded the whole block; it
 #   records its own spec now, so an already-indexed `.go` file serves the
 #   block for every one of those names until re-parsed.
+#
+#   ⚠⚠ **And #827: every templated C++/Arduino class and struct gains its
+#   `;`.** `byte_length` and `content_hash` move by one byte on unchanged
+#   content (and `end_line` where the `;` sits on its own line); an
+#   already-indexed template serves the fragment until re-parsed.
 PARSER_GENERATION = 8
 
 
