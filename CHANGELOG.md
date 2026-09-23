@@ -46,9 +46,12 @@ filter cannot drift, and C inherits #833's block-scope exemption with it.
 - `int f(int), g(int);` binds the first name only, in both languages;
   pinned as found and filed as #852 (#817's mechanism, a fourth spelling).
 
-⚠ Every C prototype is a NEW symbol on unchanged content and no id moves;
-`PARSER_GENERATION` 8 names it. `C_SPEC`'s `declaration` gains a sample in
-`tests/test_declared_forms_extract.py`.
+⚠ Every C prototype is a NEW symbol on unchanged `.c` content and no `.c`
+id moves. In a `.h` that resolves to C, ids DO move (review): two
+prototypes of one name were `f#function~1`/`~2` and are one `f#function`,
+and a prototype beside its definition was a `~1`/`~2` pair and is the
+definition alone. `PARSER_GENERATION` 8 names both. `C_SPEC`'s
+`declaration` gains a sample in `tests/test_declared_forms_extract.py`.
 
 Red on `main`: `29 failed, 26 passed` over the new file and the C member
 file. Green: `1196 passed, 1 skipped` over every test file that parses C plus the node-type ratchets.
