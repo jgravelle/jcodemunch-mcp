@@ -106,6 +106,7 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "class_definition": ("a.dart", "class Probe {}\n"),
         "enum_declaration": ("a.dart", "enum Probe { a, b }\n"),
         "extension_declaration": ("a.dart", "extension Probe on String {}\n"),
+        "extension_type_declaration": ("a.dart", "extension type Probe(int v) {}\n"),
         "function_signature": ("a.dart", "void probe() {}\n"),
         "method_signature": ("a.dart", "class Holder { void probe() {} }\n"),
         "mixin_declaration": ("a.dart", "mixin Probe {}\n"),

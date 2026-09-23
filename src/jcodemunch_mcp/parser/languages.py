@@ -750,6 +750,12 @@ DART_SPEC = LanguageSpec(
         "mixin_declaration": "class",
         "enum_declaration": "type",
         "extension_declaration": "class",
+        # ⚠⚠ #819. Dart 3.3's zero-cost wrapper was in no list at all, so the
+        # type was absent and its members were published bare -- #698's shape
+        # one language over. A `type`, not a `class`: erased at runtime, like
+        # `enum` and `type_alias` here; `extension_declaration` (adds methods
+        # to an EXISTING type) is the pre-existing `class` outlier, left alone.
+        "extension_type_declaration": "type",
         "method_signature": "method",
         "type_alias": "type",
     },
@@ -758,6 +764,7 @@ DART_SPEC = LanguageSpec(
         "class_definition": "name",
         "enum_declaration": "name",
         "extension_declaration": "name",
+        "extension_type_declaration": "name",
         # mixin_declaration, method_signature, type_alias: special-cased in extractor
     },
     param_fields={
@@ -766,14 +773,27 @@ DART_SPEC = LanguageSpec(
     return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
-    container_node_types=["class_definition", "mixin_declaration", "extension_declaration"],
+    # ⚠⚠ #820. `enum_declaration` was a symbol and NOT a container, so an enum
+    # body's methods were owned (the walk's parent chain) while its `static
+    # const` was absent (#818's gate asks THIS list): two answers to "who owns
+    # this member" inside one construct. The list is the authority both
+    # readers consult; `extension_type_declaration` joins it for #819.
+    container_node_types=[
+        "class_definition",
+        "mixin_declaration",
+        "extension_declaration",
+        "extension_type_declaration",
+        "enum_declaration",
+    ],
     constant_patterns=[],
     # ⚠⚠ #775. A Dart data member is a `declaration` and was in no channel at
     # all, so every class reported its methods and its getters and none of its
     # state. `_extract_dart_members` reads BOTH declarator spellings and
     # `_dart_member_kind` reserves `constant` for `const` -- `final` is a
     # field, because Dart has its own `const` to reserve the word for.
-    field_patterns=["declaration"],
+    # ⚠ #819: an extension type's representation (`int v`) is its only state
+    # and has no `declaration` node, so it is its own entry, a `field`.
+    field_patterns=["declaration", "representation_declaration"],
     type_patterns=["type_alias", "enum_declaration"],
 )
 

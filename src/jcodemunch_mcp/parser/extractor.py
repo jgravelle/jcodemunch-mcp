@@ -2964,6 +2964,8 @@ def _extract_fields(
         if not _dart_member_has_an_owner(node, spec):
             return []
         return _extract_dart_members(node, source_bytes, filename, language)
+    if language == "dart" and node.type == "representation_declaration":
+        return _extract_dart_representation(node, source_bytes, filename, language)
     if language == "gdscript" and node.type == "variable_statement":
         if node.parent is None or node.parent.type != "class_body":
             return []
@@ -3042,7 +3044,9 @@ def _extract_rust_fields(
 #: it. Flagged in review as the shape that rots (`entry_point_patterns` was
 #: written in one place and read in none). If a third body type ever appears,
 #: check whether this set should be computed rather than listed.
-_DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body"})
+#: ⚠ #820 added `enum_body`: an enum's data members sit in it, and the owner
+#: (`enum_declaration`) is in `container_node_types` since the same fix.
+_DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body", "enum_body"})
 
 
 def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
@@ -3060,14 +3064,37 @@ def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
     Reproducing that list here would be a second copy of the same rule, which
     is the mechanism this project keeps paying for.
 
-    ⚠ A Dart `enum` body and an `extension type` body therefore contribute no
-    members. Both fail toward absence and are pinned as limits.
+    ⚠ A Dart `enum` body and an `extension type` body contributed no members
+    until #819/#820 put their owners in that list; the gate itself did not
+    change, which is the point of asking the list. Its remaining job is a
+    FOURTH body type, if one appears, and the method-body local the grammar
+    already excludes.
     """
     holder = node.parent
     if holder is None or holder.type not in _DART_MEMBER_HOLDERS:
         return False
     owner = holder.parent
     return owner is not None and owner.type in spec.container_node_types
+
+
+def _extract_dart_representation(
+    node, source_bytes: bytes, filename: str, language: str
+) -> list[Symbol]:
+    """The representation of a Dart `extension type` is a `field` it owns (#819).
+
+    `extension type Meters(int v)` binds `v` as the type's only state, read by
+    every member, and the grammar gives it no `declaration` node -- a
+    `representation_declaration` with `type` and `name` fields, a direct child
+    of the declaration. Decided rather than left absent, because a wrapper
+    type whose one field is missing reports no state at all.
+    """
+    if node.parent is None or node.parent.type != "extension_type_declaration":
+        return []
+    name_node = node.child_by_field_name("name")
+    if name_node is None:
+        return []
+    name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", "replace")
+    return [_field_symbol(name, node, source_bytes, filename, language)]
 
 
 def _gdscript_statement_names(node, source_bytes: bytes) -> list[str]:

@@ -135,39 +135,6 @@ def test_a_dart_mixin_and_extension_member_is_owned_too(
     assert found[member][0].qualified_name == f"{owner_name}.{member}"
 
 
-@pytest.mark.parametrize("label,source", [
-    ("extension type",
-     "extension type Meters(int v) {\n  static const int CAP = 1;\n}\n"),
-    ("enum body",
-     "enum E {\n  a, b;\n  static const int CAP = 1;\n}\n"),
-])
-def test_a_dart_body_with_no_container_symbol_contributes_no_member(label, source):
-    """⚠⚠ The WITNESS for the holder gate, and the only shape that exercises
-    it. Found in review, where the gate was measured INERT on everything else.
-
-    Dart spells a method-body local `local_variable_declaration`, a different
-    node type, so `test_a_dart_local_variable_is_not_a_member` stays green with
-    the gate deleted -- it is excluded by the grammar, not by the rule. The one
-    shape the gate actually decides is a body that looks like a class body and
-    has no container above it.
-
-    ⚠⚠ An `extension type` holds a `class_body` exactly as a class does, but
-    `extension_type_declaration` is in no spec's `container_node_types`, so
-    nothing stands above it to be the parent. Gated on the body type alone,
-    `CAP` was published BARE -- a class member with no owner, which is #698's
-    complaint and #788's entire subject. So the gate asks
-    `DART_SPEC.container_node_types`, the list that already decides what will
-    have a parent symbol, instead of keeping a second copy of it.
-
-    ⚠ Both forms therefore contribute no members today. That is a limit in the
-    absence direction and is pinned here so a later change moves it.
-    """
-    found = _by_name(source, f"{label.replace(' ', '_')}.dart", "dart")
-    assert "CAP" not in found, [
-        (s.name, s.kind, s.parent) for s in found.get("CAP", [])
-    ]
-
-
 def test_a_dart_method_and_getter_are_unchanged():
     """Non-regression: the two cells this language already answered correctly."""
     found = _by_name(_DART, "a.dart", "dart")

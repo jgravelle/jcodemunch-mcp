@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - a Dart extension type is a symbol, and an enum body's data is owned (#819, #820)
+
+`extension type Meters(int v) { int get doubled => v * 2; static const int
+CAP = 1; }` indexed no `Meters` at all, published `doubled` as a top-level
+method with no owner (colliding in ranking with every other `doubled`), and
+withheld `CAP`. Beside it, `enum E { a, b; static const int CAP = 1; int get
+v => 1; }` indexed `E` and owned `E.v` while `CAP` was absent: an inconsistent
+answer inside one construct, which invites more trust than a missing one.
+Found by @jgravelle reviewing #818.
+
+⚠⚠ **Two causes, one list.** `extension_type_declaration` was in
+`DART_SPEC.symbol_node_types` nowhere and in `container_node_types` nowhere,
+#698's `abstract_class_declaration` one language over (#819). And
+`enum_declaration` was a symbol but not a container, so methods reached
+their enum through the walk's parent chain while data asked #818's owner
+gate, which reads the container list (#820): two paths answering "who owns
+this member". The list is the authority both readers consult; both node
+types are in it now, and the gate itself did not change, which is the point
+of asking a list instead of keeping a copy.
+
+⚠ **Rulings, because both issues asked:** an `extension type` is a `type`
+(a zero-cost wrapper erased at runtime, like `enum` and `type_alias` here;
+`extension_declaration`, which adds methods to an EXISTING type, stays the
+pre-existing `class` outlier). Its representation `int v` is a `field` it
+owns, because it is the type's only state and every member reads it. Enum
+variants `a`, `b` are NOT indexed: no spec indexes enum variants today (PHP's
+cases are #759, open), and Dart alone answering a family-wide question would
+be a second derivation.
+
+New symbols on unchanged content, so this rides `PARSER_GENERATION` 8, which
+names it. `tests/test_a_dart_extension_type_and_enum_own_their_members.py`
+asserts every row of both reported bodies and the property that every Dart
+member has an owner across all five containers; the two-row gap test in
+`tests/test_class_state_is_indexed_in_three_spec_languages.py` failed when
+fixed, as designed, and retires with a `harness/retired.json` entry. Red on
+`main`: `9 failed, 4 passed`. Green: `294 passed` over the new file, that
+file, `test_dart_imports.py`, `test_member_kind_audit.py`,
+`test_one_declaration_binds_every_name.py`, `test_parser.py`,
+`test_retirement_ledger.py` and `test_declared_forms_extract.py` (which
+gained the new node type's sample).
+
 ### Fixed - a C++ template's span ends where the wrapper it starts at ends (#827)
 
 `template<typename T>\nclass Foo { public: int n; };` recorded 49 of its 51
