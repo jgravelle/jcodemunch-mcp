@@ -52,6 +52,7 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
         "function_definition": ("a.sh", "probe() {\n  echo hi\n}\n"),
     },
     "c": {
+        "declaration": ("a.c", "int probe(int a);\n"),
         "enum_specifier": ("a.c", "enum Probe { A, B };\n"),
         "function_definition": ("a.c", "int probe(void) { return 0; }\n"),
         "struct_specifier": ("a.c", "struct Probe { int a; };\n"),

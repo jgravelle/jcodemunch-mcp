@@ -908,6 +908,14 @@ C_SPEC = LanguageSpec(
     ts_language="c",
     symbol_node_types={
         "function_definition": "function",
+        # #835: a PROTOTYPE. The same `declaration` row `CPP_SPEC` has carried
+        # since #755, wired into the third spec copy of one grammar shape
+        # (#698). `_walk_tree` keeps only the declarations whose name-binding
+        # declarator is a `function_declarator` (per declarator, so
+        # `int (*fp)(int);` and `int a, b;` stay absent), and a prototype whose
+        # definition is in the same file yields nothing: the definition is
+        # the symbol, and C has no overloading to make that ambiguous.
+        "declaration": "function",
         "struct_specifier": "type",
         "enum_specifier": "type",
         "union_specifier": "type",
@@ -915,6 +923,7 @@ C_SPEC = LanguageSpec(
     },
     name_fields={
         "function_definition": "declarator",
+        "declaration": "declarator",
         "struct_specifier": "name",
         "enum_specifier": "name",
         "union_specifier": "name",
@@ -922,9 +931,11 @@ C_SPEC = LanguageSpec(
     },
     param_fields={
         "function_definition": "declarator",
+        "declaration": "declarator",
     },
     return_type_fields={
         "function_definition": "type",
+        "declaration": "type",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,

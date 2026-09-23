@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Fixed - a C function prototype is a function, as the same bytes are in C++ (#835)
+
+`int f(int);` in a `.c` file yielded nothing, in every shape (`extern`,
+`static`, `static inline`, K&R `int old();`, a pointer or struct-pointer
+return, a struct-pointer parameter), while the identical bytes in a `.cpp`
+file yielded `function f`. A `.c` file's declared interface was invisible
+to `search_symbols` and to every reader of the outline. Found by
+@jgravelle measuring the three C-family spec copies after #830 (#835).
+
+⚠⚠ **Three spec copies of one grammar shape, the channel wired into two.**
+`CPP_SPEC` and `ARDUINO_SPEC` have carried a `declaration` row since #755,
+filtered through `_is_cpp_function_declaration`; `C_SPEC` had none, so a
+`declaration` whose declarator is a `function_declarator` was never visited
+(Standing lesson 09-15, #698; #797/#825, #823 and #830 are the same three
+copies). `C_SPEC` reads the row now, through the SAME gate in `_walk_tree`
+(`_is_c_family_function_declaration`), so a third copy of the prototype
+filter cannot drift, and C inherits #833's block-scope exemption with it.
+
+⚠ **Rulings, each decided rather than inherited, as the issue asked:**
+- A file-scope prototype in C is a `function`, C EQUAL to C++ for the same
+  bytes (kind, name and span), asserted over thirteen shapes.
+- A prototype followed (or preceded) by its definition in the same C file
+  is ONE `f`, the definition: C has no overloading, so name equality is
+  exact and the prototype is a mention. C++ keeps its two, because
+  `int f(int); int f(double) {}` are two overloads under one qualified name
+  and a by-name drop would lose a real declaration; the C++ twin is the
+  overload problem, not this one's.
+- `int a, b;` stays absent in both: no channel for a file-scope variable,
+  unchanged by design.
+- `int (*fp)(int);` stays absent in C: the declarator that binds the name
+  is a pointer, so C asks PER DECLARATOR (`_cpp_declarator_is_function`,
+  #755's own predicate). C++'s older subtree rule answers `function fp`
+  there; that is #850's, pinned as the one deliberate inequality.
+- A block-scope prototype (`void f(void) { int g(int); }`) declares an
+  external function and stays at file scope, as #833 ruled for C++.
+- `int f(int), g(int);` binds the first name only, in both languages;
+  pinned as found and filed as #852 (#817's mechanism, a fourth spelling).
+
+⚠ Every C prototype is a NEW symbol on unchanged content and no id moves;
+`PARSER_GENERATION` 8 names it. `C_SPEC`'s `declaration` gains a sample in
+`tests/test_declared_forms_extract.py`.
+
+Red on `main`: `29 failed, 26 passed` over the new file and the C member
+file. Green: `1193 passed, 1 skipped` over every test file that parses C plus the node-type ratchets.
+
 ### Fixed - a C++ type declared inside a function is owned by the function (#833, #798)
 
 `int f(void) { struct S { int x; }; typedef int L; enum E { A }; }` published

@@ -521,6 +521,9 @@ def _parse_with_spec(
     _walk_tree(tree.root_node, spec, source_bytes, filename, language, symbols, None,
                call_types=ct, calls=calls if ct else None)
 
+    if language == "c":
+        symbols = _drop_c_prototypes_with_a_definition(symbols, source_bytes)
+
     # Attribute collected call sites to enclosing symbols (cheap — no AST walk)
     if calls:
         _attribute_calls_to_symbols(symbols, calls)
@@ -654,13 +657,20 @@ def _walk_tree(
     # `ARDUINO_SPEC` (three copies of one grammar shape) all inherit the rule.
     if node.type in spec.symbol_node_types and not _is_bodiless_type_specifier(node):
         # C++ declarations include non-function declarations. Filter those out.
-        if not (is_cpp and node.type in {"declaration", "field_declaration"} and not _is_cpp_function_declaration(node)):
+        # #835: C reads the same `declaration` row as C++ now, through the
+        # same gate, so a third copy of the prototype filter cannot drift.
+        if not (
+            (is_cpp or language == "c")
+            and node.type in {"declaration", "field_declaration"}
+            and not _is_c_family_function_declaration(node, language)
+        ):
             # #833 review: a block-scope PROTOTYPE (`void f() { void inner(int); }`)
             # declares a namespace-scope function, so it stays at file scope
             # with no owner, exactly as `main` answered it; the function body
-            # owns every DEFINITION in it, never this.
+            # owns every DEFINITION in it, never this. C's block-scope
+            # prototype declares an external function the same way (#835).
             block_scope_prototype = (
-                is_cpp
+                (is_cpp or language == "c")
                 and node.type == "declaration"
                 and parent_symbol is not None
                 and parent_symbol.kind in ("function", "method")
@@ -2270,6 +2280,53 @@ def _is_bodiless_type_specifier(node) -> bool:
     because it carries the signature a caller reads.
     """
     return node.type in _C_FAMILY_TYPE_SPECIFIERS and node.child_by_field_name("body") is None
+
+
+def _drop_c_prototypes_with_a_definition(symbols: list[Symbol], source_bytes: bytes) -> list[Symbol]:
+    """A C prototype whose definition is in the same file yields nothing (#835).
+
+    The definition is the symbol and the prototype is a mention of it; C has
+    no overloading, so name equality is exact. A prototype is the `function`
+    whose bytes end in `;` (a `declaration`); a definition's end in `}`.
+    ⚠ C only: in C++ `int f(int); int f(double) {}` are two overloads under
+    one qualified name, and a by-name drop would lose a real declaration.
+    """
+    defined = {
+        s.qualified_name
+        for s in symbols
+        if s.kind == "function"
+        and source_bytes[s.byte_offset:s.byte_offset + s.byte_length].rstrip().endswith(b"}")
+    }
+    if not defined:
+        return symbols
+    return [
+        s
+        for s in symbols
+        if not (
+            s.kind == "function"
+            and s.qualified_name in defined
+            and source_bytes[s.byte_offset:s.byte_offset + s.byte_length].rstrip().endswith(b";")
+        )
+    ]
+
+
+def _is_c_family_function_declaration(node, language: str) -> bool:
+    """The prototype gate for all three spec copies (#835).
+
+    C asks PER DECLARATOR (`_cpp_declarator_is_function`): the declarator that
+    binds the name must be a `function_declarator`, so `struct S *make(void);`
+    is a prototype and `int (*fp)(int);` is a variable. ⚠ C++ keeps its
+    older SUBTREE rule for a file-scope `declaration` (any function
+    declarator anywhere under it), which is why `int (*fp)(int);` is a
+    `function` there (#850); changing that moves C++ ids and is that
+    issue's, not this one's.
+    """
+    if language == "c":
+        if node.type != "declaration":
+            return True
+        declarator = node.child_by_field_name("declarator")
+        return declarator is not None and _cpp_declarator_is_function(declarator)
+    return _is_cpp_function_declaration(node)
 
 
 def _is_cpp_function_declaration(node) -> bool:

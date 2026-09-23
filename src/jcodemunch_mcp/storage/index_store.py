@@ -293,6 +293,11 @@ INDEX_VERSION = 17
 #   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
 #   with an owner, so its old id resolves to nothing until re-parsed.
 #
+#   ⚠⚠ **And #835: every C prototype is a NEW `function` symbol** on
+#   unchanged `.c` content (a prototype whose definition is in the same
+#   file yields nothing, so no definition's id moves); an already-indexed
+#   `.c` file answers nothing for a prototype until re-parsed.
+#
 #   ⚠⚠ **And #833/#798: every C++/Arduino type, field and method declared
 #   inside a FUNCTION BODY moves.** A local of a free function was a
 #   file-scope symbol (`S`) and is `f.S`; a local of a member function was
