@@ -297,10 +297,10 @@ INDEX_VERSION = 17
 #   unchanged `.c` content (a prototype whose definition is in the same
 #   file yields nothing, so no definition's id moves); an already-indexed
 #   `.c` file answers nothing for a prototype until re-parsed. ⚠ In a `.h`
-#   that resolves to C, ids MOVE: two prototypes of one name were
+#   that resolves to C, one id MOVES: two prototypes of one name were
 #   `f#function~1`/`~2` and are one `f#function` (the second is a mention
-#   of the first), and a prototype beside its definition was a `~1`/`~2`
-#   pair and is the definition alone.
+#   of the first). A prototype beside its definition in a `.h` was already
+#   one symbol on the released tree and still is (measured in review).
 #
 #   ⚠⚠ **And #833/#798: every C++/Arduino type, field and method declared
 #   inside a FUNCTION BODY moves.** A local of a free function was a

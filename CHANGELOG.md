@@ -47,10 +47,12 @@ filter cannot drift, and C inherits #833's block-scope exemption with it.
   pinned as found and filed as #852 (#817's mechanism, a fourth spelling).
 
 ⚠ Every C prototype is a NEW symbol on unchanged `.c` content and no `.c`
-id moves. In a `.h` that resolves to C, ids DO move (review): two
-prototypes of one name were `f#function~1`/`~2` and are one `f#function`,
-and a prototype beside its definition was a `~1`/`~2` pair and is the
-definition alone. `PARSER_GENERATION` 8 names both. `C_SPEC`'s
+id moves. In a `.h` that resolves to C, one id DOES move (review): two
+prototypes of one name were `f#function~1`/`~2` and are one `f#function`.
+A prototype beside its definition in a `.h` was already one symbol on the
+released tree and still is (review measured it against `main`, after a
+first draft of this sentence claimed a pair that existed only on the
+branch). `PARSER_GENERATION` 8 names the move. `C_SPEC`'s
 `declaration` gains a sample in `tests/test_declared_forms_extract.py`.
 
 Red on `main`: `29 failed, 26 passed` over the new file and the C member
