@@ -197,6 +197,17 @@ def test_a_nim_ptr_object_owns_its_fields():
     assert rows["P.b"] == ("field", "P")
 
 
+def test_fsharp_static_member_val_is_a_property_named_from_its_pattern():
+    """Found in review: the grammar takes `val` as the member name and binds
+    `Total` as its arguments, so the first draft fabricated `A.val` as a
+    `method`. The grammar also spills `with get, set` to file level and loses
+    every member after it (filed); this pins the one it can name."""
+    source = "type A() =\n    static member val Total = 0 with get, set\n"
+    rows = _rows(source, "a.fs", "fsharp")
+    assert rows["A.Total"] == ("property", "A")
+    assert "A.val" not in rows
+
+
 def test_fsharp_static_let_state_is_owned():
     """Found in review: `static let` sits under `member_defn >
     value_declaration`, not directly under the type body, and was unread."""

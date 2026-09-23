@@ -38,6 +38,10 @@ not a copy:**
   is `method`; `with get`, `member val` and an argument-less `member` or
   `static member` are `property`, because a member without a parameter list
   IS a property in F#. A record's `with member` is owned by the record.
+  `static member val Total` is named from its pattern (review caught the
+  grammar taking `val` as the name and `Total` as the arguments, which the
+  first draft published as a `method` called `val`: an `extra`, worse than
+  the absence `main` had).
 - Nim: an object's fields are `field`, the export marker `*` stripped, in
   every `case` branch and behind `ref`/`ptr` (review caught the first draft
   asking for `ptr_type`, a node the grammar never emits; it is
@@ -61,10 +65,12 @@ name sits under `exported_symbol` / `genericDot`; a Pascal `interface`
 type's members and F# `abstract` members, `interface ... with` blocks and
 `new()` constructors are unread (#845); a generic Pascal class `TBox<T>` is
 absent entirely (#846); a Nim type declared with a pragma carries the pragma
-in its name, which the new field ids inherit (#847).
+in its name, which the new field ids inherit (#847); tree-sitter-fsharp
+spills `with get, set` after a `static member val` out of the type body and
+every later member is lost (#848).
 
 Red on `main`: `16 failed, 40 passed` over the new file and the audit.
-Green: `936 passed` over every test file naming one of the three languages
+Green: `937 passed` over every test file naming one of the three languages
 plus the node-type ratchets.
 
 ### Fixed - Zig, PowerShell and MATLAB class members are owned, and their state is indexed (#809, #811)

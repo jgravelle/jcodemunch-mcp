@@ -13515,11 +13515,22 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     idents = [c for c in poi.children if c.type == "identifier"]
                     if not idents:
                         continue
+                    name = _text(idents[-1])
+                    if mpd is not None and name == "val":
+                        # `static member val Total = 0`: the grammar takes `val` as
+                        # the name and binds `Total` as `args` (review of #812;
+                        # the trailing `with get, set` spills to file level and
+                        # every later member is lost, filed). Name the property.
+                        pat = _first_child_of_type(mpd, "identifier_pattern")
+                        if pat is None:
+                            continue
+                        _member(el, owner, _text(pat), "property")
+                        continue
                     if mpd is not None and mpd.child_by_field_name("args") is not None:
                         kind = "method"
                     else:
                         kind = "property"
-                    _member(el, owner, _text(idents[-1]), kind)
+                    _member(el, owner, name, kind)
 
     _walk(tree.root_node)
     return symbols
