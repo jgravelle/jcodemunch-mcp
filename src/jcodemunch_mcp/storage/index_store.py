@@ -292,6 +292,12 @@ INDEX_VERSION = 17
 #   is a NEW symbol on unchanged content, plus one MOVED id: a Pascal
 #   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
 #   with an owner, so its old id resolves to nothing until re-parsed.
+#
+#   ⚠⚠ **And #833/#798: every C++/Arduino type, field and method declared
+#   inside a FUNCTION BODY moves.** A local of a free function was a
+#   file-scope symbol (`S`) and is `f.S`; a local of a member function was
+#   qualified under the class (`K.L`) and is `K.m.L`. An already-indexed
+#   file serves the old ids until re-parsed.
 PARSER_GENERATION = 8
 
 

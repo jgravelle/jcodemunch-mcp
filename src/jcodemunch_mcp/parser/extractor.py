@@ -691,7 +691,19 @@ def _walk_tree(
                 if is_cpp:
                     # `typedef struct { int x; } Point;` -- the struct has no
                     # name of its own, so the typedef's is the owner (#755).
-                    if _is_cpp_type_container(node) or _cpp_typedef_of_anonymous_type(node):
+                    # ⚠⚠ #833/#798: a FUNCTION BODY is a scope too. Without
+                    # this, a type declared inside a free function was
+                    # published at file scope with no owner (C qualified the
+                    # same bytes under the function), and inside a member
+                    # function it was qualified under the CLASS (`K.L`) as if
+                    # `K` declared it. The body counts as one class-scope
+                    # level for `kind`: the only function-shaped symbol a C++
+                    # function body can hold is a method of a local class.
+                    if (
+                        _is_cpp_type_container(node)
+                        or _cpp_typedef_of_anonymous_type(node)
+                        or node.type == "function_definition"
+                    ):
                         next_parent = symbol
                         next_class_scope_depth = class_scope_depth + 1
                 else:

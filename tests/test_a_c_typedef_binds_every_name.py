@@ -109,29 +109,13 @@ def test_every_name_of_a_list_records_the_declaration_span(language, filename):
 _LOCAL = "int f(void) {\n    typedef int L1, L2;\n    L1 a = 0; L2 b = 0; return a + b;\n}\n"
 
 
-def test_a_c_typedef_list_inside_a_function_binds_under_the_function():
-    """A local typedef is legal C; BOTH names are qualified under the function,
-    not published as file-scope types."""
-    rows = _types(_LOCAL, "c", "a.c")
+@pytest.mark.parametrize("language,filename", [("c", "a.c"), ("cpp", "a.cpp")])
+def test_a_typedef_list_inside_a_function_binds_under_the_function(language, filename):
+    """A local typedef is legal C and C++; BOTH names are qualified under the
+    function, not published as file-scope types. C++ joined C when #833
+    closed (the tracked gap that sat here is retired in `harness/retired.json`)."""
+    rows = _types(_LOCAL, language, filename)
     assert {r[1] for r in rows} == {"f.L1", "f.L2"}, rows
-
-
-def test_a_cpp_typedef_list_inside_a_function_is_a_known_gap():
-    """A TRACKED gap, never a tolerated one: this FAILS when #833 is fixed.
-
-    Both names are bound (this fix's claim, asserted), but C++ publishes any
-    function-local type at file scope with no owner -- `_walk_tree`'s C++
-    branch parents only type containers, so a free function's body sees the
-    function's own scope. Measured on `main` for struct, typedef and enum
-    alike; #798 is the same rule seen from inside a class. Delete this test
-    and widen the one above to both languages when #833 closes.
-    """
-    rows = _types(_LOCAL, "cpp", "a.cpp")
-    assert {r[0] for r in rows} == {"L1", "L2"}, rows
-    assert {r[1] for r in rows} == {"L1", "L2"}, (
-        "C++ now qualifies a function-local typedef, so #833 is fixed -- "
-        "delete this test and widen the C one to both languages"
-    )
 
 
 def test_the_separate_line_and_list_spellings_bind_the_same_names():

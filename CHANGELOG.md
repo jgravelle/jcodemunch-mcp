@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ type declared inside a function is owned by the function (#833, #798)
+
+`int f(void) { struct S { int x; }; typedef int L; enum E { A }; }` published
+`S`, `L` and `E` at FILE scope with no owner in C++ and Arduino, while C
+qualified the same bytes under `f`. `search_symbols` for `S` found a type
+that does not exist at file scope, `get_file_outline` listed it beside `f`,
+and two functions each declaring a local `S` collided into `~1`/`~2` twins
+with nothing to tell them apart. Inside a member function the same rule
+qualified the local under the CLASS: `class K { void m() { struct L {}; } }`
+gave `K.L`, as if `K` declared it, and `K::L` names nothing (#798). Both
+found by @jgravelle, #833 while fixing #823 and #798 in #755's review.
+
+⚠⚠ **A function body was not a scope.** `_walk_tree`'s C++ branch moved
+`next_parent` only at a type container or a typedef of an anonymous type,
+so a `function_definition`'s body inherited the function's own parent and
+scope; the generic branch every other language uses (C included) makes
+every symbol the parent of what it encloses. A `function_definition` is a
+scope boundary now, in the one site every C++ and Arduino symbol passes
+through. Fixed for the free function alone it would have left #798, a guard
+written against a spelling (Standing lesson 09-01); this is #698's owner
+question from the other side, where a non-member GAINED an owner.
+
+⚠ **Rulings:** a function-local type is qualified under the function and
+owned by it, as in C and Python (`Host.real.inner`), never absent: #699
+demotes same-named locals in ranking and never filters them. Inside a member
+function the local is `K.m.L`, owned by `m`. The anonymous local struct's
+method is `K.m.lm`, owned by `m` (the struct emits no symbol, the
+fall-through `main` already had). The body counts as one class-scope level
+for `kind`, because the only function-shaped symbol a C++ function body can
+hold is a method of a local class (no nested functions; a lambda is not a
+symbol), so that method is `method` whether its class is named or anonymous.
+
+⚠ Ids MOVE for every function-local C++/Arduino type, field and method
+(`S` -> `f.S`, `K.L` -> `K.m.L`), named under `PARSER_GENERATION` 8.
+The tracked gap `test_a_cpp_typedef_list_inside_a_function_is_a_known_gap`
+retires with a `harness/retired.json` entry; the C-only local-typedef test
+is widened to both languages, and
+`tests/test_a_cpp_function_local_type_is_owned_by_the_function.py` asserts
+the free-function and member-function answers row for row, C++ equal to C
+for the same bytes, struct/class/union/enum/typedef/alias spellings, two
+same-named locals with two ids, and file scope and class scope unchanged.
+
+Red on `main`: `12 failed, 33 passed` over the new file and the typedef
+file. Green: `489 passed` over the new file, the typedef file and ten neighbouring C++ and ratchet files.
+
 ### Fixed - Pascal, F# and Nim class members are indexed and owned (#812)
 
 `TAudit = class FTally: Integer; function RunIt: Integer; end` indexed
