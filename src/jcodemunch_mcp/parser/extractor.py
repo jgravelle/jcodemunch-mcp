@@ -3028,25 +3028,6 @@ def _extract_rust_fields(
     ]
 
 
-#: The BODY node types a Dart data member may sit directly in.
-#:
-#: ⚠⚠ **MEASURED against the grammar, not named from the language.** DART_SPEC
-#: lists three containers -- class, mixin and extension -- so the obvious set
-#: was `class_body`, `extension_body` and `mixin_body`. There is no
-#: `mixin_body`: a `mixin_declaration` holds a `class_body`, so that third
-#: entry would have been inert, a guard written against a spelling the grammar
-#: does not use. Only `extension_body` is its own node type.
-#:
-#: ⚠ **This set no longer carries the decision and is kept only to name the two
-#: body types.** `_dart_member_has_an_owner` asks
-#: `DART_SPEC.container_node_types` for the part that matters, and every owner
-#: of these two bodies is already in that list -- so the set is derivable from
-#: it. Flagged in review as the shape that rots (`entry_point_patterns` was
-#: written in one place and read in none). If a third body type ever appears,
-#: check whether this set should be computed rather than listed.
-#: ⚠ #820 added `enum_body`: an enum's data members sit in it, and the owner
-#: (`enum_declaration`) is in `container_node_types` since the same fix.
-_DART_MEMBER_HOLDERS = frozenset({"class_body", "extension_body", "enum_body"})
 
 
 def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
@@ -3064,14 +3045,25 @@ def _dart_member_has_an_owner(node, spec: LanguageSpec) -> bool:
     Reproducing that list here would be a second copy of the same rule, which
     is the mechanism this project keeps paying for.
 
-    ⚠ A Dart `enum` body and an `extension type` body contributed no members
-    until #819/#820 put their owners in that list; the gate itself did not
-    change, which is the point of asking the list. Its remaining job is a
-    FOURTH body type, if one appears, and the method-body local the grammar
-    already excludes.
+    ⚠⚠ **No second list.** The first draft kept `_DART_MEMBER_HOLDERS`, the
+    body node types a member may sit in, beside `container_node_types`; its
+    own comment said a third body type should make it computed, the third
+    (`enum_body`, #820) arrived, and the set was listed again with the
+    comment renumbered -- review caught that (Standing lesson 08-19). So the
+    question is asked of the container list ALONE: is the member's holder a
+    direct child of a node in it? A container added to the spec without a
+    matching entry anywhere cannot withhold its data, because there is
+    nowhere for it to be missing from; the ratchet in
+    `tests/test_a_dart_extension_type_and_enum_own_their_members.py` samples
+    every container in the list.
+
+    ⚠ NOT the container's `body` FIELD, which was the first replacement: a
+    `mixin_declaration` holds its `class_body` with no field name at all
+    (measured), so that rule withheld every mixin member. The grammar gives a
+    `declaration` no other direct-child-of-a-container position to sit in.
     """
     holder = node.parent
-    if holder is None or holder.type not in _DART_MEMBER_HOLDERS:
+    if holder is None:
         return False
     owner = holder.parent
     return owner is not None and owner.type in spec.container_node_types

@@ -163,6 +163,34 @@ def test_every_dart_member_has_an_owner():
             assert s.parent is not None, (s.kind, s.qualified_name)
 
 
+#: One sample per container in `DART_SPEC.container_node_types`, each holding
+#: a `static const` member. The ratchet below fails when the list gains an
+#: entry with no row here, so a new container cannot withhold its data in
+#: silence -- the shape the first draft's second list (`_DART_MEMBER_HOLDERS`)
+#: would have allowed, and review refused.
+_A_MEMBER_IN_EVERY_CONTAINER = {
+    "class_definition": ("class Holder { static const int CAP = 1; }\n", "Holder"),
+    "mixin_declaration": ("mixin Holder { static const int CAP = 1; }\n", "Holder"),
+    "extension_declaration": ("extension Holder on String { static const int CAP = 1; }\n", "Holder"),
+    "extension_type_declaration": ("extension type Holder(int v) { static const int CAP = 1; }\n", "Holder"),
+    "enum_declaration": ("enum Holder { a; static const int CAP = 1; }\n", "Holder"),
+}
+
+
+def test_every_container_in_the_spec_owns_a_member_and_every_container_is_sampled():
+    """The gate asks the container list and the grammar's `body` field, and
+    keeps no list of its own; this is what makes that true for the NEXT
+    container too."""
+    from jcodemunch_mcp.parser.languages import DART_SPEC
+
+    assert set(DART_SPEC.container_node_types) == set(_A_MEMBER_IN_EVERY_CONTAINER), (
+        "a container in DART_SPEC has no member sample here (or a sample names no container)"
+    )
+    for node_type, (source, owner) in _A_MEMBER_IN_EVERY_CONTAINER.items():
+        rows = _rows(source)
+        assert rows.get(f"{owner}.CAP") == ("constant", owner), (node_type, rows)
+
+
 def test_a_class_a_mixin_and_an_extension_are_unchanged():
     """The three containers #818 already answered, byte for byte in shape."""
     assert _rows("class C { int a = 1; static const int K = 1; void m() {} }\n") == {

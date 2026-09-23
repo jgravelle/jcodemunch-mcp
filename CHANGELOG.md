@@ -19,8 +19,13 @@ Found by @jgravelle reviewing #818.
 their enum through the walk's parent chain while data asked #818's owner
 gate, which reads the container list (#820): two paths answering "who owns
 this member". The list is the authority both readers consult; both node
-types are in it now, and the gate itself did not change, which is the point
-of asking a list instead of keeping a copy.
+types are in it now. ⚠ The gate kept a second list beside it, the body node
+types a member may sit in, whose own comment said a third entry should make
+it computed; the third (`enum_body`) arrived, the set was listed again, and
+review refused it. The gate asks the container list alone now (not the
+container's `body` field either: a mixin's body carries no field name), and
+a ratchet samples a member in every container the list names, so a sixth
+container cannot withhold its data in silence.
 
 ⚠ **Rulings, because both issues asked:** an `extension type` is a `type`
 (a zero-cost wrapper erased at runtime, like `enum` and `type_alias` here;
@@ -37,7 +42,7 @@ asserts every row of both reported bodies and the property that every Dart
 member has an owner across all five containers; the two-row gap test in
 `tests/test_class_state_is_indexed_in_three_spec_languages.py` failed when
 fixed, as designed, and retires with a `harness/retired.json` entry. Red on
-`main`: `9 failed, 4 passed`. Green: `372 passed` over the new file, that
+`main`: `9 failed, 4 passed`. Green: `373 passed` over the new file, that
 file, `test_dart_imports.py`, `test_member_kind_audit.py`,
 `test_one_declaration_binds_every_name.py`, `test_parser.py`,
 `test_retirement_ledger.py`, `test_declared_forms_extract.py` (which gained
