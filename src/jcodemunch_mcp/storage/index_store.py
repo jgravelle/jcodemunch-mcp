@@ -258,6 +258,13 @@ INDEX_VERSION = 17
 #   unchanged content again, plus one MOVED id: a C function-pointer typedef
 #   was named the literal `(*Cb)` and is `Cb` now, so its old id resolves to
 #   nothing until the file is re-parsed.
+#
+#   ⚠⚠ **And #830: a C-family type REFERENCE is no longer a declaration.**
+#   The other direction: symbols DISAPPEAR on unchanged content. Every `.c`,
+#   `.cpp` and `.ino` file already indexed keeps a fabricated `type` for
+#   each `struct S` it merely mentions (a field type, a parameter, a cast, a
+#   forward declaration) until re-parsed, and a consumer asking where `S` is
+#   defined keeps getting that file.
 PARSER_GENERATION = 8
 
 

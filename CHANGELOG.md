@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed - a C-family type written as a reference is not a declaration (#830)
+
+`struct S { struct Other *link; };` declared a nested type `S.Other` that the
+file never defines, and `typedef struct S S_t;`, `void g(struct S *p);`,
+`struct S g;`, a cast, a `sizeof` and a local all declared `S` again -- in C,
+C++ and Arduino, for `struct`, `union`, `enum` and (C++) `class` alike. A
+consumer asking where `Other` is defined got this file; `check_delete_safe`
+on the real definition saw a second declaration that does not exist. Found by
+@jgravelle reviewing #797, whose C == C++ equality row would have frozen the
+fabrication in both languages.
+
+⚠⚠ **One node type spelling three concepts, in three spec copies.** The
+grammars spell a definition (`struct S { ... }`), a reference (`struct S`
+in a declarator, parameter, cast, typedef target) and a forward declaration
+(`struct S;`) as one `struct_specifier`, and `C_SPEC`, `CPP_SPEC` and
+`ARDUINO_SPEC` list the node type without asking whether it has a `body`. The
+inverse of #698's lesson (one concept, two node types): a spec that names the
+node type looks complete either way. The rule is one predicate at the walk
+site -- a specifier with no `body` yields nothing -- so all three copies, and
+a fourth, inherit it.
+
+⚠ **The forward declaration is a decision, because the issue asked for one:
+`struct S;` and `class K;` yield no symbol.** A forward declaration carries
+only the name; a header forward-declaring forty classes would otherwise
+publish forty memberless `class` symbols, each a second declaration beside
+the real one. A function prototype keeps its symbol because it carries the
+signature a caller reads.
+
+Symbols DISAPPEAR on unchanged content, so this rides `PARSER_GENERATION` 8,
+which names it. `tests/test_a_c_type_reference_is_not_a_declaration.py`
+asserts every reference position in all three languages and that a
+definition followed by references is declared once; the tracked-gap test in
+`tests/test_a_c_struct_member_is_indexed.py` is deleted and its
+`pointer-to-another-struct` row restored to the equality table. Red on
+`main`: `44 failed, 3 passed`. Green: `172 passed` over the new file and the
+four related ones.
+
+⚠ Measured beside it and unchanged by it: C publishes no `function g` for
+`void g(struct S *p);` where C++ does. Its own issue.
+
 ### Fixed - a C or C++ typedef list binds every name it declares (#823)
 
 `typedef int A, B;` indexed `A` and nothing else, in C and in C++. `B` was

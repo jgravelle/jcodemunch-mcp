@@ -648,7 +648,11 @@ def _walk_tree(
             calls.append((node.start_byte, name))
 
     # Check if this node is a symbol
-    if node.type in spec.symbol_node_types:
+    # #830: a C-family type specifier WITHOUT a body is a mention of a type,
+    # not a declaration of one, and it is filtered here -- at the one site
+    # every spec's symbol node passes through -- so `C_SPEC`, `CPP_SPEC` and
+    # `ARDUINO_SPEC` (three copies of one grammar shape) all inherit the rule.
+    if node.type in spec.symbol_node_types and not _is_bodiless_type_specifier(node):
         # C++ declarations include non-function declarations. Filter those out.
         if not (is_cpp and node.type in {"declaration", "field_declaration"} and not _is_cpp_function_declaration(node)):
             symbol = _extract_symbol(
@@ -2196,6 +2200,30 @@ def _nearest_cpp_template_wrapper(node):
 def _is_cpp_type_container(node) -> bool:
     """C++ node types that can contain methods."""
     return node.type in {"class_specifier", "struct_specifier", "union_specifier"}
+
+
+_C_FAMILY_TYPE_SPECIFIERS = frozenset(
+    {"struct_specifier", "union_specifier", "enum_specifier", "class_specifier"}
+)
+
+
+def _is_bodiless_type_specifier(node) -> bool:
+    """A C-family type specifier with no `body` is a REFERENCE, not a declaration (#830).
+
+    tree-sitter-c and tree-sitter-cpp spell `struct S { ... }` (a definition),
+    `struct S` inside a declarator, parameter, cast, `sizeof` or typedef
+    target (a reference) and `struct S;` (a forward declaration) with ONE
+    node type per keyword, so every mention of a type used to be published
+    as a declaration of it: `struct S { struct Other *link; }` declared a
+    nested type `S.Other` the file never defines.
+
+    ⚠ The forward declaration is DECIDED, not incidental: it yields nothing.
+    It carries only the name, and a header forward-declaring forty classes
+    would otherwise publish forty memberless `class` symbols, each a second
+    declaration beside the real one. A function prototype is different
+    because it carries the signature a caller reads.
+    """
+    return node.type in _C_FAMILY_TYPE_SPECIFIERS and node.child_by_field_name("body") is None
 
 
 def _is_cpp_function_declaration(node) -> bool:
