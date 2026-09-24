@@ -296,9 +296,10 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And #824: every type after the first in an F# `type ... and ...`
 #   chain, and every binding after the first in a `let rec ... and ...`
 #   chain, is a NEW symbol** on unchanged content; the FIRST type of a
-#   chain MOVES its span (the whole statement -> its own definition) while
-#   its id does not. An already-indexed `.fs` file serves the first name
-#   alone until re-parsed.
+#   chain MOVES its span (the whole statement -> its own definition) and
+#   with it its `signature` (`type A() =` -> `A() =`, the keyword dropped)
+#   while its id does not. An already-indexed `.fs` file serves the first
+#   name alone until re-parsed.
 #
 #   ⚠⚠ **And #841: a Zig `packed`/`extern` struct or union (and `opaque`)
 #   MOVES from `constant` to `class`/`type`** on unchanged content, and its

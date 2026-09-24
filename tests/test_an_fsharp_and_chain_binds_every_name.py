@@ -107,6 +107,14 @@ def test_a_let_chain_inside_a_type_body_binds_every_member():
         ("method", "T.g", "T"),
         ("method", "T.M", "T"),
     ]
+    # Review: each chained member's signature is its OWN left, not the
+    # defn's first line (which names the first binding).
+    sigs = {s.qualified_name: s.signature for s in parse_file(source, "a.fs", "fsharp")}
+    assert sigs["T.f"] == "let f x"
+    assert sigs["T.g"] == "let g y"
+    # A single let in a body keeps the line it always had.
+    single = {s.qualified_name: s.signature for s in parse_file("type T() =\n    let h z = z\n", "a.fs", "fsharp")}
+    assert single["T.h"] == "let h z = z"
 
 
 def test_the_first_type_of_a_chain_keeps_its_id():

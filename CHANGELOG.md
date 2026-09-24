@@ -36,7 +36,13 @@ whole defn: the rule (Go's `const D, E = 5, 6`), never a synthesised
 range (#414), decided and pinned.
 
 ⚠ New symbols on unchanged content; the FIRST type of a chain MOVES its
-span to its definition and keeps its id. `PARSER_GENERATION` 8 names it.
+span to its definition, and with it its `signature` (`type A() =` becomes
+`A() =`, the keyword dropped, since the signature is the span's first
+line), and keeps its id. `PARSER_GENERATION` 8 names both. A chained
+`let rec ... and` member inside a type body carries its OWN left as its
+signature (`let g y`), not the defn's first line, which names the first
+binding (review caught `T.g` reading `let rec f x = g x`); a single let
+keeps the line it always had.
 The `fsharp` row of `tests/test_one_declaration_binds_every_name.py`
 leaves `_GAPS`, which is empty now, so its tracked-gap test iterates
 inside the test instead of parametrizing over the register (an empty

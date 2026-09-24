@@ -13640,13 +13640,13 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             if c.type in ("function_declaration_left", "value_declaration_left")
         ]
 
-    def _member(node, owner: Symbol, name: str, kind: str) -> None:
+    def _member(node, owner: Symbol, name: str, kind: str, signature: Optional[str] = None) -> None:
         qualified, owner_id = _member_of(owner, name)
         symbols.append(Symbol(
             id=make_symbol_id(filename, qualified, kind),
             file=filename, name=name, qualified_name=qualified,
             kind=kind, language="fsharp",
-            signature=_text(node).split("\n")[0].strip()[:120],
+            signature=(signature if signature is not None else _text(node).split("\n")[0].strip())[:120],
             docstring="",
             parent=owner_id,
             line=node.start_point[0] + 1,
@@ -13677,16 +13677,21 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         el = _first_child_of_type(vd, "function_or_value_defn") or el
                 if el.type == "function_or_value_defn":
                     # #824: every left of a `let rec ... and` chain in a body.
-                    for left in _fs_binding_lefts(el):
+                    # In a chain each member's signature is its OWN left
+                    # (review: the defn's first line names the first binding);
+                    # a single left keeps the line it always had.
+                    lefts = _fs_binding_lefts(el)
+                    for left in lefts:
+                        sig = f"let {_text(left)}" if len(lefts) > 1 else None
                         if left.type == "function_declaration_left":
                             ident = _first_child_of_type(left, "identifier")
                             if ident is not None:
-                                _member(el, owner, _text(ident), "method")
+                                _member(el, owner, _text(ident), "method", sig)
                         else:
                             ip = _first_child_of_type(left, "identifier_pattern")
                             if ip is not None:
                                 mutable = any(c.type == "mutable" for c in left.children)
-                                _member(el, owner, _text(ip), "field" if mutable else "constant")
+                                _member(el, owner, _text(ip), "field" if mutable else "constant", sig)
                 elif el.type == "member_defn":
                     mpd = _first_child_of_type(el, "method_or_prop_defn")
                     poi = _first_child_of_type(mpd if mpd is not None else el, "property_or_ident")
