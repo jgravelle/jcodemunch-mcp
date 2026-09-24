@@ -337,8 +337,10 @@ INDEX_VERSION = 17
 #   initializer, `name#variable` for a `var` and for a `val` whose read runs
 #   code (a getter, an extension property, a delegate). Names, spans and
 #   signatures are unchanged; class, object, companion and object-literal
-#   members keep `#property`. An already-indexed file serves the old ids
-#   until re-parsed.
+#   members keep `#property`. ⚠ The members of an object literal assigned to
+#   a file-scope `val` (`val o = object { val b = 2 }`) keep their own ids
+#   but their `parent` moves with the owner's (`o#property` -> `o#constant`).
+#   An already-indexed file serves the old ids until re-parsed.
 PARSER_GENERATION = 8
 
 

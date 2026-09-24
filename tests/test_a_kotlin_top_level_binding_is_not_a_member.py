@@ -13,8 +13,11 @@ them:
 - a file-scope `val` whose READ runs code (a getter, which every extension
   property has, or a delegate) is a `variable`: its value can differ between
   reads, which is what Swift's top-level computed `var` already reads as.
-  A getter on its own line is a SIBLING of the declaration at file scope
-  (tree-sitter-kotlin spills it), so the sibling is read too.
+  A getter or a `by` delegate on its own line is a SIBLING of the
+  declaration at file scope (tree-sitter-kotlin spills it), so the sibling
+  is read too, past comments.
+- The constant channel decides first: `const val` and a SCREAMING_CASE
+  `val` stay `constant` even with an accessor (#428, #732).
 
 #732's SCREAMING_CASE rule still decides the class-body case, where Kotlin
 uses `val` for ordinary properties; members of classes, objects, companions
@@ -77,6 +80,44 @@ def test_a_val_whose_read_runs_code_is_a_variable():
         "val after = 9\n"
     )
     assert kinds == {"i": "variable", "j": "variable", "k": "variable", "after": "constant"}
+
+
+def test_a_spilled_accessor_or_delegate_is_read_past_comments():
+    """Review: tree-sitter-kotlin spills a delegate on its own line into a
+    sibling expression starting with `by`, and a comment between a declaration
+    and its spilled getter hid the getter. Both published `constant`."""
+    kinds = _kinds(
+        "val d\n  by lazy { 1 }\n"
+        "private val vm: VM\n    by viewModels()\n"
+        "val k: Int\n  // why\n  get() = 8\n"
+        "val m: Int\n  /** doc */\n  get() = 9\n"
+        "val after = 10\n"
+    )
+    assert kinds == {"d": "variable", "vm": "variable", "k": "variable", "m": "variable", "after": "constant"}
+
+
+def test_a_call_named_by_after_an_initialised_val_is_not_its_delegate():
+    kinds = _kinds("val a = 1\nby(3)\n")
+    assert kinds["a"] == "constant", kinds
+
+
+def test_expect_and_actual_are_pinned_as_they_read():
+    """An `expect val` has no accessor or delegate in its own file, so it is a
+    constant; an `actual` with a getter is a variable. One multiplatform
+    declaration can carry two kinds across its files, decided per file."""
+    assert _kinds("expect val h: Int\n") == {"h": "constant"}
+    assert _kinds("actual val h: Int get() = 2\n") == {"h": "variable"}
+    assert _kinds("actual val h: Int = 2\n") == {"h": "constant"}
+
+
+def test_the_constant_channel_decides_first_even_over_an_accessor():
+    """A SCREAMING_CASE or `const` name is the author's declaration (#428,
+    #732) and wins at file scope; the name-less twin follows the #807 rule."""
+    assert _kinds("val LOG by lazy { 1 }\nval MAX get() = 3\nval log by lazy { 1 }\n") == {
+        "LOG": "constant",
+        "MAX": "constant",
+        "log": "variable",
+    }
 
 
 def test_every_var_is_a_variable():

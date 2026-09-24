@@ -14,20 +14,25 @@ module-scope demotion on purpose until this was decided.
 ⚠⚠ **The decision the issue asked to be stated:** Kotlin follows the rule
 Swift and Scala already carry at module scope, with JS `const`/`let` and
 Go `const`/`var` beside them. A file-scope `var` is a `variable`. A
-file-scope `val` whose value is its initializer is a `constant`. A `val`
-whose READ runs code is a `variable`: a getter (which every extension
-property has) or a delegate can return a different value on each read,
-which is how Swift's top-level computed `var` already reads. #732's
-SCREAMING_CASE rule is unchanged and stays the class-body rule, where
-Kotlin uses `val` for ordinary properties. Class, object, companion, enum
-and object-literal members stay `property`.
+file-scope `val` with no accessor and no delegate is a `constant` (its
+value is its initializer; a declaration-only `expect val` counts too). A
+`val` whose READ runs code is a `variable`: a getter (which every
+extension property has) or a delegate can return a different value on
+each read, which is how Swift's top-level computed `var` already reads.
+The constant channel still decides first: `const val` and a
+SCREAMING_CASE `val` (#428, #732) stay `constant` at file scope even with
+a getter or delegate, because the name is the author's declaration. In a
+class body that name rule is the whole answer, since Kotlin uses `val` for
+ordinary properties. Class, object, companion, enum and object-literal
+members stay `property`.
 
 ⚠ **Scope is the declaration's direct parent (`source_file`), not "no
 type above it".** An object literal's members have a function or a
 property as their parent symbol and are still members; a rule keyed on the
 missing container would have called them constants. At file scope
-tree-sitter-kotlin spills a getter on its own line into a sibling node, so
-that sibling is read too.
+tree-sitter-kotlin spills a getter or a `by` delegate written on its own
+line into a sibling node, so that sibling is read too, past any comment
+between them. Review found both spellings published as `constant`.
 
 Ids move for every Kotlin file-scope property (`name#property` becomes
 `name#constant` or `name#variable`); names, spans and signatures do not.

@@ -1357,33 +1357,57 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     the word `KIND_ORDER` reserves for class state, with `parent=None`. The
     ruling is the one Swift and Scala already carry at module scope, with JS
     `const`/`let` and Go `const`/`var` beside them: `var` is a `variable`; a
-    `val` whose value is its initializer is a `constant`; a `val` whose READ
-    runs code -- a getter, which every extension property has, or a delegate --
-    is a `variable`, because its value can differ between reads (Swift's
-    top-level computed `var` reads the same). #732's SCREAMING_CASE rule stays
-    the class-body rule, where Kotlin uses `val` for ordinary properties.
+    `val` with no accessor and no delegate is a `constant` (its value is its
+    initializer, or for a declaration-only `expect val` whatever the `actual`
+    supplies); a `val` whose READ runs code -- a getter, which every extension
+    property has, or a delegate -- is a `variable`, because its value can
+    differ between reads (Swift's top-level computed `var` reads the same).
+
+    ⚠ The CONSTANT channel still decides first and this never overrides it:
+    `const val` and a SCREAMING_CASE `val` (#428, #732) are `constant` at file
+    scope even with a getter or delegate (`val LOG by lazy { ... }`), because
+    `kotlin_property_is_constant` reads the name as the author's declaration.
+    In a class body that name rule is the whole answer, since Kotlin uses
+    `val` for ordinary properties.
 
     ⚠⚠ **Scope is the node's DIRECT parent, never `parent_is_container`.** An
     object literal's members (`fun f() = object : R { val a = 1 }`) have a
     function or a property as their parent SYMBOL and are still members; a
     rule keyed on the missing container would call them constants.
 
-    ⚠ At file scope tree-sitter-kotlin spills a getter written on its own line
-    into a SIBLING `getter` node, so the next named sibling is read as well.
+    ⚠⚠ At file scope tree-sitter-kotlin SPILLS an accessor or delegate written
+    on its own line into a SIBLING: a `getter` node, or an expression whose
+    first token is `by` (`val vm: VM\\n    by viewModels()`). Comments between
+    them are skipped. A `by` sibling counts only for a `val` with no
+    initializer, which is the one shape where it can be this declaration's
+    delegate rather than a call to a function named `by`.
     """
     if node.parent is None or node.parent.type != "source_file":
         return None
     is_val = False
+    has_initializer = False
     for child in node.children:
         if child.type == "binding_pattern_kind":
             is_val = source_bytes[child.start_byte:child.end_byte] == b"val"
         elif child.type in ("getter", "property_delegate", "receiver_type"):
             return "variable"
+        elif child.type == "=":
+            has_initializer = True
     if not is_val:
         return "variable"
     following = node.next_named_sibling
-    if following is not None and following.type == "getter":
+    while following is not None and following.type in ("line_comment", "multiline_comment"):
+        following = following.next_named_sibling
+    if following is None:
+        return "constant"
+    if following.type == "getter":
         return "variable"
+    if not has_initializer:
+        first = following
+        while first.child_count:
+            first = first.children[0]
+        if source_bytes[first.start_byte:first.end_byte] == b"by":
+            return "variable"
     return "constant"
 
 
