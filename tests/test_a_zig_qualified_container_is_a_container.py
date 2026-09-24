@@ -12,7 +12,7 @@ sibling token, and the test asks that node now.
 Rulings: a qualified container is the same kind as its unqualified form
 (`class` for struct, `type` for enum, union and opaque) with its fields and
 fns owned by it, asserted EQUAL to the unqualified form's rows for the same
-body; `opaque {}` is a `type` with no members (the same node, decided rather
+body; `opaque` is a `type` (empty: no members; with decls: owns them; decided rather
 than left). Ids move (`constant` -> `class`/`type`) and the members are new
 symbols; `PARSER_GENERATION` names it. Found by the #809/#811 reviewer;
 reporter @jgravelle.
@@ -93,7 +93,35 @@ def test_the_unqualified_spellings_are_unchanged():
     assert _rows("const E = enum(u8) { a, b };\n") == {"E": ("type", None)}
     assert _rows("const T = union(enum) { a: u8 };\n") == {"T": ("type", None), "T.a": ("field", "T")}
     assert _rows("const S = struct { a: u8 };\n") == {"S": ("class", None), "S.a": ("field", "S")}
-    assert _rows("const N: u32 = 1;\nconst V = struct_like;\n") == {"N": ("constant", None), "V": ("constant", None)}
+    assert _rows("const N: u32 = 1;\n") == {"N": ("constant", None)}
+
+
+def test_a_constant_whose_text_merely_starts_with_a_keyword_is_no_longer_a_container():
+    """The other half of the text-prefix guard, found in review: `main`
+    FABRICATED `class V` for `const V = struct_like;` (and `type` for
+    `unionize(1)`, `enumerate`) because the text starts with the keyword.
+    Those ids move (`#class`/`#type` -> `#constant`), and the fabrication is
+    what this fix makes impossible in the other direction."""
+    assert _rows("const V = struct_like;\nconst W = unionize(1);\nconst Z = enumerate;\n") == {
+        "V": ("constant", None), "W": ("constant", None), "Z": ("constant", None),
+    }
+
+
+def test_the_signature_keeps_the_qualifier():
+    """Review: the ABI qualifier is the one fact a reader of an `extern
+    struct` signature needs, and the fix had just learned to see it."""
+    sigs = {s.name: s.signature for s in parse_file(
+        "const P = packed struct(u16) { a: u8 };\nconst X = extern union { a: u8 };\nconst S = struct { a: u8 };\n",
+        "a.zig", "zig",
+    )}
+    assert sigs["P"] == "const P = packed struct"
+    assert sigs["X"] == "const X = extern union"
+    assert sigs["S"] == "const S = struct"
+
+
+def test_an_opaque_with_decls_owns_them():
+    rows = _rows("const O = opaque {\n    const K: u8 = 1;\n    pub fn deinit(self: *O) void {}\n};\n")
+    assert rows == {"O": ("type", None), "O.K": ("constant", "O"), "O.deinit": ("method", "O")}
 
 
 def test_the_kind_change_moves_the_id_and_nothing_else_about_the_name():

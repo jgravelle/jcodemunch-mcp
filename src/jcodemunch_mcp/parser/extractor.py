@@ -12948,6 +12948,19 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return child.type
         return None
 
+    def _container_qualifier(node) -> str:
+        """`packed`/`extern` of a container expression, for the signature (review
+        of #841: the ABI qualifier is the one fact a reader of an `extern
+        struct` needs, and the fix had just learned to see it)."""
+        suffix = _first_child_of_type(node, "SuffixExpr")
+        decl = _first_child_of_type(suffix, "ContainerDecl") if suffix is not None else None
+        if decl is None:
+            return ""
+        for child in decl.children:
+            if child.type in ("packed", "extern"):
+                return child.type
+        return ""
+
     # ⚠⚠ #809/#811: the walk threads the owner SYMBOL, not a scope string, and
     # asks `_member_of` for both halves of a member's identity (#788's one
     # helper); a `fn` inside a container is a `method` (ids move, named under
@@ -13015,11 +13028,13 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             type_kw = _is_type_expr(child)
                             if type_kw:
                                 kind = "class" if type_kw == "struct" else "type"
+                                qualifier = _container_qualifier(child)
+                                qualifier = f"{qualifier} " if qualifier else ""
                                 container = Symbol(
                                     id=make_symbol_id(filename, qualified, kind),
                                     file=filename, name=name, qualified_name=qualified,
                                     kind=kind, language="zig",
-                                    signature=f"const {name} = {type_kw}",
+                                    signature=f"const {name} = {qualifier}{type_kw}",
                                     docstring="",
                                     parent=owner_id,
                                     line=node.start_point[0] + 1,

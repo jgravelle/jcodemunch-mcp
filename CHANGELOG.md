@@ -25,18 +25,32 @@ test asks that node now, so a future qualifier cannot re-open this.
 ⚠ **Rulings:** a qualified struct or union is the same kind as its
 unqualified form (`class` for struct, `type` for enum and union) with its
 fields and fns owned by it, asserted EQUAL to the unqualified form's rows
-for the same body. `opaque {}` is a container the same node spells and is a
-`type` with no members, decided rather than left. `enum(u8)`, `union(enum)`
-and the unqualified forms are unchanged.
+for the same body. `opaque` is a container the same node spells and is a
+`type`, decided rather than left: an empty `opaque {}` has no members and
+one with decls owns them. The signature keeps the qualifier
+(`const P = packed struct`, `const X = extern union`; review found the
+first draft rendering the unqualified spelling, and the ABI qualifier is
+the one fact a reader of an `extern struct` needs). `enum(u8)`,
+`union(enum)` and the unqualified container forms are unchanged.
 
-⚠ Ids MOVE on unchanged content (`constant` -> `class`/`type`) for every
-qualified container, and its members are NEW symbols; `PARSER_GENERATION`
-8 names it. `tests/test_a_zig_qualified_container_is_a_container.py` pins
-the reported struct, `packed struct(u16)`, `extern union`, `opaque`, a
-nested and a `pub` qualified container, and the unchanged spellings.
+⚠⚠ **The text guard also FABRICATED containers, and that stops too.**
+`const V = struct_like;`, `const W = unionize(1);` and `const Z = enumerate;`
+were `class V`, `type W` and `type Z` on `main`, because the text starts
+with the keyword; they are plain constants now (review found the other
+half of the same guard; the red run recorded it before the wording did).
+
+⚠ Ids MOVE on unchanged content in BOTH directions: `constant` ->
+`class`/`type` for every qualified container, whose members are NEW
+symbols, and `class`/`type` -> `constant` for every constant whose
+initializer's text merely begins with `struct`, `enum` or `union`;
+`PARSER_GENERATION` 8 names both.
+`tests/test_a_zig_qualified_container_is_a_container.py` pins the reported
+struct, `packed struct(u16)`, `extern union`, `opaque` empty and with
+decls, a nested and a `pub` qualified container, the qualifier in the
+signature, the removed fabrication, and the unchanged spellings.
 
 Red on `main`: `10 failed, 15 passed` over the new file and the Zig member
-file. Green: `706 passed` over every test file naming Zig plus the
+file. Green: `709 passed` over every test file naming Zig plus the
 node-type ratchets.
 
 ### Fixed - each name in a multi-declarator JS/TS binding records its own span (#837)
