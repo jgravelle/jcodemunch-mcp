@@ -11,6 +11,7 @@ from .. import config as _config
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..storage.index_store import _get_git_head
 from ..parser.imports import resolve_specifier
+from ..parser.symbols import REPRESENTATIVE_KIND_RANK
 from ._utils import load_repo_index_or_error
 from .pagerank import compute_pagerank
 
@@ -103,8 +104,9 @@ def get_repo_outline(
     if index.imports is not None:
         try:
             pr_scores, _ = compute_pagerank(index.imports, index.source_files, index.alias_map, psr4_map=getattr(index, "psr4_map", None))
-            # Kind priority for picking the representative symbol per file
-            _KIND_PRIO = {"class": 0, "function": 1, "method": 2, "type": 3, "constant": 4}
+            # Kind priority for picking the representative symbol per file:
+            # the one table, derived from `KIND_ORDER` (#806).
+            _KIND_PRIO = REPRESENTATIVE_KIND_RANK
             file_to_best: dict = {}
             for sym in index.symbols:
                 f = sym.get("file", "")

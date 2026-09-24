@@ -9,13 +9,15 @@ import time
 from fnmatch import fnmatch
 from typing import Optional
 
+from ..parser.symbols import REPRESENTATIVE_KIND_RANK
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_context_bundle import _count_tokens
 from .pagerank import compute_pagerank, compute_in_out_degrees
 
 # Same priority used by get_symbol_importance for picking representative symbols.
-_KIND_PRIORITY = {"class": 0, "function": 1, "method": 2, "type": 3, "constant": 4}
+#: Which symbol represents a file; the one table, derived from `KIND_ORDER` (#806).
+_KIND_PRIORITY = REPRESENTATIVE_KIND_RANK
 
 _MAX_PER_FILE_CAP = 50
 _DEFAULT_BUDGET = 2048

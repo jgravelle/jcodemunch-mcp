@@ -22,6 +22,7 @@ import logging
 import time
 from typing import Optional
 
+from ..parser.symbols import STATE_KINDS
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..runtime.confidence import symbol_hit_count
 from .package_registry import build_package_registry, extract_root_package_from_specifier
@@ -39,6 +40,29 @@ _DEFAULT_CHURN_DAYS = 90
 
 # Heuristics for "declared internal"
 _INTERNAL_PATH_FRAGMENTS = ("_internal", "/internal/", "\\internal\\", "/private/", "\\private\\")
+
+
+#: Behaviour and type kinds: part of a module's surface wherever declared.
+_BEHAVIOUR_CONTRACT_KINDS = frozenset({"function", "class", "method", "type"})
+
+
+def _is_contract_kind(sym: dict) -> bool:
+    """Is this symbol part of a module's importable surface? (#806)
+
+    ⚠⚠ The set was a typed literal written before `field`, `property` and
+    `variable` existed, so a module binding (`export let counter`) was never a
+    candidate. A state kind counts only at MODULE scope (no parent): a class
+    member is never imported by name, so every public field would otherwise be
+    reported as a dead contract. Derived from `STATE_KINDS`, so a new state
+    kind is decided here on arrival.
+
+    ⚠ `constant` keeps the unconditional row it always had (a class constant
+    included); narrowing it is a separate behaviour change nobody asked for.
+    """
+    kind = sym.get("kind")
+    if kind in _BEHAVIOUR_CONTRACT_KINDS or kind == "constant":
+        return True
+    return kind in STATE_KINDS and not sym.get("parent")
 
 
 def _looks_internal(symbol_name: str, file_path: str) -> bool:
@@ -249,7 +273,7 @@ def get_group_contracts(
                 nm = sym.get("name", "")
                 if not nm or nm.startswith("_"):
                     continue
-                if sym.get("kind") not in {"function", "class", "method", "type", "constant"}:
+                if not _is_contract_kind(sym):
                     continue
                 # First-wins: keep the largest by byte_length when duplicate names
                 prev = sym_map.get(nm)

@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed - five tools asked a kind set typed before `field`, `property` and `variable` existed (#806)
+
+`get_repo_map`, `get_repo_outline` and `get_symbol_importance` each ranked
+a file's symbols with the same hand-typed table, and `find_implementations`
+and `get_group_contracts` each filtered or ranked with a literal of their
+own. All five predate the state vocabulary. A class member that used to
+arrive as `constant` passed their filters and ranked at the constant tier.
+Once its language learned the real word (Java, PHP, Kotlin, C++, Python,
+JS, then C#, Swift and Scala), it fell to a default nobody chose or dropped
+out: a Python dataclass field ranked behind every module constant in
+`get_repo_map`, a JS `export let` was never a dead-contract candidate, and
+`find_implementations` resolved a same-named `template` ahead of a
+`property`. This is #760's lesson one layer over: "a consumer keyed on ONE
+kind string sees one of four."
+
+The three identical tables are one table now,
+`symbols.REPRESENTATIVE_KIND_RANK`, derived from `STATE_KINDS`: every state
+kind ranks where `constant` does, which is where those members ranked
+before they had their own words. `find_implementations` asks a different
+question and keeps its own rank, derived the same way. `get_group_contracts`
+counts a state kind as part of a module's contract at MODULE scope only. A
+class member is never imported by name, so listing every public field as a
+dead contract would be noise, and `constant` keeps its unconditional row.
+`tests/test_tool_kind_sets_derive_from_kind_order.py` fails on any
+literal under `tools/` that names a state kind beside another kind, and it
+is run against the reintroduced literal. Filed by @jgravelle (#806).
+
 ### Fixed - a Kotlin top-level `val` or `var` is a module binding, not class state (#807)
 
 `val topLevel = 1` and `var topVar = 2` at file scope were indexed as

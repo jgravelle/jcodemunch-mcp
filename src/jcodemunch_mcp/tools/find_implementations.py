@@ -18,6 +18,7 @@ import re
 import time
 from typing import Optional
 
+from ..parser.symbols import STATE_KINDS
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import symbol_span_bytes
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -135,6 +136,16 @@ def _normalize_decorators_list(sym: dict) -> list[str]:
     return out
 
 
+#: Which same-named symbol the user means: an implementable kind first. Every
+#: state kind ranks where `constant` does, derived from `KIND_ORDER` (#806); a
+#: `field` or `property` fell to the default behind `template` before.
+_RESOLVE_KIND_RANK: dict[str, int] = {
+    **{kind: 4 for kind in STATE_KINDS},
+    "class": 0, "type": 1, "method": 2, "function": 3,
+    "template": 5, "import": 9,
+}
+
+
 def _resolve_target_symbol(index, symbol: str) -> Optional[dict]:
     """Resolve a user-supplied symbol string to a single index symbol dict."""
     # Try exact id match first
@@ -148,10 +159,7 @@ def _resolve_target_symbol(index, symbol: str) -> Optional[dict]:
     # Prioritise non-import kinds; among those prefer class/method
     def _rank(s: dict) -> tuple:
         kind = s.get("kind", "")
-        kind_pri = {
-            "class": 0, "type": 1, "method": 2, "function": 3,
-            "constant": 4, "template": 5, "import": 9,
-        }.get(kind, 8)
+        kind_pri = _RESOLVE_KIND_RANK.get(kind, 8)
         return (kind_pri, -int(s.get("byte_length", 0) or 0))
     candidates.sort(key=_rank)
     return candidates[0]

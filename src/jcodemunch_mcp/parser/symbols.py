@@ -111,6 +111,24 @@ VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)
 _STATE_KINDS: frozenset[str] = frozenset({"constant", "field", "property", "variable"})
 STATE_KINDS: tuple[str, ...] = tuple(k for k in KIND_ORDER if k in _STATE_KINDS)
 
+#: Which symbol represents a file (#806): lower ranks first; a kind absent
+#: from this table ranks after every kind in it.
+#:
+#: ⚠⚠ **Three tools typed this table by hand, identically** (`get_repo_map`,
+#: `get_repo_outline`, `get_symbol_importance`), each written before `field`,
+#: `property` and `variable` existed, so a class member that used to arrive as
+#: `constant` fell to a default nobody chose once its language learned the
+#: real word. Every state kind ranks where `constant` does: where those
+#: members ranked before they had their own words. Derived from `STATE_KINDS`,
+#: so a fifth state kind is ranked on arrival.
+REPRESENTATIVE_KIND_RANK: dict[str, int] = {
+    "class": 0,
+    "function": 1,
+    "method": 2,
+    "type": 3,
+    **{kind: 4 for kind in STATE_KINDS},
+}
+
 #: Plurals that `kind + "s"` gets wrong. Naming a kind in prose forces this:
 #: "1 properties" would be worse than the count being absent.
 _IRREGULAR_PLURALS: dict[str, str] = {"property": "properties"}
