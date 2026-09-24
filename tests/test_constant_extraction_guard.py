@@ -150,8 +150,13 @@ def test_kotlin_const_val_is_reachable():
 
 
 def test_kotlin_plain_val_needs_a_constant_shaped_name():
-    """`const val` is a constant by declaration; a bare `val` is just immutable."""
-    source = "val MAX_SPEED = 100\nval userName = \"jjg\"\nvar counter = 0\n"
+    """`const val` is a constant by declaration; a bare `val` is just immutable.
+
+    In a CLASS BODY, where Kotlin uses `val` for ordinary properties. At file
+    scope an initialised `val` is a module constant since #807 (the Swift `let`
+    and Scala `val` rule), so the sample sits where the name rule applies.
+    """
+    source = "class P {\n    val MAX_SPEED = 100\n    val userName = \"jjg\"\n    var counter = 0\n}\n"
     found = [s for s in parse_file(source, "p.kt", "kotlin") if s.kind == "constant"]
     assert [s.name for s in found] == ["MAX_SPEED"]
 

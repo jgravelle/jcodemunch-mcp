@@ -331,6 +331,14 @@ INDEX_VERSION = 17
 #   file-scope symbol (`S`) and is `f.S`; a local of a member function was
 #   qualified under the class (`K.L`) and is `K.m.L`. An already-indexed
 #   file serves the old ids until re-parsed.
+#
+#   ⚠⚠ **And #807: every Kotlin FILE-SCOPE property's id moves.** It was
+#   `name#property` and is `name#constant` for a `val` whose value is its
+#   initializer, `name#variable` for a `var` and for a `val` whose read runs
+#   code (a getter, an extension property, a delegate). Names, spans and
+#   signatures are unchanged; class, object, companion and object-literal
+#   members keep `#property`. An already-indexed file serves the old ids
+#   until re-parsed.
 PARSER_GENERATION = 8
 
 

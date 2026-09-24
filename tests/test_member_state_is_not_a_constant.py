@@ -221,13 +221,15 @@ def test_a_mutable_local_is_a_variable_not_a_member(
 def test_kotlin_is_excluded_from_the_module_scope_demotion_and_that_is_recorded():
     """⚠⚠ The boundary of the rule above, pinned so widening it is deliberate.
 
-    Kotlin has published a top-level `val`/`var` as `property` since #732. That
-    contradicts `KIND_ORDER`'s rule, and demoting it here would be wrong a
-    SECOND way: `variable` is defined as a module-scope MUTABLE binding, and a
-    Kotlin top-level `val` is immutable without being SCREAMING_CASE, so
-    `kotlin_property_is_constant` has already declined to call it a constant.
-    Neither word is obviously right, the decision is outside these four issues,
-    and it moves ids in a released language.
+    Kotlin is still NOT in the set, and the reason is unchanged: the demotion
+    is safe only where a refiner or spec map has already turned every immutable
+    module-scope binding into a `constant`, and Kotlin has neither --
+    `kotlin_property_is_constant` declines a plain `val` on purpose (#732's
+    SCREAMING_CASE rule, which stays the class-body rule). Demoting it here
+    would have called an immutable `val` a `variable`. Since #807 Kotlin
+    answers both halves itself through `kotlin_file_scope_binding_kind`: a
+    file-scope `val` with an initializer is a `constant`, a `var` a
+    `variable`, and a member stays `property`.
 
     ⚠ The two languages that ARE in the set are safe by construction: their
     refiner OR SPEC MAP turns every immutable module-scope binding into a
@@ -239,7 +241,9 @@ def test_kotlin_is_excluded_from_the_module_scope_demotion_and_that_is_recorded(
 
     assert _MODULE_SCOPE_VARIABLE_LANGUAGES == {"swift", "scala"}
     kinds = _kinds("kotlin", "Top.kt", "val topLevel = 1\nvar topVar = 2\n")
-    assert kinds == {"topLevel": "property", "topVar": "property"}
+    assert kinds == {"topLevel": "constant", "topVar": "variable"}
+    members = _kinds("kotlin", "Top.kt", "class K {\n    val p = 1\n    var q = 2\n}\n")
+    assert {k: members[k] for k in ("p", "q")} == {"p": "property", "q": "property"}
 
 
 def test_the_class_sample_and_the_module_sample_disagree_on_purpose():

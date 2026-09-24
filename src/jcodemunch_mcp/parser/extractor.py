@@ -1171,6 +1171,10 @@ def _extract_symbol(
             and language in _MODULE_SCOPE_VARIABLE_LANGUAGES
         ):
             kind = "variable"
+        # Kotlin has no refiner that settles immutability first, so it answers
+        # both halves itself, keyed on the node's own scope (#807).
+        if language == "kotlin" and kind == "property":
+            kind = kotlin_file_scope_binding_kind(node, source_bytes) or kind
 
     # Extract name first. A cleanly-named symbol is kept even when a syntax
     # error sits deeper in its body: the old blanket `node.has_error` bail
@@ -1344,6 +1348,43 @@ def kotlin_property_is_local(node) -> bool:
     """
     parent = node.parent
     return parent is None or parent.type not in _KOTLIN_MEMBER_PARENTS
+
+
+def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
+    """The kind of a FILE-SCOPE Kotlin property, or None for a member (#807).
+
+    ⚠⚠ Kotlin published `val topLevel = 1` and `var topVar = 2` as `property`,
+    the word `KIND_ORDER` reserves for class state, with `parent=None`. The
+    ruling is the one Swift and Scala already carry at module scope, with JS
+    `const`/`let` and Go `const`/`var` beside them: `var` is a `variable`; a
+    `val` whose value is its initializer is a `constant`; a `val` whose READ
+    runs code -- a getter, which every extension property has, or a delegate --
+    is a `variable`, because its value can differ between reads (Swift's
+    top-level computed `var` reads the same). #732's SCREAMING_CASE rule stays
+    the class-body rule, where Kotlin uses `val` for ordinary properties.
+
+    ⚠⚠ **Scope is the node's DIRECT parent, never `parent_is_container`.** An
+    object literal's members (`fun f() = object : R { val a = 1 }`) have a
+    function or a property as their parent SYMBOL and are still members; a
+    rule keyed on the missing container would call them constants.
+
+    ⚠ At file scope tree-sitter-kotlin spills a getter written on its own line
+    into a SIBLING `getter` node, so the next named sibling is read as well.
+    """
+    if node.parent is None or node.parent.type != "source_file":
+        return None
+    is_val = False
+    for child in node.children:
+        if child.type == "binding_pattern_kind":
+            is_val = source_bytes[child.start_byte:child.end_byte] == b"val"
+        elif child.type in ("getter", "property_delegate", "receiver_type"):
+            return "variable"
+    if not is_val:
+        return "variable"
+    following = node.next_named_sibling
+    if following is not None and following.type == "getter":
+        return "variable"
+    return "constant"
 
 
 def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
@@ -1842,13 +1883,12 @@ _MEMBER_ONLY_STATE_KINDS = frozenset({"field", "property"})
 #: Languages whose module-scope binding is demoted out of a member kind.
 #:
 #: ⚠⚠ **A NAMED SET, not "every language", and Kotlin is the reason.** Kotlin
-#: has published a top-level `val`/`var` as `property` since #732, which
+#: published a top-level `val`/`var` as `property` from #732 to #807, which
 #: contradicts `KIND_ORDER`'s own rule -- and demoting it here would be wrong a
 #: SECOND way: `variable` is defined there as a module-scope MUTABLE binding,
 #: and a Kotlin top-level `val` is immutable without being SCREAMING_CASE, so
-#: `kotlin_property_is_constant` has already declined it. Neither `property` nor
-#: `variable` is obviously right for it, that decision is outside #769/#770/
-#: #787/#788, and it moves ids in a released language. Filed instead.
+#: `kotlin_property_is_constant` has already declined it. Kotlin answers both
+#: halves itself instead, through `kotlin_file_scope_binding_kind` (#807).
 #:
 #: ⚠ Membership is safe for these two BY CONSTRUCTION: their refiner OR SPEC MAP
 #: has already turned every immutable module-scope binding into a `constant`, so

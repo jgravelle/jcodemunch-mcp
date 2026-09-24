@@ -431,7 +431,9 @@ def test_the_gate_keeps_members_and_top_level_declarations():
     by_name = {s.name: s for s in symbols}
 
     assert by_name["member"].kind == "property"
-    assert by_name["topLevel"].kind == "property"
-    # A top-level property whose INITIALISER is a lambda is still a property;
+    # File scope is a module binding, not class state (#807): an initialised
+    # `val` is a `constant`, the Swift `let` / Scala `val` rule.
+    assert by_name["topLevel"].kind == "constant"
+    # A top-level property whose INITIALISER is a lambda is still a symbol;
     # only the declaration inside the lambda is local.
-    assert by_name["lambdaHost"].kind == "property"
+    assert by_name["lambdaHost"].kind == "constant"

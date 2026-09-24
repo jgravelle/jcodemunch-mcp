@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a Kotlin top-level `val` or `var` is a module binding, not class state (#807)
+
+`val topLevel = 1` and `var topVar = 2` at file scope were indexed as
+`property`, the word `KIND_ORDER` reserves for class state, with no owner.
+A consumer asking a class for its members by keying on `property` (Kotlin
+and PHP class state both carry it) collected every top-level binding in
+the file too. Found in review of #769/#787, which excluded Kotlin from its
+module-scope demotion on purpose until this was decided.
+
+⚠⚠ **The decision the issue asked to be stated:** Kotlin follows the rule
+Swift and Scala already carry at module scope, with JS `const`/`let` and
+Go `const`/`var` beside them. A file-scope `var` is a `variable`. A
+file-scope `val` whose value is its initializer is a `constant`. A `val`
+whose READ runs code is a `variable`: a getter (which every extension
+property has) or a delegate can return a different value on each read,
+which is how Swift's top-level computed `var` already reads. #732's
+SCREAMING_CASE rule is unchanged and stays the class-body rule, where
+Kotlin uses `val` for ordinary properties. Class, object, companion, enum
+and object-literal members stay `property`.
+
+⚠ **Scope is the declaration's direct parent (`source_file`), not "no
+type above it".** An object literal's members have a function or a
+property as their parent symbol and are still members; a rule keyed on the
+missing container would have called them constants. At file scope
+tree-sitter-kotlin spills a getter on its own line into a sibling node, so
+that sibling is read too.
+
+Ids move for every Kotlin file-scope property (`name#property` becomes
+`name#constant` or `name#variable`); names, spans and signatures do not.
+`PARSER_GENERATION` 8 names it. Three older tests pinned a top-level `val`
+as `property` or as not a constant, and they encoded this defect
+(Practice 9). `test_kotlin_plain_val_needs_a_constant_shaped_name` moves
+its sample into a class body, where the name rule applies. The other two
+now assert the split. Filed by @jgravelle (#807).
+
 ### Fixed - an F# `and` chain binds every name it declares (#824)
 
 `type A = int / and B = int` indexed `A` and nothing else; written as two
