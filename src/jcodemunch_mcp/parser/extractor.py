@@ -1381,11 +1381,13 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     holds an object literal (`val g: Any\\n  get() = object { ... }`, which it
     error-recovers); and an expression starting `by` (`val vm: VM\\n    by
     viewModels()`). So the sibling is read by its FIRST TOKEN (`get` or `by`)
-    as well as by its type, past comments. The token rule counts only for a
-    `val` with no initializer and no `;` between (the grammar keeps a `;` as no
-    node, so it is read from the gap bytes, comments excluded): the one shape
-    where the sibling can be this declaration's accessor or delegate rather
-    than a statement calling a function named `get` or `by`.
+    as well as by its type, past comments. Both halves stop at a `;` (the
+    grammar keeps it as no node, so it is read from the gap bytes, comments
+    excluded), and they are gated DIFFERENTLY because Kotlin's grammar is:
+    `get` binds after an initializer too (`val a: Any = 1\\n  get() = field`
+    is a getter reading its backing field; the grammar's `NL* getter` attaches
+    a next-line `get` to the declaration), while `by` counts only for a `val`
+    with no initializer, since a delegate and an initializer cannot coexist.
     """
     if node.parent is None or node.parent.type != "source_file":
         return None
@@ -1412,11 +1414,12 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     if following.type == "getter":
         return "variable"
     gap += source_bytes[cursor:following.start_byte]
-    if not has_initializer and b";" not in gap:
+    if b";" not in gap:
         first = following
         while first.child_count:
             first = first.children[0]
-        if source_bytes[first.start_byte:first.end_byte] in (b"get", b"by"):
+        token = source_bytes[first.start_byte:first.end_byte]
+        if token == b"get" or (token == b"by" and not has_initializer):
             return "variable"
     return "constant"
 

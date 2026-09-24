@@ -123,6 +123,17 @@ def test_a_semicolon_inside_a_comment_does_not_end_the_declaration():
 def test_a_call_named_by_after_an_initialised_val_is_not_its_delegate():
     kinds = _kinds("val a = 1\nby(3)\n")
     assert kinds["a"] == "constant", kinds
+
+
+def test_a_spilled_getter_after_an_initializer_is_still_a_getter():
+    """Review round 4: the two token halves are gated differently. A getter
+    may read the backing field its initializer sets, so a next-line `get`
+    binds after `= 1` (Kotlin's `NL* getter`); a delegate cannot follow an
+    initializer, so `by` does not."""
+    kinds = _kinds("val a: Any = 1\n  get() = listOf(field, object { val q = 1 })\nval after = 2\n")
+    assert kinds["a"] == "variable", kinds
+    assert kinds["after"] == "constant", kinds
+    assert _kinds("val b: Any = 1; get(2)\n", "s.kts")["b"] == "constant"
     # Review: a `;` ends the declaration, and the grammar keeps no node for it.
     assert _kinds("expect val b: Int; by(1)\n")["b"] == "constant"
 
