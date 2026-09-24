@@ -74,6 +74,8 @@ def test_a_plain_constructor_parameter_is_not_a_member(language, filename):
 @pytest.mark.parametrize("source", [
     "class C {\n  m(private a: number) {}\n}\n",
     "class C {\n  static create(public a: number) {}\n}\n",
+    # A static method NAMED constructor is not the constructor (review round 1).
+    "class C {\n  static constructor(private a: number) {}\n}\n",
     "function f(private a: number) {}\n",
     "const o = { constructor(private a: number) {} };\n",
     "const g = (private a: number) => 1;\n",
@@ -158,6 +160,16 @@ def test_a_parameter_property_sits_beside_declared_fields(language, filename):
         ("C.injected#field", "C"),
         ("C.m#method", "C"),
     ]
+
+
+@pytest.mark.parametrize("language,filename", _TYPED)
+def test_a_static_member_sharing_the_name_is_disclosed_not_lost(language, filename):
+    """TypeScript lets a static member share an instance member's name. Both
+    are published; the static one's id takes an ordinal, as the CHANGELOG
+    discloses (review round 1)."""
+    src = "class C {\n  static a = 1;\n  constructor(public a: number) {}\n}\n"
+    ids = [i for i, _ in _ids(src, language, filename)]
+    assert ids == ["C#class", "C.a#field~1", "C.constructor#method", "C.a#field~2"], ids
 
 
 def test_javascript_is_unchanged():

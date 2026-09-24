@@ -26,8 +26,11 @@ parameter anywhere else (a method, a function, an arrow or an object
 literal inside the constructor body) is not a member; TypeScript rejects
 those and the grammar parses them.
 
-The symbols are new and no id moves. They appear in `.ts`/`.tsx` files and
-in scripts re-parsed as TypeScript. `PARSER_GENERATION` 8 names it. Filed
+The symbols are new. They appear in `.ts`/`.tsx` files and in scripts
+re-parsed as TypeScript. One id moves: TypeScript lets a STATIC member share
+a name with an instance parameter property (`static a = 1` beside
+`constructor(public a: number)`), and the static member's `C.a#field`
+becomes `C.a#field~1` beside the new `C.a#field~2`. `PARSER_GENERATION` 8 names it. Filed
 by @jgravelle (#802).
 
 ### Fixed - a JS/TS class expression is a class, named by what binds it (#803)

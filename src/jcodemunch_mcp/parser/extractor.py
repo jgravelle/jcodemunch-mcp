@@ -877,7 +877,6 @@ def _walk_tree(
                 f.id = make_symbol_id(filename, f.qualified_name, f.kind)
                 f.parent = parent_symbol.id
         symbols.extend(fields)
-
         # `struct { int ax; } inst;` -- the members are reached as `inst.ax`,
         # so the declarator owns them. With NO declarator (an anonymous union)
         # `fields` is empty and they stay with the enclosing class, which is
@@ -3704,6 +3703,10 @@ def _ts_parameter_property(
     params = node.parent
     method = params.parent if params is not None and params.type == "formal_parameters" else None
     if method is None or method.type != "method_definition":
+        return None
+    # `static constructor(...)` is an ordinary static method, not the
+    # constructor (review round 1).
+    if any(c.type == "static" for c in method.children):
         return None
     if parent_symbol is None or parent_symbol.parent is None:
         return None

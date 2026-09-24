@@ -362,9 +362,11 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And #802: a TypeScript constructor PARAMETER PROPERTY is a member
 #   of its class.** `constructor(private readonly svc: Svc) {}` adds
 #   `C.svc#constant` (`readonly`) or `C.svc#field`, owned by the class and
-#   spanning the parameter. Nothing moves; the symbols are new, in `.ts`/`.tsx`
+#   spanning the parameter. The symbols are new, in `.ts`/`.tsx`
 #   files and every script re-parsed as TypeScript (Astro frontmatter,
 #   template-underlying TS). A member of a class with no symbol is withheld.
+#   One id moves: a STATIC member sharing the name (`static a` beside
+#   `constructor(public a)`) goes from `C.a#field` to `C.a#field~1`.
 PARSER_GENERATION = 8
 
 
