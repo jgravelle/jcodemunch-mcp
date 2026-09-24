@@ -1376,20 +1376,22 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     rule keyed on the missing container would call them constants.
 
     ⚠⚠ At file scope tree-sitter-kotlin SPILLS an accessor or delegate written
-    on its own line into a SIBLING, in THREE spellings: a `getter` node; an
-    `assignment` or `call_expression` starting `get(` when the getter's body
-    holds an object literal (`val g: Any\\n  get() = object { ... }`, which it
-    error-recovers); and an expression starting `by` (`val vm: VM\\n    by
-    viewModels()`). So the sibling is read by its FIRST TOKEN (`get(` or `by`)
-    as well as by its type, past comments. The token path (not the `getter`
-    node, which the grammar also binds after a same-line `;`) stops at a `;`
-    in the gap (the grammar keeps it as no node, so it is read from the gap
-    bytes, comments excluded), and its two halves are gated DIFFERENTLY
-    because Kotlin's grammar is: `get(` binds after an initializer too
-    (`val a: Any = 1\\n  get() = field` is a getter reading its backing
-    field; the grammar's `NL* getter` attaches a next-line `get`), while `by`
-    counts only for a `val` with no initializer, since a delegate and an
-    initializer cannot coexist.
+    on its own line into a SIBLING: a `getter` node; an `assignment` or
+    `call_expression` starting `get(` when the getter's body holds an object
+    literal (`val g: Any\\n  get() = object { ... }`, which it error-recovers);
+    a `prefix_expression(annotation, get(...))` for an annotated block-bodied
+    one; and an expression starting `by` (`val vm: VM\\n    by viewModels()`).
+    Its annotations may also spill as `annotation` siblings ahead of it. So
+    the sibling is read by its FIRST TOKEN as well as by its type, skipping
+    comments and annotations (`_KOTLIN_SPILL_SKIP`) at every level.
+
+    ⚠⚠ The two token halves are gated DIFFERENTLY, because Kotlin's grammar
+    is: a getter binds after an initializer AND after an optional `;`
+    (`(NL* ';')? NL* getter`), so `get(` counts in both cases; a delegate
+    cannot follow an initializer or a `;`, so `by` counts only for a `val`
+    with no initializer and no `;` in the gap (the grammar keeps `;` as no
+    node, so it is read from the gap bytes, comments and annotations
+    excluded).
 
     ⚠ A getter with NO BODY (`val a = 1 get`, `@JvmName("x") get`) is the
     default accessor: no code runs on read, so it does not count, and on the
@@ -1424,21 +1426,22 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     if following.type == "getter":
         return "variable" if _kotlin_getter_has_body(following) else "constant"
     gap += source_bytes[cursor:following.start_byte]
-    if b";" not in gap:
-        # The first token NOT inside an annotation: a block-bodied getter
-        # with an annotation spills as `prefix_expression(annotation, get(...))`.
-        first = following
-        while first.child_count:
-            first = next(
-                (c for c in first.children if c.type not in _KOTLIN_SPILL_SKIP),
-                first.children[0],
-            )
-            if first.type in _KOTLIN_SPILL_SKIP:
-                break
-        token = source_bytes[first.start_byte:first.end_byte]
+    # The first token NOT inside an annotation: a block-bodied getter with an
+    # annotation spills as `prefix_expression(annotation, get(...))`.
+    first = following
+    while first.child_count:
+        first = next(
+            (c for c in first.children if c.type not in _KOTLIN_SPILL_SKIP),
+            first.children[0],
+        )
+        if first.type in _KOTLIN_SPILL_SKIP:
+            break
+    token = source_bytes[first.start_byte:first.end_byte]
+    if token == b"get":
         called = source_bytes[first.end_byte:following.end_byte].lstrip(b" \t").startswith(b"(")
-        if (token == b"get" and called) or (token == b"by" and not has_initializer):
-            return "variable"
+        return "variable" if called else "constant"
+    if token == b"by" and not has_initializer and b";" not in gap:
+        return "variable"
     return "constant"
 
 

@@ -137,7 +137,18 @@ def test_a_spilled_getter_after_an_initializer_is_still_a_getter():
     against the unsplit gate."""
     kinds = _kinds("val a: Any = 1\n  get() = object { val q = 1 }\n")
     assert kinds["a"] == "variable", kinds
-    assert _kinds("val b: Any = 1; get(2)\n", "s.kts")["b"] == "constant"
+
+
+def test_a_getter_binds_after_an_optional_semicolon_and_a_delegate_does_not():
+    """Review round 7: Kotlin's grammar is `(NL* ';')? NL* getter`, so a `;`
+    ends only the delegate half. The first version stopped both halves at a
+    `;`, so the annotated or object-literal forms (token path) published
+    `constant` while the plain form (a clean `getter` node) read `variable`."""
+    assert _kinds("val a: Any? = null;\n  get() { return field ?: 5 }\nclass X\n")["a"] == "variable"
+    assert _kinds("val b: Any? = null;\n  @A get() { return field ?: 5 }\nclass X\n")["b"] == "variable"
+    assert _kinds("val c: Any? = null; get() { return object {\n val q = 1 } }\n")["c"] == "variable"
+    assert _kinds("val d: Any? = null;\n  @A get() = field ?: object { val q = 1 }\n")["d"] == "variable"
+    assert _kinds("expect val e: Int; by(1)\n")["e"] == "constant"
 
 
 def test_an_annotated_recovered_getter_is_read_past_its_spilled_annotations():
