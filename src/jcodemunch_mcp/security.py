@@ -331,6 +331,16 @@ _SKIP_DIRECTORY_NAMES: list[str] = [
     ".turbo",        # Turborepo
     ".parcel-cache", # Parcel
     ".dart_tool",    # Dart / Flutter
+    # Visual Studio's per-solution machine state: binary design-time caches,
+    # `.suo`, a SQLite `browse.VC.db`, and `*.dtbcache.json`, which is the one that
+    # reaches the corpus because `.json` is an indexed extension.
+    #
+    # ⚠ Unconditional and NAME-based, unlike `obj/`/`bin/` above, because there is
+    # no ambiguity to resolve: nothing in `.vs/` is hand-written and it is
+    # gitignored by every .NET template. `.idea/` and `.vscode/` are deliberately
+    # NOT added alongside it — those hold committed, hand-edited `launch.json` /
+    # `tasks.json` that a user may legitimately want to search.
+    ".vs",
 ]
 
 # Glob-style patterns — matched by regex in index_folder, by suffix in index_repo.
@@ -404,6 +414,65 @@ def get_respect_cachedir_tag(repo: Optional[str] = None) -> bool:
     standard honoured rather than silently re-admitting cache trees.
     """
     value = _config.get("respect_cachedir_tag", True, repo=repo)
+    return False if value is False else True
+
+
+# MSBuild writes intermediate and final output to `obj/` and `bin/` beside the
+# project file. Both routinely contain COPIES of real source: a web publish drops
+# `obj/Release/Package/PackageTmp/` and `obj/Release/AspnetCompileMerge/Source/`,
+# so the same symbols index twice and the copies then compete with the originals
+# in ranking — the defect class v1.108.234 added `backup`/`old`/`archive` for.
+_MSBUILD_OUTPUT_DIR_NAMES: frozenset[str] = frozenset({"obj", "bin"})
+
+# Presence of one of these beside the candidate directory is what makes `obj`/`bin`
+# mean "MSBuild output" rather than an ordinary folder.
+_DOTNET_PROJECT_SUFFIXES: tuple[str, ...] = (
+    ".csproj", ".vbproj", ".fsproj", ".sln", ".slnx",
+)
+
+
+def is_dotnet_project_dir(filenames) -> bool:
+    """True when ``filenames`` (one directory's entries) includes a .NET project.
+
+    Takes the already-walked filename list rather than a path, so the check costs
+    no extra IO at the point `os.walk` prunes.
+    """
+    return any(
+        f.lower().endswith(_DOTNET_PROJECT_SUFFIXES) for f in filenames
+    )
+
+
+def is_msbuild_output_directory(dir_name: str, sibling_filenames) -> bool:
+    """True when ``dir_name`` is MSBuild output beside a .NET project file.
+
+    ⚠ **The .NET project marker is the whole design, and it exists for `bin/`.**
+    `obj/` is close to unambiguous, but `bin/` holds committed, hand-written
+    entrypoints in Node, Ruby and Go projects. Skipping it on the NAME alone would
+    delete real source from the corpus — an assertion about one instance of the
+    property instead of the property, the same mistake a name-only `CACHEDIR.TAG`
+    check would have made. Requiring the marker means the rule fires exactly where
+    the name has the meaning we are relying on.
+
+    ⚠ Deliberately NOT a withheld exclusion, for the same reason as
+    `is_cache_directory`: build output is derived, regenerable data, so this is the
+    corpus being defined rather than a file we refused. Absence claims over the
+    remaining corpus stay citable. A standard .NET `.gitignore` already excludes
+    both, so in practice this only fires on projects that lack one.
+    """
+    return (
+        dir_name.lower() in _MSBUILD_OUTPUT_DIR_NAMES
+        and is_dotnet_project_dir(sibling_filenames)
+    )
+
+
+def get_skip_msbuild_output(repo: Optional[str] = None) -> bool:
+    """Whether the walk prunes `obj/`/`bin/` beside a .NET project. Default True.
+
+    Only an explicit false disables it, matching `get_respect_cachedir_tag`: a typo
+    or garbage value keeps build output out rather than silently re-admitting
+    duplicate source trees.
+    """
+    value = _config.get("skip_msbuild_output", True, repo=repo)
     return False if value is False else True
 
 

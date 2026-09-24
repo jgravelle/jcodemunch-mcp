@@ -64,6 +64,7 @@ split and is not resolved by it.
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `CODE_INDEX_PATH` | `~/.code-index/` | Index storage location |
+| `JCODEMUNCH_SKIP_MSBUILD_OUTPUT` | 1 | (unreleased) Prune `obj/`/`bin/` when a .NET project file (`.csproj`/`.vbproj`/`.fsproj`/`.sln`/`.slnx`) sits BESIDE them (config key `skip_msbuild_output`). The project-file marker exists for `bin/`, which holds committed hand-written entrypoints in Node, Ruby and Go projects — a name-only rule would delete real source. Counted as `msbuild_output` in `discovery_skip_counts`, NOT a withheld reason, so absence stays citable. Only an explicit `false` disables it. |
 | `JCODEMUNCH_MAX_INDEX_FILES` | 10,000 | File cap for repo indexing |
 | `JCODEMUNCH_MAX_FOLDER_FILES` | 2,000 | File cap for folder indexing |
 | `JCODEMUNCH_FILE_TREE_MAX_FILES` | 500 | Cap for get_file_tree results |

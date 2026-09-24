@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added - MSBuild `obj/`/`bin/` and Visual Studio's `.vs/` are pruned from the walk
+
+A .NET project without a `.gitignore` indexed its build output as source.
+Both `obj/` and `bin/` routinely hold COPIES of real code -- a web publish
+writes `obj/Release/Package/PackageTmp/` and
+`obj/Release/AspnetCompileMerge/Source/` -- so the same symbols indexed twice
+and the copies competed with the originals in ranking; on the reporting
+Web Forms app the symbol count halved (15,021 -> 7,869) with per-language
+counts then matching the filesystem. `obj/`/`bin/` are pruned only when a
+`.csproj`/`.vbproj`/`.fsproj`/`.sln`/`.slnx` sits BESIDE them, because `bin/`
+holds committed hand-written entrypoints in Node, Ruby and Go and a name-only
+rule would delete real source; the marker check reuses the `filenames`
+`os.walk` already holds, so it costs no IO. `.vs/` (binary design-time caches
+and `*.dtbcache.json`) joins `_SKIP_DIRECTORY_NAMES` unconditionally, since
+nothing in it is hand-written; `.idea/` and `.vscode/` deliberately do not.
+⚠ This adds a DEFAULT, not a capability: `.gitignore` and
+`extra_ignore_patterns` could already exclude these for anyone who knew to
+ask. Counted as `msbuild_output` in `discovery_skip_counts` and NOT a
+withheld reason (build output is derived data, so absence stays citable).
+Config key `skip_msbuild_output` / `JCODEMUNCH_SKIP_MSBUILD_OUTPUT`, default
+on; only an explicit `false` disables it, and `exclude_skip_directories`
+does not re-admit it because the rule is a predicate, not a listed name.
+
 ## [1.108.335] - 2026-10-08 - a read-only open reads the file the path names
 
 ### Fixed

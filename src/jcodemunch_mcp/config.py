@@ -48,6 +48,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE": "trusted_folders_whitelist_mode",
     "JCODEMUNCH_MAX_FILE_SIZE": "max_file_size",
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
+    "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
     "JCODEMUNCH_RESPONSE_MAX_BYTES": "response_max_bytes",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
@@ -354,6 +355,7 @@ DEFAULTS = {
     "trusted_folders_whitelist_mode": True,
     "max_file_size": 512000,
     "respect_cachedir_tag": True,
+    "skip_msbuild_output": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
     "max_index_files": 10000,
@@ -544,6 +546,7 @@ CONFIG_TYPES = {
     "trusted_folders_whitelist_mode": bool,
     "max_file_size": int,
     "respect_cachedir_tag": bool,
+    "skip_msbuild_output": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
     "max_index_files": int,
@@ -2183,6 +2186,19 @@ def generate_template() -> str:
   //   for caches that are not dotted. Pruned directories are counted as
   //   `cache_dir` in `discovery_skip_counts`. Set false if you tag a directory
   //   you nonetheless want indexed; only an explicit false disables it.
+
+  // "skip_msbuild_output": true,
+  //   Prune `obj/` and `bin/` when a .NET project file (.csproj/.vbproj/.fsproj/
+  //   .sln/.slnx) sits beside them. Both routinely hold COPIES of real source --
+  //   a web publish writes obj/Release/Package/PackageTmp/ and
+  //   obj/Release/AspnetCompileMerge/Source/ -- so the same symbols index twice
+  //   and the copies compete with the originals in ranking.
+  //   The project-file marker is required BY DESIGN and exists for `bin/`, which
+  //   holds committed hand-written entrypoints in Node, Ruby and Go projects; a
+  //   name-only rule would delete real source from those. Pruned directories are
+  //   counted as `msbuild_output` in `discovery_skip_counts`. A standard .NET
+  //   .gitignore already covers both, so this mainly affects projects lacking
+  //   one. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the

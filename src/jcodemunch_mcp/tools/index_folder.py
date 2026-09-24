@@ -35,7 +35,10 @@ from ..security import (
     get_extra_ignore_patterns,
     get_respect_cachedir_tag,
     get_skip_directories,
+    get_skip_msbuild_output,
     is_cache_directory,
+    is_dotnet_project_dir,
+    is_msbuild_output_directory,
     SKIP_FILES
 )
 from ..storage import IndexStore
@@ -1233,6 +1236,7 @@ def discover_local_files(
     max_size = get_max_file_size(max_size, repo=_repo_key)
     max_files = get_max_folder_files(max_files, repo=_repo_key)
     respect_cachedir_tag = get_respect_cachedir_tag(repo=_repo_key)
+    skip_msbuild_output = get_skip_msbuild_output(repo=_repo_key)
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1240,6 +1244,7 @@ def discover_local_files(
     skip_counts: dict[str, int] = {
         "skip_dir": 0,
         "nested_worktree": 0,
+        "msbuild_output": 0,
         "skip_file": 0,
         "symlink": 0,
         "symlink_escape": 0,
@@ -1317,12 +1322,22 @@ def discover_local_files(
         pruned = []
         worktrees = []
         caches = []
+        msbuild = []
         kept = []
+        # `filenames` is this directory's entries, already walked, so the .NET
+        # project-file marker `is_msbuild_output_directory` needs costs no IO.
+        dotnet_here = skip_msbuild_output and is_dotnet_project_dir(filenames)
         for d in dirnames:
             if skip_dirs_regex.match(d):
                 pruned.append(d)
             elif is_linked_worktree(dpath / d):
                 worktrees.append(d)
+            # MSBuild output beside a .NET project file. Pure string work against
+            # an already-computed marker, so it precedes the CACHEDIR.TAG open();
+            # ordering stays behaviour-neutral because a directory matching either
+            # rule is pruned either way.
+            elif dotnet_here and is_msbuild_output_directory(d, filenames):
+                msbuild.append(d)
             # A directory that declares ITSELF a cache, per the Cache Directory
             # Tagging Specification. Checked last because it costs an open() and
             # the two rules above are string/stat work; ordering is behaviour-
@@ -1332,7 +1347,7 @@ def discover_local_files(
                 caches.append(d)
             else:
                 kept.append(d)
-        if pruned or worktrees or caches:
+        if pruned or worktrees or caches or msbuild:
             rel_dir = os.path.relpath(dirpath, root_str)
             for d in pruned:
                 skip_counts["skip_dir"] += 1
@@ -1345,6 +1360,9 @@ def discover_local_files(
             for d in caches:
                 skip_counts["cache_dir"] += 1
                 logger.debug("SKIP cache_dir: %s", os.path.join(rel_dir, d))
+            for d in msbuild:
+                skip_counts["msbuild_output"] += 1
+                logger.debug("SKIP msbuild_output: %s", os.path.join(rel_dir, d))
         dirnames[:] = kept
 
         # Load .gitignore for this directory BEFORE filtering its files so
