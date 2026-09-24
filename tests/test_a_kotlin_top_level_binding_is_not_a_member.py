@@ -146,6 +146,9 @@ def test_an_annotated_recovered_getter_is_read_past_its_spilled_annotations():
     declaration, the only place the token path is reached."""
     assert _kinds('val k: Any\n  @JvmName("kk") get() = object { val z = 1 }\n')["k"] == "variable"
     assert _kinds("val k: Any\n  @A @B(1) get() { return object { val z = 1 } }\n")["k"] == "variable"
+    # A block-bodied annotated getter followed by a declaration spills as
+    # `prefix_expression(annotation, get(...))`: the annotation is INSIDE.
+    assert _kinds("val k: Any\n  @A get() { return 5 }\nclass After\n")["k"] == "variable"
     # A real annotated declaration after a val is not its accessor.
     assert _kinds('val k = 1\n@Deprecated("x")\nfun f() = 2\n')["k"] == "constant"
 

@@ -1415,7 +1415,7 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     following = node.next_named_sibling
     # Comments, and the annotations of a spilled accessor, which the grammar
     # spills as siblings of their own ahead of it (`@JvmName("k") get() = ...`).
-    while following is not None and following.type in ("line_comment", "multiline_comment", "annotation"):
+    while following is not None and following.type in _KOTLIN_SPILL_SKIP:
         gap += source_bytes[cursor:following.start_byte]
         cursor = following.end_byte
         following = following.next_named_sibling
@@ -1425,14 +1425,27 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
         return "variable" if _kotlin_getter_has_body(following) else "constant"
     gap += source_bytes[cursor:following.start_byte]
     if b";" not in gap:
+        # The first token NOT inside an annotation: a block-bodied getter
+        # with an annotation spills as `prefix_expression(annotation, get(...))`.
         first = following
         while first.child_count:
-            first = first.children[0]
+            first = next(
+                (c for c in first.children if c.type not in _KOTLIN_SPILL_SKIP),
+                first.children[0],
+            )
+            if first.type in _KOTLIN_SPILL_SKIP:
+                break
         token = source_bytes[first.start_byte:first.end_byte]
         called = source_bytes[first.end_byte:following.end_byte].lstrip(b" \t").startswith(b"(")
         if (token == b"get" and called) or (token == b"by" and not has_initializer):
             return "variable"
     return "constant"
+
+
+#: Nodes between a file-scope Kotlin property and its spilled accessor that
+#: are not the accessor: comments, and the annotations the grammar spills
+#: ahead of it (as siblings, or as the first child of a `prefix_expression`).
+_KOTLIN_SPILL_SKIP = frozenset({"line_comment", "multiline_comment", "annotation"})
 
 
 def _kotlin_getter_has_body(getter) -> bool:
