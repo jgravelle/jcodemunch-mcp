@@ -1395,7 +1395,14 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
 
     ⚠ A getter with NO BODY (`val a = 1 get`, `@JvmName("x") get`) is the
     default accessor: no code runs on read, so it does not count, and on the
-    token path a bare `get` not followed by `(` is an ordinary expression.
+    token path a `get` whose next TOKEN is not `(` is an ordinary expression.
+    Newlines and comments between `get` and `(` are whitespace to Kotlin
+    (`'get' {NL} '('`), so the next token is read from the tree.
+
+    ⚠ Not handled, recorded: Kotlin 2.x's experimental explicit backing field
+    (`val x: Int\\n  field = 1\\n  get() = field + 1`, opt-in via
+    `-Xexplicit-backing-fields`) spills `field` first, so its getter is not
+    reached and the `val` reads `constant`.
     """
     if node.parent is None or node.parent.type != "source_file":
         return None
@@ -1438,7 +1445,10 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
             break
     token = source_bytes[first.start_byte:first.end_byte]
     if token == b"get":
-        called = source_bytes[first.end_byte:following.end_byte].lstrip(b" \t").startswith(b"(")
+        # Kotlin's grammar is `'get' {NL} '('` with comments as whitespace, so
+        # the next TOKEN is read from the tree, never the next byte.
+        after = _kotlin_next_leaf(first)
+        called = after is not None and source_bytes[after.start_byte:after.end_byte] == b"("
         return "variable" if called else "constant"
     if token == b"by" and not has_initializer and b";" not in gap:
         return "variable"
@@ -1449,6 +1459,24 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
 #: are not the accessor: comments, and the annotations the grammar spills
 #: ahead of it (as siblings, or as the first child of a `prefix_expression`).
 _KOTLIN_SPILL_SKIP = frozenset({"line_comment", "multiline_comment", "annotation"})
+
+
+def _kotlin_next_leaf(node):
+    """The leaf after `node` in document order, skipping comments, or None."""
+    current = node
+    while current is not None:
+        sibling = current.next_sibling
+        while sibling is not None and sibling.type in ("line_comment", "multiline_comment"):
+            sibling = sibling.next_sibling
+        if sibling is not None:
+            while sibling.child_count:
+                sibling = sibling.children[0]
+            if sibling.type in ("line_comment", "multiline_comment"):
+                current = sibling
+                continue
+            return sibling
+        current = current.parent
+    return None
 
 
 def _kotlin_getter_has_body(getter) -> bool:

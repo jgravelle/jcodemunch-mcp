@@ -41,7 +41,11 @@ grammar binds a getter in both places (a getter may read the backing field
 the initializer sets), while `by` counts only for a `val` with no
 initializer and no `;` before it.
 A getter with no body (`val a = 1 get`) is the default accessor and runs
-no code, so its `val` stays a `constant`. Review found each of these
+no code, so its `val` stays a `constant`; whether `get` has a body is read
+from the next TOKEN, since Kotlin treats newlines and comments between
+`get` and `(` as whitespace. Kotlin 2.x's experimental explicit backing
+field (`field = 1` before the getter, opt-in) is not handled: its `val`
+reads `constant`. Review found each of these
 spellings published with the wrong kind.
 
 Ids move for every Kotlin file-scope property (`name#property` becomes

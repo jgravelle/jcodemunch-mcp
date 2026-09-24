@@ -164,6 +164,22 @@ def test_an_annotated_recovered_getter_is_read_past_its_spilled_annotations():
     assert _kinds('val k = 1\n@Deprecated("x")\nfun f() = 2\n')["k"] == "constant"
 
 
+def test_a_newline_or_comment_between_get_and_its_paren_is_whitespace():
+    """Review round 8: Kotlin's grammar is `'get' {NL} '('` with comments as
+    whitespace; a byte check for `(` after spaces missed all of these."""
+    for source in (
+        "val a: Any\n  get\n  () = object { val q = 1 }\n",
+        "val a: Any\r\n  get\r\n  () = object { val q = 1 }\r\n",
+        "val a: Any\n  get /* c */ () = object { val q = 1 }\n",
+        "val a: Any\n  get // c\n  () = object { val q = 1 }\n",
+        "val a: Any\n  @A get\n  () { return object { val q = 1 } }\nclass X\n",
+        "val a: Any = 1; get /* c */ () = object { val q = 1 }\n",
+    ):
+        assert _kinds(source)["a"] == "variable", source
+    # A bodiless `get` before a declaration is still the default accessor.
+    assert _kinds("val a = 1\nget\nfun f() = 2\n")["a"] == "constant"
+
+
 def test_a_bodiless_getter_runs_no_code_so_the_val_is_a_constant():
     """Review round 5: `get` with no body is the default accessor. The value
     is the initializer, whatever the annotation or the line it sits on."""
