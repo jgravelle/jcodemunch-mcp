@@ -12923,13 +12923,29 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return None
 
     def _is_type_expr(node) -> Optional[str]:
-        """Check if an ErrorUnionExpr contains a struct/enum/union literal."""
+        """The container keyword of an ErrorUnionExpr that IS a container, else None.
+
+        ⚠⚠ #841: asked of the GRAMMAR NODE, never the text. The first version
+        asked whether the expression's text starts with `struct`, `enum` or
+        `union`, so `packed struct`, `extern struct` and `extern union` (the
+        qualifier starts the text) fell through to the plain-constant branch
+        as bare constants with no members: a guard written against a spelling
+        (09-01). The grammar spells every container
+        `ContainerDecl > (packed|extern)? ContainerDeclType > <keyword>`, so
+        a qualifier cannot re-open this. `opaque` is a container the same
+        node spells and is answered too (a `type` with no members).
+        """
         if node is None:
             return None
-        txt = _text(node).strip()
-        for kw in ("struct", "enum", "union"):
-            if txt.startswith(kw):
-                return kw
+        # ErrorUnionExpr > SuffixExpr > ContainerDecl > ContainerDeclType > keyword
+        suffix = _first_child_of_type(node, "SuffixExpr")
+        decl = _first_child_of_type(suffix, "ContainerDecl") if suffix is not None else None
+        decl_type = _first_child_of_type(decl, "ContainerDeclType") if decl is not None else None
+        if decl_type is None:
+            return None
+        for child in decl_type.children:
+            if child.type in ("struct", "enum", "union", "opaque"):
+                return child.type
         return None
 
     # ⚠⚠ #809/#811: the walk threads the owner SYMBOL, not a scope string, and

@@ -293,6 +293,11 @@ INDEX_VERSION = 17
 #   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
 #   with an owner, so its old id resolves to nothing until re-parsed.
 #
+#   ⚠⚠ **And #841: a Zig `packed`/`extern` struct or union (and `opaque`)
+#   MOVES from `constant` to `class`/`type`** on unchanged content, and its
+#   fields and fns are NEW owned symbols; an already-indexed `.zig` file
+#   serves the bare constant with no members until re-parsed.
+#
 #   ⚠⚠ **And #837: spans MOVE for every name of a multi-declarator JS/TS/TSX
 #   `let`/`const`/`var`** (and of a `const f = () => ..., g = ...` function
 #   pair): each records its own `variable_declarator` instead of the whole

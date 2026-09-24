@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Fixed - a Zig packed or extern struct/union is the container its body is (#841)
+
+`const P = packed struct { a: u8, pub fn f() void {} };` indexed a bare
+`constant P` with no class, no `P.a` and no `P.f`, and `extern struct` and
+`extern union` did the same, while the identical body spelled `struct` was
+a `class` with owned fields and methods. A packed struct is how Zig spells
+a bit-field layout and an extern struct is every C ABI boundary, so the
+containers a systems codebase leans on were names with no contents. Found
+by the #809/#811 reviewer probing spellings beyond that diff; filed by
+@jgravelle (#841).
+
+⚠⚠ **A guard written against a spelling.** `_parse_zig_symbols._is_type_expr`
+asked whether the expression's TEXT starts with `struct`, `enum` or
+`union`; a qualifier starts the text instead, so the container branch was
+never taken and the declaration fell through to the plain-constant branch
+(Standing lesson 09-01; a node the parser never names reads as the language
+having no such thing, 09-15). The grammar spells every container
+`ContainerDecl > (packed|extern)? ContainerDeclType > <keyword>`, and the
+test asks that node now, so a future qualifier cannot re-open this.
+
+⚠ **Rulings:** a qualified struct or union is the same kind as its
+unqualified form (`class` for struct, `type` for enum and union) with its
+fields and fns owned by it, asserted EQUAL to the unqualified form's rows
+for the same body. `opaque {}` is a container the same node spells and is a
+`type` with no members, decided rather than left. `enum(u8)`, `union(enum)`
+and the unqualified forms are unchanged.
+
+⚠ Ids MOVE on unchanged content (`constant` -> `class`/`type`) for every
+qualified container, and its members are NEW symbols; `PARSER_GENERATION`
+8 names it. `tests/test_a_zig_qualified_container_is_a_container.py` pins
+the reported struct, `packed struct(u16)`, `extern union`, `opaque`, a
+nested and a `pub` qualified container, and the unchanged spellings.
+
+Red on `main`: `10 failed, 15 passed` over the new file and the Zig member
+file. Green: `706 passed` over every test file naming Zig plus the
+node-type ratchets.
+
 ### Fixed - each name in a multi-declarator JS/TS binding records its own span (#837)
 
 `let x = 1, y = 2;` gave `x` and `y` the whole statement as their span, in
