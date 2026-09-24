@@ -366,7 +366,8 @@ INDEX_VERSION = 17
 #   files and every script re-parsed as TypeScript (Astro frontmatter,
 #   template-underlying TS). A member of a class with no symbol is withheld.
 #   One id moves: a STATIC member sharing the name (`static a` beside
-#   `constructor(public a)`) goes from `C.a#field` to `C.a#field~1`.
+#   `constructor(public a)`) goes from `C.a#field` to `C.a#field~1` or
+#   `~2`, by source order.
 PARSER_GENERATION = 8
 
 

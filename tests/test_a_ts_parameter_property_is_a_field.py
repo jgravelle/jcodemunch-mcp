@@ -170,6 +170,12 @@ def test_a_static_member_sharing_the_name_is_disclosed_not_lost(language, filena
     src = "class C {\n  static a = 1;\n  constructor(public a: number) {}\n}\n"
     ids = [i for i, _ in _ids(src, language, filename)]
     assert ids == ["C#class", "C.a#field~1", "C.constructor#method", "C.a#field~2"], ids
+    # The ordinal follows source order, so a static member AFTER the
+    # constructor takes `~2` (review round 2).
+    src = "class C {\n  constructor(public a: number) {}\n  static a = 1;\n}\n"
+    symbols = parse_file(src, filename, language)
+    static = next(s for s in symbols if s.name == "a" and "static" in s.signature)
+    assert static.id.endswith("C.a#field~2"), [s.id for s in symbols]
 
 
 def test_javascript_is_unchanged():

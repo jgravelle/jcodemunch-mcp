@@ -30,8 +30,9 @@ The symbols are new. They appear in `.ts`/`.tsx` files and in scripts
 re-parsed as TypeScript. One id moves: TypeScript lets a STATIC member share
 a name with an instance parameter property (`static a = 1` beside
 `constructor(public a: number)`), and the static member's `C.a#field`
-becomes `C.a#field~1` beside the new `C.a#field~2`. `PARSER_GENERATION` 8 names it. Filed
-by @jgravelle (#802).
+takes an ordinal by source order: `~1` when it comes before the
+constructor, `~2` when after. `PARSER_GENERATION` 8 names it. Filed by
+@jgravelle (#802).
 
 ### Fixed - a JS/TS class expression is a class, named by what binds it (#803)
 
