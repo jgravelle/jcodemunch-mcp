@@ -465,6 +465,31 @@ def is_msbuild_output_directory(dir_name: str, sibling_filenames) -> bool:
     )
 
 
+def is_msbuild_output_path(path) -> bool:
+    """Path-taking variant of `is_msbuild_output_directory`.
+
+    The full walk already holds the parent's `filenames` from `os.walk` and must
+    keep calling `is_msbuild_output_directory`, which costs no IO. This variant is
+    for the watcher fast path, which sees only a path and has to list the parent
+    itself. The directory NAME is checked first, so the listing is paid only for a
+    component actually called `obj` or `bin`.
+
+    ⚠ Lists non-directory entries only, so the marker sees exactly the `filenames`
+    the walk passes. Handing it directory names too would let a directory called
+    `Foo.sln` satisfy the marker on one route and not the other — the same rule
+    firing differently by entry point is the defect this variant exists to close.
+    """
+    p = Path(path)
+    if p.name.lower() not in _MSBUILD_OUTPUT_DIR_NAMES:
+        return False
+    try:
+        with os.scandir(str(p.parent)) as entries:
+            filenames = [e.name for e in entries if not e.is_dir()]
+    except (OSError, ValueError):
+        return False
+    return is_dotnet_project_dir(filenames)
+
+
 def get_skip_msbuild_output(repo: Optional[str] = None) -> bool:
     """Whether the walk prunes `obj/`/`bin/` beside a .NET project. Default True.
 
@@ -473,6 +498,86 @@ def get_skip_msbuild_output(repo: Optional[str] = None) -> bool:
     duplicate source trees.
     """
     value = _config.get("skip_msbuild_output", True, repo=repo)
+    return False if value is False else True
+
+
+# NuGet's classic (v2 / packages.config) restore layout writes every package to
+# `packages/<Id>.<Version>/` and drops the downloaded artifact inside it under the
+# IDENTICAL name: `packages/Newtonsoft.Json.6.0.3/Newtonsoft.Json.6.0.3.nupkg`.
+# That artifact is the marker — a file NuGet itself wrote, not a naming convention
+# we inferred, which puts this in the same evidence class as the `.csproj` marker
+# `is_msbuild_output_directory` requires and the verified `CACHEDIR.TAG` signature.
+_NUGET_PACKAGES_DIR_NAME = "packages"
+_NUGET_ARTIFACT_SUFFIX = ".nupkg"
+
+# Upper bound on child directories probed before giving up. The probe costs one
+# stat per child, and a directory named `packages` that is NOT a NuGet restore
+# dir pays that cost for nothing. Giving up means "not pruned", i.e. the safe
+# direction: a restore dir we fail to recognise is indexed, which is today's
+# behaviour, whereas a source dir we wrongly prune loses real code.
+_NUGET_PROBE_LIMIT = 100
+
+
+def is_nuget_packages_directory(dir_name: str, path) -> bool:
+    """True when ``path`` is a NuGet ``packages/`` restore directory.
+
+    ⚠ **The artifact marker is the whole design.** `packages/` is a legitimate,
+    hand-written source directory in other ecosystems — Flutter's monorepo is
+    `packages/flutter`, `packages/flutter_test`, and Dart, Go and JS monorepos use
+    the same layout. Pruning on the NAME alone would delete real source, the same
+    mistake a name-only `CACHEDIR.TAG` check makes. Requiring the artifact means
+    the rule fires exactly where the name has the meaning we are relying on.
+
+    ⚠ Loosening this to "child looks like `<Id>.<SemVer>`" would key on a NAMING
+    CONVENTION rather than on evidence the writer left, which is the weakness the
+    `CACHEDIR.TAG` notes above exist to call out. Do not.
+
+    ⚠ Two known layouts are deliberately NOT matched, both erring toward indexing:
+    a v2 tree whose `.nupkg` files were stripped after restore (its children hold
+    `lib/` only, i.e. DLLs already dropped by `is_binary_extension`), and the v3
+    global cache under `~/.nuget/packages`, which nests one level deeper as
+    `<id>/<version>/<id>.<version>.nupkg`.
+
+    ⚠ Deliberately NOT a withheld exclusion, for the same reason as
+    `is_cache_directory` and `is_msbuild_output_directory`: restored packages are
+    derived, re-downloadable data, so this is the corpus being defined rather than
+    a file we refused. Absence claims over the remaining corpus stay citable.
+
+    Never raises: an unreadable or vanished directory means "not a packages dir",
+    so a permission error can never silently empty a corpus.
+    """
+    if dir_name.lower() != _NUGET_PACKAGES_DIR_NAME:
+        return False
+    try:
+        with os.scandir(str(path)) as entries:
+            probed = 0
+            for entry in entries:
+                if probed >= _NUGET_PROBE_LIMIT:
+                    return False
+                try:
+                    if not entry.is_dir():
+                        continue
+                except OSError:
+                    continue
+                probed += 1
+                artifact = os.path.join(
+                    entry.path, entry.name + _NUGET_ARTIFACT_SUFFIX
+                )
+                if os.path.isfile(artifact):
+                    return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def get_skip_nuget_packages(repo: Optional[str] = None) -> bool:
+    """Whether the walk prunes NuGet `packages/` restore dirs. Default True.
+
+    Only an explicit false disables it, matching `get_skip_msbuild_output` and
+    `get_respect_cachedir_tag`: a typo or garbage value keeps restored packages
+    out rather than silently re-admitting a vendored dependency tree.
+    """
+    value = _config.get("skip_nuget_packages", True, repo=repo)
     return False if value is False else True
 
 

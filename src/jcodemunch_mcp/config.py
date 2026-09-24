@@ -49,6 +49,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_MAX_FILE_SIZE": "max_file_size",
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
     "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
+    "JCODEMUNCH_SKIP_NUGET_PACKAGES": "skip_nuget_packages",
     "JCODEMUNCH_RESPONSE_MAX_BYTES": "response_max_bytes",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
@@ -356,6 +357,7 @@ DEFAULTS = {
     "max_file_size": 512000,
     "respect_cachedir_tag": True,
     "skip_msbuild_output": True,
+    "skip_nuget_packages": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
     "max_index_files": 10000,
@@ -547,6 +549,7 @@ CONFIG_TYPES = {
     "max_file_size": int,
     "respect_cachedir_tag": bool,
     "skip_msbuild_output": bool,
+    "skip_nuget_packages": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
     "max_index_files": int,
@@ -2199,6 +2202,26 @@ def generate_template() -> str:
   //   counted as `msbuild_output` in `discovery_skip_counts`. A standard .NET
   //   .gitignore already covers both, so this mainly affects projects lacking
   //   one. Only an explicit false disables it.
+
+  // "skip_nuget_packages": true,
+  //   Prune a `packages/` directory when it is a NuGet restore tree -- proven by
+  //   a child directory holding an artifact NuGet itself wrote under the same
+  //   name, e.g. packages/Newtonsoft.Json.6.0.3/Newtonsoft.Json.6.0.3.nupkg.
+  //   Restored packages ship vendored source (jQuery, bootstrap and friends
+  //   arrive as real .js), which competes with your own code in ranking and eats
+  //   the `max_folder_files` cap.
+  //   ⚠ A `.gitignore` listing `packages` already excludes those files, so on
+  //   such a repo this changes WHICH rule excluded them and not WHAT is indexed
+  //   -- measured at zero file difference. Where it moves the corpus is a solution
+  //   with no `.gitignore` entry: two measured at 9286 -> 7091 files (24%) and
+  //   1322 -> 750 (43%). Pruning at the directory is still cheaper either way,
+  //   because the alternative is gitignore-matching every file underneath one by
+  //   one (measured ~1500 on one repo for no change in outcome).
+  //   The artifact marker is required BY DESIGN: `packages/` is a hand-written
+  //   source directory in other ecosystems (Flutter's monorepo is
+  //   packages/flutter, packages/flutter_test), so a name-only rule would delete
+  //   real source from those. Pruned directories are counted as `nuget_packages`
+  //   in `discovery_skip_counts`. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the

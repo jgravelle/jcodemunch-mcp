@@ -25,6 +25,33 @@ Config key `skip_msbuild_output` / `JCODEMUNCH_SKIP_MSBUILD_OUTPUT`, default
 on; only an explicit `false` disables it, and `exclude_skip_directories`
 does not re-admit it because the rule is a predicate, not a listed name.
 
+### Added - a NuGet `packages/` restore tree is pruned, and the watcher applies both .NET rules
+
+Classic NuGet (v2 / `packages.config`) restores every package to
+`packages/<Id>.<Version>/`, and restored packages ship vendored source --
+jQuery and bootstrap arrive as real `.js` -- which competed with a project's
+own code in ranking and ate the `max_folder_files` cap. A `packages/`
+directory is now pruned when a child directory holds the artifact NuGet
+itself wrote under the same name (`packages/Newtonsoft.Json.6.0.3/
+Newtonsoft.Json.6.0.3.nupkg`). ⚠ The artifact marker is the design:
+`packages/` is hand-written source in Flutter, Dart and JS monorepos, so a
+name-only rule would delete real code, and "child looks like
+`<Id>.<SemVer>`" would key on a naming convention rather than on evidence the
+writer left. Measured over 36 directories named `packages` on one machine:
+26 pruned, 10 kept, zero false positives. ⚠ Where a `.gitignore` already
+lists `packages` this changes WHICH rule excluded the files, not WHAT is
+indexed (measured: zero file difference); it moves the corpus where no such
+entry exists (9286 -> 7091 files and 1322 -> 750). Two known false
+negatives, both erring toward indexing and both test-pinned: a v2 tree whose
+`.nupkg` files were stripped, and the v3 global cache, which nests the
+artifact one level deeper. Config key `skip_nuget_packages` /
+`JCODEMUNCH_SKIP_NUGET_PACKAGES`, default on, counted as `nuget_packages`,
+NOT a withheld reason. Also closes a gap in `skip_msbuild_output` above: it
+never reached `_should_index_file`, so the watcher's fast path returned
+`(True, "")` for `obj/Release/Package/PackageTmp/Program.cs` and re-admitted
+publish output by the back door. Both rules now run on the full walk and the
+fast path; `resolve_explicit_paths` still bypasses them on purpose.
+
 ## [1.108.335] - 2026-10-08 - a read-only open reads the file the path names
 
 ### Fixed

@@ -36,9 +36,12 @@ from ..security import (
     get_respect_cachedir_tag,
     get_skip_directories,
     get_skip_msbuild_output,
+    get_skip_nuget_packages,
     is_cache_directory,
     is_dotnet_project_dir,
     is_msbuild_output_directory,
+    is_msbuild_output_path,
+    is_nuget_packages_directory,
     SKIP_FILES
 )
 from ..storage import IndexStore
@@ -440,6 +443,8 @@ class _IndexFilters:
     check_binary: bool = True
     check_filename: bool = True
     respect_cachedir_tag: bool = True
+    skip_msbuild_output: bool = True
+    skip_nuget_packages: bool = True
 
 
 def _build_index_filters(
@@ -453,6 +458,8 @@ def _build_index_filters(
     check_binary: bool = True,
     check_filename: bool = True,
     respect_cachedir_tag: bool = True,
+    skip_msbuild_output: bool = True,
+    skip_nuget_packages: bool = True,
 ) -> _IndexFilters:
     """Bundle pre-computed filter config for ``_should_index_file``.
 
@@ -473,6 +480,8 @@ def _build_index_filters(
         check_binary=check_binary,
         check_filename=check_filename,
         respect_cachedir_tag=respect_cachedir_tag,
+        skip_msbuild_output=skip_msbuild_output,
+        skip_nuget_packages=skip_nuget_packages,
     )
 
 
@@ -495,7 +504,8 @@ def _should_index_file(
       - ``ok=False``: caller must skip. ``reason`` is one of the
         ``skip_counts`` keys (``skip_file``, ``symlink``,
         ``symlink_escape``, ``path_traversal``, ``skip_dir``,
-        ``nested_worktree``, ``gitignore``, ``extra_ignore``, ``secret``,
+        ``nested_worktree``, ``cache_dir``, ``msbuild_output``,
+        ``nuget_packages``, ``gitignore``, ``extra_ignore``, ``secret``,
         ``wrong_extension``, ``too_large``, ``unreadable``, ``binary``).
         ``rel_path`` may
         be empty if rejection happened before path resolution.
@@ -574,6 +584,15 @@ def _should_index_file(
             # the back door. Third entry point, same rule as #429.
             if cfg.respect_cachedir_tag and is_cache_directory(ancestor):
                 return False, "cache_dir", rel_path, None
+            # MSBuild output and NuGet restore trees, same third-entry-point rule.
+            # Both are name-gated inside the predicate, so a component that is not
+            # called `obj`/`bin`/`packages` costs one string compare and no IO.
+            if cfg.skip_msbuild_output and is_msbuild_output_path(ancestor):
+                return False, "msbuild_output", rel_path, None
+            if cfg.skip_nuget_packages and is_nuget_packages_directory(
+                ancestor.name, ancestor
+            ):
+                return False, "nuget_packages", rel_path, None
 
     # 8. Gitignore (string-prefix specs, walk-order)
     if gitignore_specs and _is_gitignored_fast(resolved_str, gitignore_specs):
@@ -1237,6 +1256,7 @@ def discover_local_files(
     max_files = get_max_folder_files(max_files, repo=_repo_key)
     respect_cachedir_tag = get_respect_cachedir_tag(repo=_repo_key)
     skip_msbuild_output = get_skip_msbuild_output(repo=_repo_key)
+    skip_nuget_packages = get_skip_nuget_packages(repo=_repo_key)
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1245,6 +1265,7 @@ def discover_local_files(
         "skip_dir": 0,
         "nested_worktree": 0,
         "msbuild_output": 0,
+        "nuget_packages": 0,
         "skip_file": 0,
         "symlink": 0,
         "symlink_escape": 0,
@@ -1323,6 +1344,7 @@ def discover_local_files(
         worktrees = []
         caches = []
         msbuild = []
+        nuget = []
         kept = []
         # `filenames` is this directory's entries, already walked, so the .NET
         # project-file marker `is_msbuild_output_directory` needs costs no IO.
@@ -1345,9 +1367,17 @@ def discover_local_files(
             # either way.
             elif respect_cachedir_tag and is_cache_directory(dpath / d):
                 caches.append(d)
+            # A NuGet restore tree. Checked LAST because it is the only rule here
+            # that can cost more than one syscall — up to one stat per child dir —
+            # and that cost is gated behind a `packages` name compare, so every
+            # other directory pays a single string comparison. Ordering stays
+            # behaviour-neutral: a directory matching an earlier rule is pruned
+            # either way.
+            elif skip_nuget_packages and is_nuget_packages_directory(d, dpath / d):
+                nuget.append(d)
             else:
                 kept.append(d)
-        if pruned or worktrees or caches or msbuild:
+        if pruned or worktrees or caches or msbuild or nuget:
             rel_dir = os.path.relpath(dirpath, root_str)
             for d in pruned:
                 skip_counts["skip_dir"] += 1
@@ -1363,6 +1393,9 @@ def discover_local_files(
             for d in msbuild:
                 skip_counts["msbuild_output"] += 1
                 logger.debug("SKIP msbuild_output: %s", os.path.join(rel_dir, d))
+            for d in nuget:
+                skip_counts["nuget_packages"] += 1
+                logger.debug("SKIP nuget_packages: %s", os.path.join(rel_dir, d))
         dirnames[:] = kept
 
         # Load .gitignore for this directory BEFORE filtering its files so
@@ -1883,6 +1916,12 @@ def index_folder(
                 check_binary=False,
                 check_filename=True,
                 respect_cachedir_tag=get_respect_cachedir_tag(
+                    repo=str(Path(walk_root).resolve())
+                ),
+                skip_msbuild_output=get_skip_msbuild_output(
+                    repo=str(Path(walk_root).resolve())
+                ),
+                skip_nuget_packages=get_skip_nuget_packages(
                     repo=str(Path(walk_root).resolve())
                 ),
             )
