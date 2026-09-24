@@ -10,7 +10,7 @@ and `get_group_contracts` each filtered or ranked with a literal of their
 own. All five predate the state vocabulary. A class member that used to
 arrive as `constant` passed their filters and ranked at the constant tier.
 Once its language learned the real word (Java, PHP, Kotlin, C++, Python,
-JS, then C#, Swift and Scala), it fell to a default nobody chose or dropped
+JS, then C#, Swift, Scala and Solidity), it fell to a default nobody chose or dropped
 out: a Python dataclass field ranked behind every module constant in
 `get_repo_map`, a JS `export let` was never a dead-contract candidate, and
 `find_implementations` resolved a same-named `template` ahead of a
