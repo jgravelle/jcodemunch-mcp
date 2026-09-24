@@ -346,6 +346,17 @@ INDEX_VERSION = 17
 #   { fun g() = 1; g() }`, `val g by lazy { class L }`, `val a: Any get() {
 #   return object { ... } }`).
 #   An already-indexed file serves the old ids until re-parsed.
+#
+#   ⚠⚠ **And #803: a JS/TS/TSX class EXPRESSION is a `class` named by its
+#   binder.** `const C = class {}` moves `C#constant` (or `C#variable` for a
+#   `let`) to `C#class`; its methods move from a bare `m#method` to
+#   `C.m#method` and its fields appear (`C.x#field`). An anonymous `export
+#   default class`, TS `export =` and `module.exports = class` are `default`;
+#   `obj.P = class` is `P`. A class expression NOTHING binds loses the members
+#   `main` published for it: a bare `b#method` for `new (class {...})()`, and
+#   `f.k#method` qualified under an enclosing function. Spans of every
+#   surviving member are unchanged; the new class symbol spans its binder's
+#   statement.
 PARSER_GENERATION = 8
 
 

@@ -127,15 +127,21 @@ def test_a_function_field_never_renames_the_real_method_it_shadows(language, fil
 
 @pytest.mark.parametrize("language, filename", _ALL)
 @pytest.mark.parametrize("source", [
-    "const C = class { x = 1; };\n",
-    "export default class { z = 1; }\n",
+    "new (class { x = 1; })();\n",
+    "use(class { z = 1; });\n",
     "function f() { return class { w = 1; }; }\n",
     "class M { meth() { return class { inM = 1; }; } }\n",
 ])
 def test_a_field_with_no_class_symbol_to_own_it_is_not_published(language, filename, source):
-    """An ABSENCE assertion. A class EXPRESSION has no symbol, so its field
-    came out bare (`x`, parent None) or owned by whatever function enclosed it
-    (`f.w`, `M.meth.inM`). A member with no owner is #698's defect."""
+    """An ABSENCE assertion. A class EXPRESSION nothing binds has no symbol,
+    so its field came out bare (`x`, parent None) or owned by whatever
+    function enclosed it (`f.w`, `M.meth.inM`). A member with no owner is
+    #698's defect.
+
+    ⚠ Since #803 a BOUND class expression (`const C = class {}`, `export
+    default class {}`) is a class symbol that owns its fields
+    (`tests/test_a_js_class_expression_is_a_class.py`), so the two bound
+    samples this listed became unbound ones (Practice 9: they pinned the gap)."""
     assert [s for s in parse_file(source, filename, language) if s.kind in ("field", "constant")
             and s.name in ("x", "z", "w", "inM")] == []
 

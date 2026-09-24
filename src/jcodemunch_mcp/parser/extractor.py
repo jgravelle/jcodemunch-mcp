@@ -747,6 +747,21 @@ def _walk_tree(
             next_parent = impl_scope
             next_is_container = True
 
+    # A class EXPRESSION is a class named by its binder (#803); one nothing
+    # binds withholds its members after the walk below.
+    withhold_from: Optional[int] = None
+    if node.type == "class" and language in _JS_BINDING_LANGUAGES:
+        binder = _js_class_expression_binder(node, source_bytes)
+        if binder is None:
+            withhold_from = len(symbols)
+        elif binder is not _JS_CLASS_IN_FIELD:
+            class_symbol = _js_class_expression_symbol(
+                node, binder, spec, source_bytes, filename, language, parent_symbol
+            )
+            symbols.append(class_symbol)
+            next_parent = class_symbol
+            next_is_container = True
+
     # Check for arrow/function-expression variable assignments in JS/TS
     if node.type == "variable_declarator" and language in ("javascript", "typescript", "tsx"):
         var_func = _extract_variable_function(
@@ -934,6 +949,13 @@ def _walk_tree(
             next_is_container,
         )
 
+    # #803: an unbound class expression has no name to own its members, and a
+    # member with no owner (or one qualified under the enclosing function, as
+    # if it declared it) is worse than the absence -- #781's field rule, now
+    # the whole body's. Calls inside it were still collected above.
+    if withhold_from is not None:
+        del symbols[withhold_from:]
+
     # #835: at the ROOT, once the whole tree is walked, so every caller of
     # this walk (the `.c` path and the `.h`-as-C fallback alike) inherits it.
     if language == "c" and node.parent is None:
@@ -1011,6 +1033,117 @@ def _rust_impl_scope(node, source_bytes: bytes, filename: str) -> Optional[Symbo
         kind="type",
         language="rust",
         signature="",
+    )
+
+
+#: Expression wrappers a binder is read THROUGH: `(class {})`, and TS's
+#: `class {} as X`, `satisfies X`, `!` and `<T>(class {})`.
+_JS_EXPRESSION_WRAPPERS = frozenset({
+    "parenthesized_expression", "as_expression", "satisfies_expression",
+    "non_null_expression", "type_assertion",
+})
+
+#: The binder answer for a class expression in a class-field initializer,
+#: whose members `_js_field_scope` already qualifies under the field.
+_JS_CLASS_IN_FIELD = object()
+
+
+def _js_class_expression_binder(node, source_bytes: bytes):
+    """What binds this JS/TS class EXPRESSION: `(name, span_node)`, None, or
+    `_JS_CLASS_IN_FIELD` (#803).
+
+    ⚠⚠ A class expression is named by its BINDER, the way `const d =
+    function inner() {}` is already `d`: a declarator's name (its inner name
+    is visible only inside the class), `default` for an anonymous `export
+    default class`, and the property for `obj.P = class {}`, with
+    `module.exports = class {}` read as the CommonJS default export. The span
+    is the binder's statement, as for a `const f = () => ...` function.
+
+    ⚠ None means NOTHING binds it (`new (class {})()`, `return class {}`, an
+    argument, an object-literal value, a destructuring target): there is no
+    name to borrow, and the caller withholds its members rather than invent
+    an owner.
+    """
+    child = node
+    up = node.parent
+    while up is not None and up.type in _JS_EXPRESSION_WRAPPERS:
+        child, up = up, up.parent
+    if up is None:
+        return None
+
+    def _is(field_node) -> bool:
+        return field_node is not None and (field_node.start_byte, field_node.end_byte) == (
+            child.start_byte, child.end_byte,
+        )
+
+    def _text(n) -> str:
+        return source_bytes[n.start_byte:n.end_byte].decode("utf-8", "replace")
+
+    if up.type in _JS_CLASS_FIELD_NODE_TYPES:
+        return _JS_CLASS_IN_FIELD
+    if up.type == "variable_declarator" and _is(up.child_by_field_name("value")):
+        name_node = up.child_by_field_name("name")
+        if name_node is None or name_node.type != "identifier":
+            return None
+        span = _js_binding_span_node(up)
+        if span is not up and span.parent is not None and span.parent.type == "export_statement":
+            span = span.parent
+        return _text(name_node), span
+    # `export default class {}`, and TS's `export = class {}` (the CommonJS
+    # default export, as `module.exports` below).
+    if up.type == "export_statement" and any(c.type in ("default", "=") for c in up.children):
+        return "default", up
+    if up.type == "assignment_expression" and _is(up.child_by_field_name("right")):
+        left = up.child_by_field_name("left")
+        span = up.parent if up.parent is not None and up.parent.type == "expression_statement" else up
+        if left is not None and left.type == "identifier":
+            return _text(left), span
+        if left is not None and left.type == "member_expression":
+            obj = left.child_by_field_name("object")
+            prop = left.child_by_field_name("property")
+            if prop is None or prop.type != "property_identifier":
+                return None
+            if obj is not None and _text(obj) == "module" and _text(prop) == "exports":
+                return "default", span
+            return _text(prop), span
+    return None
+
+
+def _js_class_expression_symbol(
+    node,
+    binder: tuple,
+    spec: LanguageSpec,
+    source_bytes: bytes,
+    filename: str,
+    language: str,
+    parent_symbol: Optional[Symbol],
+) -> Symbol:
+    """The `class` symbol a bound JS/TS class expression declares (#803)."""
+    name, span = binder
+    qualified_name = f"{parent_symbol.qualified_name}.{name}" if parent_symbol else name
+    symbol_bytes = source_bytes[span.start_byte:span.end_byte]
+    # The header up to the body, as a class declaration's signature is
+    # (`class D extends Base`), never the body itself.
+    body = next((c for c in node.children if c.type == "class_body"), None)
+    header_end = body.start_byte if body is not None else node.end_byte
+    signature = " ".join(
+        source_bytes[span.start_byte:header_end].decode("utf-8", "replace").split()
+    )
+    return Symbol(
+        id=make_symbol_id(filename, qualified_name, "class"),
+        file=filename,
+        name=name,
+        qualified_name=qualified_name,
+        kind="class",
+        language=language,
+        signature=signature,
+        docstring=_extract_docstring(span, spec, source_bytes),
+        parent=parent_symbol.id if parent_symbol else None,
+        line=span.start_point[0] + 1,
+        end_line=span.end_point[0] + 1,
+        byte_offset=span.start_byte,
+        byte_length=span.end_byte - span.start_byte,
+        content_hash=compute_content_hash(symbol_bytes),
     )
 
 
@@ -3760,12 +3893,26 @@ def _extract_js_bindings(
         return []
     kind = "constant" if constants else "variable"
     # #837: the span is the declarator's when the declaration holds several.
+    # #803: a declarator whose value is a class expression declares a CLASS,
+    # emitted by `_walk_tree` at the `class` node, never a binding beside it.
     return [
         _declaration_symbol(
             name, _js_binding_span_node(declarator), source_bytes, filename, language, kind
         )
         for name, declarator in _js_declarator_bindings(node, source_bytes)
+        if not _js_declarator_holds_a_class(declarator)
     ]
+
+
+def _js_declarator_holds_a_class(declarator) -> bool:
+    """Is this declarator's value a class expression, wrappers seen through?"""
+    value = declarator.child_by_field_name("value")
+    while value is not None and value.type in _JS_EXPRESSION_WRAPPERS:
+        value = next(
+            (c for c in value.named_children if c.type == "class" or c.type in _JS_EXPRESSION_WRAPPERS),
+            None,
+        )
+    return value is not None and value.type == "class"
 def _extract_php_properties(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:
