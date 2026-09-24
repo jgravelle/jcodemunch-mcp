@@ -34,8 +34,12 @@ tree-sitter-kotlin spills a getter or a `by` delegate written on its own
 line into a sibling node, so that sibling is read too, past any comment
 between them. A getter whose body holds an object literal is spilled as an
 error-recovered statement starting `get(`, not a getter node, so the
-sibling is read by its first token (`get` or `by`) as well as by its type.
-Review found each of these spellings published as `constant`.
+sibling is read by its first token as well as by its type: `get(` counts
+after an initializer too (a getter may read the backing field the
+initializer sets), while `by` counts only for a `val` with no initializer.
+A getter with no body (`val a = 1 get`) is the default accessor and runs
+no code, so its `val` stays a `constant`. Review found each of these
+spellings published with the wrong kind.
 
 Ids move for every Kotlin file-scope property (`name#property` becomes
 `name#constant` or `name#variable`); names, spans and signatures do not.

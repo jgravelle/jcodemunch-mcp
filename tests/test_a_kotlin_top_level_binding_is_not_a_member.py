@@ -129,11 +129,29 @@ def test_a_spilled_getter_after_an_initializer_is_still_a_getter():
     """Review round 4: the two token halves are gated differently. A getter
     may read the backing field its initializer sets, so a next-line `get`
     binds after `= 1` (Kotlin's `NL* getter`); a delegate cannot follow an
-    initializer, so `by` does not."""
-    kinds = _kinds("val a: Any = 1\n  get() = listOf(field, object { val q = 1 })\nval after = 2\n")
+    initializer, so `by` does not.
+
+    ⚠ Review round 5: the sample must be the file's LAST declaration. With a
+    declaration after it, tree-sitter parses a clean `getter` node and the
+    token path is never reached, so the first version of this test passed
+    against the unsplit gate."""
+    kinds = _kinds("val a: Any = 1\n  get() = object { val q = 1 }\n")
     assert kinds["a"] == "variable", kinds
-    assert kinds["after"] == "constant", kinds
     assert _kinds("val b: Any = 1; get(2)\n", "s.kts")["b"] == "constant"
+
+
+def test_a_bodiless_getter_runs_no_code_so_the_val_is_a_constant():
+    """Review round 5: `get` with no body is the default accessor. The value
+    is the initializer, whatever the annotation or the line it sits on."""
+    assert _kinds("val a = 1 get\n") == {"a": "constant"}
+    assert _kinds("val b: Int = 1\n  get\n") == {"b": "constant"}
+    assert _kinds('val c: Int = 1 @Deprecated("") get\n') == {"c": "constant"}
+    assert _kinds('val d: Int = 1\n  @JvmName("x") get\n') == {"d": "constant"}
+    # A bare `get` expression in a script is not an accessor call.
+    assert _kinds("val get = 1\nval a = 2\nget + a\n", "s.kts")["a"] == "constant"
+    # A getter WITH a body still counts, on the same line or the next.
+    assert _kinds("val e: Int = 1 get() = field\n") == {"e": "variable"}
+    assert _kinds("val f: Int = 1\n  get() = field\n") == {"f": "variable"}
     # Review: a `;` ends the declaration, and the grammar keeps no node for it.
     assert _kinds("expect val b: Int; by(1)\n")["b"] == "constant"
 

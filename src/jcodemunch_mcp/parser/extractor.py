@@ -1380,14 +1380,20 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     `assignment` or `call_expression` starting `get(` when the getter's body
     holds an object literal (`val g: Any\\n  get() = object { ... }`, which it
     error-recovers); and an expression starting `by` (`val vm: VM\\n    by
-    viewModels()`). So the sibling is read by its FIRST TOKEN (`get` or `by`)
-    as well as by its type, past comments. Both halves stop at a `;` (the
-    grammar keeps it as no node, so it is read from the gap bytes, comments
-    excluded), and they are gated DIFFERENTLY because Kotlin's grammar is:
-    `get` binds after an initializer too (`val a: Any = 1\\n  get() = field`
-    is a getter reading its backing field; the grammar's `NL* getter` attaches
-    a next-line `get` to the declaration), while `by` counts only for a `val`
-    with no initializer, since a delegate and an initializer cannot coexist.
+    viewModels()`). So the sibling is read by its FIRST TOKEN (`get(` or `by`)
+    as well as by its type, past comments. The token path (not the `getter`
+    node, which the grammar also binds after a same-line `;`) stops at a `;`
+    in the gap (the grammar keeps it as no node, so it is read from the gap
+    bytes, comments excluded), and its two halves are gated DIFFERENTLY
+    because Kotlin's grammar is: `get(` binds after an initializer too
+    (`val a: Any = 1\\n  get() = field` is a getter reading its backing
+    field; the grammar's `NL* getter` attaches a next-line `get`), while `by`
+    counts only for a `val` with no initializer, since a delegate and an
+    initializer cannot coexist.
+
+    ⚠ A getter with NO BODY (`val a = 1 get`, `@JvmName("x") get`) is the
+    default accessor: no code runs on read, so it does not count, and on the
+    token path a bare `get` not followed by `(` is an ordinary expression.
     """
     if node.parent is None or node.parent.type != "source_file":
         return None
@@ -1396,7 +1402,9 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     for child in node.children:
         if child.type == "binding_pattern_kind":
             is_val = source_bytes[child.start_byte:child.end_byte] == b"val"
-        elif child.type in ("getter", "property_delegate", "receiver_type"):
+        elif child.type in ("property_delegate", "receiver_type"):
+            return "variable"
+        elif child.type == "getter" and _kotlin_getter_has_body(child):
             return "variable"
         elif child.type == "=":
             has_initializer = True
@@ -1412,16 +1420,23 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     if following is None:
         return "constant"
     if following.type == "getter":
-        return "variable"
+        return "variable" if _kotlin_getter_has_body(following) else "constant"
     gap += source_bytes[cursor:following.start_byte]
     if b";" not in gap:
         first = following
         while first.child_count:
             first = first.children[0]
         token = source_bytes[first.start_byte:first.end_byte]
-        if token == b"get" or (token == b"by" and not has_initializer):
+        called = source_bytes[first.end_byte:following.end_byte].lstrip(b" \t").startswith(b"(")
+        if (token == b"get" and called) or (token == b"by" and not has_initializer):
             return "variable"
     return "constant"
+
+
+def _kotlin_getter_has_body(getter) -> bool:
+    """Does this Kotlin `getter` run code on read? A bodiless `get` is the
+    default accessor and returns the backing field (#807 review)."""
+    return any(child.type == "function_body" for child in getter.children)
 
 
 def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
