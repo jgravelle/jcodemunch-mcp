@@ -22,17 +22,22 @@ declarator's name (`const C = class Inner {}` is `C`). An anonymous
 fields hang off it as they do off a class declaration. Its signature is
 the header up to the body, as a class declaration's is.
 
-⚠ A class expression NOTHING binds (`new (class { ... })()`, `return
-class { ... }`, an argument) has no name to borrow. It gets no symbol, and
-its members are withheld, as #781 already withheld its fields: a bare
-method, or one qualified under the enclosing function, is worse than the
-absence. A class expression in a class-field initializer is unchanged,
-since its members were already qualified under the field.
+⚠⚠ A class expression NOTHING binds (`new (class { ... })()`, `return
+class { ... }`, an argument) has no name to borrow, so it gets no symbol,
+and its methods keep what they always published: bare at module level, or
+qualified under the enclosing function. Its fields stay withheld (#781).
+The first draft withheld the methods too, and review measured the cost on
+the TypeScript mixin (`return class extends Base { stampNow() {} }`):
+`search_symbols("stampNow")` answered a confident ABSENT for a method that
+exists and `main` found. A false absence claim is worse than lexical
+nesting, so the issue's "not qualified under the function" does not hold
+for this shape. A class expression in a class-field initializer is
+unchanged, since its members were already qualified under the field.
 
 Ids move: `C#constant` (or `C#variable`) becomes `C#class`, and a bound
-class expression's bare `m#method` becomes `C.m#method`. The members
-`main` published for an unbound class expression are gone. `PARSER_GENERATION`
-8 names all of it. The #781 absence test listed two bound shapes, which
+class expression's bare `m#method` becomes `C.m#method`, in `.js`/`.ts`
+files and in every script re-parsed as JS/TS (Astro frontmatter, Razor
+`<script>` blocks). `PARSER_GENERATION` 8 names all of it. The #781 absence test listed two bound shapes, which
 pinned this gap (Practice 9), so it now lists unbound ones. The NestJS
 corpus the issue measured is not checked out here and was not re-run.
 Filed by @jgravelle (#803).

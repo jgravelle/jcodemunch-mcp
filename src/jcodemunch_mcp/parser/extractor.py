@@ -747,14 +747,18 @@ def _walk_tree(
             next_parent = impl_scope
             next_is_container = True
 
-    # A class EXPRESSION is a class named by its binder (#803); one nothing
-    # binds withholds its members after the walk below.
-    withhold_from: Optional[int] = None
+    # A class EXPRESSION is a class named by its binder (#803).
+    #
+    # ⚠⚠ One nothing binds keeps exactly what it always published: its methods
+    # bare at module level, or qualified under the enclosing function (the
+    # TypeScript mixin, `return class extends Base { ... }`, is the stock
+    # case). Withholding them was tried and made `search_symbols` return a
+    # confident ABSENT for a method that exists and that `main` found -- a
+    # false absence claim is worse than lexical nesting (found in review).
+    # Its fields stay withheld (#781), unchanged.
     if node.type == "class" and language in _JS_BINDING_LANGUAGES:
         binder = _js_class_expression_binder(node, source_bytes)
-        if binder is None:
-            withhold_from = len(symbols)
-        elif binder is not _JS_CLASS_IN_FIELD:
+        if binder is not None and binder is not _JS_CLASS_IN_FIELD:
             class_symbol = _js_class_expression_symbol(
                 node, binder, spec, source_bytes, filename, language, parent_symbol
             )
@@ -949,13 +953,6 @@ def _walk_tree(
             next_is_container,
         )
 
-    # #803: an unbound class expression has no name to own its members, and a
-    # member with no owner (or one qualified under the enclosing function, as
-    # if it declared it) is worse than the absence -- #781's field rule, now
-    # the whole body's. Calls inside it were still collected above.
-    if withhold_from is not None:
-        del symbols[withhold_from:]
-
     # #835: at the ROOT, once the whole tree is walked, so every caller of
     # this walk (the `.c` path and the `.h`-as-C fallback alike) inherits it.
     if language == "c" and node.parent is None:
@@ -1061,8 +1058,8 @@ def _js_class_expression_binder(node, source_bytes: bytes):
 
     ⚠ None means NOTHING binds it (`new (class {})()`, `return class {}`, an
     argument, an object-literal value, a destructuring target): there is no
-    name to borrow, and the caller withholds its members rather than invent
-    an owner.
+    name to borrow, so no class symbol, and its members keep what they always
+    published (see `_walk_tree`).
     """
     child = node
     up = node.parent

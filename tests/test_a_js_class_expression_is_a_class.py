@@ -18,9 +18,14 @@ Rulings:
   are seen through.
 - A class expression NOTHING binds (`new (class {...})()`, `return class
   {...}`, an argument, an object-literal value) has no name to borrow, so no
-  class symbol, and its members are WITHHELD, as #781 already withholds its
-  fields: a member with no owner, or one qualified under the enclosing
-  function, is worse than the absence.
+  class symbol, and its methods keep exactly what `main` published: bare at
+  module level, qualified under the enclosing function inside one (#781
+  still withholds its fields). ⚠⚠ Withholding the methods was the first
+  ruling and review reversed it: the TypeScript mixin (`return class extends
+  Base { stampNow() {} }`) then made `search_symbols("stampNow")` answer a
+  confident ABSENT for a method that exists and `main` found. A false absence
+  claim is worse than lexical nesting, which is what the issue's "not
+  qualified under the function" asked to remove.
 - A class expression in a class-field initializer (`static Inner = class
   {...}`) is unchanged: its members were already qualified under the field.
 - `C#constant` / `E#variable` become `C#class` / `E#class`, and every member
@@ -101,10 +106,25 @@ def test_let_and_export_bindings_are_classes_too(language, filename):
 
 
 @pytest.mark.parametrize("language,filename", _LANGS)
-def test_a_class_expression_inside_a_function_is_not_qualified_under_the_function(language, filename):
-    """The issue's last assertion: `f.k` said the function declared `k`."""
+def test_an_unbound_class_expression_inside_a_function_keeps_its_lexical_methods(language, filename):
+    """Review reversed the first ruling: the method stays findable as `f.k`,
+    lexically nested under the function that produces the class, exactly as
+    `main` published it; the field stays withheld (#781)."""
     rows = _rows("function f() { return class { w = 1; k() {} }; }\n", language, filename)
-    assert rows == {"f": ("function", None)}
+    assert rows == {"f": ("function", None), "f.k": ("method", "f")}
+
+
+@pytest.mark.parametrize("language,filename", _LANGS)
+def test_a_mixin_method_stays_findable(language, filename):
+    """The shape that reversed the ruling: withheld, `stampNow` read as a
+    confident absence to `search_symbols`."""
+    src = (
+        "export function Timestamped(Base) {\n"
+        "  return class extends Base {\n    stampNow() { return 1; }\n  };\n}\n"
+        "export const Activatable = (Base) => class extends Base {\n  activate() {}\n};\n"
+    )
+    names = {s.name for s in parse_file(src, filename, language)}
+    assert {"stampNow", "activate"} <= names, names
 
 
 @pytest.mark.parametrize("language,filename", _LANGS)
@@ -115,9 +135,10 @@ def test_a_bound_class_expression_inside_a_function_is_owned_by_the_function(lan
 
 
 @pytest.mark.parametrize("language,filename", _LANGS)
-def test_an_unbound_class_expression_publishes_no_member(language, filename):
+def test_an_unbound_class_expression_keeps_what_main_published(language, filename):
+    """No class symbol and no field; the methods bare, as before."""
     rows = _rows("new (class { a = 1; b() {} })();\nuse(class { c() {} });\n", language, filename)
-    assert rows == {}
+    assert rows == {"b": ("method", None), "c": ("method", None)}
 
 
 @pytest.mark.parametrize("language,filename", _LANGS)

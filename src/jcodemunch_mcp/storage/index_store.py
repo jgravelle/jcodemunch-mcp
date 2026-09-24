@@ -352,11 +352,11 @@ INDEX_VERSION = 17
 #   `let`) to `C#class`; its methods move from a bare `m#method` to
 #   `C.m#method` and its fields appear (`C.x#field`). An anonymous `export
 #   default class`, TS `export =` and `module.exports = class` are `default`;
-#   `obj.P = class` is `P`. A class expression NOTHING binds loses the members
-#   `main` published for it: a bare `b#method` for `new (class {...})()`, and
-#   `f.k#method` qualified under an enclosing function. Spans of every
-#   surviving member are unchanged; the new class symbol spans its binder's
-#   statement.
+#   `obj.P = class` is `P`. A class expression NOTHING binds is unchanged.
+#   The same moves reach every file whose script is re-parsed as JS/TS: Astro
+#   frontmatter, Razor `<script>` blocks and template-underlying JS. Member
+#   spans are unchanged; the new class symbol spans its binder's statement
+#   (a `const C = class` spans exactly what `C#constant` did).
 PARSER_GENERATION = 8
 
 
