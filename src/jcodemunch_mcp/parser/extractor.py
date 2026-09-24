@@ -1402,7 +1402,9 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
         return "constant"
     if following.type == "getter":
         return "variable"
-    if not has_initializer:
+    # A `;` ends the declaration, and the grammar keeps it as no node at all,
+    # so it is read from the bytes between the two siblings.
+    if not has_initializer and b";" not in source_bytes[node.end_byte:following.start_byte]:
         first = following
         while first.child_count:
             first = first.children[0]

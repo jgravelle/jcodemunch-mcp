@@ -99,6 +99,23 @@ def test_a_spilled_accessor_or_delegate_is_read_past_comments():
 def test_a_call_named_by_after_an_initialised_val_is_not_its_delegate():
     kinds = _kinds("val a = 1\nby(3)\n")
     assert kinds["a"] == "constant", kinds
+    # Review: a `;` ends the declaration, and the grammar keeps no node for it.
+    assert _kinds("expect val b: Int; by(1)\n")["b"] == "constant"
+
+
+def test_an_object_literal_member_follows_its_owners_new_id():
+    """The one stored field that moves beside the kind: `parent`, for members
+    of an object literal anywhere in a file-scope initializer."""
+    with mock.patch("jcodemunch_mcp.config.is_language_enabled", return_value=True):
+        symbols = parse_file(
+            "var h: Any = object {\n  val w = 1\n}\n"
+            "val l = run {\n  object : Runnable {\n    val z = 1\n    override fun run() {}\n  }\n}\n",
+            "a.kt",
+            "kotlin",
+        )
+    parents = {s.qualified_name: s.parent for s in symbols}
+    assert parents["h.w"] == "a.kt::h#variable", parents
+    assert parents["l.z"] == "a.kt::l#constant", parents
 
 
 def test_expect_and_actual_are_pinned_as_they_read():
