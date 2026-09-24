@@ -12933,7 +12933,8 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         (09-01). The grammar spells every container
         `ContainerDecl > (packed|extern)? ContainerDeclType > <keyword>`, so
         a qualifier cannot re-open this. `opaque` is a container the same
-        node spells and is answered too (a `type` with no members).
+        node spells and is answered too (a `type`; empty it has no members,
+        with decls it owns them).
         """
         if node is None:
             return None
