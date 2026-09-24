@@ -312,6 +312,9 @@ def _split_for_summarization(
     existing summary onto the symbol and places it in ``already_summarized``.  All
     other symbols go into ``needs_summary`` and will be sent to the AI summarizer.
 
+    ``existing_summaries`` comes from `preservable_summaries`, which has already
+    left out every stored summary that is free to recompute.
+
     Returns:
         (needs_summary, already_summarized)
     """
@@ -326,6 +329,48 @@ def _split_for_summarization(
                 continue
         needs_summary.append(sym)
     return needs_summary, already_summarized
+
+
+def preservable_summaries(
+    existing_symbols: list[dict], unchanged_files: set[str]
+) -> dict[tuple[str, str, str], str]:
+    """(file, name, kind) -> stored summary worth carrying into a re-index.
+
+    THE ONE place both full re-index paths (`index_folder`, `index_repo`) decide
+    which stored summaries to reuse for files whose content did not change.
+
+    ⚠⚠ A summary that was free to produce is NOT carried over (see
+    `_stored_summary_was_free`). Reuse is what a PARSER_GENERATION re-parse of an
+    unchanged file does, so a summary an older rule derived from the docstring
+    would otherwise survive every bump that changes the rule (Standing lesson
+    08-05, "fixing a producer does not fix its history").
+    """
+    return {
+        (s["file"], s["name"], s["kind"]): s["summary"]
+        for s in existing_symbols
+        if s.get("summary")
+        and s.get("file") in unchanged_files
+        and not _stored_summary_was_free(s)
+    }
+
+
+def _stored_summary_was_free(row: dict) -> bool:
+    """True when a stored summary can only have come from a rule that costs nothing.
+
+    Preservation exists to avoid re-billing an AI summarizer, and every AI
+    `summarize_batch` skips a symbol that has a docstring -- so a summary stored
+    beside a docstring is Tier 1 (the docstring rule) or Tier 3 (the signature
+    fallback), both deterministic and free, and recomputing it is what lets a
+    change to the docstring rule reach an index whose files did not change.
+
+    ⚠⚠ Asks the STORED row, never the new parse: the summary was produced
+    against the docstring it was stored with. A parser change that turns an
+    empty docstring into a non-empty one must not discard the paid AI summary
+    the empty one earned. ⚠ Keyed on the property, not on how one stale value is
+    spelled: a refusal matching `<summary` alone kept every other summary the
+    docstring rule had also corrected.
+    """
+    return bool(row.get("docstring"))
 
 
 def parse_and_prepare_full(

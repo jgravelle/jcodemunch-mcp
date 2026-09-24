@@ -637,7 +637,20 @@ INDEX_VERSION = 17
 #   unquoted. A page whose directive or server control uses either form gains
 #   its codebehind and handler edges, its control symbols and its server-script
 #   symbols, on UNCHANGED content.
-PARSER_GENERATION = 20
+#
+# 21: a `///` XML doc comment (C#, VB.NET, F#, AL) summarises as the sentence
+#   inside its `<summary>`, not the literal tag. No symbol id moves; `summary`
+#   changes on UNCHANGED content, and an AL `docstring` keeps its XML as a C#
+#   one does (an empty stub stays no docstring); a doc comment of only
+#   sections such as `<inheritdoc/>` falls to the signature. ⚠⚠ The bump alone
+#   repairs nothing: a re-parse REUSES the stored summaries of unchanged files,
+#   so `_indexing_pipeline.preservable_summaries` no longer carries over one
+#   stored beside a docstring -- free to recompute, because no AI summarizer is
+#   ever given a symbol with a docstring. Paid AI summaries are still kept. ⚠ An
+#   AL `<Summary></Summary>` or `<summary/>` stub loses its docstring here, so
+#   with AI enabled it costs one summarizer call on this re-parse, as a fresh
+#   index would.
+PARSER_GENERATION = 21
 
 
 @dataclass(frozen=True)

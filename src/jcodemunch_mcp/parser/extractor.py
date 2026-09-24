@@ -7595,9 +7595,7 @@ _AL_ATTR_RE = re.compile(
     r"\[(?P<attr>[A-Za-z_]\w*)\s*(?:\([^]]*\))?\]",
 )
 
-_AL_DOC_RE = re.compile(
-    r"///\s*(?:<summary>)?\s*(?P<text>.*?)(?:</summary>)?\s*$",
-)
+_AL_SUMMARY_TAG_RE = re.compile(r"</?summary\b[^>]*>", re.IGNORECASE)
 
 
 def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
@@ -7704,8 +7702,17 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             else:
                 break
         if doc_lines:
-            text = " ".join(doc_lines)
-            text = text.replace("<summary>", "").replace("</summary>", "").strip()
+            # The XML stays, as it does for C#: `summarizer/xml_doc.py` reads the
+            # summary out of it. A local `.replace("<summary>", "")` here was a
+            # second copy of that rule, blind to `<Summary>`, to attributes and
+            # to `<see cref=.../>`, and a sentence with no period carried the
+            # `<param>` markup that followed it into the summary.
+            text = " ".join(doc_lines).strip()
+            # ⚠ An empty stub (`/// <summary>` + `/// </summary>`) is NO
+            # docstring, as it was under the old strip: a non-empty docstring
+            # takes the symbol away from the AI summarizer for good.
+            if not _AL_SUMMARY_TAG_RE.sub("", text).strip():
+                return ""
             return text
         # Fallback: look for // inline comments
         idx = line_idx - 1
