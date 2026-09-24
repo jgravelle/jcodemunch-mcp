@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed - an F# `and` chain binds every name it declares (#824)
+
+`type A = int / and B = int` indexed `A` and nothing else; written as two
+`type` lines both indexed. `and` is how F# spells a mutually recursive
+pair, which is exactly the shape where losing the second type loses the
+relationship a reader is looking for. Measured at the same time, as the
+issue asked: `let rec f x = g x / and g y = f y` indexed `f` alone, a
+`let rec a = 1 / and b = 2` indexed `a` alone, and a class chain lost the
+second class and its members. Found by the scan #817 asked for; filed by
+@jgravelle (#824).
+
+⚠⚠ **#817's mechanism in a custom parser, three times.** One node, N
+names, one symbol: `_parse_fsharp_symbols` asked `_first_child_of_type`
+for ONE definition under `type_definition`, ONE binding left under
+`function_or_value_defn`, and ONE left again in the member walk. There is
+no spec map to correct (the extractor is inline), so the walk learns the
+chain itself: `_fs_defn_nodes` and `_fs_binding_lefts` list every
+definition and every left, and all three sites ask them. OCaml spells the
+same construct and binds both, so the language family was never the
+discriminator.
+
+⚠ **Rulings:** every definition in a `type ... and ...` chain is a symbol
+with the kind and qualified name the separate-line form gives, its
+members owned by it. Its span is the whole `type_definition` (keyword
+included, byte-identical to before) when it holds one definition, and the
+definition node when it holds several: #837's rule, the widest node
+addressing the name alone. Every binding in a `let rec ... and ...` chain
+is a symbol (`function` for a function left, `constant` for a value
+left); the grammar has NO node addressing one binding alone, since a
+left and its body are siblings of the defn, so every binding records the
+whole defn: the rule (Go's `const D, E = 5, 6`), never a synthesised
+range (#414), decided and pinned.
+
+⚠ New symbols on unchanged content; the FIRST type of a chain MOVES its
+span to its definition and keeps its id. `PARSER_GENERATION` 8 names it.
+The `fsharp` row of `tests/test_one_declaration_binds_every_name.py`
+leaves `_GAPS`, which is empty now, so its tracked-gap test iterates
+inside the test instead of parametrizing over the register (an empty
+parametrize is a SKIP, and a skip has a budget).
+
+Red on `main`: `9 failed, 35 passed, 1 skipped` over the new file, the
+one-declaration file and the F# member file. Green: `652 passed` over every test file naming F# plus the one-declaration file, the retirement ledger and the node-type ratchets.
+
 ### Fixed - a Zig packed or extern struct/union is the container its body is (#841)
 
 `const P = packed struct { a: u8, pub fn f() void {} };` indexed a bare

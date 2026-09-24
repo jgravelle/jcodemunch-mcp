@@ -293,6 +293,13 @@ INDEX_VERSION = 17
 #   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
 #   with an owner, so its old id resolves to nothing until re-parsed.
 #
+#   ⚠⚠ **And #824: every type after the first in an F# `type ... and ...`
+#   chain, and every binding after the first in a `let rec ... and ...`
+#   chain, is a NEW symbol** on unchanged content; the FIRST type of a
+#   chain MOVES its span (the whole statement -> its own definition) while
+#   its id does not. An already-indexed `.fs` file serves the first name
+#   alone until re-parsed.
+#
 #   ⚠⚠ **And #841: a Zig `packed`/`extern` struct or union (and `opaque`)
 #   MOVES from `constant` to `class`/`type`** on unchanged content, and its
 #   fields and fns are NEW owned symbols; and in the OTHER direction a

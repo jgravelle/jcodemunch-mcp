@@ -80,7 +80,7 @@ _LANGUAGE_OF = {"go_var": "go", "go_const": "go", "cpp_typedef": "cpp"}
 #: other.
 _GAPS: dict[str, str] = {
     # #823 closed 2026-09-23: the `c` and `cpp_typedef` rows bind every name.
-    "fsharp": "#824: an F# `and`-chained type declares only the first",
+    # #824 closed 2026-09-24: the `fsharp` row binds every type in an `and` chain.
 }
 
 
@@ -102,17 +102,23 @@ def test_one_declaration_binds_every_name_it_declares(row):
     )
 
 
-@pytest.mark.parametrize("row", sorted(_GAPS))
-def test_a_tracked_gap_is_still_a_gap(row):
+def test_a_tracked_gap_is_still_a_gap():
     """A gap that closed must be recorded as closed, in the same commit.
 
     ⚠ This FAILS when the defect is fixed, which is the notification. Delete
     the `_GAPS` entry; the test above then covers the row.
+    ⚠ Iterates INSIDE the test rather than parametrizing over `_GAPS`: an
+    empty register parametrizes to a SKIP, and a skip has a budget (#824
+    emptied it and the fast tier's skip ceiling would have paid).
     """
-    form, _filename, _source, want = _SAMPLES[row]
-    assert want - _bound(row), (
-        f"{row} ({form}) now binds every name it declares, so "
-        f"{_GAPS[row]!r} has closed. Delete its `_GAPS` entry."
+    closed = []
+    for row in sorted(_GAPS):
+        form, _filename, _source, want = _SAMPLES[row]
+        if not (want - _bound(row)):
+            closed.append(f"{row} ({form}): {_GAPS[row]!r}")
+    assert not closed, (
+        f"{closed} now bind every name they declare, so those gaps have "
+        f"closed. Delete their `_GAPS` entries."
     )
 
 
