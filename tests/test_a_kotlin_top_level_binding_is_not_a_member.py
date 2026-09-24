@@ -96,6 +96,30 @@ def test_a_spilled_accessor_or_delegate_is_read_past_comments():
     assert kinds == {"d": "variable", "vm": "variable", "k": "variable", "m": "variable", "after": "constant"}
 
 
+def test_a_recovered_getter_holding_an_object_literal_is_still_a_getter():
+    """Review round 3: a getter on its own line whose body holds an object
+    literal is error-recovered into an `assignment` or `call_expression`
+    starting `get(`, never a `getter` node, and published `constant`."""
+    kinds = _kinds(
+        "val g: Any\n  get() = object { val gg = 1 }\n"
+        "val h: Any\n  get() { return object { val hh = 1 } }\n"
+        "val r: Runnable\n  get() = object : Runnable { override fun run() {} }\n"
+        "val after = 1\n"
+    )
+    assert {k: kinds.get(k) for k in ("g", "h", "r", "after")} == {
+        "g": "variable", "h": "variable", "r": "variable", "after": "constant",
+    }
+
+
+def test_a_semicolon_inside_a_comment_does_not_end_the_declaration():
+    """Review round 3: the `;` check read the comment bytes too."""
+    kinds = _kinds(
+        "private val vm: VM // lazily; see docs\n    by viewModels()\n"
+        "val d: Int /* ; */\n  by lazy { 1 }\n"
+    )
+    assert kinds == {"vm": "variable", "d": "variable"}
+
+
 def test_a_call_named_by_after_an_initialised_val_is_not_its_delegate():
     kinds = _kinds("val a = 1\nby(3)\n")
     assert kinds["a"] == "constant", kinds
@@ -116,6 +140,10 @@ def test_an_object_literal_member_follows_its_owners_new_id():
     parents = {s.qualified_name: s.parent for s in symbols}
     assert parents["h.w"] == "a.kt::h#variable", parents
     assert parents["l.z"] == "a.kt::l#constant", parents
+    # Review round 3: a delegate is not an initializer, and moves it too.
+    with mock.patch("jcodemunch_mcp.config.is_language_enabled", return_value=True):
+        delegated = parse_file("val g by lazy {\n  object {\n    val gg = 1\n  }\n}\n", "a.kt", "kotlin")
+    assert {s.qualified_name: s.parent for s in delegated}["g.gg"] == "a.kt::g#variable"
 
 
 def test_expect_and_actual_are_pinned_as_they_read():

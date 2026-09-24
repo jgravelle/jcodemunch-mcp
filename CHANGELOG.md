@@ -32,12 +32,16 @@ property as their parent symbol and are still members; a rule keyed on the
 missing container would have called them constants. At file scope
 tree-sitter-kotlin spills a getter or a `by` delegate written on its own
 line into a sibling node, so that sibling is read too, past any comment
-between them. Review found both spellings published as `constant`.
+between them. A getter whose body holds an object literal is spilled as an
+error-recovered statement starting `get(`, not a getter node, so the
+sibling is read by its first token (`get` or `by`) as well as by its type.
+Review found each of these spellings published as `constant`.
 
 Ids move for every Kotlin file-scope property (`name#property` becomes
 `name#constant` or `name#variable`); names, spans and signatures do not.
-A member of an object literal anywhere in a file-scope property's
-initializer keeps its own id, and its `parent` moves with the owner's.
+A member of an object literal anywhere inside a file-scope property's
+declaration (its initializer, its delegate or a same-line accessor) keeps
+its own id, and its `parent` moves with the owner's.
 `PARSER_GENERATION` 8 names it. Three older tests pinned a top-level `val`
 as `property` or as not a constant, and they encoded this defect
 (Practice 9). `test_kotlin_plain_val_needs_a_constant_shaped_name` moves

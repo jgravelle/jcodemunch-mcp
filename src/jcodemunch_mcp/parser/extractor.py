@@ -1376,11 +1376,16 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     rule keyed on the missing container would call them constants.
 
     ⚠⚠ At file scope tree-sitter-kotlin SPILLS an accessor or delegate written
-    on its own line into a SIBLING: a `getter` node, or an expression whose
-    first token is `by` (`val vm: VM\\n    by viewModels()`). Comments between
-    them are skipped. A `by` sibling counts only for a `val` with no
-    initializer, which is the one shape where it can be this declaration's
-    delegate rather than a call to a function named `by`.
+    on its own line into a SIBLING, in THREE spellings: a `getter` node; an
+    `assignment` or `call_expression` starting `get(` when the getter's body
+    holds an object literal (`val g: Any\\n  get() = object { ... }`, which it
+    error-recovers); and an expression starting `by` (`val vm: VM\\n    by
+    viewModels()`). So the sibling is read by its FIRST TOKEN (`get` or `by`)
+    as well as by its type, past comments. The token rule counts only for a
+    `val` with no initializer and no `;` between (the grammar keeps a `;` as no
+    node, so it is read from the gap bytes, comments excluded): the one shape
+    where the sibling can be this declaration's accessor or delegate rather
+    than a statement calling a function named `get` or `by`.
     """
     if node.parent is None or node.parent.type != "source_file":
         return None
@@ -1395,20 +1400,23 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
             has_initializer = True
     if not is_val:
         return "variable"
+    gap = bytearray()
+    cursor = node.end_byte
     following = node.next_named_sibling
     while following is not None and following.type in ("line_comment", "multiline_comment"):
+        gap += source_bytes[cursor:following.start_byte]
+        cursor = following.end_byte
         following = following.next_named_sibling
     if following is None:
         return "constant"
     if following.type == "getter":
         return "variable"
-    # A `;` ends the declaration, and the grammar keeps it as no node at all,
-    # so it is read from the bytes between the two siblings.
-    if not has_initializer and b";" not in source_bytes[node.end_byte:following.start_byte]:
+    gap += source_bytes[cursor:following.start_byte]
+    if not has_initializer and b";" not in gap:
         first = following
         while first.child_count:
             first = first.children[0]
-        if source_bytes[first.start_byte:first.end_byte] == b"by":
+        if source_bytes[first.start_byte:first.end_byte] in (b"get", b"by"):
             return "variable"
     return "constant"
 
