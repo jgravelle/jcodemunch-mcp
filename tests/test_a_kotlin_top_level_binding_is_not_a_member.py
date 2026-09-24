@@ -140,6 +140,16 @@ def test_a_spilled_getter_after_an_initializer_is_still_a_getter():
     assert _kinds("val b: Any = 1; get(2)\n", "s.kts")["b"] == "constant"
 
 
+def test_an_annotated_recovered_getter_is_read_past_its_spilled_annotations():
+    """Review round 6: the annotations of a recovered getter spill as sibling
+    `annotation` nodes ahead of it. Each sample is the file's LAST
+    declaration, the only place the token path is reached."""
+    assert _kinds('val k: Any\n  @JvmName("kk") get() = object { val z = 1 }\n')["k"] == "variable"
+    assert _kinds("val k: Any\n  @A @B(1) get() { return object { val z = 1 } }\n")["k"] == "variable"
+    # A real annotated declaration after a val is not its accessor.
+    assert _kinds('val k = 1\n@Deprecated("x")\nfun f() = 2\n')["k"] == "constant"
+
+
 def test_a_bodiless_getter_runs_no_code_so_the_val_is_a_constant():
     """Review round 5: `get` with no body is the default accessor. The value
     is the initializer, whatever the annotation or the line it sits on."""

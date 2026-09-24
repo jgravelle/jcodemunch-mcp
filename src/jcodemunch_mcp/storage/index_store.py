@@ -337,13 +337,14 @@ INDEX_VERSION = 17
 #   initializer, `name#variable` for a `var` and for a `val` whose read runs
 #   code (a getter, an extension property, a delegate). Names, spans and
 #   signatures are unchanged; class, object, companion and object-literal
-#   members keep `#property`. ⚠ A member of an object literal ANYWHERE inside
-#   a file-scope property's declaration -- its initializer, its delegate or a
-#   same-line accessor (`val o = object { val b = 2 }`, `var h: Any = object
-#   { ... }`, `val l = run { object : R { ... } }`, `val g by lazy { object
-#   { ... } }`, `val a: Any get() { return object { ... } }`) -- keeps its own
-#   id, but its `parent` moves with the owner's new id (`#property` ->
-#   `#constant` or `#variable`).
+#   members keep `#property`. ⚠ EVERY symbol whose parent is a file-scope
+#   property keeps its own id, but its `parent` moves with the owner's new id
+#   (`#property` -> `#constant` or `#variable`): an object literal's members
+#   and a local function or class, anywhere in the property's initializer,
+#   delegate or same-line accessor (`val o = object { val b = 2 }`, `var h:
+#   Any = object { ... }`, `val l = run { object : R { ... } }`, `val f = run
+#   { fun g() = 1; g() }`, `val g by lazy { class L }`, `val a: Any get() {
+#   return object { ... } }`).
 #   An already-indexed file serves the old ids until re-parsed.
 PARSER_GENERATION = 8
 

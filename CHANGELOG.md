@@ -43,9 +43,10 @@ spellings published with the wrong kind.
 
 Ids move for every Kotlin file-scope property (`name#property` becomes
 `name#constant` or `name#variable`); names, spans and signatures do not.
-A member of an object literal anywhere inside a file-scope property's
-declaration (its initializer, its delegate or a same-line accessor) keeps
-its own id, and its `parent` moves with the owner's.
+Every symbol parented to a file-scope property (an object literal's
+members, a local function or class in its initializer, delegate or
+same-line accessor) keeps its own id, and its `parent` moves with the
+owner's.
 `PARSER_GENERATION` 8 names it. Three older tests pinned a top-level `val`
 as `property` or as not a constant, and they encoded this defect
 (Practice 9). `test_kotlin_plain_val_needs_a_constant_shaped_name` moves

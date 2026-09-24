@@ -1413,7 +1413,9 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     gap = bytearray()
     cursor = node.end_byte
     following = node.next_named_sibling
-    while following is not None and following.type in ("line_comment", "multiline_comment"):
+    # Comments, and the annotations of a spilled accessor, which the grammar
+    # spills as siblings of their own ahead of it (`@JvmName("k") get() = ...`).
+    while following is not None and following.type in ("line_comment", "multiline_comment", "annotation"):
         gap += source_bytes[cursor:following.start_byte]
         cursor = following.end_byte
         following = following.next_named_sibling
