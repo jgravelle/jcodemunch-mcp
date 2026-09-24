@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed - a TypeScript constructor parameter property is a member of its class (#802)
+
+`constructor(public injected: number, private readonly other: string) {}`
+declares and assigns two members of the class, and yielded no symbol:
+`parse_file` returned the class and its constructor and nothing else. This
+is how Angular and NestJS declare injected dependencies
+(`constructor(private readonly service: FooService) {}`), so in those
+codebases it is most of a class's state. #781 indexed class FIELDS and left
+this form out on purpose: the grammar spells it as a `required_parameter`
+or `optional_parameter` inside the constructor's parameter list, a second
+node type for the same concept (the #698 lesson).
+
+A constructor parameter carrying `public`, `private`, `protected`,
+`readonly` or `override` is now a member, by #781's kind rule: `readonly`
+is a `constant`, anything else a `field`. A plain parameter is not. ⚠⚠ The
+owner is the CLASS (`Audit.injected`, parent `Audit`), never the
+constructor the walk is inside. The member is withheld when the
+constructor is not the class's own: a class expression in a field
+initializer or an unbound one (the mixin) has no class symbol, and the
+first draft attributed its member to the ENCLOSING class. A modified
+parameter anywhere else (a method, a function, an arrow or an object
+literal inside the constructor body) is not a member; TypeScript rejects
+those and the grammar parses them.
+
+The symbols are new and no id moves. They appear in `.ts`/`.tsx` files and
+in scripts re-parsed as TypeScript. `PARSER_GENERATION` 8 names it. Filed
+by @jgravelle (#802).
+
 ### Fixed - a JS/TS class expression is a class, named by what binds it (#803)
 
 `const C = class { x = 1; m() {} }` indexed `C` as a `constant`, `m` as

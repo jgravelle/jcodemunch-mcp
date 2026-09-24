@@ -877,6 +877,7 @@ def _walk_tree(
                 f.id = make_symbol_id(filename, f.qualified_name, f.kind)
                 f.parent = parent_symbol.id
         symbols.extend(fields)
+
         # `struct { int ax; } inst;` -- the members are reached as `inst.ax`,
         # so the declarator owns them. With NO declarator (an anonymous union)
         # `fields` is empty and they stay with the enclosing class, which is
@@ -885,6 +886,16 @@ def _walk_tree(
         # source declaration, and `b` is a field with none.
         if fields and _cpp_field_holds_an_anonymous_type(node, language):
             next_parent = fields[0]
+
+    # A TypeScript constructor PARAMETER PROPERTY is a member of the class
+    # (#802): `constructor(private readonly svc: Svc) {}` declares and assigns
+    # `svc`, the idiomatic Angular/NestJS injection. ⚠⚠ The owner is the CLASS:
+    # `parent_symbol` here is the constructor method, so the field channel's
+    # qualification would publish `Audit.constructor.svc`.
+    if language in _TS_PARAMETER_PROPERTY_LANGUAGES and node.type in _TS_PARAMETER_NODE_TYPES:
+        member = _ts_parameter_property(node, parent_symbol, symbols, source_bytes, filename, language)
+        if member is not None:
+            symbols.append(member)
 
     # Mutable module-level bindings: a JS/TS `let` or `var` (#741, #742) and
     # Go's package-level `var` (#731).
@@ -3652,6 +3663,69 @@ def _extract_js_class_field(
     else:
         kind = "field"
     return [_field_symbol(name, node, source_bytes, filename, language, kind)]
+
+
+#: The grammars with parameter properties. JavaScript has none.
+_TS_PARAMETER_PROPERTY_LANGUAGES = frozenset({"typescript", "tsx"})
+
+#: How the TS grammars spell a constructor parameter.
+_TS_PARAMETER_NODE_TYPES = frozenset({"required_parameter", "optional_parameter"})
+
+#: The modifiers that make a constructor parameter a member. A parameter with
+#: none of them is an ordinary parameter.
+_TS_PARAMETER_PROPERTY_MODIFIERS = frozenset({"accessibility_modifier", "readonly", "override_modifier"})
+
+
+def _ts_parameter_property(
+    node, parent_symbol: Optional[Symbol], symbols: list, source_bytes: bytes,
+    filename: str, language: str,
+) -> Optional[Symbol]:
+    """The class member a TypeScript constructor parameter property declares (#802).
+
+    Kind by #781's rule: `readonly` is a `constant`, anything else a `field`.
+    The span is the parameter, which carries the modifiers and the type.
+
+    ⚠⚠ **The owner is the CLASS, read off the constructor symbol's parent.**
+    `parent_symbol` is the constructor method; its parent is the class, which
+    is already in `symbols` (a class declaration, or a bound class expression,
+    #803). If it is not there the member is withheld: a member with no owner
+    is #698's defect.
+
+    ⚠ Two questions, because the modifier alone is not enough: the grammar
+    parses `m(private a)`, `function f(private a)` and an object literal's
+    `constructor(private a)`, all of which TypeScript rejects. The parameter's
+    own node must belong to a METHOD (inside the constructor body the walk's
+    parent is still the constructor, so an arrow's parameter would otherwise
+    pass), and that method must be `<owner>.constructor`, the class's own
+    member.
+    """
+    if not any(c.type in _TS_PARAMETER_PROPERTY_MODIFIERS for c in node.children):
+        return None
+    params = node.parent
+    method = params.parent if params is not None and params.type == "formal_parameters" else None
+    if method is None or method.type != "method_definition":
+        return None
+    if parent_symbol is None or parent_symbol.parent is None:
+        return None
+    owner = next((s for s in reversed(symbols) if s.id == parent_symbol.parent), None)
+    if owner is None or owner.kind != "class":
+        return None
+    # ⚠ The constructor must be the owner's OWN member. A class expression in
+    # a field initializer (`static Inner = class { constructor(private a) }`)
+    # has no class symbol, so its constructor is `Outer.Inner.constructor`
+    # parented to `Outer`, and reading the parent alone published `Outer.a`.
+    if parent_symbol.qualified_name != f"{owner.qualified_name}.constructor":
+        return None
+    name_node = node.child_by_field_name("pattern")
+    if name_node is None or name_node.type != "identifier":
+        return None
+    name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8", errors="replace")
+    kind = "constant" if any(c.type == "readonly" for c in node.children) else "field"
+    member = _field_symbol(name, node, source_bytes, filename, language, kind)
+    member.qualified_name = f"{owner.qualified_name}.{name}"
+    member.id = make_symbol_id(filename, member.qualified_name, kind)
+    member.parent = owner.id
+    return member
 
 
 # ---------------------------------------------------------------------------
