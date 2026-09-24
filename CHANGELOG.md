@@ -42,14 +42,24 @@ line), and keeps its id. `PARSER_GENERATION` 8 names both. A chained
 `let rec ... and` member inside a type body carries its OWN left as its
 signature (`let g y`), not the defn's first line, which names the first
 binding (review caught `T.g` reading `let rec f x = g x`); a single let
-keeps the line it always had.
+keeps the line it always had. A return-type annotation belongs to its own
+binding: the scan is scoped to the segment between one left and the next
+(review round 2 caught `f` reading `let f x : int` with `g`'s annotation),
+and module level and a type body build the same signature. A
+`type_definition` the grammar could NOT parse yields its first definition
+only: tree-sitter-fsharp error-recovers a non-`rec` `let ... and` chain in
+a type body into a second `anon_type_defn` named after the binding, and
+emitting it published a fabricated `type b` owning a real member where
+`main` had an absence (review round 2; UNKNOWN is not a chain). That
+grammar limit, and the module-level non-`rec` chain it drops silently,
+are #856, filed and pinned as found.
 The `fsharp` row of `tests/test_one_declaration_binds_every_name.py`
 leaves `_GAPS`, which is empty now, so its tracked-gap test iterates
 inside the test instead of parametrizing over the register (an empty
 parametrize is a SKIP, and a skip has a budget).
 
 Red on `main`: `9 failed, 35 passed, 1 skipped` over the new file, the
-one-declaration file and the F# member file. Green: `652 passed` over every test file naming F# plus the one-declaration file, the retirement ledger and the node-type ratchets.
+one-declaration file and the F# member file. Green: `654 passed` over every test file naming F# plus the one-declaration file, the retirement ledger and the node-type ratchets.
 
 ### Fixed - a Zig packed or extern struct/union is the container its body is (#841)
 

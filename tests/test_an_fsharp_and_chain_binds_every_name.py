@@ -117,6 +117,31 @@ def test_a_let_chain_inside_a_type_body_binds_every_member():
     assert single["T.h"] == "let h z = z"
 
 
+def test_a_return_type_annotation_belongs_to_its_own_binding():
+    """Review: the return-type scan was defn-scoped, so `f` (unannotated)
+    carried `g`'s `: int`. Module level and a type body agree now."""
+    sigs = {s.qualified_name: s.signature for s in parse_file(
+        "let rec f x = g x\nand g (y: int) : int = f y\n", "a.fs", "fsharp")}
+    assert sigs == {"f": "let f x", "g": "let g (y: int) : int"}
+    body = {s.qualified_name: s.signature for s in parse_file(
+        "type T() =\n    static let rec f x = g x\n    and g (y: int) : int = f y\n", "a.fs", "fsharp")}
+    assert body["T.f"] == "let f x"
+    assert body["T.g"] == "let g (y: int) : int"
+
+
+def test_an_error_recovered_chain_yields_its_first_definition_only():
+    """Review: a non-`rec` `let ... and` in a type body is valid F# that
+    tree-sitter-fsharp error-recovers into a second `anon_type_defn` named
+    `b`, and emitting it published a fabricated `type b` owning `M`. UNKNOWN
+    is not a chain: the first definition only, the same absence `main` had
+    for `M`, tracked and filed (the grammar's, not this fix's)."""
+    source = "type T() =\n    let mutable a = 1\n    and b = 2\n    member this.M() = a\n"
+    rows = [(k, q, o) for k, q, o, _, _ in _rows(source)]
+    assert ("type", "b", None) not in rows
+    assert rows[0] == ("type", "T", None)
+    assert all(o in (None, "T") for _, _, o in rows)
+
+
 def test_the_first_type_of_a_chain_keeps_its_id():
     chain = {s.name: s.id for s in parse_file("type A = int\nand B = int\n", "a.fs", "fsharp")}
     single = {s.name: s.id for s in parse_file("type A = int\n", "a.fs", "fsharp")}

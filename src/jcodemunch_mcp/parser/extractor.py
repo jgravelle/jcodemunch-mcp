@@ -13556,17 +13556,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         continue
                     name = _text(ident)
                     qualified = f"{scope}.{name}" if scope else name
-                    args = _first_child_of_type(left, "argument_patterns")
-                    sig = f"let {name}"
-                    if args:
-                        sig += f" {_text(args)}"
-                    # Check for return type annotation
-                    for i, child in enumerate(node.children):
-                        if child.type == ":" and i + 1 < len(node.children):
-                            rt = node.children[i + 1]
-                            if rt.type in ("simple_type", "type"):
-                                sig += f" : {_text(rt)}"
-                            break
+                    sig = _fs_function_signature(node, left, name)
                     kind = "function"
                 else:
                     ip = _first_child_of_type(left, "identifier_pattern")
@@ -13629,8 +13619,18 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                       "enum_type_defn", "class_type_defn", "anon_type_defn")
 
     def _fs_defn_nodes(type_definition) -> list:
-        """Every definition of a `type A = ... and B = ...` chain (#824)."""
-        return [c for c in type_definition.children if c.type in _FS_DEFN_TYPES]
+        """Every definition of a `type A = ... and B = ...` chain (#824).
+
+        ⚠ A `type_definition` the grammar could not parse yields its FIRST
+        definition only: tree-sitter-fsharp error-recovers a non-`rec`
+        `let ... and ...` chain in a type body into a second `anon_type_defn`
+        named after the binding, and emitting it published a fabricated type
+        owning a real member (review of #824). UNKNOWN is not a chain.
+        """
+        defns = [c for c in type_definition.children if c.type in _FS_DEFN_TYPES]
+        if type_definition.has_error and defns:
+            return defns[:1]
+        return defns
 
     def _fs_binding_lefts(defn) -> list:
         """Every `function_declaration_left`/`value_declaration_left` of a
@@ -13639,6 +13639,33 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             c for c in defn.children
             if c.type in ("function_declaration_left", "value_declaration_left")
         ]
+
+    def _fs_function_signature(defn, left, name: str) -> str:
+        """`let <name> <args>[ : <return type>]` for ONE left of a defn.
+
+        ⚠ The return-type scan is scoped to the children between this left
+        and the next one: scanning the whole defn appended the FIRST `: T`
+        in a chain to every earlier unannotated function (review of #824,
+        `f` read `let f x : int` with `g`'s annotation).
+        """
+        sig = f"let {name}"
+        args = _first_child_of_type(left, "argument_patterns")
+        if args:
+            sig += f" {_text(args)}"
+        children = defn.children
+        start = next((i for i, c in enumerate(children) if c is left or c.id == left.id), None)
+        if start is None:
+            return sig
+        for i in range(start + 1, len(children)):
+            child = children[i]
+            if child.type in ("function_declaration_left", "value_declaration_left"):
+                break
+            if child.type == ":" and i + 1 < len(children):
+                rt = children[i + 1]
+                if rt.type in ("simple_type", "type"):
+                    sig += f" : {_text(rt)}"
+                break
+        return sig
 
     def _member(node, owner: Symbol, name: str, kind: str, signature: Optional[str] = None) -> None:
         qualified, owner_id = _member_of(owner, name)
@@ -13686,6 +13713,10 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         if left.type == "function_declaration_left":
                             ident = _first_child_of_type(left, "identifier")
                             if ident is not None:
+                                if len(lefts) > 1:
+                                    # The same signature the module-level branch
+                                    # builds, return type included (review).
+                                    sig = _fs_function_signature(el, left, _text(ident))
                                 _member(el, owner, _text(ident), "method", sig)
                         else:
                             ip = _first_child_of_type(left, "identifier_pattern")
