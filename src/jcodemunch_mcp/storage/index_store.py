@@ -293,6 +293,14 @@ INDEX_VERSION = 17
 #   class-scoped `const` was emitted bare (`LIMIT`) and is `TAudit.LIMIT`
 #   with an owner, so its old id resolves to nothing until re-parsed.
 #
+#   ⚠⚠ **And #837: spans MOVE for every name of a multi-declarator JS/TS/TSX
+#   `let`/`const`/`var`** (and of a `const f = () => ..., g = ...` function
+#   pair): each records its own `variable_declarator` instead of the whole
+#   statement, so `byte_offset`, `byte_length`, `signature` and
+#   `content_hash` change on unchanged content while the id does not; an
+#   already-indexed file serves the whole statement for each name until
+#   re-parsed.
+#
 #   ⚠⚠ **And #835: every C prototype is a NEW `function` symbol** on
 #   unchanged `.c` content (a prototype whose definition is in the same
 #   file yields nothing, so no definition's id moves); an already-indexed

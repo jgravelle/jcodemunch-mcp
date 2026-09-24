@@ -2713,12 +2713,13 @@ def _extract_variable_function(
         qualified_name = name
 
     # Signature: use the full declaration statement (lexical_declaration parent)
-    # to capture export/const keywords
-    sig_node = node.parent if node.parent and node.parent.type in (
-        "lexical_declaration", "export_statement", "variable_declaration",
-    ) else node
+    # to capture export/const keywords. #837: the SAME span rule as the binding
+    # channel (`_js_binding_span_node`): the declaration when it holds one
+    # declarator, this declarator when it holds several, so `f` in
+    # `const f = () => 1, g = ...` records `f = () => 1` and not `g`'s body.
+    sig_node = _js_binding_span_node(node)
     # Walk up through export_statement wrapper if present
-    if sig_node.parent and sig_node.parent.type == "export_statement":
+    if sig_node is not node and sig_node.parent and sig_node.parent.type == "export_statement":
         sig_node = sig_node.parent
 
     signature = _build_signature(sig_node, spec, source_bytes)
@@ -3547,7 +3548,17 @@ def _js_declarator_names(node, source_bytes: bytes) -> list[str]:
     Svelte extractors ask it too, because a per-extractor copy is how the same
     gap returns in a language nobody re-tested (#752).
     """
-    names: list[str] = []
+    return [name for name, _ in _js_declarator_bindings(node, source_bytes)]
+
+
+def _js_declarator_bindings(node, source_bytes: bytes) -> list[tuple[str, Any]]:
+    """Every (name, declarator) pair one JS binding declaration binds (#837).
+
+    The declarator is kept beside the name because the SPAN is the
+    declarator's when the declaration holds several (`_js_binding_span_node`);
+    `_js_declarator_names` derives from this so Vue and Svelte keep their API.
+    """
+    pairs: list[tuple[str, Any]] = []
     for declarator in node.children:
         if declarator.type != "variable_declarator":
             continue
@@ -3557,8 +3568,38 @@ def _js_declarator_names(node, source_bytes: bytes) -> list[str]:
         value_node = declarator.child_by_field_name("value")
         if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
             continue
-        names.extend(_js_binding_pattern_names(name_node, source_bytes))
-    return names
+        pairs.extend(
+            (name, declarator) for name in _js_binding_pattern_names(name_node, source_bytes)
+        )
+    return pairs
+
+
+def _js_declaration_declarators(decl) -> list:
+    return [c for c in decl.children if c.type == "variable_declarator"]
+
+
+def _js_binding_span_node(declarator):
+    """The widest node that addresses this JS/TS binding's name ALONE (#837).
+
+    The declaration (`let x = 1;`, keyword included, which is what every
+    existing index records) when it holds ONE `variable_declarator`, and the
+    declarator itself (`y = 2`) when it holds several. `_go_binding_span_node`
+    (#826) is the same rule for Go, and like it this is ONE function asked
+    by both JS channels -- the bindings and the `const f = () => ...`
+    function expressions -- so the two cannot answer differently.
+
+    ⚠ A destructuring pattern is ONE declarator however many names it binds
+    (`const { a, b } = o`), so its names share the declaration's span: the
+    rule, as for Go's `const D, E = 5, 6`, never a synthesised range (#414).
+    ⚠ Java's `int a, b;` stays on its declaration (#823: a Java declarator
+    does not carry the type); a JS declarator carries the initializer, which
+    is what a reader opens.
+    ⚠ The `export` wrapper is excluded either way, as it was before.
+    """
+    decl = declarator.parent
+    if decl is None or decl.type not in ("lexical_declaration", "variable_declaration"):
+        return declarator
+    return decl if len(_js_declaration_declarators(decl)) == 1 else declarator
 
 
 def _extract_js_bindings(
@@ -3577,9 +3618,12 @@ def _extract_js_bindings(
     if not js_binding_is_member(node):
         return []
     kind = "constant" if constants else "variable"
+    # #837: the span is the declarator's when the declaration holds several.
     return [
-        _declaration_symbol(name, node, source_bytes, filename, language, kind)
-        for name in _js_declarator_names(node, source_bytes)
+        _declaration_symbol(
+            name, _js_binding_span_node(declarator), source_bytes, filename, language, kind
+        )
+        for name, declarator in _js_declarator_bindings(node, source_bytes)
     ]
 def _extract_php_properties(
     node, source_bytes: bytes, filename: str, language: str

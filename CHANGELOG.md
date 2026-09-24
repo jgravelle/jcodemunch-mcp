@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed - each name in a multi-declarator JS/TS binding records its own span (#837)
+
+`let x = 1, y = 2;` gave `x` and `y` the whole statement as their span, in
+javascript, typescript and tsx alike, and `const c1 = 1, c2 = 2;`,
+`var v1 = 1, v2;`, `export const e1 = 1, e2 = 2;` and a
+`const f = () => 1, g = function () {}` pair did the same. Two symbols,
+one set of bytes: `get_symbol_source` on `x` returned `y`'s initializer
+too. Found by @jgravelle measuring the JS channels after #826 (#837).
+
+⚠⚠ **Two channels and no span rule.** `_extract_js_bindings` asked
+`_js_declarator_names` for the names and built every symbol over the
+statement, throwing the declarator each name came from away one frame up;
+`_extract_variable_function` (the `const f = () => ...` channel) walked UP
+from its declarator to the statement. #826 fixed the same defect for Go
+under the rule *the widest node that addresses this name alone*, as ONE
+function so two channels could not answer differently (Standing lesson
+08-19). `_js_binding_span_node` is that function for JS, asked by both
+channels: the declaration (keyword included, the `export` wrapper excluded
+as before) when it holds one `variable_declarator`, the declarator when it
+holds several, and `signature` follows the span.
+
+⚠ **Rulings:** a destructuring pattern is ONE declarator however many names
+it binds, so `const { a, b } = o` keeps the declaration's span for both,
+the rule and not an exception (Go's `const D, E = 5, 6`; measured before
+the rule was applied, as the issue asked), while `const { a } = o, d = 3`
+gives `a` the pattern's declarator and `d` its own. Java's
+`private int a, b;` stays on its declaration, because #823's reasoning
+holds there (a Java declarator does not carry the type) and not here (a JS
+declarator carries the initializer, which is what a reader opens). Vue and
+Svelte record no byte span from the statement and are untouched.
+
+⚠ Spans, signatures and content hashes MOVE on unchanged content for every
+name of a multi-declarator statement; ids do not. `PARSER_GENERATION` 8
+names it. `tests/test_a_js_declarator_records_its_own_span.py` asserts
+every shape above over the three languages, line numbers following the
+declarator, and the PROPERTY that no two symbols from one statement share
+`(byte_offset, byte_length)`.
+
+Red on `main`: `26 failed, 266 passed` over the new file and the JS
+binding, destructuring and arrow-function files. Green: `2269 passed, 2
+skipped` over every test file naming a JS/TS fixture plus the ratchets.
+
 ### Fixed - a C function prototype is a function, as the same bytes are in C++ (#835)
 
 `int f(int);` in a `.c` file yielded nothing, in every shape (`extern`,
