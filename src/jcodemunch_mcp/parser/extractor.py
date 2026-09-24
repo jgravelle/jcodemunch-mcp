@@ -3594,7 +3594,10 @@ def _js_binding_span_node(declarator):
     ⚠ Java's `int a, b;` stays on its declaration (#823: a Java declarator
     does not carry the type); a JS declarator carries the initializer, which
     is what a reader opens.
-    ⚠ The `export` wrapper is excluded either way, as it was before.
+    ⚠ The `export` wrapper is NOT this function's: the binding channel keeps
+    it out of the span and the function-expression channel walks up into it
+    for a single declarator, each as it did before (measured in review; the
+    asymmetry predates this rule and is not changed by it).
     """
     decl = declarator.parent
     if decl is None or decl.type not in ("lexical_declaration", "variable_declaration"):

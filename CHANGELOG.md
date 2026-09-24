@@ -19,9 +19,12 @@ from its declarator to the statement. #826 fixed the same defect for Go
 under the rule *the widest node that addresses this name alone*, as ONE
 function so two channels could not answer differently (Standing lesson
 08-19). `_js_binding_span_node` is that function for JS, asked by both
-channels: the declaration (keyword included, the `export` wrapper excluded
-as before) when it holds one `variable_declarator`, the declarator when it
-holds several, and `signature` follows the span.
+channels: the declaration (keyword included) when it holds one
+`variable_declarator`, the declarator when it holds several, and
+`signature` follows the span. The `export` wrapper is each channel's own
+business, unchanged: the binding channel keeps it out of the span and the
+function-expression channel includes it for a single declarator, as both
+did before (review measured the asymmetry against `main`).
 
 ⚠ **Rulings:** a destructuring pattern is ONE declarator however many names
 it binds, so `const { a, b } = o` keeps the declaration's span for both,
