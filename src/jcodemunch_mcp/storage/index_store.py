@@ -351,7 +351,8 @@ INDEX_VERSION = 17
 #   binder.** `const C = class {}` moves `C#constant` (or `C#variable` for a
 #   `let`) to `C#class`; its methods move from a bare `m#method` to
 #   `C.m#method` and its fields appear (`C.x#field`). An anonymous `export
-#   default class`, TS `export =` and `module.exports = class` are `default`;
+#   default class`, TS `export =` and `module.exports = class` are `default`
+#   (a named one keeps its own name, `module.exports = class S` is `S`);
 #   `obj.P = class` is `P`. A class expression NOTHING binds is unchanged.
 #   The same moves reach every file whose script is re-parsed as JS/TS: Astro
 #   frontmatter, Razor `<script>` blocks and template-underlying JS. Member

@@ -1053,7 +1053,9 @@ def _js_class_expression_binder(node, source_bytes: bytes):
     function inner() {}` is already `d`: a declarator's name (its inner name
     is visible only inside the class), `default` for an anonymous `export
     default class`, and the property for `obj.P = class {}`, with
-    `module.exports = class {}` read as the CommonJS default export. The span
+    `module.exports = class {}` read as the CommonJS default export (a NAMED
+    default export keeps its own name, as `export default class Named {}`
+    does). The span
     is the binder's statement, as for a `const f = () => ...` function.
 
     ⚠ None means NOTHING binds it (`new (class {})()`, `return class {}`, an
@@ -1076,6 +1078,14 @@ def _js_class_expression_binder(node, source_bytes: bytes):
     def _text(n) -> str:
         return source_bytes[n.start_byte:n.end_byte].decode("utf-8", "replace")
 
+    def _default() -> str:
+        # A NAMED default export keeps its name, as `export default class
+        # Named {}` is `Named` (review round 2): `module.exports = class
+        # UserService {}` is the ordinary CommonJS spelling, and `default`
+        # there made `UserService` absent.
+        own = node.child_by_field_name("name")
+        return _text(own) if own is not None else "default"
+
     if up.type in _JS_CLASS_FIELD_NODE_TYPES:
         return _JS_CLASS_IN_FIELD
     if up.type == "variable_declarator" and _is(up.child_by_field_name("value")):
@@ -1089,7 +1099,7 @@ def _js_class_expression_binder(node, source_bytes: bytes):
     # `export default class {}`, and TS's `export = class {}` (the CommonJS
     # default export, as `module.exports` below).
     if up.type == "export_statement" and any(c.type in ("default", "=") for c in up.children):
-        return "default", up
+        return _default(), up
     if up.type == "assignment_expression" and _is(up.child_by_field_name("right")):
         left = up.child_by_field_name("left")
         span = up.parent if up.parent is not None and up.parent.type == "expression_statement" else up
@@ -1101,7 +1111,7 @@ def _js_class_expression_binder(node, source_bytes: bytes):
             if prop is None or prop.type != "property_identifier":
                 return None
             if obj is not None and _text(obj) == "module" and _text(prop) == "exports":
-                return "default", span
+                return _default(), span
             return _text(prop), span
     return None
 
@@ -3902,7 +3912,16 @@ def _extract_js_bindings(
 
 
 def _js_declarator_holds_a_class(declarator) -> bool:
-    """Is this declarator's value a class expression, wrappers seen through?"""
+    """Is this declarator's value a class expression the walk will emit as a
+    class, wrappers seen through?
+
+    ⚠ It must agree with `_js_class_expression_binder`, which binds only an
+    IDENTIFIER name: `const {X} = class {}` emits no class, so its binding
+    stays (review round 2).
+    """
+    name = declarator.child_by_field_name("name")
+    if name is None or name.type != "identifier":
+        return False
     value = declarator.child_by_field_name("value")
     while value is not None and value.type in _JS_EXPRESSION_WRAPPERS:
         value = next(
@@ -3910,6 +3929,8 @@ def _js_declarator_holds_a_class(declarator) -> bool:
             None,
         )
     return value is not None and value.type == "class"
+
+
 def _extract_php_properties(
     node, source_bytes: bytes, filename: str, language: str
 ) -> list[Symbol]:

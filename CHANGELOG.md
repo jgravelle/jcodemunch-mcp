@@ -17,7 +17,9 @@ A class expression is now a `class` named by its binder, the way `const d
 = function inner() {}` is already `d`. For a declarator that is the
 declarator's name (`const C = class Inner {}` is `C`). An anonymous
 `export default class`, TypeScript's `export =` and `module.exports` are
-`default`. `obj.P = class {}` is `P`. Parentheses and TypeScript's `as`,
+`default`, and a named one keeps its own name (`module.exports = class
+UserService {}` is `UserService`, as `export default class Named {}` has
+always been `Named`). `obj.P = class {}` is `P`. Parentheses and TypeScript's `as`,
 `satisfies`, `!` and `<T>` wrappers are seen through. The methods and
 fields hang off it as they do off a class declaration. Its signature is
 the header up to the body, as a class declaration's is.
@@ -37,7 +39,7 @@ unchanged, since its members were already qualified under the field.
 Ids move: `C#constant` (or `C#variable`) becomes `C#class`, and a bound
 class expression's bare `m#method` becomes `C.m#method`, in `.js`/`.ts`
 files and in every script re-parsed as JS/TS (Astro frontmatter, Razor
-`<script>` blocks). `PARSER_GENERATION` 8 names all of it. The #781 absence test listed two bound shapes, which
+`<script>` blocks, template files such as `foo.ts.j2`). `PARSER_GENERATION` 8 names all of it. The #781 absence test listed two bound shapes, which
 pinned this gap (Practice 9), so it now lists unbound ones. The NestJS
 corpus the issue measured is not checked out here and was not re-run.
 Filed by @jgravelle (#803).

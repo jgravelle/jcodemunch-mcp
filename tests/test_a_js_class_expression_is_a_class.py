@@ -13,7 +13,8 @@ Rulings:
   (`const C = class Inner {}` is `C`), `default` for an anonymous
   `export default class`, and the property for `obj.P = class {}` /
   `exports.K = class {}` (`module.exports = class {}` is the CommonJS default
-  export, so `default`). Its methods and fields hang off it, as they do off
+  export, so `default`; a NAMED default export keeps its own name, as
+  `export default class Named {}` does). Its methods and fields hang off it, as they do off
   a class declaration. Parenthesised and TS `as`/`satisfies`/`!` wrappers
   are seen through.
 - A class expression NOTHING binds (`new (class {...})()`, `return class
@@ -163,6 +164,45 @@ def test_a_parenthesised_or_cast_class_expression_is_seen_through():
 def test_ts_export_equals_is_the_commonjs_default():
     rows = _rows("export = class { m() {} };\n", "typescript", "a.ts")
     assert rows == {"default": ("class", None), "default.m": ("method", "default")}
+
+
+@pytest.mark.parametrize("language,filename", _LANGS)
+@pytest.mark.parametrize("source", [
+    "module.exports = class UserService extends Base { find() {} };\n",
+    "export default (class UserService { find() {} });\n",
+])
+def test_a_named_default_export_keeps_its_own_name(language, filename, source):
+    """Review round 2: `default` dropped the name, so `UserService` read as
+    absent, where `export default class Named {}` has always been `Named`."""
+    rows = _rows(source, language, filename)
+    assert rows == {"UserService": ("class", None), "UserService.find": ("method", "UserService")}
+
+
+def test_a_named_ts_export_equals_keeps_its_own_name():
+    rows = _rows("export = class UserService { find() {} };\n", "typescript", "a.ts")
+    assert rows == {"UserService": ("class", None), "UserService.find": ("method", "UserService")}
+
+
+@pytest.mark.parametrize("language,filename", _LANGS)
+def test_a_destructuring_declarator_keeps_the_binding_main_published(language, filename):
+    """Review round 2: the binding channel dropped `X` because the value is a
+    class, while the walk emits no class for a non-identifier name."""
+    ids = [s.id.rsplit("::", 1)[1] for s in parse_file("const {X} = class { s() {} };\n", filename, language)]
+    assert ids == ["X#constant", "s#method"], ids
+
+
+@pytest.mark.parametrize("language,filename", _LANGS)
+@pytest.mark.parametrize("source", [
+    "const C = class { m() {} };\n",
+    "let C = class { m() {} };\n",
+    "export const C = class { m() {} };\n",
+    "const A = 1, C = class { m() {} };\n",
+])
+def test_a_bound_class_is_never_also_a_binding(language, filename, source):
+    """The full list, never a dict keyed by name: `C#constant` beside
+    `C#class` would collapse into one key (a set cannot count)."""
+    ids = [s.id.rsplit("::", 1)[1] for s in parse_file(source, filename, language)]
+    assert ids.count("C#class") == 1 and not any(i.startswith("C#") and i != "C#class" for i in ids), ids
 
 
 def test_the_signature_is_the_header_never_the_body():
