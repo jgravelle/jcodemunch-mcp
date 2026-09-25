@@ -606,6 +606,11 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "type",
         "trait_declaration": "type",
         "enum_declaration": "type",
+        # #759. `case Hearts;` and `case Hearts = 'H';` are both `enum_case`, and
+        # the grammar sets its `name` field, so one entry is the whole form (one
+        # case binds one name). `constant`, pure or backed: what the same enum's
+        # `const` already is, and what Python's enum members are.
+        "enum_case": "constant",
         # ⚠⚠ `property_declaration` is NOT here, and its absence is the fix for
         # #743 rather than an omission. It sat in this map with
         # `name_fields["property_declaration"] = "name"` beside it and yielded
@@ -622,6 +627,7 @@ PHP_SPEC = LanguageSpec(
         "interface_declaration": "name",
         "trait_declaration": "name",
         "enum_declaration": "name",
+        "enum_case": "name",
     },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute",  # PHP 8 #[Attribute] syntax

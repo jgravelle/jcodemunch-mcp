@@ -181,6 +181,7 @@ _SAMPLES: dict[str, dict[str, tuple[str, str]]] = {
     "php": {
         "class_declaration": ("a.php", "<?php\nclass Probe { }\n"),
         "enum_declaration": ("a.php", "<?php\nenum Probe { case A; }\n"),
+        "enum_case": ("a.php", "<?php\nenum Holder { case Probe; }\n"),  # #759
         "function_definition": ("a.php", "<?php\nfunction probe() { }\n"),
         "interface_declaration": ("a.php", "<?php\ninterface Probe { }\n"),
         "method_declaration": ("a.php", "<?php\nclass Holder { public function probe() { } }\n"),

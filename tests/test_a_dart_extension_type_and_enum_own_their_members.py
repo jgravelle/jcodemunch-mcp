@@ -26,10 +26,11 @@ Rulings, written down because both issues asked:
   is the type's only state and every member reads it. It has no
   `declaration` node, so `representation_declaration` is its own
   `field_patterns` entry.
-- Enum VARIANTS (`a`, `b`) are NOT indexed. No spec indexes enum variants
-  today (PHP's cases are #759, open); giving Dart alone a second answer to
-  a family-wide question is the second-derivation shape, so the family
-  decides it once, there.
+- Enum VARIANTS (`a`, `b`) are NOT indexed yet, and that is a tracked gap,
+  not a ruling. #759 settled the family question (jjg, 2026-09-25): an enum
+  member is an owned `constant` in every language. PHP ships it; Dart and
+  the other languages are `docs/workflows/LEDGER.md` L-03, and the pin below
+  FAILS when Dart's variants arrive, which is the notice to update it.
 """
 
 from __future__ import annotations
@@ -130,9 +131,8 @@ def test_an_enum_bodys_methods_are_still_owned_by_the_same_mechanism():
     assert rows["E.m"] == ("method", "E")
 
 
-def test_enum_variants_are_not_indexed_and_that_is_a_ruling():
-    """See the module docstring: no spec indexes variants; the family decides
-    once (#759)."""
+def test_enum_variants_are_a_tracked_gap_ledger_l03():
+    """Not indexed yet; the family ruling (#759) says they should be (LEDGER L-03)."""
     rows = _rows(_ENUM)
     assert "E.a" not in rows and "E.b" not in rows and "a" not in rows
     assert _rows("enum Plain { x, y }\n") == {"Plain": ("type", None)}

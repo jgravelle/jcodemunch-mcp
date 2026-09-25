@@ -326,14 +326,3 @@ def test_no_member_is_emitted_twice():
     ]
     assert len(rows) == len(set(rows)), rows
 
-
-def test_an_enum_case_is_a_known_separate_gap():
-    """⚠ `case A;` is `enum_case`, a node type no PHP spec map names.
-
-    It HAS a `name` field, so it is one entry away — but it is a different node
-    type with a different verdict (one issue, one verdict), filed rather than
-    folded in here. This test FAILS when that gap closes, naming the line to
-    delete.
-    """
-    source = "<?php\nenum E {\n  case A;\n}\n"
-    assert not _by_name(source, "A")

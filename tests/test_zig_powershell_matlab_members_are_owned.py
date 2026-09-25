@@ -21,7 +21,8 @@ copy (the audit's own words):
 - Zig: a struct field and a struct-level `var` are `field`; a struct-level
   `const` is `constant`; a `fn` in a container is `method`. An enum's
   variants are `ContainerField`s with no `IDENTIFIER` and are not indexed
-  (no spec indexes variants; the family decides once, #759). Zig has no
+  yet: #759 ruled an enum member an owned `constant` family-wide, and Zig is
+  a tracked gap in `docs/workflows/LEDGER.md` L-03. Zig has no
   property concept: role omitted.
 - PowerShell: every class property is `field` -- `static` and `hidden` are
   visibility and lifetime, not immutability, and PowerShell has no readonly
@@ -183,7 +184,7 @@ def test_free_functions_and_file_scope_constants_are_unchanged():
 
 
 def test_enum_variants_are_not_indexed_in_zig_or_powershell():
-    """No spec indexes variants; the family decides once (#759)."""
+    """A tracked gap (LEDGER L-03): #759 ruled enum members owned `constant`s family-wide."""
     assert _rows("const E = enum { a, b };\n", "a.zig", "zig") == {"E": ("type", None)}
     assert _rows("enum E {\n    a\n    b\n}\n", "a.ps1", "powershell") == {"E": ("type", None)}
 
