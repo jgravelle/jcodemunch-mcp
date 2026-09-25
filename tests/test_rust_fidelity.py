@@ -43,11 +43,12 @@ _KNOWN_UNEMITTED = {"module", "macro"}
 #: and no default body) and `union` (no symbol at all). All three are fixed, so
 #: the ratchet tightened from "these gaps are known" to "there are none".
 #:
-#: ⚠ Adding an entry here is allowed and is how a deliberate, reasoned omission
-#: gets recorded. It is NOT the way to make a red test green: a gap that arrives
-#: without a reason is a regression, and `_KNOWN_UNEMITTED` is not the place for
-#: it either -- that set is for kinds we never index at all, and moving a gap
-#: into it converts a bug into a policy.
+#: ⚠ Adding an entry here records a TRACKED gap, and its reason must cite an
+#: OPEN issue (#758, `tests/test_gap_ledgers_cite_open_issues.py`). It is NOT
+#: the way to make a red test green: a gap that arrives without an issue is a
+#: regression, and `_KNOWN_UNEMITTED` is not the place for it either -- that set
+#: is for kinds we never index at all, and moving a gap into it converts a bug
+#: into a policy.
 _KNOWN_GAPS: dict[str, str] = {}
 
 
