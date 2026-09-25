@@ -50,6 +50,7 @@ REPO = "jgravelle/jcodemunch-mcp"
 _VOCABULARY = re.compile(
     r"KNOWN|GAP|GHOST|PENDING|ALLOW|UNTIL|UNWIRED|UNENCODED|EXEMPT|EXCUS|EXCEPTION"
     r"|IGNORE|SKIP|WAIV|TOLERAT|GRANDFATHER|UNFIXED|BROKEN|DEFER|XFAIL|TODO"
+    r"|NOT_|NON_|INTENTIONAL"
 )
 
 #: Containers whose entries each park a KNOWN DEFECT until it is fixed. Each
@@ -57,6 +58,9 @@ _VOCABULARY = re.compile(
 LEDGERS: frozenset[tuple[str, str]] = frozenset(
     {
         ("test_absence_wiring_guard.py", "KNOWN_UNWIRED_WRAPPERS"),
+        # Parks a defect: "empty is the intended end state" and a stale-entry
+        # ratchet backs it. Filed as a decision in round 1; review moved it.
+        ("test_config_isolation_guard.py", "TWIN_EXEMPT"),
         ("test_constant_extraction_guard.py", "EXEMPT"),
         ("test_declared_forms_extract.py", "_KNOWN_GAPS"),
         ("test_file_io_encoding_guard.py", "KNOWN_UNENCODED"),
@@ -64,6 +68,8 @@ LEDGERS: frozenset[tuple[str, str]] = frozenset(
         ("test_grammar_spelled_forms.py", "_INLINE_GHOSTS_FOUND"),
         ("test_grammar_spelled_forms.py", "_KNOWN_GHOSTS"),
         ("test_grammar_spelled_forms.py", "_PENDING_CHANNELS"),
+        # Fields read by nothing, each citing #725; wiring one in makes it a channel.
+        ("test_grammar_spelled_forms.py", "_UNREAD_NON_CHANNEL_FIELDS"),
         ("test_language_spec_maps_agree.py", "_KNOWN_GAPS"),
         ("test_member_kind_audit.py", "_GAPS"),
         ("test_nuxt_srcdir.py", "_JS_VARIANT_EXEMPT"),
@@ -82,10 +88,6 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "test_config_isolation_guard.py",
         "EXEMPT",
     ): "deliberate: modules that exercise the real config path, each named with its reason",
-    (
-        "test_config_isolation_guard.py",
-        "TWIN_EXEMPT",
-    ): "a decision about importing the src twin, not a defect",
     (
         "test_dispatch_schema_parity.py",
         "_KNOWN_FORGIVING_ALIASES",
@@ -120,6 +122,38 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
         "_AUTO_COMPACTED_EXEMPT",
     ): "files where the retired flag may appear as history",
     (
+        "test_member_kind_audit.py",
+        "_NOT_SAMPLED",
+    ): "languages with no member declarations to audit, each with the reason",
+    (
+        "test_grammar_spelled_forms.py",
+        "_NON_CHANNEL_SPEC_FIELDS",
+    ): "the roster union of the classified buckets, computed",
+    (
+        "test_dispatch_schema_parity.py",
+        "_NON_SCHEMA_KEYS",
+    ): "cross-cutting dispatch keys, not per-tool schema properties",
+    (
+        "test_configuration_md_defaults.py",
+        "_NON_LITERAL_DEFAULTS",
+    ): "defaults too large for a table cell, each proved by its own check",
+    (
+        "test_v1_108_199.py",
+        "_NOT_SERVER_PATH",
+    ): "modules that own their process and a terminal stdin",
+    (
+        "test_v1_108_199.py",
+        "_INTENTIONAL_PIPE",
+    ): "sites that pass a terminating stdin on purpose, each with the reason",
+    (
+        "test_watcher_knob_parity.py",
+        "_NOT_A_KNOB",
+    ): "a parameter-name collision, not a knob",
+    (
+        "test_mcp_instructions.py",
+        "_NOT_TOOL_NAMES",
+    ): "snake_case prose words that are not tool names",
+    (
         "test_v1_108_176.py",
         "UNKNOWN",
     ): "fixture data: a tri-state UNKNOWN coverage block",
@@ -146,7 +180,7 @@ def _container_value(node):
     if isinstance(node, (ast.Dict, ast.Set, ast.List, ast.Tuple)):
         try:
             return ast.literal_eval(node)
-        except ValueError:
+        except (ValueError, TypeError):
             return _NOT_A_LITERAL
     if (
         isinstance(node, ast.Call)
@@ -196,33 +230,54 @@ def scan(tests_dir: Path):
                 ):
                     literal = _container_value(value)
                     if literal is not None:
-                        found[target.id] = (node.lineno, literal, [])
-        for node in tree.body:
-            name = _mutated_name(node)
-            if name in found:
-                found[name][2].append(node.lineno)
-        for name, record in found.items():
-            candidates[(rel.as_posix(), name)] = record
+                        found[target.id] = (node.lineno, literal, [], node)
+        # Anywhere in the module, not only at top level: a mutation under an
+        # `if`, a `try`, a loop or a function body adds an entry just the same
+        # (review round 2 planted seven that the top-level scan missed).
+        defining = {record[3] for record in found.values()}
+        for node in ast.walk(tree):
+            if node in defining:
+                continue
+            for name in _mutated_names(node):
+                if name in found:
+                    found[name][2].append(node.lineno)
+        for name, (line, literal, mutations, _node) in found.items():
+            candidates[(rel.as_posix(), name)] = (line, literal, sorted(set(mutations)))
     return candidates, problems
 
 
-def _mutated_name(node):
-    """The module-level name a statement mutates in place, if any."""
+def _root_name(node):
+    """`X` for `X`, `X[k]`, `X[k][j]`, `X.attr` and any chain of them."""
+    while isinstance(node, (ast.Subscript, ast.Attribute)):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _targets(node):
+    if isinstance(node, (ast.Tuple, ast.List)):
+        for element in node.elts:
+            yield from _targets(element)
+    else:
+        yield node
+
+
+def _mutated_names(node):
+    """Every name a statement rebinds or mutates in place: an assignment to it
+    or through it (`X = ...`, `X[k] = ...`, `X[k][j] = ...`, `X |= ...`) or a
+    mutator call on it (`X.update(...)`, `X[k].add(...)`)."""
     if isinstance(node, ast.Assign):
-        for target in node.targets:
-            if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
-                return target.value.id
-    if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
-        return node.target.id
-    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-        func = node.value.func
-        if (
-            isinstance(func, ast.Attribute)
-            and func.attr in _MUTATORS
-            and isinstance(func.value, ast.Name)
-        ):
-            return func.value.id
-    return None
+        targets = [t for target in node.targets for t in _targets(target)]
+    elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+        targets = list(_targets(node.target))
+    elif (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in _MUTATORS
+    ):
+        targets = [node.func.value]
+    else:
+        return []
+    return [name for name in (_root_name(t) for t in targets) if name]
 
 
 def entries(value, path=()):
@@ -244,8 +299,12 @@ def _entry_or_walk(item, path):
         yield path, item
     elif isinstance(item, tuple):
         yield path, " ".join(part for part in item if isinstance(part, str))
-    else:
+    elif isinstance(item, (dict, list, set, frozenset)) and item:
         yield from entries(item, path)
+    else:
+        # `None`, a number, an EMPTY container: an entry with no reason at
+        # all, never an entry that walks into nothing (review round 2).
+        yield path, ""
 
 
 def cited(text: str) -> set[int]:
@@ -274,6 +333,10 @@ def check(
             f"{key[0]}:{candidates[key][0]} {key[1]} sounds like an exemption and is unclassified: "
             f"add it to LEDGERS (it parks a defect) or NOT_LEDGERS (a permanent decision, with the reason)"
         )
+    for key in sorted(set(ledgers) & set(not_ledgers)):
+        problems.append(
+            f"{key[0]} {key[1]} is registered as both a ledger and a decision"
+        )
     for key in sorted((set(ledgers) | set(not_ledgers)) - set(candidates)):
         problems.append(
             f"{key[0]} {key[1]} is registered in scripts/gap_ledgers.py and no longer exists"
@@ -294,7 +357,10 @@ def check(
             label = f"{where}{list(path)!r}"
             numbers = cited(text)
             if not numbers:
-                problems.append(f"{label} names no issue: {text!r}")
+                problems.append(
+                    f"{label} names no issue: {text!r} (a ledger of bare names cannot carry "
+                    f"one: reshape it to {{name: reason}} first)"
+                )
                 continue
             if any(manifest.get(n) == "OPEN" for n in numbers):
                 continue
@@ -321,9 +387,9 @@ def _state(number: int):
             "--repo",
             REPO,
             "--json",
-            "state",
+            "state,url",
             "-q",
-            ".state",
+            '.url + " " + .state',
         ],
         capture_output=True,
         text=True,
@@ -331,8 +397,9 @@ def _state(number: int):
         env=env,
         check=False,
     )
-    state = out.stdout.strip()
-    return state if out.returncode == 0 and state else None
+    # `gh issue view` also resolves a PULL REQUEST number; a PR is not an issue.
+    url, _, state = out.stdout.strip().partition(" ")
+    return state if out.returncode == 0 and state and "/issues/" in url else None
 
 
 def refresh(tests_dir: Path = ROOT / "tests", manifest_path: Path = MANIFEST) -> dict:

@@ -325,7 +325,9 @@ _UNREAD_NON_CHANNEL_FIELDS = {
     # `LanguageSpec(...)` literals (78) and the keys in the registry literal
     # (77) are three different denominators, and a required argument needs none
     # of them to make the point.
-    "param_fields": "required positionally, so every spec fills it; read by nothing (found by this scan)",
+    # ⚠ Cited #725 since #758, whose rule found this the only entry naming no
+    # issue; the issue was widened to carry it.
+    "param_fields": "#725: required positionally, so every spec fills it; read by nothing (found by this scan)",
 }
 
 #: Read, but for something other than deciding what gets extracted: the purpose

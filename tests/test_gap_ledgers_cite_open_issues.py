@@ -22,7 +22,7 @@ Rulings:
   `ALLOWED_UNTIL_FIXED` past it. Every module-level container whose name
   sounds like an exemption must be in `LEDGERS` or `NOT_LEDGERS`
   (`scripts/gap_ledgers.py`); the issue named three ledgers and there are
-  fifteen.
+  seventeen. Its first run found `param_fields` citing no issue (#725 now).
 """
 
 from __future__ import annotations
@@ -137,3 +137,61 @@ def test_a_ledger_that_is_not_a_literal_is_reported(tmp_path):
     assert "mutated at line 2" in joined and "mutated at line 3" in joined
     assert "test_broken.py does not parse" in joined
     assert len(problems) == 4, joined
+
+
+def test_a_mutation_anywhere_in_the_module_is_reported(tmp_path):
+    """Review round 2 planted these past a top-level-only scan: under an `if`,
+    a `try`, a loop and a called function; through a nested subscript and a
+    method on one; and a rebinding of the name."""
+    (tmp_path / "test_deep.py").write_text(
+        "import sys\n"
+        "_KNOWN_GAPS = {'swift': {}}\n"
+        "if sys.platform == 'win32':\n"
+        "    _KNOWN_GAPS['a'] = 'free'\n"
+        "try:\n"
+        "    _KNOWN_GAPS['b'] = 'free'\n"
+        "except Exception:\n"
+        "    pass\n"
+        "for k in ('c',):\n"
+        "    _KNOWN_GAPS[k] = 'free'\n"
+        "def _late():\n"
+        "    _KNOWN_GAPS['d'] = 'free'\n"
+        "_KNOWN_GAPS['swift']['e'] = 'free'\n"
+        "_KNOWN_GAPS['swift'].setdefault('f', 'free')\n"
+        "_KNOWN_GAPS = _KNOWN_GAPS | {'g': 'free'}\n",
+        encoding="utf-8",
+    )
+    problems = gap_ledgers.check(tmp_path, {}, ledgers=frozenset({("test_deep.py", "_KNOWN_GAPS")}), not_ledgers={})
+    joined = "\n".join(problems)
+    for line in (4, 6, 10, 12, 13, 14, 15):
+        assert f"mutated at line {line}," in joined, (line, joined)
+
+
+def test_a_leaf_with_no_reason_is_an_entry_that_names_no_issue(tmp_path):
+    """`None`, a number and an EMPTY container are entries with nothing to cite,
+    never entries that walk into nothing (review round 2)."""
+    (tmp_path / "test_leaves.py").write_text(
+        "_KNOWN_GAPS = {'none': None, 'num': 1, 'empty': {}, 'emptyset': set(), 'ok': '#200'}\n",
+        encoding="utf-8",
+    )
+    problems = gap_ledgers.check(
+        tmp_path, {200: "OPEN"}, ledgers=frozenset({("test_leaves.py", "_KNOWN_GAPS")}), not_ledgers={}
+    )
+    joined = "\n".join(problems)
+    for key in ("none", "num", "empty"):
+        assert f"['{key}'] names no issue" in joined, (key, joined)
+    assert "['ok']" not in joined
+
+
+def test_a_registry_row_in_both_lists_and_an_unhashable_ledger_are_reported(tmp_path):
+    (tmp_path / "test_odd.py").write_text("_KNOWN_GAPS = {[1]: 'x'}\n_OTHER_GAPS = {}\n", encoding="utf-8")
+    key = ("test_odd.py", "_OTHER_GAPS")
+    problems = gap_ledgers.check(
+        tmp_path,
+        {},
+        ledgers=frozenset({("test_odd.py", "_KNOWN_GAPS"), key}),
+        not_ledgers={key: "a decision"},
+    )
+    joined = "\n".join(problems)
+    assert "_KNOWN_GAPS is not a literal" in joined
+    assert "_OTHER_GAPS is registered as both" in joined
