@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - the installed agent policy grants absence only on a scan that proved it (#719)
+
+The policy `init` writes into CLAUDE.md told every agent that
+`negative_evidence.verdict: "no_implementation_found"` proves absence, and to
+stop searching. That verdict and the scan's state are two different fields,
+and one response can carry both: a stale or rewritten index yields
+`no_implementation_found` with `_meta.verdict.state: "degraded"`. The front
+door surface wrote them as two sibling bullets about "a `verdict`", so the
+degraded one read as unreachable once the first fired. The agent reported a
+gap a re-index would have filled, and it was told not to look again. That's
+the one case where searching again changes the answer. #711 removed the same
+conflation from `plan_turn` and `get_session_snapshot` in code. This is the
+prose copy.
+
+Absence now needs both fields: the verdict, and `_meta.verdict.state` of
+`absent`. Where `_meta.verdict` isn't shown, `_meta.absence_evidence.citable`
+must be `true` instead. That second carrier matters: the shipped default
+`meta_fields: []` strips `_meta.verdict`, so a rule that named only the state
+couldn't be read on most installs. Any other state proves nothing. The agent
+reads the note, re-indexes if the note names the index, and searches again.
+The full surface, the front-door surface and this repo's `AGENTS.md` all
+carry it. `tests/test_policy_grants_absence_only_on_a_proven_scan.py` checks
+the rule, not the token: every block telling an agent to stop re-searching
+must name the proof and the re-run advice.
+
+⚠ An existing install keeps the old wording. `init` skips a CLAUDE.md that
+already holds the policy, and `config --check` compares tool names only. The
+corrected text reaches a new install, or an old one whose policy block is
+removed before `init` runs again. Filed by @jgravelle (#719).
+
 ### Removed - three `LanguageSpec` fields nothing read, and the rule that stops a fourth (#725)
 
 `type_patterns`, `return_type_fields` and `param_fields` were filled in by
