@@ -8,8 +8,8 @@ indexed.
 ⚠⚠ **The issue's diagnosis was wrong about WHERE, and the correction is the
 fix.** It read the gap as `type_patterns` naming the declaration with nothing
 walking down from it -- #731's shape, where `_extract_go_variables` descends to
-the specs. But `type_patterns` is read by NOTHING (#725, asserted by
-`tests/test_grammar_spelled_forms.py`): Go's type came from
+the specs. But `type_patterns` was read by NOTHING (#725, which deleted it from
+`LanguageSpec`): Go's type came from
 `symbol_node_types`, where `type_declaration` mapped to `type`, and
 `_extract_symbol` returns `Optional[Symbol]` -- **at most one symbol per node,
 by signature.** No name extractor could have made that channel bind three

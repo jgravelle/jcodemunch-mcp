@@ -263,9 +263,11 @@ def test_a_javascript_generator_declaration_yields_its_symbol():
 
 
 def test_a_generator_carries_its_parameters_like_an_ordinary_function():
-    """`param_fields` was missing the same entry, and nothing else would say so.
+    """A generator's signature keeps its parameter list.
 
-    Naming the symbol is half of it: a generator with no parameter list reads as
+    ⚠ This once blamed a missing `param_fields` entry. That field was read by
+    nothing and #725 deleted it: the signature comes from the declaration's
+    own text. Naming the symbol is half of it: a generator with no parameter list reads as
     a zero-argument function everywhere the signature is shown.
     """
     symbols = {s.name: s for s in parse_file(
@@ -404,8 +406,8 @@ _EXTRACTION_CHANNELS = {
 def test_every_declared_extraction_channel_actually_yields_its_kind(channel):
     """A channel must be READ, which is the whole difference from #725.
 
-    ⚠⚠ `type_patterns` and `return_type_fields` are declared by 19 and 14 of the
-    79 specs respectively and read by NOTHING -- #725 -- and #735 added a third
+    ⚠⚠ `type_patterns` and `return_type_fields` were declared by 19 and 14 of the
+    79 specs respectively and read by NOTHING until #725 deleted them, and #735 added a third
     node-type list beside them, #741 and #731 a fourth. A list no channel
     consults is indistinguishable from the defect it was added to fix ("a
     parameter that is present and does nothing", 08-19), and the only thing
@@ -452,7 +454,7 @@ def _channels_the_walker_consults() -> set[str]:
 
     ⚠⚠ **Asked of the PRODUCT, not of a naming convention.** The first version
     of this test collected every field ending in `_patterns`, which swept in
-    `type_patterns` -- a list declared by 19 specs and read by NOTHING (#725),
+    `type_patterns` -- a list declared by 19 specs and read by NOTHING (#725, since deleted),
     i.e. the very defect the table exists to detect, reported as a missing row.
     A guard keyed to a spelling instead of to the property is the #709 shape,
     and it failed here on its first run.

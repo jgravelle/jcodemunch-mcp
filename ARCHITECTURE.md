@@ -266,14 +266,13 @@ class LanguageSpec:
     ts_language: str
     symbol_node_types: dict[str, str]
     name_fields: dict[str, str]
-    param_fields: dict[str, str]
-    return_type_fields: dict[str, str]
     docstring_strategy: str
     decorator_node_type: str | None
     container_node_types: list[str]
     constant_patterns: list[str]
-    type_patterns: list[str]
 ```
+
+Every field is read by the extractor; `tests/test_every_language_spec_field_has_a_reader.py` refuses one that is not (#725).
 
 ### Extraction model
 

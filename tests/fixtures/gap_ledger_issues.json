@@ -1,7 +1,5 @@
 {
   "note": "Written by scripts/gap_ledgers.py --refresh; read by tests/test_gap_ledgers_cite_open_issues.py (#758).",
   "repo": "jgravelle/jcodemunch-mcp",
-  "issues": {
-    "725": "OPEN"
-  }
+  "issues": {}
 }

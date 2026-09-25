@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Removed - three `LanguageSpec` fields nothing read, and the rule that stops a fourth (#725)
+
+`type_patterns`, `return_type_fields` and `param_fields` were filled in by
+every one of the 78 spec literals, 234 keyword arguments in all, and no line
+of `src/` read any of them. A field nothing reads can't disagree with
+anything, so it rots without a symptom. #713 added an entry to two of them
+believing they did something. `CSHARP_SPEC` and `JAVA_SPEC` came to spell the
+same construct differently in a list neither consumer existed for. A Go
+issue's diagnosis (#817) blamed `type_patterns` for a defect in a different
+channel. It's the `entry_point_patterns` shape of #561/#562, one dataclass
+over.
+
+#725 offered a choice: wire them up or delete them. They're deleted. A
+symbol's `signature` already carries its parameters and return type as the
+declaration's own text, so wiring them would have added a structured field
+nobody has asked for. Nothing the product returns changes, and no index needs
+rebuilding.
+
+⚠⚠ The rule is the property, not the three names.
+`tests/test_every_language_spec_field_has_a_reader.py` fails on any
+`LanguageSpec` field that no code in `src/` reads, so a fourth field added
+and never wired fails on arrival, whatever it's called. A keyword at
+construction counts as a write, not a read. Counting it would make every field
+look consumed, which is how three hid. `LANGUAGE_SUPPORT.md`'s add-a-language
+template and `ARCHITECTURE.md` drop the fields too. The template was the
+one place a contributor copied them from. Filed by @jgravelle (#725).
+
 ### Fixed - a Swift `deinit` is a method of its type, and is never certified deletable (#754)
 
 `class Holder { deinit {} }` indexed `Holder` and nothing else, while the

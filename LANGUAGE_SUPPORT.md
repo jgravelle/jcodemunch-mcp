@@ -148,15 +148,10 @@ NEW_LANG_SPEC = LanguageSpec(
         "function_definition": "name",
         "class_definition": "name",
     },
-    param_fields={
-        "function_definition": "parameters",
-    },
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=["class_definition"],
     constant_patterns=[],
-    type_patterns=[],
 )
 ```
 

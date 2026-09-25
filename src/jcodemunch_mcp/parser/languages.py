@@ -24,14 +24,6 @@ class LanguageSpec:
     # Maps node_type -> child field name containing the name
     name_fields: dict[str, str]
 
-    # How to extract parameters/signature beyond the name
-    # Maps node_type -> child field name for parameters
-    param_fields: dict[str, str]
-
-    # Return type extraction (if language supports it)
-    # Maps node_type -> child field name for return type
-    return_type_fields: dict[str, str]
-
     # Docstring extraction strategy
     # "next_sibling_string" = Python (expression_statement after def)
     # "first_child_comment" = JS/TS (/** */ before function)
@@ -46,7 +38,6 @@ class LanguageSpec:
 
     # Additional extraction: constants, type aliases
     constant_patterns: list[str]   # Node types for constants
-    type_patterns: list[str]       # Node types for type definitions
 
     # If True, decorators are direct children of the declaration node (e.g. C#)
     # If False (default), decorators are preceding siblings (e.g. Python, Java)
@@ -61,11 +52,11 @@ class LanguageSpec:
     # differ; `_extract_fields` dispatches per language exactly as
     # `_extract_constants` does.
     #
-    # ⚠⚠ **This is READ, which is the whole difference from `type_patterns` and
-    # `return_type_fields` next door.** Those are declared by 19 and 14 of the
-    # 79 specs respectively and read by NOTHING (#725), and a third write-only
-    # field would be that defect again rather than a new channel.
-    # `test_language_spec_maps_agree.py` holds the readership claim.
+    # ⚠⚠ **This is READ, and every field here must be.** `type_patterns`,
+    # `return_type_fields` and `param_fields` sat in this class filled in by
+    # every spec and read by NOTHING until #725 deleted them; a field no
+    # consumer reads is that defect again rather than a new channel.
+    # `tests/test_every_language_spec_field_has_a_reader.py` holds the rule.
     field_patterns: list[str] = dc_field(default_factory=list)
 
     # Node types for declarations that bind N names to MUTABLE module-level
@@ -301,9 +292,8 @@ PYTHON_SPEC = LanguageSpec(
     symbol_node_types={
         "function_definition": "function",
         "class_definition": "class",
-        # Python 3.12+ `type X = ...` alias statement. Listed here (not only in
-        # the never-consumed `type_patterns`) so the generic walker emits it as a
-        # symbol, mirroring how TS/Go/Rust/etc. carry their type nodes. Name comes
+        # Python 3.12+ `type X = ...` alias statement. Listed here so the
+        # generic walker emits it as a symbol, mirroring how TS/Go/Rust/etc. carry their type nodes. Name comes
         # from a dedicated `_extract_name` branch (the alias name is nested under
         # the `left` field, not a direct `name` field).
         "type_alias_statement": "type",
@@ -312,17 +302,10 @@ PYTHON_SPEC = LanguageSpec(
         "function_definition": "name",
         "class_definition": "name",
     },
-    param_fields={
-        "function_definition": "parameters",
-    },
-    return_type_fields={
-        "function_definition": "return_type",
-    },
     docstring_strategy="next_sibling_string",
     decorator_node_type="decorator",
     container_node_types=["class_definition"],
     constant_patterns=["assignment"],
-    type_patterns=["type_alias_statement"],
 )
 
 
@@ -348,15 +331,6 @@ JAVASCRIPT_SPEC = LanguageSpec(
         # every spec in the registry.
         "generator_function_declaration": "name",
     },
-    param_fields={
-        "function_declaration": "parameters",
-        "method_definition": "parameters",
-        "arrow_function": "parameters",
-        # Naming it is half the fix: without this a generator reads as a
-        # zero-argument function everywhere a signature is shown.
-        "generator_function_declaration": "parameters",
-    },
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=["class_declaration", "class"],
@@ -367,7 +341,6 @@ JAVASCRIPT_SPEC = LanguageSpec(
     # `public_field_definition`; the three specs are copies and each needs
     # its own line (#698).
     field_patterns=["field_definition"],
-    type_patterns=[],
 )
 
 
@@ -400,19 +373,6 @@ TSX_SPEC = LanguageSpec(
         "type_alias_declaration": "name",
         "enum_declaration": "name",
     },
-    param_fields={
-        "function_declaration": "parameters",
-        "generator_function_declaration": "parameters",
-        "method_definition": "parameters",
-        "abstract_method_signature": "parameters",
-        "arrow_function": "parameters",
-    },
-    return_type_fields={
-        "function_declaration": "return_type",
-        "method_definition": "return_type",
-        "abstract_method_signature": "return_type",
-        "arrow_function": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="decorator",
     container_node_types=["class_declaration", "abstract_class_declaration", "class"],
@@ -423,7 +383,6 @@ TSX_SPEC = LanguageSpec(
     # `public_field_definition`; the three specs are copies and each needs
     # its own line (#698).
     field_patterns=["public_field_definition"],
-    type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
 
@@ -461,19 +420,6 @@ TYPESCRIPT_SPEC = LanguageSpec(
         "type_alias_declaration": "name",
         "enum_declaration": "name",
     },
-    param_fields={
-        "function_declaration": "parameters",
-        "generator_function_declaration": "parameters",
-        "method_definition": "parameters",
-        "abstract_method_signature": "parameters",
-        "arrow_function": "parameters",
-    },
-    return_type_fields={
-        "function_declaration": "return_type",
-        "method_definition": "return_type",
-        "abstract_method_signature": "return_type",
-        "arrow_function": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="decorator",
     # A container list that omits the abstract node still EXTRACTS the methods
@@ -487,7 +433,6 @@ TYPESCRIPT_SPEC = LanguageSpec(
     # `public_field_definition`; the three specs are copies and each needs
     # its own line (#698).
     field_patterns=["public_field_definition"],
-    type_patterns=["interface_declaration", "type_alias_declaration", "enum_declaration"],
 )
 
 
@@ -516,14 +461,6 @@ GO_SPEC = LanguageSpec(
         "method_declaration": "name",
         "type_spec": "name",
     },
-    param_fields={
-        "function_declaration": "parameters",
-        "method_declaration": "parameters",
-    },
-    return_type_fields={
-        "function_declaration": "result",
-        "method_declaration": "result",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
@@ -533,13 +470,8 @@ GO_SPEC = LanguageSpec(
     # the node a reader would open. `_extract_go_variables` walks down to the
     # specs, through `var_spec_list` when the block is grouped (#731).
     variable_patterns=["var_declaration"],
-    # ⚠ NOT the channel #817 was fixed in, whatever the name suggests:
-    # `type_patterns` is read by nothing in the whole tree (#725, asserted by
-    # `tests/test_grammar_spelled_forms.py::test_a_field_classified_unread_is_still_unread`),
-    # and Go's types come from `symbol_node_types` above. Left as it was
-    # rather than quietly corrected, because a dead field that looks maintained
-    # is how the next reader declares into it.
-    type_patterns=["type_declaration"],
+    # ⚠ Go's types come from `symbol_node_types` above (#817). The unread
+    # `type_patterns` that looked like the channel was deleted in #725.
 )
 
 
@@ -588,14 +520,6 @@ RUST_SPEC = LanguageSpec(
         "associated_type": "name",
         "type_item": "name",
     },
-    param_fields={
-        "function_item": "parameters",
-        "function_signature_item": "parameters",
-    },
-    return_type_fields={
-        "function_item": "return_type",
-        "function_signature_item": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute_item",
     container_node_types=["impl_item", "trait_item"],
@@ -605,7 +529,6 @@ RUST_SPEC = LanguageSpec(
     # `inner` as a member of the enum. `_extract_rust_fields` gates on the
     # holder's owner being a `struct_item` or `union_item`.
     field_patterns=["field_declaration"],
-    type_patterns=["struct_item", "enum_item", "union_item", "trait_item", "type_item"],
 )
 
 
@@ -645,25 +568,6 @@ JAVA_SPEC = LanguageSpec(
         "annotation_type_declaration": "name",
         "annotation_type_element_declaration": "name",
     },
-    param_fields={
-        "method_declaration": "parameters",
-        "constructor_declaration": "parameters",
-        # ⚠ `compact_constructor_declaration` and
-        # `annotation_type_element_declaration` are deliberately ABSENT: a
-        # compact constructor has no parameter list by definition, and an
-        # annotation element's parentheses are always empty. An entry here
-        # would point at a field the grammar does not produce.
-    },
-    return_type_fields={
-        "method_declaration": "type",
-        # ⚠ `annotation_type_element_declaration` is NOT added here, and the
-        # grammar does expose a `type` field on it. Nothing in the tree READS
-        # `return_type_fields` or `type_patterns` -- both are write-only across
-        # all 79 specs -- so an entry would change no behaviour while implying
-        # it does. "Grep a persisted field for its readers before trusting it,
-        # AND BEFORE ADDING ONE" (#561/#562). The write-only pair is filed
-        # separately; wiring them up is where these two entries belong.
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="marker_annotation",
     # ⚠⚠ Ownership comes from HERE, not from the name maps, and it is the half
@@ -677,7 +581,6 @@ JAVA_SPEC = LanguageSpec(
         "annotation_type_declaration",
     ],
     constant_patterns=["field_declaration"],
-    type_patterns=["interface_declaration", "enum_declaration"],
     # ⚠⚠ THE SAME NODE TYPE AS `constant_patterns`, ON PURPOSE, and it is a
     # trap unless one predicate owns the split. `_walk_tree` runs the two
     # channels INDEPENDENTLY on the same node -- not as an `elif` -- so
@@ -720,19 +623,10 @@ PHP_SPEC = LanguageSpec(
         "trait_declaration": "name",
         "enum_declaration": "name",
     },
-    param_fields={
-        "function_definition": "parameters",
-        "method_declaration": "parameters",
-    },
-    return_type_fields={
-        "function_definition": "return_type",
-        "method_declaration": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute",  # PHP 8 #[Attribute] syntax
     container_node_types=["class_declaration", "trait_declaration", "interface_declaration", "enum_declaration"],
     constant_patterns=["const_declaration"],
-    type_patterns=["interface_declaration", "trait_declaration", "enum_declaration"],
     # #743. One `property_declaration` binds N names and `_extract_symbol`
     # returns one `Optional[Symbol]` per node, so `symbol_node_types`
     # structurally cannot express the form -- #735's reason for this channel,
@@ -767,10 +661,6 @@ DART_SPEC = LanguageSpec(
         "extension_type_declaration": "name",
         # mixin_declaration, method_signature, type_alias: special-cased in extractor
     },
-    param_fields={
-        "function_signature": "parameters",
-    },
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
     # ⚠⚠ #820. `enum_declaration` was a symbol and NOT a container, so an enum
@@ -794,7 +684,6 @@ DART_SPEC = LanguageSpec(
     # ⚠ #819: an extension type's representation (`int v`) is its only state
     # and has no `declaration` node, so it is its own entry, a `field`.
     field_patterns=["declaration", "representation_declaration"],
-    type_patterns=["type_alias", "enum_declaration"],
 )
 
 
@@ -844,20 +733,11 @@ CSHARP_SPEC = LanguageSpec(
         "event_declaration": "name",
         "destructor_declaration": "name",
     },
-    param_fields={
-        "method_declaration": "parameters",
-        "constructor_declaration": "parameters",
-        "delegate_declaration": "parameters",
-    },
-    return_type_fields={
-        "method_declaration": "returns",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="attribute_list",
     decorator_from_children=True,
     container_node_types=["class_declaration", "struct_declaration", "record_declaration", "interface_declaration"],
     constant_patterns=[],
-    type_patterns=["interface_declaration", "enum_declaration", "struct_declaration", "delegate_declaration", "record_declaration"],
 )
 
 
@@ -872,13 +752,10 @@ RAZOR_SPEC = LanguageSpec(
     ts_language="html",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 # NOTE: .astro files are mixed-language Astro components — a TypeScript/JS
@@ -893,13 +770,10 @@ ASTRO_SPEC = LanguageSpec(
     ts_language="astro",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -929,14 +803,6 @@ C_SPEC = LanguageSpec(
         "union_specifier": "name",
         "type_definition": "declarator",
     },
-    param_fields={
-        "function_definition": "declarator",
-        "declaration": "declarator",
-    },
-    return_type_fields={
-        "function_definition": "type",
-        "declaration": "type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     # #797: a struct or union holds members and so is a container. Measured
@@ -944,7 +810,6 @@ C_SPEC = LanguageSpec(
     # `parent` set, so no existing id moves.
     container_node_types=["struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
-    type_patterns=["type_definition", "enum_specifier", "struct_specifier", "union_specifier"],
     # #797 / #825: the data-member channel #755 wired into `CPP_SPEC` and
     # `ARDUINO_SPEC`. This spec is the THIRD copy of the same grammar shape
     # (#698), and a channel wired into one copy reaches one language. Never
@@ -1012,13 +877,10 @@ SWIFT_SPEC = LanguageSpec(
         # `tests/test_language_spec_maps_agree.py` records that with a test
         # that fails if the branch is not there.
     },
-    param_fields={},  # Swift params are unnamed children; signature captured via source range
-    return_type_fields={},  # return type shares field "name" with function identifier
     docstring_strategy="preceding_comment",  # /// and /* */ doc comments
     decorator_node_type=None,
     container_node_types=["class_declaration", "protocol_declaration"],
     constant_patterns=[],  # property_declaration handled via symbol_node_types
-    type_patterns=["protocol_declaration", "typealias_declaration"],
 )
 
 
@@ -1047,21 +909,10 @@ CPP_SPEC = LanguageSpec(
         "declaration": "declarator",
         "field_declaration": "declarator",
     },
-    param_fields={
-        "function_definition": "declarator",
-        "declaration": "declarator",
-        "field_declaration": "declarator",
-    },
-    return_type_fields={
-        "function_definition": "type",
-        "declaration": "type",
-        "field_declaration": "type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=["class_specifier", "struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
-    type_patterns=["class_specifier", "struct_specifier", "union_specifier", "enum_specifier", "type_definition", "alias_declaration"],
     # #755: a data member. The SAME node type as a member function prototype
     # (`symbol_node_types` above); `_is_cpp_function_declaration` keeps the two
     # channels disjoint.
@@ -1094,21 +945,10 @@ ARDUINO_SPEC = LanguageSpec(
         "declaration": "declarator",
         "field_declaration": "declarator",
     },
-    param_fields={
-        "function_definition": "declarator",
-        "declaration": "declarator",
-        "field_declaration": "declarator",
-    },
-    return_type_fields={
-        "function_definition": "type",
-        "declaration": "type",
-        "field_declaration": "type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=["class_specifier", "struct_specifier", "union_specifier"],
     constant_patterns=["preproc_def"],
-    type_patterns=["class_specifier", "struct_specifier", "union_specifier", "enum_specifier", "type_definition", "alias_declaration"],
     # #755: a data member. The SAME node type as a member function prototype
     # (`symbol_node_types` above); `_is_cpp_function_declaration` keeps the two
     # channels disjoint.
@@ -1123,13 +963,10 @@ VHDL_SPEC = LanguageSpec(
     ts_language="vhdl",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1140,13 +977,10 @@ VERILOG_SPEC = LanguageSpec(
     ts_language="verilog",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1159,13 +993,10 @@ ELIXIR_SPEC = LanguageSpec(
     ts_language="elixir",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="elixir",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1180,13 +1011,10 @@ PERL_SPEC = LanguageSpec(
         "subroutine_declaration_statement": "name",
         "package_statement": "name",
     },
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=["use_statement"],
-    type_patterns=[],
 )
 
 
@@ -1205,11 +1033,6 @@ RUBY_SPEC = LanguageSpec(
         "class": "name",
         "module": "name",
     },
-    param_fields={
-        "method": "parameters",
-        "singleton_method": "parameters",
-    },
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=["class", "module"],
@@ -1220,7 +1043,6 @@ RUBY_SPEC = LanguageSpec(
     # receiver being one of the three `attr_*` forms. Declaring the node types
     # here alone would index `include Comparable` as a member.
     field_patterns=["assignment", "call"],
-    type_patterns=["module"],
 )
 
 
@@ -1243,13 +1065,6 @@ GDSCRIPT_SPEC = LanguageSpec(
         "signal_statement": "name",
         "enum_definition": "name",
     },
-    param_fields={
-        "function_definition": "parameters",
-        "signal_statement": "parameters",
-    },
-    return_type_fields={
-        "function_definition": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
     container_node_types=["class_definition"],
@@ -1260,7 +1075,6 @@ GDSCRIPT_SPEC = LanguageSpec(
     # `constant_patterns` and only the class-body SCOPE was out of reach, which
     # `_CLASS_SCOPED_CONSTANT_LANGUAGES` is the authority for.
     field_patterns=["variable_statement"],
-    type_patterns=["enum_definition"],
 )
 
 
@@ -1273,13 +1087,10 @@ BLADE_SPEC = LanguageSpec(
     ts_language="blade",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1292,13 +1103,10 @@ AL_SPEC = LanguageSpec(
     ts_language="al",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1319,8 +1127,6 @@ KOTLIN_SPEC = LanguageSpec(
         "property_declaration": "property",
     },
     name_fields={},     # Names extracted via special-case in extractor.py
-    param_fields={},    # Parameters captured via source range in _build_signature
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,  # Annotations live inside modifiers node; captured in signature
     container_node_types=["class_declaration", "object_declaration"],
@@ -1335,7 +1141,6 @@ KOTLIN_SPEC = LanguageSpec(
     # predicate declined those nodes to a channel that could not accept
     # them and they were emitted by neither.
     constant_patterns=["property_declaration"],
-    type_patterns=["type_alias", "class_declaration"],
 )
 
 
@@ -1353,17 +1158,10 @@ GLEAM_SPEC = LanguageSpec(
         "constant": "name",    # identifier field
         # type_definition and type_alias: name via type_name child, special-cased in extractor.py
     },
-    param_fields={
-        "function": "parameters",
-    },
-    return_type_fields={
-        "function": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=["constant"],
-    type_patterns=["type_definition", "type_alias"],
 )
 
 
@@ -1376,13 +1174,10 @@ BASH_SPEC = LanguageSpec(
     name_fields={
         "function_definition": "name",
     },
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=["declaration_command"],  # readonly / declare -r
-    type_patterns=[],
 )
 
 
@@ -1394,13 +1189,10 @@ NIX_SPEC = LanguageSpec(
     ts_language="nix",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1413,13 +1205,10 @@ EJS_SPEC = LanguageSpec(
     ts_language="ejs",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1431,13 +1220,10 @@ VUE_SPEC = LanguageSpec(
     ts_language="vue",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1453,13 +1239,10 @@ SVELTE_SPEC = LanguageSpec(
     ts_language="svelte",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1485,13 +1268,10 @@ VERSE_SPEC = LanguageSpec(
     ts_language="verse",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1505,13 +1285,10 @@ FORTRAN_SPEC = LanguageSpec(
     ts_language="fortran",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1527,13 +1304,10 @@ ERLANG_SPEC = LanguageSpec(
     ts_language="erlang",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1547,13 +1321,10 @@ LUA_SPEC = LanguageSpec(
     ts_language="lua",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1569,13 +1340,10 @@ LUAU_SPEC = LanguageSpec(
     ts_language="luau",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1589,13 +1357,10 @@ SQL_SPEC = LanguageSpec(
     ts_language="sql",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1639,14 +1404,6 @@ SCALA_SPEC = LanguageSpec(
         # and cannot be told from a `given` genuinely called `Conv` (#734).
         "given_definition": "name",
     },
-    param_fields={
-        "function_definition": "parameters",
-        "function_declaration": "parameters",
-    },
-    return_type_fields={
-        "function_definition": "return_type",
-        "function_declaration": "return_type",
-    },
     docstring_strategy="preceding_comment",
     decorator_node_type="annotation",
     # ⚠⚠ `given_definition` is a CONTAINER as well as a symbol (#734). A
@@ -1665,7 +1422,6 @@ SCALA_SPEC = LanguageSpec(
     # disagrees with `symbol_node_types` about the same node is the #732
     # configuration waiting for someone to add the missing branch.
     constant_patterns=["val_definition"],
-    type_patterns=["trait_definition", "enum_definition", "type_definition"],
 )
 
 
@@ -1694,13 +1450,10 @@ HASKELL_SPEC = LanguageSpec(
         "class": "name",
         "instance": "name",
     },
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=["data_type", "type_synomym", "newtype"],
 )
 
 
@@ -1712,13 +1465,10 @@ JULIA_SPEC = LanguageSpec(
     ts_language="julia",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1730,13 +1480,10 @@ R_SPEC = LanguageSpec(
     ts_language="r",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1747,13 +1494,10 @@ CSS_SPEC = LanguageSpec(
     ts_language="css",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1766,13 +1510,10 @@ SCSS_SPEC = LanguageSpec(
     ts_language="scss",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1783,13 +1524,10 @@ SASS_SPEC = LanguageSpec(
     ts_language="css",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1800,13 +1538,10 @@ LESS_SPEC = LanguageSpec(
     ts_language="css",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1817,13 +1552,10 @@ STYL_SPEC = LanguageSpec(
     ts_language="css",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1833,13 +1565,10 @@ TOML_SPEC = LanguageSpec(
     ts_language="toml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1850,13 +1579,10 @@ GROOVY_SPEC = LanguageSpec(
     ts_language="groovy",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1867,13 +1593,10 @@ OBJC_SPEC = LanguageSpec(
     ts_language="objc",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1884,13 +1607,10 @@ PROTO_SPEC = LanguageSpec(
     ts_language="proto",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1901,13 +1621,10 @@ HCL_SPEC = LanguageSpec(
     ts_language="hcl",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1918,13 +1635,10 @@ GRAPHQL_SPEC = LanguageSpec(
     ts_language="graphql",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1940,13 +1654,10 @@ ASM_SPEC = LanguageSpec(
     ts_language="asm",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1960,13 +1671,10 @@ AHK_SPEC = LanguageSpec(
     ts_language="autohotkey",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1984,13 +1692,10 @@ XML_SPEC = LanguageSpec(
     ts_language="xml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -1998,13 +1703,10 @@ YAML_SPEC = LanguageSpec(
     ts_language="yaml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2012,13 +1714,10 @@ ANSIBLE_SPEC = LanguageSpec(
     ts_language="yaml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2030,13 +1729,10 @@ JSON_SPEC = LanguageSpec(
     ts_language="json",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2049,13 +1745,10 @@ OPENAPI_SPEC = LanguageSpec(
     ts_language="yaml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2066,13 +1759,10 @@ PASCAL_SPEC = LanguageSpec(
     ts_language="pascal",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2083,13 +1773,10 @@ MATLAB_SPEC = LanguageSpec(
     ts_language="matlab",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2100,13 +1787,10 @@ ADA_SPEC = LanguageSpec(
     ts_language="ada",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2117,13 +1801,10 @@ COBOL_SPEC = LanguageSpec(
     ts_language="cobol",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2134,13 +1815,10 @@ COMMONLISP_SPEC = LanguageSpec(
     ts_language="commonlisp",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2152,13 +1830,10 @@ SOLIDITY_SPEC = LanguageSpec(
     ts_language="solidity",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2169,13 +1844,10 @@ ZIG_SPEC = LanguageSpec(
     ts_language="zig",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2187,13 +1859,10 @@ POWERSHELL_SPEC = LanguageSpec(
     ts_language="powershell",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2205,13 +1874,10 @@ APEX_SPEC = LanguageSpec(
     ts_language="apex",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2223,13 +1889,10 @@ OCAML_SPEC = LanguageSpec(
     ts_language="ocaml",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2241,13 +1904,10 @@ FSHARP_SPEC = LanguageSpec(
     ts_language="fsharp",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2258,13 +1918,10 @@ CLOJURE_SPEC = LanguageSpec(
     ts_language="clojure",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2276,13 +1933,10 @@ ELISP_SPEC = LanguageSpec(
     ts_language="elisp",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2295,13 +1949,10 @@ NIM_SPEC = LanguageSpec(
     ts_language="nim",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2313,13 +1964,10 @@ TCL_SPEC = LanguageSpec(
     ts_language="tcl",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2332,13 +1980,10 @@ DLANG_SPEC = LanguageSpec(
     ts_language="d",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2351,13 +1996,10 @@ RACKET_SPEC = LanguageSpec(
     ts_language="racket",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2375,13 +2017,10 @@ HTML_SPEC = LanguageSpec(
     ts_language="html",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 
 
@@ -2475,13 +2114,10 @@ _TEMPLATE_LANG_SPEC = LanguageSpec(
     ts_language="__template__",
     symbol_node_types={},
     name_fields={},
-    param_fields={},
-    return_type_fields={},
     docstring_strategy="preceding_comment",
     decorator_node_type=None,
     container_node_types=[],
     constant_patterns=[],
-    type_patterns=[],
 )
 for _engine_lang in TEMPLATE_ENGINE_LANGUAGES:
     LANGUAGE_REGISTRY.setdefault(_engine_lang, _TEMPLATE_LANG_SPEC)

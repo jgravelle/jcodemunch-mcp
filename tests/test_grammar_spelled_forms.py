@@ -304,31 +304,17 @@ _PENDING_CHANNELS: dict[str, str] = {}
 #: A field matching the predicate and none of the four fails by name. There is
 #: no fifth bucket, which is the point: the bucket is where an excuse would go.
 
-#: Read by NOTHING (#725), which is why they are not channels -- and the claim
+#: Read by NOTHING, which is why a field here is not a channel -- and the claim
 #: is asserted, not quoted.
 #:
-#: ⚠⚠ **`type_patterns` is the live candidate for #757 recurring one field
-#: over**: 19 specs declare it, the extractor reads none of them, and the day
-#: something wires it in it IS a channel the recognised set has never heard of.
-#: The only symptom would be this inventory quietly listing forms the product
-#: extracts -- the direction it is least able to notice, because a row that
-#: should not be there looks like a row nobody has got to yet.
-_UNREAD_NON_CHANNEL_FIELDS = {
-    "type_patterns": "#725: declared by 19 specs, read by nothing",
-    "return_type_fields": "#725: declared by 14 specs, read by nothing",
-    # ⚠⚠ A THIRD, found by this scan rather than by reading: #725 named two,
-    # and `param_fields` is required POSITIONALLY, so every spec fills it in and
-    # nothing in `src/` reads it. It was classified "signature detail" here on
-    # the strength of its name until the scan disagreed -- which is the argument
-    # for scanning a classification instead of stating one.
-    # ⚠ No count, deliberately: the registry size (79), the number of
-    # `LanguageSpec(...)` literals (78) and the keys in the registry literal
-    # (77) are three different denominators, and a required argument needs none
-    # of them to make the point.
-    # ⚠ Cited #725 since #758, whose rule found this the only entry naming no
-    # issue; the issue was widened to carry it.
-    "param_fields": "#725: required positionally, so every spec fills it; read by nothing (found by this scan)",
-}
+#: ⚠⚠ **EMPTY since #725, and the other test now keeps it that way.**
+#: `type_patterns`, `return_type_fields` and `param_fields` sat here, filled
+#: in by every spec and read by nothing in `src/`; #725 deleted them from
+#: `LanguageSpec`. `tests/test_every_language_spec_field_has_a_reader.py`
+#: fails on ANY field no consumer reads, so an entry arriving here is a field
+#: that test already refuses. The bucket stays so the classification below
+#: keeps its four arms and names the decision if one is ever wanted again.
+_UNREAD_NON_CHANNEL_FIELDS: dict[str, str] = {}
 
 #: Read, but for something other than deciding what gets extracted: the purpose
 #: and the file that does the reading, so an excuse cannot outlive its reason.
@@ -518,24 +504,27 @@ def test_every_node_type_collection_field_is_classified():
     )
 
 
-@pytest.mark.parametrize("field_name", sorted(_UNREAD_NON_CHANNEL_FIELDS))
-def test_a_field_classified_unread_is_still_unread(field_name):
+def test_a_field_classified_unread_is_still_unread():
     """The measurement inside the gate, asserted instead of transcribed.
 
-    ⚠⚠ This is the trip-wire: when a fix wires `type_patterns` into the
+    ⚠⚠ This is the trip-wire: when a fix wires an unread field into the
     extractor it becomes an extraction channel, and the recognised set will not
     know. This fails on that commit and names the decision.
+
+    ⚠ A loop, not a parametrize: the ledger is empty since #725, and an empty
+    parametrize SKIPS, which spends the skip budget to assert nothing.
     """
-    readers = _reads_of(field_name)
-    assert not readers, (
-        f"{field_name} is classified a non-channel because nothing reads it "
-        f"({_UNREAD_NON_CHANNEL_FIELDS[field_name]}), and {readers} read it "
-        f"now. If it feeds extraction it is a CHANNEL: add it to "
-        f"_EXTRACTION_CHANNELS, and a sample per newly recognised form in "
-        f"tests/test_inventory_reads_every_channel.py. If it feeds something "
-        f"else, move it to _READ_FOR_SOMETHING_ELSE with the purpose and this "
-        f"file named (#757)."
-    )
+    for field_name in sorted(_UNREAD_NON_CHANNEL_FIELDS):
+        readers = _reads_of(field_name)
+        assert not readers, (
+            f"{field_name} is classified a non-channel because nothing reads it "
+            f"({_UNREAD_NON_CHANNEL_FIELDS[field_name]}), and {readers} read it "
+            f"now. If it feeds extraction it is a CHANNEL: add it to "
+            f"_EXTRACTION_CHANNELS, and a sample per newly recognised form in "
+            f"tests/test_inventory_reads_every_channel.py. If it feeds something "
+            f"else, move it to _READ_FOR_SOMETHING_ELSE with the purpose and this "
+            f"file named (#757)."
+        )
 
 
 @pytest.mark.parametrize("field_name", sorted(_READ_FOR_SOMETHING_ELSE))

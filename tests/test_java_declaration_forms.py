@@ -136,9 +136,9 @@ def test_an_annotation_element_is_indexed_and_owned(parsed):
 def test_every_added_node_type_is_paired_in_both_name_maps():
     """The #712 contract, asserted for the four node types this change adds.
 
-    ⚠ TWO maps, not three: `param_fields` is deliberately excluded, because a
-    compact constructor has no parameter list and an annotation element's
-    parentheses are always empty. The first name of this test said "all three
+    ⚠ TWO maps: `param_fields` was a third until #725 deleted it as read by
+    nothing, and it was excluded here anyway, because a compact constructor has
+    no parameter list and an annotation element's parentheses are always empty. The first name of this test said "all three
     maps" and told a reader the opposite of what the body does.
 
     A node type in `symbol_node_types` with no `name_fields` entry resolves to
