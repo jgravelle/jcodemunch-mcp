@@ -2333,6 +2333,16 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         # They stay distinct by id and by line.
         return "subscript[]"
 
+    if spec.ts_language == "swift" and node.type == "deinit_declaration":
+        # No identifier at all (#754): the grammar's only named child is the
+        # body, so `deinit` was declared a method and never emitted. BUILT, as
+        # the declaration spells it; a type has at most one, so `Holder.deinit`
+        # is unambiguous. ⚠⚠ Unlike `subscript[]` it is identifier-shaped, and
+        # Swift forbids CALLING it, so `_name_reachability` refuses an absence
+        # claim over it by language -- or `check_delete_safe` would certify the
+        # member the runtime calls on every release.
+        return "deinit"
+
     if node.type not in spec.name_fields:
         return None
     

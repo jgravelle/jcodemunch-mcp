@@ -36,19 +36,32 @@ import re
 # DECLARATION spelling that no call site repeats.
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+#: Identifier-shaped member names a language FORBIDS writing at a call site, so
+#: the string test above cannot see them. ⚠ A fact of the language, never a
+#: judgement about how a name is usually called: Swift rejects an explicit
+#: `x.deinit()` at compile time, and the runtime calls it on every release
+#: (#754). Python's `__add__` stays out for the reason the module docstring
+#: gives -- it CAN be written, so its absence is evidence.
+_NEVER_WRITTEN_AT_A_CALL_SITE: dict[str, frozenset[str]] = {
+    "swift": frozenset({"deinit"}),
+}
 
-def name_can_appear_at_a_call_site(name: str) -> bool:
+
+def name_can_appear_at_a_call_site(name: str, language: str | None = None) -> bool:
     """False when no reference search keyed on this name can ever find a use.
 
     Deliberately conservative in the SAFE direction: an unrecognised or empty
     name returns False, so a symbol we cannot reason about never earns an
     absence claim. The cost of a False here is a refused verdict; the cost of a
-    wrong True is a deletion.
+    wrong True is a deletion. `language` adds the names a language forbids
+    writing at a call site; without it only the string is asked.
     """
     if not name:
         return False
     # A qualified name (`Foo.Bar`, `math_utils::multiply`) still ends in an
     # identifier that a call site writes, so it is reachable.
     tail = re.split(r"[.:]{1,2}", name)[-1]
+    if tail in _NEVER_WRITTEN_AT_A_CALL_SITE.get(language or "", frozenset()):
+        return False
     return bool(_IDENTIFIER.match(tail))
 

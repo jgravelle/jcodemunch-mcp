@@ -250,13 +250,22 @@ def test_the_built_name_is_refused_by_the_reference_reachability_rule():
     )
 
 
-#: Names `_extract_name` returns as string LITERALS, each of which must be
-#: refused by `name_can_appear_at_a_call_site`. ⚠ A roster alone is a list of
-#: the spellings someone remembered; `_built_name_sites` is what keeps it
-#: honest, in both directions.
+#: Names `_extract_name` returns as string LITERALS, each with the language it
+#: is built for, and each must be refused by `name_can_appear_at_a_call_site`
+#: UNDER THAT LANGUAGE -- the question `check_delete_safe` asks. ⚠ A roster
+#: alone is a list of the spellings someone remembered; `_built_name_sites` is
+#: what keeps it honest, in both directions.
+#:
+#: ⚠⚠ `deinit` (#754) is the one identifier-shaped entry, and deliberately so:
+#: the declaration spells it that way and a type has one. It is refused only
+#: because Swift FORBIDS calling it, which `_name_reachability` knows by
+#: language. The string-only form of this invariant would have forced a
+#: fabricated spelling; the property it protects -- no absence claim over a
+#: name no call site can write -- is what is asserted.
 _BUILT_NAME_ROSTER = {
-    "subscript[]",  # swift, #733
-    "this[]",       # csharp, #714
+    "subscript[]": "swift",  # #733
+    "this[]": "csharp",      # #714
+    "deinit": "swift",       # #754
 }
 
 #: Helpers that return a name BORROWED from the source rather than built. A
@@ -399,8 +408,8 @@ def test_every_built_name_in_the_extractor_is_unreachable_by_name():
     """
     from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
 
-    for built in _BUILT_NAME_ROSTER:
-        assert not name_can_appear_at_a_call_site(built), built
+    for built, language in _BUILT_NAME_ROSTER.items():
+        assert not name_can_appear_at_a_call_site(built, language), (built, language)
 
     literals, scaffoldings, unclassified = _built_name_sites(_extract_name_source())
 
@@ -415,7 +424,7 @@ def test_every_built_name_in_the_extractor_is_unreachable_by_name():
     # ⚠ The other direction: an entry whose code is gone lingers otherwise, and
     # a roster nobody prunes is the escape hatch `_RESOLVED_BEFORE_NAME_FIELDS`
     # already had to grow a test against.
-    stale = _BUILT_NAME_ROSTER - set(literals)
+    stale = set(_BUILT_NAME_ROSTER) - set(literals)
     assert not stale, (
         f"the roster names {sorted(stale)}, which `_extract_name` no longer "
         f"returns. Delete the entry."
@@ -544,7 +553,7 @@ def test_the_planted_guard_still_accepts_the_real_thing():
 
     assert not unclassified
     assert literals and scaffoldings
-    assert not [n for n in literals if name_can_appear_at_a_call_site(n)]
+    assert not [n for n in literals if name_can_appear_at_a_call_site(n, _BUILT_NAME_ROSTER.get(n))]
     assert not [s for s, _r in scaffoldings if name_can_appear_at_a_call_site(s)]
 
 
@@ -708,21 +717,14 @@ func free() {}
 
 
 def test_a_deinit_is_a_known_separate_gap():
-    """⚠⚠ Found while probing this fix, and deliberately NOT fixed here.
-
-    `deinit_declaration` is declared in SWIFT_SPEC with a `name_fields` entry,
-    and the grammar sets no `name` field on it at all -- its only named child is
-    the body -- so the symbol is dropped while `init` beside it extracts. That is
-    #743's shape (a name field the grammar never sets) in a second language, it
-    is already filed as **#754**, and PR #756 pins it as a tracked gap with a
-    test that FAILS when it closes. Fixing it here would close someone else's
-    gap entry from an unrelated branch.
+    """#754 CLOSED. This pinned the gap while it was open -- `deinit` declared
+    a method and never emitted, because the grammar names nothing -- so it is
+    inverted under Practice 9 rather than deleted: the deinit now yields a
+    method, built as `deinit` and refused an absence claim by language
+    (`tests/test_swift_deinit_is_a_method.py`).
     """
     extracted = pairs("class C {\n  init() {}\n  deinit {}\n}\n")
-    assert extracted == {("C", "class"), ("init", "method")}, (
-        f"a Swift deinit now yields {extracted} -- that is #754 closing, which "
-        f"belongs to PR #756's gap table, not to this fix (#733)."
-    )
+    assert extracted == {("C", "class"), ("init", "method"), ("deinit", "method")}, extracted
 
 
 # ---------------------------------------------------------------------------

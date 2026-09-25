@@ -418,7 +418,9 @@ def check_delete_safe(
         # whatever the caller passed. Reading the argument would have looked
         # right: an id (`…::Vec.operator +#method`) is not an identifier either,
         # so the branch would fire for ids and silently not for plain names.
-        not _name_reachability.name_can_appear_at_a_call_site(target.get("name", ""))
+        not _name_reachability.name_can_appear_at_a_call_site(
+            target.get("name", ""), target.get("language")
+        )
         and verdict in ("safe_to_delete", "internal_only", "test_coverage_only")
     ):
         verdict = "name_not_searchable"

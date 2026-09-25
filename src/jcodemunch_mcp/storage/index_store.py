@@ -368,6 +368,10 @@ INDEX_VERSION = 17
 #   One id moves: a STATIC member sharing the name (`static a` beside
 #   `constructor(public a)`) goes from `C.a#field` to `C.a#field~1` or
 #   `~2`, by source order.
+#
+#   ⚠⚠ **And #754: a Swift `deinit` is a method of its type.** It was declared
+#   and never emitted (the grammar names nothing); `Holder.deinit#method` is
+#   new, spanning the declaration. Nothing moves.
 PARSER_GENERATION = 8
 
 

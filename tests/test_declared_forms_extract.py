@@ -283,11 +283,9 @@ _KNOWN_GAPS: dict[str, dict[str, str]] = {
     # `field_patterns`, so it left `DECLARED_FORMS` and the partition check is
     # what named it. Both exits are correct and they fail in different tests,
     # which is worth knowing before reading either failure.
-    # #754: found by THIS file on its first run. The grammar gives
-    # `deinit_declaration` no identifier child at all (its only named child is
-    # `function_body`), so there is no name to borrow and the symbol is
-    # dropped, while the `init_declaration` beside it extracts.
-    "swift": {"deinit_declaration": "#754: the grammar gives deinit_declaration no name to borrow"},
+    # #754 left by the usual route too: found by THIS file on its first run
+    # (the grammar gives `deinit_declaration` no identifier child), fixed by
+    # building the name `deinit`, and this guard said so.
 }
 
 #: Forms the grammar can only spell INSIDE a container, where `_walk_tree`

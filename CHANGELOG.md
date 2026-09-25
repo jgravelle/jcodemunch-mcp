@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a Swift `deinit` is a method of its type, and is never certified deletable (#754)
+
+`class Holder { deinit {} }` indexed `Holder` and nothing else, while the
+`init` beside it came out as `Holder.init`. `SWIFT_SPEC` declared
+`deinit_declaration` as a `method`, but the grammar gives it no identifier
+child at all (its only named child is the body), so `_extract_name` had
+nothing to borrow and the symbol was dropped. A deinitialiser is where a
+class releases resources, removes observers and invalidates timers, so it is
+the member someone searches for when chasing a leak.
+
+The name is now built as the declaration spells it, the way #714 built
+`this[]` and #736 built `constructor`: a type has at most one `deinit`, so
+`Holder.deinit` is unambiguous, in a class, an actor, a noncopyable struct or
+a nested type. A test asserts the grammar still names nothing, so a grammar
+that starts naming it wins.
+
+⚠⚠ The name creates a destructive surface, and it's closed in the same change.
+Swift forbids calling `deinit`, so no call site ever writes its name, and a
+reference search finds nothing. An identifier-shaped name therefore got a
+confident "no references, safe to delete" from `check_delete_safe` for a
+member the runtime calls on every release. `subscript[]` avoided this with
+brackets. `deinit` avoids it because `_name_reachability` now knows, per
+language, the identifier-shaped names a language forbids writing at a call
+site, and `check_delete_safe` passes the symbol's language. The #733 guard
+over built names asked the string alone; it now asks the same question
+under each name's language, which is what the consumer asks. Swift's
+`find_dead_code` report is unchanged. On a Swift corpus it rates every
+symbol file-level `zero_importers`, the deinit included, which is a
+pre-existing limit and not specific to this change.
+
+`PARSER_GENERATION` 8 names the new symbols; nothing moves. #745's gap
+ledger held #754, and its close guard failed when the form began
+extracting, so the entry is deleted and the #758 manifest no longer cites
+the issue. Filed by @jgravelle (#754).
+
 ### Fixed - a TypeScript constructor parameter property is a member of its class (#802)
 
 `constructor(public injected: number, private readonly other: string) {}`
