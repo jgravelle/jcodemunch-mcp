@@ -13,14 +13,22 @@ Standing lesson 08-19 inside the document that states it.
 the test does not use, and said both were enforced by the test.
 
 ⚠⚠ The rule is the PROPERTY over every tracked Markdown file, never the two
-reported lines. A block that gives route@1 a bar with a percentage must name
-`route.control_at1`, or quote only that entry's floor or target AND name the
-control subset. A third copy written next fails here on arrival.
+reported lines. A SENTENCE that gives route@1 a bar with a percentage must name
+`route.control_at1`, or quote only that entry's floor or target with the
+control subset named as route@1's corpus. A third copy written next fails here
+on arrival.
+
+⚠⚠ The unit is the sentence, and a `Label:` line starts a new one. Review round
+1 found the first draft scanned paragraphs: STANDARD §4's Metric, Current,
+Floor and Target lines are one paragraph, the Floor line names the id, so the
+retired bar put back on the Current line passed. The planted cases include
+edits to the REAL §4 block for that reason (Standing lesson 08-22).
 
 ⚠ Dated records keep their numbers: a CHANGELOG entry, a survey or a findings
 row describes what was true when written, and rewriting it would falsify the
-history. Each exclusion below says why, and ROADMAP's is earned only by the
-supersession note it must carry.
+history. Each exclusion below says why. ROADMAP is a plan with one dated
+record in it, so it is scanned too, and only its moratorium section may hold
+the retired bar, beside the note that names the gate.
 """
 
 from __future__ import annotations
@@ -36,23 +44,36 @@ from harness import thresholds as T
 
 REPO = Path(__file__).resolve().parents[1]
 ROUTE_ID = "route.control_at1"
+STANDARD = "docs/standard/STANDARD.md"
 
-#: Dated records: each describes a past state and keeps its numbers.
+#: Records of a past state. Each keeps its numbers.
 DATED_RECORDS = {
     "CHANGELOG.md": "release history; each entry is dated",
     "ISSUE-HISTORY.md": "rotated closed-issue forensics, dated",
-    "docs/harness/ARCHAEOLOGY.md": "the 2026-09-03 survey of why each test exists",
+    "docs/harness/ARCHAEOLOGY.md": "the per-test rationale ledger; its rows quote the retired spellings they record",
     "docs/harness/COVERAGE-MAP.md": "the 2026-09-03 coverage survey",
     "docs/harness/FINDINGS.md": "the findings log, one dated row per finding",
     "docs/standard/DISCOVERY.md": "the discovery-phase inventory of 2026-09-03",
-    "ROADMAP.md": "a plan and decision log; its exit-condition block carries a dated supersession note",
 }
 
+#: ROADMAP's one dated record: the 2026-08 exit conditions, kept as written.
+ROADMAP_RECORD = "## Catalog moratorium"
+
 _ROUTE = re.compile(r"route@1", re.I)
-_BAR = re.compile(r"(?i)\b(bar|floor|gate[sd]?|gating|falls?\s+below|reach(es)?|at\s+or\s+above|exit)\b|>=|≥")
+_BAR = re.compile(
+    r"(?i)\b(bars?|floors?|gate[sd]?|gating|falls?\s+below|reach(es)?|at\s+(or\s+)?(above|below|least|most)"
+    r"|exit|minimum|min|maximum|max|must|above|below|under|threshold|ceiling|target)\b|>=|<=|≥|≤|>|<"
+)
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+#: The control subset named as route@1's corpus, not merely present in the sentence.
+_CONTROL_CORPUS = re.compile(
+    r"(?i)control[-\s]+(subset\s+)?route@1|route@1\s+(on\s+|over\s+)?(the\s+)?(held-out\s+)?control"
+)
 _LEAK = re.compile(r"(?i)name\s+leakage")
-_LEAK_BAR = re.compile(r"(?i)(at\s+or\s+below|<=|≤|ceiling)[^0-9\n]{0,20}(\d+\.\d+)")
+_LEAK_BAR = re.compile(
+    r"(?i)(at\s+or\s+below|at\s+most|<=|≤|<|ceiling|under|below|max(imum)?|stays?)[^0-9\n]{0,24}?"
+    r"(\d+(?:\.\d+)?)\s*(%)?"
+)
 
 
 def _tracked_markdown() -> list[str]:
@@ -64,7 +85,7 @@ def _tracked_markdown() -> list[str]:
 
 
 def _blocks(text: str) -> list[str]:
-    """Paragraphs, split again at each list item, table row and fenced-code line.
+    """Paragraphs, split again at each list item, table row, `Label:` line and fenced-code line.
 
     A fenced block has no blank lines between entries (CLAUDE.md Key Files), so
     read whole it pools one entry's bar with another's measurements.
@@ -76,8 +97,8 @@ def _blocks(text: str) -> list[str]:
         s = line.lstrip()
         if s.startswith("```"):
             fenced = not fenced
-        starts_item = fenced or bool(re.match(r"([-*]\s|\d+\.\s|\|)", s))
-        if not s or starts_item:
+        starts = fenced or bool(re.match(r"([-*]\s|\d+\.\s|\||[A-Z][\w ]{0,30}:\s)", s))
+        if not s or starts:
             if cur:
                 blocks.append(cur)
             cur = [line] if s else []
@@ -88,6 +109,13 @@ def _blocks(text: str) -> list[str]:
     return ["\n".join(b) for b in blocks]
 
 
+def _sentences(text: str) -> list[str]:
+    out = []
+    for b in _blocks(text):
+        out.extend(s for s in re.split(r"(?<=[.!?])(?:\*\*)?\s+", b) if s.strip())
+    return out
+
+
 def _authorised_values() -> set[float]:
     e = T.load(announce=False)[ROUTE_ID]
     return {float(e["floor"]), float(e["target"])}
@@ -96,15 +124,15 @@ def _authorised_values() -> set[float]:
 def _route_violations(text: str) -> list[str]:
     allowed = _authorised_values()
     bad = []
-    for b in _blocks(text):
-        if not (_ROUTE.search(b) and _BAR.search(b)):
+    for s in _sentences(text):
+        if not (_ROUTE.search(s) and _BAR.search(s)):
             continue
-        pcts = [float(m) for m in _PERCENT.findall(b)]
-        if not pcts or ROUTE_ID in b:
+        pcts = [float(m) for m in _PERCENT.findall(s)]
+        if not pcts or ROUTE_ID in s:
             continue
-        if all(p in allowed for p in pcts) and "control" in b.lower():
+        if all(p in allowed for p in pcts) and _CONTROL_CORPUS.search(s):
             continue
-        bad.append(b)
+        bad.append(s)
     return bad
 
 
@@ -121,50 +149,61 @@ def _test_leakage_ceiling() -> float:
 def _leak_violations(text: str) -> list[str]:
     ceiling = _test_leakage_ceiling()
     bad = []
-    for b in _blocks(text):
-        if not _LEAK.search(b):
+    for s in _sentences(text):
+        if not _LEAK.search(s) or "EXIT_MAX_NAME_LEAKAGE" in s:
             continue
-        for m in _LEAK_BAR.finditer(b):
-            if float(m.group(2)) != ceiling and "EXIT_MAX_NAME_LEAKAGE" not in b:
-                bad.append(b)
+        for m in _LEAK_BAR.finditer(s[_LEAK.search(s).start():]):
+            value = float(m.group(3)) / (100 if m.group(4) else 1)
+            if abs(value - ceiling) > 1e-9:
+                bad.append(s)
                 break
     return bad
 
 
+def _read(rel: str) -> str:
+    return (REPO / rel).read_text(encoding="utf-8", errors="replace")
+
+
 def _normative() -> list[str]:
-    return [p for p in _tracked_markdown() if p not in DATED_RECORDS]
+    return [p for p in _tracked_markdown() if p not in DATED_RECORDS and p != "ROADMAP.md"]
+
+
+def _roadmap_outside_record() -> str:
+    text = _read("ROADMAP.md")
+    start = text.index(ROADMAP_RECORD)
+    nxt = re.search(r"(?m)^## ", text[start + len(ROADMAP_RECORD):])
+    end = start + len(ROADMAP_RECORD) + nxt.start() if nxt else len(text)
+    return text[:start] + text[end:]
+
+
+def _report(found: dict[str, list[str]]) -> str:
+    return "\n".join(f"--- {k}\n" + "\n...\n".join(v) for k, v in found.items())
 
 
 def test_every_normative_route_bar_names_the_one_authority():
-    found = {}
-    for rel in _normative():
-        bad = _route_violations((REPO / rel).read_text(encoding="utf-8", errors="replace"))
-        if bad:
-            found[rel] = bad
+    found = {rel: bad for rel in _normative() if (bad := _route_violations(_read(rel)))}
+    if bad := _route_violations(_roadmap_outside_record()):
+        found["ROADMAP.md (outside the moratorium record)"] = bad
     assert not found, (
-        f"these blocks give route@1 a bar that is not `{ROUTE_ID}` (the held-out "
+        f"these sentences give route@1 a bar that is not `{ROUTE_ID}` (the held-out "
         f"CONTROL subset, harness/thresholds.json), so two reviewers reading "
-        f"different documents reach different verdicts (#715):\n"
-        + "\n".join(f"--- {k}\n" + "\n...\n".join(v) for k, v in found.items())
+        f"different documents reach different verdicts (#715):\n" + _report(found)
     )
 
 
 def test_every_normative_leakage_ceiling_is_the_one_the_test_enforces():
-    found = {}
-    for rel in _normative():
-        bad = _leak_violations((REPO / rel).read_text(encoding="utf-8", errors="replace"))
-        if bad:
-            found[rel] = bad
+    found = {rel: bad for rel in _normative() if (bad := _leak_violations(_read(rel)))}
+    if bad := _leak_violations(_roadmap_outside_record()):
+        found["ROADMAP.md (outside the moratorium record)"] = bad
     assert not found, (
-        "these blocks state a name-leakage ceiling that is not "
-        "EXIT_MAX_NAME_LEAKAGE in tests/test_catalog_moratorium.py (#715):\n"
-        + "\n".join(f"--- {k}\n" + "\n...\n".join(v) for k, v in found.items())
+        "these sentences state a name-leakage ceiling that is not "
+        "EXIT_MAX_NAME_LEAKAGE in tests/test_catalog_moratorium.py (#715):\n" + _report(found)
     )
 
 
 def test_both_standard_sites_resolve_to_the_same_criterion():
     """§4's Floor line and the Definition of Regression name the same id and corpus."""
-    text = (REPO / "docs" / "standard" / "STANDARD.md").read_text(encoding="utf-8")
+    text = _read(STANDARD)
     floor = next(line for line in text.splitlines() if line.startswith("Floor:") and "route@1" in line)
     regression = text.split("## Definition of Regression", 1)[1].split("\n## ", 1)[0]
     (item,) = [line for line in regression.splitlines() if re.search(r"(?i)route@1", line)]
@@ -175,12 +214,13 @@ def test_both_standard_sites_resolve_to_the_same_criterion():
 
 def test_roadmap_earns_its_exclusion():
     """ROADMAP keeps the 2026-08 exit conditions as written, beside a note naming the gate."""
-    text = (REPO / "ROADMAP.md").read_text(encoding="utf-8")
+    text = _read("ROADMAP.md")
     head = text.split("**Exit conditions, named before the work**", 1)
-    assert len(head) == 2, "the ROADMAP exit-condition block moved; re-check the exclusion"
-    assert ROUTE_ID in head[1][:1500], (
+    assert len(head) == 2, "the ROADMAP exit-condition block moved; re-check the record"
+    assert text.index(ROADMAP_RECORD) < len(head[0]), "the exit conditions left the moratorium section"
+    assert ROUTE_ID in head[1][:1500] and "EXIT_MAX_NAME_LEAKAGE" in head[1][:1500], (
         "ROADMAP.md's exit conditions restate a retired bar with no note naming "
-        f"`{ROUTE_ID}`, so it is a normative copy, not a dated record"
+        f"`{ROUTE_ID}` and EXIT_MAX_NAME_LEAKAGE"
     )
 
 
@@ -189,12 +229,49 @@ def test_roadmap_earns_its_exclusion():
     "1. `route@1` reaches **60%** on `benchmarks/route_recall/queries.json`\n   (baseline **45.8%**);",
     "route@1 71.2% on the human corpus against a 60% moratorium bar.",
     "The exit bar is route@1 >= 55% on the full holdout.",
+    "route@1 >= 55% on the full holdout; the control subset is measured.",
+    "route@1 must be at least 60% on the human corpus.",
+    "Minimum route@1: 60% (human corpus).",
 ])
 def test_the_scan_sees_every_old_spelling(planted):
     """Non-vacuity: each retired spelling is caught, including a right number on the wrong corpus."""
     assert _route_violations(planted), planted
 
 
+@pytest.mark.parametrize("planted", [
+    "2. mean name leakage at that measurement stays at or below **0.15**",
+    "Mean name leakage must stay under 15%.",
+    "Name leakage max 0.15.",
+])
+def test_the_leak_scan_sees_every_old_spelling(planted):
+    assert _leak_violations(planted), planted
+
+
+@pytest.mark.parametrize("line_prefix, reintroduced", [
+    ("Current:", "Current: route@1 71.2% on the human corpus against a 60% moratorium bar."),
+    ("Target:", "Target: route@1 >= 60% on the human corpus."),
+])
+def test_the_scan_sees_a_retired_bar_put_back_into_the_real_standard_block(line_prefix, reintroduced):
+    """Round 1: a paragraph-level scan let the Floor line's id exempt the whole §4 block."""
+    text = _read(STANDARD)
+    lines = text.splitlines()
+    i = next(n for n, line in enumerate(lines) if line.startswith("Floor:") and ROUTE_ID in line)
+    j = next(n for n in range(i, -1, -1) if lines[n].startswith(line_prefix)) if line_prefix == "Current:" else next(
+        n for n in range(i, len(lines)) if lines[n].startswith(line_prefix)
+    )
+    lines[j] = reintroduced
+    assert not _route_violations(text), "precondition: the real STANDARD.md is clean"
+    assert _route_violations("\n".join(lines)), reintroduced
+
+
+def test_the_roadmap_exemption_is_confined_to_its_record():
+    """A retired bar written anywhere else in ROADMAP is scanned like any other file."""
+    planted = _read("ROADMAP.md") + "\n\n## A later plan\n\nThe exit is route@1 >= 60% on queries.json.\n"
+    start = planted.index(ROADMAP_RECORD)
+    nxt = re.search(r"(?m)^## ", planted[start + len(ROADMAP_RECORD):])
+    outside = planted[:start] + planted[start + len(ROADMAP_RECORD) + nxt.start():]
+    assert _route_violations(outside)
+
+
 def test_the_scan_passes_the_measured_statement_it_must_allow():
     assert not _route_violations("(moratorium: control route@1 40.0% vs a 55.0% bar)")
-    assert _leak_violations("2. mean name leakage at that measurement stays at or below **0.15**")

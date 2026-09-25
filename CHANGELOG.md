@@ -25,13 +25,18 @@ restate no number. Section 4's "Current:" line keeps its 71.2% measurement
 and no longer calls 60% a bar.
 
 ⚠⚠ `tests/test_route_criterion_has_one_authority.py` checks the property over
-every tracked Markdown file, not the two reported lines. A block that gives
+every tracked Markdown file, not the two reported lines. A sentence that gives
 route@1 a bar with a percentage must name `route.control_at1`, or quote only
-that entry's floor or target and name the control subset. A right number on
-the wrong corpus fails too. Dated records keep their numbers, each with its
-reason in the test: CHANGELOG, ISSUE-HISTORY, the harness surveys, FINDINGS
-and ROADMAP. ROADMAP's exemption holds only while its exit-condition block
-carries the note that names the gate.
+that entry's floor or target with the control subset named as route@1's
+corpus. A right number on the wrong corpus fails too, and so does a leakage
+ceiling other than the test's. The unit is the sentence, and a `Label:` line
+starts a new one. Review round 1 found the first draft scanned paragraphs:
+section 4's Current, Floor and Target lines are one paragraph, so the Floor
+line's id exempted the retired bar put back on the Current line. Dated records
+keep their numbers, each with its reason in the test: CHANGELOG,
+ISSUE-HISTORY, the harness ledgers and surveys, and FINDINGS. ROADMAP is
+scanned except its moratorium section, which keeps the 2026-08 conditions
+beside the note that names the gate.
 
 ### Fixed - `get_changed_symbols` keeps blast radius's verdict, so an empty blast is no longer "no impact" (#718)
 
