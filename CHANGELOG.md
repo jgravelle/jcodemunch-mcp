@@ -11,13 +11,17 @@ An enum's cases are usually the only thing it holds. Found while fixing #744.
 
 A case is now a `constant` owned by its enum (`Suit.Hearts`), pure or backed.
 That's the kind the same enum's `const` already had, and the kind Python's
-enum members have.
+and AL's enum members have. An index built before this release has no cases
+for unchanged PHP files until they are re-parsed. `PARSER_GENERATION` 8,
+already unreleased, re-parses them on upgrade.
 
 ⚠ #759 was also where the family decided whether enum members are indexed at
 all: the Dart and Zig tests deferred to it. The ruling is yes, in every
-language, as an owned `constant`. A probe found 16 languages that still
-publish only the enum, including TypeScript, Java, C#, Rust, Kotlin and Swift.
-They're one tracked row, `docs/workflows/LEDGER.md` L-03, not 16 new issues.
+language, as an owned `constant`. `tests/test_enum_members_register.py`
+measures where that holds. 30 of the 37 enum-bearing languages still
+publish only the enum, including TypeScript, Java, C#, Rust, Kotlin and
+Swift. They're one tracked row, `docs/workflows/LEDGER.md` L-03, not 30 new
+issues, and the register fails whenever a language moves.
 The Dart variant pin was renamed from "not indexed, and that is a ruling" to a
 tracked gap that fails when Dart's variants arrive.
 

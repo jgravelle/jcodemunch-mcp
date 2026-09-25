@@ -6,8 +6,8 @@ that node type, so the cases -- usually the only thing an enum contains --
 were absent. #698's shape: a construct the grammar names and the spec does not.
 
 ⚠ The kind is `constant`, pure or backed. It is what the same enum's `const`
-already is (`Suit.X`, since #744) and what Python's enum members are (`E.A`),
-the only other language whose enum members are indexed. A pure case and a
+already is (`Suit.X`, since #744) and what Python's and AL's enum members
+are (`E.A`); `test_enum_members_register.py` measures the rest of the family. A pure case and a
 backed case differ in their value, not in what they are to a reader: a named,
 fixed member of the enum.
 
