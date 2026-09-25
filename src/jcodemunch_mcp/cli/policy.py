@@ -67,12 +67,12 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 3. **One-call shortcut for a concrete task** — `assemble_task_context { "repo": "...", "task": "..." }` returns a single token-budgeted, source-attributed context capsule. It auto-classifies the task (explore / debug / refactor / extend / audit / review), auto-extracts anchor symbols, and runs the intent-appropriate sequence of the tools below end-to-end — so you get the whole context in one request instead of chaining the primitives by hand. Prefer it over a manual chain when the task is well-defined; fall back to step 1's routing when you need to decide *whether* the feature exists first.
 
 **Interpreting search results:**
-- Absence is proven only when two fields agree: `search_symbols` returns `negative_evidence` with `verdict: "no_implementation_found"`, AND `_meta.verdict.state` is `absent` (where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true` instead). Then:
+- `search_symbols` proves absence only when the scan is citable: `_meta.verdict.evidence_ref` holds an `absent:` token, or, where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true`. A `negative_evidence` of `no_implementation_found`, a `state` of `absent` or an empty result is not proof on its own. When absence is proven:
   - Do NOT re-search with different terms hoping to find it
   - Do NOT assume a related file (e.g. auth middleware) implements the missing feature (e.g. CSRF)
   - DO report: "No existing implementation found for X. This would need to be created."
   - DO check `related_existing` files — they show what's nearby, not what exists
-  - Any other state proves nothing, whatever `negative_evidence` says (`degraded`, `citable: false`, or neither field present). Read the note; if it names the index, re-index, then search again.
+  - Anything short of citable proves nothing (`absence_citable: false`, `citable: false`, or neither field present). Read the note or `absence_blocked_by`; if it names the index, re-index, then search again.
 - If `verdict: "low_confidence_matches"`: examine the matches critically before assuming they implement the feature
 
 **After editing files:**
@@ -118,7 +118,7 @@ This server runs the **front door** surface: three tools reach every jCodeMunch 
 `menu` and `jcodemunch_guide` list every action this server can run, including ones absent from your tool list. That is expected: the front door is the way to call them.
 
 **Interpreting results:**
-- Absence is proven only when two fields agree: `negative_evidence.verdict` is `no_implementation_found` AND `_meta.verdict.state` is `absent` (where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true` instead). Then report the gap; do not re-search with different wording. Any other state, `degraded` included, proves nothing: read the note, re-index if it names the index, then search again.
+- A search proves absence only when the scan is citable: `_meta.verdict.evidence_ref` holds an `absent:` token, or, where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true`. Then report the gap; do not re-search with different wording. A `no_implementation_found` verdict, a `state` of `absent` or an empty result is not proof on its own: read the note or `absence_blocked_by`, re-index if it names the index, then search again.
 - `source: ""` alongside `source_status` means the body could not be read, not that the symbol is empty.
 
 **After editing files:**

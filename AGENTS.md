@@ -43,12 +43,12 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
    - `low` → the feature likely doesn't exist. Report the gap to the user. Do NOT search further hoping to find it.
 
 **Interpreting search results:**
-- Absence is proven only when two fields agree: `search_symbols` returns `negative_evidence` with `verdict: "no_implementation_found"`, AND `_meta.verdict.state` is `absent` (where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true` instead). Then:
+- `search_symbols` proves absence only when the scan is citable: `_meta.verdict.evidence_ref` holds an `absent:` token, or, where `_meta.verdict` is not shown, `_meta.absence_evidence.citable` is `true`. A `negative_evidence` of `no_implementation_found`, a `state` of `absent` or an empty result is not proof on its own. When absence is proven:
   - Do NOT re-search with different terms hoping to find it
   - Do NOT assume a related file (e.g. auth middleware) implements the missing feature (e.g. CSRF)
   - DO report: "No existing implementation found for X. This would need to be created."
   - DO check `related_existing` files — they show what's nearby, not what exists
-  - Any other state proves nothing, whatever `negative_evidence` says (`degraded`, `citable: false`, or neither field present). Read the note; if it names the index, re-index, then search again.
+  - Anything short of citable proves nothing (`absence_citable: false`, `citable: false`, or neither field present). Read the note or `absence_blocked_by`; if it names the index, re-index, then search again.
 - If `verdict: "low_confidence_matches"`: examine the matches critically before assuming they implement the feature
 
 **After editing files:**

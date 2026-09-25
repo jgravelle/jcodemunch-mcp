@@ -155,9 +155,11 @@ def _build_skill_content() -> str:
         "",
         "- `Read`-then-`Grep`-then-`Glob` chains on indexed repos. The index "
         "  already knows the answer; the chain wastes tokens.",
-        "- Searching with different keywords after `negative_evidence: "
-        "  \"no_implementation_found\"`. The capability likely doesn't exist — "
-        "  report the gap.",
+        "- Searching with different keywords after a search PROVED absence: "
+        "  `_meta.verdict.evidence_ref` holds an `absent:` token, or "
+        "  `_meta.absence_evidence.citable` is `true`. Report the gap. A "
+        "  `no_implementation_found` verdict is not proof on its own: "
+        "  read the note, re-index if it names the index, and search again.",
         "- Reading full files when `get_file_outline` would do.",
         "- Calling primitives (`find_references` + `get_symbol_source` + ...) "
         "  separately when `assemble_task_context` or `get_context_bundle` "

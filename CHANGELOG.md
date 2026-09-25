@@ -6,31 +6,43 @@
 
 The policy `init` writes into CLAUDE.md told every agent that
 `negative_evidence.verdict: "no_implementation_found"` proves absence, and to
-stop searching. That verdict and the scan's state are two different fields,
-and one response can carry both: a stale or rewritten index yields
-`no_implementation_found` with `_meta.verdict.state: "degraded"`. The front
-door surface wrote them as two sibling bullets about "a `verdict`", so the
-degraded one read as unreachable once the first fired. The agent reported a
-gap a re-index would have filled, and it was told not to look again. That's
-the one case where searching again changes the answer. #711 removed the same
-conflation from `plan_turn` and `get_session_snapshot` in code. This is the
-prose copy.
+stop searching. The product disagrees. On a stale or truncated index, it
+refuses to cite the absence (`handoff.absence_refusal`), while the verdict
+still reads `no_implementation_found` and `_meta.verdict.state` still reads
+`absent`. The agent reported a gap a re-index would have filled, and it was
+told not to look again. That's the one case where searching again changes
+the answer. #711 removed the same conflation from `plan_turn` and
+`get_session_snapshot` in code. This is the prose copy.
 
-Absence now needs both fields: the verdict, and `_meta.verdict.state` of
-`absent`. Where `_meta.verdict` isn't shown, `_meta.absence_evidence.citable`
-must be `true` instead. That second carrier matters: the shipped default
-`meta_fields: []` strips `_meta.verdict`, so a rule that named only the state
-couldn't be read on most installs. Any other state proves nothing. The agent
-reads the note, re-indexes if the note names the index, and searches again.
-The full surface, the front-door surface and this repo's `AGENTS.md` all
-carry it. `tests/test_policy_grants_absence_only_on_a_proven_scan.py` checks
-the rule, not the token: every block telling an agent to stop re-searching
-must name the proof and the re-run advice.
+⚠⚠ The proof is citability, not the state. The first draft of this fix keyed
+the rule on `state` of `absent`. Review round 1 put a stale index through the
+dispatcher and got `state: absent` with `absence_citable: false`: the draft
+granted the #719 case. An agent may now treat absence as proven only when
+`_meta.verdict.evidence_ref` holds an `absent:` token, or, where `_meta.verdict`
+isn't shown, when `_meta.absence_evidence.citable` is `true`. The shipped
+default `meta_fields: []` strips the verdict, and the encoded body then
+carries no `negative_evidence` either. So the citable carrier has to be
+enough on its own, and it is. Anything short of citable proves nothing. The
+agent reads the note or `absence_blocked_by`, re-indexes if it names the
+index, and searches again.
 
-⚠ An existing install keeps the old wording. `init` skips a CLAUDE.md that
-already holds the policy, and `config --check` compares tool names only. The
-corrected text reaches a new install, or an old one whose policy block is
-removed before `init` runs again. Filed by @jgravelle (#719).
+Four copies carry the rule: the full surface, the front door, this repo's
+`AGENTS.md`, and the skill `init` installs. The skill still listed
+re-searching after `no_implementation_found` as an anti-pattern, with no
+condition. `tests/test_policy_grants_absence_only_on_a_proven_scan.py` checks
+the rule, not the token. A block that names the verdict, or tells the agent to
+stop searching in any of several phrasings, must name both citable carriers,
+say the verdict alone is not proof, and give the re-index advice. The
+round-one text fails it.
+
+⚠ Not fixed here, filed:
+- The product's own `absent` note still says "strong evidence the target is
+  not present" on a scan it refuses to cite (#872).
+- An existing install keeps the old wording, because `init` skips a CLAUDE.md
+  that already holds the policy and `config --check` compares tool names
+  only (#871).
+
+Filed by @jgravelle (#719).
 
 ### Removed - three `LanguageSpec` fields nothing read, and the rule that stops a fourth (#725)
 
