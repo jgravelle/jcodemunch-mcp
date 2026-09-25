@@ -52,7 +52,8 @@ generic function and a helper's members.
   becomes `~1` with the body `~2`; `TProc#type` becomes `~1`; a twin left
   alone loses its suffix; and a `~N` id can name a DIFFERENT symbol than
   before (`TA = class; TA<T> = class; TA = class`: `TA#class~2` was the full
-  `TA` and is `TA<T>`). Only the signature tells arity twins apart.
+  `TA` and is `TA<T>`). Only a type's signature tells arity twins apart, and
+  their members differ only by `parent`.
 
 `PARSER_GENERATION` 8, still unreleased, re-parses unchanged Pascal files on
 upgrade.
