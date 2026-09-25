@@ -88,6 +88,30 @@ def _pin_code_index_path(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_session(monkeypatch):
+    """Every test starts from a fresh SESSION, as a fresh server process does (#801).
+
+    The delivery ledger behind `_meta.already_delivered` (v1.108.167) and the
+    steering counter behind `_meta.hint` (v1.108.158) live for the whole
+    process, so a test reading `_meta` saw whatever earlier tests had served:
+    `test_a_call_without_receipt_is_byte_identical` passed with its file and
+    failed when selected by id. ⚠ The swap is the pattern
+    `test_v1_108_167.py`'s `fresh_state` already used locally; nothing in `src/`
+    holds `_state` or `_steer_state` by reference, so replacing the module
+    globals reaches every reader. ⚠ `server` is patched only when something
+    already imported it: importing it here would load the server for every
+    test, and a first import builds a fresh `_steer_state` anyway.
+    """
+    from jcodemunch_mcp.storage import token_tracker
+
+    monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
+    server = sys.modules.get("jcodemunch_mcp.server")
+    if server is not None:
+        monkeypatch.setattr(server, "_steer_state", {"hops": 0, "bundles": 0, "nudged": False, "repos": []})
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_index_cache():
     """Clear the in-memory SQLite index cache before and after each test.
 

@@ -1091,6 +1091,12 @@ class TestCompatibility:
                     "already_delivered",
                 ):
                     meta.pop(key, None)
+                # A `_meta` that held only telemetry is removed with it: the
+                # second call is a repeat and carries `already_delivered`, so
+                # stripping it left `{}` against the cold call's absent key
+                # (#801).
+                if not meta:
+                    payload.pop("_meta")
             return payload
 
         assert json.dumps(_r183_strip_telemetry(first), sort_keys=True) == json.dumps(
