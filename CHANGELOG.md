@@ -35,9 +35,12 @@ a qualified name and kind, the way Objective-C's `@interface` and
 `@implementation` already do, so the shared duplicate-id rule orders them.
 ⚠ That moves one id wherever a method is implemented in the same unit:
 `TAudit.RunIt#method` is `TAudit.RunIt#method~1`, and the body is `~2`.
-One other kind of id moves: a member of a nested generic type was filed
-under the OUTER class, because the generic type itself was skipped, so
-`TO.TI<T>`'s `procedure P` was `TO.P` and is `TO.TI.P`. A generic type and its members,
+⚠ Ids also move inside a generic type or a helper. The walk skipped the
+type, then walked its body anyway with the ENCLOSING owner, so whatever it
+indexed there was filed one scope too high: a `const` in `TBox<T>` was
+`C#constant` and is `TBox.C#constant`, a nested `TIn` was `TIn#class` and
+is `TBox.TIn#class` (its members follow), a nested generic type's method
+`TO.P` is `TO.TI.P`, and the same holds in a helper (`TH.C`, `TH.TX.A`). A generic type and its members,
 a generic method, a helper's members and every body are new.
 `PARSER_GENERATION` 8, still unreleased, names it.
 

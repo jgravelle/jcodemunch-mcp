@@ -393,9 +393,12 @@ INDEX_VERSION = 17
 #   declaration's qualified name and kind, so an id MOVES wherever a method
 #   is implemented in the same unit: the declaration's `TAudit.RunIt#method`
 #   is `TAudit.RunIt#method~1`, and the body is `~2` (the Objective-C
-#   `@interface`/`@implementation` ordering). A member of a nested generic
-#   type was filed under the OUTER class (`TO.P#method`, since `TI<T>` was
-#   skipped) and is `TO.TI.P#method`. One name reader now serves every
+#   `@interface`/`@implementation` ordering). Ids also MOVE inside a generic
+#   type or a helper: the type was skipped but its body walked with the
+#   ENCLOSING owner, so what was indexed there sat one scope too high and
+#   now carries its owner (`C#constant` is `TBox.C#constant`, `TIn#class` is
+#   `TBox.TIn#class` with its members, `TO.P#method` is `TO.TI.P#method`,
+#   and in a helper `TH.C#constant`, `TH.TX.A#field`). One name reader now serves every
 #   Pascal declaration, so these are new: a generic type
 #   (`TBox<T>` is `TBox#class`, #846) and its members, a generic method
 #   declaration (`F<T>` is `TA.F#method`), and a helper's members

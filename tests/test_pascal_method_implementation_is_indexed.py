@@ -159,6 +159,25 @@ def test_a_helper_owns_its_members_and_bodies(helper):
     }, rows
 
 
+@pytest.mark.parametrize("head", ["TBox<T> = class", "TBox = class helper for TA", "TBox = record helper for Integer"])
+def test_what_a_generic_or_helper_body_declares_is_owned_not_filed_one_scope_up(head):
+    """Review round 2: the walk skipped a generic type or a helper, then walked
+    its body with the ENCLOSING owner, so a `const` and a nested type in it
+    were indexed at file scope (`C#constant`, `TIn#class`). Each moves under
+    its owner; the bare spellings must be gone."""
+    source = (
+        f"unit U;\ninterface\ntype\n  {head}\n    const C = 1;\n  type\n"
+        "    TIn = class\n      procedure Q;\n    end;\n  end;\nimplementation\nend.\n"
+    )
+    syms = _syms(source)
+    (owner,) = [s for s in syms if s.qualified_name == "TBox"]
+    rows = {(s.qualified_name, s.kind, s.parent) for s in syms}
+    assert ("TBox.C", "constant", owner.id) in rows, rows
+    assert ("TBox.TIn", "class", owner.id) in rows, rows
+    assert ("TBox.TIn.Q", "method", "u.pas::TBox.TIn#class") in rows, rows
+    assert not {q for q, _k, _p in rows} & {"C", "TIn", "TIn.Q"}, rows
+
+
 def test_a_free_generic_function_is_named_without_its_parameters():
     source = "unit U;\ninterface\nimplementation\nfunction Max<T>(a, b: T): T;\nbegin\nend;\nend.\n"
     rows = [(s.id, s.kind) for s in _syms(source)]
