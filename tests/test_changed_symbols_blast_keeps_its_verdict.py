@@ -213,7 +213,7 @@ def test_an_importer_added_in_the_diff_is_not_denied_by_the_older_graph(tmp_path
     run = _entries(result)["run"]
     assert "app/new_caller.py" in result["changed_files"], "precondition: the importer is in the diff"
     assert run["blast_radius"] == []
-    assert run["blast_verdict"] == {"state": "degraded", "absence_refused": True, "reason": "graph_predates_until_sha"}
+    assert run["blast_verdict"] == {"state": "degraded", "absence_refused": True, "reason": "graph_not_at_until_sha"}
 
 
 def test_a_graph_at_the_target_commit_can_prove_absence_despite_other_changes(tmp_path):

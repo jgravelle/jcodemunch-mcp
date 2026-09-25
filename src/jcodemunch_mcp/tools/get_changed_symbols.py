@@ -239,16 +239,16 @@ def get_changed_symbols(
         if index_head and resolved_since.startswith(index_head[:40]) and not others:
             return None
         return {
-            "reason": "graph_predates_until_sha",
+            "reason": "graph_not_at_until_sha",
             "graph_sha": index_head[:12] or None,
             "until_sha": resolved_until[:12],
             "other_changed_files": len(others),
             "note": (
                 f"The importer graph is the index's (at {index_head[:12] or 'an unknown commit'}), "
-                f"not {resolved_until[:12]}'s, and {len(others)} other file(s) changed in "
-                "between, so an importer they added is invisible to it. An empty "
-                "result here is NOT evidence that nothing depends on this; "
-                "re-index at the target commit and ask again."
+                f"not {resolved_until[:12]}'s, and {len(others)} other file(s) differ "
+                "between the two, so an importer at the target commit may be one this "
+                "graph never saw. An empty result here is NOT evidence that nothing "
+                "depends on this; re-index at the target commit and ask again."
             ),
         }
 

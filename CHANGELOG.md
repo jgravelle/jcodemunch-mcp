@@ -34,7 +34,7 @@ commit:
   with `absent`. An empty blast now reads `absent` only when the graph is
   `until_sha`'s, or `since_sha`'s with no other file changed, since only
   another file can add an importer. Every other empty blast refuses with
-  `reason: graph_predates_until_sha` and says to re-index at the target
+  `reason: graph_not_at_until_sha` and says to re-index at the target
   commit.
 
 ⚠ Asking for a blast radius from an index with no import graph used to drop
