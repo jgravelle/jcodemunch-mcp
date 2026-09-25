@@ -101,6 +101,19 @@ def test_a_generic_type_is_named_without_its_parameters():
     assert _qualified(source) == {("G", "type"), ("G.a", "field"), ("H", "type"), ("H.k", "field")}
 
 
+@pytest.mark.parametrize("source, expected", [
+    ("type Inh {.inheritable.} = object\n  v: int\n", {("Inh", "type"), ("Inh.v", "field")}),
+    ("type Inh* {.inheritable.} = object\n  v*: int\n", {("Inh", "type"), ("Inh.v", "field")}),
+    ("type Color* {.pure.} = enum\n  red, green\n", {("Color", "type")}),
+])
+def test_a_type_with_a_pragma_is_named_without_it(source, expected):
+    """#847: the type section read the declaration's TEXT, and the grammar puts
+    the pragma inside it, so `Inh {.inheritable.}` was the type's name and the
+    prefix of every field id built on it."""
+    assert expected <= _qualified(source), _qualified(source)
+    assert not any("{." in q for q, _k in _qualified(source)), _qualified(source)
+
+
 def test_the_signature_names_the_routine_without_its_marker():
     (sym,) = [s for s in parse_file("proc runIt*(a: int): int = a\n", "a.nim", "nim") if s.name == "runIt"]
     assert sym.signature.startswith("proc runIt("), sym.signature

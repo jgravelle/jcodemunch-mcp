@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed - a Nim routine is indexed when its name is exported or an operator (#843)
+### Fixed - a Nim routine is indexed when its name is exported or an operator (#843, #847)
 
 `proc runIt*(a: Audit): int` wasn't indexed at all, in any of the seven
 routine kinds. The export marker puts the name under `exported_symbol`, and
@@ -22,11 +22,14 @@ a Nim name, which the first draft had called correct:
   backticked field (`` `type`*: string ``), and kept the backticks on a plain
   one (`` Node.`from` ``).
 - The type section read the declaration's text, so a generic type published
-  as `G*[T]`, and its fields as `G*[T].a`.
+  as `G*[T]`, and its fields as `G*[T].a`. A type with a pragma carried the
+  pragma the same way: `Inh {.inheritable.}`, and `Inh {.inheritable.}.v`
+  for its field (#847).
 
 All three now read the `name` field through one helper, `_declared_name`.
-Two ids move as a result: `G*[T]` is `G`, and a backticked name loses its
-backticks.
+Three kinds of id move as a result: `G*[T]` is `G`, `Inh {.inheritable.}` is
+`Inh`, and a backticked name loses its backticks. A search for `Inh` by exact
+name found nothing before.
 `PARSER_GENERATION` 8, already unreleased, re-parses unchanged Nim files on
 upgrade.
 
