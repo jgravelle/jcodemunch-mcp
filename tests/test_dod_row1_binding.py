@@ -204,15 +204,39 @@ def test_a_docs_only_fix_with_differing_content_is_met_and_names_the_paths(dod):
     verdict, ev = dod.row1(
         ["docs/standard/STANDARD.md", "tests/test_x.py"], RED, GREEN, rs, gs,
         branch=BRANCH, tree=GREEN_TREE, diff_paths=lambda a, b: ["docs/standard/STANDARD.md"],
+        content_now=GREEN_CONTENT,
     )
     assert verdict == "met", ev
     assert "docs/standard/STANDARD.md" in ev, ev
 
 
-@pytest.mark.parametrize("case", ["same_content", "no_content", "content_unreadable", "diff_failed", "diff_in_code_root", "diff_empty"])
+_DOCS_CHANGE = ["docs/a.md", "CHANGELOG.md", "tests/test_x.py"]
+
+
+def _docs_row1(dod, rs, gs, differ, *, changed=_DOCS_CHANGE, content_now=GREEN_CONTENT):
+    return dod.row1(
+        list(changed), RED, GREEN, rs, gs,
+        branch=BRANCH, tree=GREEN_TREE, diff_paths=differ, content_now=content_now,
+    )
+
+
+def test_the_docs_only_baseline_the_arms_below_perturb_is_met(dod):
+    """Non-vacuity: every arm below differs from this `met` case in ONE input."""
+    rs, gs = _docs_pair(dod)
+    verdict, ev = _docs_row1(dod, rs, gs, lambda a, b: ["CHANGELOG.md", "docs/a.md"])
+    assert verdict == "met", ev
+
+
+@pytest.mark.parametrize("case", [
+    "same_content", "no_content", "content_unreadable", "diff_failed", "diff_in_code_root", "diff_empty",
+    # review round 2
+    "src_change_with_a_doc", "hook_change_with_a_doc", "moved_path_not_in_change",
+    "changed_doc_did_not_move", "green_content_stale", "content_now_missing", "content_now_unreadable",
+])
 def test_each_docs_only_clause_fails_closed_alone(dod, case):
     rs, gs = _docs_pair(dod)
-    differ = lambda a, b: ["docs/standard/STANDARD.md"]  # noqa: E731
+    differ = lambda a, b: ["CHANGELOG.md", "docs/a.md"]  # noqa: E731
+    kw = {}
     if case == "same_content":
         rs, gs = _docs_pair(dod, red_content=GREEN_CONTENT)
     elif case == "no_content":
@@ -225,10 +249,23 @@ def test_each_docs_only_clause_fails_closed_alone(dod, case):
         differ = lambda a, b: ["docs/a.md", "src/jcodemunch_mcp/x.py"]  # noqa: E731
     elif case == "diff_empty":
         differ = lambda a, b: []  # noqa: E731
-    verdict, ev = dod.row1(
-        ["docs/a.md", "tests/test_x.py"], RED, GREEN, rs, gs,
-        branch=BRANCH, tree=GREEN_TREE, diff_paths=differ,
-    )
+    elif case == "src_change_with_a_doc":
+        # Round 2's probe: a src fix whose red ran on the fixed code passed once a doc moved.
+        kw["changed"] = ["src/jcodemunch_mcp/server.py", *_DOCS_CHANGE]
+    elif case == "hook_change_with_a_doc":
+        kw["changed"] = [".claude/hooks/x.py", *_DOCS_CHANGE]
+    elif case == "moved_path_not_in_change":
+        differ = lambda a, b: ["CHANGELOG.md", "docs/a.md", "README.md"]  # noqa: E731
+    elif case == "changed_doc_did_not_move":
+        # docs/a.md was edited before red, so red ran on the fix.
+        differ = lambda a, b: ["CHANGELOG.md"]  # noqa: E731
+    elif case == "green_content_stale":
+        kw["content_now"] = "3" * 40
+    elif case == "content_now_missing":
+        kw["content_now"] = None
+    elif case == "content_now_unreadable":
+        kw["content_now"] = dod.UNREADABLE_PREFIX + "0123abcd"
+    verdict, ev = _docs_row1(dod, rs, gs, differ, **kw)
     assert verdict == "unmet", (case, ev)
 
 

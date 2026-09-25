@@ -136,7 +136,12 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     import subprocess
 
     def _git(*args: str) -> tuple[int, str]:
-        p = subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO)
+        # #715: the locale codepage (cp1252 on Windows) cannot decode every UTF-8
+        # byte a diff carries -- a test containing U+201D raised in the reader
+        # thread and left stdout None. Git emits UTF-8; read it as UTF-8.
+        p = subprocess.run(
+            ["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=REPO
+        )
         return p.returncode, p.stdout.strip()
 
     # ⚠⚠ **NOT A WORK TREE is a different answer from NO BASE, and conflating

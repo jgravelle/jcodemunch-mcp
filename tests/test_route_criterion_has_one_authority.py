@@ -62,17 +62,22 @@ ROADMAP_RECORD = "## Catalog moratorium"
 _ROUTE = re.compile(r"route@1", re.I)
 _BAR = re.compile(
     r"(?i)\b(bars?|floors?|gate[sd]?|gating|falls?\s+below|reach(es)?|at\s+(or\s+)?(above|below|least|most)"
-    r"|exit|minimum|min|maximum|max|must|above|below|under|threshold|ceiling|target)\b|>=|<=|≥|≤|>|<"
+    r"|exit|minimum|min|maximum|max|must|needs?|requires?|should|hits?|above|below|under|threshold|ceiling|target)\b"
+    r"|>=|<=|≥|≤"  # never a bare > or <: an arrow in a measured line is not a bar (round 2)
 )
-_PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+_PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", re.I)
+#: A retired spelling QUOTED in a correction ('the earlier "route@1 >= 60%" was never a gate').
+_QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”')
+#: The id with a comparator: the number must be the entry's floor (`route.control_at1>=55` was not).
+_ID_COMPARED = re.compile(r"route\.control_at1`?\s*(?:>=|≥)\s*(\d+(?:\.\d+)?)")
 #: The control subset named as route@1's corpus, not merely present in the sentence.
 _CONTROL_CORPUS = re.compile(
     r"(?i)control[-\s]+(subset\s+)?route@1|route@1\s+(on\s+|over\s+)?(the\s+)?(held-out\s+)?control"
 )
-_LEAK = re.compile(r"(?i)name\s+leakage")
+_LEAK = re.compile(r"(?i)leakage")
 _LEAK_BAR = re.compile(
-    r"(?i)(at\s+or\s+below|at\s+most|<=|≤|<|ceiling|under|below|max(imum)?|stays?)[^0-9\n]{0,24}?"
-    r"(\d+(?:\.\d+)?)\s*(%)?"
+    r"(?i)(?:at\s+or\s+below|at\s+most|<=|≤|<|ceiling|under|below|max(?:imum)?|stays?)[^0-9\n]{0,24}?"
+    r"(?P<n>\d+(?:\.\d+)?)\s*(?P<pct>%|percent\b)?"
 )
 
 
@@ -127,12 +132,23 @@ def _route_violations(text: str) -> list[str]:
     for s in _sentences(text):
         if not (_ROUTE.search(s) and _BAR.search(s)):
             continue
-        pcts = [float(m) for m in _PERCENT.findall(s)]
-        if not pcts or ROUTE_ID in s:
+        pcts = [float(m) for m in _PERCENT.findall(_QUOTED.sub("", s))]
+        if not pcts:
+            continue
+        if ROUTE_ID in s:
+            # Round 2: naming the id is not a licence for any number beside it.
+            if all(p in allowed for p in pcts):
+                continue
+            bad.append(s)
             continue
         if all(p in allowed for p in pcts) and _CONTROL_CORPUS.search(s):
             continue
         bad.append(s)
+    floor = min(allowed)
+    for s in _sentences(text):
+        for m in _ID_COMPARED.finditer(s):
+            if float(m.group(1)) != floor and s not in bad:
+                bad.append(s)
     return bad
 
 
@@ -153,7 +169,7 @@ def _leak_violations(text: str) -> list[str]:
         if not _LEAK.search(s) or "EXIT_MAX_NAME_LEAKAGE" in s:
             continue
         for m in _LEAK_BAR.finditer(s[_LEAK.search(s).start():]):
-            value = float(m.group(3)) / (100 if m.group(4) else 1)
+            value = float(m.group("n")) / (100 if m.group("pct") else 1)
             if abs(value - ceiling) > 1e-9:
                 bad.append(s)
                 break
@@ -232,6 +248,10 @@ def test_roadmap_earns_its_exclusion():
     "route@1 >= 55% on the full holdout; the control subset is measured.",
     "route@1 must be at least 60% on the human corpus.",
     "Minimum route@1: 60% (human corpus).",
+    "route@1 must reach 60% [`route.control_at1`] on the human corpus.",
+    "Route@1 needs 60% on the human corpus.",
+    "route@1 should hit 60 percent on queries.json.",
+    "Initial entries: `route.control_at1>=55` (corrected from the standard's 60).",
 ])
 def test_the_scan_sees_every_old_spelling(planted):
     """Non-vacuity: each retired spelling is caught, including a right number on the wrong corpus."""
@@ -242,6 +262,8 @@ def test_the_scan_sees_every_old_spelling(planted):
     "2. mean name leakage at that measurement stays at or below **0.15**",
     "Mean name leakage must stay under 15%.",
     "Name leakage max 0.15.",
+    "The name-leakage ceiling is 0.15.",
+    "Leakage of tool names must stay at or below 0.15.",
 ])
 def test_the_leak_scan_sees_every_old_spelling(planted):
     assert _leak_violations(planted), planted
@@ -275,3 +297,8 @@ def test_the_roadmap_exemption_is_confined_to_its_record():
 
 def test_the_scan_passes_the_measured_statement_it_must_allow():
     assert not _route_violations("(moratorium: control route@1 40.0% vs a 55.0% bar)")
+    assert not _route_violations("route@1 reached 71.2% (from 45.8%) -> measured only.")
+    assert not _route_violations(
+        'CORRECTION: the earlier "route@1 >= 60%" was never a gate, and 55% is the EXIT bar, '
+        "the target of `route.control_at1`."
+    )

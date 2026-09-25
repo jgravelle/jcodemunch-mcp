@@ -29,7 +29,10 @@ every tracked Markdown file, not the two reported lines. A sentence that gives
 route@1 a bar with a percentage must name `route.control_at1`, or quote only
 that entry's floor or target with the control subset named as route@1's
 corpus. A right number on the wrong corpus fails too, and so does a leakage
-ceiling other than the test's. The unit is the sentence, and a `Label:` line
+ceiling other than the test's. Naming the id doesn't license the number
+beside it: review round 2 found `docs/harness/DESIGN.md` still listing
+`route.control_at1>=55` as the floor, and it now reads `>=40` with the
+target beside it. The unit is the sentence, and a `Label:` line
 starts a new one. Review round 1 found the first draft scanned paragraphs:
 section 4's Current, Floor and Target lines are one paragraph, so the Floor
 line's id exempted the retired bar put back on the Current line. Dated records
