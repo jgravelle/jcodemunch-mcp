@@ -111,7 +111,11 @@ def test_a_type_with_a_pragma_is_named_without_it(source, expected):
     the pragma inside it, so `Inh {.inheritable.}` was the type's name and the
     prefix of every field id built on it."""
     assert expected <= _qualified(source), _qualified(source)
-    assert not any("{." in q for q, _k in _qualified(source)), _qualified(source)
+    syms = parse_file(source, "a.nim", "nim")
+    assert not any("{." in s.id for s in syms), [s.id for s in syms]
+    # #847 names the member's OWNER id too: it is built from the type's name.
+    fields = [s for s in syms if s.kind == "field"]
+    assert all(s.parent == "a.nim::Inh#type" for s in fields), [(s.id, s.parent) for s in fields]
 
 
 def test_the_signature_names_the_routine_without_its_marker():
