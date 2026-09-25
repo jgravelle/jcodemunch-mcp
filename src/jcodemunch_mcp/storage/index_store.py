@@ -390,10 +390,16 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And #844: a Pascal method's implementation is a `method` of its
 #   class.** `function TAudit.RunIt ... begin ... end;` was skipped (its name
 #   is a `genericDot` chain) and is new, spanning the body. It shares the
-#   declaration's qualified name and kind, so ONE id MOVES wherever a method
+#   declaration's qualified name and kind, so an id MOVES wherever a method
 #   is implemented in the same unit: the declaration's `TAudit.RunIt#method`
 #   is `TAudit.RunIt#method~1`, and the body is `~2` (the Objective-C
-#   `@interface`/`@implementation` ordering).
+#   `@interface`/`@implementation` ordering). A member of a nested generic
+#   type was filed under the OUTER class (`TO.P#method`, since `TI<T>` was
+#   skipped) and is `TO.TI.P#method`. One name reader now serves every
+#   Pascal declaration, so these are new: a generic type
+#   (`TBox<T>` is `TBox#class`, #846) and its members, a generic method
+#   declaration (`F<T>` is `TA.F#method`), and a helper's members
+#   (`TH.P#method`, the helper itself still `TH#type`).
 PARSER_GENERATION = 8
 
 

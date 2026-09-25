@@ -12606,7 +12606,9 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _member(node, parent: Symbol, name_node, kind: str) -> None:
         """One member of `parent`, both halves of its identity from `_member_of`."""
-        name = _text(name_node)
+        name = _declared_name(name_node)
+        if not name:
+            return
         qualified, owner_id = _member_of(parent, name)
         symbols.append(Symbol(
             id=make_symbol_id(filename, qualified, kind),
@@ -12637,29 +12639,40 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return out
         return []
 
+    def _name_node(node) -> "Optional[Any]":
+        """The node that names a declaration: a bare `identifier`, a generic
+        `genericTpl` (`TBox<T>`, `F<T>`) or a qualified `genericDot` chain."""
+        return _first_child_of_type(node, "identifier", "genericTpl", "genericDot")
+
+    def _declared_name(name_node) -> Optional[str]:
+        segments = _dotted(name_node) if name_node is not None else []
+        return segments[-1] if segments else None
+
+    # qualified name -> the container symbol, for an implementation body's owner.
+    containers: dict[str, Symbol] = {}
+
     # ⚠⚠ #812: the walk threads the owner SYMBOL, not a scope string, and a
     # class body is READ: `declField` (N names) and `class var` are `field`,
     # a class-scoped `const` is `constant` (it was emitted BARE before, so
     # that id moves; named under PARSER_GENERATION), every `declProc` in the
     # body is `method`, `declProp` is `property`. A record is walked the same
-    # way.
-    # ⚠⚠ #844: an implementation-section `TAudit.RunIt` names itself with a
-    # `genericDot` chain, not a direct identifier. It is a `method` of the
-    # type the chain names (already extracted from the interface section), so
-    # the declaration and the body share a qualified name and kind and the
-    # duplicate-id rule orders them `~1`/`~2`, the Objective-C
+    # way, and so is a `class helper for` / `record helper for` (`declHelper`).
+    # ⚠⚠ #844/#846: a declaration's name is not always a direct `identifier`.
+    # A generic type or routine wraps it in `genericTpl` (`TBox<T>`, whose
+    # type parameters belong to the signature), and an implementation-section
+    # `TAudit.RunIt` names itself with a `genericDot` chain. Every reader goes
+    # through `_name_node`/`_declared_name`. A body is a `method` of the type
+    # the chain names, sharing the declaration's qualified name and kind, so
+    # the duplicate-id rule orders them `~1`/`~2`, the Objective-C
     # `@interface`/`@implementation` answer.
     def _walk(node, parent: Optional[Symbol] = None) -> None:
         if node.type == "defProc":
             decl = _first_child_of_type(node, "declProc")
-            dotted = _first_child_of_type(decl, "genericDot") if decl else None
-            segments = _dotted(dotted) if dotted is not None else []
+            name_node = _name_node(decl) if decl else None
+            segments = _dotted(name_node) if name_node is not None else []
             if len(segments) >= 2:
                 name, owner = segments[-1], ".".join(segments[:-1])
-                owner_sym = next(
-                    (s for s in symbols if s.qualified_name == owner and s.kind in ("class", "type")),
-                    None,
-                )
+                owner_sym = containers.get(owner)
                 sig = _text(decl).split(";")[0].strip()
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, f"{owner}.{name}", "method"),
@@ -12674,31 +12687,31 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 ))
-            elif decl:
-                ident = _first_child_of_type(decl, "identifier")
-                if ident:
-                    name = _text(ident)
-                    qualified, owner_id = _member_of(parent, name)
-                    sig = _text(decl).split(";")[0].strip()
-                    symbols.append(Symbol(
-                        id=make_symbol_id(filename, qualified, "function"),
-                        file=filename, name=name, qualified_name=qualified,
-                        kind="function", language="pascal",
-                        signature=sig[:120],
-                        docstring="",
-                        parent=owner_id,
-                        line=node.start_point[0] + 1,
-                        end_line=node.end_point[0] + 1,
-                        byte_offset=node.start_byte,
-                        byte_length=node.end_byte - node.start_byte,
-                        content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
-                    ))
+            elif segments:
+                name = segments[0]
+                qualified, owner_id = _member_of(parent, name)
+                sig = _text(decl).split(";")[0].strip()
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, qualified, "function"),
+                    file=filename, name=name, qualified_name=qualified,
+                    kind="function", language="pascal",
+                    signature=sig[:120],
+                    docstring="",
+                    parent=owner_id,
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                ))
         elif node.type == "declType":
-            ident = _first_child_of_type(node, "identifier")
-            cls = _first_child_of_type(node, "declClass", "declRecord")
-            if ident:
-                name = _text(ident)
-                kind = "class" if cls and cls.type == "declClass" else "type"
+            name = _declared_name(_first_child_of_type(node, "identifier", "genericTpl"))
+            cls = _first_child_of_type(node, "declClass", "declRecord", "declHelper")
+            if name:
+                # A helper (`class helper for TA`) extends a type and is not one
+                # of its own kind; it was `type` before its body was read, and
+                # stays `type` so that id does not move.
+                kind = "class" if cls is not None and cls.type == "declClass" else "type"
                 qualified, owner_id = _member_of(parent, name)
                 container = Symbol(
                     id=make_symbol_id(filename, qualified, kind),
@@ -12714,6 +12727,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 )
                 symbols.append(container)
+                containers[qualified] = container
                 if cls:
                     for child in cls.children:
                         _walk(child, container)
@@ -12745,7 +12759,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 _member(node, parent, ident, "field")
             return
         elif parent is not None and node.type == "declProc":
-            ident = _first_child_of_type(node, "identifier")
+            ident = _first_child_of_type(node, "identifier", "genericTpl")
             if ident:
                 _member(node, parent, ident, "method")
             return

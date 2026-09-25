@@ -93,10 +93,76 @@ def test_a_nested_class_owns_its_implementation():
     assert ("TOuter.TInner.Deep", "method", "u.pas::TOuter.TInner#class", 11) in rows, rows
 
 
+# ---------------------------------------------------------------------------
+# Review round 1: the same direct-`identifier` guard in the other readers. A
+# generic type (#846) or routine wraps its name in `genericTpl`, and a helper
+# type's body (`declHelper`) was never walked. The first draft's generic test
+# declared no class, so it could not see that the owner was absent.
+# ---------------------------------------------------------------------------
+
 def test_a_generic_owner_is_named_without_its_parameters():
-    source = "unit U;\ninterface\nimplementation\nfunction TBox<T>.Get: T;\nbegin\nend;\nend.\n"
-    rows = {(s.name, s.qualified_name, s.kind) for s in _syms(source)}
-    assert ("Get", "TBox.Get", "method") in rows, rows
+    """#846: `TBox<T> = class` was absent entirely; it is `TBox`, and it owns
+    its field, its method declaration and the body."""
+    source = (
+        "unit U;\ninterface\ntype\n  TBox<T> = class\n    Value: T;\n    function Get: T;\n  end;\n"
+        "implementation\nfunction TBox<T>.Get: T;\nbegin\nend;\nend.\n"
+    )
+    rows = {(s.qualified_name, s.kind, s.parent, s.line) for s in _syms(source)}
+    assert rows == {
+        ("TBox", "class", None, 4),
+        ("TBox.Value", "field", "u.pas::TBox#class", 5),
+        ("TBox.Get", "method", "u.pas::TBox#class", 6),
+        ("TBox.Get", "method", "u.pas::TBox#class", 9),
+    }, rows
+
+
+def test_a_generic_type_with_several_parameters_is_named_without_them():
+    source = "unit U;\ninterface\ntype\n  TPair<K, V> = record\n    Key: K;\n  end;\nimplementation\nend.\n"
+    syms = _syms(source)
+    (owner,) = [s for s in syms if s.name == "TPair"]
+    assert owner.qualified_name == "TPair"
+    assert [(s.qualified_name, s.parent) for s in syms if s.kind == "field"] == [("TPair.Key", owner.id)]
+
+
+def test_a_generic_method_is_declared_and_implemented():
+    source = (
+        "unit U;\ninterface\ntype\n  TA = class\n    function F<T>: T;\n  end;\n"
+        "implementation\nfunction TA.F<T>: T;\nbegin\nend;\nend.\n"
+    )
+    rows = {(s.qualified_name, s.kind, s.parent, s.line) for s in _syms(source)}
+    assert ("TA.F", "method", "u.pas::TA#class", 5) in rows, rows
+    assert ("TA.F", "method", "u.pas::TA#class", 8) in rows, rows
+
+
+def test_a_nested_generic_owner():
+    source = (
+        "unit U;\ninterface\ntype\n  TO = class\n  type\n    TI<T> = class\n      procedure P;\n    end;\n  end;\n"
+        "implementation\nprocedure TO.TI<T>.P;\nbegin\nend;\nend.\n"
+    )
+    rows = {(s.qualified_name, s.kind, s.parent, s.line) for s in _syms(source)}
+    assert ("TO.TI.P", "method", "u.pas::TO.TI#class", 11) in rows, rows
+    # `TI<T>` was skipped, so its member was filed under the OUTER class.
+    assert not any(q == "TO.P" for q, *_ in rows), rows
+
+
+@pytest.mark.parametrize("helper", ["class helper for TA", "record helper for Integer"])
+def test_a_helper_owns_its_members_and_bodies(helper):
+    source = (
+        f"unit U;\ninterface\ntype\n  TH = {helper}\n    procedure P;\n  end;\n"
+        "implementation\nprocedure TH.P;\nbegin\nend;\nend.\n"
+    )
+    rows = {(s.qualified_name, s.kind, s.parent, s.line) for s in _syms(source)}
+    assert rows == {
+        ("TH", "type", None, 4),
+        ("TH.P", "method", "u.pas::TH#type", 5),
+        ("TH.P", "method", "u.pas::TH#type", 8),
+    }, rows
+
+
+def test_a_free_generic_function_is_named_without_its_parameters():
+    source = "unit U;\ninterface\nimplementation\nfunction Max<T>(a, b: T): T;\nbegin\nend;\nend.\n"
+    rows = [(s.id, s.kind) for s in _syms(source)]
+    assert rows == [("u.pas::Max#function", "function")], rows
 
 
 def test_a_record_owns_its_implementation():

@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed - a Pascal method's body is indexed as a method of its class (#844)
+### Fixed - a Pascal method's body is indexed as a method of its class, and a generic class is indexed at all (#844, #846)
 
 A Delphi unit declares `function RunIt: Integer;` inside `TAudit = class` and
 implements it after `implementation` as `function TAudit.RunIt: Integer;
@@ -15,14 +15,31 @@ The implementation header names the method with a dotted chain
 child, which only a free routine has. Every constructor, destructor,
 procedure, function, class function and class operator body was skipped.
 
+⚠ Review found the same direct-`identifier` check in the parser's other
+readers:
+- A generic type wraps its name in `genericTpl`, so `TBox<T> = class` was
+  absent entirely, along with every member (#846).
+- A generic method declared in a class (`function F<T>: T;`) was absent in
+  the same way.
+- A `class helper for` or `record helper for` type was indexed, but its body
+  was never walked, so its members were missing.
+
+Every reader of a Pascal declared name now goes through one helper, which
+reads a bare name, a generic name without its type parameters, or a dotted
+chain.
+
 The body is now a `method` owned by the type the chain names. That includes a
-nested class (`TOuter.TInner.Deep`) and a generic owner (`TBox<T>.Get` is
-`TBox.Get`). The declaration and the body share a qualified name and kind,
-the way Objective-C's `@interface` and `@implementation` already do, so the
-shared duplicate-id rule orders them. ⚠ That moves one id wherever a method is
-implemented in the same unit: `TAudit.RunIt#method` is
-`TAudit.RunIt#method~1`, and the body is `~2`. `PARSER_GENERATION` 8, still
-unreleased, names it.
+nested class (`TOuter.TInner.Deep`), a generic owner (`TBox<T>.Get` is
+`TBox.Get`, owned by `TBox`) and a helper. The declaration and the body share
+a qualified name and kind, the way Objective-C's `@interface` and
+`@implementation` already do, so the shared duplicate-id rule orders them.
+⚠ That moves one id wherever a method is implemented in the same unit:
+`TAudit.RunIt#method` is `TAudit.RunIt#method~1`, and the body is `~2`.
+One other kind of id moves: a member of a nested generic type was filed
+under the OUTER class, because the generic type itself was skipped, so
+`TO.TI<T>`'s `procedure P` was `TO.P` and is `TO.TI.P`. A generic type and its members,
+a generic method, a helper's members and every body are new.
+`PARSER_GENERATION` 8, still unreleased, names it.
 
 ### Fixed - a Nim routine is indexed when its name is exported or an operator (#843, #847)
 
