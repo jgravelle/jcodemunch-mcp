@@ -71,13 +71,30 @@ def _key_set(tool: str, args: dict):
 ])
 def test_a_result_cache_hit_answers_with_the_cold_calls_key_set(_indexed, monkeypatch, tool, args):
     """The issue's second reading, ruled out and pinned: the three result-cache
-    consumers (#572) answer a cache HIT with the key set of the cold MISS. The
-    session is reset between the calls, so only the cache's temperature
-    differs; `already_delivered` on a repeat is the session's advisory, by
-    design, and not what this measures."""
+    consumers (#572) answer a cache HIT with the key set of the cold MISS.
+
+    Between the calls ONLY the delivery ledger and the steering counter are
+    reset, so the second call differs from the first by the cache's
+    temperature alone; `already_delivered` on a repeat is the session's
+    advisory, by design, and not what this measures. ⚠⚠ Never a fresh
+    `_State()` here: the shared result cache lives in it, and the first draft
+    of this test compared a cold miss with a second cold miss for two of the
+    three tools (review). The hit counter proves the second call was a hit.
+    """
     args = dict(args, repo=_indexed, format="json")
     cold = _key_set(tool, args)
     assert "error" not in cold[0], cold  # two identical errors would compare equal
-    monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
+    hits_before = _hits()
+    token_tracker._state._delivered.clear()
     server._steer_state.update({"hops": 0, "bundles": 0, "nudged": False, "repos": []})
-    assert _key_set(tool, args) == cold
+    warm = _key_set(tool, args)
+    assert _hits() > hits_before, "the second call was not a cache hit"
+    assert warm == cold
+
+
+def _hits() -> int:
+    """Hits on EITHER cache. `find_references` and `get_blast_radius` count in
+    `total_hits`; `search_symbols` keeps its own cache and records only a
+    VALIDATED hit, so it moves `hits_validated_*` and never `total_hits`."""
+    stats = token_tracker.result_cache_stats()
+    return stats["total_hits"] + stats["hits_validated_fresh"] + stats["hits_validated_stale"]
