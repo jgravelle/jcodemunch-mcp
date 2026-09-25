@@ -386,6 +386,14 @@ INDEX_VERSION = 17
 #   built on them) and is `G#type` / `Inh#type` (#847); a backticked type or field keeps no backticks
 #   (`` `Weird`#type `` is `Weird#type`, `` Node.`from` `` is `Node.from`), and
 #   an exported backticked field (`` `type`*: string ``), dropped before, is new.
+#
+#   ⚠⚠ **And #844: a Pascal method's implementation is a `method` of its
+#   class.** `function TAudit.RunIt ... begin ... end;` was skipped (its name
+#   is a `genericDot` chain) and is new, spanning the body. It shares the
+#   declaration's qualified name and kind, so ONE id MOVES wherever a method
+#   is implemented in the same unit: the declaration's `TAudit.RunIt#method`
+#   is `TAudit.RunIt#method~1`, and the body is `~2` (the Objective-C
+#   `@interface`/`@implementation` ordering).
 PARSER_GENERATION = 8
 
 

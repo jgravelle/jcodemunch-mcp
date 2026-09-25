@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed - a Pascal method's body is indexed as a method of its class (#844)
+
+A Delphi unit declares `function RunIt: Integer;` inside `TAudit = class` and
+implements it after `implementation` as `function TAudit.RunIt: Integer;
+begin ... end;`. The declaration was indexed and the body was not, so
+`get_symbol_source` on the method returned one line of signature and none of
+the code. Reported by @jgravelle while measuring #812.
+
+The implementation header names the method with a dotted chain
+(`genericDot`), and `_parse_pascal_symbols` asked for a direct `identifier`
+child, which only a free routine has. Every constructor, destructor,
+procedure, function, class function and class operator body was skipped.
+
+The body is now a `method` owned by the type the chain names. That includes a
+nested class (`TOuter.TInner.Deep`) and a generic owner (`TBox<T>.Get` is
+`TBox.Get`). The declaration and the body share a qualified name and kind,
+the way Objective-C's `@interface` and `@implementation` already do, so the
+shared duplicate-id rule orders them. ⚠ That moves one id wherever a method is
+implemented in the same unit: `TAudit.RunIt#method` is
+`TAudit.RunIt#method~1`, and the body is `~2`. `PARSER_GENERATION` 8, still
+unreleased, names it.
+
 ### Fixed - a Nim routine is indexed when its name is exported or an operator (#843, #847)
 
 `proc runIt*(a: Audit): int` wasn't indexed at all, in any of the seven

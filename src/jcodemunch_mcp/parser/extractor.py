@@ -12622,17 +12622,59 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
         ))
 
+    def _dotted(node) -> list[str]:
+        """`genericDot` chain -> name segments; a `genericTpl` keeps its name only."""
+        if node.type == "identifier":
+            return [_text(node)]
+        if node.type == "genericTpl":
+            ident = _first_child_of_type(node, "identifier")
+            return [_text(ident)] if ident else []
+        if node.type == "genericDot":
+            out: list[str] = []
+            for child in node.children:
+                if child.type in ("identifier", "genericTpl", "genericDot"):
+                    out.extend(_dotted(child))
+            return out
+        return []
+
     # ⚠⚠ #812: the walk threads the owner SYMBOL, not a scope string, and a
     # class body is READ: `declField` (N names) and `class var` are `field`,
     # a class-scoped `const` is `constant` (it was emitted BARE before, so
     # that id moves; named under PARSER_GENERATION), every `declProc` in the
     # body is `method`, `declProp` is `property`. A record is walked the same
-    # way. The implementation-section `TAudit.RunIt` (`genericDot`) is still
-    # unread: its name is not a direct identifier child.
+    # way.
+    # ⚠⚠ #844: an implementation-section `TAudit.RunIt` names itself with a
+    # `genericDot` chain, not a direct identifier. It is a `method` of the
+    # type the chain names (already extracted from the interface section), so
+    # the declaration and the body share a qualified name and kind and the
+    # duplicate-id rule orders them `~1`/`~2`, the Objective-C
+    # `@interface`/`@implementation` answer.
     def _walk(node, parent: Optional[Symbol] = None) -> None:
         if node.type == "defProc":
             decl = _first_child_of_type(node, "declProc")
-            if decl:
+            dotted = _first_child_of_type(decl, "genericDot") if decl else None
+            segments = _dotted(dotted) if dotted is not None else []
+            if len(segments) >= 2:
+                name, owner = segments[-1], ".".join(segments[:-1])
+                owner_sym = next(
+                    (s for s in symbols if s.qualified_name == owner and s.kind in ("class", "type")),
+                    None,
+                )
+                sig = _text(decl).split(";")[0].strip()
+                symbols.append(Symbol(
+                    id=make_symbol_id(filename, f"{owner}.{name}", "method"),
+                    file=filename, name=name, qualified_name=f"{owner}.{name}",
+                    kind="method", language="pascal",
+                    signature=sig[:120],
+                    docstring="",
+                    parent=owner_sym.id if owner_sym is not None else None,
+                    line=node.start_point[0] + 1,
+                    end_line=node.end_point[0] + 1,
+                    byte_offset=node.start_byte,
+                    byte_length=node.end_byte - node.start_byte,
+                    content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
+                ))
+            elif decl:
                 ident = _first_child_of_type(decl, "identifier")
                 if ident:
                     name = _text(ident)
