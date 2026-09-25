@@ -211,7 +211,13 @@ def _unresolved_package_edges(
 
 
 def blast_verdict(
-    index, source_files: frozenset, sym_file: str, result_count: int
+    index,
+    source_files: frozenset,
+    sym_file: str,
+    result_count: int,
+    *,
+    probe: Optional[bool] = None,
+    graph_gap: Optional[dict] = None,
 ) -> tuple[dict, Optional[dict]]:
     """THE verdict on an importer walk from ``sym_file``: ``(verdict, unresolvable)``.
 
@@ -224,6 +230,13 @@ def blast_verdict(
 
     ``result_count`` is what the caller found by every channel it ran; only an
     empty answer is probed, since a found importer is positive evidence.
+    ``probe`` overrides that when the caller's notion of "answered nothing"
+    counts a channel ``result_count`` does not (standalone's cross-repo
+    importers): the extraction is behaviour-neutral for the standalone tool.
+    ``graph_gap`` is a caller's own reason the graph cannot answer -- a graph
+    built from a different revision than the one asked about. It outranks the
+    package probe, because it names what the caller can fix, and yields to
+    ``file_not_in_index``, which is the more specific statement of the same gap.
 
     ⚠ ``file_not_in_index`` never fires for the standalone tool, whose symbol
     comes from the index. It exists for a caller holding a path the index never
@@ -231,7 +244,9 @@ def blast_verdict(
     question the graph was never asked.
     """
     unresolvable: Optional[dict] = None
-    if result_count == 0:
+    if probe is None:
+        probe = result_count == 0
+    if probe:
         if sym_file not in source_files:
             unresolvable = {
                 "reason": "file_not_in_index",
@@ -242,6 +257,8 @@ def blast_verdict(
                     "evidence that nothing depends on it; re-index and ask again."
                 ),
             }
+        elif graph_gap:
+            unresolvable = dict(graph_gap)
         else:
             unresolvable = _unresolved_package_edges(
                 index.imports,
@@ -635,6 +652,7 @@ def get_blast_radius(
         source_files,
         sym_file,
         0 if answered_nothing else max(total, len(confirmed), len(callers)),
+        probe=answered_nothing,
     )
 
     elapsed = (time.perf_counter() - start) * 1000

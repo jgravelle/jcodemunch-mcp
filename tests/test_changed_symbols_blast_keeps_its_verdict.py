@@ -113,8 +113,10 @@ def test_the_embedded_verdict_agrees_with_standalone_blast_radius(tmp_path):
     result = get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage)
     embedded = result["blast_verdicts"]["repository/order_repo.go"]
     standalone = get_blast_radius(repo=repo, symbol="DeleteItem", storage_path=storage)["_meta"]["verdict"]
-    for key in ("state", "absence_refused", "incomplete", "note"):
+    for key in ("state", "absence_refused", "note"):
         assert embedded.get(key) == standalone.get(key), key
+    # The embedded copy drops `incomplete.note`, which repeats `note` verbatim.
+    assert embedded["incomplete"] == {k: v for k, v in standalone["incomplete"].items() if k != "note"}
 
 
 def test_a_symbol_in_a_file_the_index_never_saw_refuses_its_empty_blast(tmp_path):
@@ -140,15 +142,19 @@ def test_controls_a_reached_symbol_keeps_its_importers_and_an_unimported_one_can
         "app/main.py": "from app.engine import run\n\ndef main():\n    return run()\n",
         "app/lonely.py": "def alone():\n    return 0\n",
     })
-    _commit(root, {
-        "app/engine.py": "def run():\n    return 1\n",
-        "app/lonely.py": "def alone():\n    return 1\n",
-    })
-
+    _commit(root, {"app/engine.py": "def run():\n    return 1\n"})
     entries = _entries(get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage))
     assert entries["run"]["blast_radius"] == ["app/main.py"]
     assert "blast_verdict" not in entries["run"], "a non-empty blast is positive evidence and needs no verdict"
-    lonely = entries["alone"]
+
+    # Only the symbol's own file changed since the indexed commit, so no other
+    # file can have added an importer: the graph can prove it.
+    root2, repo2, storage2, base2 = _repo(tmp_path / "second", {
+        "app/__init__.py": "",
+        "app/lonely.py": "def alone():\n    return 0\n",
+    })
+    _commit(root2, {"app/lonely.py": "def alone():\n    return 1\n"})
+    lonely = _entries(get_changed_symbols(repo2, since_sha=base2, include_blast_radius=True, storage_path=storage2))["alone"]
     assert lonely["blast_radius"] == []
     assert lonely["blast_verdict"] == {"state": "absent", "absence_refused": False, "reason": None}, (
         "a symbol nothing imports must still be provable"
@@ -185,3 +191,45 @@ def test_a_blast_that_cannot_be_computed_says_so(tmp_path, monkeypatch):
     result = get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage)
     assert "error" not in result, result
     assert "no import graph" in result["blast_radius_unavailable"]
+
+
+def test_an_importer_added_in_the_diff_is_not_denied_by_the_older_graph(tmp_path):
+    """Review round 1: the default mode's graph is the indexed commit's, not until_sha's.
+
+    `new_caller.py` imports `run` in the very diff this response reports, and a
+    graph built before it cannot see that edge -- so the empty blast must not
+    read `absent`.
+    """
+    root, repo, storage, base = _repo(tmp_path, {
+        "app/__init__.py": "",
+        "app/engine.py": "def run():\n    return 0\n",
+    })
+    _commit(root, {
+        "app/engine.py": "def run():\n    return 1\n",
+        "app/new_caller.py": "from app.engine import run\n\ndef call():\n    return run()\n",
+    })
+
+    result = get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage)
+    run = _entries(result)["run"]
+    assert "app/new_caller.py" in result["changed_files"], "precondition: the importer is in the diff"
+    assert run["blast_radius"] == []
+    assert run["blast_verdict"] == {"state": "degraded", "absence_refused": True, "reason": "graph_predates_until_sha"}
+
+
+def test_a_graph_at_the_target_commit_can_prove_absence_despite_other_changes(tmp_path):
+    """The refusal is about the graph's revision, not about the diff being large."""
+    root, repo, storage, base = _repo(tmp_path, {
+        "app/__init__.py": "",
+        "app/lonely.py": "def alone():\n    return 0\n",
+        "app/other.py": "def other():\n    return 0\n",
+    })
+    _commit(root, {
+        "app/lonely.py": "def alone():\n    return 1\n",
+        "app/other.py": "def other():\n    return 1\n",
+    })
+    index_folder(str(root), use_ai_summaries=False, storage_path=storage, identity_mode="local")
+
+    result = get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage)
+    assert _entries(result)["alone"]["blast_verdict"]["state"] == "absent"
+    assert "coverage" not in result["blast_verdicts"]["app/lonely.py"]
+    assert "blast_coverage" in result
