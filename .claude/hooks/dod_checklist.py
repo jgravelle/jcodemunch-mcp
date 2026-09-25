@@ -182,7 +182,11 @@ def _outside_code_roots_only(
         return None, "git names no path between the red and green content trees (fail closed)"
     inside = [p for p in moved if p.startswith(CODE_ROOTS)]
     if inside:
-        return None, f"the content trees differ under a code root the tier tree did not see: {inside[:3]}"
+        return None, (
+            f"the content trees differ under a code root the tier tree did not see: {inside[:3]}. "
+            "The usual cause is a new test that was untracked at red; `git add` it before "
+            "running red, then re-run red and green"
+        )
     stray = [p for p in moved if p not in changed]
     if stray:
         return None, f"{', '.join(stray[:3])} moved between red and green but is not part of this change"

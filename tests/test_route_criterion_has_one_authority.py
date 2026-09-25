@@ -59,7 +59,11 @@ DATED_RECORDS = {
 #: ROADMAP's one dated record: the 2026-08 exit conditions, kept as written.
 ROADMAP_RECORD = "## Catalog moratorium"
 
-_ROUTE = re.compile(r"route\s*(?:recall\s*)?@\s*1", re.I)
+#: ONE spelling of the route token, shared by every regex that names route@1.
+#: Round 4: widening `_ROUTE` alone left `_CONTROL_CORPUS` on the literal, so a
+#: correct control-corpus sentence in a new spelling was refused.
+_ROUTE_TOKEN = r"route[-\s]*(?:recall\s*)?@\s*1"
+_ROUTE = re.compile(_ROUTE_TOKEN, re.I)
 #: A bar written as a ratio ("route@1 >= 0.60"), read as its percentage.
 _RATIO = re.compile(r"(?i)(?:>=|≥|at\s+least|reach(?:es)?)\s*\*{0,2}(0?\.\d+)\b")
 _BAR = re.compile(
@@ -74,7 +78,7 @@ _QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 _ID_COMPARED = re.compile(r"route\.control_at1`?\s*,?\s*(?:>=|≥|floor)\s*(\d+(?:\.\d+)?)")
 #: The control subset named as route@1's corpus, not merely present in the sentence.
 _CONTROL_CORPUS = re.compile(
-    r"(?i)control[-\s]+(subset\s+)?route@1|route@1\s+(on\s+|over\s+)?(the\s+)?(held-out\s+)?control"
+    rf"(?i)control[-\s]+(subset\s+)?{_ROUTE_TOKEN}|{_ROUTE_TOKEN}\s+(on\s+|over\s+)?(the\s+)?(held-out\s+)?control"
 )
 _LEAK = re.compile(r"(?i)leakage")
 _LEAK_BAR = re.compile(
@@ -313,6 +317,9 @@ def test_the_roadmap_exemption_is_confined_to_its_record():
 def test_the_scan_passes_the_measured_statement_it_must_allow():
     assert not _route_violations("(moratorium: control route@1 40.0% vs a 55.0% bar)")
     assert not _route_violations("route@1 reached 71.2% (from 45.8%) -> measured only.")
+    for spelling in ("route@1", "route @1", "route recall@1", "route-recall@1"):
+        assert not _route_violations(f"control {spelling} must reach 55%."), spelling
+        assert _route_violations(f"{spelling} must reach 60% on queries.json."), spelling
     assert not _route_violations(
         'CORRECTION: the earlier "route@1 >= 60%" was never a gate, and 55% is the EXIT bar, '
         "the target of `route.control_at1`."

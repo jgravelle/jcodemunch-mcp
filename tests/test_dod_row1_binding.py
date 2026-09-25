@@ -285,6 +285,8 @@ def test_each_docs_only_clause_fails_closed_alone(dod, case):
         assert "could not compare" in ev, ev
     elif case == "diff_empty_on_a_tests_only_change":
         assert "names no path" in ev, ev
+    elif case == "moved_under_tests":
+        assert "git add" in ev, ev  # round 4: the refusal names its remedy
 
 
 def test_stamp_records_the_content_tree(dod, tmp_path, monkeypatch):
