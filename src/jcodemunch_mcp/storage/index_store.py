@@ -379,7 +379,12 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And #843: a Nim routine whose name is wrapped is indexed.** An
 #   exported routine (`proc runIt*`, every routine kind) and an operator
 #   (``proc `+`*``, ``proc `$` ``, named without backticks) were skipped and
-#   are new `function` symbols. Nothing moves.
+#   are new `function` symbols. One reader, `_declared_name`, now serves
+#   routines, types and object fields, so two ids MOVE: a generic type was
+#   named by its declaration's TEXT (`G*[T]#type`, fields `G*[T].a`) and is
+#   `G#type` / `G.a#field`; a backticked type or field keeps no backticks
+#   (`` `Weird`#type `` is `Weird#type`, `` Node.`from` `` is `Node.from`), and
+#   an exported backticked field (`` `type`*: string ``), dropped before, is new.
 PARSER_GENERATION = 8
 
 

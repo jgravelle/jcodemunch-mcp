@@ -14361,6 +14361,28 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return child
         return None
 
+    # ⚠⚠ #843: THE ONE READER of a Nim declared name, for routines, types and
+    # object fields alike. The grammar's `name` field holds the name wrapped in
+    # up to two layers: `exported_symbol` (the `*` export marker) and
+    # `accent_quoted` (a backticked name: an operator ``proc `+`*`` or a
+    # keyword used as a name, ``Node.`type`*``). Each reader used to spell its
+    # own subset -- the routines asked for a bare `identifier` and skipped every
+    # exported routine and operator, the fields unwrapped the marker but dropped
+    # a backticked one and kept the backticks on a plain one, and the type
+    # section read the node TEXT, which carries a generic's `[T]` -- so the
+    # rule lives here and a fourth reader inherits it. The backticks are quoting
+    # syntax, not part of the name. `None` means no name could be read.
+    def _declared_name(name_node) -> Optional[str]:
+        if name_node is not None and name_node.type == "exported_symbol":
+            name_node = _first_child_of_type(name_node, "identifier", "accent_quoted")
+        if name_node is None:
+            return None
+        if name_node.type == "accent_quoted":
+            return _text(name_node).strip("`").strip() or None
+        if name_node.type == "identifier":
+            return _text(name_node) or None
+        return None
+
     # ⚠⚠ #812: an `object`'s fields are READ and owned through `_member_of`:
     # every `symbol_declaration` under the object's `field_declaration`s and
     # a `case` variant's discriminator, in every branch, behind `ref`/`ptr`,
@@ -14378,8 +14400,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if obj is None:
             return
 
-        def _field(decl, ident) -> None:
-            name = _text(ident)
+        def _field(decl, name: str) -> None:
             qualified, owner_id = _member_of(owner, name)
             symbols.append(Symbol(
                 id=make_symbol_id(filename, qualified, "field"),
@@ -14401,11 +14422,9 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 for sd in (sdl.children if sdl is not None else ()):
                     if sd.type != "symbol_declaration":
                         continue
-                    ident = sd.child_by_field_name("name")
-                    if ident is not None and ident.type == "exported_symbol":
-                        ident = _first_child_of_type(ident, "identifier")
-                    if ident is not None:
-                        _field(n, ident)
+                    name = _declared_name(sd.child_by_field_name("name"))
+                    if name:
+                        _field(n, name)
                 return
             for c in n.children:
                 _visit(c)
@@ -14417,19 +14436,9 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                          "template_declaration", "macro_declaration",
                          "method_declaration", "iterator_declaration",
                          "converter_declaration"):
-            # #843: read the `name` FIELD and unwrap it. The export marker puts
-            # the name under `exported_symbol`, and an operator's name is
-            # `accent_quoted` (``proc `+`*``), so asking for a direct
-            # `identifier` child skipped every exported routine and every
-            # operator. The backticks are quoting syntax, not part of the name.
-            ident = node.child_by_field_name("name")
-            if ident is not None and ident.type == "exported_symbol":
-                ident = _first_child_of_type(ident, "identifier", "accent_quoted")
-            name = None
-            if ident is not None and ident.type == "accent_quoted":
-                name = _text(ident).strip("`").strip() or None
-            elif ident is not None and ident.type == "identifier":
-                name = _text(ident)
+            # #843: the `name` field through `_declared_name` (a direct
+            # `identifier` child skipped every exported routine and operator).
+            name = _declared_name(node.child_by_field_name("name"))
             if name:
                 qualified = f"{scope}.{name}" if scope else name
                 kind_map = {
@@ -14471,8 +14480,10 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for child in node.children:
                 if child.type == "type_declaration":
                     tsd = _first_child_of_type(child, "type_symbol_declaration")
-                    if tsd:
-                        name = _text(tsd).strip().rstrip("*")
+                    # #843: the node TEXT carried a generic's `[T]` and a
+                    # backticked name's backticks; the `name` field does not.
+                    name = _declared_name(tsd.child_by_field_name("name")) if tsd else None
+                    if name:
                         qualified = f"{scope}.{name}" if scope else name
                         sig_text = _text(child).split("\n")[0].strip()[:120]
                         container = Symbol(

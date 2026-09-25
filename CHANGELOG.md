@@ -8,15 +8,25 @@
 routine kinds. The export marker puts the name under `exported_symbol`, and
 `_parse_nim_symbols` asked each routine for a direct `identifier` child. So on
 a real Nim package the indexed functions were the private ones, and the public
-API was missing. The type section and #812's object fields already unwrapped
-the marker. The routine branch was the one reader of three still asking for
-the bare child. Reported by @jgravelle while measuring #812.
+API was missing. Reported by @jgravelle while measuring #812.
 
 The probe found a second wrapper on the same field. An operator's name is
 `accent_quoted` (``proc `$`(a: V): string``), so a plain operator was skipped
-too, and an exported operator nests one wrapper inside the other. The routine
-branch now reads the `name` field and unwraps both. An operator is named
-without its backticks (`$`, `+`), which is what a caller searches for.
+too, and an exported operator nests one wrapper inside the other. An operator
+is now named without its backticks (`$`, `+`), which is what a caller
+searches for.
+
+⚠ Review found the same rule spelled differently in the other two readers of
+a Nim name, which the first draft had called correct:
+- #812's object-field reader unwrapped the marker but dropped an exported
+  backticked field (`` `type`*: string ``), and kept the backticks on a plain
+  one (`` Node.`from` ``).
+- The type section read the declaration's text, so a generic type published
+  as `G*[T]`, and its fields as `G*[T].a`.
+
+All three now read the `name` field through one helper, `_declared_name`.
+Two ids move as a result: `G*[T]` is `G`, and a backticked name loses its
+backticks.
 `PARSER_GENERATION` 8, already unreleased, re-parses unchanged Nim files on
 upgrade.
 

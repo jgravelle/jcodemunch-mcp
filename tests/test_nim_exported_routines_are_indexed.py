@@ -63,6 +63,44 @@ def test_generic_pragma_and_operator_names(source, name):
     assert rows.get(name) == ("function", 1), rows
 
 
+@pytest.mark.parametrize("source, name", [
+    ("proc fwd*(a: int): int\n", "fwd"),
+    ("proc `[]=`*(v: var V, i: int, x: int) = discard\n", "[]="),
+    ("method m*(a: V) {.base.} = discard\n", "m"),
+])
+def test_a_forward_declaration_a_bracket_operator_and_a_base_method(source, name):
+    rows = _rows(source)
+    assert rows.get(name) == ("function", 1), rows
+
+
+def test_an_anonymous_proc_is_not_a_routine_declaration():
+    rows = _rows("let f = proc(x: int): int = x\n")
+    assert [k for k, _l in rows.values()] == ["constant"], rows
+
+
+# ---------------------------------------------------------------------------
+# Review round 1: the SAME rule in the other two readers of a declared name.
+# The unwrap lived in the routine branch alone; the object-field reader dropped
+# an exported backticked field and kept the backticks on a plain one, and the
+# type section read the node TEXT, so a generic type published as `G*[T]`.
+# ---------------------------------------------------------------------------
+
+def _qualified(source: str) -> set[tuple[str, str]]:
+    return {(s.qualified_name, s.kind) for s in parse_file(source, "a.nim", "nim")}
+
+
+def test_a_backticked_type_and_its_backticked_fields():
+    source = "type `Weird`* = object\n  `type`*: string\n  `from`: int\n  kind: int\n"
+    assert _qualified(source) == {
+        ("Weird", "type"), ("Weird.type", "field"), ("Weird.from", "field"), ("Weird.kind", "field"),
+    }
+
+
+def test_a_generic_type_is_named_without_its_parameters():
+    source = "type G*[T] = object\n  a*: T\ntype H[K, V] = ref object\n  k: K\n"
+    assert _qualified(source) == {("G", "type"), ("G.a", "field"), ("H", "type"), ("H.k", "field")}
+
+
 def test_the_signature_names_the_routine_without_its_marker():
     (sym,) = [s for s in parse_file("proc runIt*(a: int): int = a\n", "a.nim", "nim") if s.name == "runIt"]
     assert sym.signature.startswith("proc runIt("), sym.signature

@@ -1947,10 +1947,12 @@ ELISP_SPEC = LanguageSpec(
 
 
 # Nim specification
-# tree-sitter node structure: proc_declaration/func_declaration > identifier + parameter_declaration_list
-# type_section > type_declaration > type_symbol_declaration, var/let/const_section > variable_declaration
-# template_declaration/macro_declaration > identifier
-# Custom parser in extractor.py via _parse_nim_symbols().
+# tree-sitter node structure: a routine (`proc_declaration`, `func_declaration`,
+# template/macro/method/iterator/converter) and a `type_symbol_declaration` carry
+# their name in the `name` FIELD, wrapped in `exported_symbol` (the `*` marker)
+# and/or `accent_quoted` (backticks) -- never a bare child. #843: read it through
+# `_declared_name` in _parse_nim_symbols(), the one reader of a Nim declared name.
+# var/let/const_section > variable_declaration.
 NIM_SPEC = LanguageSpec(
     ts_language="nim",
     symbol_node_types={},
