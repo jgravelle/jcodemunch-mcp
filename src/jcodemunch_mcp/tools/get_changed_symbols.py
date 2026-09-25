@@ -12,7 +12,7 @@ from ..storage import IndexStore
 from ..parser import parse_file, get_language_for_path
 from ..parser.symbols import compute_content_hash
 from ._utils import index_status_to_tool_error, resolve_repo
-from .get_blast_radius import _build_reverse_adjacency, _bfs_importers
+from .get_blast_radius import _build_reverse_adjacency, _bfs_importers, blast_verdict
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +199,37 @@ def get_changed_symbols(
 
     # For blast radius: build reverse adjacency from current index
     rev_adj = None
+    source_files: frozenset = frozenset()
     if include_blast_radius and index.imports is not None:
         source_files = frozenset(index.source_files)
         rev_adj = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
+
+    # (#718) The walk alone cannot tell "nothing depends on this" from "the
+    # graph cannot reach this", and this path shipped a bare `[]` that read as
+    # no downstream impact. `blast_verdict` is the one answer standalone
+    # `get_blast_radius` already gives, asked only for an EMPTY blast, because a
+    # found importer is positive evidence.
+    # ⚠ The verdict describes the FILE's importer walk, so it is asked once per
+    # file and published once, in `blast_verdicts`; each entry carries the three
+    # keys a consumer branches on. Per entry in full it was ~1 KB repeated for
+    # every symbol a file changed.
+    _blast_by_file: dict[str, list[str]] = {}
+    blast_verdicts: dict[str, dict] = {}
+
+    def _attach_blast(entry: dict, file_path: str) -> None:
+        if file_path not in _blast_by_file:
+            flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
+            _blast_by_file[file_path] = flat
+            if not flat:
+                blast_verdicts[file_path] = blast_verdict(index, source_files, file_path, 0)[0]
+        entry["blast_radius"] = list(_blast_by_file[file_path])
+        verdict = blast_verdicts.get(file_path)
+        if verdict is not None:
+            entry["blast_verdict"] = {
+                "state": verdict["state"],
+                "absence_refused": bool(verdict.get("absence_refused")),
+                "reason": (verdict.get("incomplete") or {}).get("reason"),
+            }
 
     # For each changed file, parse both versions and diff symbol sets
     added_symbols: list[dict] = []
@@ -231,16 +259,14 @@ def get_changed_symbols(
             entry = dict(after_syms[key])
             entry["change_type"] = "added"
             if include_blast_radius and rev_adj is not None:
-                flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
-                entry["blast_radius"] = flat
+                _attach_blast(entry, file_path)
             added_symbols.append(entry)
 
         for key in before_keys - after_keys:
             entry = dict(before_syms[key])
             entry["change_type"] = "removed"
             if include_blast_radius and rev_adj is not None:
-                flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
-                entry["blast_radius"] = flat
+                _attach_blast(entry, file_path)
             removed_symbols.append(entry)
 
         for key in before_keys & after_keys:
@@ -252,15 +278,13 @@ def get_changed_symbols(
                 entry["change_type"] = "renamed"
                 entry["previous_name"] = b["name"]
                 if include_blast_radius and rev_adj is not None:
-                    flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
-                    entry["blast_radius"] = flat
+                    _attach_blast(entry, file_path)
                 changed_symbols.append(entry)
             elif b["content_hash"] != a["content_hash"] and (b["content_hash"] or a["content_hash"]):
                 entry = dict(a)
                 entry["change_type"] = "modified"
                 if include_blast_radius and rev_adj is not None:
-                    flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
-                    entry["blast_radius"] = flat
+                    _attach_blast(entry, file_path)
                 changed_symbols.append(entry)
 
     def _sort_key(e: dict) -> tuple:
@@ -303,6 +327,15 @@ def get_changed_symbols(
         "removed_count": len(removed_symbols),
         "changed_count": len(changed_symbols),
     }
+    if blast_verdicts:
+        result["blast_verdicts"] = blast_verdicts
+    if include_blast_radius and rev_adj is None:
+        # (#718) Asked for and not computable: say so, or the absent
+        # `blast_radius` keys read as a request that was ignored.
+        result["blast_radius_unavailable"] = (
+            "this index holds no import graph, so no blast radius was computed; "
+            "re-index the repository to build one"
+        )
     if diag_snapshot is not None:
         result["diagnostics_as_of"] = diag_snapshot.get("as_of")
         result["diagnostics_current"] = diagnostics_currency(diag_snapshot.get("as_of"), resolved_until)

@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed - `get_changed_symbols` keeps blast radius's verdict, so an empty blast is no longer "no impact" (#718)
+
+`get_changed_symbols(include_blast_radius=True)` answered every changed
+symbol with a bare `"blast_radius": []` when the import graph found nothing.
+That's the shape a consumer reads as "no downstream impact". Standalone
+`get_blast_radius` has refused that zero since #415, when the graph can't
+reach the symbol (a Go package import lands on no file). The embedded path
+ran the same importer walk directly and never asked. It was a second call
+site that copied the authority's walk without its verdict. Reported by
+@Torolosko, measured on a real commit delta.
+
+The verdict now has one home, `get_blast_radius.blast_verdict`, and both tools
+call it:
+- An entry whose blast is empty carries a short `blast_verdict` (`state`,
+  `absence_refused`, `reason`).
+- The full verdict, note included, appears once per file in `blast_verdicts`,
+  since it describes that file's importer walk rather than any one symbol.
+- A symbol nothing imports still gets `state: absent`. A non-empty blast is
+  positive evidence and carries no verdict.
+
+⚠⚠ The embedded path had a case the standalone one can't hit. The importer
+graph is the index's, and `since_sha` defaults to the indexed commit. So a
+file added in the diff isn't in the graph at all, and its symbols' empty blast
+answers a question the graph was never asked. Those symbols get
+`reason: file_not_in_index` and refuse absence. ⚠ Asking for a blast radius
+from an index with no import graph used to drop the field silently. The
+response now says so in `blast_radius_unavailable`.
+
+Not covered: the graph is still the indexed commit's, not `until_sha`'s.
+Standalone `get_blast_radius` has the same property, so a moved import is
+disclosed on neither. The other three findings in the report are split into
+their own issues. Reported by @Torolosko (#718).
+
 ### Fixed - the installed agent policy grants absence only on a scan that proved it (#719)
 
 The policy `init` writes into CLAUDE.md told every agent that
