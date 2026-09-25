@@ -26,23 +26,36 @@ readers:
 
 Every reader of a Pascal declared name now goes through one helper, which
 reads a bare name, a generic name without its type parameters, or a dotted
-chain.
+chain. The type parameters move to the signature (`type TBox<T>`), the way
+C# names `Action<T>`.
 
 The body is now a `method` owned by the type the chain names. That includes a
 nested class (`TOuter.TInner.Deep`), a generic owner (`TBox<T>.Get` is
 `TBox.Get`, owned by `TBox`) and a helper. The declaration and the body share
 a qualified name and kind, the way Objective-C's `@interface` and
 `@implementation` already do, so the shared duplicate-id rule orders them.
-⚠ That moves one id wherever a method is implemented in the same unit:
-`TAudit.RunIt#method` is `TAudit.RunIt#method~1`, and the body is `~2`.
-⚠ Ids also move inside a generic type or a helper. The walk skipped the
-type, then walked its body anyway with the ENCLOSING owner, so whatever it
-indexed there was filed one scope too high: a `const` in `TBox<T>` was
-`C#constant` and is `TBox.C#constant`, a nested `TIn` was `TIn#class` and
-is `TBox.TIn#class` (its members follow), a nested generic type's method
-`TO.P` is `TO.TI.P`, and the same holds in a helper (`TH.C`, `TH.TX.A`). A generic type and its members,
-a generic method, a helper's members and every body are new.
-`PARSER_GENERATION` 8, still unreleased, names it.
+
+New: every body, a generic type and its members, a generic method, a free
+generic function and a helper's members.
+
+⚠ Ids move, for two reasons:
+- **Scope.** The walk skipped a generic type or a helper, then walked its
+  body with the ENCLOSING owner, so whatever it indexed there sat one scope
+  too high and now carries its owner: `C#constant` is `TBox.C#constant`,
+  `TIn#class` is `TBox.TIn#class` (its members follow), `TO.P` is
+  `TO.TI.P`, and the same in a helper (`TH.C`, `TH.TX.A`).
+- **Ordinals.** Symbols that share a qualified name and kind are numbered
+  `~1`, `~2`, ... in document order, and a file with a single one carries no
+  suffix. This fix adds such symbols (a body beside its declaration, `TProc<T>`
+  beside `TProc`, `Max<T>` beside `Max`) and moves others out of a shared
+  name, so any name whose set changed is renumbered. `TAudit.RunIt#method`
+  becomes `~1` with the body `~2`; `TProc#type` becomes `~1`; a twin left
+  alone loses its suffix; and a `~N` id can name a DIFFERENT symbol than
+  before (`TA = class; TA<T> = class; TA = class`: `TA#class~2` was the full
+  `TA` and is `TA<T>`). Only the signature tells arity twins apart.
+
+`PARSER_GENERATION` 8, still unreleased, re-parses unchanged Pascal files on
+upgrade.
 
 ### Fixed - a Nim routine is indexed when its name is exported or an operator (#843, #847)
 

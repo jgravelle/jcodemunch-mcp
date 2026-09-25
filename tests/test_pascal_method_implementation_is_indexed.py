@@ -178,6 +178,22 @@ def test_what_a_generic_or_helper_body_declares_is_owned_not_filed_one_scope_up(
     assert not {q for q, _k, _p in rows} & {"C", "TIn", "TIn.Q"}, rows
 
 
+def test_arity_twins_share_a_name_and_differ_by_signature():
+    """Review round 3: `TProc`, `TProc<T>` and `TProc<T1, T2>` (Delphi's
+    SysUtils shape) are all named `TProc`, as C# names `Action<T>`, so they
+    are ordinal twins in document order and the signature carries the arity."""
+    source = (
+        "unit U;\ninterface\ntype\n  TProc = procedure;\n  TProc<T> = procedure(a: T);\n"
+        "  TProc<T1, T2> = procedure(a: T1; b: T2);\nimplementation\nend.\n"
+    )
+    rows = [(s.id, s.signature) for s in _syms(source)]
+    assert rows == [
+        ("u.pas::TProc#type~1", "type TProc"),
+        ("u.pas::TProc#type~2", "type TProc<T>"),
+        ("u.pas::TProc#type~3", "type TProc<T1, T2>"),
+    ], rows
+
+
 def test_a_free_generic_function_is_named_without_its_parameters():
     source = "unit U;\ninterface\nimplementation\nfunction Max<T>(a, b: T): T;\nbegin\nend;\nend.\n"
     rows = [(s.id, s.kind) for s in _syms(source)]

@@ -12705,7 +12705,8 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 ))
         elif node.type == "declType":
-            name = _declared_name(_first_child_of_type(node, "identifier", "genericTpl"))
+            name_node = _first_child_of_type(node, "identifier", "genericTpl")
+            name = _declared_name(name_node)
             cls = _first_child_of_type(node, "declClass", "declRecord", "declHelper")
             if name:
                 # A helper (`class helper for TA`) extends a type and is not one
@@ -12717,7 +12718,10 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
                     kind=kind, language="pascal",
-                    signature=f"type {name}",
+                    # The type parameters live here, not in the name: `TProc`
+                    # and `TProc<T>` are both `TProc` (ordinal twins, as C#'s
+                    # `Action`/`Action<T>` are) and this is what tells them apart.
+                    signature=f"type {' '.join(_text(name_node).split())}",
                     docstring="",
                     parent=owner_id,
                     line=node.start_point[0] + 1,
