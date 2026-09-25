@@ -71,7 +71,7 @@ full-rate rewrite for every user. A larger or drifting surface is a cost the
 operator sees on every request.
 Metric: `tools/list` token weight per surface (`benchmarks/schema_baseline.json`), the `core_compact` hard ceiling, the byte-pinned `counter` surface, and the description-smell gate.
 Method: `PYTHONPATH=src python -m pytest tests/test_schema_budget.py tests/test_counter_surface_stability.py tests/test_schema_baseline_transcription.py tests/test_description_smells.py tests/test_catalog_moratorium.py -q`; regenerate the baseline with `python benchmarks/harness/capture_schema_baseline.py` only when a change is accepted.
-Current: counter 939 tokens vs full_full 22,741 (95.9% avoided); core_compact 3,885 in the baseline, live gate at 3,998 of 4,000 per `CLAUDE.md` (#571); counter surface 6 tools, 4,184 B, byte-pinned; live drift vs baseline at most 4.5% (full_compact) on 2026-09-03; route@1 71.2% on the human corpus against a 60% moratorium bar.
+Current: counter 939 tokens vs full_full 22,741 (95.9% avoided); core_compact 3,885 in the baseline, live gate at 3,998 of 4,000 per `CLAUDE.md` (#571); counter surface 6 tools, 4,184 B, byte-pinned; live drift vs baseline at most 4.5% (full_compact) on 2026-09-03; route@1 71.2% on the human corpus, which is measured and NOT gated; the route gate is [`route.control_at1`] on the held-out CONTROL subset (Floor line below).
 Floor: core_compact at or under the [`schema.core_compact_ceiling`] (4,000 at set time); every profile within [`schema.drift_tolerance`] of the committed baseline; counter surface byte-identical to its pin; counter avoids at least [`counter.saving_min`] of `full_full`; **route@1 on the held-out CONTROL subset at or above its pre-fix baseline [`route.control_at1`, floor 40.0, target 55.0]. CORRECTION 2026-09-03 (FINDINGS F-02): the earlier "route@1 >= 60%" was never a gate, and 55% is the moratorium EXIT bar, a target.**
 Target: core_compact back under 3,800 to recover editing headroom (the ceiling is currently 2 tokens away).
 Status: MEASURED.
@@ -230,7 +230,7 @@ following holds on the same job and same corpus as the committed value:
 4. `core_compact` exceeds 4,000 tokens, or any surface moves more than 5% from `schema_baseline.json` without a regenerated baseline and a CHANGELOG entry that states the cache-write cost.
 5. The `counter` surface bytes change without a CHANGELOG entry.
 6. Any repo's `jmunch_total_tokens` in the token benchmark rises more than 10% above its committed value, or the grand ratio vs grep-top-3 falls below 20x.
-7. Route@1 on the human corpus falls below 60%.
+7. Route@1 on the held-out CONTROL subset of `benchmarks/route_recall/holdout.json` falls below the [`route.control_at1`] floor (the regression assertion in `tests/test_catalog_moratorium.py`). Its target is the moratorium EXIT bar, not a regression line, and the human corpus is measured, not gated (#715).
 8. `ruff check src/` reports any error.
 9. Coverage falls below 74%.
 10. Any sdist canary or root-allowlist test fails, or the CI tar grep finds a credential path.

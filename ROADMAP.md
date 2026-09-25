@@ -636,6 +636,12 @@ which is an argument about the default, tracked separately from this freeze.
 **Exit conditions, named before the work** (same discipline as Arc 4's
 thresholds — neither side picks the bar after seeing results):
 
+⚠ **Kept as written in 2026-08; the enforced condition 1 is not this text**
+(#715). `tests/test_catalog_moratorium.py` gates route@1 on the held-out
+CONTROL subset of `holdout.json` against `route.control_at1` in
+`harness/thresholds.json`, and the leakage ceiling is its
+`EXIT_MAX_NAME_LEAKAGE`. The numbers below are the record, not the gate.
+
 1. `route@1` >= **60%** on `benchmarks/route_recall/queries.json`;
 2. mean name leakage <= **0.15** at that same measurement;
 3. generated guidance references only actions callable under the active surface.

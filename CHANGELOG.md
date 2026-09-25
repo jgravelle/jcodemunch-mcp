@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed - the route criterion has one authority, and every normative copy names it (#715)
+
+`STANDARD.md` stated the route bar twice, and the two statements disagreed.
+Section 4's Floor line carried the 2026-09-03 correction (FINDINGS F-02): the
+gate is route@1 on the held-out CONTROL subset of `holdout.json`, floor and
+target in `harness/thresholds.json` under `route.control_at1`, and "route@1
+>= 60%" was never a gate. The Definition of Regression, item 7, still read
+"Route@1 on the human corpus falls below 60%". That's a different corpus and
+a different number, so a reviewer reading one section blocked a result the
+other section passed. F-02's fix reached the paragraph that was reported and
+not the second site: Standing lesson 08-19, inside the document that states
+it. Found by an external critique of 1.108.319.
+
+The same retired bar reached contributors. `CONTRIBUTING.md` gave the
+moratorium's exit condition as 60% on the visible `queries.json` and a name
+leakage ceiling of 0.15, and said both were enforced by
+`tests/test_catalog_moratorium.py`. The test gates neither: it reads the
+control subset against `route.control_at1` and holds leakage at its own
+`EXIT_MAX_NAME_LEAKAGE`. Both sites now name those two authorities and
+restate no number. Section 4's "Current:" line keeps its 71.2% measurement
+and no longer calls 60% a bar.
+
+⚠⚠ `tests/test_route_criterion_has_one_authority.py` checks the property over
+every tracked Markdown file, not the two reported lines. A block that gives
+route@1 a bar with a percentage must name `route.control_at1`, or quote only
+that entry's floor or target and name the control subset. A right number on
+the wrong corpus fails too. Dated records keep their numbers, each with its
+reason in the test: CHANGELOG, ISSUE-HISTORY, the harness surveys, FINDINGS
+and ROADMAP. ROADMAP's exemption holds only while its exit-condition block
+carries the note that names the gate.
+
 ### Fixed - `get_changed_symbols` keeps blast radius's verdict, so an empty blast is no longer "no impact" (#718)
 
 `get_changed_symbols(include_blast_radius=True)` answered every changed

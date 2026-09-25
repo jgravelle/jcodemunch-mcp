@@ -170,9 +170,13 @@ the agent to call tools that were not there.
 
 **The moratorium lifts when all three hold:**
 
-1. `route@1` reaches **60%** on `benchmarks/route_recall/queries.json`
-   (baseline **45.8%**);
-2. mean name leakage at that measurement stays at or below **0.15** — a recall
+1. `route@1` on the held-out CONTROL subset of
+   `benchmarks/route_recall/holdout.json` reaches the target of
+   `route.control_at1` in `harness/thresholds.json`, which is the only copy of
+   that bar and of its floor. The visible `queries.json` is measured, not gated:
+   its misses were fixed against it, so scoring there would certify memorisation;
+2. mean name leakage on the held-out corpus stays at or below
+   `EXIT_MAX_NAME_LEAKAGE` in `tests/test_catalog_moratorium.py` — a recall
    bar with no leakage bar is trivially met by writing queries that paraphrase
    tool descriptions, so both move together or neither counts;
 3. generated guidance references only actions callable under the active surface.
