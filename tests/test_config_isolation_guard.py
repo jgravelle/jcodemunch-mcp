@@ -200,7 +200,8 @@ def test_the_sweep_found_the_callers():
 _TWIN_ROOT = "src." + "jcodemunch_mcp"
 
 # Modules allowed to import the twin, named with the reason. Empty is the
-# intended end state; an entry here is a decision, never an omission.
+# intended end state: an entry parks a known defect, so its reason must cite an
+# OPEN issue (#758, `tests/test_gap_ledgers_cite_open_issues.py`).
 TWIN_EXEMPT: dict[str, str] = {}
 
 
