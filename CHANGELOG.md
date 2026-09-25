@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed - a Pascal interface's members are indexed (#845, Pascal half)
+
+`IFoo = interface procedure Bar; property Q: Integer read GetQ; end;` gave
+`type IFoo` and nothing in it, so an interface's methods and properties could
+not be found. Reported by @jgravelle while probing #812.
+
+#812 gave the parser a body walk for the containers it names (`declClass`,
+`declRecord`, and `declHelper` since #844). The grammar spells an interface
+body `declIntf`, so it was never entered. A grammar node the parser never
+names reads as the language having no such thing.
+
+An interface's `procedure`/`function` is now a `method` and its `property` a
+`property`, owned by the interface, including a generic interface
+(`IGen<T>`) and a `dispinterface`. The interface keeps its kind, `type`, so
+no id moves; every member is new. The F# half of #845 is a separate parser
+and a separate change.
+
 ### Fixed - a Pascal method's body is indexed as a method of its class, and a generic class is indexed at all (#844, #846)
 
 A Delphi unit declares `function RunIt: Integer;` inside `TAudit = class` and

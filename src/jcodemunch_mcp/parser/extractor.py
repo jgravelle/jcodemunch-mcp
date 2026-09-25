@@ -12656,7 +12656,10 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # a class-scoped `const` is `constant` (it was emitted BARE before, so
     # that id moves; named under PARSER_GENERATION), every `declProc` in the
     # body is `method`, `declProp` is `property`. A record is walked the same
-    # way, and so is a `class helper for` / `record helper for` (`declHelper`).
+    # way, and so is a `class helper for` / `record helper for` (`declHelper`)
+    # and an `interface` / `dispinterface` (`declIntf`, #845). Only `declClass`
+    # is a `class`; the rest keep `type`, the kind they had before their body
+    # was read, so no container id moves.
     # ⚠⚠ #844/#846: a declaration's name is not always a direct `identifier`.
     # A generic type or routine wraps it in `genericTpl` (`TBox<T>`, whose
     # type parameters belong to the signature), and an implementation-section
@@ -12707,7 +12710,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type == "declType":
             name_node = _first_child_of_type(node, "identifier", "genericTpl")
             name = _declared_name(name_node)
-            cls = _first_child_of_type(node, "declClass", "declRecord", "declHelper")
+            cls = _first_child_of_type(node, "declClass", "declRecord", "declHelper", "declIntf")
             if name:
                 # A helper (`class helper for TA`) extends a type and is not one
                 # of its own kind; it was `type` before its body was read, and

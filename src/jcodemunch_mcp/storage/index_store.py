@@ -401,6 +401,10 @@ INDEX_VERSION = 17
 #   renumbers: `TAudit.RunIt#method` is `~1` beside its body's `~2`,
 #   `TProc#type` is `~1` beside `TProc<T>`, a twin left alone loses its
 #   suffix, and a `~N` can name a DIFFERENT symbol than before.
+#
+#   ⚠⚠ **And #845 (Pascal): an interface's members are indexed.** `declIntf`
+#   is walked, so `IFoo.Bar#method` and `IFoo.Q#property` are new. The
+#   interface stays `IFoo#type`. Nothing moves.
 PARSER_GENERATION = 8
 
 
