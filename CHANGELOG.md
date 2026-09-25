@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - a Nim routine is indexed when its name is exported or an operator (#843)
+
+`proc runIt*(a: Audit): int` wasn't indexed at all, in any of the seven
+routine kinds. The export marker puts the name under `exported_symbol`, and
+`_parse_nim_symbols` asked each routine for a direct `identifier` child. So on
+a real Nim package the indexed functions were the private ones, and the public
+API was missing. The type section and #812's object fields already unwrapped
+the marker. The routine branch was the one reader of three still asking for
+the bare child. Reported by @jgravelle while measuring #812.
+
+The probe found a second wrapper on the same field. An operator's name is
+`accent_quoted` (``proc `$`(a: V): string``), so a plain operator was skipped
+too, and an exported operator nests one wrapper inside the other. The routine
+branch now reads the `name` field and unwraps both. An operator is named
+without its backticks (`$`, `+`), which is what a caller searches for.
+`PARSER_GENERATION` 8, already unreleased, re-parses unchanged Nim files on
+upgrade.
+
 ### Fixed - a PHP enum case is a symbol of its enum (#759)
 
 `enum Suit { case Hearts; case Spades; }` indexed `Suit` and nothing inside

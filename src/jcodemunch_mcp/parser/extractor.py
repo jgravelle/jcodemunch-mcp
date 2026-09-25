@@ -14417,9 +14417,20 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                          "template_declaration", "macro_declaration",
                          "method_declaration", "iterator_declaration",
                          "converter_declaration"):
-            ident = _first_child_of_type(node, "identifier")
-            if ident:
+            # #843: read the `name` FIELD and unwrap it. The export marker puts
+            # the name under `exported_symbol`, and an operator's name is
+            # `accent_quoted` (``proc `+`*``), so asking for a direct
+            # `identifier` child skipped every exported routine and every
+            # operator. The backticks are quoting syntax, not part of the name.
+            ident = node.child_by_field_name("name")
+            if ident is not None and ident.type == "exported_symbol":
+                ident = _first_child_of_type(ident, "identifier", "accent_quoted")
+            name = None
+            if ident is not None and ident.type == "accent_quoted":
+                name = _text(ident).strip("`").strip() or None
+            elif ident is not None and ident.type == "identifier":
                 name = _text(ident)
+            if name:
                 qualified = f"{scope}.{name}" if scope else name
                 kind_map = {
                     "proc_declaration": "proc",
