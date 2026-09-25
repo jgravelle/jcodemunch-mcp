@@ -18,7 +18,9 @@ over.
 symbol's `signature` already carries its parameters and return type as the
 declaration's own text, so wiring them would have added a structured field
 nobody has asked for. Nothing the product returns changes, and no index needs
-rebuilding.
+rebuilding. ⚠ Code that builds its own `LanguageSpec` through the Python API
+and passes any of the three now raises `TypeError`; nothing in this tree
+does.
 
 ⚠⚠ The rule is the property, not the three names.
 `tests/test_every_language_spec_field_has_a_reader.py` fails on any
