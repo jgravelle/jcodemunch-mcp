@@ -644,7 +644,8 @@ unfinished conversation. ⚠ This corrects a mistake we made deliberately —
 consolidating five jdoc issues into one gate cut the open count from 5 to 1 and
 manufactured a single artifact with the power to block a release.
 **Tracker-tidiness and granularity pull in opposite directions; do not optimize
-the count.**
+the count.** ⚠ This splits a REPORTER's issue. A defect a session finds on the
+way is a row in `docs/workflows/LEDGER.md`, not a new issue (jjg, 2026-09-25).
 
 **2. A release is NEVER blocked on an open issue**, including a verification we
 asked for. Done + tested + green ships on schedule, carrying a plain-language

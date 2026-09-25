@@ -232,6 +232,8 @@ def test_the_docs_only_baseline_the_arms_below_perturb_is_met(dod):
     # review round 2
     "src_change_with_a_doc", "hook_change_with_a_doc", "moved_path_not_in_change",
     "changed_doc_did_not_move", "green_content_stale", "content_now_missing", "content_now_unreadable",
+    # review round 3: arms that isolate the two clauses the others reach first
+    "diff_empty_on_a_tests_only_change", "moved_under_tests",
 ])
 def test_each_docs_only_clause_fails_closed_alone(dod, case):
     rs, gs = _docs_pair(dod)
@@ -265,8 +267,24 @@ def test_each_docs_only_clause_fails_closed_alone(dod, case):
         kw["content_now"] = None
     elif case == "content_now_unreadable":
         kw["content_now"] = dod.UNREADABLE_PREFIX + "0123abcd"
+    elif case == "diff_empty_on_a_tests_only_change":
+        # No non-code path to leave unmoved, so only `if not moved` can refuse.
+        differ = lambda a, b: []  # noqa: E731
+        kw["changed"] = ["tests/test_x.py"]
+    elif case == "moved_under_tests":
+        # A tests/ file untracked at red and tracked at green: `tree_id` counts
+        # untracked files and `content_tree` does not, so the tier trees match
+        # while the content trees differ under a code root. Inside the change,
+        # so only `if inside` can refuse.
+        differ = lambda a, b: ["CHANGELOG.md", "docs/a.md", "tests/test_x.py"]  # noqa: E731
     verdict, ev = _docs_row1(dod, rs, gs, differ, **kw)
     assert verdict == "unmet", (case, ev)
+    # Two clauses would also fail closed through a later one; the reason names
+    # which question went unanswered, so it is pinned (round 3's mutants).
+    if case == "diff_failed":
+        assert "could not compare" in ev, ev
+    elif case == "diff_empty_on_a_tests_only_change":
+        assert "names no path" in ev, ev
 
 
 def test_stamp_records_the_content_tree(dod, tmp_path, monkeypatch):

@@ -59,7 +59,9 @@ DATED_RECORDS = {
 #: ROADMAP's one dated record: the 2026-08 exit conditions, kept as written.
 ROADMAP_RECORD = "## Catalog moratorium"
 
-_ROUTE = re.compile(r"route@1", re.I)
+_ROUTE = re.compile(r"route\s*(?:recall\s*)?@\s*1", re.I)
+#: A bar written as a ratio ("route@1 >= 0.60"), read as its percentage.
+_RATIO = re.compile(r"(?i)(?:>=|≥|at\s+least|reach(?:es)?)\s*\*{0,2}(0?\.\d+)\b")
 _BAR = re.compile(
     r"(?i)\b(bars?|floors?|gate[sd]?|gating|falls?\s+below|reach(es)?|at\s+(or\s+)?(above|below|least|most)"
     r"|exit|minimum|min|maximum|max|must|needs?|requires?|should|hits?|above|below|under|threshold|ceiling|target)\b"
@@ -69,15 +71,16 @@ _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", re.I)
 #: A retired spelling QUOTED in a correction ('the earlier "route@1 >= 60%" was never a gate').
 _QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 #: The id with a comparator: the number must be the entry's floor (`route.control_at1>=55` was not).
-_ID_COMPARED = re.compile(r"route\.control_at1`?\s*(?:>=|≥)\s*(\d+(?:\.\d+)?)")
+_ID_COMPARED = re.compile(r"route\.control_at1`?\s*,?\s*(?:>=|≥|floor)\s*(\d+(?:\.\d+)?)")
 #: The control subset named as route@1's corpus, not merely present in the sentence.
 _CONTROL_CORPUS = re.compile(
     r"(?i)control[-\s]+(subset\s+)?route@1|route@1\s+(on\s+|over\s+)?(the\s+)?(held-out\s+)?control"
 )
 _LEAK = re.compile(r"(?i)leakage")
 _LEAK_BAR = re.compile(
-    r"(?i)(?:at\s+or\s+below|at\s+most|<=|≤|<|ceiling|under|below|max(?:imum)?|stays?)[^0-9\n]{0,24}?"
-    r"(?P<n>\d+(?:\.\d+)?)\s*(?P<pct>%|percent\b)?"
+    r"(?i)(?:at\s+or\s+below|at\s+most|<=|≤|<|ceiling|under|below|max(?:imum)?|stays?|exceed|bar\s+of)"
+    r"[^0-9\n]{0,24}?(?P<n>\d+(?:\.\d+)?)\s*(?P<pct>%|percent\b)?"
+    r"|(?P<n2>\d+(?:\.\d+)?)\s*(?P<pct2>%|percent\b)?\s+or\s+less"
 )
 
 
@@ -132,7 +135,9 @@ def _route_violations(text: str) -> list[str]:
     for s in _sentences(text):
         if not (_ROUTE.search(s) and _BAR.search(s)):
             continue
-        pcts = [float(m) for m in _PERCENT.findall(_QUOTED.sub("", s))]
+        unquoted = _QUOTED.sub("", s)
+        pcts = [float(m) for m in _PERCENT.findall(unquoted)]
+        pcts += [round(float(m) * 100, 6) for m in _RATIO.findall(unquoted)]
         if not pcts:
             continue
         if ROUTE_ID in s:
@@ -169,7 +174,8 @@ def _leak_violations(text: str) -> list[str]:
         if not _LEAK.search(s) or "EXIT_MAX_NAME_LEAKAGE" in s:
             continue
         for m in _LEAK_BAR.finditer(s[_LEAK.search(s).start():]):
-            value = float(m.group("n")) / (100 if m.group("pct") else 1)
+            n, pct = (m.group("n"), m.group("pct")) if m.group("n") else (m.group("n2"), m.group("pct2"))
+            value = float(n) / (100 if pct else 1)
             if abs(value - ceiling) > 1e-9:
                 bad.append(s)
                 break
@@ -252,6 +258,11 @@ def test_roadmap_earns_its_exclusion():
     "Route@1 needs 60% on the human corpus.",
     "route@1 should hit 60 percent on queries.json.",
     "Initial entries: `route.control_at1>=55` (corrected from the standard's 60).",
+    # review round 3
+    "route @1 must reach 60% on queries.json.",
+    "Route recall@1 must reach 60% on queries.json.",
+    "the gate: route@1 >= 0.60 on queries.json.",
+    "The floor is `route.control_at1` floor 55.",
 ])
 def test_the_scan_sees_every_old_spelling(planted):
     """Non-vacuity: each retired spelling is caught, including a right number on the wrong corpus."""
@@ -264,6 +275,10 @@ def test_the_scan_sees_every_old_spelling(planted):
     "Name leakage max 0.15.",
     "The name-leakage ceiling is 0.15.",
     "Leakage of tool names must stay at or below 0.15.",
+    # review round 3
+    "Leakage must not exceed 0.2.",
+    "Name leakage of 0.2 or less is required.",
+    "It holds a leakage bar of 0.20.",
 ])
 def test_the_leak_scan_sees_every_old_spelling(planted):
     assert _leak_violations(planted), planted

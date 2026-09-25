@@ -8,11 +8,18 @@ is opened only for:
 - a defect a user reported, or
 - a user-visible wrong answer that jjg picks for the tracker.
 
-**Why.** From 2026-09-11 to 2026-09-25, 121 issues were opened. Sessions filed
-109 of them from jjg's account. Users filed 5. In the same period, 99 issues
-were closed. In one window a session closed 4 issues and filed 10 (#869–#879).
-Policy 1 splits each finding into its own issue, so the fix loop kept creating
-its own backlog.
+**Why.** Measured on 2026-09-25 with
+`gh issue list --state all --search "created:>=2026-09-11"` and the matching
+`closed:` query:
+- 121 issues were opened. jjg's account filed 109 of them, and sessions wrote
+  those. Users filed 5.
+- 99 issues were closed.
+- Between 11:19Z and 15:10Z on 2026-09-25, one session filed 9 issues (#869,
+  #871, #872, #874 to #879). 3 issues closed in that window (#719, #725,
+  #726).
+
+Policy 1 split each review finding into its own issue, so the fix loop kept
+creating its own backlog.
 
 **What this is not.**
 - It is not a place to hide a defect. A row stays until the defect is fixed
@@ -43,4 +50,4 @@ with jjg's reason. Keep the row. To promote a row to an issue, set Status to
 | ID | Found | Finding | Where | Kind | Severity | Status |
 |---|---|---|---|---|---|---|
 | L-01 | 2026-09-25, #715 | `assemble_task_context`'s tectonic stage keeps only anchor, file count, cohesion, directory and nexus flag for each plate. It drops `coupled_to`, the pairwise plate coupling that `get_tectonic_map` has already computed. A task capsule can't say which clusters the task's plates depend on. | `src/jcodemunch_mcp/tools/assemble_task_context.py` `_stage_tectonic` | enhancement | low | OPEN |
-| L-02 | 2026-09-25, #715 | A test that runs `git` with `text=True` and no `encoding` decodes the output with the locale codepage (cp1252 on Windows). cp1252 leaves five bytes undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D), so any UTF-8 character with one of them in its encoding fails to decode. The failure raises in the reader thread and `stdout` comes back `None`. #715 fixed `test_retirement_ledger._git`: a `”` (U+201D, which contains 0x9D) crashed it. A `grep` found about 15 more single-line call sites without an explicit encoding. Most read ASCII output from fixture repos, so the risk is latent. A call that reads this repo's own diffs or file content is the exposed shape. | `tests/*.py` (`subprocess.run(["git", ...], text=True)`) | test | low | OPEN |
+| L-02 | 2026-09-25, #715 | A test that runs `git` with `text=True` and no `encoding` decodes the output with the locale codepage (cp1252 on Windows). cp1252 leaves five bytes undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D), so any UTF-8 character with one of them in its encoding fails to decode. The failure raises in the reader thread and `stdout` comes back `None`. #715 fixed `test_retirement_ledger._git`: a `”` (U+201D, which contains 0x9D) crashed it. `grep -nE '"git"' tests/*.py | grep text=True | grep -v encoding` finds 13 more single-line call sites. Most read ASCII output from fixture repos, so the risk is latent. A call that reads this repo's own diffs or file content is the exposed shape. | `tests/*.py` (`subprocess.run(["git", ...], text=True)`) | test | low | OPEN |
