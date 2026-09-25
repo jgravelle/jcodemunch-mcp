@@ -26,7 +26,16 @@ import re
 import subprocess
 import sys
 
-from _common import EVIDENCE, REPO, UNREADABLE_PREFIX, git, paths_for, tree_id
+from _common import (
+    EVIDENCE,
+    REPO,
+    UNREADABLE_PREFIX,
+    content_tree,
+    git,
+    paths_for,
+    tree_diff_paths,
+    tree_id,
+)
 
 RATE_KEY_RE = re.compile(
     r'^\+.*["\'](\w+_(?:pct|rate|share)|confidence)["\']\s*:', re.M
@@ -105,8 +114,11 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def make_stamp(kind: str, text: str, branch: str, tree: str) -> dict:
-    return {"kind": kind, "branch": branch, "tree": tree, "sha256": _sha(text)}
+def make_stamp(kind: str, text: str, branch: str, tree: str, *, content: str | None = None) -> dict:
+    stamp = {"kind": kind, "branch": branch, "tree": tree, "sha256": _sha(text)}
+    if content is not None:
+        stamp["content_tree"] = content  # #715: every tracked file, not only the code roots
+    return stamp
 
 
 def current_branch() -> str:
@@ -124,14 +136,49 @@ def write_stamp(kind: str) -> int:
         # UNKNOWN is not a tree: a random id would always "differ" from green's.
         print(f"dod_checklist: the tree could not be read; evidence/{kind}.txt is not stamped", file=sys.stderr)
         return 2
-    stamp = make_stamp(kind, text, current_branch(), tree)
+    stamp = make_stamp(kind, text, current_branch(), tree, content=content_tree())
     (EVIDENCE / f"{kind}.stamp.json").write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     print(f"stamped evidence/{kind}.txt: branch={stamp['branch']} tree={stamp['tree'][:12]}")
     return 0
 
 
+def _outside_code_roots_only(red_stamp: dict, green_stamp: dict, diff_paths) -> tuple[list[str] | None, str]:
+    """#715: equal tier trees are a genuine pair when the fix lives outside the code roots.
+
+    A docs correction guarded by a new test has ONE tier tree for red and green
+    by construction. The content trees (every tracked file) must differ, git
+    must be able to name what moved, and nothing that moved may sit under a
+    code root, since the tier tree would have seen that. Every UNKNOWN fails
+    closed. Returns (moved paths, "") or (None, why not).
+    """
+    a, b = red_stamp.get("content_tree"), green_stamp.get("content_tree")
+    for kind, c in (("red", a), ("green", b)):
+        if not isinstance(c, str) or not c:
+            return None, f"evidence/{kind}.txt's stamp carries no content tree; re-stamp it"
+        if c.startswith(UNREADABLE_PREFIX):
+            return None, f"evidence/{kind}.txt's content tree could not be read (fail closed)"
+    if a == b:
+        return None, "red and green ran on identical content, so red did not run on the pre-change tree"
+    moved = diff_paths(a, b)
+    if moved is None:
+        return None, "git could not compare the red and green content trees (fail closed)"
+    if not moved:
+        return None, "git names no path between the red and green content trees (fail closed)"
+    inside = [p for p in moved if p.startswith(CODE_ROOTS)]
+    if inside:
+        return None, f"the content trees differ under a code root the tier tree did not see: {inside[:3]}"
+    return moved, ""
+
+
 def row1_binding(
-    red: str, green: str, red_stamp: dict | None, green_stamp: dict | None, *, branch: str, tree: str
+    red: str,
+    green: str,
+    red_stamp: dict | None,
+    green_stamp: dict | None,
+    *,
+    branch: str,
+    tree: str,
+    diff_paths=tree_diff_paths,
 ) -> str | None:
     """None when the pair belongs to this change; otherwise why it does not."""
     if red_stamp is None or green_stamp is None:
@@ -154,7 +201,9 @@ def row1_binding(
             f"the tree now is {tree[:12]}; re-run green and stamp it"
         )
     if red_stamp.get("tree") == green_stamp.get("tree"):
-        return "evidence/red.txt ran on the same tree as green.txt, so it did not run on the pre-change tree"
+        moved, why = _outside_code_roots_only(red_stamp, green_stamp, diff_paths)
+        if moved is None:
+            return f"evidence/red.txt ran on the same code-root tree as green.txt, and {why}"
     return None
 
 
@@ -167,13 +216,19 @@ def row1(
     *,
     branch: str,
     tree: str,
+    diff_paths=tree_diff_paths,
 ) -> tuple[str, str]:
     """Row 1 with the pair held to this change, then graded by row1_verdict."""
     if red is None or green is None:
         return row1_verdict(changed, red, green)
-    why = row1_binding(red, green, red_stamp, green_stamp, branch=branch, tree=tree)
+    why = row1_binding(red, green, red_stamp, green_stamp, branch=branch, tree=tree, diff_paths=diff_paths)
     if why is None:
-        return row1_verdict(changed, red, green)
+        verdict, ev = row1_verdict(changed, red, green)
+        if red_stamp.get("tree") == green_stamp.get("tree"):
+            moved, _ = _outside_code_roots_only(red_stamp, green_stamp, diff_paths)
+            shown = ", ".join((moved or [])[:5]) + (f" (+{len(moved) - 5} more)" if moved and len(moved) > 5 else "")
+            ev += f"; red and green share a code-root tree and differ only outside it (#715): {shown}"
+        return verdict, ev
     if not any(c.startswith(CODE_ROOTS) for c in changed):
         return "n.a.", f"no change under a code root; the red/green pair on disk is not this change's ({why})"
     return "unmet", why

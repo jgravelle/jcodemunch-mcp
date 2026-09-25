@@ -179,3 +179,83 @@ def test_stamp_refuses_without_the_output(dod, tmp_path, monkeypatch):
     monkeypatch.setattr(dod, "tree_id", lambda: RED_TREE)
     assert dod.write_stamp("red") != 0
     assert not (tmp_path / "red.stamp.json").exists()
+
+
+# --------------------------------------------------------------------------- #
+# #715: a fix that lives outside the code roots (a docs-only correction whose  #
+# guard is a new test) has ONE tier-path tree for red and green by            #
+# construction, so the clause above refused a genuine pair. The stamp also    #
+# records a content tree over every tracked file; equal tier trees pass only  #
+# when the content trees differ, and only outside the code roots.            #
+# --------------------------------------------------------------------------- #
+
+RED_CONTENT = "1" * 40
+GREEN_CONTENT = "2" * 40
+
+
+def _docs_pair(dod, red_content=RED_CONTENT, green_content=GREEN_CONTENT):
+    rs = dod.make_stamp("red", RED, BRANCH, GREEN_TREE, content=red_content)
+    gs = dod.make_stamp("green", GREEN, BRANCH, GREEN_TREE, content=green_content)
+    return rs, gs
+
+
+def test_a_docs_only_fix_with_differing_content_is_met_and_names_the_paths(dod):
+    rs, gs = _docs_pair(dod)
+    verdict, ev = dod.row1(
+        ["docs/standard/STANDARD.md", "tests/test_x.py"], RED, GREEN, rs, gs,
+        branch=BRANCH, tree=GREEN_TREE, diff_paths=lambda a, b: ["docs/standard/STANDARD.md"],
+    )
+    assert verdict == "met", ev
+    assert "docs/standard/STANDARD.md" in ev, ev
+
+
+@pytest.mark.parametrize("case", ["same_content", "no_content", "content_unreadable", "diff_failed", "diff_in_code_root", "diff_empty"])
+def test_each_docs_only_clause_fails_closed_alone(dod, case):
+    rs, gs = _docs_pair(dod)
+    differ = lambda a, b: ["docs/standard/STANDARD.md"]  # noqa: E731
+    if case == "same_content":
+        rs, gs = _docs_pair(dod, red_content=GREEN_CONTENT)
+    elif case == "no_content":
+        rs = dod.make_stamp("red", RED, BRANCH, GREEN_TREE)
+    elif case == "content_unreadable":
+        rs, gs = _docs_pair(dod, red_content=dod.UNREADABLE_PREFIX + "0123abcd")
+    elif case == "diff_failed":
+        differ = lambda a, b: None  # noqa: E731
+    elif case == "diff_in_code_root":
+        differ = lambda a, b: ["docs/a.md", "src/jcodemunch_mcp/x.py"]  # noqa: E731
+    elif case == "diff_empty":
+        differ = lambda a, b: []  # noqa: E731
+    verdict, ev = dod.row1(
+        ["docs/a.md", "tests/test_x.py"], RED, GREEN, rs, gs,
+        branch=BRANCH, tree=GREEN_TREE, diff_paths=differ,
+    )
+    assert verdict == "unmet", (case, ev)
+
+
+def test_stamp_records_the_content_tree(dod, tmp_path, monkeypatch):
+    monkeypatch.setattr(dod, "EVIDENCE", tmp_path)
+    monkeypatch.setattr(dod, "current_branch", lambda: BRANCH)
+    monkeypatch.setattr(dod, "tree_id", lambda: GREEN_TREE)
+    contents = iter([RED_CONTENT, GREEN_CONTENT])
+    monkeypatch.setattr(dod, "content_tree", lambda: next(contents))
+    (tmp_path / "red.txt").write_text(RED, encoding="utf-8")
+    (tmp_path / "green.txt").write_text(GREEN, encoding="utf-8")
+    assert dod.write_stamp("red") == 0 and dod.write_stamp("green") == 0
+    rs = json.loads((tmp_path / "red.stamp.json").read_text(encoding="utf-8"))
+    gs = json.loads((tmp_path / "green.stamp.json").read_text(encoding="utf-8"))
+    assert (rs["content_tree"], gs["content_tree"]) == (RED_CONTENT, GREEN_CONTENT)
+
+
+def test_the_content_tree_is_a_real_git_tree_the_differ_can_read():
+    """Unmocked: the id names a tree object, so `git diff-tree` can list what moved."""
+    sys.path.insert(0, str(HOOKS))
+    try:
+        import _common
+    finally:
+        sys.path.remove(str(HOOKS))
+    a = _common.content_tree()
+    assert not a.startswith(_common.UNREADABLE_PREFIX), a
+    assert len(a) == 40 and all(c in "0123456789abcdef" for c in a), a
+    assert _common.content_tree() == a, "two reads of an unchanged tree disagree"
+    assert _common.tree_diff_paths(a, a) == []
+    assert _common.tree_diff_paths(a, "0" * 40) is None, "an unreadable tree must be UNKNOWN, not 'no change'"

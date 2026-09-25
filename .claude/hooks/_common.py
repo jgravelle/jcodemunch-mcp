@@ -303,6 +303,55 @@ def tree_id() -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:24]
 
 
+def content_tree() -> str:
+    """A git tree id over EVERY tracked file's working-copy content (#715).
+
+    `tree_id` answers what the full tier depends on, so a fix that lives
+    outside the code roots (a docs correction guarded by a new test) has one
+    tier tree for its red and its green run by construction. This id covers
+    those files too, and it is a real tree object, so `tree_diff_paths` can
+    name what moved between two runs. Tracked files only (`add -u`): the
+    harness's untracked footprint (`.coverage.*`) never moves it.
+    Same throwaway-index and fail-closed rules as `tree_id`.
+    """
+    scratch = None
+    try:
+        fd, scratch = tempfile.mkstemp(prefix="content-tree-", suffix=".index")
+        os.close(fd)
+        real_index = git_env(
+            dict(os.environ), "rev-parse", "--path-format=absolute", "--git-path", "index"
+        ).strip()
+        if real_index and os.path.exists(real_index):
+            shutil.copy2(real_index, scratch)  # copy2: the racy-clean rule in tree_id
+        else:
+            os.unlink(scratch)
+        env = {**os.environ, "GIT_INDEX_FILE": scratch}
+        git_env(env, "add", "-u")
+        return git_env(env, "write-tree").strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = (getattr(exc, "stderr", None) or str(exc)).strip()
+        print(f"content_tree: could not read the tree under {REPO}: {detail}", file=sys.stderr)
+        return UNREADABLE_PREFIX + os.urandom(8).hex()
+    finally:
+        if scratch and os.path.exists(scratch):
+            try:
+                os.unlink(scratch)
+            except OSError:
+                pass  # a leaked temp index costs disk, never the verdict
+
+
+def tree_diff_paths(a: str, b: str) -> list[str] | None:
+    """Paths that differ between two tree ids; None when git cannot compare them.
+
+    None is UNKNOWN, never "nothing moved": `tree_diff_paths(x, x)` is `[]`.
+    """
+    try:
+        out = git_env(dict(os.environ), "diff-tree", "-r", "--name-only", a, b)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [p for p in out.splitlines() if p]
+
+
 class Budget:
     def __init__(self, seconds: float):
         self.seconds = seconds
