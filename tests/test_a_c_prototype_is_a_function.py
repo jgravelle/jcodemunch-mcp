@@ -155,10 +155,13 @@ def test_a_block_scope_prototype_stays_at_file_scope_in_c():
 
 
 def test_a_multi_declarator_prototype_binds_what_cpp_binds():
-    """Measured, pinned as found: both languages bind the FIRST name only
-    (#817's mechanism; C++'s answer predates this change)."""
+    """Both languages bind BOTH names (#852). Pinned as found by #835, when
+    both bound the first only; this row was the defect's witness (Practice
+    9), so it is inverted, keeping its C-equals-C++ assertion."""
     source = "int f(int), g(int);\n"
-    assert _rows(source, "c", "a.c") == _rows(source, "cpp", "a.cpp") == [("function", "f", 0, 19)]
+    assert _rows(source, "c", "a.c") == _rows(source, "cpp", "a.cpp") == [
+        ("function", "f", 0, 19), ("function", "g", 0, 19),
+    ]
 
 
 def test_definitions_types_and_typedefs_are_unchanged_in_c():

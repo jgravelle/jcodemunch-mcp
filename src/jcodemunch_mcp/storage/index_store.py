@@ -449,6 +449,13 @@ INDEX_VERSION = 17
 #   `y#function` and `void (*ga)(int), gb(int);` in C gives `gb#function`,
 #   where all three gave nothing. ORDINALS renumber wherever a
 #   name's set changed. A file-scope `int (*gfp)(int);` stays (#755).
+#
+#   ⚠⚠ **And #852: a C-family prototype list binds every name.** NEW: `g#function`
+#   beside `f#function` for `int f(int), g(int);`, at every scope a
+#   `declaration` reaches, in C, C++ and Arduino. ORDINALS: a C++ overload
+#   pair `int f(int), f(double);` is `f#function~1`/`~2` where it was
+#   `f#function`. A later declarator whose parameter could be a constructor
+#   argument (a type name with no declared parameter name) binds nothing extra.
 PARSER_GENERATION = 8
 
 

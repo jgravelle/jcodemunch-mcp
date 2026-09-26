@@ -690,8 +690,9 @@ def _walk_tree(
                 # declarator's name -- the DECLARATION's bytes for every name,
                 # deliberately (a C declarator does not carry the base type
                 # that says what the name is; the decision is recorded in
-                # `tests/test_a_c_typedef_binds_every_name.py`).
-                for extra in _typedef_extra_names(node, spec, source_bytes):
+                # `tests/test_a_c_typedef_binds_every_name.py`). #852: a
+                # prototype list (`int f(int), g(int);`) the same way.
+                for extra in _extra_declared_names(node, spec, source_bytes):
                     prefix = symbol.qualified_name[: len(symbol.qualified_name) - len(symbol.name)]
                     qualified = prefix + extra
                     symbols.append(
@@ -2405,16 +2406,26 @@ def _c_declarator_name(name_node, source_bytes: bytes) -> str:
 _C_FAMILY_TYPEDEF_LANGUAGES = frozenset({"c", "cpp", "arduino"})
 
 
-def _typedef_extra_names(node, spec: LanguageSpec, source_bytes: bytes) -> list[str]:
-    """Every name a `typedef int A, B;` binds AFTER the first (#823).
+def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes) -> list[str]:
+    """Every name a C-family node binds beyond the one its symbol is named by:
+    `typedef int A, B;` (#823) and a prototype list `int f(int), g(int);`
+    (#852).
 
     ⚠⚠ `_extract_symbol` returns one symbol per node and `name_fields` reads
-    `child_by_field_name("declarator")`, which is the FIRST declarator, so a
-    declaration binding N names yielded one -- #817's mechanism one language
-    over, in three spec copies (#698). Each declarator goes through the SAME
-    unwrap `_extract_name` uses for the first, so the two cannot drift.
+    one declarator, so a declaration binding N names yielded one -- #817's
+    mechanism one language over, in three spec copies (#698). Each declarator
+    goes through the SAME unwrap `_extract_name` uses for the first, so the
+    two cannot drift.
+
+    ⚠ In a `declaration` only a declarator that is itself a bare prototype
+    binds a function (`int f(int), x;` is `f` alone, as a lone `int x;` emits
+    nothing), the one the symbol is already named by is skipped (#850 may name
+    it by a later declarator), and a declaration the grammar could not parse
+    keeps its old single answer.
     """
-    if node.type != "type_definition" or spec.ts_language not in _C_FAMILY_TYPEDEF_LANGUAGES:
+    if spec.ts_language not in _C_FAMILY_TYPEDEF_LANGUAGES:
+        return []
+    if node.type not in ("type_definition", "declaration"):
         return []
     declarators = node.children_by_field_name("declarator")
     if len(declarators) < 2:
@@ -2424,7 +2435,48 @@ def _typedef_extra_names(node, spec: LanguageSpec, source_bytes: bytes) -> list[
         if spec.ts_language in ("cpp", "arduino")
         else (lambda d: _c_declarator_name(d, source_bytes))
     )
-    return [n for n in (unwrap(d) for d in declarators[1:]) if n]
+    if node.type == "type_definition":
+        return [n for n in (unwrap(d) for d in declarators[1:]) if n]
+    if node.has_error:
+        return []
+    named = declarators[0]
+    if _later_prototype(node):
+        named = _c_family_function_declarator(node) or named
+    return [
+        n for n in (
+            unwrap(d) for d in declarators
+            if d.id != named.id and _cpp_declarator_is_function(d)
+            and not _parameters_could_be_arguments(d)
+        ) if n
+    ]
+
+
+#: Type nodes that make a lone, unnamed parameter a TYPE rather than a value.
+_UNAMBIGUOUS_PARAMETER_TYPES = frozenset({"primitive_type", "sized_type_specifier"})
+
+
+def _parameters_could_be_arguments(function_declarator) -> bool:
+    """Could this `name(...)` be a constructor call the grammar spelled as a
+    prototype (#852)? `JsonString a(s1), b(s2);` parses exactly like
+    `T f(U), g(V);`: a parameter that is a type NAME with no declared
+    parameter name (`(s1)`, `(Foo)`, `(inputs[j])`, `(const Foo&)`) cannot be
+    told from an argument, so an extra name is not bound for it. A primitive
+    type, a named parameter, `(void)` and `()` are unambiguous. (The FIRST declarator's shape is
+    LEDGER L-21, unchanged here.)"""
+    params = function_declarator.child_by_field_name("parameters")
+    if params is None:
+        return False
+    for param in params.named_children:
+        if param.type != "parameter_declaration":
+            continue
+        named = [c for c in param.named_children if c.type not in ("type_qualifier", "comment")]
+        if not named or named[0].type in _UNAMBIGUOUS_PARAMETER_TYPES:
+            continue
+        # A type NAME with no declared parameter name, only an abstract
+        # declarator or none: `(s1)`, `(inputs[j])`, `(const Foo&)`.
+        if all(c.type.startswith("abstract_") for c in named[1:]):
+            return True
+    return False
 
 
 def _swift_bound_identifier(pattern_node, source_bytes: bytes) -> Optional[str]:
