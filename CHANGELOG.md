@@ -23,8 +23,13 @@ The walk now adopts a spilled getter or setter as the property's own child
 (the same test #807 uses to find it, shared rather than repeated), with any
 comments and annotations between them. A `by` delegate on its own line spills
 the same way (`val vm: VM` / `by lazy { object { ... } }`) and is adopted
-under #807's gate, which allows no initializer and no `;` before it. Only
-the Kotlin walk does this bookkeeping. The split form answers exactly what
+under #807's gate, which allows no initializer and no `;` before it. In a
+class body the grammar also ends the class at an own-line delegate, so the
+members after it are still filed at file scope, as on main (LEDGER L-33).
+Only a Kotlin file or class body does this bookkeeping. It costs a Kotlin file
+with no spilled accessor about 5% of `parse_file` (a synthetic 3,000-class file:
+466.5 to 478.2 ms on main, 491.4 to 495.3 ms here) and no other language
+anything. The split form answers exactly what
 the one-line form answers: owner, qualified name, kind and span. On four
 Kotlin projects (1,098 files) the one id that moves is the defect on real
 code, okio's `FakeFileSystem.now#method`, a method of the object literal

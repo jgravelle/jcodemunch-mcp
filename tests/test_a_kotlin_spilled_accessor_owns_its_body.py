@@ -20,7 +20,9 @@ Rulings:
 - Comments and annotations between the property and its accessor go with
   the accessor; with no accessor after them nothing is adopted.
 - A `by` delegate on its own line is adopted under #807's gate (no
-  initializer, no `;` before it); nothing follows a delegate.
+  initializer, no `;` before it); nothing follows a delegate. In a class
+  body the grammar ends the class at it, so members AFTER it are still
+  filed at file scope, as on main (LEDGER L-33).
 - The CONSTANT channel owns nothing in either form (`val MAX: Any get() =
   object { val gg = 1 }`), recorded as LEDGER L-32; adoption keeps the two
   forms equal there too.
@@ -149,3 +151,11 @@ def test_a_by_after_an_initializer_or_a_semicolon_is_not_a_delegate(source):
     """#807's gate: a delegate cannot follow an initializer or a `;`."""
     a = next(s for s in parse_file(source, "a.kt", "kotlin") if s.name == "a")
     assert source.encode()[a.byte_offset:a.byte_offset + a.byte_length].count(b"\n") == 0
+
+
+def test_nothing_is_adopted_after_a_delegate():
+    """Review round 2: a delegate ends the property; a line after it is not
+    one of its accessors."""
+    source = "val a: Any\n    by lazy { 1 }\n    get() = 2\n"
+    a = next(s for s in parse_file(source, "a.kt", "kotlin") if s.name == "a")
+    assert a.byte_length == len("val a: Any\n    by lazy { 1 }")

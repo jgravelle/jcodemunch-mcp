@@ -954,12 +954,17 @@ def _walk_tree(
 
     # Recurse into children. #858: a Kotlin accessor spilled into a following
     # sibling is walked as its property's own child, and skipped here.
-    # ⚠ Kotlin only, loop and all: the bookkeeping cost every language ~10%
-    # of `parse_file` when it ran for all of them (review round 1).
-    if language == "kotlin":
-        spilled = _kotlin_adopted_accessors(node, source_bytes)
+    # ⚠ Only where a property can sit, loop and all: the bookkeeping cost
+    # every language ~10% of `parse_file` when it ran for all of them (review
+    # round 1), and Kotlin ~31% when it ran at every Kotlin node (round 2).
+    spilled = (
+        _kotlin_adopted_accessors(node.children, source_bytes)
+        if language == "kotlin" and node.type in _KOTLIN_PROPERTY_PARENTS
+        else None
+    )
+    if spilled:
         taken = {n.id for nodes in spilled.values() for n in nodes}
-        for child in (*node.children, *adopted):
+        for child in node.children:
             if child.id in taken:
                 continue
             accessors = spilled.get(child.id, ())
@@ -972,7 +977,8 @@ def _walk_tree(
             if accessors:
                 _kotlin_cover_adopted(symbols, before, child, accessors[-1], source_bytes)
     else:
-        for child in node.children:
+        # A Kotlin property walks its adopted accessors as its last children.
+        for child in (*node.children, *adopted) if adopted else node.children:
             _walk_tree(
                 child,
                 spec,
@@ -1649,6 +1655,10 @@ def _kotlin_is_spilled_accessor(node, source_bytes: bytes) -> bool:
     (#807's reading, one question shared)."""
     if node.type in ("getter", "setter"):
         return True
+    # Cheap reject before the token walk: the spill starts at `get`/`set` or
+    # at an annotation ahead of it, and this runs after every property.
+    if not _KOTLIN_ACCESSOR_START.match(source_bytes, node.start_byte):
+        return False
     first = _kotlin_first_token(node)
     if source_bytes[first.start_byte:first.end_byte] not in (b"get", b"set"):
         return False
@@ -1657,10 +1667,27 @@ def _kotlin_is_spilled_accessor(node, source_bytes: bytes) -> bool:
 
 
 _KOTLIN_BY = re.compile(rb"by\b")
+_KOTLIN_ACCESSOR_START = re.compile(rb"get\b|set\b|@")
+_KOTLIN_SPILL_START = re.compile(rb"get\b|set\b|by\b|@")
+#: The nodes whose children can be a property with a spilled accessor: a file
+#: and a class, object or enum body. A local `val` cannot have an accessor.
+_KOTLIN_PROPERTY_PARENTS = frozenset({"source_file", "class_body", "enum_class_body"})
 
 
-def _kotlin_adopted_accessors(parent, source_bytes: bytes) -> dict:
-    """`{property node id: (nodes...)}` for every Kotlin property in `parent`
+def _kotlin_gap(source_bytes: bytes, start: int, skipped: list, end: int) -> bytes:
+    """The bytes between `start` and `end` outside the `skipped` nodes (#807's
+    gap: a `;` there forbids a delegate; comments and annotations are not it)."""
+    gap = bytearray()
+    cursor = start
+    for node in skipped:
+        gap += source_bytes[cursor:node.start_byte]
+        cursor = node.end_byte
+    gap += source_bytes[cursor:end]
+    return bytes(gap)
+
+
+def _kotlin_adopted_accessors(children, source_bytes: bytes) -> dict:
+    """`{property node id: (nodes...)}` for every Kotlin property among `children`
     whose accessors the grammar spilled into following SIBLINGS (#858).
 
     ⚠⚠ A getter or setter on its own line is a sibling of the property, so
@@ -1678,31 +1705,33 @@ def _kotlin_adopted_accessors(parent, source_bytes: bytes) -> dict:
     property with neither takes one, and nothing follows it (review round 1).
     """
     adopted: dict = {}
-    children = parent.children
     for index, child in enumerate(children):
         if child.type != "property_declaration":
             continue
-        may_delegate = not any(c.type in ("=", "property_delegate") for c in child.children)
         taken: list = []
         pending: list = []
-        cursor = child.end_byte
-        gap = bytearray()
-        for following in children[index + 1:]:
+        for position in range(index + 1, len(children)):
+            following = children[position]
             if not following.is_named:
                 break
             if following.type in _KOTLIN_SPILL_SKIP:
-                gap += source_bytes[cursor:following.start_byte]
-                cursor = following.end_byte
                 pending.append(following)
                 continue
-            gap += source_bytes[cursor:following.start_byte]
-            cursor = following.end_byte
+            # One byte match settles the ordinary case (this runs after every
+            # property): a spill starts at `get`, `set`, `by` or an annotation.
+            if following.type not in ("getter", "setter") and not _KOTLIN_SPILL_START.match(
+                source_bytes, following.start_byte
+            ):
+                break
             # Read from the sibling's own BYTES: in a class body the grammar
             # error-recovers the delegate into an `ERROR` that keeps no token
-            # for `by lazy`, so a first-token read cannot see it.
+            # for `by lazy`, so a first-token read cannot see it. The gate is
+            # checked only then (this runs after every property).
             if (
-                not taken and may_delegate and b";" not in gap
+                not taken
                 and _KOTLIN_BY.match(source_bytes, following.start_byte)
+                and not any(c.type in ("=", "property_delegate") for c in child.children)
+                and b";" not in _kotlin_gap(source_bytes, child.end_byte, pending, following.start_byte)
             ):
                 taken.extend(pending)
                 taken.append(following)
