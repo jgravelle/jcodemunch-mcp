@@ -2353,12 +2353,12 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         and spec.ts_language in _C_FAMILY_TYPEDEF_LANGUAGES
         and field_name == "declarator"
     ):
-        # #850: when the first declarator certainly binds a variable, the
-        # declaration is named by the one that declares a function
-        # (`void (*hp)(int), helper(int);` is `helper`). Otherwise its first,
-        # which keeps #755's `int (*gfp)(int);` and never renames a shape
-        # only error recovery produces.
-        if name_node is not None and _declarator_binds_variable(name_node):
+        # #850: named by the prototype exactly when the gate took it for one
+        # (`_later_prototype`: a variable first, a bare prototype later, a
+        # clean parse), so `void (*hp)(int), helper(int);` is `helper`.
+        # Otherwise its first, which keeps #755's `int (*gfp)(int);` and never
+        # renames a shape only error recovery produces.
+        if name_node is not None and _later_prototype(node):
             name_node = _c_family_function_declarator(node) or name_node
 
     if name_node:

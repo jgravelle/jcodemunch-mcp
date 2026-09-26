@@ -128,3 +128,11 @@ def test_a_lambda_holding_a_function_declarator_is_not_one(language, filename, s
     """C++ too, not only Arduino: the walk entered the lambda and found the
     prototype in its body or the function pointer in its parameters."""
     assert not {r for r in _rows(source, language, filename) if r[0] in ("g", "gl")}
+
+
+@pytest.mark.parametrize("language, filename", LANGS)
+def test_an_errored_declaration_keeps_its_first_name(language, filename):
+    """Review round 2: the name follows the gate, so a declaration the grammar
+    could not parse is never renamed to its prototype."""
+    rows = _rows("void (*ga)(int), gb(int) @;\n", language, filename)
+    assert ("gb", "function") not in rows, rows

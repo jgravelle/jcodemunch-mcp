@@ -442,8 +442,10 @@ INDEX_VERSION = 17
 #   Arduino, any variable initialised with a lambda holding a function
 #   declarator (Arduino: every lambda), at any scope. RENAME: a declaration
 #   naming a variable then a prototype is the prototype (`void (*ga)(int),
-#   gb(int);`: `ga#function` is `gb#function`). NEW: `int x, y(int);` in C++
-#   and Arduino gives `y#function`, as C does. ORDINALS renumber wherever a
+#   gb(int);` in C++ and Arduino: `ga#function` is `gb#function`). NEW: at
+#   file and block scope, in C, C++ and Arduino alike, `int x, y(int);` gives
+#   `y#function` and `void (*ga)(int), gb(int);` in C gives `gb#function`,
+#   where all three gave nothing. ORDINALS renumber wherever a
 #   name's set changed. A file-scope `int (*gfp)(int);` stays (#755).
 PARSER_GENERATION = 8
 

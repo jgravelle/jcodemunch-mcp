@@ -25,9 +25,8 @@ The gate now never reads inside a lambda. At block scope a declarator whose
 name is certainly bound by a pointer, reference or array is a variable and
 emits nothing, as a local `int x` does. A declaration whose first
 declarator is certainly a variable and whose later one is a bare prototype
-is that prototype, at any scope and in C, C++ and Arduino alike:
-`int x, y(int);` is `y`, and `void (*ga)(int), gb(int);` is `gb` where it
-was `ga`. A shape only error recovery produces keeps the old answer. A
+is that prototype, at file and block scope, in C, C++ and Arduino alike:
+`int x, y(int);` is `y`, and `void (*ga)(int), gb(int);` is `gb`. A shape only error recovery produces keeps the old answer. A
 file-scope `int (*gfp)(int);` stays a `function`, #755's recorded choice
 over an absence.
 
@@ -35,8 +34,9 @@ over an absence.
 4 wrong `function` rows are gone, every one a local variable except a
 function-pointer `typedef` in a class body the grammar misread as a function
 body; no id appears or moves there. The multi-declarator shapes above did
-not occur in that corpus: where they do, a declaration's id renames to the
-prototype, or a C++ declaration that emitted nothing gains one. A name that
+not occur in that corpus. Where they do, a C++ or Arduino declaration's id
+renames to the prototype (`ga` to `gb`), and a declaration that emitted
+nothing in any of the three languages (`int x, y(int);`) gains one. A name that
 shared its set with a removed row renumbers its ordinals. `PARSER_GENERATION`
 8, still unreleased, re-parses unchanged files.
 
