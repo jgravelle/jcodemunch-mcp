@@ -17,7 +17,11 @@ binding was published as a binding. #803 fixed the class expression in the
 generic walk, which neither channel uses. A third hand-written class walk
 would miss the next member form the same way, so the class and everything
 under it now come from `parse_file` over the script, the walk a `.ts` file
-gets, parsed once per block and only when a class is found. Ids keep the
+gets. Every class that walk finds is published once per block, so the spellings
+neither hand walk recognised arrive too: `abstract class`, an anonymous
+`export default class {}` (as `default`), `module.exports = class {}` and
+`X.P = class {}`. A class beside a Vue Options-API object is published now; the
+functions and bindings beside it are still dropped (LEDGER L-36). Ids keep the
 generic qualified names (`Svc#class` is unchanged), lines and bytes address
 the component file, and the class's parent is the component.
 
@@ -26,7 +30,11 @@ and members appear. On 2,020 `.vue` and `.svelte` files from element-plus
 (`f599b62`) and sveltejs/kit (`0107721`) no symbol changed, because none of
 them declares a script class. `PARSER_GENERATION` 8, still unreleased,
 re-parses unchanged files. A class inside a function stays unpublished, as
-before.
+before. A class nested in a method body was published twice, as a bare
+`Inner#class` beside the owned one; only the owned one remains. A Svelte
+`export let C = class {...}` stays a `property` with no members, because a
+prop is an input. With `javascript`/`typescript` disabled and `vue`/`svelte`
+enabled, a class publishes its name without members, as before.
 
 ### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
 

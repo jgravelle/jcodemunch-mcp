@@ -114,3 +114,69 @@ def test_a_class_inside_a_function_is_still_not_published(filename, language):
     got = _ids(parse_file(_script(body), filename, language))
 
     assert not any(k.startswith("Inner") for k in got), got
+
+
+# Every spelling the generic walk calls a class, and none the hand walks name.
+# Review of the first draft: the hand walks fetched only `class_declaration`
+# and `const C = class`, so each of these stayed dropped.
+SPELLINGS = [
+    ("abstract", "abstract class A { abstract f(): void; g() {} }\n", ' lang="ts"', "typescript"),
+    ("export-abstract", "export abstract class A { g() {} }\n", ' lang="ts"', "typescript"),
+    ("anonymous-default", "export default class { m() {} }\n", "", "javascript"),
+    ("named-default", "export default class Foo extends Base { m() {} }\n", "", "javascript"),
+    ("module-exports", "module.exports = class { m() {} };\n", "", "javascript"),
+    ("member-assignment", "X.P = class { m() {} };\n", "", "javascript"),
+]
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize("body,attrs,lang", [s[1:] for s in SPELLINGS], ids=[s[0] for s in SPELLINGS])
+def test_every_class_spelling_publishes_what_a_script_file_publishes(filename, language, body, attrs, lang):
+    got = _ids(parse_file(_script(body, attrs), filename, language))
+    expected = _expected(body, lang)
+
+    assert any(k.endswith("#method") for k in expected), expected
+    for sid, parent in expected.items():
+        assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+def test_a_class_is_published_once(filename, language):
+    body = (
+        "export class F { n() {} }\n"
+        "const C = class { m() { class Inner { i() {} } return Inner; } };\n"
+    )
+    ids = [s.id.split("::")[1] for s in parse_file(_script(body), filename, language)]
+
+    assert len(ids) == len(set(ids)), ids
+    assert not any(i.startswith("Inner") for i in ids), ids
+
+
+def test_a_svelte_prop_holding_a_class_stays_a_prop():
+    body = "export let C = class { m() {} };\n"
+    got = _ids(parse_file(_script(body), "a.svelte", "svelte"))
+
+    assert "C#property" in got
+    assert not any(k.startswith("C#class") or k.startswith("C.") for k in got), got
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+def test_a_disabled_script_language_falls_back_to_the_bare_class(filename, language, monkeypatch):
+    monkeypatch.setattr(
+        config_module, "is_language_enabled",
+        lambda lang, *a, **k: lang not in ("javascript", "typescript"),
+    )
+    got = _ids(parse_file(_script(CLASS_JS), filename, language))
+
+    assert got.get("Svc#class") == "a#class", got
+    assert "Svc.m#method" not in got
+
+
+def test_a_class_beside_an_options_object_is_published():
+    # LEDGER L-36: the options walk still drops every OTHER declaration here.
+    body = "class K { k() {} }\nexport default { methods: { go() {} } };\n"
+    got = _ids(parse_file(_script(body), "a.vue", "vue"))
+
+    assert got.get("K#class") == "a#class", got
+    assert got.get("K.k#method") == "K#class", got
+    assert "go#method" in got, got
