@@ -21,12 +21,16 @@ x;` stays `f` alone, as a lone `int x;` emits nothing, and a C++ overload pair
 (`int f(int), f(double);`) is two ordinal twins (C keeps one per name, #835).
 A declaration the grammar could not parse keeps its old answer.
 
-⚠ A constructor call is spelled exactly like a prototype list:
+⚠ In C++ a constructor call is spelled exactly like a prototype list:
 `JsonString a(s1), b(s2);` parses as `T f(U), g(V);`. On real code that shape
-is common and a real prototype list is not, so a later declarator whose
-parameter is a type name with no declared parameter name (`(s1)`, `(Foo)`,
-`(const Foo&)`) binds nothing extra. `int f(int), h(Foo);` therefore gives
-`f` alone, recorded as LEDGER L-25. Over 1,124 C, C++ and Arduino files from
+is common and a real prototype list is not, so in C++ and Arduino a later
+declarator whose parameter is a type name with no declared parameter name and
+nothing an expression cannot hold (`(s1)`, `(Foo)`, `(inputs[j])`) binds
+nothing extra, whether or not a `*` or `&` wraps it (`char *p(buf),
+*q(buf2);`). `int f(int), h(Foo);` therefore gives `f` alone in C++, recorded
+as LEDGER L-25. A pointer, reference, qualifier or `struct`/`enum` type cannot
+come from an expression and binds, and C, which has no constructor call,
+binds every prototype. Over 1,124 C, C++ and Arduino files from
 eight projects no id appears, moves or leaves; before that rule, 4 ids
 appeared, every one a constructor call.
 

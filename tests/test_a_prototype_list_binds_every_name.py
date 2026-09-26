@@ -73,14 +73,38 @@ def test_every_name_carries_the_declaration_s_bytes(language, filename):
 
 @pytest.mark.parametrize("language, filename", [("cpp", "a.cpp"), ("arduino", "a.ino")])
 @pytest.mark.parametrize("scope", ["file", "block"])
-def test_a_constructor_call_pair_gains_no_name(language, filename, scope):
+@pytest.mark.parametrize("decl", [
+    "JsonString a(s1), b(s2);",
+    # Review round 1: a `*` or `&` wraps the function declarator, and the
+    # guard read the wrapper's (absent) parameters.
+    "char *a(buf), *b(buf2);",
+    "Foo &a(x), &b(y);",
+    "Foo a(x), *b(y);",
+])
+def test_a_constructor_call_pair_gains_no_name(language, filename, scope, decl):
     """`JsonString a(s1), b(s2);` parses exactly like a prototype list, and a
     parameter that is a lone type name cannot be told from an argument, so no
     extra name is bound (measured on real code: four such lines, no real
     prototype list). The first declarator's answer is LEDGER L-21's."""
-    decl = "JsonString a(s1), b(s2);"
     source = f"{decl}\n" if scope == "file" else f"void h(void) {{ {decl} }}\n"
     assert not any(i.startswith("b#") for i in _ids(source, language, filename))
+
+
+@pytest.mark.parametrize("scope", ["file", "block"])
+@pytest.mark.parametrize("param", ["Foo", "Foo *", "const Foo *", "struct S", "struct S *", "enum E", "FILE *"])
+def test_c_has_no_constructor_call_so_every_prototype_binds(scope, param):
+    """Review round 1: the ambiguity is C++'s; C has no constructor call."""
+    decl = f"int f(int), g({param});"
+    source = f"{decl}\n" if scope == "file" else f"void h(void) {{ {decl} }}\n"
+    assert {"f#function", "g#function"} <= set(_ids(source, "c", "a.c"))
+
+
+@pytest.mark.parametrize("language, filename", [("cpp", "a.cpp"), ("arduino", "a.ino")])
+@pytest.mark.parametrize("param", ["Foo *", "const Foo&", "Foo&", "const Foo", "struct S", "struct S *", "enum E"])
+def test_a_parameter_no_expression_can_hold_binds_in_cpp(language, filename, param):
+    """An abstract pointer or reference, a qualifier and a tagged type cannot
+    parse from an argument, so they are not ambiguous."""
+    assert "g#function" in _ids(f"int f(int), g({param});\n", language, filename)
 
 
 @pytest.mark.parametrize("language, filename", LANGS)

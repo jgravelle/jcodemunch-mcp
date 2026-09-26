@@ -2442,39 +2442,56 @@ def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes) -> list
     named = declarators[0]
     if _later_prototype(node):
         named = _c_family_function_declarator(node) or named
+    # C has no constructor call, so the ambiguity below is C++'s alone.
+    cpp = spec.ts_language in ("cpp", "arduino")
     return [
         n for n in (
             unwrap(d) for d in declarators
             if d.id != named.id and _cpp_declarator_is_function(d)
-            and not _parameters_could_be_arguments(d)
+            # ⚠ The LEAF's parent, never `d`: `*q(buf2)` and `&b(y)` wrap the
+            # function declarator, and `d` itself has no parameters.
+            and not (cpp and _parameters_could_be_arguments(_cpp_declarator_leaf(d).parent))
         ) if n
     ]
 
 
-#: Type nodes that make a lone, unnamed parameter a TYPE rather than a value.
-_UNAMBIGUOUS_PARAMETER_TYPES = frozenset({"primitive_type", "sized_type_specifier"})
+#: Type nodes that make a parameter a TYPE rather than a value.
+_UNAMBIGUOUS_PARAMETER_TYPES = frozenset({
+    "primitive_type", "sized_type_specifier",
+    "struct_specifier", "union_specifier", "enum_specifier", "class_specifier",
+})
+
+#: Abstract declarators an argument expression can also parse as:
+#: `(inputs[j])` is an abstract array. A pointer or reference cannot
+#: (`(Foo *)` and `(Foo&)` are not expressions).
+_ARGUMENT_SHAPED_ABSTRACT = frozenset({
+    "abstract_array_declarator", "abstract_function_declarator",
+    "abstract_parenthesized_declarator",
+})
 
 
 def _parameters_could_be_arguments(function_declarator) -> bool:
     """Could this `name(...)` be a constructor call the grammar spelled as a
     prototype (#852)? `JsonString a(s1), b(s2);` parses exactly like
     `T f(U), g(V);`: a parameter that is a type NAME with no declared
-    parameter name (`(s1)`, `(Foo)`, `(inputs[j])`, `(const Foo&)`) cannot be
-    told from an argument, so an extra name is not bound for it. A primitive
-    type, a named parameter, `(void)` and `()` are unambiguous. (The FIRST declarator's shape is
-    LEDGER L-21, unchanged here.)"""
+    parameter name and nothing an expression cannot hold (`(s1)`, `(Foo)`,
+    `(inputs[j])`) cannot be told from an argument, so an extra name is not
+    bound for it. A primitive or tagged type, a qualifier, an abstract
+    pointer or reference, a named parameter, `(void)` and `()` are
+    unambiguous. C++ only: C has no constructor call. (The FIRST declarator's
+    shape is LEDGER L-21, unchanged here.)"""
     params = function_declarator.child_by_field_name("parameters")
     if params is None:
         return False
     for param in params.named_children:
         if param.type != "parameter_declaration":
             continue
-        named = [c for c in param.named_children if c.type not in ("type_qualifier", "comment")]
+        named = [c for c in param.named_children if c.type != "comment"]
         if not named or named[0].type in _UNAMBIGUOUS_PARAMETER_TYPES:
             continue
-        # A type NAME with no declared parameter name, only an abstract
-        # declarator or none: `(s1)`, `(inputs[j])`, `(const Foo&)`.
-        if all(c.type.startswith("abstract_") for c in named[1:]):
+        if any(c.type == "type_qualifier" for c in named):
+            continue
+        if all(c.type in _ARGUMENT_SHAPED_ABSTRACT for c in named[1:]):
             return True
     return False
 
