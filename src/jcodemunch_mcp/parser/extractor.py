@@ -14018,10 +14018,16 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     ip = _first_child_of_type(left, "identifier_pattern")
                     if not ip:
                         continue
-                    name = _text(ip)
+                    applied = _fs_applied_name(ip)
+                    if applied is not None:
+                        name = _text(applied)
+                        sig = f"let {_text(ip)}"
+                        kind = "function"
+                    else:
+                        name = _text(ip)
+                        sig = f"let {name}"
+                        kind = "constant"
                     qualified = f"{scope}.{name}" if scope else name
-                    sig = f"let {name}"
-                    kind = "constant"
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, kind),
                     file=filename, name=name, qualified_name=qualified,
@@ -14049,6 +14055,13 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     continue
                 span = node if len(defns) == 1 else td
                 name = _text(ident)
+                # #848: `type internal X` puts the access modifier INSIDE
+                # `type_name`, so the name was `internal X`. Read from the
+                # first child after it (a generic suffix is L-12's, kept).
+                if ident.type == "type_name":
+                    rest = [c for c in ident.children if c.type != "access_modifier"]
+                    if rest:
+                        name = source_bytes[rest[0].start_byte:ident.end_byte].decode("utf-8", "replace")
                 qualified = f"{scope}.{name}" if scope else name
                 sig_text = _text(span).split("\n")[0].strip()[:120]
                 container = Symbol(
@@ -14075,9 +14088,12 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     #: is `delegate_type_defn`; neither was listed, so such a type indexed
     #: as NOTHING, not even its name (the grammar's other spelling of the
     #: reported interface type).
+    #: ⚠ #848: the pinned grammar spells a bodiless `type X` (a unit of
+    #: measure, `[<Measure>] type kg`, or a signature file's opaque type) as
+    #: `type_declaration`; the pack's grammar could not parse it at all.
     _FS_DEFN_TYPES = ("record_type_defn", "union_type_defn", "type_abbrev_defn",
                       "enum_type_defn", "class_type_defn", "anon_type_defn",
-                      "interface_type_defn", "delegate_type_defn")
+                      "interface_type_defn", "delegate_type_defn", "type_declaration")
 
     def _fs_defn_nodes(type_definition) -> list:
         """Every definition of a `type A = ... and B = ...` chain (#824).
@@ -14100,6 +14116,21 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             c for c in defn.children
             if c.type in ("function_declaration_left", "value_declaration_left")
         ]
+
+    def _fs_applied_name(ip):
+        """The function name of a `value_declaration_left` that is a function (#848).
+
+        ⚠ tree-sitter-fsharp 0.3.12 parses a function with a return-type
+        annotation (`let g (y: int) : int = y`, `let g y : int = y`) as a
+        VALUE whose pattern is the name applied to its arguments:
+        `identifier_pattern > long_identifier_or_op + typed_pattern`. Read as
+        a value, the whole pattern text became a `constant`'s name. A plain
+        `let x : int = 1` has the name alone and stays a value.
+        """
+        named = ip.named_children
+        if len(named) >= 2 and named[0].type == "long_identifier_or_op":
+            return named[0]
+        return None
 
     def _fs_function_signature(defn, left, name: str) -> str:
         """`let <name> <args>[ : <return type>]` for ONE left of a defn.
@@ -14179,10 +14210,11 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
         name = _text(idents[-1])
         if mpd is not None and name == "val":
-            # `static member val Total = 0`: the grammar takes `val` as
-            # the name and binds `Total` as `args` (review of #812;
-            # the trailing `with get, set` spills to file level and
-            # every later member is lost, filed). Name the property.
+            # `static member val Total = 0`: the pack's grammar took `val`
+            # as the name and bound `Total` as `args` (review of #812), and
+            # spilled every later member (#848, fixed by the pinned grammar
+            # wheel, which parses the line). Kept for that shape: name the
+            # property.
             # The LAST pattern: an accessibility modifier between
             # `val` and the name (`val private Count`) arrives as a
             # pattern of its own, ahead of the name (review, round 3).
@@ -14251,7 +14283,11 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 _member(el, owner, _text(ident), "method", sig)
                         else:
                             ip = _first_child_of_type(left, "identifier_pattern")
-                            if ip is not None:
+                            applied = _fs_applied_name(ip) if ip is not None else None
+                            if applied is not None:
+                                _member(el, owner, _text(applied), "method",
+                                        f"let {_text(ip)}" if len(lefts) > 1 else None)
+                            elif ip is not None:
                                 mutable = any(c.type == "mutable" for c in left.children)
                                 _member(el, owner, _text(ip), "field" if mutable else "constant", sig)
                 elif el.type == "member_defn":

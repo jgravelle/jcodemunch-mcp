@@ -98,13 +98,42 @@ def get_parser(name: str):
     anywhere else under `src/`. Re-raises unchanged, so every caller's own
     handling is what it was.
     """
-    from tree_sitter_language_pack import get_parser as _real  # type: ignore
-
     try:
+        if name in STANDALONE_GRAMMARS:
+            return _standalone_parser(name)
+        from tree_sitter_language_pack import get_parser as _real  # type: ignore
+
         return _real(name)
     except Exception as exc:
         record_failure(name, exc)
         raise
+
+
+# Languages parsed by their own pinned wheel instead of the pack (#848).
+# name -> (distribution, module). ⚠ The pack's newest 0.x F# grammar spills
+# every member after `static member val ... with get, set` out of the type
+# body; the fixed grammar ships only in the 1.x download generation the pin
+# refuses. The wheel compiles its grammar in, so parsing stays local. Its
+# version is part of the capability certificate (`evidence/capability.py`),
+# and moving its pin moves F# ids: a PARSER_GENERATION event, never a bump.
+STANDALONE_GRAMMARS: dict[str, tuple[str, str]] = {
+    "fsharp": ("tree-sitter-fsharp", "tree_sitter_fsharp"),
+}
+
+_standalone_languages: dict[str, object] = {}
+
+
+def _standalone_parser(name: str):
+    import importlib
+
+    from tree_sitter import Language, Parser
+
+    lang = _standalone_languages.get(name)
+    if lang is None:
+        module = importlib.import_module(STANDALONE_GRAMMARS[name][1])
+        lang = Language(module.language())
+        _standalone_languages[name] = lang
+    return Parser(lang)
 
 
 def record_failure(language: str, exc: BaseException) -> None:

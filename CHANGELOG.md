@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Fixed - F# is parsed by a grammar that can read it (#848)
+
+In an F# type, every member written after a `static member val ... with
+get, set` line was absent: `type A` gave `A.Total` and lost `Make` and `Size`
+below it. Reported by @jgravelle from the #812 review's probe.
+
+The grammar bundled in tree-sitter-language-pack took `val` as the member
+name and spilled the rest of the type body to file level, where no walker
+can own it. That was one symptom of a wider fault. On four real F# projects
+(Giraffe, Argu, FsToolkit.ErrorHandling, FSharp.Data, 378 files), the pack's
+grammar failed to parse 176 files; its error recovery hoisted `let`s out of
+function bodies, flattened nested modules and dropped whole declarations.
+The pack's newest release has a working grammar, but it is the 1.x line
+that downloads grammars at runtime, which our `<1.0.0` pin refuses. F# is
+now parsed by the standalone `tree-sitter-fsharp` wheel, pinned at 0.3.12.
+It compiles its grammar in, so parsing stays local, and it fails on 16 of
+the 378 files. `parser/grammar_pack.py` is still the one loader, and the
+capability certificate reports the wheel's version beside the pack's.
+
+The extractor reads the new grammar's shapes. A function with a return-type
+annotation (`let g (y: int) : int = y`) is a value binding there, and it was
+named by its whole pattern as a `constant`; it is function `g` again. A
+bodiless `type X` (a unit of measure, `[<Measure>] type kg`) is indexed. A
+type's access modifier is no longer part of its name: `type internal X` was
+named `internal X` under both grammars, and is `X` now.
+
+⚠⚠ **This moves F# ids, on purpose.** Over the same corpus with the same
+extractor, 153 of 449 files differ, and symbols go from 7,617 to 7,926. Of
+the names the old grammar gave that the new one does not, 274 are the same
+symbol re-scoped under the module it is declared in, and 186 are `let`s
+inside a body, which are never indexed on a clean parse. The other 7 sit in
+three files the new grammar also cannot parse. Ordinals renumber wherever a
+name's set changed. `PARSER_GENERATION` 8, still unreleased, re-parses every
+F# file on upgrade. Moving the wheel's pin is a parser-generation event, so
+it is an exact pin.
+
 ### Fixed - F# abstract members, interface implementations and secondary constructors are indexed (#845, F# half)
 
 An F# interface type, `type IShape = abstract Area : float`, indexed as an

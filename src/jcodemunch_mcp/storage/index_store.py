@@ -421,6 +421,20 @@ INDEX_VERSION = 17
 #   them, so nothing moves by scope; ids MOVE by ORDINALS where a concrete
 #   member gains a twin (`default this.Name` beside `abstract Name`:
 #   `C.Name#property` is `~1`/`~2`).
+#
+#   ⚠⚠ **And #848: F# is parsed by the pinned `tree-sitter-fsharp` wheel,
+#   not the pack's grammar**, which failed to parse nearly half of real F#
+#   files and error-recovered the rest into the shapes the old ids record.
+#   Nearly every F# id in a file the pack could not parse MOVES. SCOPE: a
+#   module the pack flattened nests again (`DisallowedAssignmentArgs#type`
+#   is `LegacyValidations.DisallowedAssignmentArgs#type`), and a `let`
+#   inside a body the pack hoisted to the top is not indexed, as it never
+#   was on a clean parse. NEW: members after `static member val ... with
+#   get, set`, whole functions and types the pack dropped, and a bodiless
+#   `type X`. NAMES: an annotated function (`let g (y: int) : int`) is `g`
+#   under the new grammar, and a type's access modifier left its name
+#   (`internal X#type` is `X#type`). ORDINALS renumber wherever a name's
+#   set changed.
 PARSER_GENERATION = 8
 
 

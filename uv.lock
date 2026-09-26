@@ -1019,6 +1019,7 @@ dependencies = [
     { name = "mcp" },
     { name = "pathspec" },
     { name = "pyyaml" },
+    { name = "tree-sitter-fsharp" },
     { name = "tree-sitter-language-pack" },
 ]
 
@@ -1153,6 +1154,7 @@ requires-dist = [
     { name = "sounddevice", marker = "extra == 'groq-voice'", specifier = ">=0.4.6" },
     { name = "starlette", marker = "extra == 'all'", specifier = ">=1.3.1" },
     { name = "starlette", marker = "extra == 'http'", specifier = ">=1.3.1" },
+    { name = "tree-sitter-fsharp", specifier = "==0.3.12" },
     { name = "tree-sitter-language-pack", specifier = ">=0.7.0,<1.0.0" },
     { name = "uvicorn", marker = "extra == 'all'", specifier = ">=0.20.0" },
     { name = "uvicorn", marker = "extra == 'http'", specifier = ">=0.20.0" },
@@ -3478,6 +3480,22 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/14/8a/d745071afa5e8bdf5b381cf84c4dc6be6c79dee6af8e0ff07476c3d8e4aa/tree_sitter_embedded_template-0.25.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:d0a35cfe634c44981a516243bc039874580e02a2990669313730187ce83a5bc6", size = 18267, upload-time = "2025-08-29T00:42:48.635Z" },
     { url = "https://files.pythonhosted.org/packages/5d/74/728355e594fca140f793f234fdfec195366b6956b35754d00ea97ca18b21/tree_sitter_embedded_template-0.25.0-cp310-abi3-win_amd64.whl", hash = "sha256:3e05a4ac013d54505e75ae48e1a0e9db9aab19949fe15d9f4c7345b11a84a069", size = 13049, upload-time = "2025-08-29T00:42:49.589Z" },
     { url = "https://files.pythonhosted.org/packages/d8/de/afac475e694d0e626b0808f3c86339c349cd15c5163a6a16a53cc11cf892/tree_sitter_embedded_template-0.25.0-cp310-abi3-win_arm64.whl", hash = "sha256:2751d402179ac0e83f2065b249d8fe6df0718153f1636bcb6a02bde3e5730db9", size = 11978, upload-time = "2025-08-29T00:42:50.226Z" },
+]
+
+[[package]]
+name = "tree-sitter-fsharp"
+version = "0.3.12"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/26/5e/5eea094519a04eba7275773ab416cc2476595d5101f45115929b438364be/tree_sitter_fsharp-0.3.12.tar.gz", hash = "sha256:07759fd4837b226f800cf26ecaf6a58f51365c2cacacf69db4094ff146eac8bd", size = 3964598, upload-time = "2026-09-12T14:25:55.187Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/5b/1170c266a3399a9cf84b92043e33412cc65e6ede13ba54e195ffb88ae387/tree_sitter_fsharp-0.3.12-cp310-abi3-macosx_10_9_x86_64.whl", hash = "sha256:f2a6c270018130ad7aea379c669ba13d3a87da49382c7af870c6b541baebab86", size = 1278553, upload-time = "2026-09-12T14:25:43.617Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/5f/efd682cb9e85ba26301ba19f3983f11d984b64a67253f5a9903b287d572a/tree_sitter_fsharp-0.3.12-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:08c8db48fabbfe0193b94d507b1d51d57ee87c517b1b32e523a3ad2f3ed68753", size = 1386138, upload-time = "2026-09-12T14:25:45.203Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/4a/5e44803c1f06e7ba20e3baccb42f9fdacf18b2478d1bba575bf2703cd939/tree_sitter_fsharp-0.3.12-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:ee4670c3daf64d8ccc117578d9ecdfb5c363e676462c90ded02e4104c1f04659", size = 1391913, upload-time = "2026-09-12T14:25:46.73Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/3e/fe148f33093f0dbc533a5f9c91967ee3afc9647bbbe7c7c568fc70378aa7/tree_sitter_fsharp-0.3.12-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c62dea7574a67c9deb67a72f8162ee3f20f82ccb0aa63b78442919c35b306c37", size = 1389589, upload-time = "2026-09-12T14:25:47.92Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/97/5688a78c35d5ebd3751c8e03ef5c09f649c200c2b88a901153eafa2b6edf/tree_sitter_fsharp-0.3.12-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:391cfcf0f6eb0eac0cb04a8c4d1340c429da4377f90bd56a486cdf5eac1b71ff", size = 1380301, upload-time = "2026-09-12T14:25:49.624Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/0d/619d8499b3749a7884a2b42b13bc8ecb962834f4c80c3784aedaba3cf26d/tree_sitter_fsharp-0.3.12-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:d524a2a6c996dbd069843c1e7ed31f5f08f1fd7475ba99162002257b98ed267c", size = 1387224, upload-time = "2026-09-12T14:25:51.099Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/17/b2ce536387d2feb66f2be8908fb885ebfd445dbdff33a7d6af08197ec91c/tree_sitter_fsharp-0.3.12-cp310-abi3-win_amd64.whl", hash = "sha256:6f27d514acf664e62f24ec8838dca66a84eb62acd4a4eff48edcfc8bd66175c3", size = 1277184, upload-time = "2026-09-12T14:25:52.393Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/37/35ae40cc8368ef3b0b6240224780db01de5a75cc1e03cebaf0ace364740e/tree_sitter_fsharp-0.3.12-cp310-abi3-win_arm64.whl", hash = "sha256:1b6ee6c48b6c6a283209fdd3a12db0963d1316e5d9868593a98b0c8816388a6c", size = 1270691, upload-time = "2026-09-12T14:25:53.708Z" },
 ]
 
 [[package]]

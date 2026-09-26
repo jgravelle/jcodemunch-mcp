@@ -54,6 +54,13 @@ dependencies = [
     # are behavioral, not API. Revisit only with grammars vendored or the
     # download made opt-in AND README-disclosed.
     "tree-sitter-language-pack>=0.7.0,<1.0.0",
+    # F# is parsed by its own wheel, not the pack (#848, parser/grammar_pack.py
+    # STANDALONE_GRAMMARS): the pack's newest 0.x F# grammar spills every member
+    # after `static member val ... with get, set` out of the type body, and the
+    # fixed grammar ships only in the 1.x download generation refused above.
+    # Grammar compiled into abi3 wheels, no runtime download. EXACT pin: a new
+    # grammar moves F# symbol ids, so moving it is a PARSER_GENERATION event.
+    "tree-sitter-fsharp==0.3.12",
     "pathspec>=0.12.0",
     "pyyaml>=6.0",
 ]

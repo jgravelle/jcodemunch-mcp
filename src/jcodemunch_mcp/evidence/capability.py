@@ -112,7 +112,12 @@ def parser_fingerprint() -> dict:
     try:
         import importlib.metadata as md
 
-        for pkg in ("tree-sitter", "tree-sitter-language-pack"):
+        # #848: a standalone grammar wheel decides what its language parses,
+        # so its version is capability as much as the pack's is.
+        from ..parser.grammar_pack import STANDALONE_GRAMMARS
+
+        for pkg in ("tree-sitter", "tree-sitter-language-pack",
+                    *sorted(dist for dist, _ in STANDALONE_GRAMMARS.values())):
             try:
                 out["packages"][pkg] = md.version(pkg)
             except Exception:
