@@ -436,13 +436,15 @@ INDEX_VERSION = 17
 #   (`internal X#type` is `X#type`). ORDINALS renumber wherever a name's
 #   set changed.
 #
-#   ⚠⚠ **And #850: a C++/Arduino block-scope variable with a function-shaped
-#   declarator or a lambda initializer is not a function.** `fp#function`,
-#   `l#function` and their like leave, with no owner to move to (a local
-#   variable emits nothing). On Arduino a FILE-scope variable initialised
-#   with a lambda (`auto gl = [](int a) {...};`) leaves too. A name that
-#   shared its set with one of them renumbers its ORDINALS. A file-scope
-#   `int (*gfp)(int);` stays `gfp#function` (#755).
+#   ⚠⚠ **And #850: a C-family variable with a function-shaped declarator
+#   or a lambda initializer is not a function.** LEAVE: a block-scope
+#   `fp#function` or `l#function` (a local emits nothing), and, in C++ and
+#   Arduino, any variable initialised with a lambda holding a function
+#   declarator (Arduino: every lambda), at any scope. RENAME: a declaration
+#   naming a variable then a prototype is the prototype (`void (*ga)(int),
+#   gb(int);`: `ga#function` is `gb#function`). NEW: `int x, y(int);` in C++
+#   and Arduino gives `y#function`, as C does. ORDINALS renumber wherever a
+#   name's set changed. A file-scope `int (*gfp)(int);` stays (#755).
 PARSER_GENERATION = 8
 
 

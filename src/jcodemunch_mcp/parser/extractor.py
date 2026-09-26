@@ -2638,9 +2638,10 @@ def _is_c_family_function_declaration(node, language: str) -> bool:
     if language == "c":
         if node.type != "declaration":
             return True
-        # #850: EVERY declarator, not the first: `void (*hp)(int), helper(int);`
-        # declares `helper`.
-        return _c_family_function_declarator(node) is not None
+        # #850: the first declarator, or a later prototype after a variable
+        # (`void (*hp)(int), helper(int);` declares `helper`), as C++ asks.
+        declarator = node.child_by_field_name("declarator")
+        return (declarator is not None and _cpp_declarator_is_function(declarator)) or _later_prototype(node)
     return _is_cpp_function_declaration(node)
 
 
@@ -2694,16 +2695,34 @@ def _is_cpp_function_declaration(node) -> bool:
     #   `int x` does, so a first declarator whose name is certainly bound by a
     #   pointer, reference, array or parenthesis (`int (*fp)(int);`) does not
     #   count; #833's prototype exemption had published it at file scope.
-    #   A later declarator counts when it is a bare prototype
-    #   (`void (*hp)(int), helper(int);` declares `helper`).
+    # - a later declarator counts when it is a bare prototype, at any scope
+    #   and as C asks it (`void (*hp)(int), helper(int);`, `int x, y(int);`).
     # A shape only error recovery produces keeps the old answer: UNKNOWN is not
     # a variable. File scope keeps `int (*gfp)(int);` a `function` (#755).
     declarators = node.children_by_field_name("declarator")
-    if not _declarator_subtree_has_function(declarators[0]):
-        return False
-    if not _in_block_scope(node) or not _declarator_binds_variable(declarators[0]):
+    first = declarators[0]
+    if _declarator_subtree_has_function(first) and not (
+        _in_block_scope(node) and _declarator_binds_variable(first)
+    ):
         return True
-    return any(_cpp_declarator_is_function(d) for d in declarators[1:])
+    # A later bare prototype counts at any scope, the question C asks too
+    # (#835: one gate, identical bytes, identical answers).
+    return _later_prototype(node)
+
+
+def _later_prototype(node) -> bool:
+    """A declaration whose FIRST declarator certainly binds a variable and a
+    later one is a bare prototype: `int x, y(int);` declares `y` (#850).
+    ⚠ Only when the first is certain and the declaration parsed cleanly:
+    error recovery turns a constructor's member-initialiser list
+    (`: a_(a), b_(b) {}`) and an Objective-C message into exactly this shape."""
+    declarators = node.children_by_field_name("declarator")
+    return (
+        len(declarators) > 1
+        and not node.has_error
+        and _declarator_binds_variable(declarators[0])
+        and any(_cpp_declarator_is_function(d) for d in declarators[1:])
+    )
 
 
 def _declarator_subtree_has_function(node) -> bool:
@@ -2731,9 +2750,12 @@ def _declarator_binds_variable(declarator) -> bool:
     parent = leaf.parent
     if parent is None or parent.type == "function_declarator":
         return False
-    if parent.type in ("pointer_declarator", "reference_declarator",
-                       "array_declarator", "parenthesized_declarator"):
+    if parent.type in ("pointer_declarator", "reference_declarator", "array_declarator"):
         return True
+    if parent.type == "parenthesized_declarator":
+        # `(*fp)` parenthesises a pointer and is caught above; a bare `(x)`
+        # is also how the grammar reads a call (`a_(a)`), so it is UNKNOWN.
+        return False
     return leaf.type in _CPP_PLAIN_NAME_TYPES and parent.type in ("declaration", "init_declarator")
 
 

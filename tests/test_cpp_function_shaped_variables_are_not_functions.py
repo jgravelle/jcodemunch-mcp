@@ -92,3 +92,39 @@ def test_c_asks_every_declarator_too(decl):
     """C shares the gate (#835) and read only the first declarator."""
     source = f"void h(void) {{ {decl} }}\n"
     assert _rows(source, "c", "a.c") == {("h", "function"), ("helper", "function")}
+
+
+# ---------------------------------------------------------------------------
+# Review round 1: C and C++ share one gate (#835), so identical bytes give
+# identical answers at every scope, and the multi-declarator ids that move
+# are pinned. A declaration naming a variable and then a prototype is named
+# by the prototype.
+# ---------------------------------------------------------------------------
+
+ALL_LANGS = [("c", "a.c"), ("cpp", "a.cpp"), ("arduino", "a.ino")]
+
+
+@pytest.mark.parametrize("language, filename", ALL_LANGS)
+@pytest.mark.parametrize("decl, name", [
+    ("int x, y(int);", "y"),
+    ("int arr[3], fn(int);", "fn"),
+    ("int *p, q(int);", "q"),
+    ("void (*ga)(int), gb(int);", "gb"),
+])
+@pytest.mark.parametrize("scope", ["file", "block"])
+def test_a_prototype_after_a_variable_names_the_declaration(language, filename, decl, name, scope):
+    source = f"{decl}\n" if scope == "file" else f"void h(void) {{ {decl} }}\n"
+    rows = {r for r in _rows(source, language, filename) if r[0] != "h"}
+    assert rows == {(name, "function")}, rows
+
+
+@pytest.mark.parametrize("language, filename", LANGS)
+@pytest.mark.parametrize("source", [
+    "void f() { auto g = [](int a) { int proto(int); return a; }; }\n",
+    "void f() { auto g = [](int (*cb)(int)) { return cb(1); }; }\n",
+    "auto gl = []() { int p7(int); };\n",
+])
+def test_a_lambda_holding_a_function_declarator_is_not_one(language, filename, source):
+    """C++ too, not only Arduino: the walk entered the lambda and found the
+    prototype in its body or the function pointer in its parameters."""
+    assert not {r for r in _rows(source, language, filename) if r[0] in ("g", "gl")}
