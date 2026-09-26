@@ -93,8 +93,7 @@ def test_a_result_cache_hit_answers_with_the_cold_calls_key_set(_indexed, monkey
 
 
 def _hits() -> int:
-    """Hits on EITHER cache. `find_references` and `get_blast_radius` count in
-    `total_hits`; `search_symbols` keeps its own cache and records only a
-    VALIDATED hit, so it moves `hits_validated_*` and never `total_hits`."""
-    stats = token_tracker.result_cache_stats()
-    return stats["total_hits"] + stats["hits_validated_fresh"] + stats["hits_validated_stale"]
+    """Hits on EITHER cache: `search_symbols`' private cache counts its lookups
+    in `total_hits` too since #864. This used to add the validated buckets,
+    because a `search_symbols` hit reached them and never `total_hits`."""
+    return token_tracker.result_cache_stats()["total_hits"]
