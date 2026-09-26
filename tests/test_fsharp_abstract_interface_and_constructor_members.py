@@ -119,3 +119,12 @@ def test_two_constructors_are_ordinal_twins():
     source = "type C(x: int) =\n    new() = C(0)\n    new(s: string) = C(int s)\n    member this.X = x\n"
     ids = sorted((s.id, s.line) for s in parse_file(source, "a.fs", "fsharp") if s.name == "C" and s.kind == "method")
     assert ids == [("a.fs::C.C#method~1", 2), ("a.fs::C.C#method~2", 3)], ids
+
+
+def test_a_type_chained_to_an_interface_end_type_spans_its_own_definition():
+    """Review round 2: with `interface_type_defn` counted, the chain holds two
+    definitions, so #837's rule gives each its own node's span; the class no
+    longer spans (and signs with) the whole `type ... and ...` statement."""
+    source = "type C() =\n    member this.M() = 1\nand I =\n    interface\n        abstract N : int\n    end\n"
+    (c,) = [s for s in parse_file(source, "a.fs", "fsharp") if s.qualified_name == "C"]
+    assert (c.line, c.end_line) == (1, 2), (c.line, c.end_line)
