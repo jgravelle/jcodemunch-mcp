@@ -7010,6 +7010,87 @@ def _extract_nix_binding(node, source_bytes: bytes, filename: str, symbols: list
 # Vue SFC custom symbol extractor
 # ---------------------------------------------------------------------------
 
+class _EmbeddedScriptClasses:
+    """Every top-level class of one Vue/Svelte `<script>` block, WITH its
+    members, as the generic JS/TS walk publishes them (#861).
+
+    ⚠⚠ The Vue and Svelte channels walk their script by hand and stopped at a
+    class: a declaration published its name and no member, and a class
+    expression (`const C = class {...}`) published a `constant` (#803's shape
+    in a channel #803 never reached). A third hand-written class walk is how
+    the next member form (#802's parameter properties) would go missing here
+    again, so the class and everything under it come from `parse_file`, the
+    walk a `.ts` file gets. The script is parsed once, on the first class.
+
+    Rewrapped into the component file: ids keep the generic qualified names
+    (`Svc#class` is the id the old branch minted), byte offsets are shifted by
+    the block's start, lines by its row, and a class's parent is the component.
+    """
+
+    def __init__(self, script_bytes: bytes, block_start_byte: int, line_offset: int,
+                 lang: str, filename: str, language: str, component_id: str):
+        self._args = (script_bytes, block_start_byte, line_offset, lang, filename, language, component_id)
+        self._groups: Optional[list[tuple[Symbol, list[Symbol]]]] = None
+
+    def _build(self) -> list[tuple[Symbol, list[Symbol]]]:
+        script_bytes, base, line_offset, lang, filename, language, component_id = self._args
+        ext = {"typescript": "ts", "tsx": "tsx"}.get(lang, "js")
+        parsed = parse_file(
+            script_bytes.decode("utf-8", errors="replace"),
+            f"{filename}#script.{ext}", lang, source_bytes=script_bytes,
+        )
+        children: dict[str, list[Symbol]] = {}
+        for sym in parsed:
+            if sym.parent:
+                children.setdefault(sym.parent, []).append(sym)
+        new_ids: dict[str, str] = {}
+
+        def _rewrap(sym: Symbol, parent_id: str) -> Symbol:
+            rewrapped = dataclasses.replace(
+                sym,
+                id=make_symbol_id(filename, sym.qualified_name, sym.kind),
+                file=filename,
+                language=language,
+                parent=parent_id,
+                line=sym.line + line_offset,
+                end_line=sym.end_line + line_offset,
+                byte_offset=base + sym.byte_offset,
+            )
+            new_ids[sym.id] = rewrapped.id
+            return rewrapped
+
+        groups = []
+        for root in parsed:
+            if root.parent or root.kind != "class":
+                continue
+            out = [_rewrap(root, component_id)]
+            stack = list(children.get(root.id, ()))
+            while stack:
+                sym = stack.pop(0)
+                out.append(_rewrap(sym, new_ids[sym.parent]))
+                stack.extend(children.get(sym.id, ()))
+            groups.append((root, out))
+        return groups
+
+    def take(self, node, name: str) -> list[Symbol]:
+        """The class named `name` whose span overlaps `node` (script-relative
+        bytes), with its members; empty when the generic walk has none.
+
+        ⚠ Overlap, not containment: the generic span may start at `export` or
+        a decorator, outside the `class_declaration` node the caller holds.
+        """
+        if self._groups is None:
+            self._groups = self._build()
+        return [
+            sym
+            for root, group in self._groups
+            if root.name == name
+            and root.byte_offset < node.end_byte
+            and root.byte_offset + root.byte_length > node.start_byte
+            for sym in group
+        ]
+
+
 def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Vue Single-File Components (.vue).
 
@@ -7098,6 +7179,9 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Re-parse script content with the JS/TS parser
     sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
     sub_tree = sub_parser.parse(script_bytes)
+    script_classes = _EmbeddedScriptClasses(
+        script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id
+    )
 
     # Vue Composition API reactive primitives and macros
     _VUE_REACTIVE = frozenset({
@@ -7149,7 +7233,11 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """Walk script AST for Composition API symbols."""
         if node.type == "class_declaration":
             name_node = node.child_by_field_name("name")
-            if name_node:
+            group = script_classes.take(node, _node_text(name_node)) if name_node else []
+            if group:
+                # The class AND its members, from the generic walk (#861).
+                symbols.extend(group)
+            elif name_node:
                 name = _node_text(name_node)
                 sym = Symbol(
                     id=make_symbol_id(filename, name, "class"),
@@ -7233,6 +7321,13 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 name_node = decl.child_by_field_name("name")
                 if name_node is None:
                     continue
+                if _js_declarator_holds_a_class(decl):
+                    # `const C = class {...}` declares a CLASS, as in a `.js`
+                    # file since #803, never a `constant` beside it (#861).
+                    group = script_classes.take(decl, _node_text(name_node))
+                    if group:
+                        symbols.extend(group)
+                        continue
                 val_node = decl.child_by_field_name("value")
                 if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
                     # ⚠ Same as Svelte: no branch here emits it either, so this
@@ -7436,6 +7531,9 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
         sub_tree = sub_parser.parse(script_bytes)
+        script_classes = _EmbeddedScriptClasses(
+            script_bytes, raw_node.start_byte, line_offset, lang, filename, "svelte", comp_sym.id
+        )
 
         def _node_text(n) -> str:
             return script_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
@@ -7521,7 +7619,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         def _walk(node):
             if node.type == "class_declaration":
                 name_node = node.child_by_field_name("name")
-                if name_node:
+                group = script_classes.take(node, _node_text(name_node)) if name_node else []
+                if group:
+                    # The class AND its members, from the generic walk (#861).
+                    symbols.extend(group)
+                elif name_node:
                     name = _node_text(name_node)
                     symbols.append(Symbol(
                         id=make_symbol_id(filename, name, "class"),
@@ -7621,6 +7723,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # absences. Borrowing a guard also borrows the owner it
                         # assumes.
                         is_prop = name_node.type == "identifier" and keyword_kind == "variable"
+                        if not is_prop and _js_declarator_holds_a_class(decl):
+                            group = script_classes.take(decl, _node_text(name_node))
+                            if group:
+                                symbols.extend(group)
+                                continue
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
                             _emit_const(
                                 pname, decl, node, _first_line(node),
@@ -7649,6 +7756,12 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     name_node = decl.child_by_field_name("name")
                     if name_node is None:
                         continue
+                    if _js_declarator_holds_a_class(decl):
+                        # `const C = class {...}` declares a CLASS (#803, #861).
+                        group = script_classes.take(decl, _node_text(name_node))
+                        if group:
+                            symbols.extend(group)
+                            continue
                     val_node = decl.child_by_field_name("value")
                     if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
                         # ⚠⚠ DROPPED, and nothing else emits it: this walker has

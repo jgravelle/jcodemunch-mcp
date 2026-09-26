@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - a class in a Vue or Svelte `<script>` owns its members (#861)
+
+A class declared in a Vue `<script>` published its name and nothing else: no
+method, no field, no TypeScript parameter property. A class expression
+(`const C = class { m() {} }`) published a `constant` with no class at all.
+The same script in a `.ts` or `.js` file gives `Svc#class` owning `Svc.m`,
+`Svc.x` and (in TypeScript) `Svc.a`, and has since #802 and #803. Svelte had
+the same two defects. So a component's script classes read as empty.
+
+Both channels walk their script by hand, and both stopped at a class: the
+declaration branch returned without entering the body, and a class-valued
+binding was published as a binding. #803 fixed the class expression in the
+generic walk, which neither channel uses. A third hand-written class walk
+would miss the next member form the same way, so the class and everything
+under it now come from `parse_file` over the script, the walk a `.ts` file
+gets, parsed once per block and only when a class is found. Ids keep the
+generic qualified names (`Svc#class` is unchanged), lines and bytes address
+the component file, and the class's parent is the component.
+
+⚠ Ids move only where a script has a class: `C#constant` becomes `C#class`,
+and members appear. On 2,020 `.vue` and `.svelte` files from element-plus
+(`f599b62`) and sveltejs/kit (`0107721`) no symbol changed, because none of
+them declares a script class. `PARSER_GENERATION` 8, still unreleased,
+re-parses unchanged files. A class inside a function stays unpublished, as
+before.
+
 ### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
 
 In git mode a linked worktree is keyed by its own path, `local/<name>-<hash>`

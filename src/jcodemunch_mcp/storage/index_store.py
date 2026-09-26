@@ -474,6 +474,14 @@ INDEX_VERSION = 17
 #   projects, none narrowed). MOVES: what the accessor declares gets the
 #   property as owner (`FakeFileSystem.now#method` ->
 #   `FakeFileSystem.clock.now#function`; at file scope `gg` -> `g.gg`).
+#
+#   ⚠⚠ **And #861: a class in a Vue or Svelte `<script>` owns its members.**
+#   NEW: every member a `.ts`/`.js` file of the same script publishes
+#   (`Svc.m#method`, `Svc.x#field`, `Svc.a#field`). MOVES: a class-valued
+#   binding is a class (`C#constant` -> `C#class`). The class symbol keeps
+#   its id and gains real bytes, a hash and the generic signature. No id
+#   moves on 2,020 `.vue`/`.svelte` files of two projects (none has a
+#   script class).
 PARSER_GENERATION = 8
 
 
