@@ -180,3 +180,48 @@ def test_a_class_beside_an_options_object_is_published():
     assert got.get("K#class") == "a#class", got
     assert got.get("K.k#method") == "K#class", got
     assert "go#method" in got, got
+
+
+def test_a_svelte_reactive_class_is_a_class_not_also_a_constant():
+    got = _ids(parse_file(_script("$: C = class { m() {} };\n"), "a.svelte", "svelte"))
+    expected = _expected("$: C = class { m() {} };\n", "javascript")
+
+    assert "C#constant" not in got, got
+    for sid, parent in expected.items():
+        assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize("body,parses", [
+    ("const el = document.body;\nel.classList.add('className');\n", 0),
+    ("class K { k() {} }\n", 1),
+], ids=["class-in-text-only", "a-class-node"])
+def test_the_script_is_parsed_again_only_for_a_class_node(filename, language, body, parses, monkeypatch):
+    """The second parse is gated on a class NODE in the tree the hand walk
+    already holds, never on the substring `class` (review: +24-27% parse time
+    on a script that only mentions `classList`)."""
+    import jcodemunch_mcp.parser.extractor as extractor
+
+    calls = []
+    real = extractor.parse_file
+
+    def spy(content, filename, *a, **k):
+        if "#script." in filename:
+            calls.append(filename)
+        return real(content, filename, *a, **k)
+
+    monkeypatch.setattr(extractor, "parse_file", spy)
+    parse_file(_script(body), filename, language)
+
+    assert len(calls) == parses, calls
+
+
+def test_the_prefilter_never_refuses_a_class_spelling():
+    """The keyword prefilter may say yes too often, never no: a no drops every
+    class in the script silently. Every class body this file tests passes it."""
+    from jcodemunch_mcp.parser.extractor import _CLASS_KEYWORD_RE
+
+    bodies = [CLASS_TS, CLASS_JS, EXPRESSION, "$: C = class { m() {} };\n", "const C = class\n{ m() {} };\n"]
+    bodies += [s[1] for s in SPELLINGS]
+    for body in bodies:
+        assert _CLASS_KEYWORD_RE.search(body.encode()), body

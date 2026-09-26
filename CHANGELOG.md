@@ -20,7 +20,8 @@ under it now come from `parse_file` over the script, the walk a `.ts` file
 gets. Every class that walk finds is published once per block, so the spellings
 neither hand walk recognised arrive too: `abstract class`, an anonymous
 `export default class {}` (as `default`), `module.exports = class {}` and
-`X.P = class {}`. A class beside a Vue Options-API object is published now; the
+`X.P = class {}`, and a Svelte `$: C = class {}`, which had published a
+`constant` beside the class. A class beside a Vue Options-API object is published now; the
 functions and bindings beside it are still dropped (LEDGER L-36). Ids keep the
 generic qualified names (`Svc#class` is unchanged), lines and bytes address
 the component file, and the class's parent is the component.
@@ -29,8 +30,20 @@ the component file, and the class's parent is the component.
 and members appear. On 2,020 `.vue` and `.svelte` files from element-plus
 (`f599b62`) and sveltejs/kit (`0107721`) no symbol changed, because none of
 them declares a script class. `PARSER_GENERATION` 8, still unreleased,
-re-parses unchanged files. A class inside a function stays unpublished, as
-before. A class nested in a method body was published twice, as a bare
+re-parses unchanged files.
+
+⚠ The script is parsed a second time only when its text has the `class`
+keyword before a name or `{` and the parsed tree has a class node. A byte test
+alone would re-parse every script that mentions `classList` or `className`.
+Two of the 2,020 scripts pass the text test and none is re-parsed. The corpus
+takes a median of 0.591 to 0.596 s against 0.573 to 0.578 s on main over three
+interleaved processes of 15 passes each, and a 300-function script that
+mentions `classList` is unchanged.
+
+A class inside a function declaration, arrow function or function expression
+stays unpublished, as before. One inside an object method
+(`setup() { class K {} }`) still publishes a bare `K#class`, as on main
+(LEDGER L-38). A class nested in a class's method body was published twice, as a bare
 `Inner#class` beside the owned one; only the owned one remains. A Svelte
 `export let C = class {...}` stays a `property` with no members, because a
 prop is an input. With `javascript`/`typescript` disabled and `vue`/`svelte`

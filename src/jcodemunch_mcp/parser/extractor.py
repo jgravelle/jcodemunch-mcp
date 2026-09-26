@@ -7013,6 +7013,7 @@ def _extract_nix_binding(node, source_bytes: bytes, filename: str, symbols: list
 # Every node type a JS/TS grammar uses for a class. A hand walk that names one
 # of them and not the others loses the rest (#698 was `abstract_class_declaration`).
 _EMBEDDED_CLASS_NODE_TYPES = frozenset({"class_declaration", "abstract_class_declaration", "class"})
+_CLASS_KEYWORD_RE = re.compile(rb"\bclass(?:\s+[\w$]|\s*\{)")
 
 
 class _EmbeddedScriptClasses:
@@ -7042,18 +7043,42 @@ class _EmbeddedScriptClasses:
     Rewrapped into the component file: ids keep the generic qualified names
     (`Svc#class` is the id the old branch minted), byte offsets are shifted by
     the block's start, lines by its row, and a class's parent is the component.
-    The script is parsed only when its bytes contain `class`.
+
+    ⚠ The second parse runs only when the tree the hand walk already holds has
+    a class NODE. A byte test (`b"class" in script`) fired on every `classList`
+    and `className`, and cost a script with no class about a quarter more
+    parse time (review, 2026-09-26).
     """
 
     def __init__(self, script_bytes: bytes, block_start_byte: int, line_offset: int,
-                 lang: str, filename: str, language: str, component_id: str):
+                 lang: str, filename: str, language: str, component_id: str, root_node=None):
         self._args = (script_bytes, block_start_byte, line_offset, lang, filename, language, component_id)
+        self._root_node = root_node
         self._groups: Optional[list[tuple[Symbol, list[Symbol]]]] = None
         self._suppressed: list[tuple[int, int]] = []
 
+    def _has_class_node(self) -> bool:
+        # A PREFILTER only, and it may say yes too often, never no: a class
+        # node needs the keyword followed by a name, `{`, or `extends`. It
+        # rejects `classList`, `className`, `'class'` and `class: 'x'`, each of
+        # which paid a node walk when this was a substring test (review,
+        # 2026-09-26).
+        script = self._args[0]
+        if b"class" not in script or not _CLASS_KEYWORD_RE.search(script):
+            return False
+        if self._root_node is None:
+            return True  # nothing to ask, so parse: never a silent drop
+        stack = [self._root_node]
+        while stack:
+            node = stack.pop()
+            if node.type in _EMBEDDED_CLASS_NODE_TYPES:
+                return True
+            stack.extend(node.children)
+        return False
+
     def _build(self) -> list[tuple[Symbol, list[Symbol]]]:
         script_bytes, base, line_offset, lang, filename, language, component_id = self._args
-        if b"class" not in script_bytes:
+        if not self._has_class_node():
             return []
         ext = {"typescript": "ts", "tsx": "tsx"}.get(lang, "js")
         parsed = parse_file(
@@ -7106,7 +7131,12 @@ class _EmbeddedScriptClasses:
 
     def covers(self, node) -> bool:
         """True when a group `emit()` publishes overlaps `node` (script-relative
-        bytes), so the hand walk must not publish it a second time."""
+        bytes), so the hand walk must not publish it a second time.
+
+        ⚠ Asked BEFORE `_js_declarator_holds_a_class` at every call site: with
+        no class in the script this is a lookup in an empty cached list, and
+        the probe it guards ran on every binding of every script otherwise.
+        """
         return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in self._roots())
 
     def suppress(self, node) -> None:
@@ -7213,7 +7243,8 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
     sub_tree = sub_parser.parse(script_bytes)
     script_classes = _EmbeddedScriptClasses(
-        script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id
+        script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id,
+        root_node=sub_tree.root_node,
     )
 
     # Vue Composition API reactive primitives and macros
@@ -7353,7 +7384,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 name_node = decl.child_by_field_name("name")
                 if name_node is None:
                     continue
-                if _js_declarator_holds_a_class(decl) and script_classes.covers(decl):
+                if script_classes.covers(decl) and _js_declarator_holds_a_class(decl):
                     # `const C = class {...}` declares a CLASS, as in a `.js`
                     # file since #803, never a `constant` beside it (#861).
                     continue
@@ -7562,7 +7593,8 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
         sub_tree = sub_parser.parse(script_bytes)
         script_classes = _EmbeddedScriptClasses(
-            script_bytes, raw_node.start_byte, line_offset, lang, filename, "svelte", comp_sym.id
+            script_bytes, raw_node.start_byte, line_offset, lang, filename, "svelte", comp_sym.id,
+            root_node=sub_tree.root_node,
         )
 
         def _node_text(n) -> str:
@@ -7750,7 +7782,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # absences. Borrowing a guard also borrows the owner it
                         # assumes.
                         is_prop = name_node.type == "identifier" and keyword_kind == "variable"
-                        if _js_declarator_holds_a_class(decl):
+                        if script_classes.covers(decl) and _js_declarator_holds_a_class(decl):
                             if is_prop:
                                 # ⚠ A prop is an INPUT: the class is only its
                                 # default, so it stays a `property` and its
@@ -7786,7 +7818,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     name_node = decl.child_by_field_name("name")
                     if name_node is None:
                         continue
-                    if _js_declarator_holds_a_class(decl) and script_classes.covers(decl):
+                    if script_classes.covers(decl) and _js_declarator_holds_a_class(decl):
                         # `const C = class {...}` declares a CLASS (#803, #861).
                         continue
                     val_node = decl.child_by_field_name("value")
@@ -7834,6 +7866,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             left = expr.child_by_field_name("left") or (
                                 expr.children[0] if expr.children else None
                             )
+                            right = expr.child_by_field_name("right")
+                            if right is not None and right.type == "class" and script_classes.covers(expr):
+                                # `$: C = class {...}` is a CLASS, published by
+                                # `emit()`, never a `constant` beside it (#803, #861).
+                                continue
                             if left is not None and left.type == "identifier":
                                 _emit_const(_node_text(left), node, node, _first_line(node))
                 return  # a reactive block's body is glue, not indexable declarations

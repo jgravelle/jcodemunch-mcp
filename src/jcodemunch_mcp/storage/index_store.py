@@ -483,7 +483,7 @@ INDEX_VERSION = 17
 #   in a method body loses its bare `Inner#class` duplicate. The class symbol keeps
 #   its id and gains real bytes, a hash and the generic signature. No id
 #   moves on 2,020 `.vue`/`.svelte` files of two projects (none has a
-#   script class).
+#   script class; re-measured on the final extractor).
 PARSER_GENERATION = 8
 
 
