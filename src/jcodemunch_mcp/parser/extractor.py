@@ -692,7 +692,7 @@ def _walk_tree(
                 # that says what the name is; the decision is recorded in
                 # `tests/test_a_c_typedef_binds_every_name.py`). #852: a
                 # prototype list (`int f(int), g(int);`) the same way.
-                for extra in _extra_declared_names(node, spec, source_bytes):
+                for extra in _extra_declared_names(node, spec, source_bytes, filename):
                     prefix = symbol.qualified_name[: len(symbol.qualified_name) - len(symbol.name)]
                     qualified = prefix + extra
                     symbols.append(
@@ -2406,7 +2406,7 @@ def _c_declarator_name(name_node, source_bytes: bytes) -> str:
 _C_FAMILY_TYPEDEF_LANGUAGES = frozenset({"c", "cpp", "arduino"})
 
 
-def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes) -> list[str]:
+def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes, filename: str = "") -> list[str]:
     """Every name a C-family node binds beyond the one its symbol is named by:
     `typedef int A, B;` (#823) and a prototype list `int f(int), g(int);`
     (#852).
@@ -2442,8 +2442,10 @@ def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes) -> list
     named = declarators[0]
     if _later_prototype(node):
         named = _c_family_function_declarator(node) or named
-    # C has no constructor call, so the ambiguity below is C++'s alone.
-    cpp = spec.ts_language in ("cpp", "arduino")
+    # C has no constructor call, so the ambiguity below is C++'s alone. ⚠ A
+    # `.h` may be C++ walked by the C fallback in `_parse_cpp_symbols`, so it
+    # keeps the C++ rule whichever grammar won (review round 2).
+    cpp = spec.ts_language in ("cpp", "arduino") or filename.lower().endswith(".h")
     return [
         n for n in (
             unwrap(d) for d in declarators
@@ -2461,13 +2463,25 @@ _UNAMBIGUOUS_PARAMETER_TYPES = frozenset({
     "struct_specifier", "union_specifier", "enum_specifier", "class_specifier",
 })
 
-#: Abstract declarators an argument expression can also parse as:
-#: `(inputs[j])` is an abstract array. A pointer or reference cannot
-#: (`(Foo *)` and `(Foo&)` are not expressions).
-_ARGUMENT_SHAPED_ABSTRACT = frozenset({
-    "abstract_array_declarator", "abstract_function_declarator",
-    "abstract_parenthesized_declarator",
-})
+def _abstract_could_be_expression(node) -> bool:
+    """Could this abstract declarator be part of an argument expression
+    (#852)? `(inputs[j])` parses as an abstract array and `(Foo(bar))` as an
+    abstract function, so both could. A pointer or reference, an empty `[]`
+    and a parameter list no argument can spell (`(int)`) cannot, at any depth:
+    `(Foo (*)(int))` and `(Foo (&)[3])` are prototypes (review round 2)."""
+    kind = node.type
+    if kind == "abstract_array_declarator":
+        if node.child_by_field_name("size") is None:
+            return False
+    elif kind == "abstract_function_declarator":
+        if not _parameters_could_be_arguments(node):
+            return False
+    elif kind != "abstract_parenthesized_declarator":
+        return False
+    return all(
+        _abstract_could_be_expression(c)
+        for c in node.named_children if c.type.startswith("abstract_")
+    )
 
 
 def _parameters_could_be_arguments(function_declarator) -> bool:
@@ -2478,7 +2492,7 @@ def _parameters_could_be_arguments(function_declarator) -> bool:
     `(inputs[j])`) cannot be told from an argument, so an extra name is not
     bound for it. A primitive or tagged type, a qualifier, an abstract
     pointer or reference, a named parameter, `(void)` and `()` are
-    unambiguous. C++ only: C has no constructor call. (The FIRST declarator's
+    unambiguous. C++ only (and a `.h`): C has no constructor call. (The FIRST declarator's
     shape is LEDGER L-21, unchanged here.)"""
     params = function_declarator.child_by_field_name("parameters")
     if params is None:
@@ -2491,7 +2505,7 @@ def _parameters_could_be_arguments(function_declarator) -> bool:
             continue
         if any(c.type == "type_qualifier" for c in named):
             continue
-        if all(c.type in _ARGUMENT_SHAPED_ABSTRACT for c in named[1:]):
+        if all(_abstract_could_be_expression(c) for c in named[1:]):
             return True
     return False
 

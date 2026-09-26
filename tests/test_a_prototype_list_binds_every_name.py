@@ -120,3 +120,26 @@ def test_an_argument_that_looks_like_an_array_type_gains_no_name(language, filen
     """Measured on fmt: `fmt::string_view lhs(inputs[i]), rhs(inputs[j]);`."""
     ids = _ids("void t() { fmt::string_view lhs(inputs[i]), rhs(inputs[j]); }\n", language, filename)
     assert not any(i.startswith("rhs#") for i in ids), ids
+
+
+@pytest.mark.parametrize("decl", [
+    "JsonString a(s1), b(s2);",
+    "char *a(buf), *b(buf2);",
+    "string_view a(inputs[i]), b(inputs[j]);",
+])
+@pytest.mark.parametrize("scope", ["file", "block"])
+def test_a_header_walked_as_c_keeps_the_constructor_call_rule(decl, scope):
+    """Review round 2: a `.h` with no C++ marker is walked by the C fallback,
+    and a C++ header's constructor call must not come back through it."""
+    body = f"{decl}\n" if scope == "file" else f"inline void h(void) {{ {decl} }}\n"
+    source = '#include "x.h"\n' + body
+    assert not any(i.startswith("b#") for i in _ids(source, "cpp", "a.h"))
+
+
+@pytest.mark.parametrize("language, filename", [("cpp", "a.cpp"), ("arduino", "a.ino"), ("cpp", "a.h")])
+@pytest.mark.parametrize("param", ["Foo (*)(int)", "Foo (&)[3]", "Foo[]", "Foo (int)"])
+def test_a_nested_pointer_reference_or_empty_array_binds(language, filename, param):
+    """Review round 2: an abstract array or function is argument-shaped only
+    when nothing inside it is a pointer, a reference, an empty `[]` or a
+    parameter list no argument can spell."""
+    assert "g#function" in _ids(f"int f(int), g({param});\n", language, filename)

@@ -23,14 +23,16 @@ A declaration the grammar could not parse keeps its old answer.
 
 ⚠ In C++ a constructor call is spelled exactly like a prototype list:
 `JsonString a(s1), b(s2);` parses as `T f(U), g(V);`. On real code that shape
-is common and a real prototype list is not, so in C++ and Arduino a later
-declarator whose parameter is a type name with no declared parameter name and
-nothing an expression cannot hold (`(s1)`, `(Foo)`, `(inputs[j])`) binds
-nothing extra, whether or not a `*` or `&` wraps it (`char *p(buf),
-*q(buf2);`). `int f(int), h(Foo);` therefore gives `f` alone in C++, recorded
-as LEDGER L-25. A pointer, reference, qualifier or `struct`/`enum` type cannot
-come from an expression and binds, and C, which has no constructor call,
-binds every prototype. Over 1,124 C, C++ and Arduino files from
+is common and a real prototype list is not, so in C++, Arduino and any `.h`
+a later declarator with a parameter that is a type name with no declared
+parameter name and nothing an expression cannot hold (`(s1)`, `(Foo)`,
+`(inputs[j])`) binds nothing extra, whether or not a `*` or `&` wraps the
+declarator (`char *p(buf), *q(buf2);`). `int f(int), h(Foo);` therefore gives
+`f` alone there, recorded as LEDGER L-25 with the other shapes it costs. A
+pointer, a reference, an empty `[]`, a qualifier or a `struct`/`enum` type
+cannot come from an expression at any depth, so `h(Foo (*)(int))` binds. A
+`.c` file, which has no constructor call, binds every prototype; a `.h` keeps
+the rule, since it may be C++ that the C grammar parsed better. Over 1,124 C, C++ and Arduino files from
 eight projects no id appears, moves or leaves; before that rule, 4 ids
 appeared, every one a constructor call.
 
