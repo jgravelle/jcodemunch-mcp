@@ -7065,7 +7065,7 @@ class _EmbeddedScriptClasses:
         self._args = (script_bytes, block_start_byte, line_offset, lang, filename, language, component_id)
         self._root_node = root_node
         self._groups: Optional[list[tuple[Symbol, list[Symbol]]]] = None
-        self._suppressed: list[tuple[int, int, str]] = []
+        self._suppressed: list = []
 
     def _has_class_node(self) -> bool:
         # A PREFILTER only, and it may say yes too often, never no: it asks
@@ -7163,18 +7163,10 @@ class _EmbeddedScriptClasses:
         # a decorator, outside the node the hand walk holds.
         return root.byte_offset < end and root.byte_offset + root.byte_length > start
 
-    def covers(self, node, name: Optional[str] = None) -> bool:
+    def covers(self, node) -> bool:
         """True when a group `emit()` publishes overlaps `node` (script-relative
-        bytes), so the hand walk must not publish it a second time.
-
-        ⚠⚠ A BINDING passes `name`, and only a class named for that binding
-        counts: the generic walk names a class expression by its binder, so
-        `const C = class {...}` is covered by `C` and by nothing else. Overlap
-        alone let a class NESTED in the initializer silence the binding: in a
-        `lang="tsx"` script, read here with the TypeScript grammar, error
-        recovery makes `class K` the value of `const e = <div onClick={() =>
-        { class K {} }} />`, and `e#constant` vanished though `main` and a
-        `.tsx` file both publish it (review round 5).
+        bytes), so the hand walk must not publish that class a second time.
+        For a class NODE the hand walk holds; a binding asks `binds`.
 
         ⚠ Asked BEFORE `_js_declarator_holds_a_class` at every call site: with
         no class in the script this is a lookup in an empty cached list, and
@@ -7183,25 +7175,44 @@ class _EmbeddedScriptClasses:
         groups = self._roots()
         if not groups:
             return False
-        return any(
-            self._overlaps(root, node.start_byte, node.end_byte)
-            and (name is None or root.name == name)
-            for root, _ in groups
-        )
+        return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in groups)
 
-    def suppress(self, node, name: str) -> None:
-        """Withhold the group named `name` overlapping `node`: the hand walk
-        publishes it as something else on purpose (a Svelte `export let` prop
-        is an input). Named for the reason `covers` is: a class merely nested
-        in the initializer is not the prop's."""
-        self._suppressed.append((node.start_byte, node.end_byte, name))
+    def binds(self, binder) -> bool:
+        """True when a group is the class this BINDER names: its span contains
+        the binder, as the generic walk spans a bound class expression from
+        its binder (`const C = class {}` spans `const C = ...`, `A = class B
+        {}` spans `A = ...`, `$: C = class {}` spans `C = ...`).
+
+        ⚠⚠ Decided from the generic walk's tree, never the hand walk's. The
+        hand walk reads a `lang="tsx"` script with the TypeScript grammar
+        (LEDGER L-39), whose error recovery can make a class NESTED in a JSX
+        initializer the binding's value. Overlap alone then silenced
+        `const e = <div onClick={() => { class K {} }} />` (review round 5),
+        and a name match alone silenced `const K = <A r={() => { class K {}
+        }} />` (round 6): a nested class starts AFTER its binder, whatever its
+        name.
+        """
+        groups = self._roots()
+        if not groups:
+            return False
+        return any(self._spans_binder(root, binder) for root, _ in groups)
+
+    @staticmethod
+    def _spans_binder(root: Symbol, binder) -> bool:
+        return root.byte_offset <= binder.start_byte < root.byte_offset + root.byte_length
+
+    def suppress(self, binder) -> None:
+        """Withhold the group `binds(binder)` names: the hand walk publishes it
+        as something else on purpose (a Svelte `export let` prop is an input).
+        A class merely nested in the prop's default is not withheld."""
+        self._suppressed.append(binder)
 
     def emit(self) -> list[Symbol]:
         """Every group, once, in source order, minus the suppressed ones."""
         return [
             sym
             for root, group in self._roots()
-            if not any(self._overlaps(root, a, b) and root.name == n for a, b, n in self._suppressed)
+            if not any(self._spans_binder(root, b) for b in self._suppressed)
             for sym in group
         ]
 
@@ -7436,7 +7447,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 name_node = decl.child_by_field_name("name")
                 if name_node is None:
                     continue
-                if script_classes.covers(decl, _node_text(name_node)) and _js_declarator_holds_a_class(decl):
+                if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
                     # `const C = class {...}` declares a CLASS, as in a `.js`
                     # file since #803, never a `constant` beside it (#861).
                     continue
@@ -7834,12 +7845,12 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # absences. Borrowing a guard also borrows the owner it
                         # assumes.
                         is_prop = name_node.type == "identifier" and keyword_kind == "variable"
-                        if script_classes.covers(decl, _node_text(name_node)) and _js_declarator_holds_a_class(decl):
+                        if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
                             if is_prop:
                                 # ⚠ A prop is an INPUT: the class is only its
                                 # default, so it stays a `property` and its
                                 # members are not published (#861).
-                                script_classes.suppress(decl, _node_text(name_node))
+                                script_classes.suppress(name_node)
                             else:
                                 continue
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
@@ -7870,7 +7881,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     name_node = decl.child_by_field_name("name")
                     if name_node is None:
                         continue
-                    if script_classes.covers(decl, _node_text(name_node)) and _js_declarator_holds_a_class(decl):
+                    if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
                         # `const C = class {...}` declares a CLASS (#803, #861).
                         continue
                     val_node = decl.child_by_field_name("value")
@@ -7919,8 +7930,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 expr.children[0] if expr.children else None
                             )
                             right = expr.child_by_field_name("right")
-                            binder = _node_text(left) if left is not None else ""
-                            if script_classes.covers(expr, binder) and _js_value_is_a_class(right):
+                            if left is not None and script_classes.binds(left) and _js_value_is_a_class(right):
                                 # `$: C = class {...}` is a CLASS, published by
                                 # `emit()`, never a `constant` beside it (#803, #861).
                                 continue

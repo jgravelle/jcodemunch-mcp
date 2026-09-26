@@ -43,16 +43,20 @@ say no, and the script is parsed again: a `lang="tsx"` script is read there
 with the TypeScript grammar, so JSX in a class body is an error to it and not
 to the TSX parse. Nineteen of the 2,020 corpus scripts have the word and six
 are parsed again, with no symbol changed. Over three interleaved processes of
-15 passes each, the corpus's fastest pass takes 0.595 to 0.605 s against 0.565
-to 0.573 s on main; a 300-function script that mentions `classList` is
+15 passes each, the corpus's fastest pass takes 0.595 to 0.600 s against 0.567
+to 0.571 s on main; a 300-function script that mentions `classList` is
 unchanged.
 
-A binding stands aside only for a class named for it. `const e = <div
-onClick={() => { class K {} }} />` in a `lang="tsx"` script keeps `e`, and a
-Svelte prop keeps a class merely nested in its default. The hand walk reads a
-`lang="tsx"` script with the TypeScript grammar, which can recover JSX by making
-the nested class the binding's value; that mismatch is older than this fix and
-loses more than classes (LEDGER L-39).
+A binding stands aside only for the class it binds: one whose span, in the
+generic walk's own tree, starts at or before the binder. A class nested in the
+initializer starts after it, whatever its name, so `const e = <div onClick={()
+=> { class K {} }} />` and `const K = <A r={() => { class K {} }} />` in a
+`lang="tsx"` script both keep their binding, and a Svelte prop keeps a class
+merely nested in its default. The hand walk reads a `lang="tsx"` script with
+the TypeScript grammar, which can recover JSX by making the nested class the
+binding's value; that mismatch is older than this fix and loses more than
+classes (LEDGER L-39). An unbound class expression (`const [a] = class {}`,
+`new (class {})()`) still publishes no members, as on main (LEDGER L-40).
 
 A class inside a function declaration, arrow function or function expression
 stays unpublished, as before. One inside an object method

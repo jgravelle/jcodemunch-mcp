@@ -326,3 +326,36 @@ def test_a_svelte_prop_is_not_suppressed_by_a_class_nested_in_its_default():
     for sid, parent in expected.items():
         if sid.startswith("K"):
             assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
+# Review round 6: a name match stood in for "this class is the binding's
+# value", so a nested class of the binding's OWN name still silenced it. The
+# generic walk spans a bound class from its binder; a nested one starts after.
+SAME_NAME_NESTED = [
+    ("tsx-const", "const K = <A r={() => { class K { k() {} } }} />;\n", ' lang="tsx"', "tsx", "K#constant"),
+    ("js-const", "const K = make(() => { class K { k() {} } });\n", "", "javascript", "K#constant"),
+]
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize(
+    "body,attrs,lang,binding", [n[1:] for n in SAME_NAME_NESTED], ids=[n[0] for n in SAME_NAME_NESTED]
+)
+def test_a_nested_class_of_the_bindings_own_name_does_not_silence_it(
+    filename, language, body, attrs, lang, binding
+):
+    got = _ids(parse_file(_script(body, attrs), filename, language))
+    expected = _expected(body, lang)
+
+    assert binding in expected, expected
+    for sid, parent in expected.items():
+        assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
+def test_a_vue_export_let_holding_a_same_named_nested_class_keeps_its_binding():
+    body = "export let K = <A r={() => { class K { k() {} } }} />;\n"
+    got = _ids(parse_file(_script(body, ' lang="tsx"'), "a.vue", "vue"))
+
+    assert got.get("K#variable") == "a#class", got
+    assert got.get("K#class") == "a#class", got
+    assert got.get("K.k#method") == "K#class", got
