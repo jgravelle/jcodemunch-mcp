@@ -37,7 +37,7 @@ def _script(body: str, attrs: str = "") -> str:
 def _expected(body: str, lang: str) -> dict:
     """What a plain `.ts`/`.js` file of the same script publishes, re-rooted at
     the component (`a#class`), the only difference the channel adds."""
-    ext = "ts" if lang == "typescript" else "js"
+    ext = {"typescript": "ts", "tsx": "tsx"}.get(lang, "js")
     got = _ids(parse_file(body, f"a.{ext}", lang))
     return {k: (v if v is not None else "a#class") for k, v in got.items()}
 
@@ -227,6 +227,9 @@ AFTER_THE_KEYWORD = [
     ("type-parameter", "const C = class<T> { m() {} };\n", ' lang="ts"', "typescript"),
     ("comment", "class /* x */ Foo { m() {} }\n", "", "javascript"),
     ("non-ascii-name", "class \u00dcber { m() {} }\n", "", "javascript"),
+    # Review round 4: the gate read a `lang="tsx"` script with the TypeScript
+    # grammar, where JSX in a class body is an ERROR, and said no alone.
+    ("tsx-jsx-in-body", "class K { r() { return <div/>; } }\n", ' lang="tsx"', "tsx"),
 ]
 
 

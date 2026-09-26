@@ -7085,17 +7085,28 @@ class _EmbeddedScriptClasses:
         # cost the corpus more than the parse it gates (review round 3).
         for match in _CLASS_KEYWORD_RE.finditer(script):
             leaf = self._root_node.descendant_for_byte_range(match.start(), match.end())
-            node = leaf.parent if leaf is not None else None
-            if node is None or node.type not in _EMBEDDED_CLASS_NODE_TYPES:
-                continue
-            # ⚠ Skipped ONLY where the generic walk gives a nested class an
-            # owner (`f.K`, `setup.K`), which `_build` never emits as a group.
-            # An arrow or function EXPRESSION is not an owner: a class in one
-            # is a root there (`K#class`), so it must reach `_build`.
-            ancestor = node.parent
-            while ancestor is not None and ancestor.type not in _CLASS_GATE_OWNERS:
+            if leaf is None or leaf.type == "ERROR":
+                return True
+            in_class = leaf.parent is not None and leaf.parent.type in _EMBEDDED_CLASS_NODE_TYPES
+            owned = False
+            ancestor = leaf.parent
+            while ancestor is not None:
+                # ⚠⚠ An ERROR means this tree could not read the text, so it
+                # cannot say no. A `lang="tsx"` script is read here with the
+                # TYPESCRIPT grammar while `_build` parses TSX, so a class with
+                # JSX in its body is an ERROR here and a class there (review
+                # round 4). Any grammar mismatch has the same shape.
+                if ancestor.type == "ERROR":
+                    return True
+                # ⚠ Skipped ONLY where the generic walk gives a nested class an
+                # owner (`f.K`, `setup.K`), which `_build` never emits as a
+                # group. An arrow or function EXPRESSION is not an owner: a
+                # class in one is a root there (`K#class`), so it must reach
+                # `_build`.
+                if ancestor.type in _CLASS_GATE_OWNERS:
+                    owned = True
                 ancestor = ancestor.parent
-            if ancestor is None:
+            if in_class and not owned:
                 return True
         return False
 
@@ -7160,7 +7171,7 @@ class _EmbeddedScriptClasses:
         no class in the script this is a lookup in an empty cached list, and
         the probe it guards ran on every binding of every script otherwise.
         """
-        groups = self._groups if self._groups is not None else self._roots()
+        groups = self._roots()
         if not groups:
             return False
         return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in groups)

@@ -38,10 +38,14 @@ a function declaration or a method (the generic walk gives such a class an
 owner, so it is never a group here). A byte test alone would re-parse every
 script that mentions `classList` or `className`. Nothing after the keyword is
 asked of the text, so `class<T>`, `class /* x */ Foo` and `class Über` are
-classes like any other. Nineteen of the 2,020 corpus scripts have the word and
-none is re-parsed. Over three interleaved processes of 15 passes each, the
-corpus's fastest pass takes 0.585 to 0.592 s against 0.564 to 0.570 s on main;
-a 300-function script that mentions `classList` is unchanged.
+classes like any other. Where the tree has an error around the word it cannot
+say no, and the script is parsed again: a `lang="tsx"` script is read there
+with the TypeScript grammar, so JSX in a class body is an error to it and not
+to the TSX parse. Nineteen of the 2,020 corpus scripts have the word and six
+are parsed again, with no symbol changed. Over three interleaved processes of
+15 passes each, the corpus's fastest pass takes 0.591 to 0.598 s against 0.562
+to 0.579 s on main; a 300-function script that mentions `classList` is
+unchanged.
 
 A class inside a function declaration, arrow function or function expression
 stays unpublished, as before. One inside an object method
