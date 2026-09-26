@@ -466,6 +466,13 @@ INDEX_VERSION = 17
 #   named module every member after the chain returns to the module
 #   (`c#constant` -> `M.c#constant`). No id moves on #848's four-project
 #   corpus.
+#
+#   ⚠⚠ **And #858: a Kotlin accessor on its own line owns its body.** SPANS
+#   widen: a property whose getter/setter the grammar spilled into a sibling
+#   now covers it, as the one-line form always has (203 properties on four
+#   projects, none narrowed). MOVES: what the accessor declares gets the
+#   property as owner (`FakeFileSystem.now#method` ->
+#   `FakeFileSystem.clock.now#function`; at file scope `gg` -> `g.gg`).
 PARSER_GENERATION = 8
 
 

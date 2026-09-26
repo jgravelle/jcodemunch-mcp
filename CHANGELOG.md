@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed - a Kotlin accessor on its own line owns what its body declares (#858)
+
+`val g: Any` with `get() = object { val gg = 1; fun h() = 2 }` on the next
+line published `gg` as a `property` and `h` as a `function`, both with no
+owner. A local function in such a getter's body (`get() { fun loc() = ...;
+return loc() }`) was a fabricated top-level `function`, and so were the
+members of an object literal in a `when` branch or in a setter. In a class
+the same members were filed under the class: `C.gg`, and an object literal's
+`fun` became a method of the class. With the accessor on the property's line
+every one of them was owned by the property. Reported by @jgravelle from the
+#807 review.
+
+tree-sitter-kotlin spills an accessor written on its own line into a sibling
+of the property declaration. #807 reads that sibling for the property's kind;
+ownership was a separate walk and never saw it, so the body was walked with
+the enclosing owner.
+
+The walk now adopts a spilled getter or setter as the property's own child
+(the same test #807 uses to find it, shared rather than repeated), with any
+comments and annotations between them. The split form answers exactly what
+the one-line form answers: owner, qualified name, kind and span. On four
+Kotlin projects (1,098 files) the one id that moves is the defect on real
+code, okio's `FakeFileSystem.now#method`, a method of the object literal
+`clock` returns, which becomes `FakeFileSystem.clock.now#function`.
+
+⚠ Spans widen: a property with an own-line accessor now covers it, as the
+one-line form's always has. On the same corpus that is 203 properties, none
+narrowed and no start moved. `PARSER_GENERATION` 8, still unreleased,
+re-parses unchanged files. The constant channel owns nothing in either form
+(`val MAX: Any get() = object { val gg = 1 }`), which is LEDGER L-32.
+
 ### Fixed - an F# non-`rec` `let ... and ...` chain binds every name (#856)
 
 `let a = 1 / and b = 2` indexed `a` and not `b`. In a type body it was
