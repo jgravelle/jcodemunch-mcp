@@ -12659,7 +12659,9 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # way, and so is a `class helper for` / `record helper for` (`declHelper`)
     # and an `interface` / `dispinterface` (`declIntf`, #845). Only `declClass`
     # is a `class`; the rest keep `type`, the kind they had before their body
-    # was read, so no container id moves.
+    # was read, so no container id moves. ⚠ Their MEMBERS can: a body the walk
+    # did not enter was still walked with the ENCLOSING owner, so a newly
+    # walked container nested in a class moves what it holds one scope down.
     # ⚠⚠ #844/#846: a declaration's name is not always a direct `identifier`.
     # A generic type or routine wraps it in `genericTpl` (`TBox<T>`, whose
     # type parameters belong to the signature), and an implementation-section

@@ -16,8 +16,17 @@ names reads as the language having no such thing.
 An interface's `procedure`/`function` is now a `method` and its `property` a
 `property`, owned by the interface, including a generic interface
 (`IGen<T>`) and a `dispinterface`. The interface keeps its kind, `type`, so
-no id moves; every member is new. The F# half of #845 is a separate parser
-and a separate change.
+its own id does not move, and a top-level interface's members are all new.
+
+⚠ An interface declared inside a class or record is the exception, for the
+two reasons #844 named. **Scope:** the walk did not enter the interface but
+did walk its body with the enclosing class as owner, so its members were
+already indexed, misfiled as the class's own: `TOuter.Foo#method` is now
+`TOuter.IInner.Foo#method`. **Ordinals:** where an interface member shared a
+name with a member of the class, the class's `~1..~N` renumber, and a `~N`
+can name a different symbol. The same happens to `procedure IFoo.Bar` in an
+implementation section, which the grammar accepts and Delphi does not. The
+F# half of #845 is a separate parser and a separate change.
 
 ### Fixed - a Pascal method's body is indexed as a method of its class, and a generic class is indexed at all (#844, #846)
 
