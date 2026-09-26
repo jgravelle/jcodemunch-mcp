@@ -25,7 +25,8 @@ The gate now never reads inside a lambda. At block scope a declarator whose
 name is certainly bound by a pointer, reference or array is a variable and
 emits nothing, as a local `int x` does. A declaration whose first
 declarator is certainly a variable and whose later one is a bare prototype
-is that prototype, at file and block scope, in C, C++ and Arduino alike:
+is that prototype anywhere outside a class body (file, namespace, `extern "C"`,
+template and block scope), in C, C++ and Arduino alike:
 `int x, y(int);` is `y`, and `void (*ga)(int), gb(int);` is `gb`. A shape only error recovery produces keeps the old answer. A
 file-scope `int (*gfp)(int);` stays a `function`, #755's recorded choice
 over an absence.

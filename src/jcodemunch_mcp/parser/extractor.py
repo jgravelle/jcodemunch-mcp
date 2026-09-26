@@ -2687,13 +2687,13 @@ def _is_cpp_function_declaration(node) -> bool:
         # has no channel in C++, so re-grading `int (*gfp)(int);` there would
         # trade a wrong kind for an absence.
         return _cpp_declarator_is_function(declarator)
-    # ⚠⚠ #850, two changes to #755's subtree rule and nothing else:
+    # ⚠⚠ #850, three changes to #755's subtree rule and nothing else:
     # - the walk never enters a `lambda_expression`: the Arduino grammar
     #   spells a lambda's parameter list `abstract_function_declarator`, so
     #   `auto l = [](int a) {...};` was a function at any scope;
     # - at BLOCK scope a variable emits nothing whatever its shape, as a local
     #   `int x` does, so a first declarator whose name is certainly bound by a
-    #   pointer, reference, array or parenthesis (`int (*fp)(int);`) does not
+    #   pointer, reference or array (`int (*fp)(int);`) does not
     #   count; #833's prototype exemption had published it at file scope.
     # - a later declarator counts when it is a bare prototype, at any scope
     #   and as C asks it (`void (*hp)(int), helper(int);`, `int x, y(int);`).

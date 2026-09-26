@@ -136,3 +136,15 @@ def test_an_errored_declaration_keeps_its_first_name(language, filename):
     could not parse is never renamed to its prototype."""
     rows = _rows("void (*ga)(int), gb(int) @;\n", language, filename)
     assert ("gb", "function") not in rows, rows
+
+
+@pytest.mark.parametrize("language, filename", LANGS)
+@pytest.mark.parametrize("wrap, prefix", [
+    ("namespace N {{ {} }}\n", "N."),
+    ('extern "C" {{ {} }}\n', ""),
+])
+def test_a_prototype_after_a_variable_outside_a_class_body(language, filename, wrap, prefix):
+    """Review round 3: the rule fires at namespace and linkage scope too, and
+    the disclosure names them."""
+    assert _rows(wrap.format("void (*ga)(int), gb(int);"), language, filename) >= {(prefix + "gb", "function")}
+    assert (prefix + "ga", "function") not in _rows(wrap.format("void (*ga)(int), gb(int);"), language, filename)
