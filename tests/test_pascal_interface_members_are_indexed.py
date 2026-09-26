@@ -67,7 +67,7 @@ def test_the_interface_it_extends_is_not_a_member():
 # class member that shares a name is no longer an ordinal twin of them.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("outer", ["class", "record"])
+@pytest.mark.parametrize("outer", ["class", "record", "class helper for TA"])
 def test_a_nested_interface_owns_its_members_not_the_enclosing_type(outer):
     source = (
         f"unit U;\ninterface\ntype\n  TOuter = {outer}\n  type\n    IInner = interface\n"

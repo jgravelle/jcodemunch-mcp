@@ -404,10 +404,12 @@ INDEX_VERSION = 17
 #
 #   ⚠⚠ **And #845 (Pascal): an interface's members are indexed.** `declIntf`
 #   is walked, so `IFoo.Bar#method` and `IFoo.Q#property` are new. The
-#   interface stays `IFoo#type`. Ids MOVE only for an interface nested in a
-#   class or record, by the same two causes: SCOPE (its members were indexed
-#   as the class's, `TOuter.Foo` is `TOuter.IInner.Foo`) and ORDINALS (a
-#   class member sharing the name renumbers).
+#   interface stays `IFoo#type`. Ids MOVE wherever the walk used to reach
+#   into an interface body without entering it, by the same two causes:
+#   SCOPE (nested in any type, its members were indexed as that type's,
+#   `TOuter.Foo` is `TOuter.IInner.Foo`; a type declared in an interface,
+#   grammar-only, moves its own id) and ORDINALS (a name it shared with the
+#   enclosing type's members renumbers). A top-level interface moves nothing.
 PARSER_GENERATION = 8
 
 

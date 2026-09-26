@@ -12661,7 +12661,9 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # is a `class`; the rest keep `type`, the kind they had before their body
     # was read, so no container id moves. ⚠ Their MEMBERS can: a body the walk
     # did not enter was still walked with the ENCLOSING owner, so a newly
-    # walked container nested in a class moves what it holds one scope down.
+    # walked container moves what the walk reached through it one scope down.
+    # At file scope that is nothing (a member needs an owner to be emitted);
+    # nested in any type, it is the members.
     # ⚠⚠ #844/#846: a declaration's name is not always a direct `identifier`.
     # A generic type or routine wraps it in `genericTpl` (`TBox<T>`, whose
     # type parameters belong to the signature), and an implementation-section
