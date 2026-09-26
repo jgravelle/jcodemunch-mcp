@@ -182,9 +182,13 @@ def test_a_class_beside_an_options_object_is_published():
     assert "go#method" in got, got
 
 
-def test_a_svelte_reactive_class_is_a_class_not_also_a_constant():
-    got = _ids(parse_file(_script("$: C = class { m() {} };\n"), "a.svelte", "svelte"))
-    expected = _expected("$: C = class { m() {} };\n", "javascript")
+@pytest.mark.parametrize("body", [
+    "$: C = class { m() {} };\n",
+    "$: C = (class { m() {} });\n",
+], ids=["bare", "parenthesised"])
+def test_a_svelte_reactive_class_is_a_class_not_also_a_constant(body):
+    got = _ids(parse_file(_script(body), "a.svelte", "svelte"))
+    expected = _expected(body, "javascript")
 
     assert "C#constant" not in got, got
     for sid, parent in expected.items():
@@ -216,12 +220,71 @@ def test_the_script_is_parsed_again_only_for_a_class_node(filename, language, bo
     assert len(calls) == parses, calls
 
 
+# What may follow the keyword: a type parameter, a comment, a non-ASCII name.
+# Review round 3: a prefilter that asked about the next character refused all
+# three, so their classes stayed memberless with every other test green.
+AFTER_THE_KEYWORD = [
+    ("type-parameter", "const C = class<T> { m() {} };\n", ' lang="ts"', "typescript"),
+    ("comment", "class /* x */ Foo { m() {} }\n", "", "javascript"),
+    ("non-ascii-name", "class \u00dcber { m() {} }\n", "", "javascript"),
+]
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize("body,attrs,lang", [s[1:] for s in AFTER_THE_KEYWORD], ids=[s[0] for s in AFTER_THE_KEYWORD])
+def test_what_follows_the_keyword_does_not_hide_the_class(filename, language, body, attrs, lang):
+    got = _ids(parse_file(_script(body, attrs), filename, language))
+    expected = _expected(body, lang)
+
+    assert any(k.endswith("#method") for k in expected), expected
+    for sid, parent in expected.items():
+        assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
 def test_the_prefilter_never_refuses_a_class_spelling():
     """The keyword prefilter may say yes too often, never no: a no drops every
     class in the script silently. Every class body this file tests passes it."""
     from jcodemunch_mcp.parser.extractor import _CLASS_KEYWORD_RE
 
-    bodies = [CLASS_TS, CLASS_JS, EXPRESSION, "$: C = class { m() {} };\n", "const C = class\n{ m() {} };\n"]
-    bodies += [s[1] for s in SPELLINGS]
+    bodies = [CLASS_TS, CLASS_JS, EXPRESSION, "$: C = (class { m() {} });\n", "const C = class\n{ m() {} };\n"]
+    bodies += [s[1] for s in SPELLINGS] + [s[1] for s in AFTER_THE_KEYWORD]
     for body in bodies:
         assert _CLASS_KEYWORD_RE.search(body.encode()), body
+
+
+# A class nested in a container. The gate's node walk prunes a container only
+# where the generic walk gives its class an OWNER, which `_build` never emits.
+NESTED = [
+    ("function-declaration", "function f() { class K { k() {} } }\n", 0),
+    ("generator", "function* g() { class K { k() {} } }\n", 0),
+    ("object-method", "const o = { m() { class K { k() {} } } };\n", 0),
+    ("arrow", "const f = () => { class K { k() {} } };\n", 1),
+    ("function-expression", "const f = function () { class K { k() {} } };\n", 1),
+    ("block", "if (x) { class K { k() {} } }\n", 1),
+]
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize("body,parses", [n[1:] for n in NESTED], ids=[n[0] for n in NESTED])
+def test_a_nested_class_is_published_where_a_script_file_publishes_it_as_a_root(
+    filename, language, body, parses, monkeypatch
+):
+    import jcodemunch_mcp.parser.extractor as extractor
+
+    calls = []
+    real = extractor.parse_file
+
+    def spy(content, fname, *a, **k):
+        if "#script." in fname:
+            calls.append(fname)
+        return real(content, fname, *a, **k)
+
+    monkeypatch.setattr(extractor, "parse_file", spy)
+    got = _ids(parse_file(_script(body), filename, language))
+    monkeypatch.setattr(extractor, "parse_file", real)
+    roots = {k for k, v in _expected(body, "javascript").items() if v == "a#class" and k.endswith("#class")}
+
+    assert len(calls) == parses, calls
+    for sid in roots:
+        assert got.get(sid) == "a#class", (sid, got)
+        assert got.get(sid.replace("#class", ".k#method")) == sid, got

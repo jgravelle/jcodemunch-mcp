@@ -20,8 +20,8 @@ under it now come from `parse_file` over the script, the walk a `.ts` file
 gets. Every class that walk finds is published once per block, so the spellings
 neither hand walk recognised arrive too: `abstract class`, an anonymous
 `export default class {}` (as `default`), `module.exports = class {}` and
-`X.P = class {}`, and a Svelte `$: C = class {}`, which had published a
-`constant` beside the class. A class beside a Vue Options-API object is published now; the
+`X.P = class {}`, and a Svelte `$: C = class {}` (parenthesised or not),
+which had published a `constant` beside the class. A class beside a Vue Options-API object is published now; the
 functions and bindings beside it are still dropped (LEDGER L-36). Ids keep the
 generic qualified names (`Svc#class` is unchanged), lines and bytes address
 the component file, and the class's parent is the component.
@@ -32,13 +32,16 @@ and members appear. On 2,020 `.vue` and `.svelte` files from element-plus
 them declares a script class. `PARSER_GENERATION` 8, still unreleased,
 re-parses unchanged files.
 
-⚠ The script is parsed a second time only when its text has the `class`
-keyword before a name or `{` and the parsed tree has a class node. A byte test
-alone would re-parse every script that mentions `classList` or `className`.
-Two of the 2,020 scripts pass the text test and none is re-parsed. The corpus
-takes a median of 0.591 to 0.596 s against 0.573 to 0.578 s on main over three
-interleaved processes of 15 passes each, and a 300-function script that
-mentions `classList` is unchanged.
+⚠ The script is parsed a second time only when the word `class` in its text
+is a class keyword in the tree it already has, and that class is not owned by
+a function declaration or a method (the generic walk gives such a class an
+owner, so it is never a group here). A byte test alone would re-parse every
+script that mentions `classList` or `className`. Nothing after the keyword is
+asked of the text, so `class<T>`, `class /* x */ Foo` and `class Über` are
+classes like any other. Nineteen of the 2,020 corpus scripts have the word and
+none is re-parsed. Over three interleaved processes of 15 passes each, the
+corpus's fastest pass takes 0.585 to 0.592 s against 0.564 to 0.570 s on main;
+a 300-function script that mentions `classList` is unchanged.
 
 A class inside a function declaration, arrow function or function expression
 stays unpublished, as before. One inside an object method

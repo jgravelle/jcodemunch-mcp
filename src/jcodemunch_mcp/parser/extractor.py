@@ -4359,7 +4359,13 @@ def _js_declarator_holds_a_class(declarator) -> bool:
     name = declarator.child_by_field_name("name")
     if name is None or name.type != "identifier":
         return False
-    value = declarator.child_by_field_name("value")
+    return _js_value_is_a_class(declarator.child_by_field_name("value"))
+
+
+def _js_value_is_a_class(value) -> bool:
+    """Is this expression a class expression, wrappers (`(...)`, `as`,
+    `satisfies`, `!`, `<T>`) seen through? Shared by every site that asks, so
+    a parenthesised class is a class at all of them (#861 review round 3)."""
     while value is not None and value.type in _JS_EXPRESSION_WRAPPERS:
         value = next(
             (c for c in value.named_children if c.type == "class" or c.type in _JS_EXPRESSION_WRAPPERS),
@@ -7013,7 +7019,11 @@ def _extract_nix_binding(node, source_bytes: bytes, filename: str, symbols: list
 # Every node type a JS/TS grammar uses for a class. A hand walk that names one
 # of them and not the others loses the rest (#698 was `abstract_class_declaration`).
 _EMBEDDED_CLASS_NODE_TYPES = frozenset({"class_declaration", "abstract_class_declaration", "class"})
-_CLASS_KEYWORD_RE = re.compile(rb"\bclass(?:\s+[\w$]|\s*\{)")
+_CLASS_KEYWORD_RE = re.compile(rb"\bclass\b(?![$])")
+# Containers whose nested class the generic walk qualifies under the container.
+_CLASS_GATE_OWNERS = frozenset({
+    "function_declaration", "generator_function_declaration", "method_definition",
+})
 
 
 class _EmbeddedScriptClasses:
@@ -7058,22 +7068,35 @@ class _EmbeddedScriptClasses:
         self._suppressed: list[tuple[int, int]] = []
 
     def _has_class_node(self) -> bool:
-        # A PREFILTER only, and it may say yes too often, never no: a class
-        # node needs the keyword followed by a name, `{`, or `extends`. It
-        # rejects `classList`, `className`, `'class'` and `class: 'x'`, each of
-        # which paid a node walk when this was a substring test (review,
-        # 2026-09-26).
+        # A PREFILTER only, and it may say yes too often, never no: it asks
+        # for the WORD `class` and leaves every question after it to the tree.
+        # An earlier draft also asked what followed the keyword and said no to
+        # `class<T>`, `class /*x*/ Foo` and `class Über`, so the fix silently
+        # did not apply to them (review round 3). It still rejects `classList`
+        # and `className`.
         script = self._args[0]
-        if b"class" not in script or not _CLASS_KEYWORD_RE.search(script):
+        if b"class" not in script:
             return False
         if self._root_node is None:
-            return True  # nothing to ask, so parse: never a silent drop
-        stack = [self._root_node]
-        while stack:
-            node = stack.pop()
-            if node.type in _EMBEDDED_CLASS_NODE_TYPES:
+            return _CLASS_KEYWORD_RE.search(script) is not None  # never a silent drop
+        # The tree decides, asked only where the word occurs: the smallest node
+        # over a match is the keyword token, and a real keyword's parent is a
+        # class node (a comment or a string is not). A whole-tree walk here
+        # cost the corpus more than the parse it gates (review round 3).
+        for match in _CLASS_KEYWORD_RE.finditer(script):
+            leaf = self._root_node.descendant_for_byte_range(match.start(), match.end())
+            node = leaf.parent if leaf is not None else None
+            if node is None or node.type not in _EMBEDDED_CLASS_NODE_TYPES:
+                continue
+            # ⚠ Skipped ONLY where the generic walk gives a nested class an
+            # owner (`f.K`, `setup.K`), which `_build` never emits as a group.
+            # An arrow or function EXPRESSION is not an owner: a class in one
+            # is a root there (`K#class`), so it must reach `_build`.
+            ancestor = node.parent
+            while ancestor is not None and ancestor.type not in _CLASS_GATE_OWNERS:
+                ancestor = ancestor.parent
+            if ancestor is None:
                 return True
-            stack.extend(node.children)
         return False
 
     def _build(self) -> list[tuple[Symbol, list[Symbol]]]:
@@ -7137,7 +7160,10 @@ class _EmbeddedScriptClasses:
         no class in the script this is a lookup in an empty cached list, and
         the probe it guards ran on every binding of every script otherwise.
         """
-        return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in self._roots())
+        groups = self._groups if self._groups is not None else self._roots()
+        if not groups:
+            return False
+        return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in groups)
 
     def suppress(self, node) -> None:
         """Withhold any group overlapping `node`: the hand walk publishes it as
@@ -7788,7 +7814,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 # default, so it stays a `property` and its
                                 # members are not published (#861).
                                 script_classes.suppress(decl)
-                            elif script_classes.covers(decl):
+                            else:
                                 continue
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
                             _emit_const(
@@ -7867,7 +7893,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 expr.children[0] if expr.children else None
                             )
                             right = expr.child_by_field_name("right")
-                            if right is not None and right.type == "class" and script_classes.covers(expr):
+                            if script_classes.covers(expr) and _js_value_is_a_class(right):
                                 # `$: C = class {...}` is a CLASS, published by
                                 # `emit()`, never a `constant` beside it (#803, #861).
                                 continue
