@@ -143,3 +143,23 @@ def test_a_nested_pointer_reference_or_empty_array_binds(language, filename, par
     when nothing inside it is a pointer, a reference, an empty `[]` or a
     parameter list no argument can spell."""
     assert "g#function" in _ids(f"int f(int), g({param});\n", language, filename)
+
+
+@pytest.mark.parametrize("filename", ["a.cpp", "a.h"])
+@pytest.mark.parametrize("scope", ["file", "block"])
+@pytest.mark.parametrize("decl", ["T a(x), b(y = 3);", "T a(x), b(y...);"])
+def test_an_assignment_or_pack_expansion_argument_gains_no_name(filename, scope, decl):
+    """Review round 3: a default value and a bare `...` are expressions too,
+    so they leave the parameter as ambiguous as `(y)`."""
+    source = f"{decl}\n" if scope == "file" else f"inline void h() {{ {decl} }}\n"
+    assert not any(i.startswith("b#") for i in _ids(source, "cpp", filename))
+
+
+@pytest.mark.parametrize("filename, param", [
+    (f, p) for f in ("a.cpp", "a.h") for p in ("Foo x = 3", "Args... args", "auto", "decltype(x)")
+    # A `.h` with no C++ marker is walked as C, whose grammar reads
+    # `decltype(x)` as a type `decltype` and an abstract `(x)` (LEDGER L-25).
+    if (f, p) != ("a.h", "decltype(x)")
+])
+def test_a_named_default_a_named_pack_auto_and_decltype_bind(filename, param):
+    assert "g#function" in _ids(f"int f(int), g({param});\n", "cpp", filename)

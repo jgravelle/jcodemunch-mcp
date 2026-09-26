@@ -454,8 +454,9 @@ INDEX_VERSION = 17
 #   beside `f#function` for `int f(int), g(int);`, at every scope a
 #   `declaration` reaches, in C, C++ and Arduino. ORDINALS: a C++ overload
 #   pair `int f(int), f(double);` is `f#function~1`/`~2` where it was
-#   `f#function`. A later declarator whose parameter could be a constructor
-#   argument (a type name with no declared parameter name) binds nothing extra.
+#   `f#function`. In C++, Arduino and any `.h` (never a `.c`), a later
+#   declarator whose parameter could be a constructor argument (a type name
+#   with no declared parameter name) binds nothing extra (LEDGER L-25).
 PARSER_GENERATION = 8
 
 

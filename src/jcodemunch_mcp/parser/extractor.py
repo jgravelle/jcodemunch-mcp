@@ -2461,7 +2461,16 @@ def _extra_declared_names(node, spec: LanguageSpec, source_bytes: bytes, filenam
 _UNAMBIGUOUS_PARAMETER_TYPES = frozenset({
     "primitive_type", "sized_type_specifier",
     "struct_specifier", "union_specifier", "enum_specifier", "class_specifier",
+    "placeholder_type_specifier", "decltype",
 })
+
+#: Every parameter spelling a constructor argument can also parse as: `(y)`,
+#: `(y = 3)` (an assignment) and `(y...)` (a pack expansion).
+_PARAMETER_DECLARATIONS = frozenset({
+    "parameter_declaration", "optional_parameter_declaration",
+    "variadic_parameter_declaration",
+})
+
 
 def _abstract_could_be_expression(node) -> bool:
     """Could this abstract declarator be part of an argument expression
@@ -2476,6 +2485,9 @@ def _abstract_could_be_expression(node) -> bool:
     elif kind == "abstract_function_declarator":
         if not _parameters_could_be_arguments(node):
             return False
+    elif kind == "variadic_declarator":
+        # `(y...)` is a pack expansion; `(Args... args)` names a parameter.
+        return not node.named_children
     elif kind != "abstract_parenthesized_declarator":
         return False
     return all(
@@ -2490,17 +2502,25 @@ def _parameters_could_be_arguments(function_declarator) -> bool:
     `T f(U), g(V);`: a parameter that is a type NAME with no declared
     parameter name and nothing an expression cannot hold (`(s1)`, `(Foo)`,
     `(inputs[j])`) cannot be told from an argument, so an extra name is not
-    bound for it. A primitive or tagged type, a qualifier, an abstract
-    pointer or reference, a named parameter, `(void)` and `()` are
+    bound for it; a default value or a bare `...` does not change that
+    (`(y = 3)`, `(y...)`). A primitive, tagged, `auto` or `decltype` type, a
+    qualifier, an abstract pointer or reference, a named parameter, `(void)`
+    and `()` are
     unambiguous. C++ only (and a `.h`): C has no constructor call. (The FIRST declarator's
     shape is LEDGER L-21, unchanged here.)"""
     params = function_declarator.child_by_field_name("parameters")
     if params is None:
         return False
     for param in params.named_children:
-        if param.type != "parameter_declaration":
+        if param.type not in _PARAMETER_DECLARATIONS:
             continue
-        named = [c for c in param.named_children if c.type != "comment"]
+        # A default value is an expression either way, so it decides nothing:
+        # `(y = 3)` is as ambiguous as `(y)` (review round 3).
+        named = [
+            c for i, c in enumerate(param.children)
+            if c.is_named and c.type != "comment"
+            and param.field_name_for_child(i) != "default_value"
+        ]
         if not named or named[0].type in _UNAMBIGUOUS_PARAMETER_TYPES:
             continue
         if any(c.type == "type_qualifier" for c in named):
