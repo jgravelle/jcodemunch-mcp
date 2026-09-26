@@ -1019,6 +1019,7 @@ dependencies = [
     { name = "mcp" },
     { name = "pathspec" },
     { name = "pyyaml" },
+    { name = "tree-sitter" },
     { name = "tree-sitter-fsharp" },
     { name = "tree-sitter-language-pack" },
 ]
@@ -1154,6 +1155,7 @@ requires-dist = [
     { name = "sounddevice", marker = "extra == 'groq-voice'", specifier = ">=0.4.6" },
     { name = "starlette", marker = "extra == 'all'", specifier = ">=1.3.1" },
     { name = "starlette", marker = "extra == 'http'", specifier = ">=1.3.1" },
+    { name = "tree-sitter", specifier = ">=0.25" },
     { name = "tree-sitter-fsharp", specifier = "==0.3.12" },
     { name = "tree-sitter-language-pack", specifier = ">=0.7.0,<1.0.0" },
     { name = "uvicorn", marker = "extra == 'all'", specifier = ">=0.20.0" },

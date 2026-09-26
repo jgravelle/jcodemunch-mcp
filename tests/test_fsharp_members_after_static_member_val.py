@@ -108,3 +108,14 @@ def test_a_bodiless_type_is_indexed(source):
     parse; the inventory ratchet named it on the grammar swap."""
     name = source.split()[-1]
     assert _rows(source) == {(name, "type")}
+
+
+def test_members_after_a_multi_line_new_then_constructor_are_kept():
+    """LEDGER L-16, the same spill for another construct: the pack's grammar
+    put `then` and every later member outside the type."""
+    source = (
+        "type C(x: int) =\n    new() as this =\n        C(0)\n        then ()\n"
+        "    member this.X = x\n    member this.Y = 2\n"
+    )
+    rows = _rows(source)
+    assert {("C.X", "property"), ("C.Y", "property")} <= rows, rows

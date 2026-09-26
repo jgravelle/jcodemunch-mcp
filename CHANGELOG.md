@@ -36,7 +36,15 @@ inside a body, which are never indexed on a clean parse. The other 7 sit in
 three files the new grammar also cannot parse. Ordinals renumber wherever a
 name's set changed. `PARSER_GENERATION` 8, still unreleased, re-parses every
 F# file on upgrade. Moving the wheel's pin is a parser-generation event, so
-it is an exact pin.
+it is an exact pin. The wheel's grammar needs a tree-sitter runtime of 0.25 or
+later, and `tree-sitter` now declares that floor; an older runtime would have
+indexed F# as empty with only a grammar-failure warning.
+
+The new grammar also parses a multi-line `new() as this = ... then ...`
+constructor, which the old one spilled with every member after it. And when
+the pack is absent, each grammar that fails to load is now recorded by name,
+so `install-status` and the index warnings list them; before, that import
+error escaped unrecorded.
 
 ### Fixed - F# abstract members, interface implementations and secondary constructors are indexed (#845, F# half)
 

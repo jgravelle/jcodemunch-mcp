@@ -61,6 +61,10 @@ dependencies = [
     # Grammar compiled into abi3 wheels, no runtime download. EXACT pin: a new
     # grammar moves F# symbol ids, so moving it is a PARSER_GENERATION event.
     "tree-sitter-fsharp==0.3.12",
+    # The F# wheel's grammar is ABI 15, which a tree-sitter runtime older than
+    # 0.25 cannot load: `Language()` raises and F# indexes as empty. The pack
+    # carried that floor only transitively, and its own spec does not promise it.
+    "tree-sitter>=0.25",
     "pathspec>=0.12.0",
     "pyyaml>=6.0",
 ]
