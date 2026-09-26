@@ -119,3 +119,12 @@ def test_members_after_a_multi_line_new_then_constructor_are_kept():
     )
     rows = _rows(source)
     assert {("C.X", "property"), ("C.Y", "property")} <= rows, rows
+
+
+def test_an_absent_pack_warning_names_the_grammar_that_still_parses():
+    """Review round 2: the absent-pack warning said no file is parsed, which
+    this change made untrue for F#."""
+    from jcodemunch_mcp.parser.grammar_pack import warnings_for
+
+    (line,) = warnings_for({"generation": "absent"})
+    assert "except fsharp" in line, line

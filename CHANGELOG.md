@@ -43,8 +43,8 @@ indexed F# as empty with only a grammar-failure warning.
 The new grammar also parses a multi-line `new() as this = ... then ...`
 constructor, which the old one spilled with every member after it. And when
 the pack is absent, each grammar that fails to load is now recorded by name,
-so `install-status` and the index warnings list them; before, that import
-error escaped unrecorded.
+so the index warnings list them; before, that import error escaped
+unrecorded. F# still parses without the pack, and that warning now says so.
 
 ### Fixed - F# abstract members, interface implementations and secondary constructors are indexed (#845, F# half)
 

@@ -14,7 +14,8 @@ checked). The two generations differ in KIND, not in version number:
   the 2026-09-11 probe found all three are parsed by our OWN regex extractors
   and never ask tree-sitter for a grammar, so nim is the one language 1.x
   loses. 1.17.0's config has a `cache_dir` override and no offline switch.
-- `absent`: no pack at all; nothing parses.
+- `absent`: no pack at all; nothing parses but the `STANDALONE_GRAMMARS`
+  languages, which bring their own wheel (#848: F#).
 
 ⚠ The extractor swallowed every grammar failure as `[]` ("indexed for text
 search only"), so on a `download` pack an unavailable grammar, and on an
@@ -188,7 +189,11 @@ def warnings_for(block: dict) -> list[str]:
             "Airgapped installs parse nothing on it; the shipped pin is <1.0.0 (README, Security section)."
         )
     elif gen == "absent":
-        out.append(f"{PACKAGE} is absent from this install: no file is parsed for symbols.")
+        own = ", ".join(sorted(STANDALONE_GRAMMARS))
+        out.append(
+            f"{PACKAGE} is absent from this install: no file is parsed for symbols "
+            f"except {own}, which ships its own grammar."
+        )
     failed = block.get("grammar_failures") or {}
     if failed:
         names = ", ".join(sorted(failed))
