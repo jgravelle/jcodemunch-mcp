@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ local function-pointer or lambda variable is not a file-scope function (#850)
+
+`void vf() { int (*fp)(int); }` gave `function fp`, at file scope with no
+owner, in C++ and Arduino, and on Arduino `void lf() { auto l = [](int a)
+{ return a; }; }` gave `function l` the same way. Neither is a function.
+Reported by @jgravelle from the #833 review's probes.
+
+The prototype gate asked whether a function declarator appeared anywhere
+under a declaration. Two things answered yes when they should not. The walk
+went into a lambda, and the Arduino grammar spells a lambda's parameter list
+as a function declarator, so any Arduino declaration initialised with a
+lambda was a function, at any scope (`auto gl = [](int a) {...};`,
+`int v = apply([](int a) {...});`). And at block scope the rule took a local
+function-pointer variable for a prototype; #833 publishes a block-scope
+prototype at file scope, because a real one declares a namespace-scope
+function, so the variable went there too. Arrays of function pointers,
+function references and pointer-to-member variables took the same path.
+
+The gate now never reads inside a lambda. At block scope a declarator whose
+name is certainly bound by a pointer, reference, array or parenthesis is a
+variable and emits nothing, as a local `int x` does; a later declarator
+counts when it is a bare prototype, so `void (*hp)(int), helper(int);`
+declares `helper` in either order, in C as well. A shape only error recovery
+produces keeps the old answer. A file-scope `int (*gfp)(int);` stays a
+`function`, #755's recorded choice over an absence.
+
+⚠ Ids leave, and none move: over 702 C, C++ and Arduino files from six
+projects, 3 files differ and 5 wrong `function` rows are gone, every one a
+local variable except a function-pointer `typedef` in a class body the
+grammar misread as a function body. A name that shared its set with one of
+them renumbers its ordinals. `PARSER_GENERATION` 8, still unreleased,
+re-parses unchanged files.
+
 ### Fixed - F# is parsed by a grammar that can read it (#848)
 
 In an F# type, every member written after a `static member val ... with
