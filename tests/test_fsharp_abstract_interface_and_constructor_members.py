@@ -73,3 +73,49 @@ def test_an_abstract_slot_and_its_default_are_ordinal_twins():
     source = 'type C() =\n    abstract Name : string\n    default this.Name = "c"\n'
     ids = sorted((s.id, s.line) for s in parse_file(source, "a.fs", "fsharp") if s.name == "Name")
     assert ids == [("a.fs::C.Name#property~1", 2), ("a.fs::C.Name#property~2", 3)], ids
+
+
+# ---------------------------------------------------------------------------
+# Review round 1: the other spellings of the same members. `interface ... end`
+# is `interface_type_defn` and was not in the defn list, so the reported
+# interface type indexed as NOTHING in that spelling; `struct ... end` puts
+# its members directly under the definition; `delegate of` was absent; and an
+# indexer (`with get`) is a property whatever its argument list says.
+# ---------------------------------------------------------------------------
+
+def test_an_interface_end_type_is_indexed_with_its_members():
+    source = "type I =\n    interface\n        abstract M : int -> int\n        abstract P : int\n    end\n"
+    assert _rows(source) == {
+        ("I", "type", None),
+        ("I.M", "method", "a.fs::I#type"),
+        ("I.P", "property", "a.fs::I#type"),
+    }
+
+
+def test_a_struct_end_body_is_read():
+    source = (
+        "type S =\n    struct\n        val X : int\n        new(x) = { X = x }\n"
+        "        member this.Get() = this.X\n    end\n"
+    )
+    rows = _rows(source)
+    assert ("S.S", "method", "a.fs::S#type") in rows, rows
+    assert ("S.Get", "method", "a.fs::S#type") in rows, rows
+
+
+def test_a_delegate_type_is_indexed():
+    assert _rows("type D = delegate of int -> int\n") == {("D", "type", None)}
+
+
+def test_an_abstract_indexer_is_a_property_and_twins_its_default():
+    source = (
+        "type C() =\n    abstract Item : int -> string with get\n"
+        "    default this.Item with get(i) = string i\n"
+    )
+    ids = sorted(s.id for s in parse_file(source, "a.fs", "fsharp") if s.name == "Item")
+    assert ids == ["a.fs::C.Item#property~1", "a.fs::C.Item#property~2"], ids
+
+
+def test_two_constructors_are_ordinal_twins():
+    source = "type C(x: int) =\n    new() = C(0)\n    new(s: string) = C(int s)\n    member this.X = x\n"
+    ids = sorted((s.id, s.line) for s in parse_file(source, "a.fs", "fsharp") if s.name == "C" and s.kind == "method")
+    assert ids == [("a.fs::C.C#method~1", 2), ("a.fs::C.C#method~2", 3)], ids

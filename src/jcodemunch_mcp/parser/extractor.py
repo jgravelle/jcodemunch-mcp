@@ -14070,9 +14070,14 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         for child in node.children:
             _walk(child, scope)
 
-    #: The six definition node types a `type_definition` chains with `and`.
+    #: The definition node types a `type_definition` chains with `and`.
+    #: ⚠ #845: `interface ... end` is `interface_type_defn` and `delegate of`
+    #: is `delegate_type_defn`; neither was listed, so such a type indexed
+    #: as NOTHING, not even its name (the grammar's other spelling of the
+    #: reported interface type).
     _FS_DEFN_TYPES = ("record_type_defn", "union_type_defn", "type_abbrev_defn",
-                      "enum_type_defn", "class_type_defn", "anon_type_defn")
+                      "enum_type_defn", "class_type_defn", "anon_type_defn",
+                      "interface_type_defn", "delegate_type_defn")
 
     def _fs_defn_nodes(type_definition) -> list:
         """Every definition of a `type A = ... and B = ...` chain (#824).
@@ -14151,9 +14156,14 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ident = _first_child_of_type(ms, "identifier")
             if ident is None:
                 return
+            # An accessor (`with get`, `with get, set`) makes it a property
+            # even with an argument list: `abstract Item : int -> string with
+            # get` is an indexer, and its `default ... with get(i)` reads as a
+            # property, so the slot must too or the two are not twins.
             spec = _first_child_of_type(ms, "curried_spec")
             has_args = spec is not None and _first_child_of_type(spec, "arguments_spec") is not None
-            _member(el, owner, _text(ident), "method" if has_args else "property")
+            accessor = _first_child_of_type(ms, "with") is not None
+            _member(el, owner, _text(ident), "method" if has_args and not accessor else "property")
             return
         # #845: `new(...) = ...` is a constructor, named after its type as
         # C#, Java and PowerShell constructors index (`C.C`).
@@ -14207,6 +14217,12 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # scope, but a slot and its `default` become ordinal twins (`~1`/`~2`).
     def _walk_members(td, owner: Symbol) -> None:
         for tee in td.children:
+            # #845: an `interface ... end` / `struct ... end` body puts its
+            # `member_defn`s directly under the definition, with no
+            # `type_extension_elements` around them.
+            if tee.type == "member_defn":
+                _member_defn(tee, owner)
+                continue
             if tee.type != "type_extension_elements":
                 continue
             for el in tee.children:
