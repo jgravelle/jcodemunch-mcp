@@ -14139,6 +14139,61 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
         ))
 
+    def _member_defn(el, owner: Symbol) -> None:
+        """One `member_defn`: a concrete member, an abstract slot, or a
+        secondary constructor. Shared by the type body and an `interface ...
+        with` block, so the two cannot read members differently."""
+        # #845: `abstract [member] Name : T` is `abstract + member_signature`;
+        # an argument list in the signature (`arguments_spec`, i.e. an arrow)
+        # makes it a `method`, as #812's rule does for a concrete member.
+        ms = _first_child_of_type(el, "member_signature")
+        if ms is not None:
+            ident = _first_child_of_type(ms, "identifier")
+            if ident is None:
+                return
+            spec = _first_child_of_type(ms, "curried_spec")
+            has_args = spec is not None and _first_child_of_type(spec, "arguments_spec") is not None
+            _member(el, owner, _text(ident), "method" if has_args else "property")
+            return
+        # #845: `new(...) = ...` is a constructor, named after its type as
+        # C#, Java and PowerShell constructors index (`C.C`).
+        if _first_child_of_type(el, "additional_constr_defn") is not None:
+            _member(el, owner, owner.name, "method")
+            return
+        mpd = _first_child_of_type(el, "method_or_prop_defn")
+        poi = _first_child_of_type(mpd if mpd is not None else el, "property_or_ident")
+        if poi is None:
+            return
+        idents = [c for c in poi.children if c.type == "identifier"]
+        if not idents:
+            return
+        name = _text(idents[-1])
+        if mpd is not None and name == "val":
+            # `static member val Total = 0`: the grammar takes `val` as
+            # the name and binds `Total` as `args` (review of #812;
+            # the trailing `with get, set` spills to file level and
+            # every later member is lost, filed). Name the property.
+            # The LAST pattern: an accessibility modifier between
+            # `val` and the name (`val private Count`) arrives as a
+            # pattern of its own, ahead of the name (review, round 3).
+            # A type annotation wraps the name in `typed_pattern`
+            # (round 4), so the last pattern is read through it.
+            pats = []
+            for c in mpd.children:
+                if c.type == "identifier_pattern":
+                    pats.append(c)
+                elif c.type == "typed_pattern":
+                    pats.extend(g for g in c.children if g.type == "identifier_pattern")
+            if not pats:
+                return
+            _member(el, owner, _text(pats[-1]), "property")
+            return
+        if mpd is not None and mpd.child_by_field_name("args") is not None:
+            kind = "method"
+        else:
+            kind = "property"
+        _member(el, owner, name, kind)
+
     # ⚠⚠ #812: a type's body is READ, each member owned through `_member_of`.
     # `let mutable` is `field`, `let` is `constant`, a `let`-bound function is
     # `method` (a private method, which is how it compiles); `member x.M(args)`
@@ -14146,6 +14201,10 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # `static member` are `property` (a member with no parameter list IS a
     # property in F#). The `mutable` marker is an unnamed token, so it is read
     # by node type, never by text.
+    # ⚠⚠ #845: an `abstract` slot, a `new()` constructor and the members of an
+    # `interface ... with` block (owned by the enclosing type) are read too;
+    # the old walk emitted nothing from any of them, so nothing moves by
+    # scope, but a slot and its `default` become ordinal twins (`~1`/`~2`).
     def _walk_members(td, owner: Symbol) -> None:
         for tee in td.children:
             if tee.type != "type_extension_elements":
@@ -14180,39 +14239,11 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 mutable = any(c.type == "mutable" for c in left.children)
                                 _member(el, owner, _text(ip), "field" if mutable else "constant", sig)
                 elif el.type == "member_defn":
-                    mpd = _first_child_of_type(el, "method_or_prop_defn")
-                    poi = _first_child_of_type(mpd if mpd is not None else el, "property_or_ident")
-                    if poi is None:
-                        continue
-                    idents = [c for c in poi.children if c.type == "identifier"]
-                    if not idents:
-                        continue
-                    name = _text(idents[-1])
-                    if mpd is not None and name == "val":
-                        # `static member val Total = 0`: the grammar takes `val` as
-                        # the name and binds `Total` as `args` (review of #812;
-                        # the trailing `with get, set` spills to file level and
-                        # every later member is lost, filed). Name the property.
-                        # The LAST pattern: an accessibility modifier between
-                        # `val` and the name (`val private Count`) arrives as a
-                        # pattern of its own, ahead of the name (review, round 3).
-                        # A type annotation wraps the name in `typed_pattern`
-                        # (round 4), so the last pattern is read through it.
-                        pats = []
-                        for c in mpd.children:
-                            if c.type == "identifier_pattern":
-                                pats.append(c)
-                            elif c.type == "typed_pattern":
-                                pats.extend(g for g in c.children if g.type == "identifier_pattern")
-                        if not pats:
-                            continue
-                        _member(el, owner, _text(pats[-1]), "property")
-                        continue
-                    if mpd is not None and mpd.child_by_field_name("args") is not None:
-                        kind = "method"
-                    else:
-                        kind = "property"
-                    _member(el, owner, name, kind)
+                    _member_defn(el, owner)
+                elif el.type == "interface_implementation":
+                    for impl in el.children:
+                        if impl.type == "member_defn":
+                            _member_defn(impl, owner)
 
     _walk(tree.root_node)
     return symbols

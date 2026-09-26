@@ -412,6 +412,13 @@ INDEX_VERSION = 17
 #   whose twins changed renumbers (a twin left alone loses its suffix; a
 #   grammar-only `procedure IFoo.Bar` body is `~2`). A top-level interface
 #   of routines and properties moves nothing.
+#
+#   ⚠⚠ **And #845 (F#): abstract slots, `interface ... with` members and
+#   `new()` constructors are indexed** (`IShape.Area#property`,
+#   `C.Dispose#method`, `C.C#method`). The old walk emitted nothing from
+#   them, so nothing moves by scope; ids MOVE by ORDINALS where a concrete
+#   member gains a twin (`default this.Name` beside `abstract Name`:
+#   `C.Name#property` is `~1`/`~2`).
 PARSER_GENERATION = 8
 
 
