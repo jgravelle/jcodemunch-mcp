@@ -136,6 +136,7 @@ def test_an_errored_declaration_keeps_its_first_name(language, filename):
     could not parse is never renamed to its prototype."""
     rows = _rows("void (*ga)(int), gb(int) @;\n", language, filename)
     assert ("gb", "function") not in rows, rows
+    assert ("ga", "function") in rows, rows
 
 
 @pytest.mark.parametrize("language, filename", LANGS)
