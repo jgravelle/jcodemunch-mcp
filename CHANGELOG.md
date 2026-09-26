@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
+
+In git mode a linked worktree is keyed by its own path, `local/<name>-<hash>`
+(#372), which is also the key the local-identity probe looks up. So when a
+worktree was re-indexed, both probes in `resolve_index_identity` found the
+same index and read it as two. Config mode raised `IdentityModeAmbiguous`, and
+explicit git mode raised `IdentityModeConflict` with a message calling the git
+index a local one. The first index of a new worktree succeeded and every
+re-index after it failed, the watcher's included, so the index stopped
+following the worktree. Reported with a diagnosis by @aniruddh10124 in #882.
+
+When both probes name the same owner and name, that index is the git index,
+because it records a `git_root`, and the resolver now returns it in config and
+git mode. Two different indexes matching one path still raise
+`IdentityModeAmbiguous`, and asking for local identity on a worktree that holds
+a git index still refuses, now naming it correctly as git.
+
 ### Fixed - a Kotlin accessor on its own line owns what its body declares (#858)
 
 `val g: Any` with `get() = object { val gg = 1; fun h() = 2 }` on the next
