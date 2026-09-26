@@ -17,18 +17,18 @@ An interface's `procedure`/`function` is now a `method` and its `property` a
 `property`, owned by the interface, including a generic interface
 (`IGen<T>`) and a `dispinterface`. The interface keeps its kind, `type`.
 
-⚠ Ids move for the two reasons #844 named, wherever the walk used to reach
-into an interface body without entering it. **Scope:** it walked the body
-with the ENCLOSING owner, so for an interface nested in any type (a class, a
-record, a helper) its members were already indexed as that type's own:
-`TOuter.Foo#method` is now `TOuter.IInner.Foo#method`. **Ordinals:** where
-such a member shared a name with one of the enclosing type's, that name's
-`~1..~N` renumber, and a `~N` can name a different symbol. At file scope the
-walk reached nothing (a member needs an owner to be emitted), so a top-level
-interface's members are all new and nothing moves. Two shapes the grammar
-accepts and Delphi does not move the same way: a type declared inside an
-interface (`IInner#type` is `IOuter.IInner#type`), and `procedure IFoo.Bar`
-in an implementation section. The
+⚠ Ids move for the two reasons #844 named. **Scope:** the walk did not enter
+an interface body but walked it with the ENCLOSING owner, so whatever it
+emitted from inside now moves into the interface. Nested in a type, that is
+the interface's members, which were that type's own (`TOuter.Foo#method` is
+now `TOuter.IInner.Foo#method`). Anything emitted with no owner moves too,
+such as a `const` or a type declared in an interface, which the grammar
+accepts and Delphi does not (`K#constant` is `IFoo.K#constant`).
+**Ordinals:** a name whose set of twins changed renumbers `~1..~N`, so a
+`~N` can name a different symbol and a twin left alone loses its suffix;
+`procedure IFoo.Bar` in an implementation section (also grammar-only)
+becomes `~2` beside the declaration. A top-level interface holding only
+routines and properties, which is every valid one, moves nothing. The
 F# half of #845 is a separate parser and a separate change.
 
 ### Fixed - a Pascal method's body is indexed as a method of its class, and a generic class is indexed at all (#844, #846)

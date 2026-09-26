@@ -404,12 +404,14 @@ INDEX_VERSION = 17
 #
 #   ⚠⚠ **And #845 (Pascal): an interface's members are indexed.** `declIntf`
 #   is walked, so `IFoo.Bar#method` and `IFoo.Q#property` are new. The
-#   interface stays `IFoo#type`. Ids MOVE wherever the walk used to reach
-#   into an interface body without entering it, by the same two causes:
-#   SCOPE (nested in any type, its members were indexed as that type's,
-#   `TOuter.Foo` is `TOuter.IInner.Foo`; a type declared in an interface,
-#   grammar-only, moves its own id) and ORDINALS (a name it shared with the
-#   enclosing type's members renumbers). A top-level interface moves nothing.
+#   interface stays `IFoo#type`. Ids MOVE by the same two causes. SCOPE:
+#   the unentered body was walked with the ENCLOSING owner, so whatever it
+#   emitted moves into the interface (nested in a type, its members:
+#   `TOuter.Foo` is `TOuter.IInner.Foo`; with no owner, a grammar-only
+#   `const` or type: `K#constant` is `IFoo.K#constant`). ORDINALS: a name
+#   whose twins changed renumbers (a twin left alone loses its suffix; a
+#   grammar-only `procedure IFoo.Bar` body is `~2`). A top-level interface
+#   of routines and properties moves nothing.
 PARSER_GENERATION = 8
 
 

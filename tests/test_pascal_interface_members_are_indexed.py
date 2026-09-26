@@ -91,3 +91,16 @@ def test_a_class_member_sharing_a_name_with_its_nested_interface_member_is_not_i
     )
     ids = sorted(s.id for s in parse_file(source, "u.pas", "pascal") if s.name == "M")
     assert ids == ["u.pas::TOuter.IInner.M#method", "u.pas::TOuter.M#method"], ids
+
+
+def test_what_the_old_walk_emitted_ownerless_from_a_top_level_interface_moves_into_it():
+    """Review round 3: at file scope the old walk still emitted what needs no
+    owner, so a `const` declared in an interface (the grammar accepts it,
+    Delphi does not) was `K#constant` and is `IFoo.K#constant`."""
+    source = (
+        "unit U;\ninterface\ntype\n  IFoo = interface\n    const K = 1;\n    procedure Bar;\n"
+        "  end;\nimplementation\nend.\n"
+    )
+    rows = _rows(source)
+    assert ("IFoo.K", "constant", "u.pas::IFoo#type") in rows, rows
+    assert not any(q == "K" for q, _k, _p in rows), rows
