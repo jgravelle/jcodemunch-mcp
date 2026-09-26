@@ -134,12 +134,18 @@ def test_an_error_recovered_chain_yields_its_first_definition_only():
     tree-sitter-fsharp error-recovers into a second `anon_type_defn` named
     `b`, and emitting it published a fabricated `type b` owning `M`. UNKNOWN
     is not a chain: the first definition only, the same absence `main` had
-    for `M`, tracked and filed (the grammar's, not this fix's)."""
+    for `M`, tracked and filed (the grammar's, not this fix's).
+
+    #856 re-parses that input clean, so it no longer reaches the errored
+    branch; a `type` chain whose first member does not parse still does, and
+    keeps the rule under test."""
     source = "type T() =\n    let mutable a = 1\n    and b = 2\n    member this.M() = a\n"
     rows = [(k, q, o) for k, q, o, _, _ in _rows(source)]
     assert ("type", "b", None) not in rows
     assert rows[0] == ("type", "T", None)
     assert all(o in (None, "T") for _, _, o in rows)
+    errored = "type A() =\n    member this.X = 1 +\nand B() =\n    member this.Y = 2\n"
+    assert [q for k, q, _, _, _ in _rows(errored) if k == "type"] == ["A"]
 
 
 def test_the_first_type_of_a_chain_keeps_its_id():

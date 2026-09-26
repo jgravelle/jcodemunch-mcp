@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed - an F# non-`rec` `let ... and ...` chain binds every name (#856)
+
+`let a = 1 / and b = 2` indexed `a` and not `b`. In a type body it was
+worse: `let mutable a = 1 / and b = 2` lost `b` and every member written
+after it, so `type T` showed `T.a` and no `M`. The chain is valid F# (spec
+8.6, `let rec?`), and `let rec` has bound both since #824. Reported by
+@jgravelle from the #824 review.
+
+The grammar cannot parse it. tree-sitter-fsharp 0.3.12, the version #848
+pinned and still the newest release, spills a module-level chain into an
+`infix_expression` whose head is an identifier spelled `and`. In a body it
+error-recovers the `and` into an `ERROR` that swallows the members after it.
+No extractor change could read a tree that does not hold the names.
+
+The F# walk now re-parses with each spilled `and` spelled `let`. Both words
+are three bytes, so every offset holds, and the tree is read against the
+original bytes. Two consecutive `let`s bind the names a non-`rec` chain binds;
+only scope differs, and extraction does not read scope. An `and` is rewritten
+only where it spilled (an identifier spelled `and`, or an `and` directly under
+an `ERROR`), and only when it sits at a `let`'s column (F#'s offside rule), and
+the re-parse is kept only if it adds no error. A `let rec` chain, a `type`
+chain and `with get ... and set` parse clean and are untouched. Each binding
+records its own bytes, because here the grammar gives each its own node. A
+chain whose `and` lines are split by `#if`/`#else` binds both branches as
+`~1`/`~2` twins.
+
+⚠ The column check exists because the first draft had none. A `type` chain
+split by `#if` spills the same way, and on FsToolkit.ErrorHandling six types
+became `constant`s. With the check, #848's four-project corpus of 378 files
+shows no id appearing, moving or leaving. Such a `type` chain still loses the
+types after the `#if`, as on main (LEDGER L-27). New ids only, where the shape
+occurs. `PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
+
 ### Fixed - a C-family prototype list binds every name it declares (#852)
 
 `int f(int), g(int);` gave `function f` and no `g`, in C, C++ and Arduino

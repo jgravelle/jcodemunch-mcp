@@ -14155,14 +14155,78 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 # F# custom parser
 # ---------------------------------------------------------------------------
 
+_FS_LET_LINE = re.compile(rb"(?:static\s+)?let\b")
+_FS_SKIPPED_LINE = re.compile(rb"(?://|\(\*|\*|#|\[<|and\b)")
+
+
+def _fs_and_continues_let(source_bytes: bytes, start: int) -> bool:
+    """Does the `and` at `start` continue a `let` chain? F#'s offside
+    rule says a chain's `and` sits at its `let`'s column, so the nearest
+    earlier line at that column (past blank lines, comments, `#if`
+    directives, attributes and the chain's other `and`s) must open a `let`.
+    ⚠ A `type` chain broken by `#if` spills the same way and must stay a
+    type chain, never become constants (found on FsToolkit.ErrorHandling)."""
+    line_start = source_bytes.rfind(b"\n", 0, start) + 1
+    if source_bytes[line_start:start].strip(b" \t"):
+        return False
+    column = start - line_start
+    end = line_start - 1
+    while end > 0:
+        begin = source_bytes.rfind(b"\n", 0, end) + 1
+        line = source_bytes[begin:end].rstrip(b"\r")
+        body = line.lstrip(b" \t")
+        indent = len(line) - len(body)
+        end = begin - 1
+        if not body or _FS_SKIPPED_LINE.match(body) or indent > column:
+            continue
+        return indent == column and _FS_LET_LINE.match(body) is not None
+    return False
+
+
+def _fs_spilled_and_offsets(root, source_bytes: bytes) -> list[int]:
+    """Start bytes of every `and` tree-sitter-fsharp could not read as a
+    non-`rec` `let` chain (#856): an IDENTIFIER spelled `and` (a keyword is
+    never an identifier, so only a module-level chain spilled into an
+    `infix_expression` makes one) or an `'and'` token directly under an
+    `ERROR` (the same chain in a type body), in either case continuing a
+    `let` (`_fs_and_continues_let`). A clean `and` (`let rec`, a `type`
+    chain, `with get ... and set`) is neither."""
+    found: list[int] = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        spilled = (node.type == "identifier" and node.text == b"and") or (
+            node.type == "and" and not node.is_named
+            and node.parent is not None and node.parent.type == "ERROR"
+        )
+        if spilled and _fs_and_continues_let(source_bytes, node.start_byte):
+            found.append(node.start_byte)
+        stack.extend(node.children)
+    return found
+
+
 def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from F# source code using tree-sitter."""
     parser = get_parser("fsharp")
     tree = parser.parse(source_bytes)
+    # ⚠⚠ #856: tree-sitter-fsharp 0.3.12 (the newest release) cannot parse a
+    # non-`rec` `let ... and ...` chain, valid F# (spec 8.6). Re-parse with
+    # each spilled `and` spelled `let`: the same three bytes, so every offset
+    # holds and the tree is read against the ORIGINAL bytes (`_text` below
+    # slices `source_bytes`, never `node.text`). Kept only when the rewrite
+    # adds no error, so an `and` in genuinely broken code changes nothing.
+    spilled = _fs_spilled_and_offsets(tree.root_node, source_bytes)
+    if spilled:
+        rewritten = bytearray(source_bytes)
+        for start in spilled:
+            rewritten[start:start + 3] = b"let"
+        retry = parser.parse(bytes(rewritten))
+        if _count_error_nodes(retry.root_node) <= _count_error_nodes(tree.root_node):
+            tree = retry
     symbols: list[Symbol] = []
 
     def _text(node) -> str:
-        return node.text.decode("utf-8", errors="replace")
+        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
     def _first_child_of_type(node, *types):
         for child in node.children:
