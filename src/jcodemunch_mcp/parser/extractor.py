@@ -14253,7 +14253,9 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # slices `source_bytes`, never `node.text`). Kept only when the rewrite
     # adds no error; equal errors are kept, so broken code around a spilled
     # `and` may still bind it (`let a = / and b = 2` gives `b`).
-    spilled = _fs_spilled_and_offsets(tree.root_node, source_bytes)
+    # A file with no `and` bytes cannot spill one; skip the walk (it costs
+    # ~0.04 s on an 88 KB file, and runs on every F# file otherwise).
+    spilled = _fs_spilled_and_offsets(tree.root_node, source_bytes) if b"and" in source_bytes else []
     if spilled:
         rewritten = bytearray(source_bytes)
         for start in spilled:

@@ -31,9 +31,10 @@ a line spelling (a `let` inside a comment, `[<Attr>] type A` on one line, a
 declaration keyword the grammar stranded in an `ERROR` counts where it
 starts. The re-parse is kept only if it adds no error. A `let rec` chain, a `type`
 chain and `with get ... and set` parse clean and are untouched. Each binding
-records its own bytes, because here the grammar gives each its own node. A
-chain whose `and` lines are split by `#if`/`#else` binds both branches as
-`~1`/`~2` twins.
+records its own bytes, because here the grammar gives each its own node. At
+module level a chain whose `and` lines are split by `#if`/`#else` binds both
+branches as `~1`/`~2` twins; in a type body the branches stay absent, as
+separate `let`s under `#if` there always have (LEDGER L-31).
 
 ⚠ The column check exists because the first draft had none. A `type` chain
 split by `#if` spills the same way, and on FsToolkit.ErrorHandling six types
