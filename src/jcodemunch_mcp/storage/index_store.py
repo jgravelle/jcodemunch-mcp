@@ -462,8 +462,10 @@ INDEX_VERSION = 17
 #   name.** NEW: `b#constant` for `let a = 1 / and b = 2` at module level,
 #   and in a type body `T.b` PLUS every member after the chain (`T.M`),
 #   which the grammar's error recovery had swallowed. Each binding records
-#   its own bytes. A `#if` branch pair binds `~1`/`~2` twins. No id moves on
-#   #848's four-project corpus.
+#   its own bytes. A `#if` branch pair binds `~1`/`~2` twins. MOVES: in a
+#   named module every member after the chain returns to the module
+#   (`c#constant` -> `M.c#constant`). No id moves on #848's four-project
+#   corpus.
 PARSER_GENERATION = 8
 
 

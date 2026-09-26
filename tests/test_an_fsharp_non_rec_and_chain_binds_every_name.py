@@ -68,6 +68,15 @@ def test_a_chain_inside_a_named_module_is_qualified():
     assert ("constant", "M.a") in rows and ("constant", "M.b") in rows, rows
 
 
+def test_a_named_module_keeps_the_members_after_the_chain():
+    """Review round 2: the spill also ended the module, so every later member
+    was filed at file scope. Those ids MOVE (`c#constant` -> `M.c#constant`),
+    named in the CHANGELOG and the `PARSER_GENERATION` note."""
+    ids = [s.id.split("::", 1)[1] for s in parse_file(
+        "module M =\n    let a = 1\n    and b = 2\n    let c = 3\n    let f x = x\n", "a.fs", "fsharp")]
+    assert ids == ["M#class", "M.a#constant", "M.b#constant", "M.c#constant", "M.f#function"]
+
+
 def test_the_chain_answers_what_the_separate_lets_answer():
     """Same names, kinds and owners as two `let`s over the same bytes."""
     for chain, separate in [
@@ -100,16 +109,25 @@ def test_a_clean_and_is_untouched(source, names):
     assert [q for _, q, _, _, _ in _rows(source)] == names
 
 
-def test_a_type_chain_broken_by_an_if_directive_never_becomes_constants():
+@pytest.mark.parametrize("source", [
+    "type A = int\n#if X\nand B = int\n#else\nand B = string\n#endif\nand C = float\n",
+    # Review round 2: a `type` line opening with a same-line attribute or
+    # comment was skipped for its `[<` / `(*`, and the scan walked past it to
+    # the earlier `let x`.
+    "let x = 1\n[<RequireQualifiedAccess>] type A = int\n#if X\nand B = int\n#endif\n",
+    "let x = 1\n[<RequireQualifiedAccess>] type A = int\n#if X\nand B = int\n#else\nand B = string\n#endif\n",
+    "let x = 1\n[<RequireQualifiedAccess>] type A =\n    | P\n    | Q\n#if X\nand B = int\n#endif\n",
+    "let x = 1\n(* c *) type A =\n    | P\n    | Q\n#if X\nand B = int\n#endif\n",
+])
+def test_a_type_chain_broken_by_an_if_directive_never_becomes_constants(source):
     """Found on FsToolkit.ErrorHandling (CancellableTaskOption.fs): a `type`
     chain whose `and` lines sit between `#if`/`#else` spills the same way,
     and the first draft rewrote those `and`s too, publishing six types as
     `constant`s. Only an `and` at a `let`'s column continues a `let` (the
     offside rule). The later types stay absent, as on main (LEDGER L-27)."""
-    source = "type A = int\n#if X\nand B = int\n#else\nand B = string\n#endif\nand C = float\n"
     rows = [(k, q) for k, q, _, _, _ in _rows(source)]
-    assert rows[0] == ("type", "A")
-    assert all(k == "type" for k, _ in rows), rows
+    assert ("type", "A") in rows
+    assert all(k == "type" for k, q in rows if q != "x"), rows
 
 
 @pytest.mark.parametrize("source, ids", [
@@ -153,6 +171,9 @@ def test_a_let_whose_string_spans_lines_still_anchors_its_own_chain():
     "﻿let a = 1\nand b = 2\n",
     "[<Literal>] let a = 1\nand b = 2\n",
     "let a = 1\n(* note\n   more *)\nand b = 2\n",
+    # Review round 2: a comment OPENING the `let` line is its prefix, not a
+    # masked line.
+    "(* c *) let a = 1\nand b = 2\n",
 ])
 def test_a_bom_a_same_line_attribute_and_a_comment_block_keep_the_chain(source):
     assert [s.name for s in parse_file(source, "a.fs", "fsharp")] == ["a", "b"]

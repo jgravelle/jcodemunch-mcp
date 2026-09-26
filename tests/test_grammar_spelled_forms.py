@@ -1170,7 +1170,7 @@ _HELPER_LITERAL_EXCEPTIONS = {
         "and string byte ranges out of the offside scan that decides whether a "
         "spilled `and` continues a `let`; it never decides whether a node is a "
         "symbol. MEASURED against the inventory fixture: `string` appears in "
-        "none of its 185 distinct nodes, so it cannot inflate a gap in either "
+        "none of the 185 distinct nodes across every language's rows, so it cannot inflate a gap in either "
         "direction",
     ),
     "sql": (

@@ -14155,9 +14155,13 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 # F# custom parser
 # ---------------------------------------------------------------------------
 
-#: A line opening a `let`, past a UTF-8 BOM and same-line attributes.
-_FS_LET_LINE = re.compile(rb"(?:\xef\xbb\xbf)?(?:\[<.*?>\]\s*)*(?:static\s+)?let\b")
-_FS_SKIPPED_LINE = re.compile(rb"(?://|\(\*|\*|#|\[<|and\b)")
+#: What may open a line before its declaration: a UTF-8 BOM, closed
+#: `[<...>]` attributes and closed `(* ... *)` comments.
+_FS_LINE_PREFIX = re.compile(rb"(?:\xef\xbb\xbf|\[<.*?>\]|\(\*.*?\*\)|[ \t])*")
+#: A line that declares nothing: a line comment, a `#if` directive, the
+#: chain's own `and`, or an attribute or comment still open at line end.
+_FS_SKIPPED_LINE = re.compile(rb"(?://|#|and\b|\[<|\(\*|\*)")
+_FS_LET_LINE = re.compile(rb"(?:static\s+)?let\b")
 
 
 def _fs_and_continues_let(source_bytes: bytes, start: int, masked: list = ()) -> bool:
@@ -14182,13 +14186,18 @@ def _fs_and_continues_let(source_bytes: bytes, start: int, masked: list = ()) ->
         body = line.lstrip(b" \t")
         indent = len(line) - len(body)
         end = begin - 1
-        if not body or indent > column or any(lo <= begin + indent < hi for lo, hi in masked):
+        # Masked: the line starts INSIDE a comment or string opened on an
+        # earlier line. One that opens here is the line's prefix, below.
+        if not body or indent > column or any(lo < begin + indent < hi for lo, hi in masked):
             continue
-        if indent == column and _FS_LET_LINE.match(body):
-            return True
-        if _FS_SKIPPED_LINE.match(body):
+        # ⚠ Strip a same-line attribute or comment BEFORE asking whether the
+        # line declares anything: `[<RequireQualifiedAccess>] type A = int`
+        # is a `type` line, and skipping it for its `[<` walked past it to an
+        # earlier `let` (review round 2).
+        rest = body[_FS_LINE_PREFIX.match(body).end():]
+        if not rest or _FS_SKIPPED_LINE.match(rest):
             continue
-        return False
+        return indent == column and _FS_LET_LINE.match(rest) is not None
     return False
 
 
