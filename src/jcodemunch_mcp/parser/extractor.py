@@ -954,30 +954,39 @@ def _walk_tree(
 
     # Recurse into children. #858: a Kotlin accessor spilled into a following
     # sibling is walked as its property's own child, and skipped here.
-    spilled = _kotlin_adopted_accessors(node, source_bytes) if language == "kotlin" else {}
-    taken = {n.id for nodes in spilled.values() for n in nodes}
-    for child in (*node.children, *adopted):
-        if child.id in taken:
-            continue
-        accessors = spilled.get(child.id, ())
-        before = len(symbols)
-        _walk_tree(
-            child,
-            spec,
-            source_bytes,
-            filename,
-            language,
-            symbols,
-            next_parent,
-            local_scope_parts,
-            next_class_scope_depth,
-            call_types,
-            calls,
-            next_is_container,
-            accessors,
-        )
-        if accessors:
-            _kotlin_cover_adopted(symbols, before, child, accessors[-1], source_bytes)
+    # ⚠ Kotlin only, loop and all: the bookkeeping cost every language ~10%
+    # of `parse_file` when it ran for all of them (review round 1).
+    if language == "kotlin":
+        spilled = _kotlin_adopted_accessors(node, source_bytes)
+        taken = {n.id for nodes in spilled.values() for n in nodes}
+        for child in (*node.children, *adopted):
+            if child.id in taken:
+                continue
+            accessors = spilled.get(child.id, ())
+            before = len(symbols)
+            _walk_tree(
+                child, spec, source_bytes, filename, language, symbols,
+                next_parent, local_scope_parts, next_class_scope_depth,
+                call_types, calls, next_is_container, accessors,
+            )
+            if accessors:
+                _kotlin_cover_adopted(symbols, before, child, accessors[-1], source_bytes)
+    else:
+        for child in node.children:
+            _walk_tree(
+                child,
+                spec,
+                source_bytes,
+                filename,
+                language,
+                symbols,
+                next_parent,
+                local_scope_parts,
+                next_class_scope_depth,
+                call_types,
+                calls,
+                next_is_container,
+            )
 
     # #835: at the ROOT, once the whole tree is walked, so every caller of
     # this walk (the `.c` path and the `.h`-as-C fallback alike) inherits it.
@@ -1647,6 +1656,9 @@ def _kotlin_is_spilled_accessor(node, source_bytes: bytes) -> bool:
     return after is not None and source_bytes[after.start_byte:after.end_byte] == b"("
 
 
+_KOTLIN_BY = re.compile(rb"by\b")
+
+
 def _kotlin_adopted_accessors(parent, source_bytes: bytes) -> dict:
     """`{property node id: (nodes...)}` for every Kotlin property in `parent`
     whose accessors the grammar spilled into following SIBLINGS (#858).
@@ -1659,20 +1671,42 @@ def _kotlin_adopted_accessors(parent, source_bytes: bytes) -> dict:
     the same line split answers exactly what the one-line form answers, owner
     and span alike. Comments and annotations between them go with the
     accessor they precede; with no accessor after them nothing is adopted.
+
+    ⚠ A `by` delegate on its own line spills the same way
+    (`val vm: VM / by lazy { object { ... } }`) and is adopted under #807's
+    gate: a delegate cannot follow an initializer or a `;`, so only a
+    property with neither takes one, and nothing follows it (review round 1).
     """
     adopted: dict = {}
     children = parent.children
     for index, child in enumerate(children):
         if child.type != "property_declaration":
             continue
+        may_delegate = not any(c.type in ("=", "property_delegate") for c in child.children)
         taken: list = []
         pending: list = []
+        cursor = child.end_byte
+        gap = bytearray()
         for following in children[index + 1:]:
             if not following.is_named:
                 break
             if following.type in _KOTLIN_SPILL_SKIP:
+                gap += source_bytes[cursor:following.start_byte]
+                cursor = following.end_byte
                 pending.append(following)
                 continue
+            gap += source_bytes[cursor:following.start_byte]
+            cursor = following.end_byte
+            # Read from the sibling's own BYTES: in a class body the grammar
+            # error-recovers the delegate into an `ERROR` that keeps no token
+            # for `by lazy`, so a first-token read cannot see it.
+            if (
+                not taken and may_delegate and b";" not in gap
+                and _KOTLIN_BY.match(source_bytes, following.start_byte)
+            ):
+                taken.extend(pending)
+                taken.append(following)
+                break
             if not _kotlin_is_spilled_accessor(following, source_bytes):
                 break
             taken.extend(pending)

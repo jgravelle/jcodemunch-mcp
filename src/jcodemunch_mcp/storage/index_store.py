@@ -469,7 +469,8 @@ INDEX_VERSION = 17
 #
 #   ⚠⚠ **And #858: a Kotlin accessor on its own line owns its body.** SPANS
 #   widen: a property whose getter/setter the grammar spilled into a sibling
-#   now covers it, as the one-line form always has (203 properties on four
+#   (or an own-line `by` delegate) now covers it, as the one-line form always
+#   has (203 properties on four
 #   projects, none narrowed). MOVES: what the accessor declares gets the
 #   property as owner (`FakeFileSystem.now#method` ->
 #   `FakeFileSystem.clock.now#function`; at file scope `gg` -> `g.gg`).

@@ -14,9 +14,13 @@ Rulings:
 - The walk adopts a spilled accessor sibling as the property's own child, so
   the split form answers exactly what the one-line form answers: owner,
   qualified name, kind AND span (the property's span covers its accessor, as
-  the one-line form's always has). Ids do not move; spans do.
+  the one-line form's always has). This is agreement, not id stability: the
+  split form's ids move to the one-line form's (`gg` -> `g.gg`), and every
+  such property's span widens.
 - Comments and annotations between the property and its accessor go with
   the accessor; with no accessor after them nothing is adopted.
+- A `by` delegate on its own line is adopted under #807's gate (no
+  initializer, no `;` before it); nothing follows a delegate.
 - The CONSTANT channel owns nothing in either form (`val MAX: Any get() =
   object { val gg = 1 }`), recorded as LEDGER L-32; adoption keeps the two
   forms equal there too.
@@ -77,6 +81,18 @@ _PAIRS = [
         "object O {\n    val g: Any get() = object { fun h() = 1 }\n}\n",
         id="object-member-function",
     ),
+    # Review round 1: a `by` delegate on its own line spills the same way; in
+    # a class body the grammar error-recovers it into an `ERROR`.
+    pytest.param(
+        "val vm: Any\n    by lazy { object { val gg = 1 } }\n",
+        "val vm: Any by lazy { object { val gg = 1 } }\n",
+        id="file-delegate",
+    ),
+    pytest.param(
+        "class C {\n    val vm: Any\n        by lazy { object { fun h() = 1 } }\n}\n",
+        "class C {\n    val vm: Any by lazy { object { fun h() = 1 } }\n}\n",
+        id="class-delegate",
+    ),
 ]
 
 
@@ -121,8 +137,15 @@ def test_a_comment_with_no_accessor_after_it_is_not_adopted():
     assert p.byte_length == len("val p = 1")
 
 
-def test_ids_do_not_move():
+def test_the_split_form_takes_the_one_line_forms_ids():
     split = "val g: Any\n    get() = object {\n        val gg = 1\n    }\n"
     one_line = "val g: Any get() = object {\n        val gg = 1\n    }\n"
     ids = lambda s: [x.id.split("::", 1)[1] for x in parse_file(s, "a.kt", "kotlin")]
     assert ids(split) == ids(one_line) == ["g#variable", "g.gg#property"]
+
+
+@pytest.mark.parametrize("source", ["val a = 1\nby(x)\n", "val a: Any;\nby(x)\n"])
+def test_a_by_after_an_initializer_or_a_semicolon_is_not_a_delegate(source):
+    """#807's gate: a delegate cannot follow an initializer or a `;`."""
+    a = next(s for s in parse_file(source, "a.kt", "kotlin") if s.name == "a")
+    assert source.encode()[a.byte_offset:a.byte_offset + a.byte_length].count(b"\n") == 0

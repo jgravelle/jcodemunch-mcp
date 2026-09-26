@@ -21,7 +21,10 @@ the enclosing owner.
 
 The walk now adopts a spilled getter or setter as the property's own child
 (the same test #807 uses to find it, shared rather than repeated), with any
-comments and annotations between them. The split form answers exactly what
+comments and annotations between them. A `by` delegate on its own line spills
+the same way (`val vm: VM` / `by lazy { object { ... } }`) and is adopted
+under #807's gate, which allows no initializer and no `;` before it. Only
+the Kotlin walk does this bookkeeping. The split form answers exactly what
 the one-line form answers: owner, qualified name, kind and span. On four
 Kotlin projects (1,098 files) the one id that moves is the defect on real
 code, okio's `FakeFileSystem.now#method`, a method of the object literal
