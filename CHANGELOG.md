@@ -38,8 +38,8 @@ code, okio's `FakeFileSystem.now#method`, a method of the object literal
 `clock` returns, which becomes `FakeFileSystem.clock.now#function`.
 
 ⚠ Spans widen: a property with an own-line accessor now covers it, as the
-one-line form's always has. On the same corpus that is 203 properties, none
-narrowed and no start moved. `PARSER_GENERATION` 8, still unreleased,
+one-line form's always has. On the same corpus that is 203 symbols (128
+properties, 69 variables, 6 constants), none narrowed and no start moved. `PARSER_GENERATION` 8, still unreleased,
 re-parses unchanged files. The constant channel owns nothing in either form
 (`val MAX: Any get() = object { val gg = 1 }`), which is LEDGER L-32.
 
