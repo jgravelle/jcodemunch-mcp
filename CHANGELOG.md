@@ -43,9 +43,16 @@ say no, and the script is parsed again: a `lang="tsx"` script is read there
 with the TypeScript grammar, so JSX in a class body is an error to it and not
 to the TSX parse. Nineteen of the 2,020 corpus scripts have the word and six
 are parsed again, with no symbol changed. Over three interleaved processes of
-15 passes each, the corpus's fastest pass takes 0.591 to 0.598 s against 0.562
-to 0.579 s on main; a 300-function script that mentions `classList` is
+15 passes each, the corpus's fastest pass takes 0.595 to 0.605 s against 0.565
+to 0.573 s on main; a 300-function script that mentions `classList` is
 unchanged.
+
+A binding stands aside only for a class named for it. `const e = <div
+onClick={() => { class K {} }} />` in a `lang="tsx"` script keeps `e`, and a
+Svelte prop keeps a class merely nested in its default. The hand walk reads a
+`lang="tsx"` script with the TypeScript grammar, which can recover JSX by making
+the nested class the binding's value; that mismatch is older than this fix and
+loses more than classes (LEDGER L-39).
 
 A class inside a function declaration, arrow function or function expression
 stays unpublished, as before. One inside an object method

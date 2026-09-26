@@ -291,3 +291,38 @@ def test_a_nested_class_is_published_where_a_script_file_publishes_it_as_a_root(
     for sid in roots:
         assert got.get(sid) == "a#class", (sid, got)
         assert got.get(sid.replace("#class", ".k#method")) == sid, got
+
+
+# A binding whose initializer only CONTAINS a class keeps its own symbol.
+# Review round 5: the hand walk reads a `lang="tsx"` script with the TypeScript
+# grammar, whose error recovery made `class K` the declarator's value, and an
+# overlap-only `covers()` then silenced `e`, which `main` and `a.tsx` publish.
+NESTED_IN_INITIALIZER = [
+    ("tsx-jsx-arrow", "const e = <div onClick={() => { class K { k() {} } }} />;\n", ' lang="tsx"', "tsx"),
+    ("tsx-jsx-function", "const e = <A render={function r() { class K { k() {} } }} />;\n", ' lang="tsx"', "tsx"),
+    ("js-call-arrow", "const e = make(() => { class K { k() {} } });\n", "", "javascript"),
+]
+
+
+@pytest.mark.parametrize("filename,language", CHANNELS)
+@pytest.mark.parametrize(
+    "body,attrs,lang", [n[1:] for n in NESTED_IN_INITIALIZER], ids=[n[0] for n in NESTED_IN_INITIALIZER]
+)
+def test_a_binding_is_not_silenced_by_a_class_nested_in_its_initializer(filename, language, body, attrs, lang):
+    got = _ids(parse_file(_script(body, attrs), filename, language))
+    expected = _expected(body, lang)
+
+    assert "e#constant" in expected, expected
+    for sid, parent in expected.items():
+        assert got.get(sid, "MISSING") == parent, (sid, got)
+
+
+def test_a_svelte_prop_is_not_suppressed_by_a_class_nested_in_its_default():
+    body = "export let e = <A render={() => { class K { k() {} } }} />;\n"
+    got = _ids(parse_file(_script(body, ' lang="tsx"'), "a.svelte", "svelte"))
+    expected = _expected(body, "tsx")
+
+    assert got.get("e#property") == "a#class", got
+    for sid, parent in expected.items():
+        if sid.startswith("K"):
+            assert got.get(sid, "MISSING") == parent, (sid, got)
