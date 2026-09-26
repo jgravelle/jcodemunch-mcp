@@ -216,8 +216,6 @@
     "fsharp": [
       "argument_name_spec",
       "argument_spec",
-      "arguments_spec",
-      "curried_spec",
       "exception_definition"
     ],
     "gdscript": [
