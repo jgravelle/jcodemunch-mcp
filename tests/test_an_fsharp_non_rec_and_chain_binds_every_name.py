@@ -1,6 +1,6 @@
 """A non-`rec` F# `let ... and ...` chain binds every name (#856).
 
-`let a = 1 / and b = 2` is valid F# (spec 8.6: `let rec? function-or-value-defns`)
+`let a = 1 / and b = 2` is valid F# (`let rec? function-or-value-defns`: `rec` is optional)
 and tree-sitter-fsharp 0.3.12, the newest release, cannot parse it: at
 module level `and b = 2` spills into an `infix_expression` whose head is an
 IDENTIFIER spelled `and`, so `b` was absent; in a type body the `and` lands
@@ -14,8 +14,10 @@ Rulings:
   chain binds (only scope differs, which extraction does not read).
 - Only a spilled `and` is rewritten: an `identifier` spelled `and` (a
   keyword is never an identifier) or an `'and'` token directly under an
-  `ERROR`. A `let rec` chain, a `type` chain and a property's `with get ...
-  and set ...` parse clean and are untouched.
+  `ERROR`, and only when the last declaration the ORIGINAL tree closes
+  before it is a `let` at the `and`'s column (an opening keyword stranded
+  in an `ERROR` counts where it starts). A `let rec` chain, a `type` chain
+  and a property's `with get ... and set ...` parse clean and are untouched.
 - The grammar gives each binding its own node here, so each binding records
   its own bytes (#837's widest node addressing the name alone). Reporter:
   @jgravelle.
@@ -118,6 +120,12 @@ def test_a_clean_and_is_untouched(source, names):
     "let x = 1\n[<RequireQualifiedAccess>] type A = int\n#if X\nand B = int\n#else\nand B = string\n#endif\n",
     "let x = 1\n[<RequireQualifiedAccess>] type A =\n    | P\n    | Q\n#if X\nand B = int\n#endif\n",
     "let x = 1\n(* c *) type A =\n    | P\n    | Q\n#if X\nand B = int\n#endif\n",
+    # Review round 3: a `type` line that CLOSES a comment opened above it.
+    # The line scan these rows grew under is gone; the anchor is read from
+    # the tree, which knows each of these is a type.
+    "let x = 1\n(* c\n *) type A = int\n#if X\nand B = int\n#endif\n",
+    "let x = 1\n(*\n   docs\n*) type A =\n    | P\n    | Q\n#if X\nand B = int\n#else\nand B = string\n#endif\n",
+    "let x = 1\n(* c\n *) [<Struct>] type A = { v: int }\n#if X\nand B = int\n#endif\n",
 ])
 def test_a_type_chain_broken_by_an_if_directive_never_becomes_constants(source):
     """Found on FsToolkit.ErrorHandling (CancellableTaskOption.fs): a `type`
@@ -177,3 +185,11 @@ def test_a_let_whose_string_spans_lines_still_anchors_its_own_chain():
 ])
 def test_a_bom_a_same_line_attribute_and_a_comment_block_keep_the_chain(source):
     assert [s.name for s in parse_file(source, "a.fs", "fsharp")] == ["a", "b"]
+
+
+def test_a_type_the_grammar_could_not_build_still_ends_the_chain():
+    """Review round 3: inside a module, `(* c *) type A` after a `let` is
+    stranded in an `ERROR` as a bare `type` token, so the last declaration
+    NODE was the `let`. An opening keyword counts where it starts."""
+    source = "module M =\n    let x = 1\n    (* c\n     *) type A = int\n#if X\n    and B = int\n#endif\n"
+    assert not any(s.kind == "constant" and s.name == "B" for s in parse_file(source, "a.fs", "fsharp"))

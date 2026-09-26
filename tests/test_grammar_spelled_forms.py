@@ -1144,7 +1144,7 @@ def _literals_reachable_outside(language):
     return frozenset((outside & kinds) - own)
 
 
-# The languages whose helpers hold a grammar-kind literal the parse function
+# The one language whose helpers hold a grammar-kind literal the parse function
 # does not, and the measurement that says it is not an inflated gap.
 _HELPER_LITERAL_EXCEPTIONS = {
     "apex": (
@@ -1163,15 +1163,6 @@ _HELPER_LITERAL_EXCEPTIONS = {
         "is shared with C# deliberately -- one grammar question, two node "
         "shapes -- and inlining it to satisfy this scan would be the second "
         "derivation the 08-19 standing lesson names",
-    ),
-    "fsharp": (
-        {"string"},
-        "reached through `_fs_spilled_and_offsets` (#856), which MASKS comment "
-        "and string byte ranges out of the offside scan that decides whether a "
-        "spilled `and` continues a `let`; it never decides whether a node is a "
-        "symbol. MEASURED against the inventory fixture: `string` appears in "
-        "none of the 185 distinct nodes across every language's rows, so it cannot inflate a gap in either "
-        "direction",
     ),
     "sql": (
         {"function_declaration", "function_body"},

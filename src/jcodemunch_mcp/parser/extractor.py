@@ -14155,80 +14155,91 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 # F# custom parser
 # ---------------------------------------------------------------------------
 
-#: What may open a line before its declaration: a UTF-8 BOM, closed
-#: `[<...>]` attributes and closed `(* ... *)` comments.
-_FS_LINE_PREFIX = re.compile(rb"(?:\xef\xbb\xbf|\[<.*?>\]|\(\*.*?\*\)|[ \t])*")
-#: A line that declares nothing: a line comment, a `#if` directive, the
-#: chain's own `and`, or an attribute or comment still open at line end.
-_FS_SKIPPED_LINE = re.compile(rb"(?://|#|and\b|\[<|\(\*|\*)")
-_FS_LET_LINE = re.compile(rb"(?:static\s+)?let\b")
+#: The declarations a `let` chain's `and` may follow: a `let` ...
+_FS_LET_DECLARATIONS = frozenset({"declaration_expression", "function_or_value_defn"})
+#: ... and every other declaration that ends a chain before it.
+_FS_OTHER_DECLARATIONS = frozenset({
+    "type_definition", "anon_type_defn", "record_type_defn", "union_type_defn",
+    "enum_type_defn", "delegate_type_defn", "interface_type_defn",
+    "type_abbrev_defn", "type_declaration", "module_defn", "module_abbrev",
+    "import_decl", "exception_definition", "member_defn", "additional_constr_defn",
+    "class_inherits_decl", "compiler_directive_decl", "fsi_directive_decl",
+    "value_declaration", "member_signature",
+})
+#: Keywords that OPEN a declaration, counted where they start even when the
+#: grammar could not build the declaration around them: a `type` stranded
+#: in an `ERROR` still ends the `let` chain before it (review round 3).
+_FS_DECLARATION_KEYWORDS = frozenset({
+    "type", "module", "namespace", "open", "exception", "member", "abstract",
+    "override", "default", "val", "new", "inherit",
+})
 
 
-def _fs_and_continues_let(source_bytes: bytes, start: int, masked: list = ()) -> bool:
-    """Does the `and` at `start` continue a `let` chain? F#'s offside
-    rule says a chain's `and` sits at its `let`'s column, so the nearest
-    earlier line at that column (past blank lines, comments, `#if`
-    directives, attributes and the chain's other `and`s) must open a `let`.
-    ⚠ A `type` chain broken by `#if` spills the same way and must stay a
-    type chain, never become constants (found on FsToolkit.ErrorHandling).
-    ⚠ A line starting inside a comment or string (`masked`, byte ranges
-    from the ORIGINAL tree) is never the anchor: a column-0 `let` in a
-    `(* ... *)` or a `\"\"\"` string made that type chain constants again
-    (review round 1)."""
+def _fs_line_indent(source_bytes: bytes, offset: int) -> int:
+    """Indentation of the line holding `offset`, in bytes."""
+    line_start = source_bytes.rfind(b"\n", 0, offset) + 1
+    line = source_bytes[line_start:offset + 1]
+    return len(line) - len(line.lstrip(b" \t"))
+
+
+def _fs_and_continues_let(source_bytes: bytes, start: int, declarations: list) -> bool:
+    """Does the `and` at `start` continue a `let` chain (#856)? It does when
+    the LAST declaration the ORIGINAL tree closes before it is a `let` whose
+    line is indented to the `and`'s column (F#'s offside rule).
+    ⚠⚠ Asked of the TREE, never of text lines. Three review rounds each
+    found a line spelling (a `let` in a `(* ... *)`, `[<Attr>] type A` on
+    one line, `*) type A` closing a comment) that a line scan misread, and
+    each made a `#if`-split `type` chain `constant`s; the tree already
+    knows which declaration each of them is.
+    `declarations` is `(position, line_indent, is_let)` from
+    `_fs_spilled_and_offsets`: a declaration node at its END, an opening
+    keyword (`let`, `type`, ...) at its START."""
     line_start = source_bytes.rfind(b"\n", 0, start) + 1
     if source_bytes[line_start:start].strip(b" \t"):
         return False
     column = start - line_start
-    end = line_start - 1
-    while end > 0:
-        begin = source_bytes.rfind(b"\n", 0, end) + 1
-        line = source_bytes[begin:end].rstrip(b"\r")
-        body = line.lstrip(b" \t")
-        indent = len(line) - len(body)
-        end = begin - 1
-        # Masked: the line starts INSIDE a comment or string opened on an
-        # earlier line. One that opens here is the line's prefix, below.
-        if not body or indent > column or any(lo < begin + indent < hi for lo, hi in masked):
-            continue
-        # ⚠ Strip a same-line attribute or comment BEFORE asking whether the
-        # line declares anything: `[<RequireQualifiedAccess>] type A = int`
-        # is a `type` line, and skipping it for its `[<` walked past it to an
-        # earlier `let` (review round 2).
-        rest = body[_FS_LINE_PREFIX.match(body).end():]
-        if not rest or _FS_SKIPPED_LINE.match(rest):
-            continue
-        return indent == column and _FS_LET_LINE.match(rest) is not None
-    return False
+    before = [d for d in declarations if d[0] <= start]
+    if not before:
+        return False
+    last = max(d[0] for d in before)
+    return any(is_let for end, indent, is_let in before if end == last and indent == column)
+
+
+def _fs_is_spilled_and(node) -> bool:
+    """An `and` the grammar could not read as a chain: an IDENTIFIER spelled
+    `and` (a keyword is never an identifier, so only a module-level chain
+    spilled into an `infix_expression` makes one) or an `'and'` token
+    directly under an `ERROR` (the same chain in a type body)."""
+    if node.type == "identifier":
+        return node.text == b"and"
+    return node.type == "and" and not node.is_named and node.parent is not None and node.parent.type == "ERROR"
 
 
 def _fs_spilled_and_offsets(root, source_bytes: bytes) -> list[int]:
-    """Start bytes of every `and` tree-sitter-fsharp could not read as a
-    non-`rec` `let` chain (#856): an IDENTIFIER spelled `and` (a keyword is
-    never an identifier, so only a module-level chain spilled into an
-    `infix_expression` makes one) or an `'and'` token directly under an
-    `ERROR` (the same chain in a type body), in either case continuing a
-    `let` (`_fs_and_continues_let`). A clean `and` (`let rec`, a `type`
-    chain, `with get ... and set`) is neither."""
-    masked: list[tuple[int, int]] = []
+    """Start bytes of every spilled `and` (`_fs_is_spilled_and`) that
+    continues a `let` (`_fs_and_continues_let`), for #856's re-parse. A clean
+    `and` (`let rec`, a `type` chain, `with get ... and set`) is neither."""
+    declarations: list[tuple[int, int, bool]] = []
+    spilled: list[int] = []
     stack = [root]
     while stack:
         node = stack.pop()
-        if "comment" in node.type or "string" in node.type:
-            masked.append((node.start_byte, node.end_byte))
-        else:
-            stack.extend(node.children)
-    found: list[int] = []
-    stack = [root]
-    while stack:
-        node = stack.pop()
-        spilled = (node.type == "identifier" and node.text == b"and") or (
-            node.type == "and" and not node.is_named
-            and node.parent is not None and node.parent.type == "ERROR"
-        )
-        if spilled and _fs_and_continues_let(source_bytes, node.start_byte, masked):
-            found.append(node.start_byte)
+        if node.type in _FS_LET_DECLARATIONS or node.type in _FS_OTHER_DECLARATIONS:
+            declarations.append((
+                node.end_byte,
+                _fs_line_indent(source_bytes, node.start_byte),
+                node.type in _FS_LET_DECLARATIONS,
+            ))
+        elif not node.is_named and (node.type == "let" or node.type in _FS_DECLARATION_KEYWORDS):
+            declarations.append((
+                node.start_byte,
+                _fs_line_indent(source_bytes, node.start_byte),
+                node.type == "let",
+            ))
+        elif _fs_is_spilled_and(node):
+            spilled.append(node.start_byte)
         stack.extend(node.children)
-    return found
+    return [s for s in spilled if _fs_and_continues_let(source_bytes, s, declarations)]
 
 
 def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
@@ -14236,7 +14247,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     parser = get_parser("fsharp")
     tree = parser.parse(source_bytes)
     # ⚠⚠ #856: tree-sitter-fsharp 0.3.12 (the newest release) cannot parse a
-    # non-`rec` `let ... and ...` chain, valid F# (spec 8.6). Re-parse with
+    # non-`rec` `let ... and ...` chain, valid F# (`rec` is optional). Re-parse with
     # each spilled `and` spelled `let`: the same three bytes, so every offset
     # holds and the tree is read against the ORIGINAL bytes (`_text` below
     # slices `source_bytes`, never `node.text`). Kept only when the rewrite

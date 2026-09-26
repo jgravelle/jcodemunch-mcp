@@ -23,10 +23,13 @@ are three bytes, so every offset holds, and the tree is read against the
 original bytes. Two consecutive `let`s bind the names a non-`rec` chain binds;
 only scope differs, and extraction does not read scope. An `and` is rewritten
 only where it spilled (an identifier spelled `and`, or an `and` directly under
-an `ERROR`), and only when the nearest earlier declaration at its column is a
-`let` (F#'s offside rule, read past comments, strings, `#if` lines and
-attributes, including ones that open the declaration's own line). The
-re-parse is kept only if it adds no error. A `let rec` chain, a `type`
+an `ERROR`), and only when the last declaration the original tree closes
+before it is a `let` at the `and`'s column (F#'s offside rule). That anchor
+is read from the tree, never from text lines: three review rounds each found
+a line spelling (a `let` inside a comment, `[<Attr>] type A` on one line, a
+`type` line closing a comment) that a line scan misread into constants. A
+declaration keyword the grammar stranded in an `ERROR` counts where it
+starts. The re-parse is kept only if it adds no error. A `let rec` chain, a `type`
 chain and `with get ... and set` parse clean and are untouched. Each binding
 records its own bytes, because here the grammar gives each its own node. A
 chain whose `and` lines are split by `#if`/`#else` binds both branches as
