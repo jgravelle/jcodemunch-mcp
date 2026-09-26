@@ -23,6 +23,16 @@ module that reports a validated hit without recording the lookup, so the next
 tool with a private cache cannot repeat this. The #801 test that summed both
 counters to prove a hit happened reads `total_hits` alone now.
 
+⚠ Every number built on these counters moves, and not only upward. A
+`search_symbols` MISS is counted now too, so `total_misses` and the `hit_rate`
+denominator grow with it, and a session that mostly misses in `search_symbols`
+reports a LOWER aggregate `hit_rate` than before for the same work. The
+counters feed `analyze_perf`'s cache block and `get_session_stats`' cache
+block, which is also written to `~/.code-index/session_stats.json`; compare
+either across this version only with that in mind. `cached_entries` still
+counts the shared cache's entries alone, while the hit and miss counts now
+cover `search_symbols`' own cache as well.
+
 ### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
 
 In git mode a linked worktree is keyed by its own path, `local/<name>-<hash>`

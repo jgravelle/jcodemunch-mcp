@@ -15,9 +15,9 @@ hits_validated_stale <= hits`.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -99,10 +99,38 @@ def test_every_validating_consumer_records_its_lookups():
     for path in SRC.rglob("*.py"):
         if path.parent.name == "storage" and path.name in ("token_tracker.py", "__init__.py"):
             continue
-        text = path.read_text(encoding="utf-8")
-        if not re.search(r"\bresult_cache_hit_validated\s*\(", text):
-            continue
-        if not re.search(r"\bresult_cache_(get|record_lookup)\s*\(", text):
+        called = _called_names(path.read_text(encoding="utf-8"))
+        if "result_cache_hit_validated" in called and not called & {"result_cache_get", "result_cache_record_lookup"}:
             offenders.append(str(path.relative_to(SRC)))
 
     assert not offenders, offenders
+
+
+def _called_names(source: str) -> set[str]:
+    """Names actually CALLED in a module, from its AST. Review round 1: a text
+    scan counted a name in a comment or docstring as a call, so the ratchet
+    could pass against the defect it names."""
+    names = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                names.add(func.attr)
+    return names
+
+
+def test_a_name_in_prose_is_not_a_call():
+    """The ratchet's own non-vacuity: a record call written only in a comment
+    or docstring must not satisfy it."""
+    source = (
+        '"""result_cache_record_lookup("x", hit=True) is documented here."""\n'
+        "# result_cache_get(tool, repo, key)\n"
+        "def f():\n"
+        "    result_cache_hit_validated('t', stale=False)\n"
+    )
+    called = _called_names(source)
+
+    assert "result_cache_hit_validated" in called
+    assert not called & {"result_cache_get", "result_cache_record_lookup"}
