@@ -168,13 +168,23 @@ def resolve_index_identity(
     configured = _configured_identity_mode(folder_path) if requested == "config" else requested
     local_existing = _local_identity_if_present(folder_path, local_name, store)
 
-    if requested == "git" and local_existing is not None:
-        raise IdentityModeConflict(_identity_conflict_message(local_existing, "git"))
-
     should_probe_git_identity = store is not None and (
         requested == "local" or _path_has_git_root(folder_path)
     )
     existing_git = _existing_git_identity(folder_path, store) if should_probe_git_identity else None
+
+    # A linked worktree's git-mode index is keyed `local/<name>-<hash>` (#372),
+    # the same key the local probe looks up, so both probes can name ONE index.
+    # It records a git_root, so it is the git index, not a local one (#882).
+    if (
+        local_existing is not None
+        and existing_git is not None
+        and (local_existing.owner, local_existing.name) == (existing_git.owner, existing_git.name)
+    ):
+        local_existing = None
+
+    if requested == "git" and local_existing is not None:
+        raise IdentityModeConflict(_identity_conflict_message(local_existing, "git"))
 
     if local_existing is not None and existing_git is not None:
         raise IdentityModeAmbiguous(
