@@ -21,8 +21,8 @@ are three bytes, so every offset holds, and the tree is read against the
 original bytes. Two consecutive `let`s bind the names a non-`rec` chain binds;
 only scope differs, and extraction does not read scope. An `and` is rewritten
 only where it spilled (an identifier spelled `and`, or an `and` directly under
-an `ERROR`), and only when it sits at a `let`'s column (F#'s offside rule), and
-the re-parse is kept only if it adds no error. A `let rec` chain, a `type`
+an `ERROR`), and only when it sits at a `let`'s column (F#'s offside rule, read
+past comments and strings), and the re-parse is kept only if it adds no error. A `let rec` chain, a `type`
 chain and `with get ... and set` parse clean and are untouched. Each binding
 records its own bytes, because here the grammar gives each its own node. A
 chain whose `and` lines are split by `#if`/`#else` binds both branches as

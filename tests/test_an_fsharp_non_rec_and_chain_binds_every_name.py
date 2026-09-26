@@ -80,7 +80,9 @@ def test_the_chain_answers_what_the_separate_lets_answer():
 
 def test_the_source_text_is_the_original_bytes():
     """The tree is re-parsed from rewritten bytes but read against the
-    original: no symbol carries text the file does not contain."""
+    original: every span is the file's own bytes. (A module-level binding's
+    signature is synthesised as `let <name>`, as `let rec ... and g` has
+    always been.)"""
     source = "type T() =\n    let a = 1\n    and b = 2\n"
     raw = source.encode()
     for s in parse_file(source, "a.fs", "fsharp"):
@@ -131,3 +133,26 @@ def test_an_and_not_at_a_lets_column_is_not_rewritten(source):
     """A bare `and`, an `and` outdented past its `let`'s block, and one
     indented under it are not a chain the offside rule reads; nothing new."""
     assert "b" not in [s.name for s in parse_file(source, "a.fs", "fsharp")]
+
+
+def test_a_let_inside_a_comment_is_not_the_anchor():
+    """Review round 1: a column-0 `let` inside `(* ... *)` read as the chain's
+    `let` and made a `#if`-split `type` chain constants again."""
+    source = "type A = int\n(*\nlet q = 1\n*)\n#if X\nand B = int\n#else\nand B = string\n#endif\nand C = float\n"
+    assert [k for k, _, _, _, _ in _rows(source)] == ["type"]
+
+
+def test_a_let_whose_string_spans_lines_still_anchors_its_own_chain():
+    """The `let` line that OPENS a string is real; only lines inside it are
+    masked. After `let s = ...`, F# reads a column-0 `and` as `s`'s chain."""
+    source = 'type A = int\nlet s = """\nlet q = 1"""\nand B = int\n'
+    assert [(k, q) for k, q, _, _, _ in _rows(source)] == [("type", "A"), ("constant", "s"), ("constant", "B")]
+
+
+@pytest.mark.parametrize("source", [
+    "﻿let a = 1\nand b = 2\n",
+    "[<Literal>] let a = 1\nand b = 2\n",
+    "let a = 1\n(* note\n   more *)\nand b = 2\n",
+])
+def test_a_bom_a_same_line_attribute_and_a_comment_block_keep_the_chain(source):
+    assert [s.name for s in parse_file(source, "a.fs", "fsharp")] == ["a", "b"]
