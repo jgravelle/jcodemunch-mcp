@@ -508,7 +508,10 @@ def _parse_with_spec(
     """Parse source bytes using one language spec."""
     try:
         parser = get_parser(spec.ts_language)
-        tree = parser.parse(source_bytes)
+        if spec.ts_language in _C_FAMILY_TYPEDEF_LANGUAGES:
+            tree = _parse_c_family(parser, source_bytes)
+        else:
+            tree = parser.parse(source_bytes)
     except Exception:
         # A grammar that could not be loaded was recorded by grammar_pack.get_parser.
         return []
@@ -536,6 +539,99 @@ def _parse_with_spec(
     return symbols
 
 
+#: How many macro tokens one class head may carry before it is left as parsed.
+_EXPORT_MACRO_PASSES = 4
+_C_FAMILY_RECORD_SPECIFIERS = frozenset({"class_specifier", "struct_specifier", "union_specifier"})
+
+
+def _export_macro_spans(root) -> list:
+    """Byte spans of the macro in every `class MACRO Name { ... }` (L-45).
+
+    The grammar cannot know `LEVELDB_EXPORT` is a macro, so it reads
+    `class LEVELDB_EXPORT` as a RETURN TYPE (a `class_specifier` named by the
+    macro, with no body), `Name` as the declarator and the class body as a
+    statement block: a `function_definition`. ⚠⚠ The discriminator is that a
+    real function definition always has a `function_declarator` in its
+    declarator (`class X make() {}`, `struct S *next(struct S*) {}`), and this
+    shape never does.
+    """
+    spans: list = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "function_definition":
+            head = node.child_by_field_name("type")
+            if (
+                head is not None
+                and head.type in _C_FAMILY_RECORD_SPECIFIERS
+                and head.child_by_field_name("body") is None
+                and node.child_by_field_name("body") is not None
+            ):
+                macro = head.child_by_field_name("name")
+                declarator = node.child_by_field_name("declarator")
+                if (
+                    macro is not None
+                    and macro.type == "type_identifier"
+                    and not _has_descendant_of_type(declarator, "function_declarator")
+                ):
+                    spans.append(macro)
+            continue
+        # ⚠ A function body (`compound_statement`) is most of a file's nodes
+        # and never holds an exported class head, so the scan does not enter
+        # one: scanning every node cost 33% of `gmock-gtest-all.cc`'s parse.
+        # Class bodies ARE entered, so a nested exported class is found once
+        # its enclosing head has been unmasked and re-parsed.
+        stack.extend(c for c in node.children if c.type != "compound_statement")
+    return spans
+
+
+def _has_descendant_of_type(node, node_type: str) -> bool:
+    if node is None:
+        return False
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == node_type:
+            return True
+        stack.extend(current.children)
+    return False
+
+
+def _parse_c_family(parser, source_bytes: bytes):
+    """Parse C, C++ or Arduino, reading a class behind an export macro (L-45).
+
+    Each macro token in a `class MACRO Name { ... }` head is blanked to spaces
+    of the same length and the source re-parsed, so every byte offset holds:
+    the walk still reads NAMES, SIGNATURES and CONTENT HASHES from the
+    original `source_bytes`, and only the tree comes from the masked copy.
+    ⚠ `__declspec(...)`, `[[attr]]` and `alignas(...)` parse correctly and are
+    never blanked; a head with more macro tokens than `_EXPORT_MACRO_PASSES`
+    keeps the parse it had.
+    """
+    tree = parser.parse(source_bytes)
+    masked = source_bytes
+    for _ in range(_EXPORT_MACRO_PASSES):
+        spans = _export_macro_spans(tree.root_node)
+        if not spans:
+            break
+        buffer = bytearray(masked)
+        for macro in spans:
+            buffer[macro.start_byte:macro.end_byte] = b" " * (macro.end_byte - macro.start_byte)
+            # Same length, same rows and columns: an exact edit, so the parser
+            # re-reads only what the blanked tokens touch.
+            tree.edit(
+                start_byte=macro.start_byte,
+                old_end_byte=macro.end_byte,
+                new_end_byte=macro.end_byte,
+                start_point=macro.start_point,
+                old_end_point=macro.end_point,
+                new_end_point=macro.end_point,
+            )
+        masked = bytes(buffer)
+        tree = parser.parse(masked, tree)
+    return tree
+
+
 def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol], Any]:
     """Parse C++ and auto-fallback to C for `.h` files with no C++ symbols.
 
@@ -547,7 +643,7 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     cpp_tree: Any = None
     try:
         parser = get_parser(cpp_spec.ts_language)
-        tree = parser.parse(source_bytes)
+        tree = _parse_c_family(parser, source_bytes)
         cpp_tree = tree
         cpp_error_nodes = _count_error_nodes(tree.root_node)
         _walk_tree(tree.root_node, cpp_spec, source_bytes, filename, "cpp", cpp_symbols, None)
@@ -568,7 +664,7 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     c_tree: Any = None
     try:
         c_parser = get_parser(c_spec.ts_language)
-        c_tree_obj = c_parser.parse(source_bytes)
+        c_tree_obj = _parse_c_family(c_parser, source_bytes)
         c_tree = c_tree_obj
         c_error_nodes = _count_error_nodes(c_tree_obj.root_node)
         _walk_tree(c_tree_obj.root_node, c_spec, source_bytes, filename, "c", c_symbols, None)

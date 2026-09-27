@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ class declared behind an export macro is a class (LEDGER L-45)
+
+`class LEVELDB_EXPORT Status { bool ok() const; };` is how most exported
+C++ libraries declare their API (leveldb, gtest's `GTEST_API_`). The grammar
+cannot know `LEVELDB_EXPORT` is a macro. It read `class LEVELDB_EXPORT` as a
+return type, `Status` as a declarator and the class body as a statement
+block, so the class was indexed as `Status#function` and its members lost
+their owner. In a large header, error recovery then filed unrelated
+declarations under the bogus function. Found in L-07's corpus diff.
+
+Every C, C++ and Arduino parse now blanks each macro token in a
+`class MACRO Name { ... }` head to spaces of the same length and re-parses.
+Every byte offset holds, so names, signatures and content hashes still come
+from the original text (the signature keeps `LEVELDB_EXPORT`). The shape is
+exact: a real function definition always has a function declarator
+(`class X make() {}` is still a function). `__declspec(...)`, `[[attr]]` and
+`alignas(...)` already parsed correctly and are never blanked. The re-parse
+is incremental. The test pins that a class, struct, derived class, `final`
+class, namespaced class or two-macro head publishes exactly what the same
+text without the macro publishes, in `.cpp`, `.h` and Arduino.
+
+Measured on two pinned corpora (leveldb 7ee830d, fmt 5da4e9a), `main`
+against this branch:
+- leveldb `.h`: `ids 1089 -> 1163`, `+class: 22`, `+method: 172`,
+  `-function: 142`, `reparent method: 59`;
+- fmt `.h`: `ids 6117 -> 6365`, `+class: 72`, `+method: 552`,
+  `-function: 417`, `reparent method: 110`;
+- fmt `.cc`: `ids 2655 -> 2699`, `+method: 92`, `-function: 44`;
+- leveldb `.cc`: no change.
+Ids move for every class behind a macro (`Status#function` becomes
+`Status#class`) and for its members. Four names disappear entirely, all
+garbage the misparse produced (`leveldb#function`,
+`testing.internal.std::runtime_error#function`). Parse time, median of 5:
+`gmock-gtest-all.cc` 0.342 s to 0.371 s, `gtest.h` 1.010 s to 1.090 s,
+`db_impl.cc` unchanged; the two gtest files are among the ones that now
+publish more symbols.
+`PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
+
 ### Fixed - a C++ out-of-class member definition is a member of its class (LEDGER L-07)
 
 `class A { int run(); };` then `int A::run() { ... }` published the

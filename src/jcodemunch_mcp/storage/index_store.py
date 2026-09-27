@@ -537,6 +537,10 @@ INDEX_VERSION = 17
 #   numbered `~1`/`~2`; a declaration numbered only because its body shared
 #   its bare name loses the suffix. `ns::f` bodies gain their namespace.
 #   Members of `namespace a::b { }` move from `a::b.A` to `a.b.A`.
+#
+#   ⚠⚠ **And L-45: a C-family class behind an export macro is a class.**
+#   MOVES: `Status#function` for `class LEVELDB_EXPORT Status {}` becomes
+#   `Status#class`, and its members gain their owner.
 PARSER_GENERATION = 8
 
 
