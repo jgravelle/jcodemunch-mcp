@@ -7137,7 +7137,9 @@ class _EmbeddedScriptClasses:
 
         groups = []
         for root in parsed:
-            if root.parent or root.kind != "class":
+            if root.parent:
+                continue
+            if root.kind != "class" and not self._is_unbound_class_member(root):
                 continue
             out = [_rewrap(root, component_id)]
             # Each child carries its rewrapped parent's id, so no lookup by
@@ -7150,6 +7152,28 @@ class _EmbeddedScriptClasses:
                 stack.extend((child, rewrapped.id) for child in children.get(sym.id, ()))
             groups.append((root, out))
         return groups
+
+    def _is_unbound_class_member(self, sym: Symbol) -> bool:
+        """True for a member the generic walk left without a parent because
+        its class is bound to nothing: `new (class { m() {} })()`,
+        `register(class {...})`, `[class {...}]` (LEDGER L-40). A `.js` file
+        publishes these bare, so the script publishes them too.
+
+        ⚠ The member KIND is not enough: an object-literal method
+        (`{ run() {} }`) is also parentless in a `.js` file and is not a class
+        member. The test is a `class_body` ancestor in the script's tree.
+        """
+        if sym.kind not in ("method", "field", "property"):
+            return False
+        root = self._root_node
+        if root is None:
+            return False
+        node = root.descendant_for_byte_range(sym.byte_offset, sym.byte_offset + max(sym.byte_length, 1))
+        while node is not None:
+            if node.type == "class_body":
+                return True
+            node = node.parent
+        return False
 
     def _roots(self) -> list[tuple[Symbol, list[Symbol]]]:
         if self._groups is None:

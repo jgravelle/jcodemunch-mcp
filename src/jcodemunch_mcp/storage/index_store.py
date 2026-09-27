@@ -488,6 +488,11 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-37: a class in an Astro frontmatter or `<script>`, or a Razor
 #   `<script>` or `@code` block, owns its members.** No id moves; only
 #   `parent` changes (`Comp.K.k` was owned by `Comp`, now by `Comp.K`).
+#
+#   ⚠⚠ **And L-40: a Vue/Svelte class expression bound to nothing publishes
+#   its members.** NEW: `m#method` (and fields) for
+#   `new (class { m() {} })()`, `register(class {...})`, `[class {...}]`,
+#   owned by the component, as a `.js` file publishes them bare.
 PARSER_GENERATION = 8
 
 

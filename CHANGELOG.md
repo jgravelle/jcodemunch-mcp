@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - a class expression bound to nothing in a Vue or Svelte script publishes its members (LEDGER L-40)
+
+`new (class { m() {} })()`, `register(class {...})`, `[class {...}]`,
+`{ K: class {...} }` and `const [a] = class {...}` give the class no name the
+generic walk can use, so a `.js` file publishes its members bare
+(`m#method`, no parent). In a Vue or Svelte script the #861 class emitter
+published class roots and their subtrees only, so these members vanished.
+Found by the #861 review.
+
+A parentless method, field or property that sits inside a class body is now
+published too, owned by the component, with anything nested under it. An
+object-literal method is also parentless in a `.js` file, but it is not in a
+class body and is not swept up; a test pins that, and that a bound class
+(`const C = class {...}`) is unchanged. `PARSER_GENERATION` 8, still
+unreleased, re-parses unchanged files.
+
 ### Fixed - a class in an Astro or Razor block owns its members (LEDGER L-37)
 
 Astro re-parses its frontmatter as TypeScript and each inline `<script>` as
