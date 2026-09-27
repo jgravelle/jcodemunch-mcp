@@ -119,8 +119,22 @@ def main() -> None:
     skipped: list[str] = []
     failures: list[str] = []
 
+    # F-26: the 12-line tail below is a console tail; the harness keeps the
+    # tracebacks of a red run here and removes the file on a green one.
+    failures_file = EVIDENCE / "fast-failures.txt"
     rc, out = run_budgeted(
-        ["uv", "run", "python", "-m", "harness", "fast", "--summary", str(summary)],
+        [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "harness",
+            "fast",
+            "--summary",
+            str(summary),
+            "--failures",
+            str(failures_file),
+        ],
         budget,
     )
     if rc is None:
@@ -132,7 +146,11 @@ def main() -> None:
         tail = [
             ln for ln in out.splitlines() if " FAIL" in ln or "failed" in ln.lower()
         ][-12:]
-        failures.append("fast tier FAIL:\n" + "\n".join(tail or out.splitlines()[-12:]))
+        failures.append(
+            "fast tier FAIL:\n"
+            + "\n".join(tail or out.splitlines()[-12:])
+            + (f"\n(tracebacks: {failures_file})" if failures_file.exists() else "")
+        )
 
     fmt = _format_command()
     if fmt is None:

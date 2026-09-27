@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -36,15 +37,19 @@ def _split_workers(argv: list[str]) -> tuple[str | None, list[str]]:
     """`--workers N` (or `--workers=N`) out of argv; the rest goes to the harness."""
     rest: list[str] = []
     workers = None
+    given = False
     it = iter(argv)
     for arg in it:
         if arg == "--workers":
-            workers = next(it, None)
+            given, workers = True, next(it, None)
         elif arg.startswith("--workers="):
-            workers = arg.split("=", 1)[1]
+            given, workers = True, arg.split("=", 1)[1]
         else:
             rest.append(arg)
-    if workers is not None and not (workers.isdigit() and int(workers) > 0):
+    # ⚠ A bare `--workers` must refuse, not run uncapped: a flag that is
+    # present and does nothing reads as the cap it failed to set (review).
+    # ASCII digits only: `"²".isdigit()` is True and `int("²")` raises.
+    if given and not (workers and re.fullmatch(r"[1-9][0-9]*", workers)):
         raise SystemExit(f"run_full: --workers takes a positive integer, got {workers!r}")
     return workers, rest
 
@@ -90,6 +95,10 @@ def main(argv: list[str]) -> int:
         cwd=REPO,
         env=env,
     )
+    # The cap reaches `full.md` too, the file a reviewer reads: a capped run
+    # near the `suite.full_seconds` Floor is a different measurement (review).
+    with open(EVIDENCE / "full.md", "a", encoding="utf-8") as fh:
+        fh.write(f"\nxdist workers: {stamp['workers']}\n")
     after = tree_id()
     stamp.update(
         ok=(rc == 0 and after == tree), seconds=round(time.monotonic() - t0, 1)

@@ -303,10 +303,27 @@ def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
 #: Most characters of a failure report; the rest is cut and DISCLOSED.
 _FAILURE_REPORT_MAX_CHARS = 200_000
 
-#: A pytest section header: `==== NAME ====`. Test headers inside FAILURES are
-#: underscores, so any `=` header ends a section.
+#: A pytest section header: `==== NAME ====`.
 _SECTION_RE = re.compile(r"^=+ (.+?) =+$")
 _KEPT_SECTIONS = ("ERRORS", "FAILURES", "short test summary info")
+#: Every section pytest (or a plugin this suite loads) prints after the ones
+#: kept. ⚠⚠ A section ends ONLY on one of these names: captured output inside
+#: FAILURES can print its own `=== banner ===`, and ending on any `=` line
+#: dropped every later traceback (review). `tests coverage` is pytest-cov 7's
+#: header; `---------- coverage:` (below) is the older one.
+_OTHER_SECTIONS = (
+    "warnings summary",
+    "tests coverage",
+    "PASSES",
+    "slowest durations",
+    "rerun test summary info",
+    "xfailures",
+    "xpasses",
+)
+
+#: Lines kept from a red run that printed NO kept section (an INTERNALERROR, a
+#: coverage-floor failure): the reason is somewhere in the tail.
+_FAILURE_TAIL_LINES = 80
 
 #: Reports the pytest tiers recorded this process, written by `--failures`.
 _FAILURE_REPORTS: list[str] = []
@@ -327,9 +344,10 @@ def _failure_report(out: str) -> str:
     final = ""
     for ln in out.splitlines():
         m = _SECTION_RE.match(ln.strip())
-        if m:
-            keep = m.group(1).strip() in _KEPT_SECTIONS
-        elif ln.startswith("---------- coverage:"):
+        name = m.group(1).strip() if m else None
+        if name in _KEPT_SECTIONS:
+            keep = True
+        elif name in _OTHER_SECTIONS or ln.startswith("---------- coverage:"):
             keep = False
         if keep:
             kept.append(ln)
@@ -350,10 +368,19 @@ def _failure_report(out: str) -> str:
 
 
 def _record_failure_report(out: str) -> None:
-    """Keep a red pytest run's report for `--failures`."""
+    """Keep a red pytest run's report for `--failures`. Called only on a
+    non-zero run, so an empty report means pytest printed no FAILURES/ERRORS
+    section (an INTERNALERROR, a coverage floor) and the tail is kept instead:
+    a red run never leaves the file absent (review)."""
     report = _failure_report(out)
-    if report:
-        _FAILURE_REPORTS.append(report)
+    if not report:
+        tail = out.splitlines()[-_FAILURE_TAIL_LINES:]
+        report = (
+            f"(no FAILURES or ERRORS section; the last {len(tail)} lines of output)\n"
+            + "\n".join(tail)
+            + "\n"
+        )
+    _FAILURE_REPORTS.append(report)
 
 
 def _pytest_summary(out: str) -> dict:
@@ -996,6 +1023,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.failures:
             # One run, one report: a green run must not leave the last red
             # run's tracebacks behind to be read as this one's (W-20).
+            # ⚠ An OSError here replaces `return rc` with a traceback, i.e. a
+            # non-zero exit: this fails CLOSED and cannot turn red into green.
             target = Path(a.failures)
             if _FAILURE_REPORTS:
                 target.parent.mkdir(parents=True, exist_ok=True)
