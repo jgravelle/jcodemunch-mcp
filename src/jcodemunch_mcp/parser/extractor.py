@@ -7092,10 +7092,11 @@ class _EmbeddedScriptClasses:
             ancestor = leaf.parent
             while ancestor is not None:
                 # ⚠⚠ An ERROR means this tree could not read the text, so it
-                # cannot say no. A `lang="tsx"` script is read here with the
-                # TYPESCRIPT grammar while `_build` parses TSX, so a class with
-                # JSX in its body is an ERROR here and a class there (review
-                # round 4). Any grammar mismatch has the same shape.
+                # cannot say no. A `lang="tsx"` script was read here with the
+                # TYPESCRIPT grammar while `_build` parsed TSX, so a class with
+                # JSX in its body was an ERROR here and a class there (review
+                # round 4; the grammars match since L-39). A real syntax error,
+                # or any future grammar mismatch, has the same shape.
                 if ancestor.type == "ERROR":
                     return True
                 # ⚠ Skipped ONLY where the generic walk gives a nested class an
@@ -7183,8 +7184,9 @@ class _EmbeddedScriptClasses:
         {}` spans `A = ...`, `$: C = class {}` spans `C = ...`).
 
         ⚠⚠ Decided from the generic walk's tree, never the hand walk's. The
-        hand walk reads a `lang="tsx"` script with the TypeScript grammar
-        (LEDGER L-39), whose error recovery can make a class NESTED in a JSX
+        hand walk read a `lang="tsx"` script with the TypeScript grammar
+        until LEDGER L-39, and a syntax error still reaches it through error
+        recovery, which can make a class NESTED in a JSX
         initializer the binding's value. Overlap alone then silenced
         `const e = <div onClick={() => { class K {} }} />` (review round 5),
         and a name match alone silenced `const K = <A r={() => { class K {}
@@ -7301,8 +7303,10 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     )
     symbols.append(comp_sym)
 
-    # Re-parse script content with the JS/TS parser
-    sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
+    # Re-parse script content with the JS/TS parser. ⚠ `tsx` is its own
+    # grammar: read as TypeScript, JSX is an ERROR and recovery drops the
+    # declarations around it (LEDGER L-39).
+    sub_parser = _get_parser(lang)
     sub_tree = sub_parser.parse(script_bytes)
     script_classes = _EmbeddedScriptClasses(
         script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id,
@@ -7652,7 +7656,8 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         script_bytes = source_bytes[raw_node.start_byte:raw_node.end_byte]
         line_offset = raw_node.start_point[0]  # rows are 0-based
 
-        sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
+        # ⚠ `tsx` is its own grammar (LEDGER L-39); see `_parse_vue_symbols`.
+        sub_parser = _get_parser(lang)
         sub_tree = sub_parser.parse(script_bytes)
         script_classes = _EmbeddedScriptClasses(
             script_bytes, raw_node.start_byte, line_offset, lang, filename, "svelte", comp_sym.id,
