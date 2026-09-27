@@ -492,8 +492,9 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-38: a Vue/Svelte hand walk stops at a method or generator
 #   body.** GONE: a bare `K#class` for a class inside an object method,
 #   getter, generator method or `function*` (a `.js` file names it
-#   `setup.K`), and a function declared inside such a method
-#   (`inc#function` for `setup() { function inc() {} }`).
+#   `setup.K`), and a helper function declared inside a method or a
+#   function/generator EXPRESSION (`inc#function` for
+#   `setup() { function inc() {} }`; `inner` in `function () {...}`).
 PARSER_GENERATION = 8
 
 

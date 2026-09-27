@@ -7031,8 +7031,13 @@ _CLASS_GATE_OWNERS = frozenset({
 #: was a second copy of the owner set without `method_definition` or
 #: `generator_function_declaration`, so a class in `setup() {}` or
 #: `function* g() {}` was published bare where a `.js` file names it `setup.K`
-#: (LEDGER L-38).
-_HAND_WALK_STOP_TYPES = _CLASS_GATE_OWNERS | frozenset({"arrow_function", "function"})
+#: (LEDGER L-38). ⚠ The bundled grammars spell the expressions
+#: `function_expression` and `generator_function`; `function` is the older
+#: spelling (and the keyword leaf), kept for a grammar that still uses it.
+#: Listing only `function` left function expressions walked (review).
+_HAND_WALK_STOP_TYPES = _CLASS_GATE_OWNERS | frozenset({
+    "arrow_function", "function_expression", "generator_function", "function",
+})
 
 
 class _EmbeddedScriptClasses:

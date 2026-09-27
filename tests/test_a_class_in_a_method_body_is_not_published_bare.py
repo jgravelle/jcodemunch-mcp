@@ -29,6 +29,7 @@ CASES = {
     "generator-function": "function* gen() { class K { k() {} } }\n",
     # Already right, and must stay so: the `.js` file publishes these bare.
     "function-expression": "const f = function () { class K { k() {} } }\n",
+    "generator-expression": "const g = function* () { class K { k() {} } }\n",
     "arrow": "const f = () => { class K { k() {} } }\n",
     "class-method": "class Outer { m() { class K { k() {} } } }\n",
     "top-level": "class K { k() {} }\n",
@@ -64,7 +65,9 @@ def test_every_published_class_is_one_the_js_file_publishes(frame, case):
 
 
 @pytest.mark.parametrize("frame", sorted(FRAMES))
-@pytest.mark.parametrize("case", ["top-level", "arrow", "function-expression", "class-method"])
+@pytest.mark.parametrize(
+    "case", ["top-level", "arrow", "function-expression", "generator-expression", "class-method"]
+)
 def test_a_class_the_js_file_publishes_bare_is_still_published(frame, case):
     """The other direction, so the property cannot pass by publishing nothing."""
     filename, template = FRAMES[frame]
@@ -78,3 +81,53 @@ def test_the_hand_walks_stop_where_the_generic_walk_gives_an_owner():
     from jcodemunch_mcp.parser import extractor
 
     assert extractor._CLASS_GATE_OWNERS <= extractor._HAND_WALK_STOP_TYPES
+
+
+def test_the_stop_set_names_node_types_the_grammar_actually_produces():
+    """`function` alone is the keyword leaf in the bundled grammars; a
+    function expression is `function_expression` and a generator expression
+    `generator_function`. A stop set naming only the old spelling stops
+    nothing (review)."""
+    from jcodemunch_mcp.parser import extractor
+    from jcodemunch_mcp.parser.grammar_pack import get_parser
+
+    seen: set[str] = set()
+    source = b"const a = function () {}; const b = function* () {}; const c = () => {};\n"
+    for grammar in ("javascript", "typescript", "tsx"):
+        stack = [get_parser(grammar).parse(source).root_node]
+        while stack:
+            node = stack.pop()
+            if node.child_count:
+                seen.add(node.type)
+            stack.extend(node.children)
+
+    expressions = {"function_expression", "generator_function", "arrow_function"} & seen
+    assert expressions, seen
+    assert expressions <= extractor._HAND_WALK_STOP_TYPES
+
+
+#: A helper declared in a function or method body is never a component member.
+#: For a method or `function*` declaration the `.js` file agrees (`setup.inc`);
+#: for an arrow or a function/generator EXPRESSION the `.js` file publishes the
+#: helper bare, and the walks have always hidden it there by design ("not into
+#: function bodies, to avoid inner helpers"), for arrows since before L-38.
+HELPERS = {
+    "options-setup": "export default { setup() { function inc() {} return { inc } } }\n",
+    "store-method": "const store = { add(x) { function h() {} return x } }\n",
+    "function-expression": "const f = function () { function inner() {} }\n",
+    "generator-expression": "const g = function* () { function inner() {} }\n",
+    "arrow": "const a = () => { function inner() {} }\n",
+    "generator-function": "function* gen() { function inner() {} }\n",
+}
+
+
+@pytest.mark.parametrize("frame", sorted(FRAMES))
+@pytest.mark.parametrize("case", sorted(HELPERS))
+def test_a_helper_in_a_function_body_is_not_a_component_member(frame, case):
+    filename, template = FRAMES[frame]
+    names = {
+        s.name
+        for s in parse_file(template.format(b=HELPERS[case]), filename, frame.split("-")[0])
+    }
+
+    assert not names & {"inc", "h", "inner"}, names
