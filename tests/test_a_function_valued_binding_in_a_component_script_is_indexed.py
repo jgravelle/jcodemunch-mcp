@@ -107,6 +107,28 @@ def test_a_function_valued_binding_is_published_as_a_plain_file_does(frame, case
             assert s.parent == comp.id, f"{s.id} is not owned by the component"
 
 
+def _function_ids(symbols) -> list[str]:
+    return sorted(s.id.split("::", 1)[1] for s in symbols if s.kind == "function")
+
+
+@pytest.mark.parametrize("frame", sorted(FRAMES))
+def test_a_same_named_declaration_and_binding_are_numbered_as_a_plain_file_does(frame):
+    """ID MOVE, disclosed (review round 1). `function h() {}` beside
+    `var h = () => 1` was `h#function` alone; the new binding shares its name,
+    so both are numbered, `h#function~1` and `~2`, exactly as a `.js` file
+    numbers them. The `(name, kind)` comparison above cannot see a suffix."""
+    body = "function h() {}\nconst h2 = 1\nvar h = () => 1\n"
+    filename, template, ref_file, ref_lang = FRAMES[frame]
+    expected = _function_ids(parse_file(body, ref_file, ref_lang))
+    assert expected == ["h#function~1", "h#function~2"], expected
+
+    language = filename.rsplit(".", 1)[1]
+    assert (
+        _function_ids(parse_file(template.format(b=body), filename, language))
+        == expected
+    )
+
+
 @pytest.mark.parametrize("frame", sorted(FRAMES))
 def test_a_value_binding_keeps_its_binding_kind(frame):
     """The other direction: only a FUNCTION value becomes a function. A value,

@@ -3333,21 +3333,32 @@ _VARIABLE_FUNCTION_TYPES = frozenset({
 })
 
 
+def _js_value_is_a_function(declarator) -> bool:
+    """Whether a `variable_declarator`'s value is an arrow, a function
+    expression or a generator function.
+
+    ⚠⚠ THE ONE ANSWER, asked by the JS binder (which declines such a
+    declarator), by `_variable_function_name` (which names it) and by the Vue
+    and Svelte hand walks (L-42). The walks used to copy the binder's decline,
+    but the binder's decline is a hand-off to `_extract_variable_function` and
+    theirs had no receiver, so `const f = () => 1` in a component script
+    published nothing.
+    """
+    value_node = declarator.child_by_field_name("value")
+    return value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES
+
+
 def _variable_function_name(declarator, source_bytes: bytes) -> Optional[str]:
     """The name a `variable_declarator` binds to a function, or None.
 
-    ⚠⚠ THE ONE ANSWER to "does this declarator declare a function?", asked by
-    `_extract_variable_function` and by the Vue and Svelte hand walks (L-42).
-    Both hand walks used to decline a function-valued declarator as the JS
-    binder does, but the binder's decline is a hand-off to this channel and
-    theirs had no receiver, so `const f = () => 1` in a component script
-    published nothing.
+    None for a destructured binding, even with a function value: a `.js`
+    file publishes nothing for `const { a } = () => 1`, and neither do the
+    component walks.
     """
     name_node = declarator.child_by_field_name("name")
     if not name_node or name_node.type != "identifier":
         return None  # destructuring or other non-simple binding
-    value_node = declarator.child_by_field_name("value")
-    if not value_node or value_node.type not in _VARIABLE_FUNCTION_TYPES:
+    if not _js_value_is_a_function(declarator):
         return None  # not a function assignment
     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
 
@@ -4293,8 +4304,7 @@ def _js_declarator_bindings(node, source_bytes: bytes) -> list[tuple[str, Any]]:
         name_node = declarator.child_by_field_name("name")
         if name_node is None:
             continue
-        value_node = declarator.child_by_field_name("value")
-        if value_node is not None and value_node.type in _VARIABLE_FUNCTION_TYPES:
+        if _js_value_is_a_function(declarator):
             continue
         pairs.extend(
             (name, declarator) for name in _js_binding_pattern_names(name_node, source_bytes)
@@ -7505,8 +7515,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # `const C = class {...}` declares a CLASS, as in a `.js`
                     # file since #803, never a `constant` beside it (#861).
                     continue
-                val_node = decl.child_by_field_name("value")
-                if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
+                if _js_value_is_a_function(decl):
                     # A function, as `_extract_variable_function` publishes it
                     # from a `.js` file (L-42). A destructured name is not.
                     fname = _variable_function_name(decl, script_bytes)
@@ -7956,8 +7965,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
                         # `const C = class {...}` declares a CLASS (#803, #861).
                         continue
-                    val_node = decl.child_by_field_name("value")
-                    if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
+                    if _js_value_is_a_function(decl):
                         # A function, as `_extract_variable_function` publishes
                         # it from a `.js` file (L-42); it was DROPPED here for
                         # this extractor's whole life, because `arrow_function`
@@ -7983,6 +7991,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 parent=comp_sym.id,
                             ))
                         continue
+                    val_node = decl.child_by_field_name("value")
                     rune = _rune_name(val_node)
                     if rune == "$props" and name_node.type == "object_pattern":
                         # ⚠⚠ `let { a, b } = $props()` asks a DIFFERENT question

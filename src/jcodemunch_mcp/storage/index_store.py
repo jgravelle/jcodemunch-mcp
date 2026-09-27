@@ -511,8 +511,9 @@ INDEX_VERSION = 17
 #
 #   ⚠⚠ **And L-42: a Vue/Svelte function-valued binding is a function.**
 #   NEW: `f#function` for `const f = () => 1` / `= function () {}`, owned by
-#   the component, as a `.js` file publishes it. No id moves (corpus diff:
-#   additions only).
+#   the component, as a `.js` file publishes it. MOVES: a same-named
+#   `function h` is numbered beside the binding (`h#function` ->
+#   `h#function~1`), as in a `.js` file; the corpora hold no such pair.
 PARSER_GENERATION = 8
 
 
