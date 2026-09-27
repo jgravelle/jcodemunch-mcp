@@ -530,6 +530,12 @@ INDEX_VERSION = 17
 #   everything in the second block (usually `<script setup>`), and a
 #   component whose first block is a bodiless `<script src>`. MOVES: a
 #   name declared in both blocks is numbered `~1`/`~2`.
+#
+#   ⚠⚠ **And L-07: a C++ out-of-class definition is a member.** MOVES:
+#   `run#function` for `int A::run() {}` becomes `A.run#method` (owned by
+#   `A` when `A` is in the file); a body and its in-file declaration are
+#   numbered `~1`/`~2`; a declaration numbered only because its body shared
+#   its bare name loses the suffix. `ns::f` bodies gain their namespace.
 PARSER_GENERATION = 8
 
 

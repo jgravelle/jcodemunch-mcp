@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ out-of-class member definition is a member of its class (LEDGER L-07)
+
+`class A { int run(); };` then `int A::run() { ... }` published the
+declaration as `A.run#method` and the body as a bare `run#function` with no
+owner, so the body of every out-of-line method could not be found as
+`A.run`. `_extract_cpp_name` kept only the last segment of the declarator's
+`qualified_identifier`. `ns::A::f` kept `A::f` as its name, and
+`void ns::f() {}` lost its namespace. Found in #844's review.
+
+A definition with a qualified declarator is named by its full scope, joined
+to any enclosing namespace, and follows Pascal's rule since #844:
+- a class or struct of that name in the file owns it as a `method`;
+- a namespace makes it a `function`: an enclosing `namespace` block, or a
+  scope something in the file is qualified under with no owner;
+- otherwise the class is in another file (a `.cpp` beside its `.h`, the
+  common case) and it is a `method` with no `parent`.
+Template scopes drop their arguments (`B<T>::g` is `B.g`). Constructors,
+destructors and operators keep their names (`A.~A`, `V.operator+`). A scope
+naming an enclosing namespace is that namespace, the way C++ looks it up
+(`testing::internal::M::g` inside `namespace testing` is
+`testing.internal.M.g`). What a body declares, a local `struct`, is owned by
+the renamed body. The test runs every shape in C++ and Arduino.
+
+Existing ids move. A body and its in-file declaration share a qualified name
+and kind, so both are numbered `~1` and `~2`, as Pascal's are. A declaration
+that was numbered only because its body shared its bare name loses the
+suffix. Measured on two pinned corpora (leveldb 7ee830d, fmt 5da4e9a),
+`main` against this branch:
+- leveldb `.cc`: `+method: 310`, `-function: 254`, `renamed(~N): 52`;
+- fmt `.cc`: `+method: 448`, `-function: 420`, `renamed(~N): 112`;
+- ids per file are unchanged in count.
+The draft of this fix made every body after the first a `function` in a
+`.cpp` whose class is in the header, because the first parentless body read
+as evidence of a namespace; the corpus diff found it (38 `DBImpl` bodies in
+`db_impl.cc`), and a test pins it.
+
+Found on the way, not fixed (LEDGER L-45): an export macro before a class
+name (`class LEVELDB_EXPORT Status`, `class GTEST_API_ ...`) is misparsed as
+a function, and its members lose their owner, as on `main`.
+`PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
+
 ### Fixed - a Vue component with a `<script>` and a `<script setup>` indexes both (LEDGER L-44)
 
 Vue 3 pairs a plain `<script>`, for `name`, `inheritAttrs` or a named

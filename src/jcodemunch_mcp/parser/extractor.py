@@ -688,6 +688,10 @@ def _walk_tree(
                 0 if block_scope_prototype else class_scope_depth,
                 parent_is_container,
             )
+            if symbol and is_cpp and parent_symbol is None and symbol.kind == "function":
+                symbol = _cpp_out_of_class_member(
+                    node, symbol, source_bytes, filename, local_scope_parts, symbols
+                )
             if symbol:
                 symbols.append(symbol)
                 # #823: `typedef int A, B;` binds N names and the node yields
@@ -2706,20 +2710,23 @@ def _swift_bound_identifier(pattern_node, source_bytes: bytes) -> Optional[str]:
     return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
 
 
+#: The C++ declarator wrappers read THROUGH to the declared name, by
+#: `_extract_cpp_name` and by the out-of-class reader (L-07).
+_CPP_DECLARATOR_WRAPPERS = frozenset({
+    "function_declarator",
+    "pointer_declarator",
+    "reference_declarator",
+    "array_declarator",
+    "parenthesized_declarator",
+    "attributed_declarator",
+    "init_declarator",
+})
+
+
 def _extract_cpp_name(name_node, source_bytes: bytes) -> Optional[str]:
     """Extract C++ symbol names from nested declarators."""
     current = name_node
-    wrapper_types = {
-        "function_declarator",
-        "pointer_declarator",
-        "reference_declarator",
-        "array_declarator",
-        "parenthesized_declarator",
-        "attributed_declarator",
-        "init_declarator",
-    }
-
-    while current.type in wrapper_types:
+    while current.type in _CPP_DECLARATOR_WRAPPERS:
         inner = current.child_by_field_name("declarator")
         if not inner:
             break
@@ -2739,6 +2746,115 @@ def _extract_cpp_name(name_node, source_bytes: bytes) -> Optional[str]:
 
     text = source_bytes[current.start_byte:current.end_byte].decode("utf-8").strip()
     return text or None
+
+
+def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
+    """One scope segment of a C++ `qualified_identifier`: `A`, `ns`, or the
+    template's name for `B<T>`. None for a scope with no name to give it
+    (`decltype(x)::f`)."""
+    if node.type in ("template_type", "template_function"):
+        node = node.child_by_field_name("name")
+        if node is None:
+            return None
+    if node.type in ("namespace_identifier", "type_identifier", "identifier"):
+        return source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip() or None
+    return None
+
+
+def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]:
+    """`A::run` -> `["A", "run"]` for a function DEFINITION whose declarator is
+    qualified (L-07); None for anything else, including `::f`, whose global
+    qualifier names no scope."""
+    fn = node
+    if fn.type == "template_declaration":
+        fn = next((c for c in fn.named_children if c.type == "function_definition"), None)
+    if fn is None or fn.type != "function_definition":
+        return None
+    current = fn.child_by_field_name("declarator")
+    while current is not None and current.type in _CPP_DECLARATOR_WRAPPERS:
+        current = current.child_by_field_name("declarator")
+    if current is None or current.type != "qualified_identifier":
+        return None
+    segments: list[str] = []
+    while current is not None and current.type == "qualified_identifier":
+        scope = current.child_by_field_name("scope")
+        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
+        if segment is None:
+            return None
+        segments.append(segment)
+        current = current.child_by_field_name("name")
+    if current is None:
+        return None
+    if current.type == "template_function":
+        current = current.child_by_field_name("name") or current
+    last = source_bytes[current.start_byte:current.end_byte].decode("utf-8").strip()
+    return [*segments, last] if last else None
+
+
+def _cpp_out_of_class_member(
+    node,
+    symbol: Symbol,
+    source_bytes: bytes,
+    filename: str,
+    scope_parts: list[str],
+    symbols: list,
+) -> Symbol:
+    """A C++ definition named by a qualified declarator, as the member it is.
+
+    ⚠⚠ LEDGER L-07: `int A::run() {}` was a bare `run#function` beside the
+    class's `A.run#method`, because the name kept only the declarator's last
+    segment. The scope is the owner, joined to any enclosing namespace, and the
+    body is named as Pascal's bodies are since #844:
+    - a class or struct of that name in the file owns it as a `method`;
+    - a namespace makes it a `function`: an enclosing `namespace` block, or
+      a scope something in the file is qualified under with no owner;
+      ⚠⚠ an out-of-line METHOD body is not that evidence, or the first
+      `DBImpl::Recover` in a `.cpp` beside its `.h` would make every later
+      `DBImpl::` body a function (measured on leveldb, review of the draft);
+    - otherwise the owner is in another file (a `.cpp` beside its `.h`) and it
+      is a `method` with no `parent`.
+    C++ requires the class to be declared before an out-of-line definition, so
+    the owner is already in `symbols` when the walk reaches the body.
+    """
+    segments = _cpp_out_of_class_segments(node, source_bytes)
+    if not segments or len(segments) < 2:
+        return symbol
+    # ⚠ The first segment is looked up from the innermost enclosing scope
+    # outward, so inside `namespace testing`, `testing::internal::X` names the
+    # enclosing namespace, not `testing.testing` (gtest in fmt's tree, found in
+    # the corpus diff of the draft).
+    base = list(scope_parts)
+    for depth in range(len(scope_parts) - 1, -1, -1):
+        if scope_parts[depth] == segments[0]:
+            base = list(scope_parts[:depth])
+            break
+    owner = ".".join([*base, *segments[:-1]])
+    name = segments[-1]
+    qualified = f"{owner}.{name}"
+    owner_symbol = next(
+        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
+        None,
+    )
+    if owner_symbol is not None:
+        kind, parent = "method", owner_symbol.id
+    elif any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1)) or any(
+        s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + ".")
+        for s in symbols
+    ):
+        kind, parent = "function", None
+    else:
+        kind, parent = "method", None
+    return dataclasses.replace(
+        symbol,
+        id=make_symbol_id(filename, qualified, kind),
+        name=name,
+        qualified_name=qualified,
+        kind=kind,
+        parent=parent,
+        keywords=list(symbol.keywords),
+        decorators=list(symbol.decorators),
+        call_references=list(symbol.call_references),
+    )
 
 
 def _find_cpp_name_in_subtree(node, source_bytes: bytes) -> Optional[str]:
