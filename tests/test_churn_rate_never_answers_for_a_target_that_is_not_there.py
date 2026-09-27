@@ -11,6 +11,7 @@ path half and the targets that must KEEP being answered.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 
 import pytest
@@ -30,16 +31,19 @@ def repo(tmp_path):
     (src / "utils.py").write_text("class C:\n    def pick(self):\n        return 1\n", encoding="utf-8")
     (src / "gone.py").write_text("def g():\n    return 2\n", encoding="utf-8")
     (src / "NOTES.txt").write_text("not source\n", encoding="utf-8")
-    try:
-        _git(src, "init", "-q")
-        _git(src, "config", "user.email", "t@t.t")
-        _git(src, "config", "user.name", "T")
-        _git(src, "add", ".")
-        _git(src, "commit", "-q", "-m", "init")
-        _git(src, "rm", "-q", "gone.py")
-        _git(src, "commit", "-q", "-m", "drop gone.py")
-    except (OSError, subprocess.CalledProcessError):
+    # Skip only when git is absent. A git step that FAILS (gpgsign, a
+    # safe.directory refusal) fails the test: a load-bearing guard that
+    # skips on a broken fixture is a guard that stopped running (review).
+    if shutil.which("git") is None:
         pytest.skip("git not available")
+    _git(src, "init", "-q")
+    _git(src, "config", "user.email", "t@t.t")
+    _git(src, "config", "user.name", "T")
+    _git(src, "config", "commit.gpgsign", "false")
+    _git(src, "add", ".")
+    _git(src, "commit", "-q", "-m", "init")
+    _git(src, "rm", "-q", "gone.py")
+    _git(src, "commit", "-q", "-m", "drop gone.py")
     store = tmp_path / "store"
     r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     assert r["success"] is True
@@ -53,6 +57,16 @@ def test_a_path_that_is_not_there_is_refused(repo):
     assert "error" in result, result
     assert "utlis.py" in result["error"]
     assert "assessment" not in result and "commits" not in result
+
+
+@pytest.mark.parametrize("target", ["utils.py::nothing#method", "utils.py::$DATA"])
+def test_a_symbol_shaped_target_is_never_read_as_a_path(repo, target):
+    """`::$DATA` is an NTFS stream name, so `os.path.exists` says True on
+    Windows; a `::` target is a symbol question whatever the disk says."""
+    name, store = repo
+    result = get_churn_rate(repo=name, target=target, storage_path=store)
+
+    assert "error" in result and "assessment" not in result, result
 
 
 def test_a_near_miss_symbol_id_is_refused_with_its_candidates(repo):

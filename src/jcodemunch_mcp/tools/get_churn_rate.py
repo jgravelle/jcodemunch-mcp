@@ -103,10 +103,13 @@ def get_churn_rate(
         target_type = "symbol"
         if not file_path:
             return {"error": f"Symbol {target!r} has no file in index."}
-    elif "::" in target and not os.path.exists(os.path.join(cwd, target)):
+    elif "::" in target:
         # ⚠⚠ L-41: a symbol id the index does not hold used to fall through
         # to the file branch, match nothing in `git log`, and come back
         # `commits: 0` / `stable` / confidence `high`. It is a missing symbol.
+        # ⚠ The disk is NOT consulted: on Windows `x.py::$DATA` is an NTFS
+        # stream and `os.path.exists` says True (review). The cost is a POSIX
+        # file literally named with `::`, which this tool cannot measure.
         return symbol_not_found(target, index.symbols)
 
     # Verify git availability
