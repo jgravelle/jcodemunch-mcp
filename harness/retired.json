@@ -141,6 +141,13 @@
       "replacement": "tests/test_a_dart_extension_type_and_enum_own_their_members.py::test_enum_variants_are_a_tracked_gap_ledger_l03",
       "commit": "#759",
       "date": "2026-09-25"
+    },
+    {
+      "path": "tests/test_framework_script_bindings.py::test_a_local_function_binding_is_a_disclosed_gap",
+      "lesson": "A test that pins a gap so it is disclosed becomes the defect's witness the moment the gap is fixed (Practice 9): it asserted a Svelte script with `const fn = () => {}` yields the component and nothing else. L-42 makes the binding a `function`, as a `.js` file publishes it, so the assertion is inverted rather than deleted, and keeps the half that was right: the binding is never given a data kind. The frame-by-frame property is in tests/test_a_function_valued_binding_in_a_component_script_is_indexed.py.",
+      "replacement": "tests/test_framework_script_bindings.py::test_a_local_function_binding_is_a_function",
+      "commit": "L-42",
+      "date": "2026-09-27"
     }
   ]
 }
