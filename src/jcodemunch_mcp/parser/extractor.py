@@ -7065,7 +7065,7 @@ class _EmbeddedScriptClasses:
         self._args = (script_bytes, block_start_byte, line_offset, lang, filename, language, component_id)
         self._root_node = root_node
         self._groups: Optional[list[tuple[Symbol, list[Symbol]]]] = None
-        self._suppressed: list = []
+        self._suppressed: list[Any] = []
 
     def _has_class_node(self) -> bool:
         # A PREFILTER only, and it may say yes too often, never no: it asks
@@ -7123,10 +7123,8 @@ class _EmbeddedScriptClasses:
         for sym in parsed:
             if sym.parent:
                 children.setdefault(sym.parent, []).append(sym)
-        new_ids: dict[str, str] = {}
-
         def _rewrap(sym: Symbol, parent_id: str) -> Symbol:
-            rewrapped = dataclasses.replace(
+            return dataclasses.replace(
                 sym,
                 id=make_symbol_id(filename, sym.qualified_name, sym.kind),
                 file=filename,
@@ -7136,19 +7134,20 @@ class _EmbeddedScriptClasses:
                 end_line=sym.end_line + line_offset,
                 byte_offset=base + sym.byte_offset,
             )
-            new_ids[sym.id] = rewrapped.id
-            return rewrapped
 
         groups = []
         for root in parsed:
             if root.parent or root.kind != "class":
                 continue
             out = [_rewrap(root, component_id)]
-            stack = list(children.get(root.id, ()))
+            # Each child carries its rewrapped parent's id, so no lookup by
+            # the (Optional) original parent is needed.
+            stack = [(child, out[0].id) for child in children.get(root.id, ())]
             while stack:
-                sym = stack.pop(0)
-                out.append(_rewrap(sym, new_ids[sym.parent]))
-                stack.extend(children.get(sym.id, ()))
+                sym, parent_id = stack.pop(0)
+                rewrapped = _rewrap(sym, parent_id)
+                out.append(rewrapped)
+                stack.extend((child, rewrapped.id) for child in children.get(sym.id, ()))
             groups.append((root, out))
         return groups
 
