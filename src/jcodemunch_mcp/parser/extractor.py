@@ -7565,8 +7565,18 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # Find: export_statement > object (the options object)
         if node.type == "export_statement":
             for c in node.children:
-                if c.type in ("object", "call_expression"):
+                if c.type == "object":
                     _extract_options_object(c)
+                elif c.type == "call_expression":
+                    # `export default defineComponent({...})`: the options are
+                    # the call's object ARGUMENT. The call node itself has no
+                    # `pair` children, so passing it published nothing and a
+                    # `defineComponent` script lost its methods (L-43).
+                    args = c.child_by_field_name("arguments")
+                    for a in args.children if args is not None else ():
+                        if a.type == "object":
+                            _extract_options_object(a)
+                            break
             return
         for child in node.children:
             _walk_options(child)
@@ -7638,14 +7648,17 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 )
                 symbols.append(sym)
 
-    # Dispatch to appropriate extractor
-    if is_setup:
-        _walk_composition(sub_tree.root_node)
-    else:
-        # Options API or plain script — try options first, fallback to composition walk
+    # Dispatch. ⚠⚠ BOTH walks on a plain `<script>`, never one or the other
+    # (L-36). The composition walk used to run only when the options walk found
+    # nothing, so an Options API script lost every function, binding and type
+    # declared beside its options object. The two cannot publish the same node:
+    # the options walk reads only the options object's pairs, and the
+    # composition walk emits only declarations and stops at every method and
+    # function body (`_HAND_WALK_STOP_TYPES`), which is where the options
+    # object keeps its code.
+    if not is_setup:
         _walk_options(sub_tree.root_node)
-        if len(symbols) == 1:  # only component sym found → try composition
-            _walk_composition(sub_tree.root_node)
+    _walk_composition(sub_tree.root_node)
     symbols.extend(script_classes.emit())
 
     return symbols

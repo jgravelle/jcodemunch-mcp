@@ -514,6 +514,13 @@ INDEX_VERSION = 17
 #   the component, as a `.js` file publishes it. MOVES: a same-named
 #   `function h` is numbered beside the binding (`h#function` ->
 #   `h#function~1`), as in a `.js` file; the corpora hold no such pair.
+#
+#   ⚠⚠ **And L-36/L-43: a Vue Options script keeps its top-level
+#   declarations, and a `defineComponent({...})` script its options.**
+#   NEW: functions, bindings and types beside an options object; the
+#   `methods`/`computed`/`props`/`data` of `defineComponent`. MOVES: an
+#   options `props#constant` beside a top-level `const props` becomes
+#   `props#constant~1`.
 PARSER_GENERATION = 8
 
 

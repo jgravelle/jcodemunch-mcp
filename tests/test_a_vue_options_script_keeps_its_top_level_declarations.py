@@ -1,0 +1,129 @@
+"""A Vue Options API script keeps the declarations beside its options object (LEDGER L-36).
+
+`_parse_vue_symbols` ran the composition walk only when the options walk
+found nothing, so a `<script>` holding `export default { methods: {...} }`
+lost every top-level function, binding and type declared beside the object:
+`function helper() {}`, `const MAX = 5`, `const f = () => 1`, an
+`interface`. Only classes survived, because since #861 they come from their
+own emitter rather than from the dispatch.
+
+The property: an Options script publishes the union of what its
+declarations publish alone and what its options object publishes alone, by
+id. And the other direction: the options object's own members are not
+published twice, and a script with no options object is unchanged.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+import jcodemunch_mcp.config as config
+from jcodemunch_mcp.parser.extractor import parse_file
+
+DECLARATIONS = {
+    "function": "function helper() { return 1 }\n",
+    "constant": "const MAX = 5\n",
+    "variable": "let count = 0\n",
+    "arrow": "const f = () => 1\n",
+    "destructured": "const { a, b } = obj\n",
+    "class": "class K { k() {} }\n",
+    "mixed": "import x from 'y'\nfunction helper() {}\nconst MAX = 5\nconst f = () => 1\n",
+}
+TS_DECLARATIONS = {
+    "interface": "interface Row { id: number }\n",
+    "type": "type Id = string\n",
+    "enum": "enum Mode { A, B }\n",
+}
+OPTIONS = {
+    "object": "export default {\n  props: ['p'],\n  data() { return { n: 1 } },\n  methods: { go() {} },\n  computed: { total() { return 1 } },\n}\n",
+    "define-component": "export default defineComponent({\n  methods: { go() {} },\n})\n",
+    "with-setup": "export default {\n  setup() { const inner = () => 1; return { inner } },\n  methods: { go() {} },\n}\n",
+}
+
+
+@pytest.fixture(autouse=True)
+def _languages_on(monkeypatch):
+    # This box's config can disable languages; the gate is read through
+    # config's globals, so patch it there.
+    monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
+
+
+def _ids(body: str, lang_attr: str = "") -> list[str]:
+    source = f"<script{lang_attr}>\n{body}</script>\n<template><div/></template>\n"
+    return sorted(s.id for s in parse_file(source, "Comp.vue", "vue"))
+
+
+def _cases():
+    for d in sorted(DECLARATIONS):
+        for o in sorted(OPTIONS):
+            yield pytest.param(DECLARATIONS[d], OPTIONS[o], "", id=f"{d}+{o}")
+    for d in sorted(TS_DECLARATIONS):
+        yield pytest.param(
+            TS_DECLARATIONS[d], OPTIONS["object"], ' lang="ts"', id=f"ts-{d}+object"
+        )
+
+
+@pytest.mark.parametrize("declarations,options,lang_attr", list(_cases()))
+@pytest.mark.parametrize("order", ["declarations-first", "options-first"])
+def test_an_options_script_publishes_its_declarations_and_its_options(
+    declarations, options, lang_attr, order
+):
+    alone = set(_ids(declarations, lang_attr))
+    opts = set(_ids(options, lang_attr))
+    assert alone - {"Comp.vue::Comp#class"}, (
+        "the declarations publish nothing alone; vacuous"
+    )
+    assert opts - {"Comp.vue::Comp#class"}, (
+        "the options object publishes nothing alone; vacuous"
+    )
+    assert not (alone & opts) - {"Comp.vue::Comp#class"}, (
+        "fixture names collide; ~N would renumber"
+    )
+
+    body = (
+        declarations + options
+        if order == "declarations-first"
+        else options + declarations
+    )
+    # A sorted LIST, so a symbol published twice counts twice.
+    assert _ids(body, lang_attr) == sorted(alone | opts)
+
+
+@pytest.mark.parametrize("lang_attr", ["", ' lang="ts"'])
+def test_a_define_component_call_publishes_the_options_a_plain_object_does(lang_attr):
+    """LEDGER L-43, found fixing L-36: `export default defineComponent({...})`
+    handed the CALL to the options reader, whose children are never `pair`s,
+    so the methods, computed, props and data of every `defineComponent`
+    script were dropped."""
+    obj = OPTIONS["object"]
+    wrapped = (
+        obj.replace("export default {", "export default defineComponent({")
+        .rstrip()
+        .rstrip("}")
+        + "})\n"
+    )
+    assert wrapped != obj
+    plain = _ids(obj, lang_attr)
+    assert "Comp.vue::go#method" in plain
+    assert _ids(wrapped, lang_attr) == plain
+
+
+def test_a_declaration_named_like_an_options_member_is_numbered_beside_it():
+    """ID MOVE, disclosed. `export default { props: ['p'] }` beside a top-level
+    `const props = 1` published only the options `props#constant` (the
+    declaration was dropped); both walks run now, so the two are numbered."""
+    body = "const props = 1\nexport default { props: ['p'], methods: { go() {} } }\n"
+    ids = _ids(body)
+    assert "Comp.vue::props#constant~1" in ids
+    assert "Comp.vue::props#constant~2" in ids
+    assert "Comp.vue::props#constant" not in ids
+
+
+def test_an_options_object_member_is_not_published_by_the_composition_walk():
+    """`setup()`'s body and the options object's methods are the options
+    walk's to publish: `inner` is a local of `setup`, and `go` is a method,
+    never also a function."""
+    ids = _ids(OPTIONS["with-setup"])
+    assert "Comp.vue::go#method" in ids
+    assert not [i for i in ids if "inner" in i]
+    assert not [i for i in ids if i.endswith("#function") and "go" in i]

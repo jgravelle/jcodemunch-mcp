@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Fixed - a Vue Options API script keeps the declarations beside its options object (LEDGER L-36, L-43)
+
+`_parse_vue_symbols` ran its composition walk only when the options walk
+found nothing. A `<script>` holding `export default { methods: {...} }`
+therefore lost every function, binding and type declared beside the
+object: `function helper() {}`, `const MAX = 5`, `const f = () => 1`, an
+`interface`. Classes survived because #861 gave them their own emitter.
+Found while fixing #861.
+
+Both walks run on a plain `<script>` now. They cannot publish the same
+node: the options walk reads only the options object's pairs, and the
+composition walk emits only declarations and stops at every method and
+function body, which is where the options object keeps its code. The test
+asserts that an Options script publishes, by id, exactly the union of what
+its declarations publish alone and what its options object publishes
+alone, in both orders, for plain and `lang="ts"` scripts.
+
+Fixing it found a second defect in the same dispatch (L-43).
+`export default defineComponent({...})` handed the CALL to the options
+reader, whose children are never `pair`s, so a `defineComponent` script's
+`methods`, `computed`, `props` and `data` were never published. The reader
+takes the call's object argument now, and a test pins that the call
+publishes what the plain object does.
+
+One existing id can move. A top-level `const props = 1` beside an options
+`props: [...]` was dropped, so the options symbol was `props#constant`; both
+are published now and numbered `props#constant~1` and `~2`. A test pins it.
+The corpus id diff, `main` against this branch, is additions only:
+element-plus `5273 -> 5292` ids, `+constant: 19`, every one a
+`defineComponent` script's `props` (L-43). The L-36 half moves nothing in
+these corpora, where a `defineComponent` script already fell back to the
+composition walk because the options walk found nothing in it.
+`PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
+
+Not fixed here: a component with both a `<script>` and a `<script setup>`
+reads only the first, so everything in `<script setup>` is lost (LEDGER
+L-44).
+
 ### Fixed - a function-valued binding in a Vue or Svelte script is a function (LEDGER L-42)
 
 `const f = () => 1` and `const g = function () {}` publish `f#function` and
