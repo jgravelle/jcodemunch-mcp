@@ -4,17 +4,24 @@ purpose:  run `python -m harness full --summary` and record that it passed on
           exactly this tree, so pre_pr.py can refuse a PR from any other tree
 invokes:  `uv run python -m harness full --summary .claude/state/evidence/full.md`
 produces: .claude/state/evidence/full.md, .claude/state/full-tier.json
-          {tree, ok, date, commit, seconds}
+          {tree, ok, date, commit, workers, seconds}, and on a red pytest run
+          .claude/state/evidence/full-failures.txt (tracebacks, harness F-26)
 refuses:  nothing; exit code is the harness's
 
-Usage: python .claude/hooks/run_full.py [extra harness args]
+Usage: python .claude/hooks/run_full.py [--workers N] [extra harness args]
 The stamp is written BEFORE the run with ok=false and rewritten after, so an
 interrupted run never leaves a stale pass behind.
+
+`--workers N` caps xdist's `-n auto` through PYTEST_XDIST_AUTO_NUM_WORKERS,
+for a box where other work leaves too little memory for one worker per core
+(two full runs were killed that way, F-26). The stamp records the cap, so a
+capped run's wall clock is never read as an uncapped one.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,13 +29,36 @@ import time
 from _common import EVIDENCE, REPO, STATE, UNREADABLE_PREFIX, git, tree_id
 
 STAMP = STATE / "full-tier.json"
+WORKERS_ENV = "PYTEST_XDIST_AUTO_NUM_WORKERS"
+
+
+def _split_workers(argv: list[str]) -> tuple[str | None, list[str]]:
+    """`--workers N` (or `--workers=N`) out of argv; the rest goes to the harness."""
+    rest: list[str] = []
+    workers = None
+    it = iter(argv)
+    for arg in it:
+        if arg == "--workers":
+            workers = next(it, None)
+        elif arg.startswith("--workers="):
+            workers = arg.split("=", 1)[1]
+        else:
+            rest.append(arg)
+    if workers is not None and not (workers.isdigit() and int(workers) > 0):
+        raise SystemExit(f"run_full: --workers takes a positive integer, got {workers!r}")
+    return workers, rest
 
 
 def main(argv: list[str]) -> int:
+    workers, argv = _split_workers(argv)
+    env = dict(os.environ)
+    if workers is not None:
+        env[WORKERS_ENV] = workers
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     # `--summary` APPENDS; a stale FAIL row from an earlier run would read as
     # this run failing (FINDINGS W-20). One run, one summary.
     (EVIDENCE / "full.md").unlink(missing_ok=True)
+    (EVIDENCE / "full-failures.txt").unlink(missing_ok=True)
     tree = tree_id()
     commit = git("rev-parse", "--short", "HEAD").strip()
     stamp = {
@@ -36,6 +66,8 @@ def main(argv: list[str]) -> int:
         "ok": False,
         "date": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "commit": commit,
+        # A cap set in the caller's environment counts too; "auto" is none.
+        "workers": env.get(WORKERS_ENV) or "auto",
     }
     STAMP.write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     t0 = time.monotonic()
@@ -49,9 +81,14 @@ def main(argv: list[str]) -> int:
             "full",
             "--summary",
             str(EVIDENCE / "full.md"),
+            # F-26: the id alone did not explain a Windows-only failure twice.
+            # The harness writes the tracebacks here on red, removes it on green.
+            "--failures",
+            str(EVIDENCE / "full-failures.txt"),
             *argv,
         ],
         cwd=REPO,
+        env=env,
     )
     after = tree_id()
     stamp.update(
@@ -62,7 +99,7 @@ def main(argv: list[str]) -> int:
     elif after != tree:
         stamp["note"] = "tree changed during the run; stamp invalid"
     STAMP.write_text(json.dumps(stamp, indent=1), encoding="utf-8")
-    print(f"full-tier stamp: ok={stamp['ok']} tree={tree[:12]} -> {STAMP}")
+    print(f"full-tier stamp: ok={stamp['ok']} tree={tree[:12]} workers={stamp['workers']} -> {STAMP}")
     return rc
 
 

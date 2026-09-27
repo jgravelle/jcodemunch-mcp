@@ -300,6 +300,62 @@ def _annotate_failure(title: str, out: str, *, max_lines: int = 8) -> None:
         print(f"::error title={title}::... {len(failed) - max_lines} more; see the log")
 
 
+#: Most characters of a failure report; the rest is cut and DISCLOSED.
+_FAILURE_REPORT_MAX_CHARS = 200_000
+
+#: A pytest section header: `==== NAME ====`. Test headers inside FAILURES are
+#: underscores, so any `=` header ends a section.
+_SECTION_RE = re.compile(r"^=+ (.+?) =+$")
+_KEPT_SECTIONS = ("ERRORS", "FAILURES", "short test summary info")
+
+#: Reports the pytest tiers recorded this process, written by `--failures`.
+_FAILURE_REPORTS: list[str] = []
+
+
+def _failure_report(out: str) -> str:
+    """pytest's ERRORS, FAILURES and short-summary sections, verbatim; "" when
+    there are none (harness F-26).
+
+    F-35 put the failed IDS in the artifact; the REASON stayed in a console
+    tail that nobody logs, behind the coverage table. A Windows-only watcher
+    failure went unexplained twice in the local full tier because of it. The
+    coverage table and the warnings are dropped: they are the bulk of a red
+    run's output and explain nothing about a failure.
+    """
+    kept: list[str] = []
+    keep = False
+    final = ""
+    for ln in out.splitlines():
+        m = _SECTION_RE.match(ln.strip())
+        if m:
+            keep = m.group(1).strip() in _KEPT_SECTIONS
+        elif ln.startswith("---------- coverage:"):
+            keep = False
+        if keep:
+            kept.append(ln)
+        elif re.search(r"\b(passed|failed|error)\b", ln) and " in " in ln:
+            final = ln
+    if not kept:
+        return ""
+    if final:
+        kept.append(final)
+    text = "\n".join(kept) + "\n"
+    if len(text) > _FAILURE_REPORT_MAX_CHARS:
+        cut = len(text) - _FAILURE_REPORT_MAX_CHARS
+        text = (
+            text[:_FAILURE_REPORT_MAX_CHARS]
+            + f"\n... {cut} characters cut; see the console\n"
+        )
+    return text
+
+
+def _record_failure_report(out: str) -> None:
+    """Keep a red pytest run's report for `--failures`."""
+    report = _failure_report(out)
+    if report:
+        _FAILURE_REPORTS.append(report)
+
+
 def _pytest_summary(out: str) -> dict:
     line = ""
     for ln in out.splitlines()[::-1]:
@@ -673,6 +729,7 @@ def tier_fast(result: dict) -> bool:
         for ln in _failed_id_lines(out):
             print(ln)
         _annotate_failure("fast tier: pytest", out)
+        _record_failure_report(out)
     # A skip ceiling here too: a rebuilt .venv without the watch extra took
     # this tier from 7 skips to 112 at exit 0 (2026-09-03, the 08-28 shape).
     print(T.verdict_line("suite.fast_skips_max", summ["skipped"]))
@@ -763,6 +820,7 @@ def tier_full(result: dict) -> bool:
         for ln in _failed_id_lines(out):
             print(ln)
         _annotate_failure("full tier: pytest", out)
+        _record_failure_report(out)
     m = re.search(r"^TOTAL\s+\d+\s+\d+\s+(\d+)%", out, re.M)
     cov_obs = int(m.group(1)) if m else None
     if cov_obs is not None:
@@ -907,11 +965,18 @@ def main(argv: list[str] | None = None) -> int:
         help="append a Markdown table of every verdict line to FILE (GitHub step summary)",
     )
     ap.add_argument(
+        "--failures",
+        metavar="FILE",
+        help="write a red pytest tier's FAILURES/ERRORS/short-summary sections to FILE; "
+        "removes FILE on a run with none",
+    )
+    ap.add_argument(
         "--annotate",
         action="store_true",
         help="print a ::error annotation for every FAIL verdict",
     )
     a = ap.parse_args(argv)
+    _FAILURE_REPORTS.clear()
     tee = None
     if a.summary or a.annotate:
         tee = _Tee(sys.stdout)
@@ -928,6 +993,16 @@ def main(argv: list[str] | None = None) -> int:
             if a.annotate:
                 for line in tee.annotations():
                     print(line)
+        if a.failures:
+            # One run, one report: a green run must not leave the last red
+            # run's tracebacks behind to be read as this one's (W-20).
+            target = Path(a.failures)
+            if _FAILURE_REPORTS:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("\n".join(_FAILURE_REPORTS), encoding="utf-8")
+                print(f"[harness] failure report -> {target}")
+            else:
+                target.unlink(missing_ok=True)
     return rc
 
 
