@@ -1,7 +1,8 @@
 """A watched root removed under the poller is `FileNotFoundError` (FINDINGS F-26).
 
-`test_removing_watched_root_fails[polling]` failed three times on Windows
-(2026-09-12, 2026-09-26 twice). The third run kept the error:
+`test_removing_watched_root_fails[polling]` failed three times on Windows:
+in the local full tier on 2026-09-12 and 2026-09-26, then on CI on 2026-09-27
+(run 36292769487). The third run kept the error:
 `WatchfilesRustInternalError('error in underlying watcher: Access is denied.
 (os error 5)')`, inside an ExceptionGroup. The poller can hit the removed root
 before `_safe_awatch` gets a batch to stat it, and Windows answers a directory

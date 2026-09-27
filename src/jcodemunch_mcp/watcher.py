@@ -218,6 +218,9 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
             # ExceptionGroup from awatch's task group). Which error escaped
             # depended on who got there first. Only a GONE root is translated;
             # with the root present the watcher's own error surfaces unchanged.
+            # ⚠ "Gone" means `isdir` is False, i.e. not stattable as a directory:
+            # a present root whose parent lost its execute bit reads as gone too.
+            # Both errors restart the task, so only the recorded reason differs.
             if os.path.isdir(folder_path):
                 raise
             raise FileNotFoundError(f"Watched directory disappeared: {folder_path}") from exc

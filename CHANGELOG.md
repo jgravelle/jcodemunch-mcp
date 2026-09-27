@@ -10,12 +10,12 @@ with `WatchfilesRustInternalError: Access is denied. (os error 5)` instead: the
 poller reached the gone folder before the watcher got a batch to check it,
 and Windows answers a directory that is being deleted with access denied, not
 not-found. Which message was recorded as the crash reason depended on who got
-there first. It showed up as a test that failed three times on Windows CI
-over two weeks, on diffs that never touched the watcher.
+there first. It showed up as a test that failed three times on Windows (twice
+in a local full run, once on CI), on diffs that never touched the watcher.
 
-Any error from the underlying watcher now reads as `FileNotFoundError` when
-the watched folder is really gone, and is raised unchanged when the folder is
-still there, so a real watcher failure is not hidden. A test forces the lost
+Any error raised while a folder is being watched now reads as
+`FileNotFoundError` when the folder can no longer be read as a directory, and
+is raised unchanged when it can, so a real watcher failure is not hidden. A test forces the lost
 race with a fake stream instead of waiting for Windows to lose it.
 
 ### Fixed - `get_churn_rate` never answers for a target that is not there (LEDGER L-41)
