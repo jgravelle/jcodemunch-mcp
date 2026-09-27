@@ -29,6 +29,12 @@ BODIES = {
     "final": "class {m}Leaf final {{\n  void f();\n}};\n",
     "in-namespace": "namespace leveldb {{\nclass {m}DB {{\n public:\n  virtual ~DB();\n  virtual void Put();\n}};\n}}\n",
     "two-macros": "class {m}{m}Twice {{\n  void f();\n}};\n",
+    # The misparse gives these a non-identifier declarator (review round 2):
+    "qualified-base": "class {m}Err : public std::runtime_error {{\n  void f();\n}};\n",
+    "global-qualified-base": "class {m}Err : public ::std::runtime_error {{\n  void f();\n}};\n",
+    "namespaced-base": "class {m}Impl : public ns::Base {{\n  void f();\n}};\n",
+    "template-base": "class {m}Impl : public Base<int> {{\n  void f();\n}};\n",
+    "specialisation": "template <> class {m}Matcher<int> : public Base {{\n  void f();\n}};\n",
     "then-other-class": "class {m}A {{\n  void a();\n}};\nclass B {{\n  void b();\n}};\n",
 }
 MACRO = "LEVELDB_EXPORT "

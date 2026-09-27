@@ -550,14 +550,19 @@ def _export_macro_spans(root) -> list:
     The grammar cannot know `LEVELDB_EXPORT` is a macro, so it reads
     `class LEVELDB_EXPORT` as a RETURN TYPE (a `class_specifier` named by the
     macro, with no body), `Name` as the declarator and the class body as a
-    statement block: a `function_definition`. ⚠⚠ The discriminator is that
-    the declarator is a bare `identifier`: a real function definition always
-    has a `function_declarator` (`class X make() {}`,
-    `struct S *next(struct S*) {}`). ⚠⚠ A macro that TAKES ARGUMENTS
-    (`struct ALIGN(16) V {`, `class API(x) D {`) gives a
-    `parenthesized_declarator`, and blanking only its name leaves
-    `struct (16) V {`, which re-parses as a cast and loses every symbol `main`
-    found -- so it is left as parsed (review of L-45).
+    statement block: a `function_definition`. ⚠⚠ The discriminator REFUSES
+    two shapes and accepts the rest, because each rule was wrong alone:
+    - a declarator with a `function_declarator` in it is a real function
+      (`class X make() {}`, `struct S *next(struct S*) {}`);
+    - a `parenthesized_declarator` is a macro that TAKES ARGUMENTS
+      (`struct ALIGN(16) V {`, `class API(x) D {`), and blanking only its name
+      leaves `struct (16) V {`, a cast that loses every symbol `main` found.
+    What the misparse gives a real exported class varies with its base: a
+    bare `identifier`, but a `qualified_identifier` for `: public
+    std::runtime_error` (gtest's `GoogleTestFailureException`) and other
+    shapes for `Base<int>` or a specialisation head, so asking for the
+    `identifier` alone left the commonest exported shape broken (review
+    rounds 1 and 2 of L-45).
     """
     spans: list = []
     stack = [root]
@@ -577,7 +582,8 @@ def _export_macro_spans(root) -> list:
                     macro is not None
                     and macro.type == "type_identifier"
                     and declarator is not None
-                    and declarator.type == "identifier"
+                    and declarator.type != "parenthesized_declarator"
+                    and not _has_descendant_of_type(declarator, "function_declarator")
                 ):
                     spans.append(macro)
             continue
@@ -587,6 +593,16 @@ def _export_macro_spans(root) -> list:
         # once its enclosing head has been unmasked and re-parsed.
         stack.extend(c for c in node.children if c.type != "compound_statement")
     return spans
+
+
+def _has_descendant_of_type(node, node_type: str) -> bool:
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == node_type:
+            return True
+        stack.extend(current.children)
+    return False
 
 
 def _parse_c_family(parser, source_bytes: bytes):
