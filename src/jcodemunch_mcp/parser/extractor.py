@@ -3333,6 +3333,25 @@ _VARIABLE_FUNCTION_TYPES = frozenset({
 })
 
 
+def _variable_function_name(declarator, source_bytes: bytes) -> Optional[str]:
+    """The name a `variable_declarator` binds to a function, or None.
+
+    ⚠⚠ THE ONE ANSWER to "does this declarator declare a function?", asked by
+    `_extract_variable_function` and by the Vue and Svelte hand walks (L-42).
+    Both hand walks used to decline a function-valued declarator as the JS
+    binder does, but the binder's decline is a hand-off to this channel and
+    theirs had no receiver, so `const f = () => 1` in a component script
+    published nothing.
+    """
+    name_node = declarator.child_by_field_name("name")
+    if not name_node or name_node.type != "identifier":
+        return None  # destructuring or other non-simple binding
+    value_node = declarator.child_by_field_name("value")
+    if not value_node or value_node.type not in _VARIABLE_FUNCTION_TYPES:
+        return None  # not a function assignment
+    return source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+
+
 def _extract_variable_function(
     node,
     spec: LanguageSpec,
@@ -3343,15 +3362,9 @@ def _extract_variable_function(
 ) -> Optional[Symbol]:
     """Extract a function from `const name = () => {}` or `const name = function() {}`."""
     # node is a variable_declarator
-    name_node = node.child_by_field_name("name")
-    if not name_node or name_node.type != "identifier":
-        return None  # destructuring or other non-simple binding
-
-    value_node = node.child_by_field_name("value")
-    if not value_node or value_node.type not in _VARIABLE_FUNCTION_TYPES:
-        return None  # not a function assignment
-
-    name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8")
+    name = _variable_function_name(node, source_bytes)
+    if name is None:
+        return None
 
     kind = "function"
     if parent_symbol:
@@ -7494,8 +7507,24 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     continue
                 val_node = decl.child_by_field_name("value")
                 if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
-                    # ⚠ Same as Svelte: no branch here emits it either, so this
-                    # is a disclosed pre-existing gap rather than a hand-off.
+                    # A function, as `_extract_variable_function` publishes it
+                    # from a `.js` file (L-42). A destructured name is not.
+                    fname = _variable_function_name(decl, script_bytes)
+                    if fname is not None:
+                        symbols.append(Symbol(
+                            id=make_symbol_id(filename, fname, "function"),
+                            name=fname,
+                            qualified_name=f"{component_name}.{fname}",
+                            kind="function",
+                            language="vue",
+                            file=filename,
+                            line=_adjusted_line(decl),
+                            end_line=_adjusted_end_line(decl),
+                            signature=_node_text(node).split("\n")[0].rstrip("{").strip(),
+                            docstring=_preceding_comment(node),
+                            summary="",
+                            parent=comp_sym.id,
+                        ))
                     continue
                 sig = _node_text(node).split("\n")[0].rstrip("{").strip()
                 for name in _js_binding_pattern_names(name_node, script_bytes):
@@ -7929,16 +7958,30 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         continue
                     val_node = decl.child_by_field_name("value")
                     if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
-                        # ⚠⚠ DROPPED, and nothing else emits it: this walker has
-                        # no branch for a function-valued declarator and
-                        # `arrow_function` is in `skip_recurse`. A local
-                        # `const fn = () => {}` has yielded no symbol for this
-                        # extractor's whole life and still does -- a disclosed
-                        # PRE-EXISTING gap, pinned by
-                        # `test_a_local_function_binding_is_a_disclosed_gap`,
-                        # not something this change removed. The EXPORT branch
-                        # must not copy this line: there it deleted symbols
-                        # `origin/main` published.
+                        # A function, as `_extract_variable_function` publishes
+                        # it from a `.js` file (L-42); it was DROPPED here for
+                        # this extractor's whole life, because `arrow_function`
+                        # is in `skip_recurse` and no other branch emits it. A
+                        # destructured name is not a function. ⚠ The EXPORT
+                        # branch keeps its own rule: there `export const load =
+                        # async () => {}` has been a `constant` since #752, and
+                        # `export let` is a prop.
+                        fname = _variable_function_name(decl, script_bytes)
+                        if fname is not None:
+                            symbols.append(Symbol(
+                                id=make_symbol_id(filename, fname, "function"),
+                                name=fname,
+                                qualified_name=f"{component_name}.{fname}",
+                                kind="function",
+                                language="svelte",
+                                file=filename,
+                                line=_adjusted_line(decl),
+                                end_line=_adjusted_end_line(decl),
+                                signature=_first_line(node),
+                                docstring=_preceding_comment(node),
+                                summary="",
+                                parent=comp_sym.id,
+                            ))
                         continue
                     rune = _rune_name(val_node)
                     if rune == "$props" and name_node.type == "object_pattern":

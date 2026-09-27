@@ -298,20 +298,24 @@ def test_an_exported_function_valued_binding_is_still_a_symbol(source, expected)
     assert expected in _pairs(source, "C.svelte", "svelte")
 
 
-def test_a_local_function_binding_is_a_disclosed_gap():
-    """⚠ A LOCAL `const fn = () => {}` in a script block yields no symbol, and
-    did not on `origin/main` either -- measured, both refs.
+def test_a_local_function_binding_is_a_function():
+    """A LOCAL `const fn = () => {}` in a script block is a `function`, as a
+    `.js` file publishes it (L-42).
 
-    Pinned so it is disclosed rather than assumed absent, and so the asymmetry
-    with the exported form above is written down: nothing here emits a
-    function-valued declarator as a `function`, and emitting it as a
-    `constant` would name a function with a data kind.
+    ⚠ INVERTED under Practice 9. This test was
+    `test_a_local_function_binding_is_a_disclosed_gap` and asserted the
+    script yielded the component and nothing else: it pinned the gap so it was
+    disclosed rather than assumed absent, which made it the defect's witness
+    once the gap was fixed. It still refuses a data kind for the binding, the
+    half of it that was right. The exported form above keeps its own rule.
     """
     for source in (
         "<script>\n  const fn = () => {};\n</script>\n",
         "<script>\n  const fn = function () {};\n</script>\n",
     ):
-        assert {s.name for s in parse_file(source, "C.svelte", "svelte")} == {"C"}
+        pairs = _pairs(source, "C.svelte", "svelte")
+        assert ("fn", "function") in pairs
+        assert ("fn", "constant") not in pairs and ("fn", "variable") not in pairs
 
 
 # ---------------------------------------------------------------------------

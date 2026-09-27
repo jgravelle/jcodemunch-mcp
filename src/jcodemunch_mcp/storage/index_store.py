@@ -508,6 +508,11 @@ INDEX_VERSION = 17
 #   `return <b/>`). GONE: a stray `K#class` that error recovery published
 #   from inside a function, and what follows an old-style `<T>x` cast (not
 #   valid TSX; a `.tsx` file already drops it). Other scripts are unchanged.
+#
+#   ⚠⚠ **And L-42: a Vue/Svelte function-valued binding is a function.**
+#   NEW: `f#function` for `const f = () => 1` / `= function () {}`, owned by
+#   the component, as a `.js` file publishes it. No id moves (corpus diff:
+#   additions only).
 PARSER_GENERATION = 8
 
 
