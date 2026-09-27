@@ -40,6 +40,8 @@ BODIES = [
 
 FRAMES = {
     "vue": ("Comp.vue", '<script lang="{lang}">\n{body}</script>\n<template><div/></template>\n'),
+    # `<script setup>` takes a different dispatch in the Vue walk (review).
+    "vue-setup": ("Comp.vue", '<script setup lang="{lang}">\n{body}</script>\n<template><div/></template>\n'),
     "svelte": ("Comp.svelte", '<script lang="{lang}">\n{body}</script>\n<div/>\n'),
 }
 
@@ -51,8 +53,9 @@ def _languages_on(monkeypatch):
     monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
 
 
-def _ids(language: str, body: str, lang: str) -> list[str]:
-    filename, frame = FRAMES[language]
+def _ids(frame_name: str, body: str, lang: str) -> list[str]:
+    filename, frame = FRAMES[frame_name]
+    language = frame_name.split("-", 1)[0]
     return sorted(s.id for s in parse_file(frame.format(lang=lang, body=body), filename, language))
 
 

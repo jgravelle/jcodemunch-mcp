@@ -492,7 +492,8 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-39: a Vue or Svelte `lang="tsx"` script is read as TSX.**
 #   NEW: what JSX used to hide (`g#function`, `f#function` beside a
 #   `return <b/>`). GONE: a stray `K#class` that error recovery published
-#   from inside a function. Scripts without `lang="tsx"` are unchanged.
+#   from inside a function, and what follows an old-style `<T>x` cast (not
+#   valid TSX; a `.tsx` file already drops it). Other scripts are unchanged.
 PARSER_GENERATION = 8
 
 

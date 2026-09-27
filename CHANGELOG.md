@@ -15,8 +15,11 @@ review.
 
 Both walks now read a TSX script with the TSX grammar. A test compares each
 TSX script with the same script with its JSX replaced by plain expressions,
-in Vue and Svelte, and requires the same ids. Scripts without `lang="tsx"`
-are unchanged. `PARSER_GENERATION` 8, still unreleased, re-parses unchanged
+in Vue (`<script>` and `<script setup>`) and Svelte, and requires the same
+ids. One thing a `lang="tsx"` script can now lose: an old-style `<number>y`
+cast is not valid TSX, so what follows it is no longer published, which is
+what a `.tsx` file with the same text already gives. Scripts without
+`lang="tsx"` are unchanged. `PARSER_GENERATION` 8, still unreleased, re-parses unchanged
 files.
 
 ### Fixed - a class in an Astro or Razor block owns its members (LEDGER L-37)
