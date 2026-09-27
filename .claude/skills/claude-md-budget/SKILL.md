@@ -4,7 +4,8 @@ description: "How to keep CLAUDE.md under its character Floor without deleting a
 ---
 # CLAUDE.md budget
 
-Authority: CLAUDE.md Maintenance Practice 5 (the whole forensic record),
+Authority: CLAUDE.md Maintenance Practice 5 (the rules), `ISSUE-HISTORY.md`
+§ "Practice 5 forensics (rotated 2026-09-26)" (the measurements behind them),
 `tests/test_claude_md_size.py`, `tests/test_claude_md_rotation.py`,
 `tests/test_key_files_split.py`, `tests/test_cli_env_split.py`;
 the Floor is `claude_md.max_chars` (`uv run python -m harness check

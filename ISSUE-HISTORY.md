@@ -1952,3 +1952,97 @@ The `Tests:` line's 1.108.316, 1.108.315 and 1.108.314 counts, verbatim:
 - 1.108.316: 9161 passed, 13 skipped, **0 failed** (9174 total).
 - 1.108.315: 9135 passed, 13 skipped, **0 failed** (9148 total).
 - 1.108.314: 9108 total.
+
+## Practice 5 forensics (rotated 2026-09-26)
+
+Maintenance Practice 5 as it stood in CLAUDE.md before the 2026-09-26 haircut, verbatim. The loaded file keeps every rule; the measurements and incident dates behind them are here.
+
+5. **Rotate, never delete — and the budget is the WHOLE FILE, not one section.**
+   `Current State` keeps the 3 newest releases and the `Tests:` line keeps the same
+   three; closed dated entries go to `ISSUE-HISTORY.md`, which no session loads.
+   `tests/test_claude_md_size.py` is the gate.
+   ⚠⚠ **The prose version of this rule was followed and the file broke anyway.**
+   On 2026-08-21 CLAUDE.md hit 200,543 chars and the harness refused to load it,
+   while `Current State` — the only section this practice named — was 14% of it.
+   The growth was in dated issue history (82k) and a `Tests:` line carrying
+   per-release counts back to 1.108.268 (16k). **A rule that names one section
+   licenses every other section to grow.**
+   ⚠ When an entry rotates out, ask what LESSON it earned and put that one line in
+   **Standing lessons** with its date. An entry with no reusable lesson needs no
+   line; an entry whose lesson is already there needs no second one.
+   ⚠⚠ **MEASURE THE SECTIONS BEFORE CHOOSING WHAT TO ROTATE — the answer has
+   twice been a section nobody suspected.** On 2026-08-28 at 139,184/140,000 I
+   proposed rotating **Standing lessons** and was wrong: it was 6.4% of the
+   file, where **Key Files was 40.1% (55,643 chars)** and the issue/release
+   policy 15.4%. Rotating what I proposed would have recovered almost nothing.
+   Split by heading and sort by size first; it is one script and it settles it.
+   ⚠⚠ **REVERSED 2026-09-16 on a re-measurement, and the reason is arithmetic:
+   Standing lessons was 6.4% when that call was made and is 13.0% now, while Key
+   Files has not moved.** The 2026-09-16 pass rotated the dated INCIDENT PROSE
+   out of its twelve newest entries and kept every rule, date and marker --
+   9,312 chars to 7,193. **The section is still not a split candidate**; nothing
+   derives a standing lesson, which is why it stays in the loaded file.
+   ⚠ **Key Files at 40% is the NEXT rotation target and the hardest**, because
+   it is also the most load-bearing — the per-file ⚠⚠ warnings are what stop a
+   defect recurring. Rotate its dated INCIDENT prose, never its rules.
+   ⚠⚠ **SPLIT 2026-08-29, and the axis is the reusable part: WHAT IS DERIVABLE
+   LEAVES, WHAT IS NOT STAYS.** Key Files was 61,593 chars (44.4%) and the file
+   was at 139,531/140,000 with 469 characters of room. The descriptive half --
+   what each module IS -- moved to `KEY-FILES.md`, which no session loads,
+   because **jcodemunch answers it live** (`get_file_outline`, `get_repo_outline`).
+   Nothing answers "this cache is evicted on every write, so it is not a cache",
+   so every invariant stayed. **76 entries moved, 44 stayed, 120,344 chars (86.0%).**
+   ⚠⚠ **The `⚠` marker is a PROXY for load-bearing and it over-cut by 15.**
+   `producers.py`, `receipts.py`, `runtime/confidence.py` and twelve others carry
+   rationale with no marker on it -- a prohibition, a constraint whose violation
+   causes a defect, a "because". They are named in `RATIONALE_ENTRIES` in
+   `tests/test_key_files_split.py`, and **adding a name there to buy budget is
+   the thing the split exists to stop.**
+   ⚠⚠ **`@path` imports DO NOT WORK for this** -- they are expanded at launch, so
+   a split into imports recovers exactly nothing. Verified against the docs
+   before choosing, and it is the obvious wrong answer. Nested `CLAUDE.md` and
+   `.claude/rules/` both load ON READ, and **this project routes exploration
+   through MCP tools and `sed`/`cat`, neither of which triggers it** -- so the
+   mechanism that looks purpose-built would have loaded nothing here.
+   ⚠⚠ **SPLIT AGAIN 2026-08-31, same axis, and the marker under-selected AGAIN.**
+   `CLI Subcommands` (8,367) + `Env Vars` (13,097) were 16.6% of the budget and
+   went to `CLI-AND-ENV.md`: **69 rows moved, 27 stayed, 129,052 -> 121,580 chars
+   on the SETTLED tree** (headroom 10,948 -> 18,420; the rows are -8,718 and
+   documenting the split cost 1,160 back). `--help` and `jcodemunch-mcp config` derive the
+   moved half live. **The ⚠ marker found 9 of the 27 keepers; the other 18 were
+   read by hand** and carry a prohibition (`JCODEMUNCH_RUNTIME_REDACT`: never on
+   production traces), a belief-correcting constraint (`JCODEMUNCH_PERF_TELEMETRY`:
+   the ring is ALWAYS tracked) or a rationale with no marker on it. They are named
+   in `CLI_RATIONALE`/`ENV_RATIONALE` in `tests/test_cli_env_split.py`; **adding a
+   name there to buy budget is the thing the split exists to stop.** ⚠ Its "in
+   neither" direction is DELIBERATELY one-sided — 37 `JCODEMUNCH_*` names and 12
+   `add_parser` names are legitimately in neither table, so it asserts only that a
+   DOCUMENTED row still resolves in `src/`. ⚠ `CONFIGURATION.md` already documents
+   18 of these variables in prose; that overlap predates the split and is NOT
+   resolved by it.
+   ⚠ The ratchet asserts each entry lives in EXACTLY ONE file. Its first run
+   caught its own defect: keying entries by BASENAME collapsed `runtime/redact.py`
+   with `redact.py` and `runtime/confidence.py` with `retrieval/confidence.py`,
+   reporting a duplication that did not exist. **A name is not an identity**, the
+   Rust-fidelity lesson, reproduced inside the guard written to prevent drift.
+   ⚠⚠ **THE SPLIT TARGET MUST BE TRACKED, AND `docs/` IS NOT** -- `.gitignore:83`
+   is `docs/*`. The first version of this wrote `docs/KEY-FILES.md`, which would
+   have made 76 entries MACHINE-LOCAL: not in git, not in CI, gone on a fresh
+   checkout, exactly the gitignored-skill trap this file already warns about.
+   **It surfaced only because `git status` did not list the new file.** Check
+   `git check-ignore` on any path a rotation writes to; creating the file proves
+   nothing. It lives at the repo root beside the other shipped docs, and
+   `ALLOWED_ROOT_FILES` names it in both directions.
+   ⚠⚠ **MEASURED 2026-08-28: Key Files has almost NO rotatable narrative left.**
+   A scan of its 119 entries found FOUR provenance clauses (1,713 chars), three
+   of them rules; Standing lessons and Current State each duplicate NOTHING from
+   it. **It is 42% of the file because it is 119 modules of non-redundant
+   invariants, not because it is padded** — so documenting one release under
+   Practice 1 cost more than a full rotation pass recovered. **The next lever is
+   a SPLIT and it is jjg's call.** Do not raise `BUDGET` (the gate says its 10k
+   buffer is the last one) and do not buy room by deleting ⚠⚠ rules.
+   ⚠ The 2026-08-28 pass took the issue/release policy from 21,448 to 12,391 by
+   keeping every rule, every operational command and every prohibition, and
+   moving only the forensics — verified by asserting all nine policy numbers,
+   six commands and seven prohibitions still resolve. **Write that check as a
+   script; a rotation reviewed by eye is how a command goes missing.**
