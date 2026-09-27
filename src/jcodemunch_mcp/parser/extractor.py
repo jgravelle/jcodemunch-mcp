@@ -8134,6 +8134,26 @@ def _astro_script_is_json(attrs: str) -> bool:
     return "json" in m.group(1).strip().lower()
 
 
+def _keep_block_parents(pairs: list[tuple[Symbol, Symbol]]) -> list[Symbol]:
+    """The rewrapped symbols of one embedded block, each owned by what its OWN
+    parse said owns it (L-37).
+
+    `pairs` is `(parsed, rewrapped)`, the rewrapped one carrying the
+    container (component, view) as its parent. A symbol whose parsed parent
+    is in the same block takes that parent's rewrapped id instead; one whose
+    parsed parent is absent or unpublished (Razor's shim class) keeps the
+    container. ⚠⚠ Astro and Razor each rewrapped with ONE fixed parent, so a
+    class's members were owned by the component or view -- the ownership
+    #861 fixed for Vue and Svelte, found again one parser over. Both call
+    this, so the next embedded-block parser has one rule to reach for.
+    """
+    new_ids = {old.id: new.id for old, new in pairs}
+    for old, new in pairs:
+        if old.parent in new_ids:
+            new.parent = new_ids[old.parent]
+    return [new for _, new in pairs]
+
+
 def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Razor (.cshtml / .razor) templates.
 
@@ -8270,8 +8290,9 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             body_start = script_match.start(2)
             body_line_offset = _line_for_offset(body_start) - 1
             js_symbols = parse_file(body, f"{filename}#script{script_index}.js", "javascript")
-            for js_sym in js_symbols:
-                symbols.append(
+            symbols.extend(_keep_block_parents([
+                (
+                    js_sym,
                     _rewrap_symbol(
                         js_sym,
                         block_offset=body_start,
@@ -8279,8 +8300,10 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         block_length=len(body.encode("utf-8")),
                         parent=view_symbol,
                         qualified_prefix=view_name,
-                    )
+                    ),
                 )
+                for js_sym in js_symbols
+            ]))
 
     for idx, style_match in enumerate(_RAZOR_STYLE_RE.finditer(content), start=1):
         attrs = (style_match.group(1) or "").strip()
@@ -8323,10 +8346,11 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         body_offset = body_start - len(wrapper_prefix.encode("utf-8"))
         body_length = len(body.encode("utf-8"))
 
-        for csharp_sym in csharp_symbols:
-            if csharp_sym.name == "__RazorShim__":
-                continue
-            symbols.append(
+        # The shim is skipped, so its direct members (a `@code` method or
+        # field) find no parent in the block and keep the view.
+        symbols.extend(_keep_block_parents([
+            (
+                csharp_sym,
                 _rewrap_symbol(
                     csharp_sym,
                     block_offset=body_offset,
@@ -8334,8 +8358,11 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     block_length=body_length,
                     parent=view_symbol,
                     qualified_prefix=view_name,
-                )
+                ),
             )
+            for csharp_sym in csharp_symbols
+            if csharp_sym.name != "__RazorShim__"
+        ]))
 
     # Extract @page routes (Blazor components)
     for page_match in _RAZOR_PAGE_RE.finditer(content):
@@ -8520,21 +8547,39 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ecosystem_context=sym.ecosystem_context,
         )
 
+    def _rewrap_block(
+        block_symbols: list[Symbol],
+        block_offset: int,
+        line_offset_zero_based: int,
+        block_length: int,
+        qualified_prefix: str,
+    ) -> None:
+        # L-37: members keep their own class as parent (`_keep_block_parents`).
+        symbols.extend(_keep_block_parents([
+            (sym, _rewrap_symbol(
+                sym,
+                block_offset=block_offset,
+                line_offset_zero_based=line_offset_zero_based,
+                block_length=block_length,
+                parent=component_symbol,
+                qualified_prefix=qualified_prefix,
+            ))
+            for sym in block_symbols
+        ]))
+
     # ── 1. Frontmatter block (--- ... ---)
     if frontmatter is not None:
         fm_start_offset = _line_start_offset(fm_start_line)
         fm_line_off = fm_start_line - 1
         fm_bytes = frontmatter.encode("utf-8")
         ts_symbols = parse_file(frontmatter, f"{filename}#frontmatter.ts", "typescript")
-        for sym in ts_symbols:
-            symbols.append(_rewrap_symbol(
-                sym,
-                block_offset=fm_start_offset,
-                line_offset_zero_based=fm_line_off,
-                block_length=len(fm_bytes),
-                parent=component_symbol,
-                qualified_prefix=component_name,
-            ))
+        _rewrap_block(
+            ts_symbols,
+            block_offset=fm_start_offset,
+            line_offset_zero_based=fm_line_off,
+            block_length=len(fm_bytes),
+            qualified_prefix=component_name,
+        )
 
     # ── 2. Template IDs (comments stripped, offsets preserved)
     template_offset = _line_start_offset(template_start_line)
@@ -8601,15 +8646,13 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         line_off = _line_for_offset(body_start) - 1
         script_language = _astro_script_language(attrs)
         script_symbols = parse_file(body, f"{filename}#script{script_idx}.{script_language}", script_language)
-        for sym in script_symbols:
-            symbols.append(_rewrap_symbol(
-                sym,
-                block_offset=body_start,
-                line_offset_zero_based=line_off,
-                block_length=len(body_bytes),
-                parent=component_symbol,
-                qualified_prefix=f"{component_name}.script{script_idx}",
-            ))
+        _rewrap_block(
+            script_symbols,
+            block_offset=body_start,
+            line_offset_zero_based=line_off,
+            block_length=len(body_bytes),
+            qualified_prefix=f"{component_name}.script{script_idx}",
+        )
 
     # ── 4. <style> blocks → constant symbol (like Razor)
     for style_match in _ASTRO_STYLE_RE.finditer(content):

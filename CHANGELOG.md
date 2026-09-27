@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - a class in an Astro or Razor block owns its members (LEDGER L-37)
+
+Astro re-parses its frontmatter as TypeScript and each inline `<script>` as
+JavaScript or TypeScript, and Razor re-parses its `<script>` and `@code`
+blocks the same way. Both then rewrapped every symbol with the component or
+view as its parent. The ids were right (`Comp.K.k`), but `K.k` was owned by
+`Comp`, not by `K`, so a class's members never hung off the class.
+#861 fixed this ownership for Vue and Svelte; the #861 review found Astro
+still had it, and Razor turned out to have the same shape.
+
+Each rewrapped symbol now keeps the parent its own parse gave it, rewrapped
+the same way, and only a symbol with no parent in its block is the
+container's. Razor's `@code` members, whose parsed parent is the unpublished
+shim class, stay with the view. Both parsers call one helper,
+`_keep_block_parents`, and a test compares every rewrapped parent with the
+same block parsed on its own. No id moves. `PARSER_GENERATION` 8, still
+unreleased, re-parses unchanged files.
+
 ### Fixed - a watched folder deleted on Windows is reported as deleted, not as a watcher crash (F-26)
 
 When a watched folder was removed, the watcher's contract is to stop with

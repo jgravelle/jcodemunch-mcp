@@ -484,6 +484,10 @@ INDEX_VERSION = 17
 #   its id and gains real bytes, a hash and the generic signature. No id
 #   moves on 2,020 `.vue`/`.svelte` files of two projects (none has a
 #   script class; re-measured on the final extractor).
+#
+#   ⚠⚠ **And L-37: a class in an Astro frontmatter or `<script>`, or a Razor
+#   `<script>` or `@code` block, owns its members.** No id moves; only
+#   `parent` changes (`Comp.K.k` was owned by `Comp`, now by `Comp.K`).
 PARSER_GENERATION = 8
 
 
