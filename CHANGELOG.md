@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - a Vue component with a `<script>` and a `<script setup>` indexes both (LEDGER L-44)
+
+Vue 3 pairs a plain `<script>`, for `name`, `inheritAttrs` or a named
+export, with a `<script setup>` that holds the component's code.
+`_parse_vue_symbols` stopped at the first `script_element`, so the block
+that came second was never read. Usually that is the `<script setup>`, which
+means the component itself. A `<script src="...">` with no body ended the
+parse with nothing published, not even the component. Found while fixing
+L-36.
+
+Every script element is read now, each with its own `lang` and line
+offset, through the same walks; a block with no body is skipped. The test
+asserts that a two-script component publishes, by id, the union of what
+each block publishes as the component's only script, in both orders, over
+plain/`ts` and mixed `lang` pairs, and that every symbol's line points into
+its own block. Svelte already read both of its blocks
+(`<script context="module">` / `<script module>` and `<script>`).
+
+One existing id can move. A name declared in both blocks, such as an
+exported `shared` in `<script>` and `const shared` in `<script setup>`, is
+now published twice and numbered `~1` and `~2`, so the id the first block
+published alone moves. A test pins it. The corpus id diff, `main` against
+this branch, is zero changes: none of the three corpora has a two-script
+component, so only the tests exercise this. `PARSER_GENERATION` 8, still
+unreleased, re-parses unchanged files.
+
 ### Fixed - a Vue Options API script keeps the declarations beside its options object (LEDGER L-36, L-43)
 
 `_parse_vue_symbols` ran its composition walk only when the options walk

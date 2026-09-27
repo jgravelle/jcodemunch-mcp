@@ -7313,43 +7313,36 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     vue_parser = _get_parser("vue")
     tree = vue_parser.parse(source_bytes)
 
-    # Find the first <script> or <script setup> element
-    script_node = None
-    is_setup = False
-    for child in tree.root_node.children:
-        if child.type == "script_element":
-            script_node = child
-            # Detect <script setup>
-            start_tag = next((c for c in child.children if c.type == "start_tag"), None)
-            if start_tag:
-                tag_text = source_bytes[start_tag.start_byte:start_tag.end_byte].decode("utf-8", errors="replace")
-                is_setup = "setup" in tag_text
-            break
-
-    if script_node is None:
+    # ⚠⚠ EVERY `<script>` element, not the first (L-44). Vue 3 pairs a plain
+    # `<script>` (`name`, `inheritAttrs`, a named export) with `<script
+    # setup>`, which holds the component's code, and reading only the first
+    # dropped whichever came second -- usually the component itself.
+    script_nodes = [c for c in tree.root_node.children if c.type == "script_element"]
+    if not script_nodes:
         return []
 
-    # Detect script language (default: javascript)
-    lang = "javascript"
-    start_tag = next((c for c in script_node.children if c.type == "start_tag"), None)
-    if start_tag:
-        for attr in start_tag.children:
-            if attr.type == "attribute":
-                attr_text = source_bytes[attr.start_byte:attr.end_byte].decode("utf-8", errors="replace")
-                if 'lang="ts"' in attr_text or "lang='ts'" in attr_text:
-                    lang = "typescript"
-                    break
-                if 'lang="tsx"' in attr_text or "lang='tsx'" in attr_text:
-                    lang = "tsx"
-                    break
+    def _script_tag(script_node) -> tuple[bool, str]:
+        """(is `<script setup>`, grammar for its `lang`) of one script element."""
+        is_setup = False
+        lang = "javascript"
+        start_tag = next((c for c in script_node.children if c.type == "start_tag"), None)
+        if start_tag:
+            tag_text = source_bytes[start_tag.start_byte:start_tag.end_byte].decode("utf-8", errors="replace")
+            is_setup = "setup" in tag_text
+            for attr in start_tag.children:
+                if attr.type == "attribute":
+                    attr_text = source_bytes[attr.start_byte:attr.end_byte].decode("utf-8", errors="replace")
+                    if 'lang="ts"' in attr_text or "lang='ts'" in attr_text:
+                        lang = "typescript"
+                        break
+                    if 'lang="tsx"' in attr_text or "lang='tsx'" in attr_text:
+                        lang = "tsx"
+                        break
+        return is_setup, lang
 
-    # Extract raw_text and its byte/line offset within the .vue file
-    raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
-    if raw_node is None:
-        return []
-
-    script_bytes = source_bytes[raw_node.start_byte:raw_node.end_byte]
-    line_offset = raw_node.start_point[0]  # rows are 0-based
+    # ⚠ The walks below read `script_bytes`, `line_offset` and
+    # `script_classes` at CALL time, from the loop at the end, which binds them
+    # for each block before walking it.
 
     # Component name from filename (Vue convention: filename = component name)
     component_name = _Path(filename).stem
@@ -7371,15 +7364,6 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     )
     symbols.append(comp_sym)
 
-    # Re-parse script content with the JS/TS parser. ⚠ `tsx` is its own
-    # grammar: read as TypeScript, JSX is an ERROR and recovery drops the
-    # declarations around it (LEDGER L-39).
-    sub_parser = _get_parser(lang)
-    sub_tree = sub_parser.parse(script_bytes)
-    script_classes = _EmbeddedScriptClasses(
-        script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id,
-        root_node=sub_tree.root_node,
-    )
 
     # Vue Composition API reactive primitives and macros
     _VUE_REACTIVE = frozenset({
@@ -7680,10 +7664,27 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # composition walk emits only declarations and stops at every method and
     # function body (`_HAND_WALK_STOP_TYPES`), which is where the options
     # object keeps its code.
-    if not is_setup:
-        _walk_options(sub_tree.root_node)
-    _walk_composition(sub_tree.root_node)
-    symbols.extend(script_classes.emit())
+    for script_node in script_nodes:
+        # A `<script src="...">` has no text to read; it must not end the
+        # parse (it used to return [] and hide the other block, L-44).
+        raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
+        if raw_node is None:
+            continue
+        is_setup, lang = _script_tag(script_node)
+        script_bytes = source_bytes[raw_node.start_byte:raw_node.end_byte]
+        line_offset = raw_node.start_point[0]  # rows are 0-based
+        # Re-parse script content with the JS/TS parser. ⚠ `tsx` is its own
+        # grammar: read as TypeScript, JSX is an ERROR and recovery drops the
+        # declarations around it (LEDGER L-39).
+        sub_tree = _get_parser(lang).parse(script_bytes)
+        script_classes = _EmbeddedScriptClasses(
+            script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id,
+            root_node=sub_tree.root_node,
+        )
+        if not is_setup:
+            _walk_options(sub_tree.root_node)
+        _walk_composition(sub_tree.root_node)
+        symbols.extend(script_classes.emit())
 
     return symbols
 

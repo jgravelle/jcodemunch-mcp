@@ -524,6 +524,11 @@ INDEX_VERSION = 17
 #   and a same-named top-level declaration are numbered `~1`/`~2`, so
 #   whichever was published alone moves (`props#constant` ->
 #   `props#constant~1`, `data#function` -> `data#function~1`).
+#
+#   ⚠⚠ **And L-44: a Vue component reads every `<script>` block.** NEW:
+#   everything in the second block (usually `<script setup>`), and a
+#   component whose first block is a bodiless `<script src>`. MOVES: a
+#   name declared in both blocks is numbered `~1`/`~2`.
 PARSER_GENERATION = 8
 
 
