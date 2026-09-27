@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - a watched folder deleted on Windows is reported as deleted, not as a watcher crash (F-26)
+
+When a watched folder was removed, the watcher's contract is to stop with
+`Watched directory disappeared`. On Windows with polling it sometimes stopped
+with `WatchfilesRustInternalError: Access is denied. (os error 5)` instead: the
+poller reached the gone folder before the watcher got a batch to check it,
+and Windows answers a directory that is being deleted with access denied, not
+not-found. Which message was recorded as the crash reason depended on who got
+there first. It showed up as a test that failed three times on Windows CI
+over two weeks, on diffs that never touched the watcher.
+
+Any error from the underlying watcher now reads as `FileNotFoundError` when
+the watched folder is really gone, and is raised unchanged when the folder is
+still there, so a real watcher failure is not hidden. A test forces the lost
+race with a fake stream instead of waiting for Windows to lose it.
+
 ### Fixed - `get_churn_rate` never answers for a target that is not there (LEDGER L-41)
 
 `get_churn_rate` takes a file path or a symbol id. Anything it could not find

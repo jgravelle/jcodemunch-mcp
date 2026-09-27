@@ -211,6 +211,16 @@ async def _safe_awatch(folder_path: str, debounce_ms: int):
             if folder_path not in current or current == directories:
                 raise
             directories = current
+        except Exception as exc:
+            # F-26: the poller can reach a removed root before a batch lets us
+            # stat it, and Windows answers a delete-pending directory with
+            # `Access is denied`, raised as WatchfilesRustInternalError (in an
+            # ExceptionGroup from awatch's task group). Which error escaped
+            # depended on who got there first. Only a GONE root is translated;
+            # with the root present the watcher's own error surfaces unchanged.
+            if os.path.isdir(folder_path):
+                raise
+            raise FileNotFoundError(f"Watched directory disappeared: {folder_path}") from exc
     raise FileNotFoundError(f"Watched directory disappeared: {folder_path}")
 
 
