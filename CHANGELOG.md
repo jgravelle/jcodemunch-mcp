@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - `get_churn_rate` never answers for a target that is not there (LEDGER L-41)
+
+`get_churn_rate` takes a file path or a symbol id. Anything it could not find
+in the index fell through to the file branch, where `git log -- <target>`
+matched nothing, so the reply was `commits: 0`, `assessment: "stable"` and
+`confidence_level: "high"`: a confident measurement of a file that does not
+exist. A near-miss id such as `src/types.ts::omit#method` (the owner left
+off) and a misspelt path got the same answer. Found by the #869 review.
+
+A symbol-shaped target the index does not hold now gets the same error every
+other symbol tool gives since #869, from `retrieval.verdict.symbol_not_found`,
+with the near-miss ids it meant. A path is refused only when it is not an
+indexed file, not in the tree and has no git history at all. A deleted file
+keeps its history and is still measured, and so is a file in the tree that
+is not indexed.
+
 ### Fixed - a symbol id missing only its owner or `~N` suffix names the id it meant (#869)
 
 An id built from a search row's `file`, `name` and `kind` misses two things: a

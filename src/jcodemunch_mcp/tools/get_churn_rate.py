@@ -11,10 +11,12 @@ most reliable approximation).
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import resolve_repo
 
@@ -101,6 +103,11 @@ def get_churn_rate(
         target_type = "symbol"
         if not file_path:
             return {"error": f"Symbol {target!r} has no file in index."}
+    elif "::" in target and not os.path.exists(os.path.join(cwd, target)):
+        # ⚠⚠ L-41: a symbol id the index does not hold used to fall through
+        # to the file branch, match nothing in `git log`, and come back
+        # `commits: 0` / `stable` / confidence `high`. It is a missing symbol.
+        return symbol_not_found(target, index.symbols)
 
     # Verify git availability
     rc, _, err = _run_git(["rev-parse", "--git-dir"], cwd=cwd)
@@ -147,6 +154,23 @@ def get_churn_rate(
     first_seen: Optional[str] = None
     if rc3 == 0 and first_out:
         first_seen = first_out.splitlines()[-1].strip() or None  # oldest last
+
+    # L-41, the path half: a target that is not an indexed file, not in the
+    # tree and has no git history at all is not there. Zero commits over it
+    # is not a measurement. A deleted file keeps its history and is answered.
+    if (
+        target_type == "file"
+        and commit_count == 0
+        and first_seen is None
+        and file_path not in set(getattr(index, "source_files", None) or ())
+        and not os.path.exists(os.path.join(cwd, file_path))
+    ):
+        return {
+            "error": (
+                f"No file {target!r} in the tree, the index or git history. "
+                "Pass a path relative to the repo root, or an id from search_symbols."
+            )
+        }
 
     # ⚠⚠ The count above is a floor, not a measurement, when the clone does not
     # reach back `days`. git answers exit 0 with a short log, so nothing here
