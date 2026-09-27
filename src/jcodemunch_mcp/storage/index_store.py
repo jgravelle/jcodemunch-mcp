@@ -496,6 +496,13 @@ INDEX_VERSION = 17
 #   same-named symbol already published is numbered beside it (an Options
 #   `methods: { m() {} }` goes `m#method` -> `m#method~1`).
 #
+#   ⚠⚠ **And L-38: a Vue/Svelte hand walk stops at a method or generator
+#   body.** GONE: a bare `K#class` for a class inside an object method,
+#   getter, generator method or `function*` (a `.js` file names it
+#   `setup.K`), and a helper function declared inside a method or a
+#   function/generator EXPRESSION (`inc#function` for
+#   `setup() { function inc() {} }`; `inner` in `function () {...}`).
+#
 #   ⚠⚠ **And L-39: a Vue or Svelte `lang="tsx"` script is read as TSX.**
 #   NEW: what JSX used to hide (`g#function`, `f#function` beside a
 #   `return <b/>`). GONE: a stray `K#class` that error recovery published

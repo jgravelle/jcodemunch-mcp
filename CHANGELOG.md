@@ -26,6 +26,39 @@ script already published, the two are numbered: an Options API
 Measured on `main` against this branch. `PARSER_GENERATION` 8, still
 unreleased, re-parses unchanged files.
 
+### Fixed - a class inside a method body in a Vue or Svelte script is not published bare (LEDGER L-38)
+
+The Vue and Svelte walks stop recursing at a function body, so a helper
+declared inside one is not published as a component member. The stop list
+named a function declaration, an arrow and `function`, which in the bundled
+grammars is the keyword, not a function expression (`function_expression`).
+It did not name an object method (`setup() {}`, `*gen() {}`, `get g() {}`,
+`async load() {}`) or a generator function, so a class inside one was
+published as a bare `K#class` owned by the component.
+The same text in a `.js` file names it `setup.K`, owned by the method. #861
+already listed the node types that own a nested class (`_CLASS_GATE_OWNERS`);
+the walks' stop list was a second, shorter copy of it. Found by the #861
+review.
+
+The stop list is now derived from that set, plus the arrow, function
+expression and generator expression under their real node names. A test
+checks that every class a Vue (`<script>`, `<script setup>`) or Svelte script
+publishes is one the `.js` file publishes under the same name, that the
+classes a `.js` file publishes bare are still there, and that the stop set
+names node types the grammar actually produces.
+
+What else moves, measured on `main` against this branch in all three frames:
+a helper function declared inside a method or a function expression is no
+longer published as a component member. That covers `inc#function` for an
+Options-style `setup() { function inc() {} }`, including inside
+`defineComponent({...})`, `h#function` for a store object's
+`add() { function h() {} }`, and `inner#function` inside a `function` or
+`function*` expression. A `.js` file names the first two `setup.inc` and
+`add.h`. For a function expression it publishes `inner` bare, and the walks
+now hide it as they always have inside an arrow. `methods: {}` and top-level
+declarations are unchanged. `PARSER_GENERATION` 8, still unreleased,
+re-parses unchanged files.
+
 ### Fixed - a Vue or Svelte `lang="tsx"` script is read as TSX (LEDGER L-39)
 
 The Vue and Svelte walks chose their grammar with `lang if lang != "tsx"
