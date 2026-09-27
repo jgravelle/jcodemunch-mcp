@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed - a `search_symbols` cache hit is counted as a hit (#864)
+
+`result_cache_stats()` reported a served `search_symbols` hit as validated and
+never as a hit. After two identical calls it said `total_hits: 0` and
+`by_tool: {}` beside `hits_validated_fresh: 1` and a revalidated rate of 1.0,
+a rate over zero hits. `search_symbols` keeps its own cache and never passes
+through `result_cache_get`, which is where the shared LRU counts lookups, yet
+it reports every hit it revalidates to `cache_hit_validated`, whose contract
+is that the hit was already counted. So `analyze_perf` under-reported raw hits
+for the busiest consumer. And because `hits_unvalidated` is hits minus
+validated, clamped at zero, its validations were subtracted from other tools'
+unvalidated hits, and the clamp hid it.
+
+The tracker now takes a lookup from a private cache
+(`result_cache_record_lookup`), and `search_symbols` reports every lookup
+there, hit or miss, from the one function that reads its cache. Validated
+hits can no longer exceed hits, per tool or in total. A ratchet fails any
+module that reports a validated hit without recording the lookup, so the next
+tool with a private cache cannot repeat this. The #801 test that summed both
+counters to prove a hit happened reads `total_hits` alone now.
+
+⚠ Every number built on these counters moves, and not only upward. A
+`search_symbols` MISS is counted now too, so `total_misses` and the `hit_rate`
+denominator grow with it, and a session that mostly misses in `search_symbols`
+reports a LOWER aggregate `hit_rate` than before for the same work. The
+counters feed `analyze_perf`'s cache block and `get_session_stats`' cache
+block, which is also written to `~/.code-index/session_stats.json`; compare
+either across this version only with that in mind. `cached_entries` still
+counts the shared cache's entries alone, while the hit and miss counts now
+cover `search_symbols`' own cache as well.
+
 ### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
 
 In git mode a linked worktree is keyed by its own path, `local/<name>-<hash>`

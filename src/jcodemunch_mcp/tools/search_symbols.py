@@ -11,6 +11,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
+from ..storage import result_cache_record_lookup
 from ..parser.imports import resolve_specifier
 from ..retrieval.query_shape import (
     exact_needles as _exact_needles,
@@ -93,7 +94,21 @@ def _result_cache_get(key: tuple) -> Optional[dict]:
     dispatcher writes ``evidence_ref`` into ``_meta.verdict`` after the tool
     returns, and with a shared nested dict that write landed in the cached
     entry and was replayed to every later hit (#377 item 3).
+
+    ⚠⚠ Every lookup is counted in the session tracker HERE, hit or miss
+    (#864). This cache never passes through `result_cache_get`, so without it
+    a hit reached `cache_hit_validated` and never `total_hits`: the stats said
+    zero hits beside a revalidated rate of 1.0.
     """
+    result = _result_cache_lookup(key)
+    try:
+        result_cache_record_lookup("search_symbols", hit=result is not None)
+    except Exception:
+        logger.debug("cache lookup telemetry failed", exc_info=True)
+    return result
+
+
+def _result_cache_lookup(key: tuple) -> Optional[dict]:
     with _result_cache_lock:
         if key in _result_cache:
             _result_cache.move_to_end(key)  # LRU refresh
