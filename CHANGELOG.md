@@ -56,8 +56,11 @@ one grammar spelling of each shape and dropped the others.
   inside a wrapper; the wrapper is unwrapped first. So are the TS non-null
   assertion `defineComponent({...})!` and the type assertion `<X>{...}`,
   whose expression is its SECOND named child (`type_arguments` comes
-  first), in any nesting. In a `lang="tsx"` script `<X>{...}` is not valid
-  syntax, and a `.tsx` file drops it too.
+  first), in any nesting and past a comment inside the wrapper. In a
+  `lang="tsx"` script `<X>{...}` is not valid syntax and still reads as
+  broken JSX: the script loses the options and every declaration after the
+  cast. A `.tsx` file loses those declarations too, though its error
+  recovery keeps the options' methods.
 - `data() { return {...} }`, the usual spelling, is a method definition, not
   a `pair`, and `data: function () {}` is a `function_expression`, not the
   `function` keyword the reader asked for. Only `data: () => ...` was

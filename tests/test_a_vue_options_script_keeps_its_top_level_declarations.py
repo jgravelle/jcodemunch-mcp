@@ -150,6 +150,9 @@ def test_every_spelling_of_data_is_published_once(data):
         "export default <Component>{ methods: { go() {} } }\n",
         "export default <Component>defineComponent({ methods: { go() {} } })\n",
         "export default (<any>defineComponent({ methods: { go() {} } }))!\n",
+        # A comment inside a wrapper is a named child too (review).
+        "export default <Component>/* c */ { methods: { go() {} } }\n",
+        "export default ( /* c */ { methods: { go() {} } })\n",
     ],
     ids=[
         "as",
@@ -161,6 +164,8 @@ def test_every_spelling_of_data_is_published_once(data):
         "type-assertion",
         "type-assertion-call",
         "nested",
+        "type-assertion-comment",
+        "parenthesized-comment",
     ],
 )
 def test_a_wrapped_options_object_publishes_what_the_plain_one_does(export):
@@ -211,3 +216,28 @@ def test_an_options_object_member_is_not_published_by_the_composition_walk():
     assert "Comp.vue::go#method" in ids
     assert not [i for i in ids if "inner" in i]
     assert not [i for i in ids if i.endswith("#function") and "go" in i]
+
+
+def test_the_expression_wrappers_are_one_set():
+    """ONE set of TS/JS expression wrappers, read by the class-expression
+    binder and the Vue options reader. The options reader carried a second
+    copy until the review of the L-43 residue; a wrapper added to one copy
+    would have reached only half the parser (Standing lesson 08-19)."""
+    import ast
+    import inspect
+
+    import jcodemunch_mcp.parser.extractor as extractor
+
+    tree = ast.parse(inspect.getsource(extractor))
+    sets = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Set)
+        and any(
+            isinstance(e, ast.Constant) and e.value == "non_null_expression"
+            for e in node.elts
+        )
+    ]
+    assert len(sets) == 1, (
+        f"{len(sets)} literal sets name `non_null_expression`; share _JS_EXPRESSION_WRAPPERS"
+    )
