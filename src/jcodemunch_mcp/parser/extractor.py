@@ -644,7 +644,13 @@ def _walk_tree(
     if is_cpp and node.type == "namespace_definition":
         ns_name = _extract_cpp_namespace_name(node, source_bytes)
         if ns_name:
-            local_scope_parts = [*local_scope_parts, ns_name]
+            # ⚠ `namespace a::b { }` (C++17) is TWO scopes, spelled like
+            # `namespace a { namespace b { } }`: one part `a::b` named its
+            # members `a::b.A` beside the nested form's `a.b.A`, and no
+            # qualified lookup could match it (review of L-07). C++20's
+            # `a::inline b` names `b`.
+            parts = [p.strip().removeprefix("inline ").strip() for p in ns_name.split("::")]
+            local_scope_parts = [*local_scope_parts, *(p for p in parts if p)]
 
     # Collect call sites during the same walk (when enabled)
     if call_types is not None and calls is not None and node.type in call_types:

@@ -97,6 +97,28 @@ CASES = {
         "function",
         None,
     ),
+    # C++17 nested-namespace definitions are two scopes (review of L-07).
+    "nested-namespace-function": (
+        "namespace a::b { void g(); }\nvoid a::b::f() {}\n",
+        2,
+        "a.b.f",
+        "function",
+        None,
+    ),
+    "nested-namespace-class": (
+        "namespace a::b { struct A { void f(); }; }\nvoid a::b::A::f() {}\n",
+        2,
+        "a.b.A.f",
+        "method",
+        "a.b.A",
+    ),
+    "inside-nested-namespace": (
+        "namespace a::b {\nstruct A { void f(); };\nvoid A::f() {}\n}\n",
+        3,
+        "a.b.A.f",
+        "method",
+        "a.b.A",
+    ),
 }
 FRAMES = {"cpp": "a.cpp", "arduino": "a.ino"}
 
@@ -182,6 +204,23 @@ def test_a_scope_naming_an_enclosing_namespace_is_that_namespace(
     }
     # The declaration (gtest shape) and the body share one qualified name.
     assert named == {(qualified, kind)}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "namespace a::b { struct A { int x; }; }\n",
+        "namespace a { namespace b { struct A { int x; }; } }\n",
+    ],
+    ids=["cpp17", "nested-blocks"],
+)
+def test_both_spellings_of_a_nested_namespace_name_its_members_alike(source):
+    """ID MOVE, disclosed: `namespace a::b` named its members `a::b.A`; it is
+    `a.b.A` now, as the two-block spelling always was."""
+    pairs = sorted(
+        (s.qualified_name, s.kind) for s in parse_file(source, "a.cpp", "cpp")
+    )
+    assert pairs == [("a.b.A", "type"), ("a.b.A.x", "field")]
 
 
 def test_a_body_and_its_declaration_are_numbered_like_a_pascal_body():

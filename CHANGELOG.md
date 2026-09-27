@@ -17,30 +17,47 @@ to any enclosing namespace, and follows Pascal's rule since #844:
 - a namespace makes it a `function`: an enclosing `namespace` block, or a
   scope something in the file is qualified under with no owner;
 - otherwise the class is in another file (a `.cpp` beside its `.h`, the
-  common case) and it is a `method` with no `parent`.
+  common case) and it is a `method` with no `parent`. ⚠ This is a guess the
+  parser cannot verify: `void llvm::foo() {}` in a `.cpp` whose namespace is
+  declared only in a header, with nothing in the file qualified under it,
+  is now `llvm.foo#method` where it was a bare `foo#function`. Free
+  functions are usually defined inside a `namespace` block, which is
+  recognised.
 Template scopes drop their arguments (`B<T>::g` is `B.g`). Constructors,
 destructors and operators keep their names (`A.~A`, `V.operator+`). A scope
 naming an enclosing namespace is that namespace, the way C++ looks it up
 (`testing::internal::M::g` inside `namespace testing` is
-`testing.internal.M.g`). What a body declares, a local `struct`, is owned by
+`testing.internal.M.g`). A C++17 `namespace a::b { }` is two scopes, as
+`namespace a { namespace b { } }` always was. What a body declares, a local `struct`, is owned by
 the renamed body. The test runs every shape in C++ and Arduino.
 
 Existing ids move. A body and its in-file declaration share a qualified name
 and kind, so both are numbered `~1` and `~2`, as Pascal's are. A declaration
 that was numbered only because its body shared its bare name loses the
-suffix. Measured on two pinned corpora (leveldb 7ee830d, fmt 5da4e9a),
-`main` against this branch:
+suffix. Members of a `namespace a::b { }` block move from `a::b.A` to
+`a.b.A`. Measured on two pinned corpora (leveldb 7ee830d, fmt 5da4e9a),
+`main` against this branch; neither uses `namespace a::b`:
 - leveldb `.cc`: `+method: 310`, `-function: 254`, `renamed(~N): 52`;
+- leveldb `.h`: `+method: 41`, `-function: 24`, `renamed(~N): 21`,
+  `reparent method: 14`;
 - fmt `.cc`: `+method: 448`, `-function: 420`, `renamed(~N): 112`;
+- fmt `.h`: `+method: 76`, `-function: 21`, `renamed(~N): 8`,
+  `reparent method: 5`;
 - ids per file are unchanged in count.
+The header reparents are members of an L-45 bogus function whose own id was
+renumbered.
 The draft of this fix made every body after the first a `function` in a
 `.cpp` whose class is in the header, because the first parentless body read
 as evidence of a namespace; the corpus diff found it (38 `DBImpl` bodies in
 `db_impl.cc`), and a test pins it.
 
-Found on the way, not fixed (LEDGER L-45): an export macro before a class
-name (`class LEVELDB_EXPORT Status`, `class GTEST_API_ ...`) is misparsed as
-a function, and its members lose their owner, as on `main`.
+Found on the way, not fixed, both as on `main`:
+- LEDGER L-45: an export macro before a class name
+  (`class LEVELDB_EXPORT Status`, `class GTEST_API_ ...`) is misparsed as a
+  function, and its members lose their owner.
+- LEDGER L-46: a class defined with a qualified name, the pimpl
+  `class Widget::Impl { ... };`, is indexed as a bare `Impl`, so its
+  out-of-line bodies (`Widget.Impl.go`) find no owner.
 `PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
 
 ### Fixed - a Vue component with a `<script>` and a `<script setup>` indexes both (LEDGER L-44)

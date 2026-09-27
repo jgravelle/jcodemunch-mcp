@@ -536,6 +536,7 @@ INDEX_VERSION = 17
 #   `A` when `A` is in the file); a body and its in-file declaration are
 #   numbered `~1`/`~2`; a declaration numbered only because its body shared
 #   its bare name loses the suffix. `ns::f` bodies gain their namespace.
+#   Members of `namespace a::b { }` move from `a::b.A` to `a.b.A`.
 PARSER_GENERATION = 8
 
 
