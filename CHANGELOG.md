@@ -16,7 +16,10 @@ other symbol tool gives since #869, from `retrieval.verdict.symbol_not_found`,
 with the near-miss ids it meant. A path is refused only when it is not an
 indexed file, not in the tree and has no git history at all. A deleted file
 keeps its history and is still measured, and so is a file in the tree that
-is not indexed.
+is not indexed. A `::` target is always a symbol question and the disk is not
+consulted, because on Windows `x.py::$DATA` names an NTFS stream that
+`os.path.exists` reports as present; the cost is that a POSIX file literally
+named with `::` cannot be measured by path (#898).
 
 ### Fixed - a symbol id missing only its owner or `~N` suffix names the id it meant (#869)
 
