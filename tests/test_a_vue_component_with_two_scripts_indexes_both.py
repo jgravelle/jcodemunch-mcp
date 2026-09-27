@@ -114,7 +114,9 @@ def test_a_name_declared_in_both_blocks_moves_to_a_numbered_id(order):
 
 @pytest.mark.parametrize("body", [PLAIN["options"], SETUP["composition"]])
 def test_a_one_script_component_is_unchanged(body):
-    """Pinned against the values the one-script walk published before L-44."""
+    """A single block publishes one component and no duplicate id. Only that:
+    the unchanged ids of one-script components are shown by the corpus id
+    diff in the PR (zero changes), not pinned here (review round 1)."""
     ids = _ids(_block("script", body))
     assert ids.count("Comp.vue::Comp#class") == 1
     assert len(ids) == len(set(ids))
