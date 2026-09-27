@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - a class inside a method body in a Vue or Svelte script is not published bare (LEDGER L-38)
+
+The Vue and Svelte walks stop recursing at a function declaration, an arrow
+or a function expression, so a helper declared inside one is not published
+as a component member. They did not stop at an object method (`setup() {}`,
+`*gen() {}`, `get g() {}`, `async load() {}`) or a generator function, so a
+class inside one was published as a bare `K#class` owned by the component.
+The same text in a `.js` file names it `setup.K`, owned by the method. #861
+already listed the node types that own a nested class (`_CLASS_GATE_OWNERS`);
+the walks' stop list was a second, shorter copy of it. Found by the #861
+review.
+
+The stop list is now derived from that set, so the two can no longer
+disagree. A test checks that every class a Vue (`<script>`, `<script setup>`)
+or Svelte script publishes is one the `.js` file publishes under the same
+name, and that the classes a `.js` file publishes bare are still there. The
+same stop also drops a function declared inside such a method
+(`inc#function` for `setup() { function inc() {} }`), which a `.js` file
+names `setup.inc`. The Options API walk is unchanged. `PARSER_GENERATION` 8,
+still unreleased, re-parses unchanged files.
+
 ### Fixed - a class in an Astro or Razor block owns its members (LEDGER L-37)
 
 Astro re-parses its frontmatter as TypeScript and each inline `<script>` as

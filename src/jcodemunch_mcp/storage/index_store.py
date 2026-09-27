@@ -488,6 +488,12 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-37: a class in an Astro frontmatter or `<script>`, or a Razor
 #   `<script>` or `@code` block, owns its members.** No id moves; only
 #   `parent` changes (`Comp.K.k` was owned by `Comp`, now by `Comp.K`).
+#
+#   ⚠⚠ **And L-38: a Vue/Svelte hand walk stops at a method or generator
+#   body.** GONE: a bare `K#class` for a class inside an object method,
+#   getter, generator method or `function*` (a `.js` file names it
+#   `setup.K`), and a function declared inside such a method
+#   (`inc#function` for `setup() { function inc() {} }`).
 PARSER_GENERATION = 8
 
 

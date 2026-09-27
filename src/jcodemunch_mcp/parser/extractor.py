@@ -7025,6 +7025,15 @@ _CLASS_GATE_OWNERS = frozenset({
     "function_declaration", "generator_function_declaration", "method_definition",
 })
 
+#: Where the Vue and Svelte hand walks stop recursing: every owner above, plus
+#: the function EXPRESSIONS (whose classes `_EmbeddedScriptClasses` emits as
+#: roots, as a `.js` file does). ⚠⚠ Derived, never listed twice: the stop list
+#: was a second copy of the owner set without `method_definition` or
+#: `generator_function_declaration`, so a class in `setup() {}` or
+#: `function* g() {}` was published bare where a `.js` file names it `setup.K`
+#: (LEDGER L-38).
+_HAND_WALK_STOP_TYPES = _CLASS_GATE_OWNERS | frozenset({"arrow_function", "function"})
+
 
 class _EmbeddedScriptClasses:
     """Every top-level class of one Vue/Svelte `<script>` block, WITH its
@@ -7473,8 +7482,9 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     )
                     symbols.append(sym)
 
-        # Recurse (but not into function bodies to avoid inner helpers)
-        skip_recurse = node.type in ("function_declaration", "arrow_function", "function")
+        # Recurse (but not into function or method bodies to avoid inner
+        # helpers; `_HAND_WALK_STOP_TYPES`, L-38)
+        skip_recurse = node.type in _HAND_WALK_STOP_TYPES
         if not skip_recurse:
             for child in node.children:
                 _walk_composition(child, parent_id)
@@ -7937,8 +7947,9 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 _emit_const(_node_text(left), node, node, _first_line(node))
                 return  # a reactive block's body is glue, not indexable declarations
 
-            # Recurse (but not into function bodies, to avoid inner helpers).
-            skip_recurse = node.type in ("function_declaration", "arrow_function", "function")
+            # Recurse (but not into function or method bodies, to avoid inner
+            # helpers; `_HAND_WALK_STOP_TYPES`, L-38).
+            skip_recurse = node.type in _HAND_WALK_STOP_TYPES
             if not skip_recurse:
                 for child in node.children:
                     _walk(child)
