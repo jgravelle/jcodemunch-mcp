@@ -518,9 +518,12 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-36/L-43: a Vue Options script keeps its top-level
 #   declarations, and a `defineComponent({...})` script its options.**
 #   NEW: functions, bindings and types beside an options object; the
-#   `methods`/`computed`/`props`/`data` of `defineComponent`. MOVES: an
-#   options `props#constant` beside a top-level `const props` becomes
-#   `props#constant~1`.
+#   options of `defineComponent({...})`, `Vue.extend({...})` and a
+#   default export wrapped in `as`/`satisfies`/parentheses; `data()` and
+#   `data: function () {}`. MOVES: an options member (`props`, `data`)
+#   and a same-named top-level declaration are numbered `~1`/`~2`, so
+#   whichever was published alone moves (`props#constant` ->
+#   `props#constant~1`, `data#function` -> `data#function~1`).
 PARSER_GENERATION = 8
 
 

@@ -119,6 +119,74 @@ def test_a_declaration_named_like_an_options_member_is_numbered_beside_it():
     assert "Comp.vue::props#constant" not in ids
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        "data() { return { n: 1 } }",
+        "data: function () { return { n: 1 } }",
+        "data: () => ({ n: 1 })",
+    ],
+    ids=["method-shorthand", "function-expression", "arrow"],
+)
+def test_every_spelling_of_data_is_published_once(data):
+    """L-43, review round 1: only `data: () => ...` was read. The method
+    shorthand is a `method_definition`, not a `pair`, and the bundled grammar
+    spells `function () {}` as `function_expression`, not `function`."""
+    ids = _ids(f"export default {{\n  {data},\n  methods: {{ go() {{}} }},\n}}\n")
+    assert ids.count("Comp.vue::data#function") == 1, ids
+
+
+@pytest.mark.parametrize(
+    "export",
+    [
+        "export default { methods: { go() {} } } as any\n",
+        "export default { methods: { go() {} } } satisfies Component\n",
+        "export default ({ methods: { go() {} } })\n",
+        "export default defineComponent({ methods: { go() {} } }) as any\n",
+        "export default Vue.extend({ methods: { go() {} } })\n",
+    ],
+    ids=["as", "satisfies", "parenthesized", "define-component-as", "vue-extend"],
+)
+def test_a_wrapped_options_object_publishes_what_the_plain_one_does(export):
+    """L-43, review round 1: a wrapper is another spelling of the same default
+    export. `Vue.extend({...})` is read like `defineComponent({...})`: the
+    reader takes any call's object argument."""
+    plain = _ids("export default { methods: { go() {} } }\n", ' lang="ts"')
+    assert "Comp.vue::go#method" in plain
+    assert _ids(export, ' lang="ts"') == plain
+
+
+@pytest.mark.parametrize(
+    "body,moved",
+    [
+        # The top-level function was the only `data`; the options `data` joins it.
+        (
+            "function data() { return {} }\nexport default { data: () => ({ n: 1 }), methods: { go() {} } }\n",
+            "data#function",
+        ),
+        (
+            "const data = () => ({})\nexport default { data: () => ({ n: 1 }), methods: { go() {} } }\n",
+            "data#function",
+        ),
+        # `defineComponent` fell back to the composition walk, so the top-level
+        # `props` was published alone; the options `props` joins it.
+        (
+            "const props = buildProps({})\nexport default defineComponent({ props: props })\n",
+            "props#constant",
+        ),
+    ],
+    ids=["data-function", "data-arrow", "define-component-props"],
+)
+def test_an_options_member_named_like_a_declaration_moves_it_to_a_numbered_id(
+    body, moved
+):
+    """ID MOVE, disclosed (review round 1): an id published alone on main is
+    numbered beside the options member that shares its name and kind."""
+    ids = _ids(body)
+    assert f"Comp.vue::{moved}~1" in ids and f"Comp.vue::{moved}~2" in ids
+    assert f"Comp.vue::{moved}" not in ids
+
+
 def test_an_options_object_member_is_not_published_by_the_composition_walk():
     """`setup()`'s body and the options object's methods are the options
     walk's to publish: `inner` is a local of `setup`, and `go` is a method,

@@ -19,16 +19,30 @@ asserts that an Options script publishes, by id, exactly the union of what
 its declarations publish alone and what its options object publishes
 alone, in both orders, for plain and `lang="ts"` scripts.
 
-Fixing it found a second defect in the same dispatch (L-43).
-`export default defineComponent({...})` handed the CALL to the options
-reader, whose children are never `pair`s, so a `defineComponent` script's
-`methods`, `computed`, `props` and `data` were never published. The reader
-takes the call's object argument now, and a test pins that the call
-publishes what the plain object does.
+Fixing it found a second defect in the options reader (L-43): it read
+one grammar spelling of each shape and dropped the others.
+- `export default defineComponent({...})` handed the CALL to the reader,
+  whose children are never `pair`s, so a `defineComponent` script's
+  `methods`, `computed`, `props` and `data` were never published. The
+  reader takes a call's object argument now, so `Vue.extend({...})` is read
+  the same way.
+- `export default {...} as X`, `satisfies X` and `({...})` hid the object
+  inside a wrapper; the wrapper is unwrapped first.
+- `data() { return {...} }`, the usual spelling, is a method definition, not
+  a `pair`, and `data: function () {}` is a `function_expression`, not the
+  `function` keyword the reader asked for. Only `data: () => ...` was
+  published.
+Tests pin each spelling against the plain object.
 
-One existing id can move. A top-level `const props = 1` beside an options
-`props: [...]` was dropped, so the options symbol was `props#constant`; both
-are published now and numbered `props#constant~1` and `~2`. A test pins it.
+Existing ids can move. When an options member (`props`, `data`) shares its
+name and kind with a top-level declaration, both are published now and
+numbered `~1` and `~2`. An id that was published alone on `main` moves:
+- the options `props#constant` beside a top-level `const props`;
+- a top-level `function data` or `const data = () => ...` beside an options
+  `data: () => ...`;
+- a top-level `const props` in a `defineComponent` script, which the
+  composition fallback published alone, beside its options `props`.
+Tests pin all four.
 The corpus id diff, `main` against this branch, is additions only:
 element-plus `5273 -> 5292` ids, `+constant: 19`, every one a
 `defineComponent` script's `props` (L-43). The L-36 half moves nothing in
