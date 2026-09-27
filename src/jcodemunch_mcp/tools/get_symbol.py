@@ -703,9 +703,11 @@ def get_symbol_source(
         verdict = symbol_verdict_for_index(
             index, found_count=0, requested_id=errors_out[0]["id"]
         )
-        # Every key the batch error carries, not `error` alone: single mode
-        # used to drop `did_you_mean` here, and would drop `candidates` (#869).
-        err_out = {k: v for k, v in errors_out[0].items() if k != "id"}
+        # The not-found authority's keys, not `error` alone: single mode kept
+        # only the message and would have dropped `near_miss_ids` (#869).
+        # ⚠ `did_you_mean` stays batch-only: surfacing it here is a new 1.x
+        # response field, and it ships with no total/truncated disclosure.
+        err_out = {k: v for k, v in errors_out[0].items() if k not in ("id", "did_you_mean")}
         err_out["_meta"] = {"verdict": verdict}
         _mod = _offload()
         if _mod is not None:

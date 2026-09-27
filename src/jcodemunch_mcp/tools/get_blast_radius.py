@@ -6,13 +6,13 @@ import time
 from collections import deque
 from typing import Optional
 
-from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, result_cache_get, result_cache_put
 from ..parser.imports import resolve_specifier
 from ..retrieval.verdict import (
     build_verdict,
     index_changed_since_load as _index_changed_since_load,
     index_coverage_meta,
+    symbol_not_found,
 )
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier

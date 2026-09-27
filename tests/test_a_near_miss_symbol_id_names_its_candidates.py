@@ -15,6 +15,7 @@ candidates are named and the call still fails.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -22,13 +23,16 @@ import pytest
 from jcodemunch_mcp.investigator.deletion_safety import investigate_deletion_safety
 from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
 from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
+from jcodemunch_mcp.tools.check_rename_safe import check_rename_safe
 from jcodemunch_mcp.tools.find_implementations import find_implementations
 from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
 from jcodemunch_mcp.tools.get_call_hierarchy import get_call_hierarchy
+from jcodemunch_mcp.tools.get_context_bundle import get_context_bundle
 from jcodemunch_mcp.tools.get_impact_preview import get_impact_preview
 from jcodemunch_mcp.tools.get_related_symbols import get_related_symbols
 from jcodemunch_mcp.tools.get_signal_chains import get_signal_chains
 from jcodemunch_mcp.tools.get_symbol import get_symbol_source
+from jcodemunch_mcp.tools.get_symbol_complexity import get_symbol_complexity
 from jcodemunch_mcp.tools.get_symbol_provenance import get_symbol_provenance
 from jcodemunch_mcp.tools.index_folder import index_folder
 from jcodemunch_mcp.tools.plan_refactoring import plan_refactoring
@@ -52,6 +56,12 @@ SITES = {
     "investigate_deletion_safety": lambda repo, sid, sp: investigate_deletion_safety(
         repo=repo, symbol=sid, storage_path=sp
     ),
+    # Review round 1: three more sites, in spellings the first ratchet missed.
+    "get_context_bundle": lambda repo, sid, sp: get_context_bundle(repo=repo, symbol_id=sid, storage_path=sp),
+    "check_rename_safe": lambda repo, sid, sp: check_rename_safe(
+        repo=repo, symbol_id=sid, new_name="renamed", storage_path=sp
+    ),
+    "get_symbol_complexity": lambda repo, sid, sp: get_symbol_complexity(repo=repo, symbol_id=sid, storage_path=sp),
 }
 
 
@@ -101,7 +111,9 @@ def test_a_near_miss_names_its_candidates_and_never_resolves(indexed, site, requ
     err = _error_of(SITES[site](repo, requested, storage))
 
     assert "Symbol not found" in str(err.get("error", "")), (site, err)
-    assert err.get("candidates") == expected, (site, err)
+    assert err.get("near_miss_ids") == expected, (site, err)
+    assert err.get("near_miss_total") == len(expected), (site, err)
+    assert err.get("near_miss_truncated") is False, (site, err)
 
 
 @pytest.mark.parametrize("site", sorted(SITES))
@@ -110,7 +122,7 @@ def test_an_id_with_no_near_miss_names_none(indexed, site):
     err = _error_of(SITES[site](repo, "src/types.ts::nothing#method", storage))
 
     assert "Symbol not found" in str(err.get("error", "")), (site, err)
-    assert "candidates" not in err, (site, err)
+    assert "near_miss_ids" not in err, (site, err)
 
 
 def test_a_different_kind_or_file_is_not_a_near_miss(indexed):
@@ -139,9 +151,9 @@ def test_the_candidate_list_is_bounded_and_says_so():
     ]
     err = symbol_not_found("a.ts::m#method", symbols)
 
-    assert len(err["candidates"]) == SYMBOL_CANDIDATES_CAP
-    assert err["candidates_total"] == SYMBOL_CANDIDATES_CAP + 3
-    assert err["candidates_truncated"] is True
+    assert len(err["near_miss_ids"]) == SYMBOL_CANDIDATES_CAP
+    assert err["near_miss_total"] == SYMBOL_CANDIDATES_CAP + 3
+    assert err["near_miss_truncated"] is True
 
 
 def test_every_not_found_error_comes_from_the_authority():
@@ -157,32 +169,83 @@ def test_every_not_found_error_comes_from_the_authority():
     assert not offenders, offenders
 
 
+#: Any wording of "this symbol is not in the index", not the one spelling the
+#: issue reported. Review round 1: `Symbol(s) not found: ...` and
+#: `Symbol {id!r} not found in index.` sat in three more tools, and the first
+#: ratchet matched the literal `Symbol not found`, so it could not see them.
+_NOT_FOUND_RE = re.compile(r"(?i)\bsymbol(?:s|\(s\))?\b.{0,40}?\bnot found\b")
+
+
 def _not_found_literals(source: str) -> list[int]:
-    """Lines of string constants carrying `Symbol not found`, docstrings excluded."""
-    tree = ast.parse(source)
-    docstrings = {
-        id(owner.body[0].value)
-        for owner in ast.walk(tree)
-        if isinstance(getattr(owner, "body", None), list)
-        and owner.body
-        and isinstance(owner.body[0], ast.Expr)
-        and isinstance(owner.body[0].value, ast.Constant)
-    }
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and "Symbol not found" in node.value
-        and id(node) not in docstrings
-    ]
+    """Lines of an ERROR RESPONSE saying a symbol was not found: the value of
+    an `"error"` key in a dict display, an f-string read whole (placeholders as
+    `{}`). Every one of the fifteen sites had that shape; a finding's prose or
+    a reason string that mentions a name not found in a FILE is not a tool's
+    answer to a symbol argument, and a docstring is never a dict value."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            if not (isinstance(key, ast.Constant) and key.value == "error"):
+                continue
+            if isinstance(value, ast.JoinedStr):
+                text = "".join(p.value if isinstance(p, ast.Constant) else "{}" for p in value.values)
+            elif isinstance(value, ast.Constant) and isinstance(value.value, str):
+                text = value.value
+            else:
+                continue
+            if _NOT_FOUND_RE.search(text):
+                lines.append(value.lineno)
+    return sorted(lines)
 
 
-def test_the_ratchet_sees_an_f_string_and_not_a_docstring():
+@pytest.mark.parametrize("literal", [
+    'f"Symbol not found: {x}"',
+    'f"Symbol(s) not found: {x}"',
+    'f"Symbol {x!r} not found in index."',
+    '"symbols not found"',
+])
+def test_the_ratchet_sees_an_f_string_and_not_a_docstring(literal):
     source = (
         'def f(x):\n'
         '    """Returns Symbol not found when absent."""\n'
-        '    return {"error": f"Symbol not found: {x}"}\n'
+        f'    return {{"error": {literal}}}\n'
     )
 
     assert _not_found_literals(source) == [3]
+
+
+def test_a_single_id_error_carries_the_near_misses_and_not_did_you_mean(indexed):
+    """Single-mode `get_symbol_source` rebuilt its error from the message alone.
+    It carries the authority's keys now; `did_you_mean` stays batch-only,
+    because surfacing it here would be a new 1.x field with no disclosure."""
+    repo, storage = indexed
+    err = get_symbol_source(repo=repo, symbol_id="src/types.ts::omit#method", storage_path=storage)
+
+    assert err["near_miss_ids"] == ["src/types.ts::Only.omit#method"]
+    assert "did_you_mean" not in err
+    assert "id" not in err
+
+
+def test_several_missing_ids_are_named_together(indexed):
+    repo, storage = indexed
+    err = get_context_bundle(
+        repo=repo, symbol_ids=["src/types.ts::omit#method", "src/twins.py::f#function"], storage_path=storage
+    )
+
+    assert err["error"].startswith("Symbol(s) not found: src/types.ts::omit#method, src/twins.py::f#function")
+    assert err["near_miss_ids"] == [
+        "src/types.ts::Only.omit#method", "src/twins.py::f#function~1", "src/twins.py::f#function~2",
+    ]
+    assert err["near_miss_total"] == 3
+
+
+def test_an_ambiguous_name_keeps_its_candidates_shape(indexed):
+    """`candidates` already meant the ambiguous-name list in four tools; the
+    near-miss list has its own key so neither changes shape by branch."""
+    repo, storage = indexed
+    err = get_call_hierarchy(repo=repo, symbol_id="pick", storage_path=storage)
+
+    assert all(isinstance(c, dict) and "id" in c for c in err["candidates"]), err
+    assert "near_miss_ids" not in err

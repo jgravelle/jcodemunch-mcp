@@ -621,34 +621,52 @@ def symbol_id_candidates(
     wanted = _split_symbol_id(requested_id)
     if wanted is None or not symbols:
         return [], 0
+    # A near miss shares the file, so the prefix test skips the parse for
+    # every symbol elsewhere (one linear pass per miss on a large index).
+    prefix = wanted[0] + "::"
     found = [
         s["id"]
         for s in symbols
-        if s.get("id") and s["id"] != requested_id and _split_symbol_id(s["id"]) == wanted
+        if s.get("id", "").startswith(prefix)
+        and s["id"] != requested_id
+        and _split_symbol_id(s["id"]) == wanted
     ]
     return found[:cap], len(found)
 
 
-def symbol_not_found(requested: Optional[str], symbols: Optional[Sequence[dict]]) -> dict:
+def symbol_not_found(requested, symbols: Optional[Sequence[dict]]) -> dict:
     """THE not-found error for a symbol argument, shared by every tool that
-    takes one (#869: twelve sites wrote their own, in three wordings, and none
-    named the id one qualifier away).
+    takes one (#869: fifteen sites wrote their own, and none named the id one
+    qualifier away). `requested` is one id or name, or a list of them.
 
-    With near misses, the error names them in `candidates` and says it did not
-    pick one. Without, it points at `search_symbols`. A caller adds its own
+    With near misses, the error names them in `near_miss_ids` and says it did
+    not pick one. Without, it points at `search_symbols`. A caller adds its own
     keys beside these; it never rewrites the error text.
+
+    ⚠⚠ NOT `candidates`: four of the tools that call this already answer an
+    AMBIGUOUS name with `candidates` holding `{name, file, id}` dicts, so one
+    key would carry two element shapes depending on the branch (review round 1).
     """
-    candidates, total = symbol_id_candidates(requested, symbols)
-    if not candidates:
-        return {"error": f"Symbol not found: {requested}. Try search_symbols first."}
+    wanted = [requested] if isinstance(requested, str) or requested is None else list(requested)
+    found: list = []
+    total = 0
+    for one in wanted:
+        ids, n = symbol_id_candidates(one, symbols, cap=SYMBOL_CANDIDATES_CAP)
+        found += [i for i in ids if i not in found]
+        total += n
+    shown = found[:SYMBOL_CANDIDATES_CAP]
+    named = ", ".join(str(w) for w in wanted)
+    label = "Symbol" if len(wanted) == 1 else "Symbol(s)"
+    if not shown:
+        return {"error": f"{label} not found: {named}. Try search_symbols first."}
     return {
         "error": (
-            f"Symbol not found: {requested}. {total} indexed id(s) differ from it only by "
-            "the owner qualifier or the ~N suffix; pass one from `candidates` (none was chosen for you)."
+            f"{label} not found: {named}. {total} indexed id(s) differ only by the owner "
+            "qualifier or the ~N suffix; pass one from `near_miss_ids` (none was chosen for you)."
         ),
-        "candidates": candidates,
-        "candidates_total": total,
-        "candidates_truncated": total > len(candidates),
+        "near_miss_ids": shown,
+        "near_miss_total": total,
+        "near_miss_truncated": total > len(shown),
     }
 
 

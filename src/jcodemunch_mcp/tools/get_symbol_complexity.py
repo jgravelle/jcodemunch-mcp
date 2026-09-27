@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import resolve_repo
 
@@ -58,7 +59,7 @@ def get_symbol_complexity(
 
     sym = next((s for s in index.symbols if s.get("id") == symbol_id), None)
     if sym is None:
-        return {"error": f"Symbol {symbol_id!r} not found in index."}
+        return symbol_not_found(symbol_id, index.symbols)
 
     cyclomatic = sym.get("cyclomatic") or 0
     max_nesting = sym.get("max_nesting") or 0

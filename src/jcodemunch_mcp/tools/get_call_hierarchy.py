@@ -3,7 +3,6 @@
 import time
 from typing import Optional
 
-from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _find_symbol
@@ -13,6 +12,7 @@ from ..retrieval.verdict import (
     build_verdict,
     index_coverage_meta,
     index_changed_since_load as _index_changed_since_load,
+    symbol_not_found,
 )
 
 

@@ -6,6 +6,7 @@ import re
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
 from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -301,7 +302,7 @@ def get_context_bundle(
         else:
             missing.append(sid)
     if missing:
-        return {"error": f"Symbol(s) not found: {', '.join(missing)}"}
+        return symbol_not_found(missing[0] if len(missing) == 1 else missing, index.symbols)
 
     # Per-file import cache (deduplicate across symbols sharing a file)
     file_imports_cache: dict[str, list[str]] = {}

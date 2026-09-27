@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo as _resolve_repo
@@ -58,7 +59,7 @@ def check_rename_safe(
                 "candidates": [s["id"] for s in matches[:10]],
             }
         else:
-            return {"error": f"Symbol {symbol_id!r} not found in index."}
+            return symbol_not_found(symbol_id, index.symbols)
 
     sym_file: str = sym["file"]
     sym_kind: str = sym.get("kind", "")
