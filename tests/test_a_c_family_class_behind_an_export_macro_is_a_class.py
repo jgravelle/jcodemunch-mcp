@@ -85,5 +85,25 @@ def test_line_and_signature_come_from_the_original_text():
 def test_a_real_function_or_a_clean_class_is_unchanged(source, name, kind):
     """The other direction: a definition whose declarator is a function is a
     function, even when its return type is written `class X`."""
-    found = [(s.name, s.kind) for s in parse_file(source, "a.cpp", "cpp") if s.name == name]
+    found = [
+        (s.name, s.kind) for s in parse_file(source, "a.cpp", "cpp") if s.name == name
+    ]
     assert found == [(name, kind)]
+
+
+@pytest.mark.parametrize(
+    "source,filename,language,names",
+    [
+        ("struct ALIGN(16) V { float x; };\n", "a.cpp", "cpp", {"V"}),
+        ("struct ALIGN(16) V { float x; };\n", "a.c", "c", {"V"}),
+        ("class API(x) D {\n  void d();\n};\n", "a.cpp", "cpp", {"d"}),
+        ("class DLL_EXPORT(x) D { void d(); };\n", "a.cpp", "cpp", {"d"}),
+    ],
+    ids=["align-cpp", "align-c", "api-x", "dll-export-x"],
+)
+def test_a_macro_with_arguments_is_left_as_parsed(source, filename, language, names):
+    """Review of L-45: a macro that TAKES ARGUMENTS gives a parenthesized
+    declarator, and blanking only its name left `struct (16) V {`, a cast that
+    published NOTHING. It keeps `main`'s parse, whose names these are."""
+    published = {s.name for s in parse_file(source, filename, language)}
+    assert names <= published, published

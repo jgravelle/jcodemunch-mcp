@@ -16,28 +16,36 @@ Every C, C++ and Arduino parse now blanks each macro token in a
 `class MACRO Name { ... }` head to spaces of the same length and re-parses.
 Every byte offset holds, so names, signatures and content hashes still come
 from the original text (the signature keeps `LEVELDB_EXPORT`). The shape is
-exact: a real function definition always has a function declarator
-(`class X make() {}` is still a function). `__declspec(...)`, `[[attr]]` and
-`alignas(...)` already parsed correctly and are never blanked. The re-parse
-is incremental. The test pins that a class, struct, derived class, `final`
-class, namespaced class or two-macro head publishes exactly what the same
-text without the macro publishes, in `.cpp`, `.h` and Arduino.
+a definition whose declarator is a bare identifier. A real function
+definition always has a function declarator, so `class X make() {}` is
+still a function. A macro that takes arguments (`struct ALIGN(16) V {`,
+`class API(x) D {`) is left as parsed: blanking only its name left a cast
+that published nothing, which review of this fix caught.
+`__declspec(...)`, `[[attr]]` and `alignas(...)` already parsed correctly
+and are never blanked. The re-parse is incremental. The test pins that a
+class, struct, derived class, `final` class, namespaced class or two-macro
+head publishes exactly what the same text without the macro publishes, in
+`.cpp`, `.h` and Arduino.
 
 Measured on two pinned corpora (leveldb 7ee830d, fmt 5da4e9a), `main`
 against this branch:
-- leveldb `.h`: `ids 1089 -> 1163`, `+class: 22`, `+method: 172`,
-  `-function: 142`, `reparent method: 59`;
-- fmt `.h`: `ids 6117 -> 6365`, `+class: 72`, `+method: 552`,
-  `-function: 417`, `reparent method: 110`;
+- leveldb `.h`: `ids 1089 -> 1162`, `+class: 21`, `+method: 170`,
+  `-function: 142`, `-method: 14`, `reparent method: 59`;
+- fmt `.h`: `ids 6117 -> 6330`, `+class: 125`, `-class: 86`,
+  `+method: 657`, `-method: 364`, `+function: 242`, `-function: 470`,
+  `+type: 108`, `-type: 102`, `reparent method: 135`;
 - fmt `.cc`: `ids 2655 -> 2699`, `+method: 92`, `-function: 44`;
 - leveldb `.cc`: no change.
 Ids move for every class behind a macro (`Status#function` becomes
-`Status#class`) and for its members. Four names disappear entirely, all
-garbage the misparse produced (`leveldb#function`,
-`testing.internal.std::runtime_error#function`). Parse time, median of 5:
-`gmock-gtest-all.cc` 0.342 s to 0.371 s, `gtest.h` 1.010 s to 1.090 s,
-`db_impl.cc` unchanged; the two gtest files are among the ones that now
-publish more symbols.
+`Status#class`) and for its members. In fmt's headers most of the removal
+rows are the same names re-qualified: what error recovery had filed under a
+bogus function takes its real owner. A name-level check over every file
+finds one name that disappears entirely, `leveldb#function` in `options.h`,
+an artifact of the misparse. Parse time, median of 5, `main` against this
+branch in one run: `gmock-gtest-all.cc` 0.586 s to 0.597 s, `gtest.h`
+1.650 s to 1.705 s, `db_impl.cc` 0.061 s to 0.060 s.
+Not fixed here, as on `main` (LEDGER L-47): `enum class API E { A, B };`
+publishes nothing where `enum class E` publishes `E#type`.
 `PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
 
 ### Fixed - a C++ out-of-class member definition is a member of its class (LEDGER L-07)

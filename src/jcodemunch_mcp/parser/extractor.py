@@ -550,10 +550,14 @@ def _export_macro_spans(root) -> list:
     The grammar cannot know `LEVELDB_EXPORT` is a macro, so it reads
     `class LEVELDB_EXPORT` as a RETURN TYPE (a `class_specifier` named by the
     macro, with no body), `Name` as the declarator and the class body as a
-    statement block: a `function_definition`. ⚠⚠ The discriminator is that a
-    real function definition always has a `function_declarator` in its
-    declarator (`class X make() {}`, `struct S *next(struct S*) {}`), and this
-    shape never does.
+    statement block: a `function_definition`. ⚠⚠ The discriminator is that
+    the declarator is a bare `identifier`: a real function definition always
+    has a `function_declarator` (`class X make() {}`,
+    `struct S *next(struct S*) {}`). ⚠⚠ A macro that TAKES ARGUMENTS
+    (`struct ALIGN(16) V {`, `class API(x) D {`) gives a
+    `parenthesized_declarator`, and blanking only its name leaves
+    `struct (16) V {`, which re-parses as a cast and loses every symbol `main`
+    found -- so it is left as parsed (review of L-45).
     """
     spans: list = []
     stack = [root]
@@ -572,29 +576,17 @@ def _export_macro_spans(root) -> list:
                 if (
                     macro is not None
                     and macro.type == "type_identifier"
-                    and not _has_descendant_of_type(declarator, "function_declarator")
+                    and declarator is not None
+                    and declarator.type == "identifier"
                 ):
                     spans.append(macro)
             continue
         # ⚠ A function body (`compound_statement`) is most of a file's nodes
         # and never holds an exported class head, so the scan does not enter
-        # one: scanning every node cost 33% of `gmock-gtest-all.cc`'s parse.
-        # Class bodies ARE entered, so a nested exported class is found once
-        # its enclosing head has been unmasked and re-parsed.
+        # one. Class bodies ARE entered, so a nested exported class is found
+        # once its enclosing head has been unmasked and re-parsed.
         stack.extend(c for c in node.children if c.type != "compound_statement")
     return spans
-
-
-def _has_descendant_of_type(node, node_type: str) -> bool:
-    if node is None:
-        return False
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if current.type == node_type:
-            return True
-        stack.extend(current.children)
-    return False
 
 
 def _parse_c_family(parser, source_bytes: bytes):
@@ -605,8 +597,11 @@ def _parse_c_family(parser, source_bytes: bytes):
     the walk still reads NAMES, SIGNATURES and CONTENT HASHES from the
     original `source_bytes`, and only the tree comes from the masked copy.
     ⚠ `__declspec(...)`, `[[attr]]` and `alignas(...)` parse correctly and are
-    never blanked; a head with more macro tokens than `_EXPORT_MACRO_PASSES`
-    keeps the parse it had.
+    never blanked. ⚠ Each pass unmasks one layer: a second macro token in the
+    same head, or an exported class nested inside another (its head sits in
+    the outer class's misparsed body, which the scan does not enter), needs
+    the next pass, so a head deeper than `_EXPORT_MACRO_PASSES` keeps the parse
+    it had.
     """
     tree = parser.parse(source_bytes)
     masked = source_bytes
