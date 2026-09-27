@@ -6,6 +6,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Optional, Tuple
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 
 # Reused from existing tools (no duplication)
@@ -311,7 +312,7 @@ def _resolve_symbol(index, symbol_id_or_name: str) -> dict:
     if len(matches) > 1:
         ids = [m["id"] for m in matches[:5]]
         return {"error": f"Ambiguous symbol '{symbol_id_or_name}'. Matches: {ids}"}
-    return {"error": f"Symbol not found: {symbol_id_or_name}"}
+    return symbol_not_found(symbol_id_or_name, index.symbols)
 
 
 def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):

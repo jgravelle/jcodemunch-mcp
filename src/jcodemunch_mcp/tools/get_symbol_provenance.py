@@ -24,6 +24,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ..storage.generation import connect_readonly
 from ._utils import resolve_repo
@@ -250,7 +251,7 @@ def get_symbol_provenance(
                 "candidates": [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in by_name],
             }
         else:
-            return {"error": f"Symbol not found: '{symbol}'. Try search_symbols first."}
+            return symbol_not_found(symbol, index.symbols)
 
     sym_name: str = sym.get("name", "")
     sym_file: str = sym.get("file", "")

@@ -197,6 +197,7 @@ def investigate_deletion_safety(
     """
     start = time.perf_counter()
 
+    from ..retrieval.verdict import symbol_not_found  # noqa: PLC0415
     from ..storage import IndexStore  # noqa: PLC0415
     from ..tools._utils import resolve_repo  # noqa: PLC0415
     from ..tools.check_delete_safe import (  # noqa: PLC0415
@@ -231,7 +232,7 @@ def investigate_deletion_safety(
         return {
             "verdict": NOT_ESTABLISHED,
             "claim": f"{symbol} can be removed from {repo}.",
-            "error": f"Symbol not found: {symbol}",
+            **symbol_not_found(symbol, index.symbols),
             "obligations": [],
             "unresolved_obligations": ["target_resolves"],
             "recommended_next_action": (

@@ -35,6 +35,7 @@ import re
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ..storage.generation import connect_readonly
 from ..runtime.confidence import symbol_hit_count
@@ -196,7 +197,7 @@ def check_delete_safe(
 
     target = _resolve_target(index, symbol)
     if target is None:
-        return {"error": f"Symbol not found: {symbol}"}
+        return symbol_not_found(symbol, index.symbols)
 
     target_id = target["id"]
     target_name = target.get("name", "")

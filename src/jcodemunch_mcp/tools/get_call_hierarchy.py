@@ -3,6 +3,7 @@
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_blast_radius import _build_reverse_adjacency, _find_symbol
@@ -147,7 +148,7 @@ def get_call_hierarchy(
 
     matches = _find_symbol(index, symbol_id)
     if not matches:
-        return {"error": f"Symbol not found: '{symbol_id}'. Try search_symbols first."}
+        return symbol_not_found(symbol_id, index.symbols)
     if len(matches) > 1:
         ambiguous = [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in matches]
         return {

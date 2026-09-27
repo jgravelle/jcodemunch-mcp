@@ -22,6 +22,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import resolve_repo
 from ._call_graph import _CalleeNameIndex, build_symbols_by_file, find_direct_callees
@@ -370,6 +371,29 @@ def get_signal_chains(
                     renders_by_symbol.setdefault(src_id, []).append(e.get("dst_name", ""))
                     flow_summary["render_views"] += 1
 
+    # Resolve a lookup's symbol BEFORE the no-gateway return (#869): a repo
+    # with no gateways answered a nonexistent id with an empty chain list,
+    # which reads as "the symbol is on no chain" rather than "no such symbol".
+    target_id: Optional[str] = None
+    target_name: Optional[str] = None
+    if symbol:
+        # Resolve symbol: try exact ID match first, then name match
+        symbol_index_map: dict[str, dict] = getattr(index, "_symbol_index", {})
+
+        if symbol in symbol_index_map:
+            target_id = symbol
+            target_name = symbol_index_map[symbol].get("name", symbol)
+        else:
+            # Name match: find first symbol whose name matches
+            for s in index.symbols:
+                if s.get("name", "") == symbol:
+                    target_id = s.get("id", "")
+                    target_name = symbol
+                    break
+
+        if not target_id:
+            return {"repo": f"{owner}/{name}", **symbol_not_found(symbol, index.symbols)}
+
     if not gateways:
         elapsed = (time.perf_counter() - t0) * 1000
         warning = (
@@ -464,28 +488,6 @@ def get_signal_chains(
     # Phase 3: lookup mode — filter to chains containing target symbol
     # ------------------------------------------------------------------
     if symbol:
-        # Resolve symbol: try exact ID match first, then name match
-        target_id: Optional[str] = None
-        target_name: Optional[str] = None
-        symbol_index_map: dict[str, dict] = getattr(index, "_symbol_index", {})
-
-        if symbol in symbol_index_map:
-            target_id = symbol
-            target_name = symbol_index_map[symbol].get("name", symbol)
-        else:
-            # Name match: find first symbol whose name matches
-            for s in index.symbols:
-                if s.get("name", "") == symbol:
-                    target_id = s.get("id", "")
-                    target_name = symbol
-                    break
-
-        if not target_id:
-            return {
-                "repo": f"{owner}/{name}",
-                "error": f"Symbol not found: {symbol!r}. Use search_symbols to find valid IDs.",
-            }
-
         # Filter chains to those containing the target symbol
         matching_chains: list[dict] = []
         for chain in chains:

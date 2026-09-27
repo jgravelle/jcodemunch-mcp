@@ -6,6 +6,7 @@ import time
 from collections import deque
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, result_cache_get, result_cache_put
 from ..parser.imports import resolve_specifier
 from ..retrieval.verdict import (
@@ -465,7 +466,7 @@ def get_blast_radius(
     # Resolve symbol
     matches = _find_symbol(index, symbol)
     if not matches:
-        return {"error": f"Symbol not found: '{symbol}'. Try search_symbols first."}
+        return symbol_not_found(symbol, index.symbols)
     if len(matches) > 1:
         # Multiple definitions (e.g. overloads in different files) — report all
         ambiguous = [{"name": s["name"], "file": s["file"], "id": s["id"]} for s in matches]

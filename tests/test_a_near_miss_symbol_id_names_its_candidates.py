@@ -1,0 +1,188 @@
+"""A symbol id missing only its owner or its ~N suffix names the ids it meant (#869).
+
+Twelve sites wrote their own `Symbol not found` error, so an id built from a
+search row's `file`, `name` and `kind` -- which misses that a member's id
+carries its owner, and that same-named symbols in one file take `~1`, `~2` --
+got a bare not-found and no hint that one real id was a qualifier away. A
+benchmark adapter (#726) lost 52 follow-up calls that way.
+
+The rule lives in one place, `retrieval.verdict.symbol_not_found`, and every
+site asks it. It NEVER resolves: two classes in one file can each own a `pick`,
+and choosing one would answer a question about a different symbol, so the
+candidates are named and the call still fails.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp.investigator.deletion_safety import investigate_deletion_safety
+from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
+from jcodemunch_mcp.tools.find_implementations import find_implementations
+from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+from jcodemunch_mcp.tools.get_call_hierarchy import get_call_hierarchy
+from jcodemunch_mcp.tools.get_impact_preview import get_impact_preview
+from jcodemunch_mcp.tools.get_related_symbols import get_related_symbols
+from jcodemunch_mcp.tools.get_signal_chains import get_signal_chains
+from jcodemunch_mcp.tools.get_symbol import get_symbol_source
+from jcodemunch_mcp.tools.get_symbol_provenance import get_symbol_provenance
+from jcodemunch_mcp.tools.index_folder import index_folder
+from jcodemunch_mcp.tools.plan_refactoring import plan_refactoring
+
+SRC = Path(__file__).resolve().parent.parent / "src" / "jcodemunch_mcp"
+
+SITES = {
+    "get_symbol_source": lambda repo, sid, sp: get_symbol_source(repo=repo, symbol_id=sid, storage_path=sp),
+    "get_call_hierarchy": lambda repo, sid, sp: get_call_hierarchy(repo=repo, symbol_id=sid, storage_path=sp),
+    "get_impact_preview": lambda repo, sid, sp: get_impact_preview(repo=repo, symbol_id=sid, storage_path=sp),
+    "get_blast_radius": lambda repo, sid, sp: get_blast_radius(repo=repo, symbol=sid, storage_path=sp),
+    "check_delete_safe": lambda repo, sid, sp: check_delete_safe(repo=repo, symbol=sid, storage_path=sp),
+    "check_edit_safe": lambda repo, sid, sp: check_edit_safe(repo=repo, symbol=sid, storage_path=sp),
+    "find_implementations": lambda repo, sid, sp: find_implementations(repo=repo, symbol=sid, storage_path=sp),
+    "get_related_symbols": lambda repo, sid, sp: get_related_symbols(repo=repo, symbol_id=sid, storage_path=sp),
+    "get_signal_chains": lambda repo, sid, sp: get_signal_chains(repo=repo, symbol=sid, storage_path=sp),
+    "get_symbol_provenance": lambda repo, sid, sp: get_symbol_provenance(repo=repo, symbol=sid, storage_path=sp),
+    "plan_refactoring": lambda repo, sid, sp: plan_refactoring(
+        repo=repo, symbol=sid, refactor_type="rename", new_name="renamed", storage_path=sp
+    ),
+    "investigate_deletion_safety": lambda repo, sid, sp: investigate_deletion_safety(
+        repo=repo, symbol=sid, storage_path=sp
+    ),
+}
+
+
+@pytest.fixture()
+def indexed(tmp_path):
+    proj = tmp_path / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "types.ts").write_text(
+        "export class ZodObject {\n  pick(k: string) { return k; }\n}\n"
+        "export class ZodArray {\n  pick(k: string) { return k; }\n}\n"
+        "export class Only {\n  omit(k: string) { return k; }\n}\n",
+        encoding="utf-8",
+    )
+    (proj / "src" / "twins.py").write_text(
+        "import os\n\n\ndef f():\n    return os.sep\n\n\ndef f():\n    return 2\n",
+        encoding="utf-8",
+    )
+    storage = str(tmp_path / "idx")
+    result = index_folder(str(proj), use_ai_summaries=False, storage_path=storage)
+    return result["repo"], storage
+
+
+# (requested id, the candidates it must name, in index order)
+NEAR_MISSES = [
+    ("owner-missing", "src/types.ts::omit#method", ["src/types.ts::Only.omit#method"]),
+    (
+        "owner-missing-two-owners",
+        "src/types.ts::pick#method",
+        ["src/types.ts::ZodObject.pick#method", "src/types.ts::ZodArray.pick#method"],
+    ),
+    ("suffix-missing", "src/twins.py::f#function", ["src/twins.py::f#function~1", "src/twins.py::f#function~2"]),
+    ("suffix-wrong", "src/twins.py::f#function~3", ["src/twins.py::f#function~1", "src/twins.py::f#function~2"]),
+]
+
+
+def _error_of(result: dict) -> dict:
+    """The error payload a site returned: the batch form nests it in `errors`."""
+    if "errors" in result and result.get("errors"):
+        return result["errors"][0]
+    return result
+
+
+@pytest.mark.parametrize("site", sorted(SITES))
+@pytest.mark.parametrize("requested,expected", [n[1:] for n in NEAR_MISSES], ids=[n[0] for n in NEAR_MISSES])
+def test_a_near_miss_names_its_candidates_and_never_resolves(indexed, site, requested, expected):
+    repo, storage = indexed
+    err = _error_of(SITES[site](repo, requested, storage))
+
+    assert "Symbol not found" in str(err.get("error", "")), (site, err)
+    assert err.get("candidates") == expected, (site, err)
+
+
+@pytest.mark.parametrize("site", sorted(SITES))
+def test_an_id_with_no_near_miss_names_none(indexed, site):
+    repo, storage = indexed
+    err = _error_of(SITES[site](repo, "src/types.ts::nothing#method", storage))
+
+    assert "Symbol not found" in str(err.get("error", "")), (site, err)
+    assert "candidates" not in err, (site, err)
+
+
+def test_a_different_kind_or_file_is_not_a_near_miss(indexed):
+    """Only the owner and the ~N suffix may differ: `pick#function` is a
+    different question from `pick#method`, and another file's `f` is another
+    symbol."""
+    from jcodemunch_mcp.retrieval.verdict import symbol_id_candidates
+
+    symbols = [
+        {"id": "a.ts::A.pick#method", "name": "pick", "file": "a.ts", "kind": "method"},
+        {"id": "b.ts::B.pick#method", "name": "pick", "file": "b.ts", "kind": "method"},
+        {"id": "a.ts::pick#function", "name": "pick", "file": "a.ts", "kind": "function"},
+        {"id": "a.ts::A.picker#method", "name": "picker", "file": "a.ts", "kind": "method"},
+        {"id": "a.ts::Apick#method", "name": "Apick", "file": "a.ts", "kind": "method"},
+    ]
+
+    assert symbol_id_candidates("a.ts::pick#method", symbols) == (["a.ts::A.pick#method"], 1)
+
+
+def test_the_candidate_list_is_bounded_and_says_so():
+    from jcodemunch_mcp.retrieval.verdict import SYMBOL_CANDIDATES_CAP, symbol_not_found
+
+    symbols = [
+        {"id": f"a.ts::C{i}.m#method", "name": "m", "file": "a.ts", "kind": "method"}
+        for i in range(SYMBOL_CANDIDATES_CAP + 3)
+    ]
+    err = symbol_not_found("a.ts::m#method", symbols)
+
+    assert len(err["candidates"]) == SYMBOL_CANDIDATES_CAP
+    assert err["candidates_total"] == SYMBOL_CANDIDATES_CAP + 3
+    assert err["candidates_truncated"] is True
+
+
+def test_every_not_found_error_comes_from_the_authority():
+    """The ratchet over the property, not the twelve reported sites: no module
+    but the authority writes a `Symbol not found` string, read from the AST so
+    a docstring or comment mentioning it does not count."""
+    offenders = []
+    for path in SRC.rglob("*.py"):
+        if path.parent.name == "retrieval" and path.name == "verdict.py":
+            continue
+        offenders += [f"{path.relative_to(SRC)}:{line}" for line in _not_found_literals(path.read_text(encoding="utf-8"))]
+
+    assert not offenders, offenders
+
+
+def _not_found_literals(source: str) -> list[int]:
+    """Lines of string constants carrying `Symbol not found`, docstrings excluded."""
+    tree = ast.parse(source)
+    docstrings = {
+        id(owner.body[0].value)
+        for owner in ast.walk(tree)
+        if isinstance(getattr(owner, "body", None), list)
+        and owner.body
+        and isinstance(owner.body[0], ast.Expr)
+        and isinstance(owner.body[0].value, ast.Constant)
+    }
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and "Symbol not found" in node.value
+        and id(node) not in docstrings
+    ]
+
+
+def test_the_ratchet_sees_an_f_string_and_not_a_docstring():
+    source = (
+        'def f(x):\n'
+        '    """Returns Symbol not found when absent."""\n'
+        '    return {"error": f"Symbol not found: {x}"}\n'
+    )
+
+    assert _not_found_literals(source) == [3]

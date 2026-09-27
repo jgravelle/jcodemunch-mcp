@@ -26,6 +26,7 @@ import logging
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._stop_rule import build_stop_rule
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -94,7 +95,7 @@ def check_edit_safe(
 
     target = _resolve_target(index, symbol)
     if target is None:
-        return {"error": f"Symbol not found: {symbol}"}
+        return symbol_not_found(symbol, index.symbols)
 
     target_id = target["id"]
     target_name = target.get("name", "")

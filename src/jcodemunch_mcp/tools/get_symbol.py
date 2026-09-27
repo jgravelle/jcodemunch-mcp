@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from ..retrieval.verdict import suggest_symbol_ids, symbol_verdict_for_index
+from ..retrieval.verdict import suggest_symbol_ids, symbol_not_found, symbol_verdict_for_index
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided as _cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 
@@ -489,7 +489,7 @@ def get_symbol_source(
         symbol = index.get_symbol(sid)
 
         if not symbol:
-            err = {"id": sid, "error": f"Symbol not found: {sid}"}
+            err = {"id": sid, **symbol_not_found(sid, index.symbols)}
             _sug = suggest_symbol_ids(sid, index.symbols)
             if _sug:
                 err["did_you_mean"] = _sug
@@ -703,7 +703,10 @@ def get_symbol_source(
         verdict = symbol_verdict_for_index(
             index, found_count=0, requested_id=errors_out[0]["id"]
         )
-        err_out = {"error": errors_out[0]["error"], "_meta": {"verdict": verdict}}
+        # Every key the batch error carries, not `error` alone: single mode
+        # used to drop `did_you_mean` here, and would drop `candidates` (#869).
+        err_out = {k: v for k, v in errors_out[0].items() if k != "id"}
+        err_out["_meta"] = {"verdict": verdict}
         _mod = _offload()
         if _mod is not None:
             # ⚠ Explicitly `not_evaluated`, not silence. With the gate ON, a

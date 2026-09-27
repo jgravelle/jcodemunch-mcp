@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Fixed - a symbol id missing only its owner or `~N` suffix names the id it meant (#869)
+
+An id built from a search row's `file`, `name` and `kind` misses two things: a
+member's id carries its owner (`types.ts::ZodObject.pick#method`, not
+`types.ts::pick#method`), and same-named symbols in one file take `~1`, `~2`
+(both twins, so the bare id never exists). Such an id got a bare `Symbol not
+found` from every tool that takes a symbol, with no hint that a real id was one
+qualifier away. Per the issue, a benchmark adapter (#726) lost 44 of 124 usage
+follow-ups and 8 definition calls that way on zod, all of them members; #698
+made it more common by giving every TypeScript abstract-class member an owner.
+
+Twelve sites wrote their own not-found error, in three wordings, and the one
+suggestion helper that existed was consulted by one site on one path. The
+error now has one author, `retrieval.verdict.symbol_not_found`, and every site
+asks it. When the index holds ids that differ from the request ONLY by the
+owner qualifier or the `~N` suffix (same file, same kind, same bare name), the
+error names them in `candidates`, at most ten, with `candidates_total` and
+`candidates_truncated`. It never picks one: two classes in one file can each
+own a `pick`, and choosing would answer a question about a different symbol.
+Without near misses the error points at `search_symbols`, as five of the
+sites did. A test fails any other module that writes a `Symbol not found`
+string.
+
+Two more ways a near miss went unanswered, found on the way: `get_symbol_source`
+with one id rebuilt its error from the message alone and dropped the
+`did_you_mean` list the batch form already computed, so single-id callers get
+it now; and `get_signal_chains` answered a nonexistent id with an empty chain
+list whenever the repo had no gateways, which reads as "the symbol is on no
+chain". It resolves the symbol first now.
+
 ### Fixed - a linked worktree's index resolves to itself instead of failing as ambiguous (#882)
 
 In git mode a linked worktree is keyed by its own path, `local/<name>-<hash>`

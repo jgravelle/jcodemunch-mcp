@@ -18,6 +18,7 @@ import re
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..parser.symbols import STATE_KINDS
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import symbol_span_bytes
@@ -218,7 +219,7 @@ def find_implementations(
 
     target = _resolve_target_symbol(index, symbol)
     if target is None:
-        return {"error": f"Symbol not found: {symbol}"}
+        return symbol_not_found(symbol, index.symbols)
 
     target_name = target.get("name", "")
     target_kind = target.get("kind", "")

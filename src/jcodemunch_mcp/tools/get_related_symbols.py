@@ -4,6 +4,7 @@ import re
 import time
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -79,7 +80,7 @@ def get_related_symbols(
 
     target = index.get_symbol(symbol_id)
     if not target:
-        return {"error": f"Symbol not found: {symbol_id}"}
+        return symbol_not_found(symbol_id, index.symbols)
 
     target_file = target.get("file", "")
     target_tokens = _tokenize_name(target.get("name", ""))
