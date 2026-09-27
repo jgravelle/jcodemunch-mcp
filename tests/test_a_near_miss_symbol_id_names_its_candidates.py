@@ -1,6 +1,6 @@
 """A symbol id missing only its owner or its ~N suffix names the ids it meant (#869).
 
-Twelve sites wrote their own `Symbol not found` error, so an id built from a
+Sixteen sites wrote their own not-found error, so an id built from a
 search row's `file`, `name` and `kind` -- which misses that a member's id
 carries its owner, and that same-named symbols in one file take `~1`, `~2` --
 got a bare not-found and no hint that one real id was a qualifier away. A
@@ -28,6 +28,7 @@ from jcodemunch_mcp.tools.find_implementations import find_implementations
 from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
 from jcodemunch_mcp.tools.get_call_hierarchy import get_call_hierarchy
 from jcodemunch_mcp.tools.get_context_bundle import get_context_bundle
+from jcodemunch_mcp.tools.get_endpoint_impact import get_endpoint_impact
 from jcodemunch_mcp.tools.get_impact_preview import get_impact_preview
 from jcodemunch_mcp.tools.get_related_symbols import get_related_symbols
 from jcodemunch_mcp.tools.get_signal_chains import get_signal_chains
@@ -62,6 +63,10 @@ SITES = {
         repo=repo, symbol_id=sid, new_name="renamed", storage_path=sp
     ),
     "get_symbol_complexity": lambda repo, sid, sp: get_symbol_complexity(repo=repo, symbol_id=sid, storage_path=sp),
+    # Review round 2: a sixteenth, worded `No symbol ... in index.`
+    "get_endpoint_impact": lambda repo, sid, sp: get_endpoint_impact(
+        repo=repo, handler_symbol_id=sid, storage_path=sp
+    ),
 }
 
 
@@ -157,9 +162,9 @@ def test_the_candidate_list_is_bounded_and_says_so():
 
 
 def test_every_not_found_error_comes_from_the_authority():
-    """The ratchet over the property, not the twelve reported sites: no module
-    but the authority writes a `Symbol not found` string, read from the AST so
-    a docstring or comment mentioning it does not count."""
+    """The ratchet over the property, not the reported sites: no error response
+    outside the authority says, in any wording of the family above, that a
+    symbol is absent. Read from the AST, so prose and docstrings do not count."""
     offenders = []
     for path in SRC.rglob("*.py"):
         if path.parent.name == "retrieval" and path.name == "verdict.py":
@@ -173,7 +178,15 @@ def test_every_not_found_error_comes_from_the_authority():
 #: issue reported. Review round 1: `Symbol(s) not found: ...` and
 #: `Symbol {id!r} not found in index.` sat in three more tools, and the first
 #: ratchet matched the literal `Symbol not found`, so it could not see them.
-_NOT_FOUND_RE = re.compile(r"(?i)\bsymbol(?:s|\(s\))?\b.{0,40}?\bnot found\b")
+_NOT_FOUND_RE = re.compile(
+    r"(?i)(\bsymbols?(?:\(s\))?\b.{0,60}?\b(?:not found|not in (?:the )?index|does not exist|unknown|missing)\b"
+    r"|\b(?:no|unknown|missing) symbol\b)"
+)
+# ⚠ Review round 2: a ratchet keyed to "not found" missed `No symbol {id!r} in
+# index.` -- a second spelling-keyed guard after round 1's. The family above is
+# every way an error can say the requested symbol is absent; `no symbol` is
+# SINGULAR on purpose, because "No symbols in <repo>" is an empty index, not an
+# answer to a symbol argument.
 
 
 def _not_found_literals(source: str) -> list[int]:
@@ -205,6 +218,9 @@ def _not_found_literals(source: str) -> list[int]:
     'f"Symbol(s) not found: {x}"',
     'f"Symbol {x!r} not found in index."',
     '"symbols not found"',
+    'f"No symbol {x!r} in index."',
+    'f"Symbol {x} does not exist"',
+    'f"unknown symbol {x}"',
 ])
 def test_the_ratchet_sees_an_f_string_and_not_a_docstring(literal):
     source = (
@@ -249,3 +265,29 @@ def test_an_ambiguous_name_keeps_its_candidates_shape(indexed):
 
     assert all(isinstance(c, dict) and "id" in c for c in err["candidates"]), err
     assert "near_miss_ids" not in err
+
+
+def test_an_empty_index_error_is_not_a_missing_symbol():
+    """The plural is an empty index, not an answer to a symbol argument."""
+    source = (
+        'def f(r):\n'
+        '    return {"error": f"No symbols in {r}. Nothing to measure."}\n'
+    )
+
+    assert _not_found_literals(source) == []
+
+
+def test_overlapping_requests_count_each_near_miss_once():
+    """Two missing ids can share near misses; the total is the union."""
+    from jcodemunch_mcp.retrieval.verdict import symbol_not_found
+
+    symbols = [
+        {"id": "t.py::f#function~1", "name": "f", "file": "t.py", "kind": "function"},
+        {"id": "t.py::f#function~2", "name": "f", "file": "t.py", "kind": "function"},
+    ]
+    err = symbol_not_found(["t.py::f#function", "t.py::f#function~3"], symbols)
+
+    assert err["near_miss_ids"] == ["t.py::f#function~1", "t.py::f#function~2"]
+    assert err["near_miss_total"] == 2
+    assert err["near_miss_truncated"] is False
+    assert " 2 indexed id(s)" in err["error"]

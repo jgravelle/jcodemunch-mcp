@@ -583,8 +583,8 @@ def _symbol_name_of(symbol_id: Optional[str]) -> str:
     return s.lower()
 
 
-#: The most near-miss ids a not-found error names; `candidates_total` and
-#: `candidates_truncated` disclose the rest (a list field ships with its cap).
+#: The most near-miss ids a not-found error names; `near_miss_total` and
+#: `near_miss_truncated` disclose the rest (a list field ships with its cap).
 SYMBOL_CANDIDATES_CAP = 10
 
 _ID_SUFFIX_RE = re.compile(r"~\d+$")
@@ -606,7 +606,7 @@ def _split_symbol_id(symbol_id: Optional[str]) -> Optional[tuple[str, str, str]]
 def symbol_id_candidates(
     requested_id: Optional[str],
     symbols: Optional[Sequence[dict]],
-    cap: int = SYMBOL_CANDIDATES_CAP,
+    cap: Optional[int] = SYMBOL_CANDIDATES_CAP,
 ) -> tuple[list, int]:
     """Indexed ids that differ from a missing `requested_id` ONLY by the owner
     qualifier or the `~N` suffix (#869): same file, same kind, same bare name.
@@ -631,12 +631,12 @@ def symbol_id_candidates(
         and s["id"] != requested_id
         and _split_symbol_id(s["id"]) == wanted
     ]
-    return found[:cap], len(found)
+    return (found if cap is None else found[:cap]), len(found)
 
 
 def symbol_not_found(requested, symbols: Optional[Sequence[dict]]) -> dict:
     """THE not-found error for a symbol argument, shared by every tool that
-    takes one (#869: fifteen sites wrote their own, and none named the id one
+    takes one (#869: sixteen sites wrote their own, and none named the id one
     qualifier away). `requested` is one id or name, or a list of them.
 
     With near misses, the error names them in `near_miss_ids` and says it did
@@ -648,12 +648,14 @@ def symbol_not_found(requested, symbols: Optional[Sequence[dict]]) -> dict:
     key would carry two element shapes depending on the branch (review round 1).
     """
     wanted = [requested] if isinstance(requested, str) or requested is None else list(requested)
+    # The UNION of every request's near misses, uncapped, then one cap: two
+    # missing ids can share near misses, and a total summed per request
+    # counted them twice (`near_miss_total: 4` over two ids, review round 2).
     found: list = []
-    total = 0
     for one in wanted:
-        ids, n = symbol_id_candidates(one, symbols, cap=SYMBOL_CANDIDATES_CAP)
+        ids, _ = symbol_id_candidates(one, symbols, cap=None)
         found += [i for i in ids if i not in found]
-        total += n
+    total = len(found)
     shown = found[:SYMBOL_CANDIDATES_CAP]
     named = ", ".join(str(w) for w in wanted)
     label = "Symbol" if len(wanted) == 1 else "Symbol(s)"

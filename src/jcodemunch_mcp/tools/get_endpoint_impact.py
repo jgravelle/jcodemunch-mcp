@@ -31,6 +31,7 @@ import logging
 import re
 from typing import Optional
 
+from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import resolve_repo
 from .flow_edges import resolve_flow_edges
@@ -432,10 +433,7 @@ def get_endpoint_impact(
         if not matched:
             sym = next((s for s in index.symbols if s.get("id") == handler_symbol_id), None)
             if sym is None:
-                return {
-                    "error": f"No symbol {handler_symbol_id!r} in index.",
-                    "matched_endpoints": [],
-                }
+                return {**symbol_not_found(handler_symbol_id, index.symbols), "matched_endpoints": []}
             matched = [{
                 "verb": "ANY", "path": "",
                 "handler_id": sym.get("id"), "handler_name": sym.get("name"),
