@@ -26,11 +26,16 @@ UNBOUND = {
     "object-value": "const o = { K: class { m() {} } }\n",
     "destructured": "const [a] = class { m() {} }\n",
     "with-field": "register(class { x = 1; static y = 2; m() {} })\n",
+    "two-same-named": "register(class { m() {} }, class { m() {} })\n",
 }
 FRAMES = {
     "vue": ("Comp.vue", "<script>\n{b}</script>\n<template><div/></template>\n"),
     "vue-setup": ("Comp.vue", "<script setup>\n{b}</script>\n<template><div/></template>\n"),
+    # The member test reads the hand walk's tree, whose grammar follows `lang`
+    # (review: a fixture with plain JS only cannot see a grammar mismatch).
+    "vue-ts": ("Comp.vue", '<script lang="ts">\n{b}</script>\n<template><div/></template>\n'),
     "svelte": ("Comp.svelte", "<script>\n{b}</script>\n<div/>\n"),
+    "svelte-ts": ("Comp.svelte", '<script lang="ts">\n{b}</script>\n<div/>\n'),
 }
 _MEMBER_KINDS = {"method", "field", "property"}
 
@@ -42,8 +47,10 @@ def _languages_on(monkeypatch):
     monkeypatch.setattr(config, "is_language_enabled", lambda *a, **k: True)
 
 
-def _members(symbols) -> set[tuple[str, str]]:
-    return {(s.name, s.kind) for s in symbols if s.kind in _MEMBER_KINDS}
+def _members(symbols) -> list[tuple[str, str]]:
+    # A sorted LIST, not a set: two same-named members must count as two
+    # (review; Standing lesson 08-27, a set cannot count).
+    return sorted((s.name, s.kind) for s in symbols if s.kind in _MEMBER_KINDS)
 
 
 @pytest.mark.parametrize("frame", sorted(FRAMES))
@@ -80,3 +87,22 @@ def test_a_bound_class_is_unchanged(frame):
 
     assert {f"{filename}::C#class", f"{filename}::C.m#method"} <= ids
     assert f"{filename}::m#method" not in ids
+
+
+@pytest.mark.parametrize(
+    "language,filename,frame",
+    [
+        ("vue", "Comp.vue", '<script lang="tsx">\n{b}</script>\n<template><div/></template>\n'),
+        ("svelte", "Comp.svelte", '<script lang="tsx">\n{b}</script>\n<div/>\n'),
+    ],
+    ids=["vue-tsx", "svelte-tsx"],
+)
+def test_a_tsx_class_with_jsx_in_its_body_publishes_its_members(language, filename, frame):
+    """JSX inside the class body: read with the wrong grammar, error recovery
+    hid the `class_body` and the members were dropped (review; the grammar
+    matches since L-39)."""
+    body = "register(class { m() { return <b/> } })\nregister(class { a = <i/>; n() {} })\n"
+    tsx = _members(parse_file(body, "a.tsx", "tsx"))
+    assert tsx, "the .tsx file published no member; the comparison would be vacuous"
+
+    assert _members(parse_file(frame.format(b=body), filename, language)) == tsx

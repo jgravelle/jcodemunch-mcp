@@ -15,8 +15,36 @@ A parentless method, field or property that sits inside a class body is now
 published too, owned by the component, with anything nested under it. An
 object-literal method is also parentless in a `.js` file, but it is not in a
 class body and is not swept up; a test pins that, and that a bound class
-(`const C = class {...}`) is unchanged. `PARSER_GENERATION` 8, still
+(`const C = class {...}`) is unchanged. The test covers plain, `lang="ts"`
+and `lang="tsx"` scripts, including JSX inside the class body, which the
+TSX grammar of #902 (L-39) now reads.
+
+One existing id can move. When a new member shares a name with a symbol the
+script already published, the two are numbered: an Options API
+`methods: { m() {} }` beside `register(class { m() {} })` was
+`m#method` and is now `m#method~1`, with the class member `m#method~2`.
+Measured on `main` against this branch. `PARSER_GENERATION` 8, still
 unreleased, re-parses unchanged files.
+
+### Fixed - a Vue or Svelte `lang="tsx"` script is read as TSX (LEDGER L-39)
+
+The Vue and Svelte walks chose their grammar with `lang if lang != "tsx"
+else "typescript"`, so in a `lang="tsx"` script every JSX expression was a
+syntax error. Error recovery then dropped or re-nested the declarations
+around it: `function g(){return <b/>;} function f(){class K{ k(){} }}`
+published only the component and a stray `K#class`, where the same script
+without JSX publishes `g` and `f`. #861 made its class gate robust to the
+mismatch; the walk that publishes functions was not. Found by the #861
+review.
+
+Both walks now read a TSX script with the TSX grammar. A test compares each
+TSX script with the same script with its JSX replaced by plain expressions,
+in Vue (`<script>` and `<script setup>`) and Svelte, and requires the same
+ids. One thing a `lang="tsx"` script can now lose: an old-style `<number>y`
+cast is not valid TSX, so what follows it is no longer published, which is
+what a `.tsx` file with the same text already gives. Scripts without
+`lang="tsx"` are unchanged. `PARSER_GENERATION` 8, still unreleased, re-parses unchanged
+files.
 
 ### Fixed - a class in an Astro or Razor block owns its members (LEDGER L-37)
 
