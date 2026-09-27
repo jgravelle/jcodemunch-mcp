@@ -7280,9 +7280,14 @@ class _EmbeddedScriptClasses:
 
 
 # What can wrap a Vue default export's options object: `{...} as X`,
-# `{...} satisfies X`, `({...})`. Unwrapped before the options are read (L-43).
+# `{...} satisfies X`, `({...})`, `defineComponent({...})!` and the TS type
+# assertion `<X>{...}`. Unwrapped before the options are read (L-43).
+# ⚠ A `type_assertion` puts its `type_arguments` FIRST and the expression
+# second, so the unwrap skips `type_arguments` rather than taking the first
+# named child.
 _OPTIONS_EXPORT_WRAPPERS = frozenset({
     "as_expression", "satisfies_expression", "parenthesized_expression",
+    "non_null_expression", "type_assertion",
 })
 
 
@@ -7558,8 +7563,10 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for c in node.children:
                 # `export default {...} as X` / `satisfies X` / `({...})`: the
                 # options sit INSIDE the wrapper (L-43, review round 1).
-                while c.type in _OPTIONS_EXPORT_WRAPPERS and c.named_children:
-                    c = c.named_children[0]
+                while c is not None and c.type in _OPTIONS_EXPORT_WRAPPERS:
+                    c = next((n for n in c.named_children if n.type != "type_arguments"), None)
+                if c is None:
+                    continue
                 if c.type == "object":
                     _extract_options_object(c)
                 elif c.type == "call_expression":

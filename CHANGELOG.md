@@ -53,7 +53,11 @@ one grammar spelling of each shape and dropped the others.
   reader takes a call's object argument now, so `Vue.extend({...})` is read
   the same way.
 - `export default {...} as X`, `satisfies X` and `({...})` hid the object
-  inside a wrapper; the wrapper is unwrapped first.
+  inside a wrapper; the wrapper is unwrapped first. So are the TS non-null
+  assertion `defineComponent({...})!` and the type assertion `<X>{...}`,
+  whose expression is its SECOND named child (`type_arguments` comes
+  first), in any nesting. In a `lang="tsx"` script `<X>{...}` is not valid
+  syntax, and a `.tsx` file drops it too.
 - `data() { return {...} }`, the usual spelling, is a method definition, not
   a `pair`, and `data: function () {}` is a `function_expression`, not the
   `function` keyword the reader asked for. Only `data: () => ...` was

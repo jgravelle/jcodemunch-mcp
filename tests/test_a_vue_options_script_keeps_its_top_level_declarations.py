@@ -144,8 +144,24 @@ def test_every_spelling_of_data_is_published_once(data):
         "export default ({ methods: { go() {} } })\n",
         "export default defineComponent({ methods: { go() {} } }) as any\n",
         "export default Vue.extend({ methods: { go() {} } })\n",
+        # The L-43 residue: a non-null assertion, and a type assertion whose
+        # expression is its LAST named child (`type_arguments` comes first).
+        "export default defineComponent({ methods: { go() {} } })!\n",
+        "export default <Component>{ methods: { go() {} } }\n",
+        "export default <Component>defineComponent({ methods: { go() {} } })\n",
+        "export default (<any>defineComponent({ methods: { go() {} } }))!\n",
     ],
-    ids=["as", "satisfies", "parenthesized", "define-component-as", "vue-extend"],
+    ids=[
+        "as",
+        "satisfies",
+        "parenthesized",
+        "define-component-as",
+        "vue-extend",
+        "non-null",
+        "type-assertion",
+        "type-assertion-call",
+        "nested",
+    ],
 )
 def test_a_wrapped_options_object_publishes_what_the_plain_one_does(export):
     """L-43, review round 1: a wrapper is another spelling of the same default

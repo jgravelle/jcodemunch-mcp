@@ -519,7 +519,8 @@ INDEX_VERSION = 17
 #   declarations, and a `defineComponent({...})` script its options.**
 #   NEW: functions, bindings and types beside an options object; the
 #   options of `defineComponent({...})`, `Vue.extend({...})` and a
-#   default export wrapped in `as`/`satisfies`/parentheses; `data()` and
+#   default export wrapped in `as`/`satisfies`/parentheses/`!`/`<X>`;
+#   `data()` and
 #   `data: function () {}`. MOVES: an options member (`props`, `data`)
 #   and a same-named top-level declaration are numbered `~1`/`~2`, so
 #   whichever was published alone moves (`props#constant` ->
