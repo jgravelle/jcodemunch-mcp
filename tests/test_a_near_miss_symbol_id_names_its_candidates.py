@@ -190,9 +190,9 @@ _NOT_FOUND_RE = re.compile(
 
 
 def _not_found_literals(source: str) -> list[int]:
-    """Lines of an ERROR RESPONSE saying a symbol was not found: the value of
+    """Lines of an ERROR RESPONSE saying a symbol is absent: the value of
     an `"error"` key in a dict display, an f-string read whole (placeholders as
-    `{}`). Every one of the fifteen sites had that shape; a finding's prose or
+    `{}`). Every one of the sixteen sites had that shape; a finding's prose or
     a reason string that mentions a name not found in a FILE is not a tool's
     answer to a symbol argument, and a docstring is never a dict value."""
     lines = []
