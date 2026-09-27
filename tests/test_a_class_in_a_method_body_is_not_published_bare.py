@@ -91,19 +91,24 @@ def test_the_stop_set_names_node_types_the_grammar_actually_produces():
     from jcodemunch_mcp.parser import extractor
     from jcodemunch_mcp.parser.grammar_pack import get_parser
 
-    seen: set[str] = set()
+    # ⚠ The node type is READ from the grammar, never filtered through a
+    # list of names: a list lets a renamed node drop out and the test pass
+    # with the walk recursing into it (review round 2, the round-1 defect).
     source = b"const a = function () {}; const b = function* () {}; const c = () => {};\n"
     for grammar in ("javascript", "typescript", "tsx"):
+        values = []
         stack = [get_parser(grammar).parse(source).root_node]
         while stack:
             node = stack.pop()
-            if node.child_count:
-                seen.add(node.type)
+            if node.type == "variable_declarator":
+                value = node.child_by_field_name("value")
+                assert value is not None, (grammar, node)
+                values.append(value.type)
             stack.extend(node.children)
 
-    expressions = {"function_expression", "generator_function", "arrow_function"} & seen
-    assert expressions, seen
-    assert expressions <= extractor._HAND_WALK_STOP_TYPES
+        assert len(values) == 3, (grammar, values)
+        missing = set(values) - extractor._HAND_WALK_STOP_TYPES
+        assert not missing, (grammar, missing)
 
 
 #: A helper declared in a function or method body is never a component member.
