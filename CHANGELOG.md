@@ -53,7 +53,7 @@ Measured against each file's own text with `GTEST_API_` deleted:
 `gmock-gtest-all.cc` publishes 22 ids the macro-free text does not, where
 `main` published 109, and misses 21, where `main` missed 152. `gtest.h`
 misses 993 where `main` missed 1,063, but publishes 373 new wrong ids, every
-one `testing.testing.*`: error recovery in that 12,000-line header leaves a
+one `testing.testing.*`: error recovery in that 12,399-line header leaves a
 `namespace testing` open, `main` already nests `testing.testing` from row
 6,158, and the regions this fix recovers are inside it (LEDGER L-48). Parse
 time, median of 5, `main` against this branch in one run:
