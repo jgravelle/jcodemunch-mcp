@@ -68,25 +68,32 @@ def test_a_top_level_symbol_is_still_owned_by_the_component(top):
     assert syms[f"Comp.astro::{top}"].parent == "Comp.astro::Comp#class"
 
 
+_RAZOR_SCRIPT = "class S { s() {} }\n"
+
+
 @pytest.mark.parametrize(
-    "block,language,prefix",
-    [(FRONTMATTER, "typescript", "Comp"), (SCRIPT, "javascript", "Comp.script1")],
-    ids=["frontmatter", "script"],
+    "block,language,prefix,container",
+    [
+        (FRONTMATTER, "typescript", "Comp", ("astro", "Comp.astro", "Comp")),
+        (SCRIPT, "javascript", "Comp.script1", ("astro", "Comp.astro", "Comp")),
+        (_RAZOR_SCRIPT, "javascript", "V", ("razor", "V.razor", "V")),
+    ],
+    ids=["astro-frontmatter", "astro-script", "razor-script"],
 )
-def test_every_rewrapped_parent_is_the_plain_parse_parent(block, language, prefix):
+def test_every_rewrapped_parent_is_the_plain_parse_parent(block, language, prefix, container):
     """The authority is the block parsed on its own: its parent, qualified
-    the same way, or the component when it has none."""
+    the same way, or the container when it has none."""
+    lang, filename, root = container
+    source = SOURCE if lang == "astro" else RAZOR
     plain = parse_file(block, f"plain.{'ts' if language == 'typescript' else 'js'}", language)
     plain_qn = {s.id: s.qualified_name for s in plain}
-    astro = {s.qualified_name: s for s in parse_file(SOURCE, "Comp.astro", "astro")}
+    outer = {s.qualified_name: s for s in parse_file(source, filename, lang)}
     assert plain, "the block parsed to nothing; the property would be vacuous"
 
     for sym in plain:
-        rewrapped = astro[f"{prefix}.{sym.qualified_name}"]
-        expected = (
-            f"{prefix}.{plain_qn[sym.parent]}" if sym.parent in plain_qn else "Comp"
-        )
-        parent_qn = next(s.qualified_name for s in astro.values() if s.id == rewrapped.parent)
+        rewrapped = outer[f"{prefix}.{sym.qualified_name}"]
+        expected = f"{prefix}.{plain_qn[sym.parent]}" if sym.parent in plain_qn else root
+        parent_qn = next(s.qualified_name for s in outer.values() if s.id == rewrapped.parent)
         assert parent_qn == expected, (sym.qualified_name, parent_qn, expected)
 
 
@@ -143,3 +150,34 @@ def test_a_razor_member_is_owned_by_its_class(member, owner):
     syms = _by_id(parse_file(RAZOR, "V.razor", "razor"))
 
     assert syms[f"V.razor::{member}"].parent == f"V.razor::{owner}"
+
+
+@pytest.mark.parametrize(
+    "source,filename,language,owners",
+    [
+        (
+            "---\nif (a) { class K { k() {} } } else { class K { j() {} } }\n---\n<p></p>\n",
+            "C.astro",
+            "astro",
+            {"C.K.k#method": "C.K#class~1", "C.K.j#method": "C.K#class~2"},
+        ),
+        (
+            "<script>\nclass Helper { go() {} }\n</script>\n@code {\n    class Helper { public void Go() {} }\n}\n",
+            "V.razor",
+            "razor",
+            {"V.Helper.go#method": "V.Helper#class~1", "V.Helper.Go#method": "V.Helper#class~2"},
+        ),
+    ],
+    ids=["astro-if-else-twins", "razor-script-and-code-twins"],
+)
+def test_same_named_twins_each_own_their_own_members(source, filename, language, owners):
+    """Two classes with one name get `~1`/`~2`, and each keeps its members.
+    The rewrap drops the block's own `~N`; `parse_file`'s outer pass renumbers
+    and repoints by containment, and this pins that the two together hold
+    (review: nothing pinned the dependency)."""
+    syms = {s.id: s for s in parse_file(source, filename, language)}
+
+    for member, owner in owners.items():
+        match = [s for i, s in syms.items() if i.split("::", 1)[1].split("~")[0] == member]
+        assert len(match) == 1, (member, sorted(syms))
+        assert match[0].parent == f"{filename}::{owner}", (member, match[0].parent)

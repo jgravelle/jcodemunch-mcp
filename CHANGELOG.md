@@ -16,9 +16,13 @@ Each rewrapped symbol now keeps the parent its own parse gave it, rewrapped
 the same way, and only a symbol with no parent in its block is the
 container's. Razor's `@code` members, whose parsed parent is the unpublished
 shim class, stay with the view. Both parsers call one helper,
-`_keep_block_parents`, and a test compares every rewrapped parent with the
-same block parsed on its own. No id moves. `PARSER_GENERATION` 8, still
-unreleased, re-parses unchanged files.
+`_keep_block_parents`, and a test compares every rewrapped parent in Astro's
+frontmatter and `<script>` and in Razor's `<script>` with the same block
+parsed on its own. What a user sees: `get_file_outline` nests a class's
+members under the class instead of under the component, and
+`find_implementations` resolves a member's containing class to the real
+class. No id moves (the helper only rewrites `parent`). `PARSER_GENERATION`
+8, still unreleased, re-parses unchanged files.
 
 ### Fixed - a watched folder deleted on Windows is reported as deleted, not as a watcher crash (F-26)
 
