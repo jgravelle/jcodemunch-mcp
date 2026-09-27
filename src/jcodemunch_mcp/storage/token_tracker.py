@@ -387,12 +387,29 @@ class _State:
                 del self._result_cache[k]
             return len(to_delete)
 
+    def cache_lookup_recorded(self, tool_name: str, hit: bool) -> None:
+        """Count one lookup a consumer's PRIVATE cache answered (#864).
+
+        ``cache_get`` counts the shared LRU's lookups itself. A consumer with
+        its own cache (``search_symbols``) must report each lookup here, or a
+        hit it later reports to ``cache_hit_validated`` lands in the validated
+        buckets with no hit beside it: ``total_hits: 0`` next to a revalidated
+        rate of 1.0, and ``hits_unvalidated`` short by the difference for every
+        other tool.
+        """
+        with self._lock:
+            bucket = self._cache_hits if hit else self._cache_misses
+            bucket[tool_name] = bucket.get(tool_name, 0) + 1
+
     def cache_hit_validated(self, tool_name: str, stale: bool) -> None:
         """Record that an already-counted hit was checked against the index.
 
         Called by a consumer that revalidates a cached entry against
-        ``subject_state.changed``. Never counts a hit — ``cache_get`` already
-        did — so this cannot inflate ``hit_rate``.
+        ``subject_state.changed``. Never counts a hit — ``cache_get`` or, for a
+        private cache, ``cache_lookup_recorded`` already did — so this cannot
+        inflate ``hit_rate``. ⚠⚠ A caller that reports here without having
+        counted the hit breaks ``validated <= hits`` (#864);
+        ``tests/test_every_served_cache_hit_is_counted_once.py`` fails on it.
 
         ⚠ Exactly ONE of the three result-cache consumers does this today:
         ``search_symbols``. ``find_references`` and ``get_blast_radius`` serve
@@ -1625,6 +1642,16 @@ def result_cache_put(tool_name: str, repo: str, specific_key: tuple, result: dic
 def result_cache_invalidate(repo: Optional[str] = None) -> int:
     """Evict cached results — all repos (default) or a specific repo. Returns evicted count."""
     return _state.cache_invalidate(repo)
+
+
+def result_cache_record_lookup(tool_name: str, hit: bool) -> None:
+    """Count one lookup a tool's PRIVATE result cache answered (#864).
+
+    The shared LRU counts its own lookups in ``result_cache_get``; a tool that
+    keeps its own cache calls this for every lookup, hit or miss, so its hits
+    reach ``total_hits``, ``by_tool`` and ``hit_rate`` like everyone else's.
+    """
+    _state.cache_lookup_recorded(tool_name, hit)
 
 
 def result_cache_hit_validated(tool_name: str, stale: bool) -> None:

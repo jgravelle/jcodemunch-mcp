@@ -358,8 +358,9 @@ def analyze_perf(
         "heaviest_by_total_ms": heaviest,
         "totals": totals_meta,
         "cache": {
-            # ⚠⚠ `hit_rate` is RAW: a hit is key-presence in the session LRU,
-            # not a hit that still describes the current index. The cache is
+            # ⚠⚠ `hit_rate` is RAW: a hit is key-presence in the session LRU
+            # or in `search_symbols`' own cache (both counted since #864), not
+            # a hit that still describes the current index. The cache is
             # invalidated only by index-mutating tools IN THIS PROCESS, so an
             # out-of-process reindex (the PostToolUse `index-file` spawn, the
             # watcher, a second server instance) leaves entries serving.

@@ -4359,7 +4359,13 @@ def _js_declarator_holds_a_class(declarator) -> bool:
     name = declarator.child_by_field_name("name")
     if name is None or name.type != "identifier":
         return False
-    value = declarator.child_by_field_name("value")
+    return _js_value_is_a_class(declarator.child_by_field_name("value"))
+
+
+def _js_value_is_a_class(value) -> bool:
+    """Is this expression a class expression, wrappers (`(...)`, `as`,
+    `satisfies`, `!`, `<T>`) seen through? Shared by every site that asks, so
+    a parenthesised class is a class at all of them (#861 review round 3)."""
     while value is not None and value.type in _JS_EXPRESSION_WRAPPERS:
         value = next(
             (c for c in value.named_children if c.type == "class" or c.type in _JS_EXPRESSION_WRAPPERS),
@@ -7010,6 +7016,206 @@ def _extract_nix_binding(node, source_bytes: bytes, filename: str, symbols: list
 # Vue SFC custom symbol extractor
 # ---------------------------------------------------------------------------
 
+# Every node type a JS/TS grammar uses for a class. A hand walk that names one
+# of them and not the others loses the rest (#698 was `abstract_class_declaration`).
+_EMBEDDED_CLASS_NODE_TYPES = frozenset({"class_declaration", "abstract_class_declaration", "class"})
+_CLASS_KEYWORD_RE = re.compile(rb"\bclass\b(?![$])")
+# Containers whose nested class the generic walk qualifies under the container.
+_CLASS_GATE_OWNERS = frozenset({
+    "function_declaration", "generator_function_declaration", "method_definition",
+})
+
+
+class _EmbeddedScriptClasses:
+    """Every top-level class of one Vue/Svelte `<script>` block, WITH its
+    members, as the generic JS/TS walk publishes them (#861).
+
+    ⚠⚠ The Vue and Svelte channels walk their script by hand and stopped at a
+    class: a declaration published its name and no member, and a class
+    expression (`const C = class {...}`) published a `constant` (#803's shape in
+    a channel #803 never reached). A third hand-written class walk is how the
+    next member form (#802's parameter properties) would go missing here again,
+    so the class and everything under it come from `parse_file`, the walk a
+    `.ts` file gets.
+
+    ⚠⚠ **`emit()` publishes EVERY group the generic walk makes, once per block;
+    the hand walks only SKIP what `covers()` names.** The first draft asked the
+    hand walk to fetch a class by the node it held, so every spelling the hand
+    walk did not recognise (`abstract class`, `export default class {}`,
+    `module.exports = class {}`, `X.P = class {}`) stayed dropped. Which
+    spellings are classes is the generic walk's answer, not a second copy here.
+
+    ⚠ `parse_file` re-checks `is_language_enabled` for the SCRIPT language: with
+    `vue`/`svelte` enabled and `javascript`/`typescript` disabled it returns
+    nothing, `covers()` is False everywhere and the hand walk's bare-class
+    fallback publishes the class name without members, as before #861.
+
+    Rewrapped into the component file: ids keep the generic qualified names
+    (`Svc#class` is the id the old branch minted), byte offsets are shifted by
+    the block's start, lines by its row, and a class's parent is the component.
+
+    ⚠ The second parse runs only when the tree the hand walk already holds has
+    a class NODE. A byte test (`b"class" in script`) fired on every `classList`
+    and `className`, and cost a script with no class about a quarter more
+    parse time (review, 2026-09-26).
+    """
+
+    def __init__(self, script_bytes: bytes, block_start_byte: int, line_offset: int,
+                 lang: str, filename: str, language: str, component_id: str, root_node=None):
+        self._args = (script_bytes, block_start_byte, line_offset, lang, filename, language, component_id)
+        self._root_node = root_node
+        self._groups: Optional[list[tuple[Symbol, list[Symbol]]]] = None
+        self._suppressed: list[Any] = []
+
+    def _has_class_node(self) -> bool:
+        # A PREFILTER only, and it may say yes too often, never no: it asks
+        # for the WORD `class` and leaves every question after it to the tree.
+        # An earlier draft also asked what followed the keyword and said no to
+        # `class<T>`, `class /*x*/ Foo` and `class Über`, so the fix silently
+        # did not apply to them (review round 3). It still rejects `classList`
+        # and `className`.
+        script = self._args[0]
+        if b"class" not in script:
+            return False
+        if self._root_node is None:
+            return _CLASS_KEYWORD_RE.search(script) is not None  # never a silent drop
+        # The tree decides, asked only where the word occurs: the smallest node
+        # over a match is the keyword token, and a real keyword's parent is a
+        # class node (a comment or a string is not). A whole-tree walk here
+        # cost the corpus more than the parse it gates (review round 3).
+        for match in _CLASS_KEYWORD_RE.finditer(script):
+            leaf = self._root_node.descendant_for_byte_range(match.start(), match.end())
+            if leaf is None or leaf.type == "ERROR":
+                return True
+            in_class = leaf.parent is not None and leaf.parent.type in _EMBEDDED_CLASS_NODE_TYPES
+            owned = False
+            ancestor = leaf.parent
+            while ancestor is not None:
+                # ⚠⚠ An ERROR means this tree could not read the text, so it
+                # cannot say no. A `lang="tsx"` script is read here with the
+                # TYPESCRIPT grammar while `_build` parses TSX, so a class with
+                # JSX in its body is an ERROR here and a class there (review
+                # round 4). Any grammar mismatch has the same shape.
+                if ancestor.type == "ERROR":
+                    return True
+                # ⚠ Skipped ONLY where the generic walk gives a nested class an
+                # owner (`f.K`, `setup.K`), which `_build` never emits as a
+                # group. An arrow or function EXPRESSION is not an owner: a
+                # class in one is a root there (`K#class`), so it must reach
+                # `_build`.
+                if ancestor.type in _CLASS_GATE_OWNERS:
+                    owned = True
+                ancestor = ancestor.parent
+            if in_class and not owned:
+                return True
+        return False
+
+    def _build(self) -> list[tuple[Symbol, list[Symbol]]]:
+        script_bytes, base, line_offset, lang, filename, language, component_id = self._args
+        if not self._has_class_node():
+            return []
+        ext = {"typescript": "ts", "tsx": "tsx"}.get(lang, "js")
+        parsed = parse_file(
+            script_bytes.decode("utf-8", errors="replace"),
+            f"{filename}#script.{ext}", lang, source_bytes=script_bytes,
+        )
+        children: dict[str, list[Symbol]] = {}
+        for sym in parsed:
+            if sym.parent:
+                children.setdefault(sym.parent, []).append(sym)
+        def _rewrap(sym: Symbol, parent_id: str) -> Symbol:
+            return dataclasses.replace(
+                sym,
+                id=make_symbol_id(filename, sym.qualified_name, sym.kind),
+                file=filename,
+                language=language,
+                parent=parent_id,
+                line=sym.line + line_offset,
+                end_line=sym.end_line + line_offset,
+                byte_offset=base + sym.byte_offset,
+            )
+
+        groups = []
+        for root in parsed:
+            if root.parent or root.kind != "class":
+                continue
+            out = [_rewrap(root, component_id)]
+            # Each child carries its rewrapped parent's id, so no lookup by
+            # the (Optional) original parent is needed.
+            stack = [(child, out[0].id) for child in children.get(root.id, ())]
+            while stack:
+                sym, parent_id = stack.pop(0)
+                rewrapped = _rewrap(sym, parent_id)
+                out.append(rewrapped)
+                stack.extend((child, rewrapped.id) for child in children.get(sym.id, ()))
+            groups.append((root, out))
+        return groups
+
+    def _roots(self) -> list[tuple[Symbol, list[Symbol]]]:
+        if self._groups is None:
+            self._groups = self._build()
+        return self._groups
+
+    @staticmethod
+    def _overlaps(root: Symbol, start: int, end: int) -> bool:
+        # ⚠ Overlap, not containment: the generic span may start at `export` or
+        # a decorator, outside the node the hand walk holds.
+        return root.byte_offset < end and root.byte_offset + root.byte_length > start
+
+    def covers(self, node) -> bool:
+        """True when a group `emit()` publishes overlaps `node` (script-relative
+        bytes), so the hand walk must not publish that class a second time.
+        For a class NODE the hand walk holds; a binding asks `binds`.
+
+        ⚠ Asked BEFORE `_js_declarator_holds_a_class` at every call site: with
+        no class in the script this is a lookup in an empty cached list, and
+        the probe it guards ran on every binding of every script otherwise.
+        """
+        groups = self._roots()
+        if not groups:
+            return False
+        return any(self._overlaps(root, node.start_byte, node.end_byte) for root, _ in groups)
+
+    def binds(self, binder) -> bool:
+        """True when a group is the class this BINDER names: its span contains
+        the binder, as the generic walk spans a bound class expression from
+        its binder (`const C = class {}` spans `const C = ...`, `A = class B
+        {}` spans `A = ...`, `$: C = class {}` spans `C = ...`).
+
+        ⚠⚠ Decided from the generic walk's tree, never the hand walk's. The
+        hand walk reads a `lang="tsx"` script with the TypeScript grammar
+        (LEDGER L-39), whose error recovery can make a class NESTED in a JSX
+        initializer the binding's value. Overlap alone then silenced
+        `const e = <div onClick={() => { class K {} }} />` (review round 5),
+        and a name match alone silenced `const K = <A r={() => { class K {}
+        }} />` (round 6): a nested class starts AFTER its binder, whatever its
+        name.
+        """
+        groups = self._roots()
+        if not groups:
+            return False
+        return any(self._spans_binder(root, binder) for root, _ in groups)
+
+    @staticmethod
+    def _spans_binder(root: Symbol, binder) -> bool:
+        return root.byte_offset <= binder.start_byte < root.byte_offset + root.byte_length
+
+    def suppress(self, binder) -> None:
+        """Withhold the group `binds(binder)` names: the hand walk publishes it
+        as something else on purpose (a Svelte `export let` prop is an input).
+        A class merely nested in the prop's default is not withheld."""
+        self._suppressed.append(binder)
+
+    def emit(self) -> list[Symbol]:
+        """Every group, once, in source order, minus the suppressed ones."""
+        return [
+            sym
+            for root, group in self._roots()
+            if not any(self._spans_binder(root, b) for b in self._suppressed)
+            for sym in group
+        ]
+
+
 def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Vue Single-File Components (.vue).
 
@@ -7098,6 +7304,10 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Re-parse script content with the JS/TS parser
     sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
     sub_tree = sub_parser.parse(script_bytes)
+    script_classes = _EmbeddedScriptClasses(
+        script_bytes, raw_node.start_byte, line_offset, lang, filename, "vue", comp_sym.id,
+        root_node=sub_tree.root_node,
+    )
 
     # Vue Composition API reactive primitives and macros
     _VUE_REACTIVE = frozenset({
@@ -7147,9 +7357,12 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _walk_composition(node, parent_id: Optional[str] = None):
         """Walk script AST for Composition API symbols."""
-        if node.type == "class_declaration":
+        if node.type in _EMBEDDED_CLASS_NODE_TYPES:
+            # Published with its members by `script_classes.emit()` (#861).
+            # Never recursed into: a class nested in a member body is the
+            # generic walk's to place, not a second bare `#class` here.
             name_node = node.child_by_field_name("name")
-            if name_node:
+            if node.type != "class" and name_node and not script_classes.covers(node):
                 name = _node_text(name_node)
                 sym = Symbol(
                     id=make_symbol_id(filename, name, "class"),
@@ -7232,6 +7445,10 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     continue
                 name_node = decl.child_by_field_name("name")
                 if name_node is None:
+                    continue
+                if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
+                    # `const C = class {...}` declares a CLASS, as in a `.js`
+                    # file since #803, never a `constant` beside it (#861).
                     continue
                 val_node = decl.child_by_field_name("value")
                 if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
@@ -7348,6 +7565,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         _walk_options(sub_tree.root_node)
         if len(symbols) == 1:  # only component sym found → try composition
             _walk_composition(sub_tree.root_node)
+    symbols.extend(script_classes.emit())
 
     return symbols
 
@@ -7436,6 +7654,10 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         sub_parser = _get_parser(lang if lang != "tsx" else "typescript")
         sub_tree = sub_parser.parse(script_bytes)
+        script_classes = _EmbeddedScriptClasses(
+            script_bytes, raw_node.start_byte, line_offset, lang, filename, "svelte", comp_sym.id,
+            root_node=sub_tree.root_node,
+        )
 
         def _node_text(n) -> str:
             return script_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
@@ -7519,9 +7741,10 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ))
 
         def _walk(node):
-            if node.type == "class_declaration":
+            if node.type in _EMBEDDED_CLASS_NODE_TYPES:
+                # Published with its members by `script_classes.emit()` (#861).
                 name_node = node.child_by_field_name("name")
-                if name_node:
+                if node.type != "class" and name_node and not script_classes.covers(node):
                     name = _node_text(name_node)
                     symbols.append(Symbol(
                         id=make_symbol_id(filename, name, "class"),
@@ -7621,6 +7844,14 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # absences. Borrowing a guard also borrows the owner it
                         # assumes.
                         is_prop = name_node.type == "identifier" and keyword_kind == "variable"
+                        if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
+                            if is_prop:
+                                # ⚠ A prop is an INPUT: the class is only its
+                                # default, so it stays a `property` and its
+                                # members are not published (#861).
+                                script_classes.suppress(name_node)
+                            else:
+                                continue
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
                             _emit_const(
                                 pname, decl, node, _first_line(node),
@@ -7648,6 +7879,9 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         continue
                     name_node = decl.child_by_field_name("name")
                     if name_node is None:
+                        continue
+                    if script_classes.binds(name_node) and _js_declarator_holds_a_class(decl):
+                        # `const C = class {...}` declares a CLASS (#803, #861).
                         continue
                     val_node = decl.child_by_field_name("value")
                     if val_node is not None and val_node.type in _VARIABLE_FUNCTION_TYPES:
@@ -7694,6 +7928,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             left = expr.child_by_field_name("left") or (
                                 expr.children[0] if expr.children else None
                             )
+                            right = expr.child_by_field_name("right")
+                            if left is not None and script_classes.binds(left) and _js_value_is_a_class(right):
+                                # `$: C = class {...}` is a CLASS, published by
+                                # `emit()`, never a `constant` beside it (#803, #861).
+                                continue
                             if left is not None and left.type == "identifier":
                                 _emit_const(_node_text(left), node, node, _first_line(node))
                 return  # a reactive block's body is glue, not indexable declarations
@@ -7705,6 +7944,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     _walk(child)
 
         _walk(sub_tree.root_node)
+        symbols.extend(script_classes.emit())
 
     for script_node in script_nodes:
         raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
