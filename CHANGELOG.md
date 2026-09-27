@@ -48,8 +48,8 @@ The header reparents are members of an L-45 bogus function whose own id was
 renumbered.
 The draft of this fix made every body after the first a `function` in a
 `.cpp` whose class is in the header, because the first parentless body read
-as evidence of a namespace; the corpus diff found it (38 `DBImpl` bodies in
-`db_impl.cc`), and a test pins it.
+as evidence of a namespace; the corpus diff found it (`db_impl.cc` has 37
+parentless `DBImpl` method bodies, so 36 flipped), and a test pins it.
 
 Found on the way, not fixed, both as on `main`:
 - LEDGER L-45: an export macro before a class name
