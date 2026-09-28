@@ -170,8 +170,11 @@ def test_a_qualified_type_is_no_evidence_of_a_namespace():
     [
         "namespace n { struct W::I { int x; }; }\nvoid n::f() {}\n",
         "namespace a::b { struct W::I { int x; }; }\nvoid a::b::f() {}\n",
+        # One type defined twice (`#ifdef` branches) in two scopes: the later
+        # definition must not erase the earlier one's namespace (review).
+        "namespace a { struct W::I { int x; }; }\n#ifdef X\nstruct a::W::I { int y; };\n#endif\nvoid a::f() {}\n",
     ],
-    ids=["enclosing-namespace", "cxx17-enclosing-namespace"],
+    ids=["enclosing-namespace", "cxx17-enclosing-namespace", "defined-twice"],
 )
 def test_the_namespace_enclosing_a_qualified_type_is_still_evidence(source):
     """Review of L-46: the first fix dropped the whole qualified type from

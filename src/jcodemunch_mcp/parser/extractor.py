@@ -802,8 +802,8 @@ def _walk_tree(
     """Recursively walk the AST and extract symbols.
 
     *qualified_records* maps the id of each C++ type defined with a qualified
-    name (`class W::I {}`, L-46) to the enclosing namespaces it was defined
-    in, shared by the whole walk: its qualifier may name a class, so only
+    name (`class W::I {}`, L-46) to every set of enclosing namespaces it was
+    defined in, shared by the whole walk: its qualifier may name a class, so only
     those enclosing namespaces are evidence of a namespace.
 
     *adopted* are sibling nodes walked as if they were `node`'s own last
@@ -893,7 +893,9 @@ def _walk_tree(
                     node, symbol, source_bytes, filename, local_scope_parts, symbols
                 )
                 if qualified is not symbol:
-                    qualified_records[qualified.id] = tuple(local_scope_parts)
+                    # A list: `#ifdef` branches can define one type twice
+                    # in two scopes (review of L-46).
+                    qualified_records.setdefault(qualified.id, []).append(tuple(local_scope_parts))
                 symbol = qualified
             if symbol:
                 symbols.append(symbol)
@@ -3129,7 +3131,7 @@ def _cpp_out_of_class_member(
     if owner_symbol is not None:
         kind, parent = "method", owner_symbol.id
     elif _names_a_namespace(owner, scope_parts) or any(
-        _names_a_namespace(owner, records[s.id])
+        any(_names_a_namespace(owner, parts) for parts in records[s.id])
         if s.id in records
         else (s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + "."))
         for s in symbols
