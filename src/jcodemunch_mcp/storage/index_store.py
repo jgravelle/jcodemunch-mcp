@@ -560,6 +560,11 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-52: a C++ header of namespaced declarations is read as C++.**
 #   MOVES: in such a `.h`, `n#function` and bare `f#function` rows from the
 #   C misparse become `n.f#function`, `n.A#class` and `n.A.f#method`.
+#
+#   ⚠⚠ **And L-54: a C++ template specialisation keeps its arguments.**
+#   MOVES: `hash#type~1`/`~2` for `hash<A>`/`hash<B>` become `hash<A>#type`
+#   and `hash<B>#type`, their members follow, and ids numbered only because
+#   specialisations shared a bare name lose the `~N`.
 PARSER_GENERATION = 8
 
 

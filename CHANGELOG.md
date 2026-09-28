@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
+
+`template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so
+the specialisations of one template in a file were `hash#type~1` and
+`hash#type~2`. Those ids depend on source order, and none could be found
+as `hash<A>`. jjg ruled on 2026-09-28 that the arguments stay in the id.
+
+A class, struct or union specialisation is now named with its arguments,
+with whitespace dropped around punctuation so one specialisation has one
+spelling: `hash< std::pair<int,  int> >` is `hash<std::pair<int,int>>`.
+That holds at file scope, in a namespace, in a class body and out of line.
+The primary template keeps its bare name. An out-of-line member body looks
+up its scope WITH its arguments first and bare second. So `B<T*>::f`
+belongs to the partial specialisation `B<T*>`, `B<int>::g` to `B<int>`, and
+`B<T>::f` to the primary `B`, whose arguments are its own parameters. The
+test pins each placement, the spacing, a partial specialisation, a union,
+out-of-line equivalence, and the three body owners.
+`test_a_cpp_template_span_ends_where_it_starts.py` looked its two
+specialisations up by the bare name `Foo`; it asserts their byte spans,
+and it looks them up as `Foo<int>` and `S<T*>` now.
+
+Measured, `main` against this branch (leveldb 7ee830d, fmt 5da4e9a): id
+counts are unchanged in every set. fmt `.h` changes 15 files and fmt `.cc`
+10, all re-namings. `formatter.parse#method~3` becomes
+`formatter<custom_type>.parse#method`, and the fmt ids carrying a `~N`
+suffix fall from 3,411 to 2,761 of 9,064. leveldb: no change. A function
+template's explicit specialisation (`template <> void f<int>(int)`) is
+still named `f` (LEDGER L-56).
+
 ### Fixed - a C++ header of namespaced declarations is read as C++ (LEDGER L-52)
 
 A `.h` is parsed with both grammars and the better parse wins. The C
@@ -80,7 +109,8 @@ specialisations of one template in a file, `template <> struct
 std::hash<A> {}` and `std::hash<B>`, were `hash<A>#type` and `hash<B>#type`
 and are now `std.hash#type~1` and `~2` in source order, as the same two
 written inside `namespace std { }` already were. How a specialisation is
-named at all is LEDGER L-54. A leading `::` resolves from the file scope:
+named at all is LEDGER L-54, whose entry above gives both forms their
+arguments back. A leading `::` resolves from the file scope:
 `class ::A::B {}` is `A.B` (it was `A::B`), and `class ::Top` is unchanged.
 
 The first draft broke L-07. L-07 reads a scope that a file-scope symbol is

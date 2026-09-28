@@ -152,11 +152,11 @@ def test_a_member_template_inside_a_class_follows_the_same_rule(language, filena
     "source,name,recorded",
     [
         pytest.param(
-            "template<> class Foo<int> { int n; };\n", "Foo", b"template<> class Foo<int> { int n; };",
+            "template<> class Foo<int> { int n; };\n", "Foo<int>", b"template<> class Foo<int> { int n; };",
             id="explicit-specialisation",
         ),
         pytest.param(
-            "template<class T> struct S<T*> { T v; };\n", "S", b"template<class T> struct S<T*> { T v; };",
+            "template<class T> struct S<T*> { T v; };\n", "S<T*>", b"template<class T> struct S<T*> { T v; };",
             id="partial-specialisation",
         ),
     ],
@@ -165,7 +165,8 @@ def test_a_member_template_inside_a_class_follows_the_same_rule(language, filena
 def test_a_specialisation_moves_with_the_rule(source, name, recorded, language, filename):
     """Found in review: a specialisation is a `template_declaration` wrapping
     a class too, so it gains its `;` by the same rule; pinned so a later spec
-    edit cannot un-move one spelling in silence."""
+    edit cannot un-move one spelling in silence. Looked up as `Foo<int>`:
+    a specialisation keeps its arguments in its name (L-54)."""
     sym = _one(source, language, filename, name)
     assert _recorded(source, sym) == recorded
 
