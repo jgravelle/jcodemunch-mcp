@@ -67,8 +67,6 @@ PAIRS = {
         "class A { class B { void f(); }; };\n",
     ),
     "global-qualifier-in-namespace": (
-        # A field, because a `.h` whose namespaced class holds only method
-        # prototypes is read as C (LEDGER L-52, as on main).
         "namespace n { class A { class B; }; }\nclass ::n::A::B { int y; void f(); };\n",
         "namespace n { class A { class B { int y; void f(); }; }; }\n",
     ),

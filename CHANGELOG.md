@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ header of namespaced declarations is read as C++ (LEDGER L-52)
+
+A `.h` is parsed with both grammars and the better parse wins. The C
+grammar reads `namespace n { class A { void f(); }; }` without a single
+error: `namespace n` becomes a function returning a type named `namespace`,
+and everything inside it a statement block. With both parses clean, the
+tie went to the parse with MORE symbols, and the misparse had more. So a
+declaration-only header in a namespace, which is most C++ headers,
+published `n#function` and bare `f#function` rows instead of its classes
+and qualified functions. Found in L-46's review.
+
+A clean C++ parse that holds a declaration no C source can spell (a
+namespace, class, template, access specifier, `using` or alias) now wins
+the tie. That is read from the tree, not from the lexical markers the
+tie-break already had, which match `class ` in a comment. `extern "C" {` is
+not on the list, because the C++ grammar reads a C header's guard that way.
+The test pins that a namespaced class, a class, access specifiers, a
+namespaced struct, a template, namespace prototypes and an include-guarded
+header publish what the same text publishes as `.cpp`, and that a C
+header (a struct, `class` in a comment, a typedef with an inline function,
+an `extern "C"` guard) publishes what it publishes as `.c`.
+
+Measured, `main` against this branch:
+- lua 0b29f40 and redis 4cb007b (340 C headers, 516 `.c` files): no id
+  changes;
+- fmt 5da4e9a: no change;
+- leveldb 7ee830d `.h`: 6 headers change, `ids 1163 -> 1155`. The 13
+  removed ids are the misparse: six `leveldb#function`, one each of
+  `leveldb.log#function` and `leveldb.crc32c#function`, and four bare
+  functions (`NewDBIterator`, `NewMemEnv`, `NewMergingIterator`, `Hash`)
+  plus `Extend`, which become `leveldb.NewDBIterator`, `leveldb.NewMemEnv`,
+  `leveldb.NewMergingIterator`, `leveldb.Hash` and `leveldb.crc32c.Extend`.
+  `crc32c`'s `Mask`, `Unmask` and `Value` and `log_format.h`'s
+  `RecordType` lose the bogus function as their parent.
+
 ### Fixed - a C++ class defined with a qualified name is its owner's member (LEDGER L-46)
 
 The pimpl idiom declares a nested class and defines it outside its owner:

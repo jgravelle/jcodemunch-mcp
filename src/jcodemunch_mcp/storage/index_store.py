@@ -556,6 +556,10 @@ INDEX_VERSION = 17
 #   template in a file (`std::hash<A>`, `std::hash<B>`) are `std.hash~1`/`~2`;
 #   `A::B#class` for `class ::A::B` becomes `A.B#class`; an existing id can
 #   gain a `~N` when a moved type now shares its name.
+#
+#   ⚠⚠ **And L-52: a C++ header of namespaced declarations is read as C++.**
+#   MOVES: in such a `.h`, `n#function` and bare `f#function` rows from the
+#   C misparse become `n.f#function`, `n.A#class` and `n.A.f#method`.
 PARSER_GENERATION = 8
 
 

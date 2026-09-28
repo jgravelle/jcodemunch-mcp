@@ -770,6 +770,16 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     if cpp_error_nodes < c_error_nodes:
         return cpp_symbols, cpp_tree
 
+    # ⚠⚠ Same error quality, and the C++ parse holds a construct only C++ has:
+    # C++ (LEDGER L-52). The C grammar reads `namespace n { class A { void
+    # f(); }; }` WITHOUT an error, as a function `n` returning `namespace` with
+    # a function `A` nested in it, and that misparse has MORE symbols than the
+    # class, so the count below chose it and a declaration-only header lost
+    # every class. A C++-only node in a clean parse is structural evidence,
+    # where the lexical markers below are substrings (`class ` in a comment).
+    if cpp_tree is not None and _has_cpp_only_construct(cpp_tree.root_node):
+        return cpp_symbols, cpp_tree
+
     # Same error quality: use lexical signal to break ties for `.h`.
     if _looks_like_cpp_header(source_bytes):
         if len(cpp_symbols) >= len(c_symbols):
@@ -3477,6 +3487,34 @@ def _extract_cpp_namespace_name(node, source_bytes: bytes) -> Optional[str]:
 
     name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8").strip()
     return name or None
+
+
+#: Declarations no C source can spell, so a C++ parse holding one outside an
+#: ERROR is a C++ header (L-52). ⚠ Not `linkage_specification`: a C header's
+#: `extern "C" {` guard is read by the C++ grammar as exactly that.
+_CPP_ONLY_DECLARATIONS = frozenset({
+    "namespace_definition",
+    "class_specifier",
+    "template_declaration",
+    "access_specifier",
+    "using_declaration",
+    "alias_declaration",
+    "namespace_alias_definition",
+})
+
+
+def _has_cpp_only_construct(root) -> bool:
+    """Does this C++ parse hold a declaration no C source can spell, outside
+    an ERROR? A function body is not entered: a declaration is what decides."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in _CPP_ONLY_DECLARATIONS:
+            return True
+        stack.extend(
+            c for c in node.children if c.type not in ("ERROR", "compound_statement")
+        )
+    return False
 
 
 def _looks_like_cpp_header(source_bytes: bytes) -> bool:
