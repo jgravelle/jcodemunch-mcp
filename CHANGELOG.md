@@ -39,9 +39,13 @@ count, which excludes every changed file and so every importer the diff
 could add. A walk that finds an importer is positive evidence and is never
 probed.
 
-`check_rename_safe`'s description now says `safe` may be null, a sentence of
-+27 tokens on the `full` surface (`description-delta.txt`); the tool is not
-in the `core` profile and the `counter` surface is unchanged. The walk and
+`check_rename_safe`'s description now says `safe` may be null: +27 tokens
+on the `standard` and `full` surfaces and 0 on `core` and `counter`
+(`benchmarks/schema_baseline.json`, regenerated). A changed description
+is one full-rate cache write of the tool block for every client on those
+surfaces. The regenerated baseline also absorbs +4 tokens on every
+surface that `main` had already drifted by before this change
+(`core_compact` 3967 committed, 3971 measured on `main`). The walk and
 its verdict now come as one call, `get_blast_radius.importers_with_verdict`,
 which `plan_refactoring` uses, so the next caller inherits the pairing.
 
