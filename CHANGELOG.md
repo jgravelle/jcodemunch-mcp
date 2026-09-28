@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Fixed - `get_changed_symbols`' blast lists only importers that exist at `until_sha` (#878)
+
+`get_changed_symbols(include_blast_radius=True)` walks the INDEX's importer
+graph. #718 refused an EMPTY blast from a graph at another revision
+(`graph_not_at_until_sha`) and left a non-empty one alone, on the premise
+that a found importer is positive evidence. That holds only for a graph at
+`until_sha`. With the index built at a later commit, `until_sha=c1` listed
+`app/caller.py`, a file added in c2. With the index at an earlier commit,
+which is the tool's default mode, it listed an importer the diff itself
+deleted or renamed. Found in review of #718's fix.
+
+When the graph is not `until_sha`'s, the walk is re-run over the importers
+`git ls-tree` lists at `until_sha`. An importer absent there is dropped,
+and so is every importer reached only through it. The dropped files are
+published per changed file in `blast_dropped_absent_at_until`. A blast
+emptied that way refuses with `graph_not_at_until_sha`, as #718's empty
+blast does. An importer that exists at `until_sha` but gained its import
+later cannot be told apart by existence, so every non-empty blast from a
+graph at another revision names that revision in `blast_graph_sha`.
+
+The existence check reads index-root-relative paths, like #685's diff.
+`git ls-tree` has no `--relative` and is cwd-relative by default, so the
+#685 ratchet now fails an `ls-tree` argv holding `--full-name` or
+`--full-tree` instead of one missing `--relative`. The listing is read
+with `-z`, because `core.quotePath` otherwise C-quotes a non-ASCII path
+and a real importer such as `app/café.py` would be published as absent
+(review). When the tree cannot be listed, nothing is dropped and
+`blast_existence_unchecked` names the files, so an unfiltered list does
+not read as a filtered one that dropped nothing.
+`blast_dropped_absent_at_until` is uncapped, bounded by the walk it is
+taken from: each list is a subset of the unfiltered `blast_radius`
+(depth-limited by `max_blast_depth`), which is itself uncapped.
+
 ### Fixed - a rename is not "safe" in files the import graph could not reach (#879)
 
 `get_blast_radius.blast_verdict` has been the one authority on an importer

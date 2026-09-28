@@ -178,7 +178,14 @@ def _offenders(root: Path) -> list[str]:
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node, strs in _git_argv_lists(tree):
-            if "--relative" not in strs:
+            # `ls-tree` has no `--relative`: it prints cwd-relative paths by
+            # default, and only `--full-name`/`--full-tree` make them top-level
+            # (#878). Its spelling of the property is the absence of those two.
+            if "ls-tree" in strs:
+                ok = not ({"--full-name", "--full-tree"} & set(strs))
+            else:
+                ok = "--relative" in strs
+            if not ok:
                 bad.append(f"{path.relative_to(root).as_posix()}:{node.lineno}")
     return bad
 
@@ -192,6 +199,17 @@ def test_the_scan_sees_a_reintroduced_call(tmp_path):
         'import subprocess\nsubprocess.run(["git", "diff", "--name-only", "a", "b"])\n', encoding="utf-8"
     )
     assert _offenders(tmp_path) == ["m.py:2"]
+
+
+def test_the_scan_sees_an_ls_tree_that_prints_top_level_paths(tmp_path):
+    (tmp_path / "m.py").write_text(
+        'import subprocess\n'
+        'subprocess.run(["git", "ls-tree", "-r", "--name-only", "HEAD"])\n'
+        'subprocess.run(["git", "ls-tree", "-r", "--name-only", "--full-name", "HEAD"])\n'
+        'subprocess.run(["git", "ls-tree", "-r", "--name-only", "--full-tree", "HEAD"])\n',
+        encoding="utf-8",
+    )
+    assert _offenders(tmp_path) == ["m.py:3", "m.py:4"]
 
 
 # --- git status --porcelain: the same mismatch in the absence-claim guard ------
