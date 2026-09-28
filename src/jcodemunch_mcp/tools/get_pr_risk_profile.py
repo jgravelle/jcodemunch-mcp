@@ -214,8 +214,11 @@ def get_pr_risk_profile(
 
     Returns:
         Dict with:
-          - risk_score: float 0.0–1.0
-          - risk_level: "low" / "medium" / "high" / "critical"
+          - risk_score: float 0.0–1.0, or None with ``unmeasurable_axes`` when
+            the blast axis could not be measured for any changed code file;
+            ``risk_score_is_lower_bound`` when it was measured for only some (#879)
+          - risk_level: "low" / "medium" / "high" / "critical", or None beside
+            a withheld risk_score
           - signal_breakdown: per-signal scores and contributing data
           - changed_symbols_count, blast_radius_files, untested_count
           - hottest_symbols: top-5 riskiest symbols with scores
@@ -287,18 +290,49 @@ def get_pr_risk_profile(
     # Step 2: Blast radius (aggregate across all changed files)
     # -------------------------------------------------------------------
     blast_files: set[str] = set()
+    # Changed CODE files (a file holding a changed symbol) whose EMPTY walk the
+    # graph could not answer (a Go package import lands on no member file,
+    # #415). Their dependents are missing from the count, so the axis is a lower
+    # bound; when no probed file resolved and nothing was found, it is not
+    # measured at all and neither is the composite (#879).
+    blast_unresolvable: list[str] = []
+    probed: list[str] = []
     if index.imports is not None:
+        from .get_blast_radius import blast_verdict  # noqa: PLC0415
+
         source_files = frozenset(index.source_files)
         rev_adj = _build_reverse_adjacency(
             index.imports, source_files, index.alias_map,
             getattr(index, "psr4_map", None),
         )
+        code_files = {
+            (cs.get("file") or "").replace("\\", "/") for cs in all_changed if cs.get("file")
+        }
         for f in changed_files:
             # Direct importers only (depth=1) for aggregate scoring
-            for importer in rev_adj.get(f, []):
+            importers = rev_adj.get(f, [])
+            for importer in importers:
                 blast_files.add(importer)
+            if importers or f not in code_files:
+                continue
+            # This metric counts importers OUTSIDE the diff (changed files are
+            # subtracted below), so an importer the diff ADDS can never count,
+            # and `graph_gap` (#718) is not passed for that case. ⚠ It does not
+            # cover the index lagging `base_ref`: an unchanged file that gained
+            # an import between the indexed commit and `base_ref` is invisible
+            # to this graph. That predates #879 and is LEDGER L-62. A file the index
+            # never saw -- a new file -- can have no importer outside the diff
+            # unless an unchanged file imported it before it existed. The one
+            # question left is whether an unchanged file reaches it by PACKAGE,
+            # which the package probe answers from the file's directory, so a
+            # new file is probed as present rather than refused as unindexed.
+            probed.append(f)
+            _, gap = blast_verdict(index, source_files | {f}, f, 0)
+            if gap:
+                blast_unresolvable.append(f)
         # Remove the changed files themselves from blast count
         blast_files -= set(changed_files)
+    blast_measurable = not (blast_unresolvable and not blast_files and len(blast_unresolvable) == len(probed))
 
     total_files = len(index.source_files) if index.source_files else 1
     blast_ratio = len(blast_files) / total_files
@@ -458,6 +492,12 @@ def get_pr_risk_profile(
         risk_level = "high"
     else:
         risk_level = "critical"
+    if not blast_measurable:
+        # An axis nothing measured is withheld, never read as 0.0: dropping it
+        # or zeroing it both LOWER a risk score, the flattering direction
+        # (Standing lesson 2026-08-28, "a refusal is not a zero").
+        risk_score = None
+        risk_level = None
 
     # -------------------------------------------------------------------
     # Hottest symbols (mini-hotspot score per changed symbol)
@@ -574,6 +614,13 @@ def get_pr_risk_profile(
             "symbols_changed": sym_count,
         },
     }
+    if blast_unresolvable:
+        signal_breakdown["blast_radius"]["unresolvable_files"] = sorted(blast_unresolvable)
+        if blast_measurable:
+            signal_breakdown["blast_radius"]["score_is_lower_bound"] = True
+        else:
+            signal_breakdown["blast_radius"]["score"] = None
+            signal_breakdown["blast_radius"]["measurable"] = False
     if runtime_present:
         max_hits = max(per_sym_hits.values()) if per_sym_hits else 0
         signal_breakdown["runtime_traffic"] = {
@@ -590,6 +637,13 @@ def get_pr_risk_profile(
         "to_sha": to_sha,
         "risk_score": risk_score,
         "risk_level": risk_level,
+        **(
+            {}
+            if not blast_unresolvable
+            else {"unmeasurable_axes": ["blast_radius"]}
+            if not blast_measurable
+            else {"risk_score_is_lower_bound": True}
+        ),
         "changed_symbols_count": sym_count,
         "changed_files_count": file_count,
         "blast_radius_files": len(blast_files),

@@ -3153,6 +3153,8 @@ def _build_tools_list(
                 "and change volume — into a single composite risk_score (0.0–1.0) with actionable "
                 "recommendations. Returns the top-5 riskiest changed symbols, untested symbols, "
                 "and per-signal breakdowns. Designed for CI gating and code review workflows. "
+                "risk_score is null, with unmeasurable_axes, when the blast axis could not be measured; "
+                "a CI gate must treat null as a failure, not a pass. "
                 "Requires a locally indexed repo (index_folder)."
             ),
             inputSchema={
@@ -3263,7 +3265,8 @@ def _build_tools_list(
                 "Check whether renaming a symbol to a new name would cause name collisions. "
                 "Scans the symbol's own file and every file that imports it, "
                 "looking for an existing symbol with the proposed new name. "
-                "Returns safe=true when no collisions are found. "
+                "Returns safe=true when no collisions are found, and safe=null with `unresolvable` "
+                "when the import graph could not reach the symbol's file, so its users went unchecked. "
                 "Run this before any rename/refactor to avoid silent breakage. "
                 "For a full rename plan with edits, use plan_refactoring."
             
