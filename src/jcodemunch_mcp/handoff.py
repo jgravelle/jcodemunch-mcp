@@ -200,6 +200,14 @@ def absence_refusal(record: Optional[dict]) -> Optional[str]:
             f"this result was replayed from cache and {_reval.get('reason')}, so it "
             "describes a state that no longer holds"
         )
+    _ignored = record.get("ignored_arguments") or []
+    if _ignored:
+        # (#872) Named before the generic state rule: the scan was a different
+        # call from the one requested, which "the verdict was degraded" hides.
+        return (
+            f"argument(s) this tool does not accept were ignored ({', '.join(_ignored)}), "
+            "so the call that ran is not the call that was requested"
+        )
     _omitted = record.get("omitted") or {}
     if _omitted.get("returned") == 0 and (_omitted.get("matches_found") or 0) > 0:
         # Named before the generic state rule for the same reason as the
@@ -288,6 +296,7 @@ def note_absence(tool: str, repo, query, verdict, arguments=None, truncated=Fals
         "moved_during_scan": verdict.get("moved_during_scan"),
         "working_tree": verdict.get("working_tree"),
         "absence_unprovable": verdict.get("absence_unprovable"),
+        "ignored_arguments": verdict.get("ignored_arguments"),
         "truncated": bool(truncated),
         "scorer": verdict.get("scorer"),
     }

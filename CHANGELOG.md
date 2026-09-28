@@ -28,7 +28,15 @@ carrier on. With `meta_fields` unset, the response carried no
 `absence_blocked_by`; with `meta_fields: []`, the shipped default, it
 carried no `_meta` at all, in json or compact form. The downgrade now sets
 `absence_refused`, as `build_verdict` does for every refused zero-result
-scan, so the carrier arrives and names the cache replay.
+scan, so the carrier arrives and names the cache replay. Review found a
+second downgrade with the same omission: a call with an ignored argument
+(`_arg_contract`) also turned `absent` into `degraded` with no flag, so
+its refusal never reached a default install either. Both now go through
+`retrieval.verdict.refuse_absence`, the one way to rewrite `absent` after
+`build_verdict`, and a ratchet over `src/` fails any other write of
+`degraded` into a verdict's state. The ignored-argument refusal is also
+named ("argument(s) this tool does not accept were ignored (...)") rather
+than the generic "only 'absent' can prove absence".
 
 ### Fixed - a blast radius with importers only in another repository is not "absent" (#877)
 

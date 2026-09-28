@@ -154,3 +154,65 @@ async def test_a_cached_scan_replayed_after_a_commit_carries_its_refusal_on_a_de
     out = _content(await server.call_tool("search_symbols", args))[0].text
     assert "absence_evidence" in out, "a refused cached scan reached a default install with no reason"
     assert "replayed from cache" in out
+
+
+@pytest.mark.asyncio
+async def test_a_scan_with_ignored_arguments_carries_its_refusal_on_a_default_install(checkout, monkeypatch):
+    """Review: `_arg_contract` was a second downgrade that set no `absence_refused`."""
+    from jcodemunch_mcp import server
+
+    _meta_fields(monkeypatch, [])
+    args = {"repo": checkout["repo"], "query": QUERY, "format": "json", "bogus_arg": 1}
+    out = json.loads(_content(await server.call_tool("search_symbols", args))[0].text)
+    carrier = out.get("_meta", {}).get("absence_evidence")
+    assert carrier, "a refused scan with ignored arguments reached a default install with no reason"
+    assert carrier["citable"] is False
+    assert "bogus_arg" in carrier["blocked_by"], "the refusal names the ignored argument"
+
+
+def _degraded_writes(root: Path) -> list[str]:
+    """Every `x["state"] = <degraded>` outside `refuse_absence`."""
+    import ast
+
+    bad = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        allowed: set[int] = set()
+        for fn in ast.walk(tree):
+            if isinstance(fn, ast.FunctionDef) and fn.name == "refuse_absence":
+                allowed |= {n.lineno for n in ast.walk(fn) if hasattr(n, "lineno")}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or node.lineno in allowed:
+                continue
+            val = node.value
+            degraded = (isinstance(val, ast.Constant) and val.value == "degraded") or (
+                isinstance(val, ast.Name) and val.id == "STATE_DEGRADED"
+            )
+            for t in node.targets:
+                if (
+                    degraded
+                    and isinstance(t, ast.Subscript)
+                    and isinstance(t.slice, ast.Constant)
+                    and t.slice.value == "state"
+                ):
+                    bad.append(f"{path.relative_to(root).as_posix()}:{node.lineno}")
+    return bad
+
+
+def test_every_absence_downgrade_goes_through_refuse_absence():
+    """One layer down: a third downgrade inherits the flag, or this fails."""
+    src = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp"
+    assert _degraded_writes(src) == []
+
+
+def test_the_downgrade_scan_sees_a_reintroduced_write(tmp_path):
+    (tmp_path / "m.py").write_text(
+        'STATE_DEGRADED = "degraded"\n'
+        "def f(v):\n"
+        '    v["state"] = "degraded"\n'
+        '    v["state"] = STATE_DEGRADED\n'
+        "def refuse_absence(v):\n"
+        '    v["state"] = STATE_DEGRADED\n',
+        encoding="utf-8",
+    )
+    assert _degraded_writes(tmp_path) == ["m.py:3", "m.py:4"]
