@@ -542,6 +542,75 @@ def _parse_with_spec(
 #: How many macro tokens one class head may carry before it is left as parsed.
 _EXPORT_MACRO_PASSES = 4
 _C_FAMILY_RECORD_SPECIFIERS = frozenset({"class_specifier", "struct_specifier", "union_specifier"})
+#: The C grammar reads `enum API E { A, B };` as the same function shape (L-47).
+_C_FAMILY_MACRO_HEADS = _C_FAMILY_RECORD_SPECIFIERS | {"enum_specifier"}
+
+
+#: The declarator a macro enum's misparse can give: its name, or a qualified
+#: underlying type that took the name's slot. Never an array (L-47 review).
+_ENUM_MACRO_TARGETS = frozenset({"identifier", "field_identifier", "qualified_identifier"})
+
+
+def _enum_macro(node):
+    """The macro in `enum class API E { A, B };`, read as a variable (L-47).
+
+    The C++ grammar reads `enum class API` as an elaborated type, `E` as a
+    variable and the enumerator list as a brace initializer, in a
+    `declaration` (or a `field_declaration` in a class body). ⚠ A plain
+    `enum Color c { RED };` is the SAME tree and a real, brace-initialised
+    variable, so a plain enum is taken only when its list holds two or more
+    entries, which no enum-typed scalar accepts. A scoped head (`enum class`,
+    `enum struct`) with a list is never a variable: that elaborated form is
+    legal only in an opaque declaration, which has no list.
+    ⚠ Entries are counted WITHOUT comments: `enum Color c { RED /* x */ };`
+    is still the real variable (L-47 review). ⚠ The two-entry rule holds
+    for a SCALAR only, so the declarator must be a plain name: an ARRAY
+    (`enum Color cs[2] { RED, GREEN };`) is a real variable that takes any
+    number of entries, and blanking its type lost the functions after it
+    (review, round 2). A `qualified_identifier` is accepted, because a
+    qualified underlying type (`: std::uint8_t`) moves into that slot and the
+    name into an ERROR. In a class body that base parses as a bit-field whose
+    width is `std::uint8_t{ A }`, so the list is read there.
+    """
+    head = node.child_by_field_name("type")
+    if head is None or head.type != "enum_specifier" or head.child_by_field_name("body") is not None:
+        return None
+    macro = head.child_by_field_name("name")
+    if macro is None or macro.type != "type_identifier":
+        return None
+    if node.type == "declaration":
+        declarator = node.child_by_field_name("declarator")
+        if declarator is None or declarator.type != "init_declarator":
+            return None
+        value = declarator.child_by_field_name("value")
+        target = declarator.child_by_field_name("declarator")
+        assigned = any(c.type == "=" for c in declarator.children)
+    else:
+        value = node.child_by_field_name("default_value")
+        target = node.child_by_field_name("declarator")
+        assigned = any(c.type == "=" for c in node.children)
+        if value is None:
+            value = _bitfield_brace_list(node)
+    if value is None or value.type != "initializer_list" or assigned:
+        return None
+    if target is None or target.type not in _ENUM_MACRO_TARGETS:
+        return None
+    scoped = any(c.type in ("class", "struct") for c in head.children)
+    entries = [c for c in value.named_children if c.type != "comment"]
+    if not scoped and len(entries) < 2:
+        return None
+    return macro
+
+
+def _bitfield_brace_list(field):
+    """The `{ A }` of `enum class API E : std::uint8_t { A };` in a class
+    body, which the grammar reads as the bit-field width `std::uint8_t{ A }`."""
+    for child in field.children:
+        if child.type == "bitfield_clause":
+            for width in child.named_children:
+                if width.type == "compound_literal_expression":
+                    return width.child_by_field_name("value")
+    return None
 
 
 def _export_macro_spans(root) -> list:
@@ -572,7 +641,7 @@ def _export_macro_spans(root) -> list:
             head = node.child_by_field_name("type")
             if (
                 head is not None
-                and head.type in _C_FAMILY_RECORD_SPECIFIERS
+                and head.type in _C_FAMILY_MACRO_HEADS
                 and head.child_by_field_name("body") is None
                 and node.child_by_field_name("body") is not None
             ):
@@ -587,6 +656,11 @@ def _export_macro_spans(root) -> list:
                 ):
                     spans.append(macro)
             continue
+        if node.type in ("declaration", "field_declaration"):
+            macro = _enum_macro(node)
+            if macro is not None:
+                spans.append(macro)
+                continue
         # ⚠ A function body (`compound_statement`) is most of a file's nodes
         # and never holds an exported class head, so the scan does not enter
         # one. Class bodies ARE entered, so a nested exported class is found
@@ -690,6 +764,20 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     if not cpp_symbols and not c_symbols:
         return cpp_symbols, cpp_tree
 
+    # ⚠⚠ The C++ parse holds a declaration only C++ has: C++ (LEDGER L-52),
+    # whatever the error counts say. The C grammar reads `namespace n { class A { void
+    # f(); }; }` WITHOUT an error, as a function `n` returning `namespace` with
+    # a function `A` nested in it, and that misparse has MORE symbols than the
+    # class, so the count below chose it and a declaration-only header lost
+    # every class. A C++-only node outside an ERROR is structural evidence,
+    # where the lexical markers below are substrings (`class ` in a comment).
+    # ⚠ Ahead of the error comparison, not only on a tie: a Qt `signals:`
+    # section costs the C++ parse one ERROR and none in C, and the class was
+    # lost the same way (review of L-52). On lua and redis the construct fires
+    # in no header the error count had given to C.
+    if cpp_tree is not None and _has_cpp_only_construct(cpp_tree.root_node):
+        return cpp_symbols, cpp_tree
+
     # Both yielded symbols: choose fewer parse errors first, then richer symbol output.
     if c_error_nodes < cpp_error_nodes:
         return c_symbols, c_tree
@@ -723,8 +811,14 @@ def _walk_tree(
     calls: Optional[list] = None,
     parent_is_container: bool = False,
     adopted: tuple = (),
+    qualified_records: Optional[dict] = None,
 ):
     """Recursively walk the AST and extract symbols.
+
+    *qualified_records* maps the id of each C++ type defined with a qualified
+    name (`class W::I {}`, L-46) to every set of enclosing namespaces it was
+    defined in, shared by the whole walk: its qualifier may name a class, so only
+    those enclosing namespaces are evidence of a namespace.
 
     *adopted* are sibling nodes walked as if they were `node`'s own last
     children: a Kotlin accessor the grammar spilled out of its property
@@ -743,6 +837,8 @@ def _walk_tree(
         return
 
     is_cpp = language in ("cpp", "arduino")
+    if qualified_records is None:
+        qualified_records = {}
     local_scope_parts = scope_parts or []
     next_parent = parent_symbol
     next_class_scope_depth = class_scope_depth
@@ -803,8 +899,18 @@ def _walk_tree(
             )
             if symbol and is_cpp and parent_symbol is None and symbol.kind == "function":
                 symbol = _cpp_out_of_class_member(
+                    node, symbol, source_bytes, filename, local_scope_parts, symbols,
+                    qualified_records,
+                )
+            if symbol and is_cpp and parent_symbol is None and node.type in _C_FAMILY_MACRO_HEADS:
+                qualified = _cpp_qualified_record(
                     node, symbol, source_bytes, filename, local_scope_parts, symbols
                 )
+                if qualified is not symbol:
+                    # A list: `#ifdef` branches can define one type twice
+                    # in two scopes (review of L-46).
+                    qualified_records.setdefault(qualified.id, []).append(tuple(local_scope_parts))
+                symbol = qualified
             if symbol:
                 symbols.append(symbol)
                 # #823: `typedef int A, B;` binds N names and the node yields
@@ -1090,6 +1196,7 @@ def _walk_tree(
                 child, spec, source_bytes, filename, language, symbols,
                 next_parent, local_scope_parts, next_class_scope_depth,
                 call_types, calls, next_is_container, accessors,
+                qualified_records,
             )
             if accessors:
                 _kotlin_cover_adopted(symbols, before, child, accessors[-1], source_bytes)
@@ -1109,6 +1216,7 @@ def _walk_tree(
                 call_types,
                 calls,
                 next_is_container,
+                qualified_records=qualified_records,
             )
 
     # #835: at the ROOT, once the whole tree is walked, so every caller of
@@ -2874,6 +2982,100 @@ def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
     return None
 
 
+def _cpp_scope_segments(qualified, source_bytes: bytes):
+    """`A::B::x` -> `(["A", "B"], <node x>)`: the scope segments of a C++
+    `qualified_identifier` and the node it finally names. None when a scope
+    has no name to give it, including the global `::x`."""
+    segments: list[str] = []
+    current = qualified
+    while current is not None and current.type == "qualified_identifier":
+        scope = current.child_by_field_name("scope")
+        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
+        if segment is None:
+            return None
+        segments.append(segment)
+        current = current.child_by_field_name("name")
+    if current is None:
+        return None
+    return segments, current
+
+
+def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
+    """The dotted owner a qualified name's scope `segments` names from inside
+    `scope_parts`. ⚠ The first segment is looked up from the innermost
+    enclosing scope outward, so inside `namespace testing`,
+    `testing::internal::X` names the enclosing namespace, not
+    `testing.testing` (gtest in fmt's tree, found in L-07's corpus diff)."""
+    base = list(scope_parts)
+    for depth in range(len(scope_parts) - 1, -1, -1):
+        if scope_parts[depth] == segments[0]:
+            base = list(scope_parts[:depth])
+            break
+    return ".".join([*base, *segments])
+
+
+def _cpp_qualified_record(
+    node,
+    symbol: Symbol,
+    source_bytes: bytes,
+    filename: str,
+    scope_parts: list[str],
+    symbols: list,
+) -> Symbol:
+    """A C++ class, struct, union or enum DEFINED with a qualified name, as
+    its owner's member (LEDGER L-46).
+
+    ⚠⚠ The pimpl `class Widget { class Impl; };` then `class Widget::Impl {
+    ... };` was `Impl#class`, so `void Widget::Impl::go() {}` (named
+    `Widget.Impl.go` by L-07) found no owner, and `struct a::W::I` was named
+    `W::I` with the `::` in it. The scope joins the enclosing namespaces as
+    L-07's out-of-line bodies do, and a class of that name in the file is the
+    parent. The member walk below reads the qualified name off this symbol, so
+    the members follow it. C++ requires the nested class to be declared in its
+    owner first, so the owner is already in `symbols`.
+    """
+    name_node = node.child_by_field_name("name")
+    if name_node is None or name_node.type != "qualified_identifier":
+        return symbol
+    # `class ::A::B {}`: a leading `::` names the global scope, so the owner is
+    # looked up from the file scope, not the enclosing namespaces.
+    if name_node.child_by_field_name("scope") is None:
+        name_node = name_node.child_by_field_name("name")
+        scope_parts = []
+        if name_node is None or name_node.type != "qualified_identifier":
+            return symbol
+    walked = _cpp_scope_segments(name_node, source_bytes)
+    if walked is None or not walked[0]:
+        return symbol
+    segments, last = walked
+    # ⚠ A specialisation `A::B<int>` is named `B`, as the same specialisation
+    # written inside `A` is (`A.B`); `main` named the out-of-line one `B<int>`.
+    name = _cpp_scope_segment(last, source_bytes)
+    if not name:
+        return symbol
+    owner = _cpp_owner_in_scope(segments, scope_parts)
+    qualified = f"{owner}.{name}"
+    owner_symbol = next(
+        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
+        None,
+    )
+    return dataclasses.replace(
+        symbol,
+        id=make_symbol_id(filename, qualified, symbol.kind),
+        name=name,
+        qualified_name=qualified,
+        parent=owner_symbol.id if owner_symbol is not None else None,
+        keywords=list(symbol.keywords),
+        decorators=list(symbol.decorators),
+        call_references=list(symbol.call_references),
+    )
+
+
+def _names_a_namespace(owner: str, scope_parts) -> bool:
+    """Is `owner` one of the namespaces `scope_parts` opens (`a`, `a.b`)?"""
+    return any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1))
+
+
 def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]:
     """`A::run` -> `["A", "run"]` for a function DEFINITION whose declarator is
     qualified (L-07); None for anything else, including `::f`, whose global
@@ -2888,16 +3090,10 @@ def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]
         current = current.child_by_field_name("declarator")
     if current is None or current.type != "qualified_identifier":
         return None
-    segments: list[str] = []
-    while current is not None and current.type == "qualified_identifier":
-        scope = current.child_by_field_name("scope")
-        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
-        if segment is None:
-            return None
-        segments.append(segment)
-        current = current.child_by_field_name("name")
-    if current is None:
+    walked = _cpp_scope_segments(current, source_bytes)
+    if walked is None:
         return None
+    segments, current = walked
     if current.type == "template_function":
         current = current.child_by_field_name("name") or current
     last = source_bytes[current.start_byte:current.end_byte].decode("utf-8").strip()
@@ -2911,6 +3107,7 @@ def _cpp_out_of_class_member(
     filename: str,
     scope_parts: list[str],
     symbols: list,
+    qualified_records: Optional[dict] = None,
 ) -> Symbol:
     """A C++ definition named by a qualified declarator, as the member it is.
 
@@ -2924,6 +3121,11 @@ def _cpp_out_of_class_member(
       ⚠⚠ an out-of-line METHOD body is not that evidence, or the first
       `DBImpl::Recover` in a `.cpp` beside its `.h` would make every later
       `DBImpl::` body a function (measured on leveldb, review of the draft);
+      ⚠⚠ nor is the QUALIFIER of a type defined with a qualified name
+      (L-46): leveldb's `db_impl.cc` defines `struct DBImpl::Writer`, and
+      counting it made every `DBImpl::` body after it a function (L-46's
+      corpus diff). The namespaces ENCLOSING that definition still count
+      (`namespace n { struct W::I {}; } void n::f() {}`, review of L-46);
     - otherwise the owner is in another file (a `.cpp` beside its `.h`) and it
       is a `method` with no `parent`.
     C++ requires the class to be declared before an out-of-line definition, so
@@ -2932,26 +3134,20 @@ def _cpp_out_of_class_member(
     segments = _cpp_out_of_class_segments(node, source_bytes)
     if not segments or len(segments) < 2:
         return symbol
-    # ⚠ The first segment is looked up from the innermost enclosing scope
-    # outward, so inside `namespace testing`, `testing::internal::X` names the
-    # enclosing namespace, not `testing.testing` (gtest in fmt's tree, found in
-    # the corpus diff of the draft).
-    base = list(scope_parts)
-    for depth in range(len(scope_parts) - 1, -1, -1):
-        if scope_parts[depth] == segments[0]:
-            base = list(scope_parts[:depth])
-            break
-    owner = ".".join([*base, *segments[:-1]])
+    owner = _cpp_owner_in_scope(segments[:-1], scope_parts)
     name = segments[-1]
     qualified = f"{owner}.{name}"
     owner_symbol = next(
         (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
         None,
     )
+    records = qualified_records or {}
     if owner_symbol is not None:
         kind, parent = "method", owner_symbol.id
-    elif any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1)) or any(
-        s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + ".")
+    elif _names_a_namespace(owner, scope_parts) or any(
+        any(_names_a_namespace(owner, parts) for parts in records[s.id])
+        if s.id in records
+        else (s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + "."))
         for s in symbols
     ):
         kind, parent = "function", None
@@ -3295,6 +3491,34 @@ def _extract_cpp_namespace_name(node, source_bytes: bytes) -> Optional[str]:
 
     name = source_bytes[name_node.start_byte:name_node.end_byte].decode("utf-8").strip()
     return name or None
+
+
+#: Declarations no C source can spell, so a C++ parse holding one outside an
+#: ERROR is a C++ header (L-52). ⚠ Not `linkage_specification`: a C header's
+#: `extern "C" {` guard is read by the C++ grammar as exactly that.
+_CPP_ONLY_DECLARATIONS = frozenset({
+    "namespace_definition",
+    "class_specifier",
+    "template_declaration",
+    "access_specifier",
+    "using_declaration",
+    "alias_declaration",
+    "namespace_alias_definition",
+})
+
+
+def _has_cpp_only_construct(root) -> bool:
+    """Does this C++ parse hold a declaration no C source can spell, outside
+    an ERROR? A function body is not entered: a declaration is what decides."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in _CPP_ONLY_DECLARATIONS:
+            return True
+        stack.extend(
+            c for c in node.children if c.type not in ("ERROR", "compound_statement")
+        )
+    return False
 
 
 def _looks_like_cpp_header(source_bytes: bytes) -> bool:

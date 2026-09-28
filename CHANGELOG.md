@@ -2,6 +2,182 @@
 
 ## [Unreleased]
 
+### Fixed - a C++ header of namespaced declarations is read as C++ (LEDGER L-52)
+
+A `.h` is parsed with both grammars and the better parse wins. The C
+grammar reads `namespace n { class A { void f(); }; }` without a single
+error: `namespace n` becomes a function returning a type named `namespace`,
+and everything inside it a statement block. With both parses clean, the
+tie went to the parse with MORE symbols, and the misparse had more. So a
+declaration-only header in a namespace (6 of leveldb's 56 headers)
+published `n#function` and bare `f#function` rows instead of its classes
+and qualified functions. Found in L-46's review.
+
+A C++ parse that holds a declaration no C source can spell (a
+namespace, class, template, access specifier, `using` or alias), outside
+an ERROR, now wins. That is read from the tree, not from the lexical
+markers the tie-break already had, which match `class ` in a comment. It
+runs ahead of the error comparison, not only on a tie: a Qt `signals:`
+section costs the C++ parse one ERROR and C none, and the first draft
+still chose C there (review). `extern "C" {` is not on the list, because
+the C++ grammar reads a C header's guard that way; counting it moved four
+redis headers (hiredis's `alloc.h`, `async.h`, `read.h` and linenoise's
+`linenoise.h`) to C++ (review).
+The test pins that a namespaced class, a class, access specifiers, a
+namespaced struct, a template, namespace prototypes, a Qt `signals:`
+class and an include-guarded header publish what the same text publishes
+as `.cpp`, and that a C header (a struct, `class` in a comment, a typedef
+with an inline function, hiredis's `extern "C"` guard shape) publishes what
+it publishes as `.c`.
+
+The cost of running it first: a C header that carries a C++ block inside
+`#ifdef __cplusplus` (a `class Wrapper;` forward declaration) is read as
+C++ even where the C++ parse has more errors, so a C `typedef struct buf
+{...} buf;` in it publishes C++'s rows (`buf#type~1`/`~2`, `buf.data`)
+where it published C's (`buf#type`, `buf.buf#type`). Names move, none is
+lost, and no header in lua or redis has that shape (review).
+
+Not fixed (LEDGER L-55), with no real header of either shape found in lua
+or redis:
+- a C header that names a type `using` and then declares with it
+  (`typedef int using; using f(int);`) is read as C++ and loses `f`,
+  because the C++ grammar recovers with a MISSING node that the error
+  count does not see;
+- a K&R definition (`int old(a, b) int a; int b; { ... }`) in a C header
+  that also holds a C++ block is read as C++ and loses `old`, which the
+  C++ grammar drops without an ERROR.
+
+Measured, `main` against this branch:
+- lua 0b29f40 and redis 4cb007b (340 C headers, 516 `.c` files): no id
+  changes;
+- fmt 5da4e9a: no change;
+- leveldb 7ee830d `.h`: 6 headers change, `ids 1163 -> 1155`. The 13
+  removed ids are the misparse: six `leveldb#function`, one each of
+  `leveldb.log#function` and `leveldb.crc32c#function`, and four bare
+  functions (`NewDBIterator`, `NewMemEnv`, `NewMergingIterator`, `Hash`)
+  plus `Extend`, which become `leveldb.NewDBIterator`, `leveldb.NewMemEnv`,
+  `leveldb.NewMergingIterator`, `leveldb.Hash` and `leveldb.crc32c.Extend`.
+  `crc32c`'s `Mask`, `Unmask` and `Value` and `log_format.h`'s
+  `RecordType` lose the bogus function as their parent.
+
+### Fixed - a C++ class defined with a qualified name is its owner's member (LEDGER L-46)
+
+The pimpl idiom declares a nested class and defines it outside its owner:
+`class Widget { class Impl; };` then `class Widget::Impl { void go(); };`.
+The class was indexed under its last segment, `Impl#class`, with members
+`Impl.go`. So the out-of-line body `void Widget::Impl::go() {}`, named
+`Widget.Impl.go` since L-07, found no owner and shared no name with its own
+declaration. A deeper qualifier was worse: `struct a::W::I` was named
+`W::I`, with the `::` in the name. Found in L-07's review.
+
+A class, struct, union or enum defined with a qualified name now takes that
+name. Its scope joins the enclosing namespaces the way L-07's out-of-line
+bodies do, and a class of that name in the file is its parent. Its members
+follow, because the member walk reads the qualified name off the class. A
+specialisation `A::B<int>` is named `B`, as the same specialisation
+written inside `A` is; `main` gave the out-of-line one `B<int>`. So two
+specialisations of one template in a file, `template <> struct
+std::hash<A> {}` and `std::hash<B>`, were `hash<A>#type` and `hash<B>#type`
+and are now `std.hash#type~1` and `~2` in source order, as the same two
+written inside `namespace std { }` already were. How a specialisation is
+named at all is LEDGER L-54. A leading `::` resolves from the file scope:
+`class ::A::B {}` is `A.B` (it was `A::B`), and `class ::Top` is unchanged.
+
+The first draft broke L-07. L-07 reads a scope that a file-scope symbol is
+qualified under as a NAMESPACE, and leveldb's `db_impl.cc` defines
+`struct DBImpl::Writer` before its `DBImpl::` bodies. The struct became
+such a symbol, so every body after it turned from a method into a function
+(the draft's corpus diff). The qualifier of a type defined with a
+qualified name is no evidence now, since it may name a class. The
+namespaces ENCLOSING that definition still are: the second draft dropped
+them too, and `namespace n { struct W::I {}; } void n::f() {}` turned
+`main`'s `n.f#function` into a method (review).
+The test pins that each out-of-line form (class, struct, union, enum,
+two-level, namespace-qualified, inside a namespace, `final` with a base,
+specialisation, two specialisations, a leading `::`, export macro, nested
+in the definition) publishes exactly
+what the same class written inline in its owner publishes, in `.cpp`, `.h`
+and Arduino. It also pins that the pimpl bodies are owned by the nested
+class, that an owner in another file still qualifies the class, that
+`DBImpl::Recover` stays a method after `struct DBImpl::Writer`, and that
+`n::f` stays a function after `namespace n { struct W::I {}; }`.
+
+Not fixed, each as on `main`:
+- a class qualified through an inline namespace the source leaves out
+  (`class a::W::I` for `a::v1::W`) is not given the inline namespace, as
+  L-07's bodies are not (LEDGER L-53);
+- a `.h` whose namespaced class holds only method prototypes,
+  `namespace n { class A { void f(); }; }`, is read as C and publishes
+  `n#function` (LEDGER L-52).
+
+Measured on the pinned corpora, `main` against this branch: every id count
+is unchanged, and the moves are re-qualifications.
+- leveldb `.cc`: 5 files, `+class: 3`, `+field: 56`, `+method: 37`,
+  `+type: 8` against the same removals. `CompactionState` in `db_impl.cc`
+  becomes `DBImpl.CompactionState`, and `DBImpl::Writer` and its members
+  follow.
+- leveldb `.h`: `skiplist.h`, `+method: 5`, `+field: 2`, `+type: 1` against
+  the same removals. `leveldb.Node` becomes `leveldb.SkipList.Node`.
+- fmt `.cc`: `format-test.cc`, `formatter<explicitly_convertible_to_std_string_view>#type`
+  becomes `fmt.formatter#type`. Its `format` then shares a name with another
+  `fmt.formatter.format`, and the two are numbered `~1`/`~2`.
+- fmt `.h`: no change.
+
+### Fixed - a C-family enum declared behind an export macro is an enum (LEDGER L-47)
+
+`enum class API E { A, B };` published nothing. The grammar reads
+`enum class API` as an elaborated type, `E` as a variable and the
+enumerator list as a brace initializer. In a class body the same head gave
+`S.E#field`, and the C grammar read `enum API E { A, B };` as `E#function`.
+L-45 unmasked class, struct and union heads only. Found in L-45's review.
+
+The same blank-and-re-parse now covers an enum head. The C shape is L-45's
+function shape with an `enum` head, so it joins that rule. The C++ shape is
+a declaration, and one spelling of it is real code: `enum Color c { RED };`
+is a brace-initialised variable and gives the same tree as a one-enumerator
+enum behind a macro. So a scoped head (`enum class`, `enum struct`) is
+always taken, because that elaborated form is legal only in an opaque
+declaration, which has no list. A plain `enum` is taken only when its list
+holds two or more entries, which no enum-typed variable accepts. Entries
+are counted without comments: the first draft counted `/* default */` as an
+entry and turned the real `enum Color c { RED /* default */ };` into a type
+(review). The two-entry rule holds for a scalar only, so the declarator
+must be a plain name: `enum Color cs[2] { RED, GREEN };` is a real array,
+and a draft that stopped reading the declarator blanked `Color` and lost
+the function after it (review, round 2). A qualified name is accepted,
+because a qualified underlying type (`: std::uint8_t`) takes the name's
+slot. In a class body that base parses as a bit-field whose width is
+`std::uint8_t{ A }`, and the list is read there.
+The test pins that a scoped, `enum struct`, one-entry, empty, commented,
+based (`int`, `std::uint8_t`, `ns::T`), two-macro, namespaced, in-class and
+plain two-entry head publishes exactly what the same text without the
+macro publishes, in `.cpp`, `.h` and Arduino; that the C form is an enum;
+and that a brace-initialised variable (with and without a comment), a
+commented enum field, a bit-field with a cast width and a brace-initialised
+enum array (file scope, class body, two-dimensional, Arduino) publish
+exactly what `main` publishes.
+
+Not fixed, each as on `main`:
+- a plain one-enumerator enum behind a macro in C++ (LEDGER L-49);
+- two or more macro enums in a row in C, which the C grammar reads as one
+  `ERROR` (LEDGER L-50);
+- an enum or class behind a macro inside a function body, since the scan
+  does not enter function bodies (LEDGER L-51).
+
+Measured on the pinned corpora, `main` against this branch: no id changes
+(`fmt (h)` `ids 6365 -> 6365`, `leveldb (h)` `ids 1163 -> 1163`, and both
+`.cc` sets unchanged). Neither corpus writes an enum behind a macro, so
+this shows there is no collateral movement. It is not evidence of the fix.
+Ids move only where the shape occurs:
+- a C++ enum behind a macro gains `E#type` where it published nothing;
+- in a class body, `S.E#field` becomes `S.E#type`;
+- C's `E#function` becomes `E#type`;
+- in a `.c` or `.h` file, a brace-initialised enum array
+  (`enum Color cs[2] { RED, GREEN };`) loses the `cs#function` the misparse
+  gave it and publishes nothing, which is what a `.cpp` file publishes for
+  the same text (the function shape now admits an `enum` head, and blanking
+  `Color` leaves a file-scope array, which is not indexed).
+
 ### Fixed - a C++ class declared behind an export macro is a class (LEDGER L-45)
 
 `class LEVELDB_EXPORT Status { bool ok() const; };` is how most exported
@@ -59,8 +235,8 @@ one `testing.testing.*`: error recovery in that 12,399-line header leaves a
 time, median of 5, `main` against this branch in one run:
 `gmock-gtest-all.cc` 0.344 s to 0.368 s, `gtest.h` 1.009 s to 1.093 s,
 `db_impl.cc` 0.037 s to 0.038 s.
-Not fixed here, as on `main` (LEDGER L-47): `enum class API E { A, B };`
-publishes nothing where `enum class E` publishes `E#type`.
+An enum behind a macro was not fixed here (LEDGER L-47); it is fixed in
+the L-47 entry above.
 `PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
 
 ### Fixed - a C++ out-of-class member definition is a member of its class (LEDGER L-07)

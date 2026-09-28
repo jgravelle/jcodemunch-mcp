@@ -541,6 +541,25 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-45: a C-family class behind an export macro is a class.**
 #   MOVES: `Status#function` for `class LEVELDB_EXPORT Status {}` becomes
 #   `Status#class`, and its members gain their owner.
+#
+#   ⚠⚠ **And L-47: a C-family enum behind an export macro is an enum.**
+#   MOVES: `enum class API E { A };` gains `E#type` where it published
+#   nothing; in a class body `S.E#field` becomes `S.E#type`; C's
+#   `E#function` for `enum API E { A };` becomes `E#type`, and C's
+#   `cs#function` for the array `enum Color cs[2] { RED, GREEN };` goes.
+#
+#   ⚠⚠ **And L-46: a C++ type defined with a qualified name is its owner's
+#   member.** MOVES: `Impl#class` for `class Widget::Impl {}` becomes
+#   `Widget.Impl#class` (parent `Widget` when it is in the file) and its
+#   members follow; `W::I#type` for `struct a::W::I` becomes `a.W.I#type`; an
+#   out-of-line specialisation `B<int>` becomes `A.B`, so two of one
+#   template in a file (`std::hash<A>`, `std::hash<B>`) are `std.hash~1`/`~2`;
+#   `A::B#class` for `class ::A::B` becomes `A.B#class`; an existing id can
+#   gain a `~N` when a moved type now shares its name.
+#
+#   ⚠⚠ **And L-52: a C++ header of namespaced declarations is read as C++.**
+#   MOVES: in such a `.h`, `n#function` and bare `f#function` rows from the
+#   C misparse become `n.f#function`, `n.A#class` and `n.A.f#method`.
 PARSER_GENERATION = 8
 
 
