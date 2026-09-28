@@ -138,6 +138,14 @@ REAL_CODE = {
         "cpp",
         [("S#type", "type"), ("S.cs#field", "field"), ("S.x#field", "field")],
     ),
+    # MOVES (disclosed): main gave the C misparse `cs#function`; the array is
+    # a file-scope variable, which C++ does not index either (review, round 3).
+    "c-array-then-function": (
+        "enum Color cs[2] { RED, GREEN };\nint after() { return 0; }\n",
+        "a.c",
+        "c",
+        [("after#function", "function")],
+    ),
     "two-dimensional-array-field": (
         "struct S {\n  enum Color g[2][2] { {RED, GREEN}, {BLUE, RED} };\n};\n",
         "a.cpp",
