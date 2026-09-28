@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - a latency Floor that fails on one preempted call is measured again before it fails (#906, #911)
+
+The bench tier gates four warm p95 latencies, each over 20 calls, so two
+calls preempted on a shared CI runner are the 95th percentile. Harness
+FINDINGS F-19 counts ten such FAILs before this week and #906 and #911 made
+it twelve: `get_file_outline` at 69.5 ms against a 28 ms Floor on a
+docs-only commit, and `search_symbols` at 63.3 against 23, while the next
+`main` run on the same code passed. No Floor level separates that from a
+regression, because a clean runner's median never moved; each one opened a
+`regression` issue or blocked a PR until someone re-ran the job by hand.
+
+`benchmarks/self_latency/measure.py` now measures a series that fails its
+Floor once more in the same process and reports the second series. A tail
+that reproduces still fails. One that does not passes, and the first p95
+stays in the artifact beside it (`latency.<tool>_warm_p95_first_ms`,
+`latency.<tool>_resampled`), so a re-sampled pass is visible, not silent.
+A passing series is measured once, and the Floors are unchanged.
+
 ### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
 
 `template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so
