@@ -19,7 +19,6 @@ without asking, unless it is listed with the LEDGER row that tracks it.
 from __future__ import annotations
 
 import ast
-import re
 import subprocess
 from pathlib import Path
 
@@ -107,6 +106,7 @@ def test_a_collision_the_graph_cannot_see_is_not_safe(fixture_repo):
         ("rename", {"new_name": "RemoveItem"}),
         ("signature", {"new_signature": "func (r *OrderRepo) DeleteItem(id string, force bool) error"}),
         ("move", {"new_file": "repository/moved.go"}),
+        ("extract", {"new_file": "repository/extracted.go"}),
     ],
 )
 def test_a_plan_says_its_affected_files_are_unresolvable(fixture_repo, refactor_type, kw):
@@ -159,12 +159,69 @@ def test_the_pr_risk_blast_signal_names_what_it_could_not_walk(fixture_repo):
     assert blast["unresolvable_files"] == ["repository/order_repo.go"], blast
     assert blast["score_is_lower_bound"] is True
     assert blast["affected_files"] >= 1  # the Python control's importer is still counted
+    assert out["risk_score_is_lower_bound"] is True  # beside the number it qualifies (review)
+    assert isinstance(out["risk_score"], float)
+
+
+def test_an_unmeasured_blast_axis_withholds_the_composite(fixture_repo):
+    """Only the Go file changed, so no probed file resolved and nothing was
+    found: the axis is not measured, and a composite built on a 0.0 there is
+    LOWER than the truth. It is withheld, never graded (review of #879;
+    Standing lesson 2026-08-28)."""
+    from jcodemunch_mcp.tools.get_pr_risk_profile import get_pr_risk_profile
+
+    root, repo, store = fixture_repo
+    first = _git(["rev-parse", "HEAD"], root)
+    go = root / "repository" / "order_repo.go"
+    go.write_text(go.read_text().replace("return nil", "return nil // changed"))
+    _git(["commit", "-qam", "edit"], root)
+    out = get_pr_risk_profile(repo, base_ref=first, head_ref="HEAD", storage_path=store)
+    assert out["risk_score"] is None and out["risk_level"] is None, out
+    assert out["unmeasurable_axes"] == ["blast_radius"]
+    blast = out["signal_breakdown"]["blast_radius"]
+    assert blast["score"] is None and blast["measurable"] is False
+
+
+def test_a_new_file_is_probed_by_its_package_and_a_new_leaf_is_measured(fixture_repo):
+    """A new Go file joins a package an unchanged file imports, so it has a
+    dependent the file graph cannot see: probed by its directory, never
+    skipped as unindexed (review of #879). A new Python file nothing can yet
+    import is a measured zero, and nothing is flagged."""
+    from jcodemunch_mcp.tools.get_pr_risk_profile import get_pr_risk_profile
+
+    root, repo, store = fixture_repo
+    first = _git(["rev-parse", "HEAD"], root)
+    (root / "repository" / "extra.go").write_text("package repository\n\nfunc Extra() int { return 1 }\n")
+    _git(["add", "-A"], root)
+    _git(["commit", "-qm", "go"], root)
+    go_only = get_pr_risk_profile(repo, base_ref=first, head_ref="HEAD", storage_path=store)
+    assert go_only["signal_breakdown"]["blast_radius"]["unresolvable_files"] == ["repository/extra.go"]
+    assert go_only["risk_score"] is None
+
+    second = _git(["rev-parse", "HEAD"], root)
+    (root / "services" / "fresh.py").write_text("def fresh():\n    return 1\n")
+    _git(["add", "-A"], root)
+    _git(["commit", "-qm", "py"], root)
+    py_only = get_pr_risk_profile(repo, base_ref=second, head_ref="HEAD", storage_path=store)
+    assert isinstance(py_only["risk_score"], float), py_only
+    assert "unresolvable_files" not in py_only["signal_breakdown"]["blast_radius"]
+    assert "risk_score_is_lower_bound" not in py_only and "unmeasurable_axes" not in py_only
 
 
 # --- the ratchet -----------------------------------------------------------
+#
+# Found by NAME, per FUNCTION, through import aliases (review of #879: a
+# module-level scan passed with `_check_collision` walking on its own beside a
+# helper that asked, and an aliased `_bfs_importers as walk` passed too). A
+# call is resolved through the module's `from ... import X as Y` lines, and
+# every function that calls a walker must itself (nested bodies included)
+# call `blast_verdict` or `importers_with_verdict`. ⚠ Still a check of CALLS,
+# not of control flow: a verdict call under `if False:` satisfies it.
 
-WALKERS = ("_bfs_importers", "_build_reverse_adjacency")
-# A module that walks the graph without asking, and the LEDGER row tracking it.
+WALKERS = {"_bfs_importers", "_build_reverse_adjacency"}
+ASKS = {"blast_verdict", "importers_with_verdict"}
+# Modules that walk the graph without asking, and the LEDGER row tracking
+# them; `scripts/gap_ledgers.py` requires the row to exist and read OPEN.
 NOT_YET_ASKING = {
     "src/jcodemunch_mcp/tools/find_dead_code.py": "L-59",
     "src/jcodemunch_mcp/tools/get_dead_code_v2.py": "L-59",
@@ -172,40 +229,110 @@ NOT_YET_ASKING = {
     "src/jcodemunch_mcp/tools/get_call_hierarchy.py": "L-59",
     "src/jcodemunch_mcp/tools/get_impact_preview.py": "L-59",
 }
-# The authority itself and the walk's own definitions.
+# The authority: it defines the walk and the verdict.
 AUTHORITY = {"src/jcodemunch_mcp/tools/get_blast_radius.py"}
 # Walks written by hand (a `resolve_specifier` loop compared against the
-# target file), which no scan for the walker's NAME can see. Each must ask.
+# target file), which no scan for a walker's NAME can see. The KNOWN
+# population, recorded because a hand-kept list is only as good as its
+# census: each either asks or is tracked. A census by SHAPE (a loop over
+# `index.imports` calling `resolve_specifier`) matched 23 functions on
+# 2026-09-28, most of them forward graphs and centrality, so it is not a gate.
 HAND_ROLLED = {"src/jcodemunch_mcp/tools/check_rename_safe.py"}
+HAND_ROLLED_NOT_YET = {
+    "src/jcodemunch_mcp/tools/get_file_risk.py": "L-59",
+    "src/jcodemunch_mcp/tools/find_importers.py": "L-59",
+}
 
 
-def _names_called(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    out = set()
+def _aliases(tree) -> dict[str, str]:
+    out = {}
     for n in ast.walk(tree):
-        if isinstance(n, ast.Call):
-            f = n.func
-            out.add(f.id if isinstance(f, ast.Name) else getattr(f, "attr", ""))
+        if isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                out[a.asname or a.name] = a.name
     return out
 
 
+def _called(node, aliases) -> set[str]:
+    out = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call):
+            f = n.func
+            name = f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")
+            out.add(aliases.get(name, name))
+    return out
+
+
+def _outer_silent(path: Path) -> list[str]:
+    """Silent functions not nested in a function that asks: a nested helper
+    that walks for an outer function that asks is that function's walk."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    aliases = _aliases(tree)
+    asking_bodies = set()
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and _called(fn, aliases) & ASKS:
+            asking_bodies |= {id(n) for n in ast.walk(fn) if n is not fn}
+    return [
+        fn.name for fn in ast.walk(tree)
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and id(fn) not in asking_bodies
+        and _called(fn, aliases) & WALKERS
+        and not _called(fn, aliases) & ASKS
+    ]
+
+
 def test_every_importer_walk_asks_blast_verdict():
-    walkers, asking = set(), set()
+    silent: dict[str, list[str]] = {}
     for path in sorted((REPO / "src").rglob("*.py")):
         rel = path.relative_to(REPO).as_posix()
-        called = _names_called(path)
-        if called & set(WALKERS):
-            walkers.add(rel)
-            if "blast_verdict" in called:
-                asking.add(rel)
-    silent = walkers - asking - AUTHORITY
-    assert silent == set(NOT_YET_ASKING), (
-        f"walk the importer graph without asking blast_verdict: {sorted(silent - set(NOT_YET_ASKING))}; "
-        f"listed but no longer silent (remove them): {sorted(set(NOT_YET_ASKING) - silent)}"
+        if rel in AUTHORITY:
+            continue
+        found = _outer_silent(path)
+        if found:
+            silent[rel] = found
+    assert set(silent) == set(NOT_YET_ASKING), (
+        f"walk the importer graph without asking blast_verdict: "
+        f"{ {k: v for k, v in silent.items() if k not in NOT_YET_ASKING} }; "
+        f"listed but no longer silent (remove them): {sorted(set(NOT_YET_ASKING) - set(silent))}"
     )
     for rel in sorted(HAND_ROLLED):
-        assert "blast_verdict" in _names_called(REPO / rel), f"{rel} walks importers by hand without blast_verdict"
-    ledger = (REPO / "docs" / "workflows" / "LEDGER.md").read_text(encoding="utf-8")
-    for rel, row in NOT_YET_ASKING.items():
-        m = re.search(rf"^\| {re.escape(row)} \|.*$", ledger, re.M)
-        assert m and "OPEN" in m.group(0), f"{rel} names {row}, which is not an OPEN LEDGER row"
+        assert _called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {}) & ASKS, (
+            f"{rel} walks importers by hand without blast_verdict"
+        )
+    for rel in sorted(HAND_ROLLED_NOT_YET):
+        assert not _called(ast.parse((REPO / rel).read_text(encoding="utf-8")), {}) & ASKS, (
+            f"{rel} asks now: move it from HAND_ROLLED_NOT_YET to HAND_ROLLED"
+        )
+
+
+def test_the_ratchet_sees_a_walk_beside_a_helper_that_asks(tmp_path):
+    """Non-vacuity, in-suite: the two shapes review planted past the
+    module-level draft -- a function that walks on its own in a module whose
+    helper asks, and a walker imported under another name."""
+    beside = tmp_path / "beside.py"
+    beside.write_text(
+        "from .get_blast_radius import importers_with_verdict, _bfs_importers, _build_reverse_adjacency\n"
+        "def helper(index, f):\n    return importers_with_verdict(index, f, 1)\n"
+        "def check(index, f):\n"
+        "    rev = _build_reverse_adjacency(index.imports, set(), {}, None)\n"
+        "    return _bfs_importers(f, rev, 1)\n",
+        encoding="utf-8",
+    )
+    aliased = tmp_path / "aliased.py"
+    aliased.write_text(
+        "from .get_blast_radius import _bfs_importers as walk\n"
+        "def check(rev, f):\n    return walk(f, rev, 1)\n",
+        encoding="utf-8",
+    )
+    nested = tmp_path / "nested.py"
+    nested.write_text(
+        "from .get_blast_radius import blast_verdict, _bfs_importers\n"
+        "def outer(index, rev, f):\n"
+        "    def inner():\n        return _bfs_importers(f, rev, 1)\n"
+        "    found, _ = inner()\n"
+        "    return found or blast_verdict(index, set(), f, 0)\n",
+        encoding="utf-8",
+    )
+    assert _outer_silent(beside) == ["check"]
+    assert _outer_silent(aliased) == ["check"]
+    assert _outer_silent(nested) == []

@@ -11,10 +11,8 @@ from ..storage import IndexStore
 
 # Reused from existing tools (no duplication)
 from .get_blast_radius import (
-    _build_reverse_adjacency,
-    _bfs_importers,
     _name_in_content,
-    blast_verdict,
+    importers_with_verdict,
 )
 from ._call_graph import _symbol_body
 from ..storage import record_savings
@@ -316,25 +314,11 @@ def _resolve_symbol(index, symbol_id_or_name: str) -> dict:
     return symbol_not_found(symbol_id_or_name, index.symbols)
 
 
-def _walk_importers(index, sym_file, depth):
-    """``(importer_files, unresolvable)``: the importer walk from ``sym_file``,
-    and ``blast_verdict``'s reason when an EMPTY walk is one the graph could not
-    answer (a Go package import lands on no member file, #415). A found
-    importer is positive evidence and is never probed (#879)."""
-    source_files = frozenset(index.source_files)
-    rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
-    importer_files, _ = _bfs_importers(sym_file, rev, depth)
-    unresolvable = None
-    if not importer_files:
-        _, unresolvable = blast_verdict(index, source_files, sym_file, 0)
-    return importer_files, unresolvable
-
-
 def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):
     """``(files, unresolvable)``: files that import sym_file AND reference
     sym_name, and why an empty answer is not "no file is affected" when the
     importer graph could not reach sym_file (#879)."""
-    importer_files, unresolvable = _walk_importers(index, sym_file, depth)
+    importer_files, unresolvable = importers_with_verdict(index, sym_file, depth)
 
     confirmed = []
     for imp_file in importer_files:
@@ -1579,7 +1563,7 @@ def _check_collision(index, new_name, sym_file, store, owner, name, depth):
     but the importer graph could not reach ``sym_file``, so the files that use
     it were never checked (#879). ``True`` from an unreachable walk was a
     claim about files nobody looked at."""
-    importer_files, unresolvable = _walk_importers(index, sym_file, depth)
+    importer_files, unresolvable = importers_with_verdict(index, sym_file, depth)
     files_to_check = {sym_file} | set(importer_files)
 
     conflicts = []

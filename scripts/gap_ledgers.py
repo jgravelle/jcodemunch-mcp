@@ -66,6 +66,7 @@ _VOCABULARY = re.compile(
 LEDGERS: frozenset[tuple[str, str]] = frozenset(
     {
         ("test_absence_wiring_guard.py", "KNOWN_UNWIRED_WRAPPERS"),
+        ("test_importer_walkers_ask_blast_verdict.py", "HAND_ROLLED_NOT_YET"),
         ("test_importer_walkers_ask_blast_verdict.py", "NOT_YET_ASKING"),
         # Parks a defect: "empty is the intended end state" and a stale-entry
         # ratchet backs it. Filed as a decision in round 1; review moved it.

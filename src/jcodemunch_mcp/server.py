@@ -3263,7 +3263,8 @@ def _build_tools_list(
                 "Check whether renaming a symbol to a new name would cause name collisions. "
                 "Scans the symbol's own file and every file that imports it, "
                 "looking for an existing symbol with the proposed new name. "
-                "Returns safe=true when no collisions are found. "
+                "Returns safe=true when no collisions are found, and safe=null with `unresolvable` "
+                "when the import graph could not reach the symbol's file, so its users went unchecked. "
                 "Run this before any rename/refactor to avoid silent breakage. "
                 "For a full rename plan with edits, use plan_refactoring."
             

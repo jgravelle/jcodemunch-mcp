@@ -25,18 +25,37 @@ answers `safe: None` with `unresolvable` naming the reason, in both
 collision is still `False` and a reachable clean walk still `True`. The
 four plans carry `affected_files_unresolvable`. The PR risk profile's
 `signal_breakdown.blast_radius` carries `unresolvable_files` and
-`score_is_lower_bound: true`; the composite is not re-weighted, so it too
-is a lower bound on that axis. A changed file the index never saw is not
-probed: the graph was never asked about it. A walk that finds an importer
-is positive evidence and is never probed.
+`score_is_lower_bound: true`, and the response carries
+`risk_score_is_lower_bound: true` beside the number it qualifies. When no
+changed code file's walk resolved and none found a dependent, the axis is
+not measured: its score is `None`, and `risk_score` and `risk_level` are
+withheld as `None` with `unmeasurable_axes: ["blast_radius"]`, because a
+0.0 there LOWERS the composite, the flattering direction (review). A
+changed code file the index has not seen, a new file, is probed by its
+package directory as if present: unchanged files cannot import a file
+before it exists, but they can import its package. The authority's other
+gap, a graph older than the head commit (#718), does not apply to this
+count, which excludes every changed file and so every importer the diff
+could add. A walk that finds an importer is positive evidence and is never
+probed.
+
+`check_rename_safe`'s description now says `safe` may be null, a sentence of
++27 tokens on the `full` surface (`description-delta.txt`); the tool is not
+in the `core` profile and the `counter` surface is unchanged. The walk and
+its verdict now come as one call, `get_blast_radius.importers_with_verdict`,
+which `plan_refactoring` uses, so the next caller inherits the pairing.
 
 `tests/test_importer_walkers_ask_blast_verdict.py` also fails when a module
-walks the importer graph without asking. Five do today and are tracked as
-LEDGER L-59 (`find_dead_code`, `get_dead_code_v2`, `get_untested_symbols`,
-`get_call_hierarchy`, `get_impact_preview`); a sixth fails the test, and a
-module that starts asking must leave the list. It finds walkers by the
-names `_bfs_importers` and `_build_reverse_adjacency`, so a hand-rolled walk
-such as `check_rename_safe`'s is named in the test explicitly.
+walks the importer graph without asking, checked per FUNCTION with import
+aliases resolved (review planted a walk beside a helper that asked, and an aliased walker,
+past a module-level first draft). Five modules do today and are
+tracked as LEDGER L-59 (`find_dead_code`, `get_dead_code_v2`,
+`get_untested_symbols`, `get_call_hierarchy`, `get_impact_preview`); a sixth
+fails the test, and a module that starts asking must leave the list. It
+finds walkers by the names `_bfs_importers` and `_build_reverse_adjacency`,
+so the hand-rolled walks are named: `check_rename_safe` asks, and
+`get_file_risk._count_incoming` and `find_importers` are tracked in L-59.
+It checks calls, not control flow.
 
 That list is a gap ledger, and `scripts/gap_ledgers.py` required every gap
 entry to cite an OPEN issue. Since jjg's 2026-09-25 ruling a defect a
