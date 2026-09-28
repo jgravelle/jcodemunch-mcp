@@ -82,18 +82,54 @@ def test_an_id_with_no_floor_is_measured_once():
     assert rec[KEY] == 70.0
 
 
+def _docstrings(tree) -> set[int]:
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                out.add(id(body[0].value))
+    return out
+
+
 def test_every_warm_series_in_run_goes_through_the_resample():
-    """`run` measures each tool through `_warm_p95`, so no fifth tool added
-    later is timed by a hand-rolled loop that skips the re-sample."""
+    """No function but `_warm_p95` spells a warm p95 key, so a fifth tool
+    timed later -- in `run` or in a helper `run` calls -- cannot write one
+    that skips the re-sample (review: the first guard scanned `run` only)."""
+    tree = ast.parse(MEASURE.read_text(encoding="utf-8"))
+    docs = _docstrings(tree)
+    owner = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_warm_p95")
+    inside = {id(n) for n in ast.walk(owner)}
+    stray = [
+        (n.lineno, n.value) for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str) and "_warm_p95_ms" in n.value
+        and id(n) not in inside and id(n) not in docs
+    ]
+    assert stray == [], f"a warm p95 key written outside _warm_p95: {stray}"
+
+
+def test_run_resamples_against_the_threshold_file():
+    """`run` hands `_warm_p95` the Floor check built from
+    harness/thresholds.json; `passes = None` there would re-sample nothing
+    while every injected-series test stayed green (review)."""
     tree = ast.parse(MEASURE.read_text(encoding="utf-8"))
     run = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "run")
-    called = {
-        n.func.id for n in ast.walk(run)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    bound = {
+        t.id for n in ast.walk(run) if isinstance(n, ast.Assign)
+        and isinstance(n.value, ast.Call) and getattr(n.value.func, "id", None) == "_floor_check"
+        for t in n.targets if isinstance(t, ast.Name)
     }
-    assert "_warm_p95" in called
-    warm_keys = [
-        n.value for n in ast.walk(run)
-        if isinstance(n, ast.Constant) and isinstance(n.value, str) and "_warm_p95_ms" in n.value
+    calls = [
+        n for n in ast.walk(run)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_warm_p95"
     ]
-    assert warm_keys == [], f"run() writes a warm p95 key itself: {warm_keys}"
+    assert calls, "run() never calls _warm_p95"
+    for c in calls:
+        assert len(c.args) == 3 and isinstance(c.args[2], ast.Name) and c.args[2].id in bound, ast.dump(c)
+
+
+def test_the_floor_check_reads_the_threshold_file():
+    passes = _measure()._floor_check()
+    assert passes(KEY, 1.0) is True
+    assert passes(KEY, 10_000.0) is False
+    assert passes("latency.not_a_floor_warm_p95_ms", 10_000.0) is True

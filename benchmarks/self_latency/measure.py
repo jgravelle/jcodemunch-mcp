@@ -17,8 +17,9 @@ runner compares the written values to the threshold file.
 
 A warm p95 that FAILS its Floor is measured once more in the same process and
 the second series is reported (`_warm_p95`, #906/#911, harness F-19): on a
-shared runner two preempted calls are the p95 of twenty, and twelve such FAILs
-read 7x to 73x the clean median with the median unmoved. A tail that
+shared runner two preempted calls are the p95 of twenty, and the thirteen FAILs
+of F-19's twelve occurrences read 7x to 73x the clean median with the median
+unmoved. A tail that
 reproduces still fails; the first p95 is kept beside the reported one.
 
 Usage: python benchmarks/self_latency/measure.py [--n 20] [--out harness/results/self_latency.json]
