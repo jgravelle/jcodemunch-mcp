@@ -38,6 +38,12 @@ module that starts asking must leave the list. It finds walkers by the
 names `_bfs_importers` and `_build_reverse_adjacency`, so a hand-rolled walk
 such as `check_rename_safe`'s is named in the test explicitly.
 
+That list is a gap ledger, and `scripts/gap_ledgers.py` required every gap
+entry to cite an OPEN issue. Since jjg's 2026-09-25 ruling a defect a
+session finds is a LEDGER row and never an issue, so an entry for one had
+nothing it could cite. An entry may now cite a `docs/workflows/LEDGER.md`
+row (`L-59`) under the same rule: the row must exist and read OPEN.
+
 ### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
 
 `template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so
