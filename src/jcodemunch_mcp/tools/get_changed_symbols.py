@@ -271,7 +271,7 @@ def get_changed_symbols(
     blast_unchecked: list[str] = []
     graph_sha = index_head[:12] or None
 
-    def _until_adjacency() -> Optional[dict]:
+    def _until_adjacency(adj: dict[str, list[str]]) -> Optional[dict]:
         if not _present_at_until:
             # `-z`: without it `core.quotePath` C-quotes a non-ASCII path
             # (`"caf\303\251.py"`), which is then never in the set, and a real
@@ -285,16 +285,19 @@ def get_changed_symbols(
             return None
         if not _until_rev_adj:
             _until_rev_adj.append(
-                {k: [v for v in vs if v in present] for k, vs in rev_adj.items()}
+                {k: [v for v in vs if v in present] for k, vs in adj.items()}
             )
         return _until_rev_adj[0]
 
     def _attach_blast(entry: dict, file_path: str) -> None:
         nonlocal blast_coverage
+        adj = rev_adj
+        if adj is None:  # every caller checks; this narrows it for the type check
+            return
         if file_path not in _blast_by_file:
-            flat, _ = _bfs_importers(file_path, rev_adj, max_blast_depth)
+            flat, _ = _bfs_importers(file_path, adj, max_blast_depth)
             if flat and _graph_gap(file_path) is not None:
-                until_adj = _until_adjacency()
+                until_adj = _until_adjacency(adj)
                 if until_adj is not None:
                     kept, _ = _bfs_importers(file_path, until_adj, max_blast_depth)
                     kept_set = set(kept)
