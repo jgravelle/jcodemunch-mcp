@@ -49,6 +49,38 @@ following the diagnostics snapshot's rule. The other readers of
 `get_pr_risk_profile`) keep reading the cumulative history, which for
 a deletion or dead-code answer errs toward "it ran".
 
+### Fixed - `get_changed_symbols` names the changed files it did not symbol-diff (#874)
+
+Reported by @Torolosko (split from #718). `changed_files` matched git
+exactly, 14 of 14, while a changed JSONL evidence file produced no symbol
+delta and nothing said why. A file with no detected language was skipped
+with `continue`, so "no changed symbols" could mean the change touched no
+symbol or that the file was never parsed.
+
+That was one of three ways a changed file went undiffed in silence. A
+parser that raised was caught and returned `{}`, the same answer as a file
+with no symbols. A non-ASCII path came back from `git diff --name-only`
+C-quoted (`core.quotePath`). Every read of the quoted name then failed, so
+the file read as unchanged while `changed_files` published the quoted
+string (LEDGER L-64, found in #878's review).
+
+Every changed file is now either symbol-diffed or listed in
+`unparsed_changed_files` with its reason: `no_language`, `unreadable` or
+`parse_failed`. `parsed_changed_files_count` counts the rest, and
+`symbol_diff_complete` is true only when nothing was skipped. The diff is
+read with `--name-status -z`. The `-z` means a non-ASCII path is published
+and diffed under its real name. The status says which sides of a file
+exist, so a modified file whose old or new version could not be read (a
+`git show` timeout, for one) is `unreadable`. It is not diffed against
+nothing, which would publish every symbol as added or removed (review).
+`unparsed_changed_files` is uncapped: it is a subset of `changed_files`,
+itself uncapped, and on this repository over 300 commits it measured
+9,347 B beside `changed_files`' 29,952 B (725 files, 131 without a
+language; review measurement). Six other git path readers and one
+`git status --porcelain` read share the quoting defect, and each parses a
+different output shape. They are LEDGER L-65. The three tools that call
+`get_changed_symbols` and never read `symbol_diff_complete` are L-66.
+
 ### Fixed - a scan whose absence is refused no longer calls itself strong evidence (#872)
 
 On an index committed past, `search_symbols` said two opposite things in

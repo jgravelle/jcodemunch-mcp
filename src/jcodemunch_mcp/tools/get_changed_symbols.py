@@ -51,8 +51,12 @@ def _get_file_content_at(sha: str, file_path: str, cwd: str) -> Optional[str]:
     return out
 
 
-def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = None) -> dict[str, dict]:
-    """Parse content → dict keyed by symbol qualified_name#kind → symbol dict."""
+def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = None) -> Optional[dict[str, dict]]:
+    """Parse content → dict keyed by symbol qualified_name#kind → symbol dict.
+
+    ``None`` when the parser raised (#874): ``{}`` is a file with no symbols,
+    and the two used to be the same answer.
+    """
     language = get_language_for_path(rel_path)
     if not language:
         return {}
@@ -60,7 +64,7 @@ def _parse_symbols_from_content(content: str, rel_path: str, repo: str | None = 
         symbols = parse_file(content, rel_path, language, repo=repo)
     except Exception:
         logger.debug("parse_file failed for %s", rel_path, exc_info=True)
-        return {}
+        return None
     # Build a lines array for extracting symbol bodies when byte offsets are absent
     lines = content.splitlines(keepends=True)
     result: dict[str, dict] = {}
@@ -123,6 +127,10 @@ def get_changed_symbols(
         `blast_dropped_absent_at_until`, and a non-empty blast carries
         `blast_graph_sha`, the revision its importer graph describes (#878);
         `blast_existence_unchecked` names the files whose check could not run.
+        Every changed file is symbol-diffed or listed in
+        `unparsed_changed_files` with its reason (`no_language`, `unreadable`,
+        `parse_failed`); `symbol_diff_complete` is true only when none was
+        skipped (#874).
     """
     start = time.perf_counter()
     max_blast_depth = max(1, min(max_blast_depth, 5))
@@ -182,13 +190,34 @@ def get_changed_symbols(
         # (#685) `--relative`: index-root-relative paths, so they match the
         # index for a root below the git top level; `_get_file_content_at`
         # reads them with the `./` form for the same reason.
-        ["diff", "--relative", "--name-only", "--diff-filter=ACDMRT", resolved_since, resolved_until],
+        # `-z` (LEDGER L-64): without it `core.quotePath` C-quotes a non-ASCII
+        # path, every content read of the quoted name fails, and the file reads
+        # as unchanged while `changed_files` publishes the quoted string.
+        # `--name-status` (review of #874): the status says which sides of the
+        # diff exist, so a side that should exist and cannot be read is
+        # `unreadable`, never diffed against nothing.
+        ["diff", "--relative", "--name-status", "-z", "--diff-filter=ACDMRT", resolved_since, resolved_until],
         cwd=cwd,
     )
     if rc3 != 0:
         return {"error": f"git diff failed: {diff_err}"}
 
-    all_diff_files = [f for f in diff_out.splitlines() if f.strip()] if diff_out else []
+    all_diff_files: list[str] = []
+    status_by_path: dict[str, str] = {}
+    _fields = diff_out.split("\0") if diff_out else []
+    _i = 0
+    while _i < len(_fields):
+        _status = _fields[_i]
+        if not _status:
+            _i += 1
+            continue
+        # A rename or copy carries two paths (old, new); every other status one.
+        _span = 2 if _status[0] in "RC" else 1
+        _path = _fields[_i + _span] if _i + _span < len(_fields) else ""
+        _i += _span + 1
+        if _path.strip():
+            all_diff_files.append(_path)
+            status_by_path[_path] = _status[0]
 
     # Exclude any files that live inside the index storage directory when it
     # happens to be under the repo root (e.g. .index/ as a test-time storage dir).
@@ -338,21 +367,42 @@ def get_changed_symbols(
     removed_symbols: list[dict] = []
     changed_symbols: list[dict] = []
 
+    # (#874) Every changed file is either symbol-diffed or named here with the
+    # reason it was not; "no changed symbols" otherwise could not tell a change
+    # that touched no symbol from a file that was never parsed.
+    unparsed: list[dict] = []
+    parsed_count = 0
+
     for file_path in changed_files:
         language = get_language_for_path(file_path)
         if not language:
-            continue  # binary, config, etc. — skip silently
+            unparsed.append({"file": file_path, "reason": "no_language"})
+            continue
 
         before_content = _get_file_content_at(resolved_since, file_path, cwd)
         after_content = _get_file_content_at(resolved_until, file_path, cwd)
+        # The before side exists unless the file was added (or arrived by a
+        # rename or copy, which is read at its new path, as before); the after
+        # side exists unless it was deleted. A side that exists and could not
+        # be read would diff against nothing and publish every symbol as added
+        # or removed.
+        _st = status_by_path.get(file_path, "M")
+        if (before_content is None and _st not in "ARC") or (after_content is None and _st != "D"):
+            unparsed.append({"file": file_path, "reason": "unreadable"})
+            continue
 
-        before_syms: dict[str, dict] = {}
-        after_syms: dict[str, dict] = {}
-
+        before_parsed: Optional[dict[str, dict]] = {}
+        after_parsed: Optional[dict[str, dict]] = {}
         if before_content is not None:
-            before_syms = _parse_symbols_from_content(before_content, file_path, repo=cwd)
+            before_parsed = _parse_symbols_from_content(before_content, file_path, repo=cwd)
         if after_content is not None:
-            after_syms = _parse_symbols_from_content(after_content, file_path, repo=cwd)
+            after_parsed = _parse_symbols_from_content(after_content, file_path, repo=cwd)
+        if before_parsed is None or after_parsed is None:
+            unparsed.append({"file": file_path, "reason": "parse_failed"})
+            continue
+        parsed_count += 1
+        before_syms: dict[str, dict] = before_parsed
+        after_syms: dict[str, dict] = after_parsed
 
         before_keys = set(before_syms)
         after_keys = set(after_syms)
@@ -422,6 +472,9 @@ def get_changed_symbols(
         "is_local": True,
         "changed_files": changed_files,
         "changed_files_count": len(changed_files),
+        "parsed_changed_files_count": parsed_count,
+        "unparsed_changed_files": unparsed,
+        "symbol_diff_complete": not unparsed,
         "added_symbols": added_symbols,
         "removed_symbols": removed_symbols,
         "changed_symbols": changed_symbols,
