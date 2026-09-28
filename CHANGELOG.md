@@ -30,10 +30,22 @@ as `.cpp`, and that a C header (a struct, `class` in a comment, a typedef
 with an inline function, hiredis's `extern "C"` guard shape) publishes what
 it publishes as `.c`.
 
-Not fixed: a C header that names a type `using` and then declares with it
-(`typedef int using; using f(int);`) is read as C++, because the C++
-grammar recovers with a MISSING node that the error count does not see,
-and loses `f` (LEDGER L-55). No real header of that shape was found.
+The cost of running it first: a C header that carries a C++ block inside
+`#ifdef __cplusplus` (a `class Wrapper;` forward declaration) is read as
+C++ even where the C++ parse has more errors, so a C `typedef struct buf
+{...} buf;` in it publishes C++'s rows (`buf#type~1`/`~2`, `buf.data`)
+where it published C's (`buf#type`, `buf.buf#type`). Names move, none is
+lost, and no header in lua or redis has that shape (review).
+
+Not fixed (LEDGER L-55), with no real header of either shape found in lua
+or redis:
+- a C header that names a type `using` and then declares with it
+  (`typedef int using; using f(int);`) is read as C++ and loses `f`,
+  because the C++ grammar recovers with a MISSING node that the error
+  count does not see;
+- a K&R definition (`int old(a, b) int a; int b; { ... }`) in a C header
+  that also holds a C++ block is read as C++ and loses `old`, which the
+  C++ grammar drops without an ERROR.
 
 Measured, `main` against this branch:
 - lua 0b29f40 and redis 4cb007b (340 C headers, 516 `.c` files): no id
