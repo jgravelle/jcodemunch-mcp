@@ -238,8 +238,8 @@ AUTHORITY = {"src/jcodemunch_mcp/tools/get_blast_radius.py"}
 # population, recorded because a hand-kept list is only as good as its
 # census: each either asks or is tracked. A census by SHAPE (a loop over
 # `index.imports` calling `resolve_specifier`) matched 23 functions on
-# 2026-09-28 (`walk-census.py` / `walk-census.txt` in the #879 evidence), most
-# of them forward graphs and centrality, so it is not a gate.
+# 2026-09-28 (recorded in LEDGER L-59), most of them forward graphs and
+# centrality, so it is not a gate.
 HAND_ROLLED = {"src/jcodemunch_mcp/tools/check_rename_safe.py"}
 HAND_ROLLED_NOT_YET = {
     "src/jcodemunch_mcp/tools/get_file_risk.py": "L-59",

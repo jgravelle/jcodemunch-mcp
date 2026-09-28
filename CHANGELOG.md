@@ -50,9 +50,10 @@ surfaces and 0 on `core` and `counter` (`benchmarks/schema_baseline.json`,
 regenerated; `schema-delta.txt`). A changed description is one full-rate
 cache write of the tool block for every client on those surfaces. The route-
 recall artifacts are regenerated with them: no recall figure moves, and
-the description-overlap leak diagnostic rises (`leak_desc` 0.125 to 0.25
-on the human corpus, 0.0 to 0.167 on the holdout), because the new
-sentences share words with some benchmark queries. The regenerated baseline also absorbs +4 tokens on every
+the description-overlap leak diagnostic rises for one query in each
+corpus (its `leak_desc` 0.0 to 0.167 in the 59-query `results.json`, 0.125
+to 0.25 in the 44-query holdout; `mean_desc_overlap` 0.366 to 0.368 and
+0.292 to 0.295), because the new sentences share words with those queries. The regenerated baseline also absorbs +4 tokens on every
 surface that `main` had already drifted by before this change
 (`core_compact` 3967 committed, 3971 measured on `main`). The walk and
 its verdict now come as one call, `get_blast_radius.importers_with_verdict`,
