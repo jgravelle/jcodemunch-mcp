@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed - runtime evidence says which body it observed (#875)
+
+Reported by @Torolosko (split from #718). Runtime evidence is cumulative
+and keyed by `symbol_id`, which survives a body edit while the symbol's
+`content_hash` changes. So a trace that observed `X` before its body was
+rewritten kept counting as evidence that the rewritten `X` runs, and
+`_runtime_confidence: confirmed` could not tell the two apart.
+
+Each `runtime_calls` row now records what it last observed: the mapped
+symbol's `content_hash` in the index at ingest time, the index's
+`git_head`, and the `ingest_id` of the run, which each ingest also
+returns. A `confirmed` entry carries `_runtime_body`:
+- `current` when the latest trace observed the body the index holds now;
+- `earlier` when it observed a body since rewritten;
+- `unknown` when nothing comparable was recorded, such as a row written
+  before this change. UNKNOWN is never `current`.
+
+`_meta.runtime_freshness.body` counts the three. The count stays
+cumulative, so the history the report called useful is kept; the new
+field says which body the latest trace saw.
+
+The three ingest paths (`otel`, `sql_log`, `stack_log`) each carried a copy
+of the same upsert. They now call `runtime/_calls_store.upsert_calls`, and
+a test fails on any other `INSERT INTO runtime_calls` under `src/`, so a
+fourth writer cannot record rows with no provenance. The columns are
+added at ingest to a table that predates them, with no INDEX_VERSION bump,
+following the diagnostics snapshot's rule. The other readers of
+`runtime_calls` (`find_unused_paths`, `check_delete_safe`,
+`get_pr_risk_profile`) keep reading the cumulative history, which for
+a deletion or dead-code answer errs toward "it ran".
+
 ### Fixed - a scan whose absence is refused no longer calls itself strong evidence (#872)
 
 On an index committed past, `search_symbols` said two opposite things in

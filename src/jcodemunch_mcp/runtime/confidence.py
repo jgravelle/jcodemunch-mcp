@@ -19,7 +19,14 @@ Summary block (placed under ``_meta.runtime_freshness``):
                  (e.g. ['otel'] today; ['otel', 'sql_log'] in Phase 4),
       'last_seen': ISO-8601 most-recent ``last_seen`` across the result set,
       'coverage_pct': integer % of returned symbols with runtime evidence,
+      'body': {'current': n, 'earlier': n, 'unknown': n},
   }``
+
+(#875) A ``confirmed`` entry also carries ``_runtime_body``: ``current`` when
+the latest trace observed the body the index holds now, ``earlier`` when it
+observed a body since rewritten (``symbol_id`` survives an edit, the row's
+recorded ``content_hash`` does not), ``unknown`` when nothing comparable was
+recorded. The count stays cumulative; this says which body the latest trace saw.
 
 **Zero-cost when no traces ingested.** The probe checks for any row in
 ``runtime_calls`` at construction; if absent, ``annotate()`` and
@@ -40,6 +47,11 @@ logger = logging.getLogger(__name__)
 _CONFIRMED = "confirmed"
 _DECLARED = "declared_only"
 _UNMAPPED = "unmapped"
+
+# (#875) Which body the latest trace of a confirmed symbol observed.
+_BODY_CURRENT = "current"
+_BODY_EARLIER = "earlier"
+_BODY_UNKNOWN = "unknown"
 
 
 class RuntimeConfidenceProbe:
@@ -110,15 +122,57 @@ class RuntimeConfidenceProbe:
         if not ids:
             return entries
         confirmed_ids = self._lookup_confirmed(ids)
+        bodies = self._lookup_body(confirmed_ids)
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
             sid = entry.get(id_field)
             if sid and sid in confirmed_ids:
                 entry["_runtime_confidence"] = _CONFIRMED
+                entry["_runtime_body"] = bodies.get(sid, _BODY_UNKNOWN)
             else:
                 entry["_runtime_confidence"] = _DECLARED
         return entries
+
+    def _lookup_body(self, ids: Iterable[str]) -> dict[str, str]:
+        """Which body the latest trace of each symbol observed (#875).
+
+        ``current`` when a row's recorded ``content_hash`` equals the symbol's
+        hash now; ``earlier`` when every recorded hash differs from it (the id
+        survived a body edit, the evidence did not); ``unknown`` when nothing
+        comparable was recorded -- a row written before the columns existed,
+        or a symbol with no hash. UNKNOWN is never ``current``.
+        """
+        unique = list({i for i in ids if i})
+        out: dict[str, str] = {}
+        if not unique or self._conn is None:
+            return out
+        seen: dict[str, set[str]] = {}
+        chunk = 500
+        try:
+            for start in range(0, len(unique), chunk):
+                batch = unique[start : start + chunk]
+                placeholders = ",".join("?" * len(batch))
+                rows = self._conn.execute(
+                    f"""
+                    SELECT rc.symbol_id, rc.content_hash, s.content_hash
+                    FROM runtime_calls rc LEFT JOIN symbols s ON s.id = rc.symbol_id
+                    WHERE rc.symbol_id IN ({placeholders})
+                    """,
+                    batch,
+                ).fetchall()
+                for sid, observed, now_hash in rows:
+                    if observed and now_hash:
+                        seen.setdefault(sid, set()).add(
+                            _BODY_CURRENT if observed == now_hash else _BODY_EARLIER
+                        )
+        except sqlite3.OperationalError:
+            # A table from before #875 has no `content_hash`: nothing to compare.
+            logger.debug("runtime_calls has no provenance columns", exc_info=True)
+            return out
+        for sid, states in seen.items():
+            out[sid] = _BODY_CURRENT if _BODY_CURRENT in states else _BODY_EARLIER
+        return out
 
     def _lookup_confirmed(self, ids: Iterable[str]) -> set[str]:
         unique = list({i for i in ids if i})
@@ -157,11 +211,18 @@ class RuntimeConfidenceProbe:
             if isinstance(e, dict) and e.get("_runtime_confidence") == _CONFIRMED
         ]
         confirmed_ids = [i for i in confirmed_ids if i]
+        body = {
+            state: sum(
+                1 for e in entries if isinstance(e, dict) and e.get("_runtime_body") == state
+            )
+            for state in (_BODY_CURRENT, _BODY_EARLIER, _BODY_UNKNOWN)
+        }
         if not confirmed_ids:
             return {
                 "sources": [],
                 "last_seen": "",
                 "coverage_pct": 0,
+                "body": body,
             }
         # One query for sources + max(last_seen) across the confirmed set.
         chunk = 500
@@ -189,6 +250,7 @@ class RuntimeConfidenceProbe:
             "sources": sorted(sources),
             "last_seen": last_seen,
             "coverage_pct": coverage_pct,
+            "body": body,
         }
 
 

@@ -217,9 +217,11 @@ def test_ingest_otel_stream_matches_file_envelope(tmp_path):
 
     stream_result = ingest_otel_stream(db_path=str(db_path), text=text)
 
-    # Drop the eviction count (depends on prior table state) when comparing.
+    # Drop the eviction count (depends on prior table state) when comparing,
+    # and the ingest id (#875: one per run by design, so two runs differ).
     for d in (file_result, stream_result):
         d.pop("evicted", None)
+        assert d.pop("ingest_id", None), "every ingest names itself"
     assert file_result == stream_result
 
 

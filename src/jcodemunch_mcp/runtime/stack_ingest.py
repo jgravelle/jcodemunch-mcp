@@ -35,6 +35,7 @@ from typing import Any, Optional
 from typing import Iterable
 from ..storage.generation import connect_readonly
 
+from . import _calls_store
 from .redact import redact_trace_record
 from .resolve import resolve_to_symbol_id
 from .stack_log import StackEvent, iter_stack_from_text, parse_stack_log_file
@@ -155,11 +156,13 @@ def _ingest_stack_iter(
             aggregator.mapped_inc(symbol_id=sid, severity=severity)
 
     now = _utc_now()
+    ingest_id = _calls_store.new_ingest_id()
     evicted = _persist(
         db_path,
         aggregator,
         redactions_fired,
         now=now,
+        ingest_id=ingest_id,
         max_rows=max_rows,
     )
 
@@ -172,6 +175,7 @@ def _ingest_stack_iter(
         "redactions_fired": redactions_fired,
         "unmapped_reasons": unmapped_reasons,
         "evicted": evicted,
+        "ingest_id": ingest_id,
     }
 
 
@@ -244,6 +248,7 @@ def _persist(
     *,
     now: str,
     max_rows: int,
+    ingest_id: str,
 ) -> int:
     """Bulk-write the aggregator. Returns total FIFO-evicted rows."""
     conn = sqlite3.connect(str(db_path), isolation_level=None)
@@ -252,15 +257,13 @@ def _persist(
         conn.execute("BEGIN")
 
         # runtime_calls (severity-agnostic rollup so confidence-stamping fires)
-        conn.executemany(
-            """
-            INSERT INTO runtime_calls (symbol_id, source, count, p50_ms, p95_ms, first_seen, last_seen)
-            VALUES (?, 'stack_log', ?, NULL, NULL, ?, ?)
-            ON CONFLICT(symbol_id, source) DO UPDATE SET
-                count = count + excluded.count,
-                last_seen = excluded.last_seen
-            """,
-            [(sid, count, now, now) for sid, count in aggregator.iter_calls()],
+        _calls_store.upsert_calls(
+            conn,
+            "stack_log",
+            ((sid, count, None, None) for sid, count in aggregator.iter_calls()),
+            now=now,
+            ingest_id=ingest_id,
+            update_latency=False,
         )
 
         # runtime_stack_events (severity-tagged)
