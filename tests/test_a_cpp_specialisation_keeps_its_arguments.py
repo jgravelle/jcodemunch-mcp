@@ -167,6 +167,20 @@ def test_out_of_line_bodies_find_their_own_specialisation():
             {("FP.Max", "FP#class"), ("FP<float>.Max", "FP#class"), ("FP<double>.Max", "FP#class")},
             id="member-specialisation",
         ),
+        # The same property, two more spellings (review of L-54, round 3): a
+        # plain last scope, and an OUTER `template <>` over a member template.
+        pytest.param(
+            "template <class T> struct O { struct I { void g(); }; };\n"
+            "template <> void O<int>::I::g() {}\n",
+            {("O.I.g", "O.I#type"), ("O<int>.I.g", "O.I#type")},
+            id="member-specialisation-through-a-plain-scope",
+        ),
+        pytest.param(
+            "template <class T> struct A { template <class U> void f(U); };\n"
+            "template <> template <class U> void A<int>::f(U) {}\n",
+            {("A.f", "A#type"), ("A<int>.f", "A#type")},
+            id="member-template-specialisation",
+        ),
         # Without `template <>` it is a member of a class specialisation
         # defined elsewhere, never of the primary.
         pytest.param(

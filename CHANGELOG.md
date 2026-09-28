@@ -23,21 +23,27 @@ B<T>::f()`). Otherwise it keeps its arguments, found or not. So
 `B`. `hash<A>::h` in a `.cpp` whose header declares `hash<A>` is
 `hash<A>.h` with no parent, not `hash.h~N`. And `B<U*>::f`, which matches
 no specialisation's spelling, is left without an owner rather than guessed
-onto the primary. The one exception is C++'s own: under `template <>`, a
-definition whose scope names no class in the file specialises the
-PRIMARY's member (gtest's `template <> float FloatingPoint<float>::Max()`),
-so it is `FloatingPoint<float>.Max` owned by `FloatingPoint`. A member of a
+onto the primary. The one exception is C++'s own: under any enclosing
+`template <>`, a definition whose scope names no class in the file
+specialises the PRIMARY's member (gtest's `template <> float
+FloatingPoint<float>::Max()`, `template <> void O<int>::I::g()`,
+`template <> template <class U> void A<int>::f(U)`), so it is
+`FloatingPoint<float>.Max` owned by `FloatingPoint`, `O<int>.I.g` owned
+by `O.I`, and `A<int>.f` owned by `A`. A member of a
 class specialisation defined elsewhere is written without `template <>`,
 and that is what tells the two apart. A specialisation whose name the
 grammar cuts short keeps its bare name. fmt's `use_format_as<T,
 bool_constant<...<T>>::value>>` splits its `>>` wrongly and leaves the last
 `>` in an ERROR, so it would otherwise publish a name one `>` short. A
-comparison in parentheses (`B2<(1>2)>`) is not a bracket. Review found all
+comparison in parentheses (`B2<(1>2)>`) is not a bracket, but a character
+argument holding one (`K<'>'>`) reads as unbalanced and keeps the bare
+name, `K~N` as on `main`. Review found all
 three of the first: the first draft looked the whole
 scope up with arguments or without, so it named cross-file bodies
 `hash.h~N`, orphaned `O<int>::I<char>::g`, and attached `B<U*>::f` to
 `B`. Its second round found the member specialisation, which the
-per-segment rule had orphaned in gtest. The test pins each placement, the
+per-segment rule had orphaned in gtest, and its third found the rule keyed
+on the last scope and the nearest `template`, two more spellings of it. The test pins each placement, the
 spacing, a partial specialisation, a union, out-of-line equivalence, the
 body owners, each of those shapes, and the cut-short name. The same
 exception covers a member CLASS: `template <> template <> struct

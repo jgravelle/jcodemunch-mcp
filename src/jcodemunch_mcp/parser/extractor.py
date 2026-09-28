@@ -3111,21 +3111,24 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
       whose header declares `hash<A>` is `hash<A>.h` with no parent, never
       the source-ordered `hash.h~N`, and `B<U*>::f` is never guessed onto the
       primary `B` (a wrong owner is a confident false edge; review).
-    ⚠⚠ One exception, and C++ states it: under `template <>`, a definition
-    whose last scope names no class in the file SPECIALISES THE PRIMARY'S
-    MEMBER (`template <> float FloatingPoint<float>::Max()`, gtest). A member
-    of a class specialisation defined elsewhere is written WITHOUT
-    `template <>`, so the wrapper is what tells them apart. Its name keeps
-    the arguments (`FloatingPoint<float>.Max`, L-54) and its owner is the
-    primary `FloatingPoint`, the class that declares `Max` (review of L-54:
-    both gtest bodies had lost that owner).
+    ⚠⚠ One exception, and C++ states it: under ANY enclosing `template <>`,
+    a definition whose scope names no class in the file SPECIALISES THE
+    PRIMARY'S MEMBER (`template <> float FloatingPoint<float>::Max()`,
+    gtest; `template <> void O<int>::I::g()`; `template <> template <class
+    U> void A<int>::f(U)`). A member of a class specialisation defined
+    elsewhere is written WITHOUT `template <>`, so the wrapper is what tells
+    them apart. Its name keeps the arguments (`FloatingPoint<float>.Max`,
+    L-54) and its owner is the same path with every argument-bearing segment
+    that named no class read as its primary (`FloatingPoint`, `O.I`, `A`).
+    ⚠ Keyed on the property, not a spelling: review found it first for the
+    last scope only, then under the nearest `template` only.
     Returns `(segments, last_node, owner, owner_symbol)` or None.
     """
     chosen: list[str] = []
     parameter_lists: Optional[list[list[str]]] = None
-    # The bare spelling of the LAST scope when it kept arguments naming no
-    # class in the file: the primary, if this is a member specialisation.
-    last_bare: Optional[str] = None
+    # `chosen` with every segment that kept arguments naming no class read as
+    # its primary: the owner, if this is a member specialisation.
+    primary_chain: list[str] = []
     current = qualified
     while current is not None and current.type == "qualified_identifier":
         scope = current.child_by_field_name("scope")
@@ -3135,7 +3138,6 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
         if bare is None:
             return None
         segment = bare
-        last_bare = None
         if scope.type == "template_type":
             full = _cpp_template_type_name(scope, source_bytes) or bare
             if _cpp_owner_symbol(_cpp_owner_in_scope([*chosen, full], scope_parts), symbols) is not None:
@@ -3144,25 +3146,26 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
                 if parameter_lists is None:
                     parameter_lists = _cpp_template_parameter_names(qualified, source_bytes)
                 segment = bare if _cpp_names_the_primary(scope, parameter_lists, source_bytes) else full
-                if segment == full:
-                    last_bare = bare
         chosen.append(segment)
+        primary_chain.append(bare if segment != bare and _cpp_owner_symbol(
+            _cpp_owner_in_scope(chosen, scope_parts), symbols) is None else segment)
         current = current.child_by_field_name("name")
     if current is None or not chosen:
         return None
     owner = _cpp_owner_in_scope(chosen, scope_parts)
     owner_symbol = _cpp_owner_symbol(owner, symbols)
-    if owner_symbol is None and last_bare is not None and _cpp_is_explicit_specialisation(qualified):
-        owner_symbol = _cpp_owner_symbol(
-            _cpp_owner_in_scope([*chosen[:-1], last_bare], scope_parts), symbols
-        )
+    if owner_symbol is None and primary_chain != chosen and _cpp_is_explicit_specialisation(qualified):
+        owner_symbol = _cpp_owner_symbol(_cpp_owner_in_scope(primary_chain, scope_parts), symbols)
     return chosen, current, owner, owner_symbol
 
 
 def _cpp_is_explicit_specialisation(node) -> bool:
-    """Is *node*'s nearest enclosing `template` a `template <>`? *node* may be
-    the qualified NAME of a class head (`struct O<int>::I<char>`), whose own
-    specifier is skipped."""
+    """Is *node* under a `template <>`, at any depth up to its class body?
+    *node* may be the qualified NAME of a class head (`struct O<int>::I<char>`),
+    whose own specifier is skipped. ⚠ ANY enclosing one, not the nearest:
+    `template <> template <class U> void A<int>::f(U)` specialises the
+    primary's member template, and its nearest header is `template <class U>`
+    (review of L-54)."""
     current = node.parent
     if current is not None and current.type in _C_FAMILY_MACRO_HEADS:
         name = current.child_by_field_name("name")
@@ -3171,7 +3174,8 @@ def _cpp_is_explicit_specialisation(node) -> bool:
     while current is not None:
         if current.type == "template_declaration":
             params = current.child_by_field_name("parameters")
-            return params is not None and not params.named_children
+            if params is not None and not params.named_children:
+                return True
         if current.type in ("class_specifier", "struct_specifier", "union_specifier", "translation_unit"):
             return False
         current = current.parent
