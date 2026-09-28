@@ -114,6 +114,19 @@ def _absence_ref(tool: str, repo: str, query: str, scope: dict) -> str:
     return ABSENCE_REF_PREFIX + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def refused_absence_note(why: str) -> str:
+    """The note for a zero-result scan whose absence claim ``absence_refusal`` refused.
+
+    (#872) Replaces ``build_verdict``'s ``absent`` note, which says the scan is
+    strong evidence and not to search again: a scan refused for staleness is
+    exactly the one a re-index would change.
+    """
+    return (
+        f"No match was found, but absence is NOT proven: {why}. Resolve that and "
+        "search again before treating this as evidence the target is not present."
+    )
+
+
 def absence_refusal(record: Optional[dict]) -> Optional[str]:
     """Why this recorded scan may NOT prove absence, or None when it may."""
     if not record:

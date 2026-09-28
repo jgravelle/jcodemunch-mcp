@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed - a scan whose absence is refused no longer calls itself strong evidence (#872)
+
+On an index committed past, `search_symbols` said two opposite things in
+one response. `_meta.verdict.note` read "Treat this as strong evidence the
+target is not present; do not reformulate the same query expecting a hit",
+beside `absence_citable: false` and `absence_blocked_by: "the index was
+stale at query time..."`. The prose told the agent not to search again in
+exactly the case a re-index would change the answer. The refusal is decided
+in the dispatcher, after `build_verdict` has written the `absent` note, and
+staleness and truncation refuse without downgrading the state, so the note
+survived. Found in review of #719's fix.
+
+When the dispatcher refuses an `absent` scan, the note now names the
+refusal and says to resolve it before treating the result as evidence
+(`handoff.refused_absence_note`). The state stays `absent`, so no consumer
+of `state` sees a change; moving staleness into `build_verdict` would
+change a published state, and is not done here. A scan that can prove
+absence keeps the proof note.
+
+The second path: a cached `absent` replayed after a commit is downgraded
+by `revalidate_verdict`, which set neither `state == "absent"` nor
+`absence_refused`, the two conditions the dispatcher attaches its refusal
+carrier on. With `meta_fields` unset, the response carried no
+`absence_blocked_by`; with `meta_fields: []`, the shipped default, it
+carried no `_meta` at all, in json or compact form. The downgrade now sets
+`absence_refused`, as `build_verdict` does for every refused zero-result
+scan, so the carrier arrives and names the cache replay.
+
 ### Fixed - a blast radius with importers only in another repository is not "absent" (#877)
 
 `get_blast_radius(cross_repo=True)` found a symbol's importers in another
