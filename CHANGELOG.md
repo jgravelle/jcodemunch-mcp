@@ -51,11 +51,11 @@ Ids move only where the shape occurs:
 - a C++ enum behind a macro gains `E#type` where it published nothing;
 - in a class body, `S.E#field` becomes `S.E#type`;
 - C's `E#function` becomes `E#type`;
-- in C, a brace-initialised enum array (`enum Color cs[2] { RED, GREEN };`)
-  loses the `cs#function` the misparse gave it and publishes nothing, which
-  is what C++ publishes for the same text (the function shape now admits an
-  `enum` head, and blanking `Color` leaves a file-scope array, which is not
-  indexed).
+- in a `.c` or `.h` file, a brace-initialised enum array
+  (`enum Color cs[2] { RED, GREEN };`) loses the `cs#function` the misparse
+  gave it and publishes nothing, which is what a `.cpp` file publishes for
+  the same text (the function shape now admits an `enum` head, and blanking
+  `Color` leaves a file-scope array, which is not indexed).
 
 ### Fixed - a C++ class declared behind an export macro is a class (LEDGER L-45)
 
