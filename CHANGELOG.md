@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - a blast radius with importers only in another repository is not "absent" (#877)
+
+`get_blast_radius(cross_repo=True)` found a symbol's importers in another
+repository and, in the same response, published `_meta.verdict.state:
+"absent"` and `overall_risk_score: 0.0` beside `cross_repo_confirmed_count:
+1`. `absent` is the state an agent may cite as proof that nothing depends
+on a symbol (#719), and `0.0` reads as safe to change. The tool's own
+"answered nothing" test counted the cross-repo channel, so the importers
+kept the package probe from running; but the `result_count` handed to
+`blast_verdict` and the risk average both counted local importers only.
+`blast_verdict`'s contract already said `result_count` is what the caller
+found by every channel it ran.
+
+Both count the cross-repo channel now. A cross-repo importer imports this
+repository's package directly, so it weighs in the risk average as a
+depth-1 dependent: importers found only elsewhere score 1.0, and a mix
+averages them in. `importer_count` stays local, as its name says; the
+cross-repo figure is `cross_repo_confirmed_count` as before.
+
+`assemble_task_context` asks `get_blast_radius` for the same channel when
+called with `cross_repo=True`, and its blast entry kept only the local
+`confirmed` list, reporting `confirmed_count: 0` for exactly this case. The
+entry carries `cross_repo_confirmed_count` and `top_cross_repo` now. The
+test pins both tools, a mixed local-and-cross-repo risk, and that
+`cross_repo=False` still answers `absent` for the same symbol.
+
 ### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
 
 `template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so

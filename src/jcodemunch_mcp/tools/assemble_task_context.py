@@ -415,7 +415,7 @@ def assemble_task_context(
                 )
                 if isinstance(out, dict) and "error" not in out:
                     confirmed = out.get("confirmed", []) or out.get("confirmed_callers", []) or []
-                    _add_entry("blast", "get_blast_radius", {
+                    payload = {
                         "of_symbol": sym.get("name", ""),
                         "confirmed_count": len(confirmed),
                         "impact_by_depth": out.get("impact_by_depth", {}) or {},
@@ -424,7 +424,18 @@ def assemble_task_context(
                              "has_test_reach": c.get("has_test_reach", False)}
                             for c in confirmed[:8]
                         ],
-                    })
+                    }
+                    # The cross-repo channel this stage asked for: dropping it
+                    # left `confirmed_count: 0` for a symbol whose only
+                    # importers live in another repository (#877).
+                    cross = out.get("cross_repo_confirmed") or []
+                    if cross:
+                        payload["cross_repo_confirmed_count"] = len(cross)
+                        payload["top_cross_repo"] = [
+                            {"file": c.get("file", ""), "source_repo": c.get("source_repo", "")}
+                            for c in cross[:8]
+                        ]
+                    _add_entry("blast", "get_blast_radius", payload)
         except Exception as exc:  # noqa: BLE001
             logger.debug("assemble_task_context: blast_radius skipped: %s", exc, exc_info=True)
 
