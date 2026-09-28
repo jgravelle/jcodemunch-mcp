@@ -16,23 +16,41 @@ A class, struct, union or enum defined with a qualified name now takes that
 name. Its scope joins the enclosing namespaces the way L-07's out-of-line
 bodies do, and a class of that name in the file is its parent. Its members
 follow, because the member walk reads the qualified name off the class. A
-specialisation `A::B<int>` is named `B`, as the same specialisation written
-inside `A` is; `main` gave the out-of-line one `B<int>`. `class ::Top`
-names no scope and is unchanged.
+specialisation `A::B<int>` is named `B`, as the same specialisation
+written inside `A` is; `main` gave the out-of-line one `B<int>`. So two
+specialisations of one template in a file, `template <> struct
+std::hash<A> {}` and `std::hash<B>`, were `hash<A>#type` and `hash<B>#type`
+and are now `std.hash#type~1` and `~2` in source order, as the same two
+written inside `namespace std { }` already were. How a specialisation is
+named at all is LEDGER L-54. A leading `::` resolves from the file scope:
+`class ::A::B {}` is `A.B` (it was `A::B`), and `class ::Top` is unchanged.
 
 The first draft broke L-07. L-07 reads a scope that a file-scope symbol is
 qualified under as a NAMESPACE, and leveldb's `db_impl.cc` defines
 `struct DBImpl::Writer` before its `DBImpl::` bodies. The struct became
 such a symbol, so every body after it turned from a method into a function
-(the draft's corpus diff). A type defined with a
-qualified name is no evidence now, since its qualifier may name a class.
+(the draft's corpus diff). The qualifier of a type defined with a
+qualified name is no evidence now, since it may name a class. The
+namespaces ENCLOSING that definition still are: the second draft dropped
+them too, and `namespace n { struct W::I {}; } void n::f() {}` turned
+`main`'s `n.f#function` into a method (review).
 The test pins that each out-of-line form (class, struct, union, enum,
 two-level, namespace-qualified, inside a namespace, `final` with a base,
-specialisation, export macro, nested in the definition) publishes exactly
+specialisation, two specialisations, a leading `::`, export macro, nested
+in the definition) publishes exactly
 what the same class written inline in its owner publishes, in `.cpp`, `.h`
 and Arduino. It also pins that the pimpl bodies are owned by the nested
-class, that an owner in another file still qualifies the class, and that
-`DBImpl::Recover` stays a method after `struct DBImpl::Writer`.
+class, that an owner in another file still qualifies the class, that
+`DBImpl::Recover` stays a method after `struct DBImpl::Writer`, and that
+`n::f` stays a function after `namespace n { struct W::I {}; }`.
+
+Not fixed, each as on `main`:
+- a class qualified through an inline namespace the source leaves out
+  (`class a::W::I` for `a::v1::W`) is not given the inline namespace, as
+  L-07's bodies are not (LEDGER L-53);
+- a `.h` whose namespaced class holds only method prototypes,
+  `namespace n { class A { void f(); }; }`, is read as C and publishes
+  `n#function` (LEDGER L-52).
 
 Measured on the pinned corpora, `main` against this branch: every id count
 is unchanged, and the moves are re-qualifications.

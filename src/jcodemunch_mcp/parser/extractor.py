@@ -797,13 +797,14 @@ def _walk_tree(
     calls: Optional[list] = None,
     parent_is_container: bool = False,
     adopted: tuple = (),
-    qualified_records: Optional[set] = None,
+    qualified_records: Optional[dict] = None,
 ):
     """Recursively walk the AST and extract symbols.
 
-    *qualified_records* holds the ids of C++ types defined with a qualified
-    name (`class W::I {}`, L-46), shared by the whole walk: their qualifier
-    may name a class, so they are no evidence that it names a namespace.
+    *qualified_records* maps the id of each C++ type defined with a qualified
+    name (`class W::I {}`, L-46) to the enclosing namespaces it was defined
+    in, shared by the whole walk: its qualifier may name a class, so only
+    those enclosing namespaces are evidence of a namespace.
 
     *adopted* are sibling nodes walked as if they were `node`'s own last
     children: a Kotlin accessor the grammar spilled out of its property
@@ -823,7 +824,7 @@ def _walk_tree(
 
     is_cpp = language in ("cpp", "arduino")
     if qualified_records is None:
-        qualified_records = set()
+        qualified_records = {}
     local_scope_parts = scope_parts or []
     next_parent = parent_symbol
     next_class_scope_depth = class_scope_depth
@@ -892,7 +893,7 @@ def _walk_tree(
                     node, symbol, source_bytes, filename, local_scope_parts, symbols
                 )
                 if qualified is not symbol:
-                    qualified_records.add(qualified.id)
+                    qualified_records[qualified.id] = tuple(local_scope_parts)
                 symbol = qualified
             if symbol:
                 symbols.append(symbol)
@@ -3020,6 +3021,13 @@ def _cpp_qualified_record(
     name_node = node.child_by_field_name("name")
     if name_node is None or name_node.type != "qualified_identifier":
         return symbol
+    # `class ::A::B {}`: a leading `::` names the global scope, so the owner is
+    # looked up from the file scope, not the enclosing namespaces.
+    if name_node.child_by_field_name("scope") is None:
+        name_node = name_node.child_by_field_name("name")
+        scope_parts = []
+        if name_node is None or name_node.type != "qualified_identifier":
+            return symbol
     walked = _cpp_scope_segments(name_node, source_bytes)
     if walked is None or not walked[0]:
         return symbol
@@ -3045,6 +3053,11 @@ def _cpp_qualified_record(
         decorators=list(symbol.decorators),
         call_references=list(symbol.call_references),
     )
+
+
+def _names_a_namespace(owner: str, scope_parts) -> bool:
+    """Is `owner` one of the namespaces `scope_parts` opens (`a`, `a.b`)?"""
+    return any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1))
 
 
 def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]:
@@ -3078,7 +3091,7 @@ def _cpp_out_of_class_member(
     filename: str,
     scope_parts: list[str],
     symbols: list,
-    qualified_records: frozenset | set = frozenset(),
+    qualified_records: Optional[dict] = None,
 ) -> Symbol:
     """A C++ definition named by a qualified declarator, as the member it is.
 
@@ -3092,9 +3105,11 @@ def _cpp_out_of_class_member(
       ⚠⚠ an out-of-line METHOD body is not that evidence, or the first
       `DBImpl::Recover` in a `.cpp` beside its `.h` would make every later
       `DBImpl::` body a function (measured on leveldb, review of the draft);
-      ⚠⚠ nor is a type defined with a qualified name (L-46): leveldb's
-      `db_impl.cc` defines `struct DBImpl::Writer`, and counting it made
-      every `DBImpl::` body after it a function (L-46's corpus diff);
+      ⚠⚠ nor is the QUALIFIER of a type defined with a qualified name
+      (L-46): leveldb's `db_impl.cc` defines `struct DBImpl::Writer`, and
+      counting it made every `DBImpl::` body after it a function (L-46's
+      corpus diff). The namespaces ENCLOSING that definition still count
+      (`namespace n { struct W::I {}; } void n::f() {}`, review of L-46);
     - otherwise the owner is in another file (a `.cpp` beside its `.h`) and it
       is a `method` with no `parent`.
     C++ requires the class to be declared before an out-of-line definition, so
@@ -3110,13 +3125,13 @@ def _cpp_out_of_class_member(
         (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
         None,
     )
+    records = qualified_records or {}
     if owner_symbol is not None:
         kind, parent = "method", owner_symbol.id
-    elif any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1)) or any(
-        s.parent is None
-        and s.kind != "method"
-        and s.id not in qualified_records
-        and s.qualified_name.startswith(owner + ".")
+    elif _names_a_namespace(owner, scope_parts) or any(
+        _names_a_namespace(owner, records[s.id])
+        if s.id in records
+        else (s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + "."))
         for s in symbols
     ):
         kind, parent = "function", None

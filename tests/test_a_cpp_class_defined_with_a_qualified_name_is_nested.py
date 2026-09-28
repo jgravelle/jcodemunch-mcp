@@ -62,6 +62,22 @@ PAIRS = {
         "class API A { class B; };\nclass API A::B { void f(); };\n",
         "class API A { class B { void f(); }; };\n",
     ),
+    "global-qualifier": (
+        "class A { class B; };\nclass ::A::B { void f(); };\n",
+        "class A { class B { void f(); }; };\n",
+    ),
+    "global-qualifier-in-namespace": (
+        # A field, because a `.h` whose namespaced class holds only method
+        # prototypes is read as C (LEDGER L-52, as on main).
+        "namespace n { class A { class B; }; }\nclass ::n::A::B { int y; void f(); };\n",
+        "namespace n { class A { class B { int y; void f(); }; }; }\n",
+    ),
+    # MOVES (disclosed): two specialisations of one template in a namespace
+    # are named as the inline form names them, `std.hash` numbered ~1/~2.
+    "two-specialisations": (
+        "template <> struct std::hash<A> { int h(); };\ntemplate <> struct std::hash<B> { int h(); };\n",
+        "namespace std {\ntemplate <> struct hash<A> { int h(); };\ntemplate <> struct hash<B> { int h(); };\n}\n",
+    ),
     "nested-in-definition": (
         "class W { class I; };\nclass W::I { class J { void j(); }; };\n",
         "class W { class I { class J { void j(); }; }; };\n",
@@ -147,3 +163,20 @@ def test_a_qualified_type_is_no_evidence_of_a_namespace():
         if s.name == "Recover"
     ]
     assert recover == [("method", None), ("method", None)]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "namespace n { struct W::I { int x; }; }\nvoid n::f() {}\n",
+        "namespace a::b { struct W::I { int x; }; }\nvoid a::b::f() {}\n",
+    ],
+    ids=["enclosing-namespace", "cxx17-enclosing-namespace"],
+)
+def test_the_namespace_enclosing_a_qualified_type_is_still_evidence(source):
+    """Review of L-46: the first fix dropped the whole qualified type from
+    L-07's namespace evidence, so `n::f` went from `main`'s function to a
+    parentless method. Only its QUALIFIER is no evidence; the namespace it
+    is defined in is."""
+    f = [(s.kind, s.parent) for s in parse_file(source, "a.cpp", "cpp") if s.name == "f"]
+    assert f == [("function", None)]

@@ -552,7 +552,10 @@ INDEX_VERSION = 17
 #   member.** MOVES: `Impl#class` for `class Widget::Impl {}` becomes
 #   `Widget.Impl#class` (parent `Widget` when it is in the file) and its
 #   members follow; `W::I#type` for `struct a::W::I` becomes `a.W.I#type`; an
-#   out-of-line specialisation `B<int>` becomes `A.B`.
+#   out-of-line specialisation `B<int>` becomes `A.B`, so two of one
+#   template in a file (`std::hash<A>`, `std::hash<B>`) are `std.hash~1`/`~2`;
+#   `A::B#class` for `class ::A::B` becomes `A.B#class`; an existing id can
+#   gain a `~N` when a moved type now shares its name.
 PARSER_GENERATION = 8
 
 
