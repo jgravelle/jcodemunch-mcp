@@ -121,7 +121,8 @@ def get_changed_symbols(
         computed (#718). When the index is not at `until_sha`, importers absent
         at `until_sha` are dropped and listed per file in
         `blast_dropped_absent_at_until`, and a non-empty blast carries
-        `blast_graph_sha`, the revision its importer graph describes (#878).
+        `blast_graph_sha`, the revision its importer graph describes (#878);
+        `blast_existence_unchecked` names the files whose check could not run.
     """
     start = time.perf_counter()
     max_blast_depth = max(1, min(max_blast_depth, 5))
@@ -267,13 +268,17 @@ def get_changed_symbols(
     _present_at_until: list = []  # [frozenset | None], filled on first use
     _until_rev_adj: list = []
     blast_dropped: dict[str, list[str]] = {}
+    blast_unchecked: list[str] = []
     graph_sha = index_head[:12] or None
 
     def _until_adjacency() -> Optional[dict]:
         if not _present_at_until:
-            rc_t, tree_out, _ = _run_git(["ls-tree", "-r", "--name-only", resolved_until], cwd=cwd)
+            # `-z`: without it `core.quotePath` C-quotes a non-ASCII path
+            # (`"caf\303\251.py"`), which is then never in the set, and a real
+            # importer is published as absent (review of #878).
+            rc_t, tree_out, _ = _run_git(["ls-tree", "-r", "-z", "--name-only", resolved_until], cwd=cwd)
             _present_at_until.append(
-                frozenset(tree_out.splitlines()) if rc_t == 0 and tree_out else None
+                frozenset(p for p in tree_out.split("\0") if p) if rc_t == 0 and tree_out else None
             )
         present = _present_at_until[0]
         if present is None:
@@ -297,6 +302,9 @@ def get_changed_symbols(
                     if dropped:
                         blast_dropped[file_path] = dropped
                     flat = kept
+                else:
+                    # UNKNOWN is not "nothing dropped": say the check never ran.
+                    blast_unchecked.append(file_path)
                 if flat:
                     _graph_sha_by_file[file_path] = graph_sha
             _blast_by_file[file_path] = flat
@@ -420,6 +428,10 @@ def get_changed_symbols(
     }
     if blast_dropped:
         result["blast_dropped_absent_at_until"] = blast_dropped
+    if blast_unchecked:
+        # The tree at `until_sha` could not be listed, so these blasts are the
+        # index's graph unfiltered, not a filtered list that dropped nothing.
+        result["blast_existence_unchecked"] = blast_unchecked
     if blast_verdicts:
         result["blast_verdicts"] = blast_verdicts
         if blast_coverage is not None:

@@ -240,6 +240,43 @@ def test_an_older_graph_does_not_list_an_importer_the_diff_renamed(tmp_path):
     }
 
 
+def test_an_importer_with_a_non_ascii_path_that_exists_is_kept(tmp_path):
+    """Review: `core.quotePath` C-quotes `café.py` unless the listing is `-z`."""
+    root = tmp_path / "r"
+    c0 = _init(root, {"app/__init__.py": "", "app/engine.py": ENGINE, "app/café.py": CALLER})
+    repo, storage = _index(root)
+    _commit(root, {"app/engine.py": ENGINE_CHANGED, "app/other.py": "X = 1\n"})
+
+    result = get_changed_symbols(repo, since_sha=c0, include_blast_radius=True, storage_path=storage)
+    run = _run_entry(result)
+    assert run["blast_radius"] == ["app/café.py"], "a real importer was published as absent at until_sha"
+    assert "blast_dropped_absent_at_until" not in result
+
+
+def test_an_existence_check_that_could_not_run_says_so(tmp_path, monkeypatch):
+    """UNKNOWN is not 'nothing dropped': an unlisted tree is disclosed."""
+    from jcodemunch_mcp.tools import get_changed_symbols as mod
+
+    root = tmp_path / "r"
+    c0 = _init(root, {"app/__init__.py": "", "app/engine.py": ENGINE, "app/caller.py": CALLER})
+    repo, storage = _index(root)
+    _commit(root, {"app/engine.py": ENGINE_CHANGED, "app/other.py": "X = 1\n"})
+
+    real = mod._run_git
+
+    def _no_tree(args, cwd, timeout=10):
+        if args and args[0] == "ls-tree":
+            return 128, "", "fatal: not a tree object"
+        return real(args, cwd, timeout)
+
+    monkeypatch.setattr(mod, "_run_git", _no_tree)
+    result = get_changed_symbols(repo, since_sha=c0, include_blast_radius=True, storage_path=storage)
+    run = _run_entry(result)
+    assert run["blast_radius"] == ["app/caller.py"]
+    assert result["blast_existence_unchecked"] == ["app/engine.py"]
+    assert "blast_dropped_absent_at_until" not in result
+
+
 def test_an_index_rooted_below_the_git_top_level_drops_by_index_paths(tmp_path):
     """#685's spelling: the existence check reads index-root-relative paths."""
     top = tmp_path / "r"

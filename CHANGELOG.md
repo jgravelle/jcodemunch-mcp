@@ -25,7 +25,15 @@ graph at another revision names that revision in `blast_graph_sha`.
 The existence check reads index-root-relative paths, like #685's diff.
 `git ls-tree` has no `--relative` and is cwd-relative by default, so the
 #685 ratchet now fails an `ls-tree` argv holding `--full-name` or
-`--full-tree` instead of one missing `--relative`.
+`--full-tree` instead of one missing `--relative`. The listing is read
+with `-z`, because `core.quotePath` otherwise C-quotes a non-ASCII path
+and a real importer such as `app/café.py` would be published as absent
+(review). When the tree cannot be listed, nothing is dropped and
+`blast_existence_unchecked` names the files, so an unfiltered list does
+not read as a filtered one that dropped nothing.
+`blast_dropped_absent_at_until` is uncapped, bounded by the walk it is
+taken from: each list is a subset of the unfiltered `blast_radius`
+(depth-limited by `max_blast_depth`), which is itself uncapped.
 
 ### Fixed - a latency Floor that fails on one preempted call is measured again before it fails (#906, #911)
 
