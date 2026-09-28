@@ -560,6 +560,17 @@ INDEX_VERSION = 17
 #   ⚠⚠ **And L-52: a C++ header of namespaced declarations is read as C++.**
 #   MOVES: in such a `.h`, `n#function` and bare `f#function` rows from the
 #   C misparse become `n.f#function`, `n.A#class` and `n.A.f#method`.
+#
+#   ⚠⚠ **And L-54: a C++ template specialisation keeps its arguments.**
+#   MOVES: `hash#type~1`/`~2` for `hash<A>`/`hash<B>` become `hash<A>#type`
+#   and `hash<B>#type`, their members follow, and ids numbered only because
+#   specialisations shared a bare name lose the `~N`. This SUPERSEDES the
+#   L-46 lines above for specialisations: against v1.108.319, an out-of-line
+#   `std::hash<A>` goes from `hash<A>` to `std.hash<A>`, and `A::B<int>`
+#   from `B<int>` to `A.B<int>`. An out-of-line body in a file without its
+#   class keeps the arguments too (`hash<A>.h`, no parent); a member
+#   specialised under `template <>` (`FloatingPoint<float>::Max`) is
+#   `FloatingPoint<float>.Max` owned by the primary.
 PARSER_GENERATION = 8
 
 

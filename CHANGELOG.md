@@ -2,6 +2,88 @@
 
 ## [Unreleased]
 
+### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
+
+`template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so
+the specialisations of one template in a file were `hash#type~1` and
+`hash#type~2`. Those ids depend on source order, and none could be found
+as `hash<A>`. jjg ruled on 2026-09-28 that the arguments stay in the id.
+
+A class, struct or union specialisation is now named with its arguments,
+with whitespace dropped around punctuation so one specialisation has one
+spelling: `hash< std::pair<int,  int> >` is `hash<std::pair<int,int>>`.
+That holds at file scope, in a namespace, in a class body and out of line.
+The primary template keeps its bare name. An out-of-line member body
+resolves its scope one segment at a time. A segment written with
+arguments names the class of that spelling in the file when there is one.
+It names the primary template only when its arguments are exactly an
+enclosing template's own parameters (`template <class T> void
+B<T>::f()`). Otherwise it keeps its arguments, found or not. So
+`B<T*>::f` belongs to `B<T*>`, `B<int>::g` to `B<int>`, and `B<T>::f` to
+`B`. `hash<A>::h` in a `.cpp` whose header declares `hash<A>` is
+`hash<A>.h` with no parent, not `hash.h~N`. And `B<U*>::f`, which matches
+no specialisation's spelling, is left without an owner rather than guessed
+onto the primary. The one exception is C++'s own: under any enclosing
+`template <>`, a definition whose scope names no class in the file
+specialises the PRIMARY's member (gtest's `template <> float
+FloatingPoint<float>::Max()`, `template <> void O<int>::I::g()`,
+`template <> template <class U> void A<int>::f(U)`), so it is
+`FloatingPoint<float>.Max` owned by `FloatingPoint`, `O<int>.I.g` owned
+by `O.I`, and `A<int>.f` owned by `A`. A member of a
+class specialisation defined elsewhere is written without `template <>`,
+and that is what tells the two apart. A specialisation whose name the
+grammar cuts short keeps its bare name. fmt's `use_format_as<T,
+bool_constant<...<T>>::value>>` splits its `>>` wrongly and leaves the last
+`>` in an ERROR, so it would otherwise publish a name one `>` short. A
+comparison in parentheses (`B2<(1>2)>`) is not a bracket, but a character
+argument holding one (`K<'>'>`) reads as unbalanced and keeps the bare
+name, `K~N` as on `main`. Review found all
+three of the first: the first draft looked the whole
+scope up with arguments or without, so it named cross-file bodies
+`hash.h~N`, orphaned `O<int>::I<char>::g`, and attached `B<U*>::f` to
+`B`. Its second round found the member specialisation, which the
+per-segment rule had orphaned in gtest, and its third found the rule keyed
+on the last scope and the nearest `template`, two more spellings of it. The test pins each placement, the
+spacing, a partial specialisation, a union, out-of-line equivalence, the
+body owners, each of those shapes, and the cut-short name. The same
+exception covers a member CLASS: `template <> template <> struct
+O<int>::I<char>` is `O<int>.I<char>` under `O`, where `main` gave `O.I`
+under `O`.
+`test_a_cpp_template_span_ends_where_it_starts.py` looked its two
+specialisations up by the bare name `Foo`; it asserts their byte spans,
+and it looks them up as `Foo<int>` and `S<T*>` now.
+
+A specialisation's name is BUILT, not borrowed: the source may space it
+differently. The full tier's built-name guard (#733) caught that. It
+requires every built name to be one no reference search is trusted about,
+and `hash<A>` is not identifier-shaped, so `check_delete_safe` (the one
+tool that asks that rule) now refuses to call a specialisation unused by
+name. Before, it searched for the bare `hash`, which every specialisation
+of the template shares. The helper is declared a
+name builder in that guard (`_NAME_BUILDING_HELPERS`), whose new test
+spies on its real output through a parse and fails if any name it builds
+is identifier-shaped. Planted to return the bare name, it fails.
+
+Measured, `main` against this branch (leveldb 7ee830d, fmt 5da4e9a): id
+counts are unchanged in every set. fmt `.h` changes 15 files and fmt `.cc`
+11. `formatter.parse#method~3` becomes
+`formatter<custom_type>.parse#method`, and the fmt ids carrying a `~N`
+suffix fall from 3,411 to 2,762 of 9,064, and no id gains an unbalanced
+`<` (45 on each side, every one an `operator<` or similar). Parented rows
+COUNTED per argument-free name (a set cannot count, which is how review's
+second round saw two gtest bodies the first metric hid): one name loses a
+row, the `format-test.cc` body below, and two gain one. The owners that
+change are 14 methods, 6 types and 5 fields reparented in fmt's headers,
+each from a `~N`-numbered owner (`formatter#type~1`) to the same class
+without the number, once its specialisations stopped sharing its name. One body in `format-test.cc`,
+`fmt::formatter<incomplete_type>::format`, had been parented to a
+DIFFERENT specialisation (`fmt.formatter#type`, the
+`explicitly_convertible_to_std_string_view` one). It now has no parent,
+because its class is declared inside the `FMT_BEGIN_NAMESPACE` macro and
+so indexes without the `fmt.` its body carries. leveldb: no change. A function
+template's explicit specialisation (`template <> void f<int>(int)`) is
+still named `f` (LEDGER L-56).
+
 ### Fixed - a C++ header of namespaced declarations is read as C++ (LEDGER L-52)
 
 A `.h` is parsed with both grammars and the better parse wins. The C
@@ -80,7 +162,8 @@ specialisations of one template in a file, `template <> struct
 std::hash<A> {}` and `std::hash<B>`, were `hash<A>#type` and `hash<B>#type`
 and are now `std.hash#type~1` and `~2` in source order, as the same two
 written inside `namespace std { }` already were. How a specialisation is
-named at all is LEDGER L-54. A leading `::` resolves from the file scope:
+named at all is LEDGER L-54, whose entry above gives both forms their
+arguments back. A leading `::` resolves from the file scope:
 `class ::A::B {}` is `A.B` (it was `A::B`), and `class ::Top` is unchanged.
 
 The first draft broke L-07. L-07 reads a scope that a file-scope symbol is

@@ -2739,6 +2739,15 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
 
     if name_node:
         if spec.ts_language in ("cpp", "arduino"):
+            # LEDGER L-54 (jjg, 2026-09-28): a specialisation keeps its
+            # arguments, so `hash<A>` and `hash<B>` are two names, not
+            # `hash~1`/`~2` in source order.
+            if (
+                node.type in _C_FAMILY_RECORD_SPECIFIERS
+                and name_node.type == "template_type"
+                and _cpp_template_type_is_whole(name_node, source_bytes)
+            ):
+                return _cpp_template_type_name(name_node, source_bytes)
             return _extract_cpp_name(name_node, source_bytes)
 
         return _c_declarator_name(name_node, source_bytes)
@@ -2969,6 +2978,42 @@ def _extract_cpp_name(name_node, source_bytes: bytes) -> Optional[str]:
     return text or None
 
 
+_TEMPLATE_NAME_SPACING = re.compile(r"\s*([<>,()\[\]*&:])\s*")
+
+
+def _cpp_template_type_name(node, source_bytes: bytes) -> Optional[str]:
+    """`hash< std::pair<int,  int> >` -> `hash<std::pair<int,int>>`: a
+    specialisation's name WITH its arguments (L-54), whitespace dropped around
+    punctuation so one specialisation has one spelling. None when the node is
+    not whole (`_cpp_template_type_is_whole`)."""
+    if not _cpp_template_type_is_whole(node, source_bytes):
+        return None
+    text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    text = " ".join(text.split())
+    return _TEMPLATE_NAME_SPACING.sub(r"\1", text) or None
+
+
+def _cpp_template_type_is_whole(node, source_bytes: bytes) -> bool:
+    """Does this `template_type`'s text close every `<` it opens? ⚠ The grammar
+    can split a `>>` wrongly and leave the last `>` in an ERROR (fmt's
+    `use_format_as<T, bool_constant<...<T>>::value>>`), and a name copied from
+    that node is one `>` short: such a specialisation keeps its bare name, as
+    before L-54, rather than publish a truncated one (L-54's corpus diff)."""
+    text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    angle = paren = 0
+    for ch in text:
+        if ch in "([":
+            paren += 1
+        elif ch in ")]":
+            paren -= 1
+        elif paren == 0 and ch == "<":
+            angle += 1
+        elif paren == 0 and ch == ">":
+            angle -= 1
+    # A comparison inside parentheses (`B<(1>2)>`) is not a bracket.
+    return angle == 0 and paren == 0 and text.rstrip().endswith(">")
+
+
 def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
     """One scope segment of a C++ `qualified_identifier`: `A`, `ns`, or the
     template's name for `B<T>`. None for a scope with no name to give it
@@ -2980,24 +3025,6 @@ def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
     if node.type in ("namespace_identifier", "type_identifier", "identifier"):
         return source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip() or None
     return None
-
-
-def _cpp_scope_segments(qualified, source_bytes: bytes):
-    """`A::B::x` -> `(["A", "B"], <node x>)`: the scope segments of a C++
-    `qualified_identifier` and the node it finally names. None when a scope
-    has no name to give it, including the global `::x`."""
-    segments: list[str] = []
-    current = qualified
-    while current is not None and current.type == "qualified_identifier":
-        scope = current.child_by_field_name("scope")
-        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
-        if segment is None:
-            return None
-        segments.append(segment)
-        current = current.child_by_field_name("name")
-    if current is None:
-        return None
-    return segments, current
 
 
 def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
@@ -3012,6 +3039,147 @@ def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
             base = list(scope_parts[:depth])
             break
     return ".".join([*base, *segments])
+
+
+def _cpp_owner_symbol(owner: str, symbols: list):
+    return next(
+        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
+        None,
+    )
+
+
+def _cpp_template_parameter_names(node, source_bytes: bytes) -> list[list[str]]:
+    """The parameter names of every `template <...>` enclosing *node*, the
+    innermost list first: `template <class T, int N, class... Ts>` gives
+    `[["T", "N", "Ts"]]`."""
+    lists: list[list[str]] = []
+    current = node.parent
+    while current is not None:
+        if current.type == "template_declaration":
+            params = current.child_by_field_name("parameters")
+            names: list[str] = []
+            for param in params.named_children if params is not None else ():
+                name = _cpp_template_parameter_name(param, source_bytes)
+                if name:
+                    names.append(name)
+            lists.append(names)
+        current = current.parent
+    return lists
+
+
+def _cpp_template_parameter_name(param, source_bytes: bytes) -> Optional[str]:
+    named = param.child_by_field_name("name") or param.child_by_field_name("declarator")
+    if named is None:
+        # `class T`, `class... Ts`, and the trailing `class TT` of a template
+        # template parameter: the last identifier outside a nested list.
+        for child in reversed(param.named_children):
+            if child.type in ("type_identifier", "identifier"):
+                named = child
+                break
+            if child.type == "type_parameter_declaration":
+                return _cpp_template_parameter_name(child, source_bytes)
+    if named is None:
+        return None
+    return source_bytes[named.start_byte:named.end_byte].decode("utf-8", errors="replace").strip() or None
+
+
+def _cpp_names_the_primary(scope, parameter_lists, source_bytes: bytes) -> bool:
+    """Is `B<T, N>` (a `template_type` scope) the primary template, i.e. are
+    its arguments exactly one enclosing template's own parameters, in order?
+    `template <class T> void B<T>::f()` is; `B<T*>::f` and `B<int>::g` are not."""
+    arguments = scope.child_by_field_name("arguments")
+    if arguments is None:
+        return False
+    written = [
+        " ".join(source_bytes[a.start_byte:a.end_byte].decode("utf-8", errors="replace").split()).removesuffix("...").strip()
+        for a in arguments.named_children
+        if a.type != "comment"
+    ]
+    return bool(written) and any(written == names for names in parameter_lists)
+
+
+def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
+    """The owner a qualified name's scope names, and its class in the file.
+
+    ⚠⚠ L-54: resolved ONE SEGMENT AT A TIME, because each segment of
+    `O<int>::I<char>` decides alone (review of L-54 found an all-or-nothing
+    lookup orphaning that body). A segment written with arguments:
+    - names a class of that spelling in the file when there is one;
+    - names the PRIMARY template when its arguments are exactly an enclosing
+      template's own parameters (`template <class T> void B<T>::f()`);
+    - otherwise keeps its arguments, found or not: `hash<A>::h` in a `.cpp`
+      whose header declares `hash<A>` is `hash<A>.h` with no parent, never
+      the source-ordered `hash.h~N`, and `B<U*>::f` is never guessed onto the
+      primary `B` (a wrong owner is a confident false edge; review).
+    ⚠⚠ One exception, and C++ states it: under ANY enclosing `template <>`,
+    a definition whose scope names no class in the file SPECIALISES THE
+    PRIMARY'S MEMBER (`template <> float FloatingPoint<float>::Max()`,
+    gtest; `template <> void O<int>::I::g()`; `template <> template <class
+    U> void A<int>::f(U)`). A member of a class specialisation defined
+    elsewhere is written WITHOUT `template <>`, so the wrapper is what tells
+    them apart. Its name keeps the arguments (`FloatingPoint<float>.Max`,
+    L-54) and its owner is the same path with every argument-bearing segment
+    that named no class read as its primary (`FloatingPoint`, `O.I`, `A`).
+    ⚠ Keyed on the property, not a spelling: review found it first for the
+    last scope only, then under the nearest `template` only.
+    Returns `(segments, last_node, owner, owner_symbol)` or None.
+    """
+    chosen: list[str] = []
+    parameter_lists: Optional[list[list[str]]] = None
+    # `chosen` with every segment that kept arguments naming no class read as
+    # its primary: the owner, if this is a member specialisation.
+    primary_chain: list[str] = []
+    current = qualified
+    while current is not None and current.type == "qualified_identifier":
+        scope = current.child_by_field_name("scope")
+        if scope is None:
+            return None
+        bare = _cpp_scope_segment(scope, source_bytes)
+        if bare is None:
+            return None
+        segment = bare
+        if scope.type == "template_type":
+            full = _cpp_template_type_name(scope, source_bytes) or bare
+            if _cpp_owner_symbol(_cpp_owner_in_scope([*chosen, full], scope_parts), symbols) is not None:
+                segment = full
+            else:
+                if parameter_lists is None:
+                    parameter_lists = _cpp_template_parameter_names(qualified, source_bytes)
+                segment = bare if _cpp_names_the_primary(scope, parameter_lists, source_bytes) else full
+        chosen.append(segment)
+        primary_chain.append(bare if segment != bare and _cpp_owner_symbol(
+            _cpp_owner_in_scope(chosen, scope_parts), symbols) is None else segment)
+        current = current.child_by_field_name("name")
+    if current is None or not chosen:
+        return None
+    owner = _cpp_owner_in_scope(chosen, scope_parts)
+    owner_symbol = _cpp_owner_symbol(owner, symbols)
+    if owner_symbol is None and primary_chain != chosen and _cpp_is_explicit_specialisation(qualified):
+        owner_symbol = _cpp_owner_symbol(_cpp_owner_in_scope(primary_chain, scope_parts), symbols)
+    return chosen, current, owner, owner_symbol
+
+
+def _cpp_is_explicit_specialisation(node) -> bool:
+    """Is *node* under a `template <>`, at any depth up to its class body?
+    *node* may be the qualified NAME of a class head (`struct O<int>::I<char>`),
+    whose own specifier is skipped. ⚠ ANY enclosing one, not the nearest:
+    `template <> template <class U> void A<int>::f(U)` specialises the
+    primary's member template, and its nearest header is `template <class U>`
+    (review of L-54)."""
+    current = node.parent
+    if current is not None and current.type in _C_FAMILY_MACRO_HEADS:
+        name = current.child_by_field_name("name")
+        if name is not None and name.start_byte == node.start_byte and name.end_byte == node.end_byte:
+            current = current.parent
+    while current is not None:
+        if current.type == "template_declaration":
+            params = current.child_by_field_name("parameters")
+            if params is not None and not params.named_children:
+                return True
+        if current.type in ("class_specifier", "struct_specifier", "union_specifier", "translation_unit"):
+            return False
+        current = current.parent
+    return False
 
 
 def _cpp_qualified_record(
@@ -3044,21 +3212,18 @@ def _cpp_qualified_record(
         scope_parts = []
         if name_node is None or name_node.type != "qualified_identifier":
             return symbol
-    walked = _cpp_scope_segments(name_node, source_bytes)
-    if walked is None or not walked[0]:
+    resolved = _cpp_resolve_owner(name_node, source_bytes, scope_parts, symbols)
+    if resolved is None:
         return symbol
-    segments, last = walked
-    # ⚠ A specialisation `A::B<int>` is named `B`, as the same specialisation
-    # written inside `A` is (`A.B`); `main` named the out-of-line one `B<int>`.
-    name = _cpp_scope_segment(last, source_bytes)
+    _segments, last, owner, owner_symbol = resolved
+    # A specialisation `A::B<int>` keeps its arguments, as the same
+    # specialisation written inside `A` does (L-54).
+    name = (
+        _cpp_template_type_name(last, source_bytes) if last.type == "template_type" else None
+    ) or _cpp_scope_segment(last, source_bytes)
     if not name:
         return symbol
-    owner = _cpp_owner_in_scope(segments, scope_parts)
     qualified = f"{owner}.{name}"
-    owner_symbol = next(
-        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
-        None,
-    )
     return dataclasses.replace(
         symbol,
         id=make_symbol_id(filename, qualified, symbol.kind),
@@ -3076,10 +3241,9 @@ def _names_a_namespace(owner: str, scope_parts) -> bool:
     return any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1))
 
 
-def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]:
-    """`A::run` -> `["A", "run"]` for a function DEFINITION whose declarator is
-    qualified (L-07); None for anything else, including `::f`, whose global
-    qualifier names no scope."""
+def _cpp_out_of_class_declarator(node):
+    """The `qualified_identifier` naming a function DEFINITION (`A::run`,
+    L-07); None for anything else."""
     fn = node
     if fn.type == "template_declaration":
         fn = next((c for c in fn.named_children if c.type == "function_definition"), None)
@@ -3090,14 +3254,7 @@ def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]
         current = current.child_by_field_name("declarator")
     if current is None or current.type != "qualified_identifier":
         return None
-    walked = _cpp_scope_segments(current, source_bytes)
-    if walked is None:
-        return None
-    segments, current = walked
-    if current.type == "template_function":
-        current = current.child_by_field_name("name") or current
-    last = source_bytes[current.start_byte:current.end_byte].decode("utf-8").strip()
-    return [*segments, last] if last else None
+    return current
 
 
 def _cpp_out_of_class_member(
@@ -3131,16 +3288,20 @@ def _cpp_out_of_class_member(
     C++ requires the class to be declared before an out-of-line definition, so
     the owner is already in `symbols` when the walk reaches the body.
     """
-    segments = _cpp_out_of_class_segments(node, source_bytes)
-    if not segments or len(segments) < 2:
+    declarator = _cpp_out_of_class_declarator(node)
+    if declarator is None:
         return symbol
-    owner = _cpp_owner_in_scope(segments[:-1], scope_parts)
-    name = segments[-1]
+    resolved = _cpp_resolve_owner(declarator, source_bytes, scope_parts, symbols)
+    if resolved is None:
+        return symbol
+    _segments, last, owner, owner_symbol = resolved
+    # `::f` names no scope; `A::run` is `run`, and `A::f<int>` is `f`.
+    if last.type == "template_function":
+        last = last.child_by_field_name("name") or last
+    name = source_bytes[last.start_byte:last.end_byte].decode("utf-8").strip()
+    if not name:
+        return symbol
     qualified = f"{owner}.{name}"
-    owner_symbol = next(
-        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
-        None,
-    )
     records = qualified_records or {}
     if owner_symbol is not None:
         kind, parent = "method", owner_symbol.id
