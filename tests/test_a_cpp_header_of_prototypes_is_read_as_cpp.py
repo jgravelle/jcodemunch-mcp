@@ -28,14 +28,26 @@ CPP_HEADERS = {
     "namespaced-struct": "namespace n {\nstruct S {\n  void f();\n};\n}  // namespace n\n",
     "template-class": "template <class T>\nclass Box {\n  T get() const;\n  void set(T v);\n};\n",
     "namespace-prototypes": "namespace n {\nvoid f();\nint g(int);\n}\n",
-    "include-guard": "#ifndef A_H\n#define A_H\nnamespace n {\nclass A {\n public:\n  void f();\n};\n}\n#endif\n",
+    # A Qt `signals:` section costs the C++ parse an ERROR and C none, so an
+    # equal-errors-only rule still chose C here (review of L-52).
+    "qt-signals": "namespace n {\nclass A {\nsignals:\n void g();\n void f();\n};\n}\n",
+    "include-guard":"#ifndef A_H\n#define A_H\nnamespace n {\nclass A {\n public:\n  void f();\n};\n}\n#endif\n",
 }
 
 C_HEADERS = {
     "struct-and-prototype": "struct S { int x; };\nvoid f(int);\n",
     "class-in-a-comment": "/* the class of errors */\nstruct S { int x; };\nint g(void);\n",
     "typedef": "typedef struct S S;\nint g(void);\nstatic inline int h(int x) { return x; }\n",
-    "extern-c-guard": "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint f(int);\n#ifdef __cplusplus\n}\n#endif\n",
+    # hiredis's `alloc.h` shape: C and C++ publish different rows for this
+    # body, so the case fails if `extern "C"` ever counts as C++ (review).
+    "extern-c-guard": (
+        "#ifdef __cplusplus\nextern \"C\" {\n#endif\n"
+        "typedef struct allocFuncs {\n    void *(*mallocFn)(size_t);\n    void (*freeFn)(void*);\n} allocFuncs;\n"
+        "allocFuncs setAllocators(allocFuncs *ha);\n"
+        "extern allocFuncs allocFns;\n"
+        "static inline void *hi_malloc(size_t size) {\n    return allocFns.mallocFn(size);\n}\n"
+        "#ifdef __cplusplus\n}\n#endif\n"
+    ),
 }
 
 

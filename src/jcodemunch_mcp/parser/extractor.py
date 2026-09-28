@@ -764,20 +764,24 @@ def _parse_cpp_symbols(source_bytes: bytes, filename: str) -> tuple[list[Symbol]
     if not cpp_symbols and not c_symbols:
         return cpp_symbols, cpp_tree
 
+    # ⚠⚠ The C++ parse holds a declaration only C++ has: C++ (LEDGER L-52),
+    # whatever the error counts say. The C grammar reads `namespace n { class A { void
+    # f(); }; }` WITHOUT an error, as a function `n` returning `namespace` with
+    # a function `A` nested in it, and that misparse has MORE symbols than the
+    # class, so the count below chose it and a declaration-only header lost
+    # every class. A C++-only node outside an ERROR is structural evidence,
+    # where the lexical markers below are substrings (`class ` in a comment).
+    # ⚠ Ahead of the error comparison, not only on a tie: a Qt `signals:`
+    # section costs the C++ parse one ERROR and none in C, and the class was
+    # lost the same way (review of L-52). On lua and redis the construct fires
+    # in no header the error count had given to C.
+    if cpp_tree is not None and _has_cpp_only_construct(cpp_tree.root_node):
+        return cpp_symbols, cpp_tree
+
     # Both yielded symbols: choose fewer parse errors first, then richer symbol output.
     if c_error_nodes < cpp_error_nodes:
         return c_symbols, c_tree
     if cpp_error_nodes < c_error_nodes:
-        return cpp_symbols, cpp_tree
-
-    # ⚠⚠ Same error quality, and the C++ parse holds a construct only C++ has:
-    # C++ (LEDGER L-52). The C grammar reads `namespace n { class A { void
-    # f(); }; }` WITHOUT an error, as a function `n` returning `namespace` with
-    # a function `A` nested in it, and that misparse has MORE symbols than the
-    # class, so the count below chose it and a declaration-only header lost
-    # every class. A C++-only node in a clean parse is structural evidence,
-    # where the lexical markers below are substrings (`class ` in a comment).
-    if cpp_tree is not None and _has_cpp_only_construct(cpp_tree.root_node):
         return cpp_symbols, cpp_tree
 
     # Same error quality: use lexical signal to break ties for `.h`.
