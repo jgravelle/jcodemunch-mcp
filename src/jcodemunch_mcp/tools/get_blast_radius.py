@@ -211,6 +211,27 @@ def _unresolved_package_edges(
     }
 
 
+def importers_with_verdict(index, sym_file: str, depth: int) -> tuple[list, Optional[dict]]:
+    """``(importer_files, unresolvable)``: the importer walk from ``sym_file``
+    paired with ``blast_verdict``'s reason when an EMPTY walk is one the graph
+    could not answer (a Go package import lands on no member file, #415).
+
+    The walk and its verdict in one call, so a caller cannot take the first and
+    forget the second (#879: four did). A found importer is positive evidence
+    and is never probed. ``tests/test_importer_walkers_ask_blast_verdict.py``
+    fails on a function that walks without asking.
+    """
+    source_files = frozenset(index.source_files)
+    rev = _build_reverse_adjacency(
+        index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None)
+    )
+    importer_files, _ = _bfs_importers(sym_file, rev, depth)
+    unresolvable = None
+    if not importer_files:
+        _, unresolvable = blast_verdict(index, source_files, sym_file, 0)
+    return importer_files, unresolvable
+
+
 def blast_verdict(
     index,
     source_files: frozenset,

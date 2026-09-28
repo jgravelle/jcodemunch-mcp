@@ -62,7 +62,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.133,
-      "mean_desc_overlap": 0.366,
+      "mean_desc_overlap": 0.368,
       "queries_containing_target_name_token": 19,
       "high_leak_queries": [
         "what columns does the orders model have",
@@ -946,7 +946,7 @@
         "get_pr_risk_profile"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.0
+      "leak_desc": 0.167
     },
     {
       "query": "how often does this file get touched",

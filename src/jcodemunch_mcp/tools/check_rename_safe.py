@@ -31,7 +31,10 @@ def check_rename_safe(
 
     Returns:
         ``{safe, conflicts, checked_files, symbol, timing_ms}``
-        - safe: True if no collisions were found.
+        - safe: True if no collisions were found; None when none was found
+          but the importer graph could not reach the symbol's file, so the
+          files that use it were never checked (``unresolvable`` says why,
+          #879); False on a collision.
         - conflicts: List of ``{file, existing_symbol_id, existing_name, line}``.
         - checked_files: Number of files inspected.
     """
@@ -80,6 +83,15 @@ def check_rename_safe(
                     files_to_check.add(src_file)
                     break
 
+    # No importer found: ask the authority whether the graph could have found
+    # one. A Go package import lands on no member file (#415), and `safe: True`
+    # from that walk was a claim about files nobody looked at (#879).
+    unresolvable = None
+    if files_to_check == {sym_file}:
+        from .get_blast_radius import blast_verdict  # noqa: PLC0415
+
+        _, unresolvable = blast_verdict(index, frozenset(index.source_files), sym_file, 0)
+
     # Build a per-file symbol name map for fast lookup
     name_by_file: dict[str, list[dict]] = {}
     for s in index.symbols:
@@ -100,8 +112,9 @@ def check_rename_safe(
                 })
 
     timing_ms = round((time.monotonic() - t0) * 1000, 1)
-    return {
-        "safe": len(conflicts) == 0,
+    safe = False if conflicts else (None if unresolvable else True)
+    result = {
+        "safe": safe,
         "symbol": {
             "id": sym["id"],
             "name": sym["name"],
@@ -113,3 +126,6 @@ def check_rename_safe(
         "checked_files": len(files_to_check),
         "_meta": {"timing_ms": timing_ms},
     }
+    if safe is None:
+        result["unresolvable"] = unresolvable
+    return result
