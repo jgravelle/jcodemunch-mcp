@@ -105,17 +105,53 @@ def test_a_real_variable_or_an_opaque_declaration_is_unchanged(source, expected)
     assert published == expected
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
+# Expected rows are what `main` publishes for the same text.
+REAL_CODE = {
+    "commented-brace-field": (
         "struct S {\n  enum Color c { RED /* default */ };\n  int x;\n};\n",
+        "a.cpp",
+        "cpp",
+        [("S#type", "type"), ("S.c#field", "field"), ("S.x#field", "field")],
+    ),
+    "bit-field-with-a-cast-width": (
         "struct S {\n  enum Color c : std::uint8_t{ 3 };\n  int x;\n};\n",
-    ],
-    ids=["commented-brace-field", "bit-field-with-a-cast-width"],
-)
-def test_a_real_enum_field_is_unchanged(source):
-    """A plain enum field with one braced value, or a bit-field whose width
-    is a functional cast, is real code: no enum `c` appears."""
-    rows = {(s.name, s.kind) for s in parse_file(source, "a.cpp", "cpp")}
-    assert ("c", "type") not in rows, rows
-    assert any(name == "S" for name, _ in rows), rows
+        "a.cpp",
+        "cpp",
+        [("S#type", "type"), ("S.c#field", "field"), ("S.x#field", "field")],
+    ),
+    # An array takes any number of entries (review of L-47, round 2):
+    "array-then-function": (
+        "enum Color cs[2] { RED, GREEN };\nint after() { return 0; }\n",
+        "a.cpp",
+        "cpp",
+        [("after#function", "function")],
+    ),
+    "arduino-array-then-setup": (
+        "enum Mode modes[] { OFF, ON };\nvoid setup() {}\n",
+        "a.ino",
+        "arduino",
+        [("setup#function", "function")],
+    ),
+    "array-field": (
+        "struct S {\n  enum Color cs[2] { RED, GREEN };\n  int x;\n};\n",
+        "a.cpp",
+        "cpp",
+        [("S#type", "type"), ("S.cs#field", "field"), ("S.x#field", "field")],
+    ),
+    "two-dimensional-array-field": (
+        "struct S {\n  enum Color g[2][2] { {RED, GREEN}, {BLUE, RED} };\n};\n",
+        "a.cpp",
+        "cpp",
+        [("S#type", "type"), ("S.g#field", "field")],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REAL_CODE))
+def test_real_enum_typed_code_is_unchanged(case):
+    """A plain enum field with one braced value, a bit-field whose width is a
+    functional cast, and a brace-initialised enum ARRAY are real code: each
+    publishes exactly what main published, nothing dropped and nothing added."""
+    source, filename, language, expected = REAL_CODE[case]
+    rows = sorted((s.id.split("::", 1)[1], s.kind) for s in parse_file(source, filename, language))
+    assert rows == expected

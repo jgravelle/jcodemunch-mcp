@@ -546,6 +546,11 @@ _C_FAMILY_RECORD_SPECIFIERS = frozenset({"class_specifier", "struct_specifier", 
 _C_FAMILY_MACRO_HEADS = _C_FAMILY_RECORD_SPECIFIERS | {"enum_specifier"}
 
 
+#: The declarator a macro enum's misparse can give: its name, or a qualified
+#: underlying type that took the name's slot. Never an array (L-47 review).
+_ENUM_MACRO_TARGETS = frozenset({"identifier", "field_identifier", "qualified_identifier"})
+
+
 def _enum_macro(node):
     """The macro in `enum class API E { A, B };`, read as a variable (L-47).
 
@@ -558,10 +563,14 @@ def _enum_macro(node):
     `enum struct`) with a list is never a variable: that elaborated form is
     legal only in an opaque declaration, which has no list.
     ⚠ Entries are counted WITHOUT comments: `enum Color c { RED /* x */ };`
-    is still the real variable (L-47 review). ⚠ The declarator is not read,
-    because a qualified underlying type (`: std::uint8_t`) moves into its slot
-    and the name into an ERROR; in a class body that base parses as a
-    bit-field whose width is `std::uint8_t{ A }`, so the list is read there.
+    is still the real variable (L-47 review). ⚠ The two-entry rule holds
+    for a SCALAR only, so the declarator must be a plain name: an ARRAY
+    (`enum Color cs[2] { RED, GREEN };`) is a real variable that takes any
+    number of entries, and blanking its type lost the functions after it
+    (review, round 2). A `qualified_identifier` is accepted, because a
+    qualified underlying type (`: std::uint8_t`) moves into that slot and the
+    name into an ERROR. In a class body that base parses as a bit-field whose
+    width is `std::uint8_t{ A }`, so the list is read there.
     """
     head = node.child_by_field_name("type")
     if head is None or head.type != "enum_specifier" or head.child_by_field_name("body") is not None:
@@ -574,13 +583,17 @@ def _enum_macro(node):
         if declarator is None or declarator.type != "init_declarator":
             return None
         value = declarator.child_by_field_name("value")
+        target = declarator.child_by_field_name("declarator")
         assigned = any(c.type == "=" for c in declarator.children)
     else:
         value = node.child_by_field_name("default_value")
+        target = node.child_by_field_name("declarator")
         assigned = any(c.type == "=" for c in node.children)
         if value is None:
             value = _bitfield_brace_list(node)
     if value is None or value.type != "initializer_list" or assigned:
+        return None
+    if target is None or target.type not in _ENUM_MACRO_TARGETS:
         return None
     scoped = any(c.type in ("class", "struct") for c in head.children)
     entries = [c for c in value.named_children if c.type != "comment"]

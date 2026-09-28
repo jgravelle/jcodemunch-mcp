@@ -20,15 +20,21 @@ declaration, which has no list. A plain `enum` is taken only when its list
 holds two or more entries, which no enum-typed variable accepts. Entries
 are counted without comments: the first draft counted `/* default */` as an
 entry and turned the real `enum Color c { RED /* default */ };` into a type
-(review). The declarator is not read, because a qualified underlying type
-(`: std::uint8_t`) takes its slot; in a class body that base parses as a
-bit-field whose width is `std::uint8_t{ A }`, and the list is read there.
+(review). The two-entry rule holds for a scalar only, so the declarator
+must be a plain name: `enum Color cs[2] { RED, GREEN };` is a real array,
+and a draft that stopped reading the declarator blanked `Color` and lost
+the function after it (review, round 2). A qualified name is accepted,
+because a qualified underlying type (`: std::uint8_t`) takes the name's
+slot. In a class body that base parses as a bit-field whose width is
+`std::uint8_t{ A }`, and the list is read there.
 The test pins that a scoped, `enum struct`, one-entry, empty, commented,
 based (`int`, `std::uint8_t`, `ns::T`), two-macro, namespaced, in-class and
 plain two-entry head publishes exactly what the same text without the
 macro publishes, in `.cpp`, `.h` and Arduino; that the C form is an enum;
 and that a brace-initialised variable (with and without a comment), a
-commented enum field and a bit-field with a cast width are unchanged.
+commented enum field, a bit-field with a cast width and a brace-initialised
+enum array (file scope, class body, two-dimensional, Arduino) publish
+exactly what `main` publishes.
 
 Not fixed, each as on `main`:
 - a plain one-enumerator enum behind a macro in C++ (LEDGER L-49);
