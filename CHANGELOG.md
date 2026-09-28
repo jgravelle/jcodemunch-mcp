@@ -15,18 +15,32 @@ kept the package probe from running; but the `result_count` handed to
 `blast_verdict`'s contract already said `result_count` is what the caller
 found by every channel it ran.
 
-Both count the cross-repo channel now. A cross-repo importer imports this
-repository's package directly, so it weighs in the risk average as a
-depth-1 dependent: importers found only elsewhere score 1.0, and a mix
-averages them in. `importer_count` stays local, as its name says; the
-cross-repo figure is `cross_repo_confirmed_count` as before.
+Both count the cross-repo channel now. It runs when a caller passes
+`cross_repo=True`, and also on every call that leaves it unset when
+`cross_repo_default` (`JCODEMUNCH_CROSS_REPO_DEFAULT`) is on, so those
+installs get the new verdict and score without passing anything. A
+cross-repo importer imports this repository's package directly, so it
+weighs in the risk average as a depth-1 dependent: importers found only
+elsewhere score 1.0, and a mix never scores LOWER than before, because
+every local weight is at most 1.0 (a depth-1 and a depth-2 local importer
+with one cross-repo importer: 0.8078 before, 0.8719 now). Two limits,
+stated: the channel matches the consumer's ROOT PACKAGE, one entry per
+consumer file, without checking that the file uses this symbol, so a
+consumer with many files importing the package pushes the score toward
+1.0; and `impact_by_depth` lists local files only, so the score can no
+longer be recomputed from that field alone (review). `importer_count`
+stays local, as its name says; the cross-repo figure is
+`cross_repo_confirmed_count` as before.
 
-`assemble_task_context` asks `get_blast_radius` for the same channel when
-called with `cross_repo=True`, and its blast entry kept only the local
-`confirmed` list, reporting `confirmed_count: 0` for exactly this case. The
-entry carries `cross_repo_confirmed_count` and `top_cross_repo` now. The
-test pins both tools, a mixed local-and-cross-repo risk, and that
-`cross_repo=False` still answers `absent` for the same symbol.
+Two consumers of that channel dropped it. `assemble_task_context` asks
+for it when called with `cross_repo=True`, and its blast entry reported
+`confirmed_count: 0` for exactly this case; it carries
+`cross_repo_confirmed_count` and `top_cross_repo` now.
+`get_endpoint_impact` inherits it under `cross_repo_default` and
+published only the local `affected_file_count`; it carries
+`cross_repo_affected_count` and `cross_repo_affected_files` now (review).
+The test pins all three tools, the mixed risk, and that `cross_repo=False`
+still answers `absent` for the same symbol.
 
 ### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
 

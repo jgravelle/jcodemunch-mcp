@@ -110,3 +110,26 @@ def test_the_task_capsule_keeps_the_cross_repo_importers(provider):
     assert blast, out.get("stages_run")
     assert blast[0]["cross_repo_confirmed_count"] == 1
     assert blast[0]["top_cross_repo"][0]["file"] == "app.py"
+
+
+def test_endpoint_impact_keeps_the_channel_cross_repo_default_turns_on(provider, monkeypatch):
+    """`get_endpoint_impact` calls `get_blast_radius` without `cross_repo`, so
+    `cross_repo_default: true` runs the channel for it; it published only the
+    local `affected_file_count` and dropped the rest (review of #877). The
+    real producer runs; only the config default is set."""
+    import jcodemunch_mcp.config as config
+    from jcodemunch_mcp.tools.get_endpoint_impact import _impact_for_handler
+
+    real_get = config.get
+    monkeypatch.setattr(
+        config, "get",
+        lambda key, *a, **k: True if key == "cross_repo_default" else real_get(key, *a, **k),
+    )
+    repo, store = provider
+    out = _impact_for_handler(
+        repo, {"handler_id": "do_thing", "verb": "GET", "path": "/thing"}, [],
+        depth=1, call_depth=0, storage_path=store,
+    )
+    assert out["affected_file_count"] == 0
+    assert out["cross_repo_affected_count"] == 1
+    assert out["cross_repo_affected_files"][0]["file"] == "app.py"

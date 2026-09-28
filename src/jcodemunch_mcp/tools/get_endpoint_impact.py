@@ -163,7 +163,7 @@ def _impact_for_handler(
         for r in render_edges if r.get("src_id") == hid
     ]
     label = f'{handler.get("verb", "ANY")} {handler.get("path", "")}'.strip()
-    return {
+    out = {
         "endpoint": label,
         "handler": {
             "id": hid,
@@ -177,6 +177,14 @@ def _impact_for_handler(
         "caller_count": br.get("caller_count", 0),
         "rendered_views": views,
     }
+    # `get_blast_radius` runs its cross-repo channel whenever `cross_repo_default`
+    # is on; dropping it left `affected_file_count: 0` for a handler whose only
+    # dependents live in another repository (#877).
+    cross = br.get("cross_repo_confirmed") or []
+    if cross:
+        out["cross_repo_affected_files"] = cross
+        out["cross_repo_affected_count"] = len(cross)
+    return out
 
 
 def _norm_rel(p: str) -> str:
