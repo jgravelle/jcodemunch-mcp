@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+### Fixed - a C-family enum declared behind an export macro is an enum (LEDGER L-47)
+
+`enum class API E { A, B };` published nothing. The grammar reads
+`enum class API` as an elaborated type, `E` as a variable and the
+enumerator list as a brace initializer. In a class body the same head gave
+`S.E#field`, and the C grammar read `enum API E { A, B };` as `E#function`.
+L-45 unmasked class, struct and union heads only. Found in L-45's review.
+
+The same blank-and-re-parse now covers an enum head. The C shape is L-45's
+function shape with an `enum` head, so it joins that rule. The C++ shape is
+a declaration, and one spelling of it is real code: `enum Color c { RED };`
+is a brace-initialised variable and gives the same tree as a one-enumerator
+enum behind a macro. So a scoped head (`enum class`, `enum struct`) is
+always taken, because that elaborated form is legal only in an opaque
+declaration, which has no list. A plain `enum` is taken only when its list
+holds two or more entries, which no enum-typed variable accepts. A plain
+one-enumerator enum behind a macro in C++ still publishes nothing (LEDGER
+L-49). The test pins that a scoped, `enum struct`, one-entry, empty,
+based, two-macro, namespaced, in-class and plain two-entry head publishes
+exactly what the same text without the macro publishes, in `.cpp`, `.h`
+and Arduino, and that the C form is an enum.
+
+Measured on the pinned corpora (leveldb 7ee830d, fmt 5da4e9a), `main`
+against this branch: no id changes (`fmt (h)` `ids 6365 -> 6365`,
+`leveldb (h)` `ids 1163 -> 1163`, and both `.cc` sets unchanged). Neither
+corpus writes an enum behind a macro, so this is evidence of no collateral
+movement, not of the fix. Ids move only where the shape occurs: nothing
+becomes `E#type`, and in a class body `S.E#field` becomes `S.E#type`.
+
 ### Fixed - a C++ class declared behind an export macro is a class (LEDGER L-45)
 
 `class LEVELDB_EXPORT Status { bool ok() const; };` is how most exported

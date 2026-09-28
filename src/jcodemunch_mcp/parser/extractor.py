@@ -542,6 +542,47 @@ def _parse_with_spec(
 #: How many macro tokens one class head may carry before it is left as parsed.
 _EXPORT_MACRO_PASSES = 4
 _C_FAMILY_RECORD_SPECIFIERS = frozenset({"class_specifier", "struct_specifier", "union_specifier"})
+#: The C grammar reads `enum API E { A, B };` as the same function shape (L-47).
+_C_FAMILY_MACRO_HEADS = _C_FAMILY_RECORD_SPECIFIERS | {"enum_specifier"}
+
+
+def _enum_macro(node):
+    """The macro in `enum class API E { A, B };`, read as a variable (L-47).
+
+    The C++ grammar reads `enum class API` as an elaborated type, `E` as a
+    variable and the enumerator list as a brace initializer, in a
+    `declaration` (or a `field_declaration` in a class body). ⚠ A plain
+    `enum Color c { RED };` is the SAME tree and a real, brace-initialised
+    variable, so a plain enum is taken only when its list holds two or more
+    entries, which no enum-typed scalar accepts. A scoped head (`enum class`,
+    `enum struct`) with a list is never a variable: that elaborated form is
+    legal only in an opaque declaration, which has no list.
+    """
+    head = node.child_by_field_name("type")
+    if head is None or head.type != "enum_specifier" or head.child_by_field_name("body") is not None:
+        return None
+    macro = head.child_by_field_name("name")
+    if macro is None or macro.type != "type_identifier":
+        return None
+    if node.type == "declaration":
+        declarator = node.child_by_field_name("declarator")
+        if declarator is None or declarator.type != "init_declarator":
+            return None
+        value = declarator.child_by_field_name("value")
+        target = declarator.child_by_field_name("declarator")
+        assigned = any(c.type == "=" for c in declarator.children)
+    else:
+        value = node.child_by_field_name("default_value")
+        target = node.child_by_field_name("declarator")
+        assigned = any(c.type == "=" for c in node.children)
+    if value is None or value.type != "initializer_list" or assigned:
+        return None
+    if target is None or target.type not in ("identifier", "field_identifier"):
+        return None
+    scoped = any(c.type in ("class", "struct") for c in head.children)
+    if not scoped and value.named_child_count < 2:
+        return None
+    return macro
 
 
 def _export_macro_spans(root) -> list:
@@ -572,7 +613,7 @@ def _export_macro_spans(root) -> list:
             head = node.child_by_field_name("type")
             if (
                 head is not None
-                and head.type in _C_FAMILY_RECORD_SPECIFIERS
+                and head.type in _C_FAMILY_MACRO_HEADS
                 and head.child_by_field_name("body") is None
                 and node.child_by_field_name("body") is not None
             ):
@@ -587,6 +628,11 @@ def _export_macro_spans(root) -> list:
                 ):
                     spans.append(macro)
             continue
+        if node.type in ("declaration", "field_declaration"):
+            macro = _enum_macro(node)
+            if macro is not None:
+                spans.append(macro)
+                continue
         # ⚠ A function body (`compound_statement`) is most of a file's nodes
         # and never holds an exported class head, so the scan does not enter
         # one. Class bodies ARE entered, so a nested exported class is found
