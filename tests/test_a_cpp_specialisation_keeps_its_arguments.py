@@ -158,6 +158,22 @@ def test_out_of_line_bodies_find_their_own_specialisation():
             {("Arr.f", "Arr#type")},
             id="two-parameter-primary",
         ),
+        # gtest's FloatingPoint<float>::Max: under `template <>` it specialises
+        # the PRIMARY's member, so the primary owns it (review of L-54).
+        pytest.param(
+            "template <class T> class FP { static T Max(); };\n"
+            "template <>\ninline float FP<float>::Max() { return 1; }\n"
+            "template <>\ninline double FP<double>::Max() { return 2; }\n",
+            {("FP.Max", "FP#class"), ("FP<float>.Max", "FP#class"), ("FP<double>.Max", "FP#class")},
+            id="member-specialisation",
+        ),
+        # Without `template <>` it is a member of a class specialisation
+        # defined elsewhere, never of the primary.
+        pytest.param(
+            "template <class T> struct B { void g(); };\nvoid B<int>::g() {}\n",
+            {("B.g", "B#type"), ("B<int>.g", None)},
+            id="member-of-a-specialisation-elsewhere",
+        ),
     ],
 )
 def test_a_body_owner_is_resolved_segment_by_segment(source, expected):
@@ -172,3 +188,34 @@ def test_a_body_owner_is_resolved_segment_by_segment(source, expected):
         if s.kind in ("method", "function")
     }
     assert methods == expected
+
+
+def test_a_name_the_grammar_cut_short_keeps_its_bare_name():
+    """fmt's `use_format_as<T, bool_constant<...<T>>::value>>`: the grammar
+    splits the `>>` wrongly and leaves the last `>` in an ERROR, so the node
+    is one `>` short. The specialisation keeps its bare name rather than
+    publish a truncated one (L-54's corpus diff); a comparison inside
+    parentheses (`B2<(1>2)>`) is not a bracket and keeps its arguments."""
+    cut = (
+        "template <class T, class E> struct U;\n"
+        "template <typename T>\n"
+        "struct U<\n    T, bool_constant<std::is_arithmetic<R<T>>::value>>\n    : std::true_type {};\n"
+    )
+    assert [s.qualified_name for s in parse_file(cut, "a.cpp", "cpp")] == ["U"]
+    paren = "template <bool B> struct B2;\ntemplate <> struct B2<(1>2)> { void f(); };\n"
+    assert [s.qualified_name for s in parse_file(paren, "a.cpp", "cpp")] == ["B2<(1>2)>", "B2<(1>2)>.f"]
+
+
+def test_a_member_class_specialised_under_template_is_owned_by_the_primary():
+    """`template <> template <> struct O<int>::I<char>` specialises the
+    primary `O`'s member class, so `O` owns it; its head's own specifier is
+    not the enclosing `template <>` it is looked up in (review of L-54)."""
+    source = (
+        "template <class T> struct O { template <class U> struct I; };\n"
+        "template <> template <> struct O<int>::I<char> { void g(); };\n"
+    )
+    rows = sorted(
+        (s.qualified_name, (s.parent or "").split("::", 1)[-1])
+        for s in parse_file(source, "a.cpp", "cpp")
+    )
+    assert rows == [("O", ""), ("O<int>.I<char>", "O#type"), ("O<int>.I<char>.g", "O<int>.I<char>#type")]

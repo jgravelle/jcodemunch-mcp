@@ -568,7 +568,9 @@ INDEX_VERSION = 17
 #   L-46 lines above for specialisations: against v1.108.319, an out-of-line
 #   `std::hash<A>` goes from `hash<A>` to `std.hash<A>`, and `A::B<int>`
 #   from `B<int>` to `A.B<int>`. An out-of-line body in a file without its
-#   class keeps the arguments too (`hash<A>.h`, no parent).
+#   class keeps the arguments too (`hash<A>.h`, no parent); a member
+#   specialised under `template <>` (`FloatingPoint<float>::Max`) is
+#   `FloatingPoint<float>.Max` owned by the primary.
 PARSER_GENERATION = 8
 
 

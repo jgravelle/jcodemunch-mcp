@@ -2742,7 +2742,11 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
             # LEDGER L-54 (jjg, 2026-09-28): a specialisation keeps its
             # arguments, so `hash<A>` and `hash<B>` are two names, not
             # `hash~1`/`~2` in source order.
-            if node.type in _C_FAMILY_RECORD_SPECIFIERS and name_node.type == "template_type":
+            if (
+                node.type in _C_FAMILY_RECORD_SPECIFIERS
+                and name_node.type == "template_type"
+                and _cpp_template_type_is_whole(name_node, source_bytes)
+            ):
                 return _cpp_template_type_name(name_node, source_bytes)
             return _extract_cpp_name(name_node, source_bytes)
 
@@ -2980,18 +2984,40 @@ _TEMPLATE_NAME_SPACING = re.compile(r"\s*([<>,()\[\]*&:])\s*")
 def _cpp_template_type_name(node, source_bytes: bytes) -> Optional[str]:
     """`hash< std::pair<int,  int> >` -> `hash<std::pair<int,int>>`: a
     specialisation's name WITH its arguments (L-54), whitespace dropped around
-    punctuation so one specialisation has one spelling."""
+    punctuation so one specialisation has one spelling. None when the node is
+    not whole (`_cpp_template_type_is_whole`)."""
+    if not _cpp_template_type_is_whole(node, source_bytes):
+        return None
     text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
     text = " ".join(text.split())
     return _TEMPLATE_NAME_SPACING.sub(r"\1", text) or None
 
 
-def _cpp_scope_segment(node, source_bytes: bytes, keep_args: bool = False) -> Optional[str]:
+def _cpp_template_type_is_whole(node, source_bytes: bytes) -> bool:
+    """Does this `template_type`'s text close every `<` it opens? ⚠ The grammar
+    can split a `>>` wrongly and leave the last `>` in an ERROR (fmt's
+    `use_format_as<T, bool_constant<...<T>>::value>>`), and a name copied from
+    that node is one `>` short: such a specialisation keeps its bare name, as
+    before L-54, rather than publish a truncated one (L-54's corpus diff)."""
+    text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    angle = paren = 0
+    for ch in text:
+        if ch in "([":
+            paren += 1
+        elif ch in ")]":
+            paren -= 1
+        elif paren == 0 and ch == "<":
+            angle += 1
+        elif paren == 0 and ch == ">":
+            angle -= 1
+    # A comparison inside parentheses (`B<(1>2)>`) is not a bracket.
+    return angle == 0 and paren == 0 and text.rstrip().endswith(">")
+
+
+def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
     """One scope segment of a C++ `qualified_identifier`: `A`, `ns`, or the
-    template's name for `B<T>` (`B<T>` itself with *keep_args*, L-54). None
-    for a scope with no name to give it (`decltype(x)::f`)."""
-    if keep_args and node.type == "template_type":
-        return _cpp_template_type_name(node, source_bytes)
+    template's name for `B<T>`. None for a scope with no name to give it
+    (`decltype(x)::f`)."""
     if node.type in ("template_type", "template_function"):
         node = node.child_by_field_name("name")
         if node is None:
@@ -2999,24 +3025,6 @@ def _cpp_scope_segment(node, source_bytes: bytes, keep_args: bool = False) -> Op
     if node.type in ("namespace_identifier", "type_identifier", "identifier"):
         return source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip() or None
     return None
-
-
-def _cpp_scope_segments(qualified, source_bytes: bytes, keep_args: bool = False):
-    """`A::B::x` -> `(["A", "B"], <node x>)`: the scope segments of a C++
-    `qualified_identifier` and the node it finally names. None when a scope
-    has no name to give it, including the global `::x`."""
-    segments: list[str] = []
-    current = qualified
-    while current is not None and current.type == "qualified_identifier":
-        scope = current.child_by_field_name("scope")
-        segment = _cpp_scope_segment(scope, source_bytes, keep_args) if scope is not None else None
-        if segment is None:
-            return None
-        segments.append(segment)
-        current = current.child_by_field_name("name")
-    if current is None:
-        return None
-    return segments, current
 
 
 def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
@@ -3103,10 +3111,21 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
       whose header declares `hash<A>` is `hash<A>.h` with no parent, never
       the source-ordered `hash.h~N`, and `B<U*>::f` is never guessed onto the
       primary `B` (a wrong owner is a confident false edge; review).
+    ⚠⚠ One exception, and C++ states it: under `template <>`, a definition
+    whose last scope names no class in the file SPECIALISES THE PRIMARY'S
+    MEMBER (`template <> float FloatingPoint<float>::Max()`, gtest). A member
+    of a class specialisation defined elsewhere is written WITHOUT
+    `template <>`, so the wrapper is what tells them apart. Its name keeps
+    the arguments (`FloatingPoint<float>.Max`, L-54) and its owner is the
+    primary `FloatingPoint`, the class that declares `Max` (review of L-54:
+    both gtest bodies had lost that owner).
     Returns `(segments, last_node, owner, owner_symbol)` or None.
     """
     chosen: list[str] = []
     parameter_lists: Optional[list[list[str]]] = None
+    # The bare spelling of the LAST scope when it kept arguments naming no
+    # class in the file: the primary, if this is a member specialisation.
+    last_bare: Optional[str] = None
     current = qualified
     while current is not None and current.type == "qualified_identifier":
         scope = current.child_by_field_name("scope")
@@ -3116,6 +3135,7 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
         if bare is None:
             return None
         segment = bare
+        last_bare = None
         if scope.type == "template_type":
             full = _cpp_template_type_name(scope, source_bytes) or bare
             if _cpp_owner_symbol(_cpp_owner_in_scope([*chosen, full], scope_parts), symbols) is not None:
@@ -3124,12 +3144,38 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
                 if parameter_lists is None:
                     parameter_lists = _cpp_template_parameter_names(qualified, source_bytes)
                 segment = bare if _cpp_names_the_primary(scope, parameter_lists, source_bytes) else full
+                if segment == full:
+                    last_bare = bare
         chosen.append(segment)
         current = current.child_by_field_name("name")
     if current is None or not chosen:
         return None
     owner = _cpp_owner_in_scope(chosen, scope_parts)
-    return chosen, current, owner, _cpp_owner_symbol(owner, symbols)
+    owner_symbol = _cpp_owner_symbol(owner, symbols)
+    if owner_symbol is None and last_bare is not None and _cpp_is_explicit_specialisation(qualified):
+        owner_symbol = _cpp_owner_symbol(
+            _cpp_owner_in_scope([*chosen[:-1], last_bare], scope_parts), symbols
+        )
+    return chosen, current, owner, owner_symbol
+
+
+def _cpp_is_explicit_specialisation(node) -> bool:
+    """Is *node*'s nearest enclosing `template` a `template <>`? *node* may be
+    the qualified NAME of a class head (`struct O<int>::I<char>`), whose own
+    specifier is skipped."""
+    current = node.parent
+    if current is not None and current.type in _C_FAMILY_MACRO_HEADS:
+        name = current.child_by_field_name("name")
+        if name is not None and name.start_byte == node.start_byte and name.end_byte == node.end_byte:
+            current = current.parent
+    while current is not None:
+        if current.type == "template_declaration":
+            params = current.child_by_field_name("parameters")
+            return params is not None and not params.named_children
+        if current.type in ("class_specifier", "struct_specifier", "union_specifier", "translation_unit"):
+            return False
+        current = current.parent
+    return False
 
 
 def _cpp_qualified_record(
@@ -3169,10 +3215,8 @@ def _cpp_qualified_record(
     # A specialisation `A::B<int>` keeps its arguments, as the same
     # specialisation written inside `A` does (L-54).
     name = (
-        _cpp_template_type_name(last, source_bytes)
-        if last.type == "template_type"
-        else _cpp_scope_segment(last, source_bytes)
-    )
+        _cpp_template_type_name(last, source_bytes) if last.type == "template_type" else None
+    ) or _cpp_scope_segment(last, source_bytes)
     if not name:
         return symbol
     qualified = f"{owner}.{name}"

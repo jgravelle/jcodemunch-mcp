@@ -23,12 +23,26 @@ B<T>::f()`). Otherwise it keeps its arguments, found or not. So
 `B`. `hash<A>::h` in a `.cpp` whose header declares `hash<A>` is
 `hash<A>.h` with no parent, not `hash.h~N`. And `B<U*>::f`, which matches
 no specialisation's spelling, is left without an owner rather than guessed
-onto the primary. Review found all three: the first draft looked the whole
+onto the primary. The one exception is C++'s own: under `template <>`, a
+definition whose scope names no class in the file specialises the
+PRIMARY's member (gtest's `template <> float FloatingPoint<float>::Max()`),
+so it is `FloatingPoint<float>.Max` owned by `FloatingPoint`. A member of a
+class specialisation defined elsewhere is written without `template <>`,
+and that is what tells the two apart. A specialisation whose name the
+grammar cuts short keeps its bare name. fmt's `use_format_as<T,
+bool_constant<...<T>>::value>>` splits its `>>` wrongly and leaves the last
+`>` in an ERROR, so it would otherwise publish a name one `>` short. A
+comparison in parentheses (`B2<(1>2)>`) is not a bracket. Review found all
+three of the first: the first draft looked the whole
 scope up with arguments or without, so it named cross-file bodies
 `hash.h~N`, orphaned `O<int>::I<char>::g`, and attached `B<U*>::f` to
-`B`. The test pins each placement, the spacing, a partial specialisation,
-a union, out-of-line equivalence, the body owners, and each of those three
-shapes.
+`B`. Its second round found the member specialisation, which the
+per-segment rule had orphaned in gtest. The test pins each placement, the
+spacing, a partial specialisation, a union, out-of-line equivalence, the
+body owners, each of those shapes, and the cut-short name. The same
+exception covers a member CLASS: `template <> template <> struct
+O<int>::I<char>` is `O<int>.I<char>` under `O`, where `main` gave `O.I`
+under `O`.
 `test_a_cpp_template_span_ends_where_it_starts.py` looked its two
 specialisations up by the bare name `Foo`; it asserts their byte spans,
 and it looks them up as `Foo<int>` and `S<T*>` now.
@@ -48,8 +62,11 @@ Measured, `main` against this branch (leveldb 7ee830d, fmt 5da4e9a): id
 counts are unchanged in every set. fmt `.h` changes 15 files and fmt `.cc`
 11. `formatter.parse#method~3` becomes
 `formatter<custom_type>.parse#method`, and the fmt ids carrying a `~N`
-suffix fall from 3,411 to 2,758 of 9,064. By name without arguments, no
-method that had a parent on `main` loses every parent. The owners that
+suffix fall from 3,411 to 2,762 of 9,064, and no id gains an unbalanced
+`<` (45 on each side, every one an `operator<` or similar). Parented rows
+COUNTED per argument-free name (a set cannot count, which is how review's
+second round saw two gtest bodies the first metric hid): one name loses a
+row, the `format-test.cc` body below, and two gain one. The owners that
 change are 14 methods, 6 types and 5 fields reparented in fmt's headers,
 each from a `~N`-numbered owner (`formatter#type~1`) to the same class
 without the number, once its specialisations stopped sharing its name. One body in `format-test.cc`,
