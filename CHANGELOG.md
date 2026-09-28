@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Fixed - a rename is not "safe" in files the import graph could not reach (#879)
+
+`get_blast_radius.blast_verdict` has been the one authority on an importer
+walk since #718, because an empty walk cannot tell "nothing depends on
+this" from "the graph cannot reach this": Go imports a PACKAGE, so the
+file-level graph lands on no member file (#415). Using it was opt-in, and
+four callers never did. `plan_refactoring`'s collision check answered
+`safe: True` from an empty walk, having checked only the defining file,
+while the file calling the symbol through a package import already defined
+the new name. Its rename, move, extract and signature plans listed no
+affected files with no sign the list was unmeasured. `get_pr_risk_profile`
+counted zero dependents for such a file in its blast signal. And
+`check_rename_safe`, the public tool for the same collision question,
+walks importers by hand and said `safe: True` the same way; it was not in
+the issue and was found while fixing it.
+
+Each asks `blast_verdict` when its walk comes back empty. A collision
+check that found no collision but could not reach the symbol's users
+answers `safe: None` with `unresolvable` naming the reason, in both
+`plan_refactoring`'s `collision_check` and `check_rename_safe`; a found
+collision is still `False` and a reachable clean walk still `True`. The
+four plans carry `affected_files_unresolvable`. The PR risk profile's
+`signal_breakdown.blast_radius` carries `unresolvable_files` and
+`score_is_lower_bound: true`; the composite is not re-weighted, so it too
+is a lower bound on that axis. A changed file the index never saw is not
+probed: the graph was never asked about it. A walk that finds an importer
+is positive evidence and is never probed.
+
+`tests/test_importer_walkers_ask_blast_verdict.py` also fails when a module
+walks the importer graph without asking. Five do today and are tracked as
+LEDGER L-59 (`find_dead_code`, `get_dead_code_v2`, `get_untested_symbols`,
+`get_call_hierarchy`, `get_impact_preview`); a sixth fails the test, and a
+module that starts asking must leave the list. It finds walkers by the
+names `_bfs_importers` and `_build_reverse_adjacency`, so a hand-rolled walk
+such as `check_rename_safe`'s is named in the test explicitly.
+
 ### Changed - a C++ template specialisation keeps its arguments in its id (LEDGER L-54)
 
 `template <> struct hash<A> {}` and `hash<B>` were both named `hash`, so

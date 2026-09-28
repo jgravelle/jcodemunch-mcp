@@ -287,7 +287,13 @@ def get_pr_risk_profile(
     # Step 2: Blast radius (aggregate across all changed files)
     # -------------------------------------------------------------------
     blast_files: set[str] = set()
+    # Changed files whose EMPTY walk the graph could not answer (a Go package
+    # import lands on no member file, #415). Their dependents are missing from
+    # the count, so the blast signal is a lower bound, not a measurement (#879).
+    blast_unresolvable: list[str] = []
     if index.imports is not None:
+        from .get_blast_radius import blast_verdict  # noqa: PLC0415
+
         source_files = frozenset(index.source_files)
         rev_adj = _build_reverse_adjacency(
             index.imports, source_files, index.alias_map,
@@ -295,8 +301,15 @@ def get_pr_risk_profile(
         )
         for f in changed_files:
             # Direct importers only (depth=1) for aggregate scoring
-            for importer in rev_adj.get(f, []):
+            importers = rev_adj.get(f, [])
+            for importer in importers:
                 blast_files.add(importer)
+            # A file the index never saw is outside what the graph measures;
+            # only an indexed file's empty walk is a question it can refuse.
+            if not importers and f in source_files:
+                _, gap = blast_verdict(index, source_files, f, 0)
+                if gap:
+                    blast_unresolvable.append(f)
         # Remove the changed files themselves from blast count
         blast_files -= set(changed_files)
 
@@ -574,6 +587,9 @@ def get_pr_risk_profile(
             "symbols_changed": sym_count,
         },
     }
+    if blast_unresolvable:
+        signal_breakdown["blast_radius"]["unresolvable_files"] = sorted(blast_unresolvable)
+        signal_breakdown["blast_radius"]["score_is_lower_bound"] = True
     if runtime_present:
         max_hits = max(per_sym_hits.values()) if per_sym_hits else 0
         signal_breakdown["runtime_traffic"] = {
