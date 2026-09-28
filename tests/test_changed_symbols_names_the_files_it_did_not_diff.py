@@ -132,3 +132,39 @@ def test_the_unparsed_list_survives_the_compact_encoding(tmp_path, monkeypatch):
     text = (res.content if isinstance(res, CallToolResult) else res)[0].text
     assert "evidence.jsonl" in text and "no_language" in text, text[:600]
     assert "symbol_diff_complete" in text
+
+
+def test_a_modified_file_one_side_of_which_could_not_be_read_is_unreadable(tmp_path, monkeypatch):
+    """Review: a one-sided read failure diffed against nothing and certified complete."""
+    root, repo, storage, base = _repo(tmp_path, {"app/engine.py": "def run():\n    return 0\n"})
+    _commit(root, {"app/engine.py": "def run():\n    return 1\n"})
+
+    real = mod._get_file_content_at
+
+    def _read(sha, file_path, cwd):
+        if sha.startswith(base[:12]):
+            return None  # e.g. the 15 s `git show` timeout
+        return real(sha, file_path, cwd)
+
+    monkeypatch.setattr(mod, "_get_file_content_at", _read)
+    result = get_changed_symbols(repo, since_sha=base, storage_path=storage)
+    assert result["added_symbols"] == [], "every symbol of a modified file was published as added"
+    assert result["unparsed_changed_files"] == [{"file": "app/engine.py", "reason": "unreadable"}]
+    assert result["symbol_diff_complete"] is False
+
+
+def test_control_added_deleted_and_renamed_files_are_diffed(tmp_path):
+    """A side a status says is absent is not a read failure."""
+    root, repo, storage, base = _repo(tmp_path, {
+        "app/gone.py": "def gone():\n    return 0\n",
+        "app/old_name.py": "def moved():\n    return 0\n" + "# padding\n" * 20,
+    })
+    (root / "app" / "gone.py").unlink()
+    (root / "app" / "old_name.py").rename(root / "app" / "new_name.py")
+    _commit(root, {"app/fresh.py": "def fresh():\n    return 1\n"})
+
+    result = get_changed_symbols(repo, since_sha=base, storage_path=storage)
+    assert sorted(result["changed_files"]) == ["app/fresh.py", "app/gone.py", "app/new_name.py"]
+    assert result["unparsed_changed_files"] == []
+    assert result["symbol_diff_complete"] is True
+    assert {"gone", "fresh", "moved"} <= _names(result)

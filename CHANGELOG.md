@@ -21,9 +21,18 @@ Every changed file is now either symbol-diffed or listed in
 `unparsed_changed_files` with its reason: `no_language`, `unreadable` or
 `parse_failed`. `parsed_changed_files_count` counts the rest, and
 `symbol_diff_complete` is true only when nothing was skipped. The diff is
-read with `-z`, so a non-ASCII path is published and diffed under its real
-name. Six other git path readers share the quoting defect and each parses
-a different output shape; they are LEDGER L-65.
+read with `--name-status -z`. The `-z` means a non-ASCII path is published
+and diffed under its real name. The status says which sides of a file
+exist, so a modified file whose old or new version could not be read (a
+`git show` timeout, for one) is `unreadable`. It is not diffed against
+nothing, which would publish every symbol as added or removed (review).
+`unparsed_changed_files` is uncapped: it is a subset of `changed_files`,
+itself uncapped, and on this repository over 300 commits it measured
+9,347 B beside `changed_files`' 29,952 B (725 files, 131 without a
+language; review measurement). Six other git path readers and one
+`git status --porcelain` read share the quoting defect, and each parses a
+different output shape. They are LEDGER L-65. The three tools that call
+`get_changed_symbols` and never read `symbol_diff_complete` are L-66.
 
 ### Fixed - `get_changed_symbols`' blast lists only importers that exist at `until_sha` (#878)
 

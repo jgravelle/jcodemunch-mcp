@@ -193,13 +193,31 @@ def get_changed_symbols(
         # `-z` (LEDGER L-64): without it `core.quotePath` C-quotes a non-ASCII
         # path, every content read of the quoted name fails, and the file reads
         # as unchanged while `changed_files` publishes the quoted string.
-        ["diff", "--relative", "--name-only", "-z", "--diff-filter=ACDMRT", resolved_since, resolved_until],
+        # `--name-status` (review of #874): the status says which sides of the
+        # diff exist, so a side that should exist and cannot be read is
+        # `unreadable`, never diffed against nothing.
+        ["diff", "--relative", "--name-status", "-z", "--diff-filter=ACDMRT", resolved_since, resolved_until],
         cwd=cwd,
     )
     if rc3 != 0:
         return {"error": f"git diff failed: {diff_err}"}
 
-    all_diff_files = [f for f in diff_out.split("\0") if f.strip()] if diff_out else []
+    all_diff_files: list[str] = []
+    status_by_path: dict[str, str] = {}
+    _fields = diff_out.split("\0") if diff_out else []
+    _i = 0
+    while _i < len(_fields):
+        _status = _fields[_i]
+        if not _status:
+            _i += 1
+            continue
+        # A rename or copy carries two paths (old, new); every other status one.
+        _span = 2 if _status[0] in "RC" else 1
+        _path = _fields[_i + _span] if _i + _span < len(_fields) else ""
+        _i += _span + 1
+        if _path.strip():
+            all_diff_files.append(_path)
+            status_by_path[_path] = _status[0]
 
     # Exclude any files that live inside the index storage directory when it
     # happens to be under the repo root (e.g. .index/ as a test-time storage dir).
@@ -363,7 +381,13 @@ def get_changed_symbols(
 
         before_content = _get_file_content_at(resolved_since, file_path, cwd)
         after_content = _get_file_content_at(resolved_until, file_path, cwd)
-        if before_content is None and after_content is None:
+        # The before side exists unless the file was added (or arrived by a
+        # rename or copy, which is read at its new path, as before); the after
+        # side exists unless it was deleted. A side that exists and could not
+        # be read would diff against nothing and publish every symbol as added
+        # or removed.
+        _st = status_by_path.get(file_path, "M")
+        if (before_content is None and _st not in "ARC") or (after_content is None and _st != "D"):
             unparsed.append({"file": file_path, "reason": "unreadable"})
             continue
 
