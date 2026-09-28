@@ -23,6 +23,17 @@ out-of-line equivalence, and the three body owners.
 specialisations up by the bare name `Foo`; it asserts their byte spans,
 and it looks them up as `Foo<int>` and `S<T*>` now.
 
+A specialisation's name is BUILT, not borrowed: the source may space it
+differently. The full tier's built-name guard (#733) caught that. It
+requires every built name to be one no reference search is trusted about,
+and `hash<A>` is not identifier-shaped, so `check_delete_safe` (the one
+tool that asks that rule) now refuses to call a specialisation unused by
+name. Before, it searched for the bare `hash`, which every specialisation
+of the template shares. The helper is declared a
+name builder in that guard (`_NAME_BUILDING_HELPERS`), whose new test
+spies on its real output through a parse and fails if any name it builds
+is identifier-shaped. Planted to return the bare name, it fails.
+
 Measured, `main` against this branch (leveldb 7ee830d, fmt 5da4e9a): id
 counts are unchanged in every set. fmt `.h` changes 15 files and fmt `.cc`
 10, all re-namings. `formatter.parse#method~3` becomes

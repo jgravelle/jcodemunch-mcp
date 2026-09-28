@@ -280,6 +280,27 @@ _NAME_BORROWING_HELPERS = {
     "_c_declarator_name",
 }
 
+#: Helpers that BUILD a name from the source, each with the language it
+#: builds for and source that exercises it. A built name must be one no
+#: reference search is ever trusted about, so each helper's real output over
+#: its source is asked of `name_can_appear_at_a_call_site` below
+#: (`test_every_name_building_helper_builds_an_unreachable_name`), which is
+#: this set's second direction. ⚠ Not a silencing list: an entry that starts
+#: returning an identifier-shaped name fails there.
+#:
+#: L-54: a C++ specialisation's name keeps its arguments, whitespace dropped
+#: around punctuation (`hash< A >` -> `hash<A>`), which is text the source
+#: does not contain verbatim.
+_NAME_BUILDING_HELPERS = {
+    "_cpp_template_type_name": (
+        "cpp",
+        "template <class T> struct hash;\n"
+        "template <> struct hash< A > { int h(); };\n"
+        "template <> struct hash<std::pair<int,  int> > {};\n"
+        "template <class T> struct B<T*> { void f(); };\n",
+    ),
+}
+
 #: How many interpolated builders `_extract_name` holds. ⚠⚠ PINNED, because the
 #: first version of this check counted them implicitly and found ONE of three:
 #: `return f"operator checked {token}" if checked else f"operator {token}"` is
@@ -375,6 +396,10 @@ def _built_name_sites(source: str):
             continue
         if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
                 and value.func.id in _NAME_BORROWING_HELPERS:
+            continue
+        # A BUILDING helper is checked by its real output, not here.
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) \
+                and value.func.id in _NAME_BUILDING_HELPERS:
             continue
 
         unclassified.append(ast.get_source_segment(source, node) or "")
@@ -541,6 +566,39 @@ def test_every_name_borrowing_helper_still_exists():
         f"{sorted(missing)} is excused as a name-borrowing helper and no longer "
         f"exists in `extractor`. Delete the entry."
     )
+
+
+def test_every_name_building_helper_builds_an_unreachable_name():
+    """`_NAME_BUILDING_HELPERS`' second direction (L-54): each helper exists,
+    `_extract_name` calls it, and every name it builds over its source is one
+    `name_can_appear_at_a_call_site` refuses. The helper is spied on through the
+    real parse, so a name reaching the index by that route is the one asked."""
+    import inspect
+
+    from jcodemunch_mcp.parser import extractor
+    from jcodemunch_mcp.tools._name_reachability import name_can_appear_at_a_call_site
+
+    body = inspect.getsource(extractor._extract_name)
+    for helper, (language, source) in _NAME_BUILDING_HELPERS.items():
+        assert hasattr(extractor, helper), f"{helper} no longer exists; delete its entry"
+        assert f"{helper}(" in body, f"_extract_name no longer calls {helper}; delete its entry"
+        real = getattr(extractor, helper)
+        built: list[str] = []
+
+        def spy(*args, _real=real, **kwargs):
+            name = _real(*args, **kwargs)
+            built.append(name)
+            return name
+
+        original = getattr(extractor, helper)
+        setattr(extractor, helper, spy)
+        try:
+            extractor.parse_file(source, "a.cpp", language)
+        finally:
+            setattr(extractor, helper, original)
+        assert built, f"{helper} built nothing over its source"
+        reachable = [n for n in built if name_can_appear_at_a_call_site(n, language)]
+        assert not reachable, (helper, reachable)
 
 
 def test_the_planted_guard_still_accepts_the_real_thing():
