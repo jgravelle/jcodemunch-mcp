@@ -23,10 +23,13 @@ Summary block (placed under ``_meta.runtime_freshness``):
   }``
 
 (#875) A ``confirmed`` entry also carries ``_runtime_body``: ``current`` when
-the latest trace observed the body the index holds now, ``earlier`` when it
-observed a body since rewritten (``symbol_id`` survives an edit, the row's
-recorded ``content_hash`` does not), ``unknown`` when nothing comparable was
-recorded. The count stays cumulative; this says which body the latest trace saw.
+the latest trace was ingested while the index held the body it holds now,
+``earlier`` when that body has since been rewritten (``symbol_id`` survives an
+edit, the row's recorded ``content_hash`` does not), ``unknown`` when nothing
+comparable was recorded -- including a file edited on disk since it was indexed
+at ingest time. ``body_basis`` names the comparison: the index's body at ingest,
+not a digest of the traced code, so a trace captured before an edit and
+ingested after the re-index reads ``current``. The count stays cumulative.
 
 **Zero-cost when no traces ingested.** The probe checks for any row in
 ``runtime_calls`` at construction; if absent, ``annotate()`` and
@@ -52,6 +55,25 @@ _UNMAPPED = "unmapped"
 _BODY_CURRENT = "current"
 _BODY_EARLIER = "earlier"
 _BODY_UNKNOWN = "unknown"
+
+# What `_runtime_body` compared (review of #875): the body the index held at
+# INGEST, recorded only when the file on disk matched the index then, against
+# the body it holds now. Not a digest of the code the trace ran.
+BODY_BASIS = "index_body_at_ingest"
+
+
+def body_counts(entries: Iterable) -> dict[str, int]:
+    """``runtime_freshness.body``: how many stamped entries read each state.
+
+    The one count, so a tool that assembles its own ``runtime_freshness`` from
+    several stamped lists publishes the same block the probe does.
+    """
+    counts = {_BODY_CURRENT: 0, _BODY_EARLIER: 0, _BODY_UNKNOWN: 0}
+    for e in entries:
+        state = e.get("_runtime_body") if isinstance(e, dict) else None
+        if state in counts:
+            counts[state] += 1
+    return counts
 
 
 class RuntimeConfidenceProbe:
@@ -211,18 +233,14 @@ class RuntimeConfidenceProbe:
             if isinstance(e, dict) and e.get("_runtime_confidence") == _CONFIRMED
         ]
         confirmed_ids = [i for i in confirmed_ids if i]
-        body = {
-            state: sum(
-                1 for e in entries if isinstance(e, dict) and e.get("_runtime_body") == state
-            )
-            for state in (_BODY_CURRENT, _BODY_EARLIER, _BODY_UNKNOWN)
-        }
+        body = body_counts(entries)
         if not confirmed_ids:
             return {
                 "sources": [],
                 "last_seen": "",
                 "coverage_pct": 0,
                 "body": body,
+                "body_basis": BODY_BASIS,
             }
         # One query for sources + max(last_seen) across the confirmed set.
         chunk = 500
@@ -251,6 +269,7 @@ class RuntimeConfidenceProbe:
             "last_seen": last_seen,
             "coverage_pct": coverage_pct,
             "body": body,
+            "body_basis": BODY_BASIS,
         }
 
 

@@ -778,10 +778,19 @@ def get_blast_radius(
             1 for items in (_focal_list, result.get("confirmed", []), result.get("callers", []) if "callers" in result else [])
             for e in items if isinstance(e, dict) and e.get("_runtime_confidence") == "confirmed"
         )
+        from ..runtime.confidence import BODY_BASIS as _BODY_BASIS
+        from ..runtime.confidence import body_counts as _body_counts
+
         result["_meta"]["runtime_freshness"] = {
             "sources": sorted(_all_sources),
             "last_seen": _last_seen,
             "coverage_pct": round(100 * _confirmed_count / max(1, _stamped)),
+            # (#875 review) The probe's count, not a second one: this block is
+            # assembled from several stamped lists and dropped `body` before.
+            "body": _body_counts(
+                [*_focal_list, *result.get("confirmed", []), *result.get("callers", [])]
+            ),
+            "body_basis": _BODY_BASIS,
         }
     # Decision context (read-only git archaeology) on request: focal symbol's
     # file first, then the confirmed affected files. Additive — absent the flag

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -28,22 +29,43 @@ IDLE = "src/app.py::idle#function"
 
 
 def _seed(tmp_path: Path) -> Path:
-    store = SQLiteIndexStore(base_path=str(tmp_path))
+    """An index whose `files` row matches the file on disk, as after `index_folder`."""
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    app = root / "src" / "app.py"
+    app.write_text("def run():\n    return 0\n", encoding="utf-8")
+    store = SQLiteIndexStore(base_path=str(tmp_path / "store"))
     db_path = store._db_path("local", "rt875")
     conn = store._connect(db_path)
     try:
-        conn.executescript(
-            f"""
-            INSERT INTO symbols (id, file, name, kind, line, end_line, content_hash) VALUES
-                ('{RUN}', 'src/app.py', 'run', 'function', 1, 10, 'h1'),
-                ('{IDLE}', 'src/app.py', 'idle', 'function', 12, 20, 'i1');
-            INSERT OR REPLACE INTO meta (key, value) VALUES ('git_head', 'aaaa1111');
-            """
+        conn.execute(
+            "INSERT INTO symbols (id, file, name, kind, line, end_line, content_hash) VALUES "
+            "(?, 'src/app.py', 'run', 'function', 1, 10, 'h1'), "
+            "(?, 'src/app.py', 'idle', 'function', 12, 20, 'i1')",
+            (RUN, IDLE),
         )
+        conn.execute("INSERT INTO files (path, mtime_ns) VALUES ('src/app.py', ?)", (app.stat().st_mtime_ns,))
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('git_head', 'aaaa1111')")
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('source_root', ?)", (str(root),))
         conn.commit()
     finally:
         conn.close()
     return db_path
+
+
+def _edit_on_disk(db_path: Path) -> None:
+    """The file changes after it was indexed; the index has not re-read it."""
+    import os
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        root = conn.execute("SELECT value FROM meta WHERE key = 'source_root'").fetchone()[0]
+    finally:
+        conn.close()
+    app = Path(root) / "src" / "app.py"
+    app.write_text("def run():\n    return 2\n", encoding="utf-8")
+    st = app.stat()
+    os.utime(app, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
 
 
 def _trace(tmp_path: Path, name: str = "trace.json") -> Path:
@@ -157,6 +179,49 @@ def test_a_row_written_before_the_change_is_unknown_never_current(tmp_path):
     assert entries[0]["_runtime_body"] == "current"
 
 
+def test_a_trace_of_a_file_edited_since_it_was_indexed_is_unknown(tmp_path):
+    """Review: the index's hash is not the body the trace ran when the file moved on."""
+    db_path = _seed(tmp_path)
+    _edit_on_disk(db_path)
+    ingest_otel_file(db_path=str(db_path), file_path=str(_trace(tmp_path)))
+    conn = sqlite3.connect(str(db_path))
+    try:
+        assert conn.execute("SELECT content_hash FROM runtime_calls WHERE symbol_id = ?", (RUN,)).fetchone()[0] is None
+    finally:
+        conn.close()
+    entries = _entries()
+    summary = attach_runtime_confidence(entries, str(db_path), id_field="id")
+    assert entries[0]["_runtime_body"] == "unknown", "an unread edit was certified as the observed body"
+    assert summary["body_basis"] == "index_body_at_ingest"
+
+
+def test_blast_radius_publishes_the_same_body_counts(tmp_path):
+    """Review: `get_blast_radius` assembles its own `runtime_freshness` and dropped `body`."""
+    from jcodemunch_mcp.tools.get_blast_radius import get_blast_radius
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    root = tmp_path / "repo"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "app" / "engine.py").write_text("def run():\n    return 0\n", encoding="utf-8")
+    (root / "app" / "main.py").write_text("from app.engine import run\n\ndef main():\n    return run()\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    res = index_folder(str(root), use_ai_summaries=False, storage_path=storage, identity_mode="local")
+    db_path = SQLiteIndexStore(base_path=storage)._db_path(*res["repo"].split("/", 1))
+    envelope = json.loads(_trace(tmp_path).read_text(encoding="utf-8"))
+    attrs = envelope["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+    attrs[0]["value"]["stringValue"] = "app/engine.py"
+    attrs[1]["value"]["intValue"] = "1"
+    engine_trace = tmp_path / "engine_trace.json"
+    engine_trace.write_text(json.dumps(envelope), encoding="utf-8")
+    assert ingest_otel_file(db_path=str(db_path), file_path=str(engine_trace))["mapped"] == 1
+
+    out = get_blast_radius(repo=res["repo"], symbol="run", storage_path=storage)
+    rf = out["_meta"]["runtime_freshness"]
+    assert rf["body"]["current"] >= 1, rf
+    assert rf["body_basis"] == "index_body_at_ingest"
+
+
 def test_no_traces_leaves_the_response_shape_unchanged(tmp_path):
     db_path = _seed(tmp_path)
     entries = _entries()
@@ -164,15 +229,25 @@ def test_no_traces_leaves_the_response_shape_unchanged(tmp_path):
     assert all("_runtime_body" not in e for e in entries)
 
 
+_WRITE = re.compile(r"\b(?:INSERT(?:\s+OR\s+\w+)?|REPLACE)\s+INTO\s+runtime_calls\b", re.IGNORECASE)
+
+
 def _runtime_calls_writers(root: Path) -> list[str]:
-    """Every string literal in src/ that inserts into runtime_calls."""
+    """Every string literal in src/ that writes rows into runtime_calls, in any spelling."""
     hits = []
     for path in sorted(root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "INSERT INTO runtime_calls" in node.value:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and _WRITE.search(node.value):
                 hits.append(path.relative_to(root).as_posix())
     return sorted(set(hits))
+
+
+def test_the_writer_scan_sees_every_spelling(tmp_path):
+    (tmp_path / "a.py").write_text('Q = "INSERT OR REPLACE INTO runtime_calls VALUES (1)"\n', encoding="utf-8")
+    (tmp_path / "b.py").write_text('Q = """replace into\n  runtime_calls VALUES (1)"""\n', encoding="utf-8")
+    (tmp_path / "c.py").write_text('Q = "INSERT INTO runtime_edges VALUES (1)"\n', encoding="utf-8")
+    assert _runtime_calls_writers(tmp_path) == ["a.py", "b.py"]
 
 
 def test_every_writer_goes_through_the_one_upsert():

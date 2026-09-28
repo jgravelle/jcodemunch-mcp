@@ -13,19 +13,35 @@ rewritten kept counting as evidence that the rewritten `X` runs, and
 Each `runtime_calls` row now records what it last observed: the mapped
 symbol's `content_hash` in the index at ingest time, the index's
 `git_head`, and the `ingest_id` of the run, which each ingest also
-returns. A `confirmed` entry carries `_runtime_body`:
-- `current` when the latest trace observed the body the index holds now;
-- `earlier` when it observed a body since rewritten;
-- `unknown` when nothing comparable was recorded, such as a row written
-  before this change. UNKNOWN is never `current`.
+returns. The hash is recorded only when the symbol's file on disk still
+has the mtime the index read. A file edited since it was indexed holds a
+body the index never saw, and recording the index's hash there would
+certify the wrong body (review). A `confirmed` entry carries
+`_runtime_body`:
+- `current` when the latest trace was ingested while the index held the
+  body it holds now;
+- `earlier` when that body has since been rewritten;
+- `unknown` when nothing comparable was recorded: a row written before
+  this change, or a file edited since it was indexed. UNKNOWN is never
+  `current`.
 
-`_meta.runtime_freshness.body` counts the three. The count stays
+`_meta.runtime_freshness.body` counts the three, and `body_basis:
+"index_body_at_ingest"` names the comparison. It is not a digest of the
+code the trace ran. A trace captured before an edit and ingested after
+the re-index reads `current`, and nothing at ingest time can see that
+case. `get_blast_radius` builds its own `runtime_freshness` from several
+lists; it now counts `body` through the same helper, and it had dropped
+the counts (review). The file-keyed stamp (`find_references`,
+`find_importers`) has no single body to compare and still reports
+`confirmed` from any trace. `git_head` is recorded for provenance and has
+no reader yet. The count stays
 cumulative, so the history the report called useful is kept; the new
 field says which body the latest trace saw.
 
 The three ingest paths (`otel`, `sql_log`, `stack_log`) each carried a copy
 of the same upsert. They now call `runtime/_calls_store.upsert_calls`, and
-a test fails on any other `INSERT INTO runtime_calls` under `src/`, so a
+a test fails on any other write into `runtime_calls` under `src/`, in any
+spelling (`INSERT OR REPLACE`, `REPLACE INTO`, a line break), so a
 fourth writer cannot record rows with no provenance. The columns are
 added at ingest to a table that predates them, with no INDEX_VERSION bump,
 following the diagnostics snapshot's rule. The other readers of
