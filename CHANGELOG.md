@@ -17,19 +17,34 @@ is a brace-initialised variable and gives the same tree as a one-enumerator
 enum behind a macro. So a scoped head (`enum class`, `enum struct`) is
 always taken, because that elaborated form is legal only in an opaque
 declaration, which has no list. A plain `enum` is taken only when its list
-holds two or more entries, which no enum-typed variable accepts. A plain
-one-enumerator enum behind a macro in C++ still publishes nothing (LEDGER
-L-49). The test pins that a scoped, `enum struct`, one-entry, empty,
-based, two-macro, namespaced, in-class and plain two-entry head publishes
-exactly what the same text without the macro publishes, in `.cpp`, `.h`
-and Arduino, and that the C form is an enum.
+holds two or more entries, which no enum-typed variable accepts. Entries
+are counted without comments: the first draft counted `/* default */` as an
+entry and turned the real `enum Color c { RED /* default */ };` into a type
+(review). The declarator is not read, because a qualified underlying type
+(`: std::uint8_t`) takes its slot; in a class body that base parses as a
+bit-field whose width is `std::uint8_t{ A }`, and the list is read there.
+The test pins that a scoped, `enum struct`, one-entry, empty, commented,
+based (`int`, `std::uint8_t`, `ns::T`), two-macro, namespaced, in-class and
+plain two-entry head publishes exactly what the same text without the
+macro publishes, in `.cpp`, `.h` and Arduino; that the C form is an enum;
+and that a brace-initialised variable (with and without a comment), a
+commented enum field and a bit-field with a cast width are unchanged.
 
-Measured on the pinned corpora (leveldb 7ee830d, fmt 5da4e9a), `main`
-against this branch: no id changes (`fmt (h)` `ids 6365 -> 6365`,
-`leveldb (h)` `ids 1163 -> 1163`, and both `.cc` sets unchanged). Neither
-corpus writes an enum behind a macro, so this is evidence of no collateral
-movement, not of the fix. Ids move only where the shape occurs: nothing
-becomes `E#type`, and in a class body `S.E#field` becomes `S.E#type`.
+Not fixed, each as on `main`:
+- a plain one-enumerator enum behind a macro in C++ (LEDGER L-49);
+- two or more macro enums in a row in C, which the C grammar reads as one
+  `ERROR` (LEDGER L-50);
+- an enum or class behind a macro inside a function body, since the scan
+  does not enter function bodies (LEDGER L-51).
+
+Measured on the pinned corpora, `main` against this branch: no id changes
+(`fmt (h)` `ids 6365 -> 6365`, `leveldb (h)` `ids 1163 -> 1163`, and both
+`.cc` sets unchanged). Neither corpus writes an enum behind a macro, so
+this shows there is no collateral movement. It is not evidence of the fix.
+Ids move only where the shape occurs:
+- a C++ enum behind a macro gains `E#type` where it published nothing;
+- in a class body, `S.E#field` becomes `S.E#type`;
+- C's `E#function` becomes `E#type`.
 
 ### Fixed - a C++ class declared behind an export macro is a class (LEDGER L-45)
 
@@ -88,8 +103,8 @@ one `testing.testing.*`: error recovery in that 12,399-line header leaves a
 time, median of 5, `main` against this branch in one run:
 `gmock-gtest-all.cc` 0.344 s to 0.368 s, `gtest.h` 1.009 s to 1.093 s,
 `db_impl.cc` 0.037 s to 0.038 s.
-Not fixed here, as on `main` (LEDGER L-47): `enum class API E { A, B };`
-publishes nothing where `enum class E` publishes `E#type`.
+An enum behind a macro was not fixed here (LEDGER L-47); it is fixed in
+the L-47 entry above.
 `PARSER_GENERATION` 8, still unreleased, re-parses unchanged files.
 
 ### Fixed - a C++ out-of-class member definition is a member of its class (LEDGER L-07)

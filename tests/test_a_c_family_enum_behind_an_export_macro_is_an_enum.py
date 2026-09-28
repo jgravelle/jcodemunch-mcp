@@ -26,6 +26,11 @@ BODIES = {
     "scoped-one": "enum class {m}E {{ A }};\n",
     "scoped-empty": "enum class {m}E {{}};\n",
     "scoped-base": "enum class {m}E : int {{ A, B }};\n",
+    # A qualified base moves into the declarator slot (review of L-47):
+    "scoped-qualified-base": "enum class {m}E : std::uint8_t {{ A, B }};\n",
+    "plain-qualified-base": "enum {m}E : ns::T {{ A, B }};\n",
+    "in-class-qualified-base": "struct S {{\n  enum class {m}E : std::uint8_t {{ A }};\n  void f();\n}};\n",
+    "commented-list": "enum class {m}E {{ A, /* note */ B }};\n",
     "two-macros": "enum class {m}{m}E {{ A, B }};\n",
     "in-namespace": "namespace n {{\nenum class {m}E {{ A, B }};\n}}\n",
     "in-class": "struct S {{\n  enum class {m}E {{ A, B }};\n  void f();\n}};\n",
@@ -80,13 +85,37 @@ def test_line_and_signature_come_from_the_original_text():
     "source,expected",
     [
         ("enum Color c { RED };\n", set()),
+        ("enum Color c { RED /* default */ };\n", set()),
+        ("enum Color c { RED // default\n};\n", set()),
         ("enum Color c = RED;\n", set()),
         ("enum class API E;\n", set()),
     ],
-    ids=["brace-initialised-variable", "initialised-variable", "opaque-declaration"],
+    ids=[
+        "brace-initialised-variable",
+        "brace-initialised-variable-block-comment",
+        "brace-initialised-variable-line-comment",
+        "initialised-variable",
+        "opaque-declaration",
+    ],
 )
 def test_a_real_variable_or_an_opaque_declaration_is_unchanged(source, expected):
     """The other direction: a one-element brace initializer on a plain enum
     is a real variable, and an opaque declaration has no list to blank."""
     published = {(s.name, s.kind) for s in parse_file(source, "a.cpp", "cpp")}
     assert published == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "struct S {\n  enum Color c { RED /* default */ };\n  int x;\n};\n",
+        "struct S {\n  enum Color c : std::uint8_t{ 3 };\n  int x;\n};\n",
+    ],
+    ids=["commented-brace-field", "bit-field-with-a-cast-width"],
+)
+def test_a_real_enum_field_is_unchanged(source):
+    """A plain enum field with one braced value, or a bit-field whose width
+    is a functional cast, is real code: no enum `c` appears."""
+    rows = {(s.name, s.kind) for s in parse_file(source, "a.cpp", "cpp")}
+    assert ("c", "type") not in rows, rows
+    assert any(name == "S" for name, _ in rows), rows

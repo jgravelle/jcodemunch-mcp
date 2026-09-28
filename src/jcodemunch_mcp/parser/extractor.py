@@ -557,6 +557,11 @@ def _enum_macro(node):
     entries, which no enum-typed scalar accepts. A scoped head (`enum class`,
     `enum struct`) with a list is never a variable: that elaborated form is
     legal only in an opaque declaration, which has no list.
+    ⚠ Entries are counted WITHOUT comments: `enum Color c { RED /* x */ };`
+    is still the real variable (L-47 review). ⚠ The declarator is not read,
+    because a qualified underlying type (`: std::uint8_t`) moves into its slot
+    and the name into an ERROR; in a class body that base parses as a
+    bit-field whose width is `std::uint8_t{ A }`, so the list is read there.
     """
     head = node.child_by_field_name("type")
     if head is None or head.type != "enum_specifier" or head.child_by_field_name("body") is not None:
@@ -569,20 +574,30 @@ def _enum_macro(node):
         if declarator is None or declarator.type != "init_declarator":
             return None
         value = declarator.child_by_field_name("value")
-        target = declarator.child_by_field_name("declarator")
         assigned = any(c.type == "=" for c in declarator.children)
     else:
         value = node.child_by_field_name("default_value")
-        target = node.child_by_field_name("declarator")
         assigned = any(c.type == "=" for c in node.children)
+        if value is None:
+            value = _bitfield_brace_list(node)
     if value is None or value.type != "initializer_list" or assigned:
         return None
-    if target is None or target.type not in ("identifier", "field_identifier"):
-        return None
     scoped = any(c.type in ("class", "struct") for c in head.children)
-    if not scoped and value.named_child_count < 2:
+    entries = [c for c in value.named_children if c.type != "comment"]
+    if not scoped and len(entries) < 2:
         return None
     return macro
+
+
+def _bitfield_brace_list(field):
+    """The `{ A }` of `enum class API E : std::uint8_t { A };` in a class
+    body, which the grammar reads as the bit-field width `std::uint8_t{ A }`."""
+    for child in field.children:
+        if child.type == "bitfield_clause":
+            for width in child.named_children:
+                if width.type == "compound_literal_expression":
+                    return width.child_by_field_name("value")
+    return None
 
 
 def _export_macro_spans(root) -> list:
