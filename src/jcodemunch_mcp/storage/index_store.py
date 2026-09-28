@@ -547,6 +547,12 @@ INDEX_VERSION = 17
 #   nothing; in a class body `S.E#field` becomes `S.E#type`; C's
 #   `E#function` for `enum API E { A };` becomes `E#type`, and C's
 #   `cs#function` for the array `enum Color cs[2] { RED, GREEN };` goes.
+#
+#   ⚠⚠ **And L-46: a C++ type defined with a qualified name is its owner's
+#   member.** MOVES: `Impl#class` for `class Widget::Impl {}` becomes
+#   `Widget.Impl#class` (parent `Widget` when it is in the file) and its
+#   members follow; `W::I#type` for `struct a::W::I` becomes `a.W.I#type`; an
+#   out-of-line specialisation `B<int>` becomes `A.B`.
 PARSER_GENERATION = 8
 
 

@@ -797,8 +797,13 @@ def _walk_tree(
     calls: Optional[list] = None,
     parent_is_container: bool = False,
     adopted: tuple = (),
+    qualified_records: Optional[set] = None,
 ):
     """Recursively walk the AST and extract symbols.
+
+    *qualified_records* holds the ids of C++ types defined with a qualified
+    name (`class W::I {}`, L-46), shared by the whole walk: their qualifier
+    may name a class, so they are no evidence that it names a namespace.
 
     *adopted* are sibling nodes walked as if they were `node`'s own last
     children: a Kotlin accessor the grammar spilled out of its property
@@ -817,6 +822,8 @@ def _walk_tree(
         return
 
     is_cpp = language in ("cpp", "arduino")
+    if qualified_records is None:
+        qualified_records = set()
     local_scope_parts = scope_parts or []
     next_parent = parent_symbol
     next_class_scope_depth = class_scope_depth
@@ -877,8 +884,16 @@ def _walk_tree(
             )
             if symbol and is_cpp and parent_symbol is None and symbol.kind == "function":
                 symbol = _cpp_out_of_class_member(
+                    node, symbol, source_bytes, filename, local_scope_parts, symbols,
+                    qualified_records,
+                )
+            if symbol and is_cpp and parent_symbol is None and node.type in _C_FAMILY_MACRO_HEADS:
+                qualified = _cpp_qualified_record(
                     node, symbol, source_bytes, filename, local_scope_parts, symbols
                 )
+                if qualified is not symbol:
+                    qualified_records.add(qualified.id)
+                symbol = qualified
             if symbol:
                 symbols.append(symbol)
                 # #823: `typedef int A, B;` binds N names and the node yields
@@ -1164,6 +1179,7 @@ def _walk_tree(
                 child, spec, source_bytes, filename, language, symbols,
                 next_parent, local_scope_parts, next_class_scope_depth,
                 call_types, calls, next_is_container, accessors,
+                qualified_records,
             )
             if accessors:
                 _kotlin_cover_adopted(symbols, before, child, accessors[-1], source_bytes)
@@ -1183,6 +1199,7 @@ def _walk_tree(
                 call_types,
                 calls,
                 next_is_container,
+                qualified_records=qualified_records,
             )
 
     # #835: at the ROOT, once the whole tree is walked, so every caller of
@@ -2948,6 +2965,88 @@ def _cpp_scope_segment(node, source_bytes: bytes) -> Optional[str]:
     return None
 
 
+def _cpp_scope_segments(qualified, source_bytes: bytes):
+    """`A::B::x` -> `(["A", "B"], <node x>)`: the scope segments of a C++
+    `qualified_identifier` and the node it finally names. None when a scope
+    has no name to give it, including the global `::x`."""
+    segments: list[str] = []
+    current = qualified
+    while current is not None and current.type == "qualified_identifier":
+        scope = current.child_by_field_name("scope")
+        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
+        if segment is None:
+            return None
+        segments.append(segment)
+        current = current.child_by_field_name("name")
+    if current is None:
+        return None
+    return segments, current
+
+
+def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
+    """The dotted owner a qualified name's scope `segments` names from inside
+    `scope_parts`. ⚠ The first segment is looked up from the innermost
+    enclosing scope outward, so inside `namespace testing`,
+    `testing::internal::X` names the enclosing namespace, not
+    `testing.testing` (gtest in fmt's tree, found in L-07's corpus diff)."""
+    base = list(scope_parts)
+    for depth in range(len(scope_parts) - 1, -1, -1):
+        if scope_parts[depth] == segments[0]:
+            base = list(scope_parts[:depth])
+            break
+    return ".".join([*base, *segments])
+
+
+def _cpp_qualified_record(
+    node,
+    symbol: Symbol,
+    source_bytes: bytes,
+    filename: str,
+    scope_parts: list[str],
+    symbols: list,
+) -> Symbol:
+    """A C++ class, struct, union or enum DEFINED with a qualified name, as
+    its owner's member (LEDGER L-46).
+
+    ⚠⚠ The pimpl `class Widget { class Impl; };` then `class Widget::Impl {
+    ... };` was `Impl#class`, so `void Widget::Impl::go() {}` (named
+    `Widget.Impl.go` by L-07) found no owner, and `struct a::W::I` was named
+    `W::I` with the `::` in it. The scope joins the enclosing namespaces as
+    L-07's out-of-line bodies do, and a class of that name in the file is the
+    parent. The member walk below reads the qualified name off this symbol, so
+    the members follow it. C++ requires the nested class to be declared in its
+    owner first, so the owner is already in `symbols`.
+    """
+    name_node = node.child_by_field_name("name")
+    if name_node is None or name_node.type != "qualified_identifier":
+        return symbol
+    walked = _cpp_scope_segments(name_node, source_bytes)
+    if walked is None or not walked[0]:
+        return symbol
+    segments, last = walked
+    # ⚠ A specialisation `A::B<int>` is named `B`, as the same specialisation
+    # written inside `A` is (`A.B`); `main` named the out-of-line one `B<int>`.
+    name = _cpp_scope_segment(last, source_bytes)
+    if not name:
+        return symbol
+    owner = _cpp_owner_in_scope(segments, scope_parts)
+    qualified = f"{owner}.{name}"
+    owner_symbol = next(
+        (s for s in reversed(symbols) if s.qualified_name == owner and s.kind in ("class", "type")),
+        None,
+    )
+    return dataclasses.replace(
+        symbol,
+        id=make_symbol_id(filename, qualified, symbol.kind),
+        name=name,
+        qualified_name=qualified,
+        parent=owner_symbol.id if owner_symbol is not None else None,
+        keywords=list(symbol.keywords),
+        decorators=list(symbol.decorators),
+        call_references=list(symbol.call_references),
+    )
+
+
 def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]:
     """`A::run` -> `["A", "run"]` for a function DEFINITION whose declarator is
     qualified (L-07); None for anything else, including `::f`, whose global
@@ -2962,16 +3061,10 @@ def _cpp_out_of_class_segments(node, source_bytes: bytes) -> Optional[list[str]]
         current = current.child_by_field_name("declarator")
     if current is None or current.type != "qualified_identifier":
         return None
-    segments: list[str] = []
-    while current is not None and current.type == "qualified_identifier":
-        scope = current.child_by_field_name("scope")
-        segment = _cpp_scope_segment(scope, source_bytes) if scope is not None else None
-        if segment is None:
-            return None
-        segments.append(segment)
-        current = current.child_by_field_name("name")
-    if current is None:
+    walked = _cpp_scope_segments(current, source_bytes)
+    if walked is None:
         return None
+    segments, current = walked
     if current.type == "template_function":
         current = current.child_by_field_name("name") or current
     last = source_bytes[current.start_byte:current.end_byte].decode("utf-8").strip()
@@ -2985,6 +3078,7 @@ def _cpp_out_of_class_member(
     filename: str,
     scope_parts: list[str],
     symbols: list,
+    qualified_records: frozenset | set = frozenset(),
 ) -> Symbol:
     """A C++ definition named by a qualified declarator, as the member it is.
 
@@ -2998,6 +3092,9 @@ def _cpp_out_of_class_member(
       ⚠⚠ an out-of-line METHOD body is not that evidence, or the first
       `DBImpl::Recover` in a `.cpp` beside its `.h` would make every later
       `DBImpl::` body a function (measured on leveldb, review of the draft);
+      ⚠⚠ nor is a type defined with a qualified name (L-46): leveldb's
+      `db_impl.cc` defines `struct DBImpl::Writer`, and counting it made
+      every `DBImpl::` body after it a function (L-46's corpus diff);
     - otherwise the owner is in another file (a `.cpp` beside its `.h`) and it
       is a `method` with no `parent`.
     C++ requires the class to be declared before an out-of-line definition, so
@@ -3006,16 +3103,7 @@ def _cpp_out_of_class_member(
     segments = _cpp_out_of_class_segments(node, source_bytes)
     if not segments or len(segments) < 2:
         return symbol
-    # ⚠ The first segment is looked up from the innermost enclosing scope
-    # outward, so inside `namespace testing`, `testing::internal::X` names the
-    # enclosing namespace, not `testing.testing` (gtest in fmt's tree, found in
-    # the corpus diff of the draft).
-    base = list(scope_parts)
-    for depth in range(len(scope_parts) - 1, -1, -1):
-        if scope_parts[depth] == segments[0]:
-            base = list(scope_parts[:depth])
-            break
-    owner = ".".join([*base, *segments[:-1]])
+    owner = _cpp_owner_in_scope(segments[:-1], scope_parts)
     name = segments[-1]
     qualified = f"{owner}.{name}"
     owner_symbol = next(
@@ -3025,7 +3113,10 @@ def _cpp_out_of_class_member(
     if owner_symbol is not None:
         kind, parent = "method", owner_symbol.id
     elif any(owner == ".".join(scope_parts[:k]) for k in range(1, len(scope_parts) + 1)) or any(
-        s.parent is None and s.kind != "method" and s.qualified_name.startswith(owner + ".")
+        s.parent is None
+        and s.kind != "method"
+        and s.id not in qualified_records
+        and s.qualified_name.startswith(owner + ".")
         for s in symbols
     ):
         kind, parent = "function", None
