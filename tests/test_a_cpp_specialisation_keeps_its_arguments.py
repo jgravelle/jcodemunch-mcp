@@ -124,3 +124,51 @@ def test_out_of_line_bodies_find_their_own_specialisation():
         ("B<T*>.f", "B<T*>#type"),
         ("B<int>.g", "B<int>#type"),
     }
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param(
+            "size_t hash<A>::h() const { return 0; }\nsize_t hash<B>::h() const { return 1; }\n",
+            {("hash<A>.h", None), ("hash<B>.h", None)},
+            id="class-in-another-file",
+        ),
+        pytest.param(
+            "template <class T> struct O { template <class U> struct I; };\n"
+            "template <> template <> struct O<int>::I<char> { void g(); };\n"
+            "void O<int>::I<char>::g() {}\n",
+            {("O<int>.I<char>.g", "O<int>.I<char>#type")},
+            id="nested-specialisation",
+        ),
+        pytest.param(
+            "template <class T> struct B { void f(); };\n"
+            "template <class T> struct B<T*> { void f(); };\n"
+            "template <class U> void B<U*>::f() {}\n",
+            {("B.f", "B#type"), ("B<T*>.f", "B<T*>#type"), ("B<U*>.f", None)},
+            id="unmatched-spelling-is-not-the-primary",
+        ),
+        pytest.param(
+            "template <class... Ts> struct V { void f(); };\ntemplate <class... Ts> void V<Ts...>::f() {}\n",
+            {("V.f", "V#type")},
+            id="variadic-primary",
+        ),
+        pytest.param(
+            "template <class T, int N> struct Arr { void f(); };\ntemplate <class T, int N> void Arr<T, N>::f() {}\n",
+            {("Arr.f", "Arr#type")},
+            id="two-parameter-primary",
+        ),
+    ],
+)
+def test_a_body_owner_is_resolved_segment_by_segment(source, expected):
+    """Review of L-54: a body in a file without its class keeps the
+    arguments (never `hash.h~N`); each segment of `O<int>::I<char>` resolves
+    on its own; and a spelling matching no specialisation is NOT guessed onto
+    the primary -- only a scope whose arguments are the enclosing template's
+    own parameters names the primary."""
+    methods = {
+        (s.qualified_name, (s.parent or "").split("::", 1)[-1] or None)
+        for s in parse_file(source, "a.cpp", "cpp")
+        if s.kind in ("method", "function")
+    }
+    assert methods == expected

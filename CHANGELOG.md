@@ -13,12 +13,22 @@ A class, struct or union specialisation is now named with its arguments,
 with whitespace dropped around punctuation so one specialisation has one
 spelling: `hash< std::pair<int,  int> >` is `hash<std::pair<int,int>>`.
 That holds at file scope, in a namespace, in a class body and out of line.
-The primary template keeps its bare name. An out-of-line member body looks
-up its scope WITH its arguments first and bare second. So `B<T*>::f`
-belongs to the partial specialisation `B<T*>`, `B<int>::g` to `B<int>`, and
-`B<T>::f` to the primary `B`, whose arguments are its own parameters. The
-test pins each placement, the spacing, a partial specialisation, a union,
-out-of-line equivalence, and the three body owners.
+The primary template keeps its bare name. An out-of-line member body
+resolves its scope one segment at a time. A segment written with
+arguments names the class of that spelling in the file when there is one.
+It names the primary template only when its arguments are exactly an
+enclosing template's own parameters (`template <class T> void
+B<T>::f()`). Otherwise it keeps its arguments, found or not. So
+`B<T*>::f` belongs to `B<T*>`, `B<int>::g` to `B<int>`, and `B<T>::f` to
+`B`. `hash<A>::h` in a `.cpp` whose header declares `hash<A>` is
+`hash<A>.h` with no parent, not `hash.h~N`. And `B<U*>::f`, which matches
+no specialisation's spelling, is left without an owner rather than guessed
+onto the primary. Review found all three: the first draft looked the whole
+scope up with arguments or without, so it named cross-file bodies
+`hash.h~N`, orphaned `O<int>::I<char>::g`, and attached `B<U*>::f` to
+`B`. The test pins each placement, the spacing, a partial specialisation,
+a union, out-of-line equivalence, the body owners, and each of those three
+shapes.
 `test_a_cpp_template_span_ends_where_it_starts.py` looked its two
 specialisations up by the bare name `Foo`; it asserts their byte spans,
 and it looks them up as `Foo<int>` and `S<T*>` now.
@@ -36,9 +46,18 @@ is identifier-shaped. Planted to return the bare name, it fails.
 
 Measured, `main` against this branch (leveldb 7ee830d, fmt 5da4e9a): id
 counts are unchanged in every set. fmt `.h` changes 15 files and fmt `.cc`
-10, all re-namings. `formatter.parse#method~3` becomes
+11. `formatter.parse#method~3` becomes
 `formatter<custom_type>.parse#method`, and the fmt ids carrying a `~N`
-suffix fall from 3,411 to 2,761 of 9,064. leveldb: no change. A function
+suffix fall from 3,411 to 2,758 of 9,064. By name without arguments, no
+method that had a parent on `main` loses every parent. The owners that
+change are 14 methods, 6 types and 5 fields reparented in fmt's headers,
+each from a `~N`-numbered owner (`formatter#type~1`) to the same class
+without the number, once its specialisations stopped sharing its name. One body in `format-test.cc`,
+`fmt::formatter<incomplete_type>::format`, had been parented to a
+DIFFERENT specialisation (`fmt.formatter#type`, the
+`explicitly_convertible_to_std_string_view` one). It now has no parent,
+because its class is declared inside the `FMT_BEGIN_NAMESPACE` macro and
+so indexes without the `fmt.` its body carries. leveldb: no change. A function
 template's explicit specialisation (`template <> void f<int>(int)`) is
 still named `f` (LEDGER L-56).
 

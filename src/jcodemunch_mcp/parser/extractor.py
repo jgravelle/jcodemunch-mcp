@@ -3040,28 +3040,96 @@ def _cpp_owner_symbol(owner: str, symbols: list):
     )
 
 
+def _cpp_template_parameter_names(node, source_bytes: bytes) -> list[list[str]]:
+    """The parameter names of every `template <...>` enclosing *node*, the
+    innermost list first: `template <class T, int N, class... Ts>` gives
+    `[["T", "N", "Ts"]]`."""
+    lists: list[list[str]] = []
+    current = node.parent
+    while current is not None:
+        if current.type == "template_declaration":
+            params = current.child_by_field_name("parameters")
+            names: list[str] = []
+            for param in params.named_children if params is not None else ():
+                name = _cpp_template_parameter_name(param, source_bytes)
+                if name:
+                    names.append(name)
+            lists.append(names)
+        current = current.parent
+    return lists
+
+
+def _cpp_template_parameter_name(param, source_bytes: bytes) -> Optional[str]:
+    named = param.child_by_field_name("name") or param.child_by_field_name("declarator")
+    if named is None:
+        # `class T`, `class... Ts`, and the trailing `class TT` of a template
+        # template parameter: the last identifier outside a nested list.
+        for child in reversed(param.named_children):
+            if child.type in ("type_identifier", "identifier"):
+                named = child
+                break
+            if child.type == "type_parameter_declaration":
+                return _cpp_template_parameter_name(child, source_bytes)
+    if named is None:
+        return None
+    return source_bytes[named.start_byte:named.end_byte].decode("utf-8", errors="replace").strip() or None
+
+
+def _cpp_names_the_primary(scope, parameter_lists, source_bytes: bytes) -> bool:
+    """Is `B<T, N>` (a `template_type` scope) the primary template, i.e. are
+    its arguments exactly one enclosing template's own parameters, in order?
+    `template <class T> void B<T>::f()` is; `B<T*>::f` and `B<int>::g` are not."""
+    arguments = scope.child_by_field_name("arguments")
+    if arguments is None:
+        return False
+    written = [
+        " ".join(source_bytes[a.start_byte:a.end_byte].decode("utf-8", errors="replace").split()).removesuffix("...").strip()
+        for a in arguments.named_children
+        if a.type != "comment"
+    ]
+    return bool(written) and any(written == names for names in parameter_lists)
+
+
 def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
     """The owner a qualified name's scope names, and its class in the file.
 
-    ⚠ L-54: a scope written with arguments names a SPECIALISATION when one of
-    that name is in the file (`B<T*>::f`, `B<int>::g`) and otherwise the
-    primary template (`B<T>::f`, whose arguments are its own parameters), so
-    the spelling with arguments is looked up first and the bare one second.
+    ⚠⚠ L-54: resolved ONE SEGMENT AT A TIME, because each segment of
+    `O<int>::I<char>` decides alone (review of L-54 found an all-or-nothing
+    lookup orphaning that body). A segment written with arguments:
+    - names a class of that spelling in the file when there is one;
+    - names the PRIMARY template when its arguments are exactly an enclosing
+      template's own parameters (`template <class T> void B<T>::f()`);
+    - otherwise keeps its arguments, found or not: `hash<A>::h` in a `.cpp`
+      whose header declares `hash<A>` is `hash<A>.h` with no parent, never
+      the source-ordered `hash.h~N`, and `B<U*>::f` is never guessed onto the
+      primary `B` (a wrong owner is a confident false edge; review).
     Returns `(segments, last_node, owner, owner_symbol)` or None.
     """
-    bare = _cpp_scope_segments(qualified, source_bytes)
-    if bare is None:
+    chosen: list[str] = []
+    parameter_lists: Optional[list[list[str]]] = None
+    current = qualified
+    while current is not None and current.type == "qualified_identifier":
+        scope = current.child_by_field_name("scope")
+        if scope is None:
+            return None
+        bare = _cpp_scope_segment(scope, source_bytes)
+        if bare is None:
+            return None
+        segment = bare
+        if scope.type == "template_type":
+            full = _cpp_template_type_name(scope, source_bytes) or bare
+            if _cpp_owner_symbol(_cpp_owner_in_scope([*chosen, full], scope_parts), symbols) is not None:
+                segment = full
+            else:
+                if parameter_lists is None:
+                    parameter_lists = _cpp_template_parameter_names(qualified, source_bytes)
+                segment = bare if _cpp_names_the_primary(scope, parameter_lists, source_bytes) else full
+        chosen.append(segment)
+        current = current.child_by_field_name("name")
+    if current is None or not chosen:
         return None
-    full = _cpp_scope_segments(qualified, source_bytes, keep_args=True)
-    candidates = [full[0], bare[0]] if full is not None and full[0] != bare[0] else [bare[0]]
-    if not bare[0]:
-        return None
-    for segments in candidates:
-        owner = _cpp_owner_in_scope(segments, scope_parts)
-        owner_symbol = _cpp_owner_symbol(owner, symbols)
-        if owner_symbol is not None:
-            return segments, bare[1], owner, owner_symbol
-    return bare[0], bare[1], _cpp_owner_in_scope(bare[0], scope_parts), None
+    owner = _cpp_owner_in_scope(chosen, scope_parts)
+    return chosen, current, owner, _cpp_owner_symbol(owner, symbols)
 
 
 def _cpp_qualified_record(
