@@ -148,6 +148,25 @@ _NOTES = {
 }
 
 
+def refuse_absence(verdict: dict, note: str) -> bool:
+    """Downgrade an ``absent`` verdict whose claim a later check refused.
+
+    THE one way to rewrite ``absent`` after ``build_verdict`` (#872). The
+    dispatcher attaches its refusal carrier on ``state == "absent"`` or on
+    ``absence_refused``, and two downgrades that set neither -- a cache replay
+    over a moved subject and a call with ignored arguments -- reached a default
+    install (``meta_fields: []``) with no reason and no ``_meta`` at all.
+    ``build_verdict`` sets the flag on every refused zero-result scan; this does
+    the same for a refusal decided after it. Returns whether it downgraded.
+    """
+    if verdict.get("state") != STATE_ABSENT:
+        return False
+    verdict["state"] = STATE_DEGRADED
+    verdict["note"] = note
+    verdict["absence_refused"] = True
+    return True
+
+
 def _semantic_provider_available() -> bool:
     """Return True when an embedding provider is actually configured.
 

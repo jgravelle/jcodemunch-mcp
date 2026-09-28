@@ -7276,6 +7276,13 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                         _v["absence_citable"] = False
                         _v["absence_blocked_by"] = _why
                         _absence_carrier = {"citable": False, "blocked_by": _why}
+                        if _v.get("state") == "absent":
+                            # (#872) Refusals decided here (staleness,
+                            # truncation) leave the state `absent`, whose note
+                            # says the absence is strong evidence and not to
+                            # search again -- beside a refusal saying it is
+                            # not evidence. The note names the refusal instead.
+                            _v["note"] = _handoff_abs.refused_absence_note(_why)
         except Exception:
             logger.debug("Absence-evidence record failed", exc_info=True)
 

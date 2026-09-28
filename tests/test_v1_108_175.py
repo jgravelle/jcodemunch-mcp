@@ -155,7 +155,9 @@ def test_degraded_scan_cannot_be_cited_as_absence_evidence():
     apply_argument_contract({"_meta": {"verdict": v}}, ["regex"])
     ref, why = note_absence("search_text", "local/x", "needle", v)
     assert ref is None
-    assert why and "only 'absent' can prove absence" in why
+    # #872: the refusal is named (it read the generic "only 'absent' can prove
+    # absence" before), like every other gate `absence_refusal` names first.
+    assert why and "ignored (regex)" in why
 
 
 def test_a_clean_absent_scan_still_mints_a_ref():

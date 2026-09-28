@@ -114,6 +114,19 @@ def _absence_ref(tool: str, repo: str, query: str, scope: dict) -> str:
     return ABSENCE_REF_PREFIX + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def refused_absence_note(why: str) -> str:
+    """The note for a zero-result scan whose absence claim ``absence_refusal`` refused.
+
+    (#872) Replaces ``build_verdict``'s ``absent`` note, which says the scan is
+    strong evidence and not to search again: a scan refused for staleness is
+    exactly the one a re-index would change.
+    """
+    return (
+        f"No match was found, but absence is NOT proven: {why}. Resolve that and "
+        "search again before treating this as evidence the target is not present."
+    )
+
+
 def absence_refusal(record: Optional[dict]) -> Optional[str]:
     """Why this recorded scan may NOT prove absence, or None when it may."""
     if not record:
@@ -186,6 +199,14 @@ def absence_refusal(record: Optional[dict]) -> Optional[str]:
         return (
             f"this result was replayed from cache and {_reval.get('reason')}, so it "
             "describes a state that no longer holds"
+        )
+    _ignored = record.get("ignored_arguments") or []
+    if _ignored:
+        # (#872) Named before the generic state rule: the scan was a different
+        # call from the one requested, which "the verdict was degraded" hides.
+        return (
+            f"argument(s) this tool does not accept were ignored ({', '.join(_ignored)}), "
+            "so the call that ran is not the call that was requested"
         )
     _omitted = record.get("omitted") or {}
     if _omitted.get("returned") == 0 and (_omitted.get("matches_found") or 0) > 0:
@@ -275,6 +296,7 @@ def note_absence(tool: str, repo, query, verdict, arguments=None, truncated=Fals
         "moved_during_scan": verdict.get("moved_during_scan"),
         "working_tree": verdict.get("working_tree"),
         "absence_unprovable": verdict.get("absence_unprovable"),
+        "ignored_arguments": verdict.get("ignored_arguments"),
         "truncated": bool(truncated),
         "scorer": verdict.get("scorer"),
     }

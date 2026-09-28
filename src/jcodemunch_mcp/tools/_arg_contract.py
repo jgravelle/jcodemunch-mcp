@@ -83,9 +83,11 @@ def apply_argument_contract(result, ignored: list[str]) -> None:
         return
     meta["ignored_arguments"] = list(ignored)
     verdict = meta.get("verdict")
-    if isinstance(verdict, dict) and verdict.get("state") == "absent":
-        verdict["state"] = "degraded"
-        verdict["note"] = _note(ignored)
+    # (#872) Through the one downgrade, which also sets `absence_refused`, so
+    # the dispatcher's refusal carrier reaches a default install.
+    from ..retrieval.verdict import refuse_absence
+
+    if isinstance(verdict, dict) and refuse_absence(verdict, _note(ignored)):
         # Carried so a caller inspecting the verdict alone (the shape recorded
         # by note_absence) can still see WHY it was degraded.
         verdict["ignored_arguments"] = list(ignored)

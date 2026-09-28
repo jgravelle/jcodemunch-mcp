@@ -356,9 +356,12 @@ def revalidate_verdict(verdict: Optional[dict], reason: str) -> None:
     verdict.pop("evidence_ref", None)
     verdict.pop("absence_citable", None)
     verdict.pop("absence_blocked_by", None)
-    if verdict.get("state") == "absent":
-        verdict["state"] = "degraded"
-        verdict["note"] = (
-            f"This result was replayed from cache, and {reason}. Absence is NOT "
-            "proven against the current state; re-run the search to get a scan of it."
-        )
+    # (#872) Through the one downgrade, which also sets `absence_refused`: a
+    # downgrade without it reached a default install with no reason at all.
+    from .verdict import refuse_absence
+
+    refuse_absence(
+        verdict,
+        f"This result was replayed from cache, and {reason}. Absence is NOT "
+        "proven against the current state; re-run the search to get a scan of it.",
+    )

@@ -34,6 +34,42 @@ language; review measurement). Six other git path readers and one
 different output shape. They are LEDGER L-65. The three tools that call
 `get_changed_symbols` and never read `symbol_diff_complete` are L-66.
 
+### Fixed - a scan whose absence is refused no longer calls itself strong evidence (#872)
+
+On an index committed past, `search_symbols` said two opposite things in
+one response. `_meta.verdict.note` read "Treat this as strong evidence the
+target is not present; do not reformulate the same query expecting a hit",
+beside `absence_citable: false` and `absence_blocked_by: "the index was
+stale at query time..."`. The prose told the agent not to search again in
+exactly the case a re-index would change the answer. The refusal is decided
+in the dispatcher, after `build_verdict` has written the `absent` note, and
+staleness and truncation refuse without downgrading the state, so the note
+survived. Found in review of #719's fix.
+
+When the dispatcher refuses an `absent` scan, the note now names the
+refusal and says to resolve it before treating the result as evidence
+(`handoff.refused_absence_note`). The state stays `absent`, so no consumer
+of `state` sees a change; moving staleness into `build_verdict` would
+change a published state, and is not done here. A scan that can prove
+absence keeps the proof note.
+
+The second path: a cached `absent` replayed after a commit is downgraded
+by `revalidate_verdict`, which set neither `state == "absent"` nor
+`absence_refused`, the two conditions the dispatcher attaches its refusal
+carrier on. With `meta_fields` unset, the response carried no
+`absence_blocked_by`; with `meta_fields: []`, the shipped default, it
+carried no `_meta` at all, in json or compact form. The downgrade now sets
+`absence_refused`, as `build_verdict` does for every refused zero-result
+scan, so the carrier arrives and names the cache replay. Review found a
+second downgrade with the same omission: a call with an ignored argument
+(`_arg_contract`) also turned `absent` into `degraded` with no flag, so
+its refusal never reached a default install either. Both now go through
+`retrieval.verdict.refuse_absence`, the one way to rewrite `absent` after
+`build_verdict`, and a ratchet over `src/` fails any other write of
+`degraded` into a verdict's state. The ignored-argument refusal is also
+named ("argument(s) this tool does not accept were ignored (...)") rather
+than the generic "only 'absent' can prove absence".
+
 ### Fixed - `get_changed_symbols`' blast lists only importers that exist at `until_sha` (#878)
 
 `get_changed_symbols(include_blast_radius=True)` walks the INDEX's importer
