@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed - `config --check` and `init` say when the installed agent policy is not the one this version writes (#871)
+
+A correction to the agent policy that `init` installs never reached an
+existing install. `install_claude_md` returned "policy already present"
+and wrote nothing whenever the file held the policy's heading, and
+`config --check` compared only which TOOLS a CLAUDE.md names, not its
+wording. So #719's fix, which changes what every agent is told about
+proving absence, reached new installs only, and nothing told an existing
+one its text was out of date. It is the freeze `surface_offer.py` names
+for `tool_surface`: a value written once that no upgrade reaches. Found
+while fixing #719.
+
+`config --check` now compares the installed `## Code Exploration Policy`
+block with the policy this version would install for the same config
+(`cli.policy.installed_policy_drift`). When they differ, it says so and
+counts the differing lines, and it names `jcodemunch-mcp claude-md
+--generate` to show the current text. It also says it cannot tell an
+outdated block from one its owner edited on purpose. `init` adds the same
+note to "policy already present". Both are messages only. Neither
+rewrites the file, which is the `surface_offer` rule. The block runs from
+the heading to the first `## ` heading that is not one of the policy's
+own sections, so a user's sections after it are never compared, and
+whitespace is not a difference.
+
 ### Fixed - `get_changed_symbols` names the changed files it did not symbol-diff (#874)
 
 Reported by @Torolosko (split from #718). `changed_files` matched git

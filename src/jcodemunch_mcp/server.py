@@ -8969,6 +8969,24 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                         issues.append("claude_md")
                     else:
                         print(f"  {green(CHECK)} All {len(canonical_tools)} tools mentioned in CLAUDE.md")
+                # (#871) The tool-name check above cannot see a policy whose
+                # WORDING changed (#719 changed what agents are told about
+                # absence), and `init` skips a file that already holds the
+                # marker, so a correction never reached an existing install.
+                # A message only: this never rewrites the user's file.
+                from .cli.policy import installed_policy_drift as _drift_of
+
+                _drift = _drift_of(cm_content)
+                if _drift is not None and _drift["state"] == "current":
+                    print(f"  {green(CHECK)} Installed policy matches the policy this version installs")
+                elif _drift is not None:
+                    print(
+                        f"  {yellow(WARN)} Installed policy differs from the policy this version installs "
+                        f"({_drift['lines_differing']} line(s))"
+                    )
+                    print(f"  {dim('  It may be out of date, or you may have edited it on purpose; this check cannot tell which.')}")
+                    print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate')}")
+                    issues.append("claude_md_policy")
             except Exception as _e:
                 print(f"  {yellow(WARN)} Could not read CLAUDE.md: {_e}")
         else:
