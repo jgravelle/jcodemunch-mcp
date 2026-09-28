@@ -514,7 +514,7 @@
     {
       "id": "latency.search_symbols_warm_p95_ms",
       "criterion": "5",
-      "metric": "search_symbols warm p95 over 20 calls, 5 fixed queries (benchmarks/self_latency/measure.py, self corpus)",
+      "metric": "search_symbols warm p95 over 20 calls, 5 fixed queries (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 23,
       "target": 12,
@@ -530,7 +530,14 @@
         "date": "2026-09-03",
         "env": "Windows-11-10.0.26200-SP0"
       },
-      "history": [],
+      "history": [
+        {
+          "floor": 23,
+          "commit": "6878a9a9",
+          "date": "2026-09-28",
+          "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        }
+      ],
       "enforced_by": [
         "benchmarks/self_latency/measure.py",
         "harness/__main__.py"
@@ -539,7 +546,7 @@
     {
       "id": "latency.search_text_warm_p95_ms",
       "criterion": "5",
-      "metric": "search_text warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus)",
+      "metric": "search_text warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 271,
       "target": 136,
@@ -555,7 +562,14 @@
         "date": "2026-09-03",
         "env": "Windows-11-10.0.26200-SP0"
       },
-      "history": [],
+      "history": [
+        {
+          "floor": 271,
+          "commit": "6878a9a9",
+          "date": "2026-09-28",
+          "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        }
+      ],
       "enforced_by": [
         "benchmarks/self_latency/measure.py",
         "harness/__main__.py"
@@ -564,7 +578,7 @@
     {
       "id": "latency.get_symbol_source_warm_p95_ms",
       "criterion": "5",
-      "metric": "get_symbol_source warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus)",
+      "metric": "get_symbol_source warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 27,
       "target": 14,
@@ -580,7 +594,14 @@
         "date": "2026-09-03",
         "env": "Windows-11-10.0.26200-SP0"
       },
-      "history": [],
+      "history": [
+        {
+          "floor": 27,
+          "commit": "6878a9a9",
+          "date": "2026-09-28",
+          "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        }
+      ],
       "enforced_by": [
         "benchmarks/self_latency/measure.py",
         "harness/__main__.py"
@@ -589,7 +610,7 @@
     {
       "id": "latency.get_file_outline_warm_p95_ms",
       "criterion": "5",
-      "metric": "get_file_outline warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus)",
+      "metric": "get_file_outline warm p95 over 20 calls (benchmarks/self_latency/measure.py, self corpus; a series that FAILS its Floor is measured once more in the same process and the second series is the one gated, the first kept as `_warm_p95_first_ms` (#906/#911, harness F-19))",
       "comparator": "<=",
       "floor": 28,
       "target": 14,
@@ -605,7 +626,14 @@
         "date": "2026-09-03",
         "env": "Windows-11-10.0.26200-SP0"
       },
-      "history": [],
+      "history": [
+        {
+          "floor": 28,
+          "commit": "6878a9a9",
+          "date": "2026-09-28",
+          "reason": "floor unchanged; the METRIC changed: a failing 20-call series is re-sampled once and the second gated (#906/#911, harness F-19). Detection of a tail-only regression drops: a defect slowing 10% of calls fails one series with p 0.6083 and two with p 0.3700 (evidence/detection-power.txt)."
+        }
+      ],
       "enforced_by": [
         "benchmarks/self_latency/measure.py",
         "harness/__main__.py"

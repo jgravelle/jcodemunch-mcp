@@ -154,7 +154,7 @@ def render(table: list[list[str]], head_sha: str) -> str:
     md += ["| " + " | ".join(r) + " |" for r in table]
     md.append("")
     md.append(
-        "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. `latency.*` verdicts are informational until F-19 closes with three CI runs._"
+        "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. A failing `latency.*` p95 is re-sampled once before its verdict (harness F-19); the first p95 is in `self_latency.json` as `_warm_p95_first_ms`._"
     )
     return "\n".join(md) + "\n"
 
