@@ -3153,6 +3153,8 @@ def _build_tools_list(
                 "and change volume — into a single composite risk_score (0.0–1.0) with actionable "
                 "recommendations. Returns the top-5 riskiest changed symbols, untested symbols, "
                 "and per-signal breakdowns. Designed for CI gating and code review workflows. "
+                "risk_score is null, with unmeasurable_axes, when the blast axis could not be measured; "
+                "a CI gate must treat null as a failure, not a pass. "
                 "Requires a locally indexed repo (index_folder)."
             ),
             inputSchema={

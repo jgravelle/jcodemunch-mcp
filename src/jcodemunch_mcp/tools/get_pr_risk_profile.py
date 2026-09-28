@@ -316,9 +316,11 @@ def get_pr_risk_profile(
             if importers or f not in code_files:
                 continue
             # This metric counts importers OUTSIDE the diff (changed files are
-            # subtracted below), so neither of the authority's other two gaps
-            # applies: `graph_gap` (#718) is about an importer ADDED in the diff,
-            # which this count excludes by construction; and a file the index
+            # subtracted below), so an importer the diff ADDS can never count,
+            # and `graph_gap` (#718) is not passed for that case. ⚠ It does not
+            # cover the index lagging `base_ref`: an unchanged file that gained
+            # an import between the indexed commit and `base_ref` is invisible
+            # to this graph. That predates #879 and is LEDGER L-62. A file the index
             # never saw -- a new file -- can have no importer outside the diff
             # unless an unchanged file imported it before it existed. The one
             # question left is whether an unchanged file reaches it by PACKAGE,

@@ -33,17 +33,26 @@ withheld as `None` with `unmeasurable_axes: ["blast_radius"]`, because a
 0.0 there LOWERS the composite, the flattering direction (review). A
 changed code file the index has not seen, a new file, is probed by its
 package directory as if present: unchanged files cannot import a file
-before it exists, but they can import its package. The authority's other
-gap, a graph older than the head commit (#718), does not apply to this
-count, which excludes every changed file and so every importer the diff
-could add. A walk that finds an importer is positive evidence and is never
-probed.
+before it exists, but they can import its package. An importer the diff
+ADDS can never count here, because the count excludes every changed file,
+so #718's `graph_gap` is not passed for that case. It does not cover an
+index that lags `base_ref`, where an unchanged file gained an import the
+graph never saw; that predates this fix and is LEDGER L-62. A walk that
+finds an importer is positive evidence and is never probed.
 
-`check_rename_safe`'s description now says `safe` may be null: +27 tokens
-on the `standard` and `full` surfaces and 0 on `core` and `counter`
-(`benchmarks/schema_baseline.json`, regenerated). A changed description
-is one full-rate cache write of the tool block for every client on those
-surfaces. The regenerated baseline also absorbs +4 tokens on every
+Two tool descriptions change. `check_rename_safe`'s says `safe` may be
+null. `get_pr_risk_profile`'s promised "a single composite risk_score
+(0.0-1.0)" for CI gating, and a gate like jq's `.risk_score > 0.5` reads a
+null as a pass, so it now says the score is null with `unmeasurable_axes`
+when the blast axis could not be measured, and that a gate must treat null
+as a failure (review). Together: +61 tokens on the `standard` and `full`
+surfaces and 0 on `core` and `counter` (`benchmarks/schema_baseline.json`,
+regenerated; `schema-delta.txt`). A changed description is one full-rate
+cache write of the tool block for every client on those surfaces. The route-
+recall artifacts are regenerated with them: no recall figure moves, and
+the description-overlap leak diagnostic rises (`leak_desc` 0.125 to 0.25
+on the human corpus, 0.0 to 0.167 on the holdout), because the new
+sentences share words with some benchmark queries. The regenerated baseline also absorbs +4 tokens on every
 surface that `main` had already drifted by before this change
 (`core_compact` 3967 committed, 3971 measured on `main`). The walk and
 its verdict now come as one call, `get_blast_radius.importers_with_verdict`,

@@ -216,7 +216,9 @@ def test_a_new_file_is_probed_by_its_package_and_a_new_leaf_is_measured(fixture_
 # call is resolved through the module's `from ... import X as Y` lines, and
 # every function that calls a walker must itself (nested bodies included)
 # call `blast_verdict` or `importers_with_verdict`. ⚠ Still a check of CALLS,
-# not of control flow: a verdict call under `if False:` satisfies it.
+# not of control flow: a verdict call under `if False:` satisfies it. And only
+# FUNCTIONS are inspected: a walk at module level, in a class body or in a
+# lambda is not seen (review of #879; none exists today).
 
 WALKERS = {"_bfs_importers", "_build_reverse_adjacency"}
 ASKS = {"blast_verdict", "importers_with_verdict"}
@@ -236,7 +238,8 @@ AUTHORITY = {"src/jcodemunch_mcp/tools/get_blast_radius.py"}
 # population, recorded because a hand-kept list is only as good as its
 # census: each either asks or is tracked. A census by SHAPE (a loop over
 # `index.imports` calling `resolve_specifier`) matched 23 functions on
-# 2026-09-28, most of them forward graphs and centrality, so it is not a gate.
+# 2026-09-28 (`walk-census.py` / `walk-census.txt` in the #879 evidence), most
+# of them forward graphs and centrality, so it is not a gate.
 HAND_ROLLED = {"src/jcodemunch_mcp/tools/check_rename_safe.py"}
 HAND_ROLLED_NOT_YET = {
     "src/jcodemunch_mcp/tools/get_file_risk.py": "L-59",
