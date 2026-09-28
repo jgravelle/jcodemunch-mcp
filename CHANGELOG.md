@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed - a blast radius with importers only in another repository is not "absent" (#877)
+
+`get_blast_radius(cross_repo=True)` found a symbol's importers in another
+repository and, in the same response, published `_meta.verdict.state:
+"absent"` and `overall_risk_score: 0.0` beside `cross_repo_confirmed_count:
+1`. `absent` is the state an agent may cite as proof that nothing depends
+on a symbol (#719), and `0.0` reads as safe to change. The tool's own
+"answered nothing" test counted the cross-repo channel, so the importers
+kept the package probe from running; but the `result_count` handed to
+`blast_verdict` and the risk average both counted local importers only.
+`blast_verdict`'s contract already said `result_count` is what the caller
+found by every channel it ran.
+
+Both count the cross-repo channel now. It runs when a caller passes
+`cross_repo=True`, and also on every call that leaves it unset when
+`cross_repo_default` (`JCODEMUNCH_CROSS_REPO_DEFAULT`) is on, so those
+installs get the new verdict and score without passing anything. A
+cross-repo importer imports this repository's package directly, so it
+weighs in the risk average as a depth-1 dependent: importers found only
+elsewhere score 1.0, and a mix never scores LOWER than before, because
+every local weight is at most 1.0 (a depth-1 and a depth-2 local importer
+with one cross-repo importer: 0.8078 before, 0.8719 now). Two limits,
+stated: the channel matches the consumer's ROOT PACKAGE, one entry per
+consumer file, without checking that the file uses this symbol, so a
+consumer with many files importing the package pushes the score toward
+1.0; and `impact_by_depth` lists local files only, so the score can no
+longer be recomputed from that field alone (review). `importer_count`
+stays local, as its name says; the cross-repo figure is
+`cross_repo_confirmed_count` as before.
+
+Two consumers of that channel dropped it. `assemble_task_context` asks
+for it when called with `cross_repo=True`, and its blast entry reported
+`confirmed_count: 0` for exactly this case; it carries
+`cross_repo_confirmed_count` and `top_cross_repo` now.
+`get_endpoint_impact` inherits it under `cross_repo_default` and
+published only the local `affected_file_count`; it carries
+`cross_repo_affected_count` and `cross_repo_affected_files` now (review).
+The test pins all three tools, the mixed risk, and that `cross_repo=False`
+still answers `absent` for the same symbol.
+
 ### Fixed - a latency Floor that fails on one preempted call is measured again before it fails (#906, #911)
 
 The bench tier gates four warm p95 latencies, each over 20 calls, so two

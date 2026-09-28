@@ -229,11 +229,13 @@ def blast_verdict(
     ``get_changed_symbols``). ``unresolvable`` is returned so a caller can
     withhold a number it would otherwise compute from the zero.
 
-    ``result_count`` is what the caller found by every channel it ran; only an
-    empty answer is probed, since a found importer is positive evidence.
-    ``probe`` overrides that when the caller's notion of "answered nothing"
-    counts a channel ``result_count`` does not (standalone's cross-repo
-    importers): the extraction is behaviour-neutral for the standalone tool.
+    ``result_count`` is what the caller found by EVERY channel it ran; only an
+    empty answer is probed, since a found importer is positive evidence. ⚠ A
+    channel left out of it is a channel the verdict cannot see: standalone
+    counted its cross-repo importers in ``probe`` and not here, so importers
+    found only in another repository published ``absent`` beside them (#877).
+    ``probe`` overrides the empty-answer test for a caller whose notion of
+    "answered nothing" is not ``result_count == 0``.
     ``graph_gap`` is a caller's own reason the graph cannot answer -- a graph
     built from a different revision than the one asked about. It outranks the
     package probe, because it names what the caller can fix, and yields to
@@ -619,14 +621,18 @@ def get_blast_radius(
             import logging as _logging
             _logging.getLogger(__name__).debug("cross_repo blast radius failed", exc_info=True)
 
-    # Risk scoring (always computed, cheap)
+    # Risk scoring (always computed, cheap). A cross-repo importer imports this
+    # repository's package directly, so it weighs as a depth-1 dependent; left
+    # out, importers found only in other repositories scored 0.0, "safe to
+    # change", beside the list naming them (#877).
     total = len(importer_files)
     direct_count = len(files_by_depth.get(1, []))
-    if total > 0:
-        overall_risk = sum(
-            (1.0 / (d ** 0.7)) * len(files)
-            for d, files in files_by_depth.items()
-        ) / total
+    cross_count = len(cross_repo_confirmed)
+    if total + cross_count > 0:
+        overall_risk = (
+            sum((1.0 / (d ** 0.7)) * len(files) for d, files in files_by_depth.items())
+            + cross_count
+        ) / (total + cross_count)
     else:
         overall_risk = 0.0
 
@@ -652,7 +658,7 @@ def get_blast_radius(
         index,
         source_files,
         sym_file,
-        0 if answered_nothing else max(total, len(confirmed), len(callers)),
+        0 if answered_nothing else max(total, len(confirmed), len(callers)) + cross_count,
         probe=answered_nothing,
     )
 
