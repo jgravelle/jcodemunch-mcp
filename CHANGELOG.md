@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - `get_changed_symbols` names the changed files it did not symbol-diff (#874)
+
+Reported by @Torolosko (split from #718). `changed_files` matched git
+exactly, 14 of 14, while a changed JSONL evidence file produced no symbol
+delta and nothing said why. A file with no detected language was skipped
+with `continue`, so "no changed symbols" could mean the change touched no
+symbol or that the file was never parsed.
+
+That was one of three ways a changed file went undiffed in silence. A
+parser that raised was caught and returned `{}`, the same answer as a file
+with no symbols. A non-ASCII path came back from `git diff --name-only`
+C-quoted (`core.quotePath`). Every read of the quoted name then failed, so
+the file read as unchanged while `changed_files` published the quoted
+string (LEDGER L-64, found in #878's review).
+
+Every changed file is now either symbol-diffed or listed in
+`unparsed_changed_files` with its reason: `no_language`, `unreadable` or
+`parse_failed`. `parsed_changed_files_count` counts the rest, and
+`symbol_diff_complete` is true only when nothing was skipped. The diff is
+read with `-z`, so a non-ASCII path is published and diffed under its real
+name. Six other git path readers share the quoting defect and each parses
+a different output shape; they are LEDGER L-65.
+
 ### Fixed - `get_changed_symbols`' blast lists only importers that exist at `until_sha` (#878)
 
 `get_changed_symbols(include_blast_radius=True)` walks the INDEX's importer
