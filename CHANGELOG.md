@@ -2,6 +2,81 @@
 
 ## [Unreleased]
 
+### Fixed - a rename is not "safe" in files the import graph could not reach (#879)
+
+`get_blast_radius.blast_verdict` has been the one authority on an importer
+walk since #718, because an empty walk cannot tell "nothing depends on
+this" from "the graph cannot reach this": Go imports a PACKAGE, so the
+file-level graph lands on no member file (#415). Using it was opt-in, and
+four callers never did. `plan_refactoring`'s collision check answered
+`safe: True` from an empty walk, having checked only the defining file,
+while the file calling the symbol through a package import already defined
+the new name. Its rename, move, extract and signature plans listed no
+affected files with no sign the list was unmeasured. `get_pr_risk_profile`
+counted zero dependents for such a file in its blast signal. And
+`check_rename_safe`, the public tool for the same collision question,
+walks importers by hand and said `safe: True` the same way; it was not in
+the issue and was found while fixing it.
+
+Each asks `blast_verdict` when its walk comes back empty. A collision
+check that found no collision but could not reach the symbol's users
+answers `safe: None` with `unresolvable` naming the reason, in both
+`plan_refactoring`'s `collision_check` and `check_rename_safe`; a found
+collision is still `False` and a reachable clean walk still `True`. The
+four plans carry `affected_files_unresolvable`. The PR risk profile's
+`signal_breakdown.blast_radius` carries `unresolvable_files` and
+`score_is_lower_bound: true`, and the response carries
+`risk_score_is_lower_bound: true` beside the number it qualifies. When no
+changed code file's walk resolved and none found a dependent, the axis is
+not measured: its score is `None`, and `risk_score` and `risk_level` are
+withheld as `None` with `unmeasurable_axes: ["blast_radius"]`, because a
+0.0 there LOWERS the composite, the flattering direction (review). A
+changed code file the index has not seen, a new file, is probed by its
+package directory as if present: unchanged files cannot import a file
+before it exists, but they can import its package. An importer the diff
+ADDS can never count here, because the count excludes every changed file,
+so #718's `graph_gap` is not passed for that case. It does not cover an
+index that lags `base_ref`, where an unchanged file gained an import the
+graph never saw; that predates this fix and is LEDGER L-62. A walk that
+finds an importer is positive evidence and is never probed.
+
+Two tool descriptions change. `check_rename_safe`'s says `safe` may be
+null. `get_pr_risk_profile`'s promised "a single composite risk_score
+(0.0-1.0)" for CI gating, and a gate like jq's `.risk_score > 0.5` reads a
+null as a pass, so it now says the score is null with `unmeasurable_axes`
+when the blast axis could not be measured, and that a gate must treat null
+as a failure (review). Together: +61 tokens on the `standard` and `full`
+surfaces and 0 on `core` and `counter` (`benchmarks/schema_baseline.json`,
+regenerated; `schema-delta.txt`). A changed description is one full-rate
+cache write of the tool block for every client on those surfaces. The route-
+recall artifacts are regenerated with them: no recall figure moves, and
+the description-overlap leak diagnostic rises for one query in each
+corpus (its `leak_desc` 0.0 to 0.167 in the 59-query `results.json`, 0.125
+to 0.25 in the 44-query holdout; `mean_desc_overlap` 0.366 to 0.368 and
+0.292 to 0.295), because the new sentences share words with those queries. The regenerated baseline also absorbs +4 tokens on every
+surface that `main` had already drifted by before this change
+(`core_compact` 3967 committed, 3971 measured on `main`). The walk and
+its verdict now come as one call, `get_blast_radius.importers_with_verdict`,
+which `plan_refactoring` uses, so the next caller inherits the pairing.
+
+`tests/test_importer_walkers_ask_blast_verdict.py` also fails when a module
+walks the importer graph without asking, checked per FUNCTION with import
+aliases resolved (review planted a walk beside a helper that asked, and an aliased walker,
+past a module-level first draft). Five modules do today and are
+tracked as LEDGER L-59 (`find_dead_code`, `get_dead_code_v2`,
+`get_untested_symbols`, `get_call_hierarchy`, `get_impact_preview`); a sixth
+fails the test, and a module that starts asking must leave the list. It
+finds walkers by the names `_bfs_importers` and `_build_reverse_adjacency`,
+so the hand-rolled walks are named: `check_rename_safe` asks, and
+`get_file_risk._count_incoming` and `find_importers` are tracked in L-59.
+It checks calls, not control flow.
+
+That list is a gap ledger, and `scripts/gap_ledgers.py` required every gap
+entry to cite an OPEN issue. Since jjg's 2026-09-25 ruling a defect a
+session finds is a LEDGER row and never an issue, so an entry for one had
+nothing it could cite. An entry may now cite a `docs/workflows/LEDGER.md`
+row (`L-59`) under the same rule: the row must exist and read OPEN.
+
 ### Fixed - a blast radius with importers only in another repository is not "absent" (#877)
 
 `get_blast_radius(cross_repo=True)` found a symbol's importers in another

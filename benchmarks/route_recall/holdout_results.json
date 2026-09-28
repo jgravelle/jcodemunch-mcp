@@ -78,7 +78,7 @@
     ],
     "leakage": {
       "mean_name_overlap": 0.057,
-      "mean_desc_overlap": 0.292,
+      "mean_desc_overlap": 0.295,
       "queries_containing_target_name_token": 7,
       "high_leak_queries": [
         "clone and analyse a repo from github"
@@ -517,7 +517,7 @@
         "get_pr_risk_profile"
       ],
       "leak_name": 0.0,
-      "leak_desc": 0.125
+      "leak_desc": 0.25
     },
     {
       "query": "how hairy is this method",

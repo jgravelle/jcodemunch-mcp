@@ -22,6 +22,13 @@ its reason. An unclassified one fails, and so does a registry row naming
 something that no longer exists. ⚠ The vocabulary is still a spelling, and
 broad on purpose; the partition turns a miss into a decision someone makes.
 
+⚠ An entry may cite an OPEN row of `docs/workflows/LEDGER.md` (`L-59`) instead
+of an issue. Since jjg's 2026-09-25 ruling a defect a SESSION finds is a LEDGER
+row and never an issue, so a gap for one had nothing it could cite except an
+issue the ruling forbids filing (#879). The rule is the same: the row must
+exist and its status must read OPEN; LEDGER.md is tracked, so the check stays
+offline with no manifest.
+
 ⚠ Ledgers are read with `ast.literal_eval`, never by importing a test module:
 an import runs module code and fixtures. A computed ledger, a ledger mutated
 after its literal, and a file that does not parse are REPORTED, never skipped.
@@ -43,6 +50,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "tests" / "fixtures" / "gap_ledger_issues.json"
+LEDGER = ROOT / "docs" / "workflows" / "LEDGER.md"
 REPO = "jgravelle/jcodemunch-mcp"
 
 #: Names that sound like an exemption. Broad on purpose: a name that escapes it
@@ -58,6 +66,8 @@ _VOCABULARY = re.compile(
 LEDGERS: frozenset[tuple[str, str]] = frozenset(
     {
         ("test_absence_wiring_guard.py", "KNOWN_UNWIRED_WRAPPERS"),
+        ("test_importer_walkers_ask_blast_verdict.py", "HAND_ROLLED_NOT_YET"),
+        ("test_importer_walkers_ask_blast_verdict.py", "NOT_YET_ASKING"),
         # Parks a defect: "empty is the intended end state" and a stale-entry
         # ratchet backs it. Filed as a decision in round 1; review moved it.
         ("test_config_isolation_guard.py", "TWIN_EXEMPT"),
@@ -160,6 +170,7 @@ NOT_LEDGERS: dict[tuple[str, str], str] = {
 }
 
 _ISSUE = re.compile(r"#(\d+)\b")
+_LEDGER_ROW = re.compile(r"\bL-(\d+)\b")
 _EMPTY_CALLS = frozenset({"set", "frozenset", "dict", "list", "tuple"})
 _MUTATORS = frozenset(
     {"update", "add", "append", "extend", "setdefault", "insert", "__setitem__"}
@@ -311,6 +322,20 @@ def cited(text: str) -> set[int]:
     return {int(n) for n in _ISSUE.findall(text)}
 
 
+def cited_rows(text: str) -> set[str]:
+    return {f"L-{n}" for n in _LEDGER_ROW.findall(text)}
+
+
+def ledger_rows(path: Path = LEDGER) -> dict[str, str]:
+    """`{"L-59": "OPEN", ...}`: each LEDGER row's id and its last column."""
+    rows = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and _LEDGER_ROW.fullmatch(cells[0] or ""):
+            rows[cells[0]] = cells[-1]
+    return rows
+
+
 def cited_issues(tests_dir: Path, ledgers=LEDGERS) -> set[int]:
     candidates, _problems = scan(tests_dir)
     return {
@@ -323,10 +348,15 @@ def cited_issues(tests_dir: Path, ledgers=LEDGERS) -> set[int]:
 
 
 def check(
-    tests_dir: Path, manifest: dict[int, str], ledgers=LEDGERS, not_ledgers=None
+    tests_dir: Path,
+    manifest: dict[int, str],
+    ledgers=LEDGERS,
+    not_ledgers=None,
+    rows: dict[str, str] | None = None,
 ) -> list[str]:
     """Every way the ledgers under `tests_dir` fail the arrival rule."""
     not_ledgers = NOT_LEDGERS if not_ledgers is None else not_ledgers
+    rows = ledger_rows() if rows is None else rows
     candidates, problems = scan(tests_dir)
     for key in sorted(set(candidates) - set(ledgers) - set(not_ledgers)):
         problems.append(
@@ -356,7 +386,8 @@ def check(
         for path, text in entries(value):
             label = f"{where}{list(path)!r}"
             numbers = cited(text)
-            if not numbers:
+            row_ids = cited_rows(text)
+            if not numbers and not row_ids:
                 problems.append(
                     f"{label} names no issue: {text!r} (a ledger of bare names cannot carry "
                     f"one: reshape it to {{name: reason}} first)"
@@ -364,11 +395,16 @@ def check(
                 continue
             if any(manifest.get(n) == "OPEN" for n in numbers):
                 continue
+            if any(rows.get(r, "").startswith("OPEN") for r in row_ids):
+                continue
             reasons = [
                 f"#{n} is not in the manifest (run scripts/gap_ledgers.py --refresh)"
                 if n not in manifest
                 else f"#{n} is {manifest[n]}"
                 for n in sorted(numbers)
+            ] + [
+                f"{r} is not a LEDGER row" if r not in rows else f"{r} is {rows[r]}"
+                for r in sorted(row_ids)
             ]
             problems.append(f"{label} cites no OPEN issue: {'; '.join(reasons)}")
     return problems

@@ -10,7 +10,9 @@ green.
 
 Rulings:
 - Every entry names at least one issue (`#NNN`) that the committed manifest
-  `tests/fixtures/gap_ledger_issues.json` records as OPEN.
+  `tests/fixtures/gap_ledger_issues.json` records as OPEN, or a row of
+  `docs/workflows/LEDGER.md` (`L-NN`) whose status reads OPEN: a defect a
+  session finds is a LEDGER row and never an issue (jjg, 2026-09-25; #879).
 - The manifest is OFFLINE: the suite never reaches the network, and a test
   needing a token is a test that gets skipped. `scripts/gap_ledgers.py
   --refresh` rewrites it with `gh`. ⚠ So a cited issue CLOSED without a fix
@@ -100,6 +102,36 @@ def test_the_rule_rejects_planted_excuses(tmp_path):
     assert "ALLOWED_UNTIL_FIXED['wf.yml'] names no issue" in joined
     assert "'form free text only'" in joined
     assert "['d']" not in joined and "good_form" not in joined
+
+
+def test_an_open_ledger_row_is_a_citation_and_a_closed_one_is_not(tmp_path):
+    """A session-found defect is a LEDGER row, never an issue (jjg,
+    2026-09-25), so an entry may cite `L-NN` instead of `#NNN`; the row must
+    exist and read OPEN, the same rule as an issue (#879)."""
+    (tmp_path / "test_planted.py").write_text(
+        "_KNOWN_GAPS = {\n"
+        "    'open': 'L-7: tracked',\n"
+        "    'fixed': 'L-8: fixed since',\n"
+        "    'ghost': 'L-9999: no such row',\n"
+        "    'both': '#100 closed, L-7 open',\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    rows = {"L-7": "OPEN", "L-8": "FIXED 2026-09-28 (#900)"}
+    problems = gap_ledgers.check(
+        tmp_path, {100: "CLOSED"}, ledgers={("test_planted.py", "_KNOWN_GAPS")}, not_ledgers={}, rows=rows,
+    )
+    joined = "\n".join(problems)
+    assert len(problems) == 2, joined
+    assert "L-8 is FIXED" in joined
+    assert "L-9999 is not a LEDGER row" in joined
+    assert "['open']" not in joined and "['both']" not in joined
+
+
+def test_the_ledger_file_parses_to_rows():
+    rows = gap_ledgers.ledger_rows()
+    assert rows["L-59"].startswith("OPEN")
+    assert all(k.startswith("L-") for k in rows)
 
 
 def test_a_container_that_sounds_like_an_exemption_must_be_classified(tmp_path):

@@ -11,9 +11,8 @@ from ..storage import IndexStore
 
 # Reused from existing tools (no duplication)
 from .get_blast_radius import (
-    _build_reverse_adjacency,
-    _bfs_importers,
     _name_in_content,
+    importers_with_verdict,
 )
 from ._call_graph import _symbol_body
 from ..storage import record_savings
@@ -316,10 +315,10 @@ def _resolve_symbol(index, symbol_id_or_name: str) -> dict:
 
 
 def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):
-    """Find files that import sym_file AND reference sym_name."""
-    source_files = frozenset(index.source_files)
-    rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
-    importer_files, _ = _bfs_importers(sym_file, rev, depth)
+    """``(files, unresolvable)``: files that import sym_file AND reference
+    sym_name, and why an empty answer is not "no file is affected" when the
+    importer graph could not reach sym_file (#879)."""
+    importer_files, unresolvable = importers_with_verdict(index, sym_file, depth)
 
     confirmed = []
     for imp_file in importer_files:
@@ -330,7 +329,7 @@ def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):
             continue
         if content and _name_in_content(content, sym_name):
             confirmed.append(imp_file)
-    return confirmed
+    return confirmed, unresolvable
 
 
 def _apply_word_replacement(text: str, old_name: str, new_name: str) -> str:
@@ -1492,7 +1491,7 @@ def _plan_rename(index, store, owner, name, sym, new_name, depth):
     collision = _check_collision(index, new_name, sym_file, store, owner, name, depth)
 
     # Find affected files (importers that reference the name)
-    affected = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
+    affected, unresolvable = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
 
     # Always include the definition file
     all_files = [sym_file] + [f for f in affected if f != sym_file]
@@ -1524,6 +1523,8 @@ def _plan_rename(index, store, owner, name, sym, new_name, depth):
         "collision_check": collision,
         "summary": {"files": len(edits), "edit_blocks": total_blocks, "warnings": len(all_warnings)},
     }
+    if unresolvable:
+        result["affected_files_unresolvable"] = unresolvable
 
     # Token savings
     _record_savings(len(all_files), result)
@@ -1556,10 +1557,13 @@ def _generate_rename_blocks(content, old_name, new_name, language):
 
 
 def _check_collision(index, new_name, sym_file, store, owner, name, depth):
-    """Check if new_name collides with existing symbols in affected files."""
-    source_files = frozenset(index.source_files)
-    rev = _build_reverse_adjacency(index.imports, source_files, index.alias_map, getattr(index, "psr4_map", None))
-    importer_files, _ = _bfs_importers(sym_file, rev, depth)
+    """Check if new_name collides with existing symbols in affected files.
+
+    ``safe`` is tri-state: ``None`` when nothing collided in the files checked
+    but the importer graph could not reach ``sym_file``, so the files that use
+    it were never checked (#879). ``True`` from an unreachable walk was a
+    claim about files nobody looked at."""
+    importer_files, unresolvable = importers_with_verdict(index, sym_file, depth)
     files_to_check = {sym_file} | set(importer_files)
 
     conflicts = []
@@ -1567,7 +1571,11 @@ def _check_collision(index, new_name, sym_file, store, owner, name, depth):
         if s.get("file") in files_to_check and s.get("name", "").lower() == new_name.lower():
             conflicts.append({"file": s["file"], "symbol_id": s["id"], "kind": s.get("kind")})
 
-    return {"safe": len(conflicts) == 0, "conflicts": conflicts}
+    if conflicts:
+        return {"safe": False, "conflicts": conflicts}
+    if unresolvable:
+        return {"safe": None, "conflicts": [], "unresolvable": unresolvable}
+    return {"safe": True, "conflicts": []}
 
 
 # ---------------------------------------------------------------------------
@@ -1669,7 +1677,7 @@ def _plan_move(index, store, owner, name, sym, new_file, depth):
         add_import_line = f"from {new_module.replace('/', '.')} import {sym_name}"
 
     # Import rewrites for all importers
-    affected = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
+    affected, unresolvable = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
     import_rewrites, rewrite_warnings = _generate_import_rewrites(
         index, store, owner, name, affected, sym_name, sym_file, new_file, lang
     )
@@ -1682,6 +1690,8 @@ def _plan_move(index, store, owner, name, sym, new_file, depth):
         "collision_check": {"safe": dest_collision is None, "conflict": dest_collision},
         "summary": {"importers_rewritten": len(import_rewrites)},
     }
+    if unresolvable:
+        result["affected_files_unresolvable"] = unresolvable
     
     # Bug 5: Only include add_import if staying symbols reference the moved symbol
     if needs_source_import:
@@ -1865,9 +1875,11 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
 
     # Import rewrites for external importers
     all_affected = set()
+    unresolvable = None
     for sym in syms:
-        affected = _find_affected_files(index, store, owner, name, source_file, sym["name"], depth)
+        affected, gap = _find_affected_files(index, store, owner, name, source_file, sym["name"], depth)
         all_affected.update(affected)
+        unresolvable = unresolvable or gap
 
     import_rewrites = []
     rewrite_warnings = []
@@ -1906,6 +1918,8 @@ def _plan_extract(index, store, owner, name, syms, new_file, depth):
         result["dep_warnings"] = dep_warnings
     if rewrite_warnings:
         result["warnings"] = rewrite_warnings
+    if unresolvable:
+        result["affected_files_unresolvable"] = unresolvable
 
     # Token savings
     _record_savings(len(all_affected) + len(syms), result)
@@ -2136,7 +2150,7 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
     }
 
     # Find call sites
-    affected = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
+    affected, unresolvable = _find_affected_files(index, store, owner, name, sym_file, sym_name, depth)
     # Also scan definition file for internal calls
     all_files = [sym_file] + [f for f in affected if f != sym_file]
 
@@ -2185,6 +2199,8 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
     # Fix F: Include warnings for file read errors
     if file_read_warnings:
         result["warnings"] = file_read_warnings
+    if unresolvable:
+        result["affected_files_unresolvable"] = unresolvable
 
     # Token savings
     _record_savings(len(all_files), result)
