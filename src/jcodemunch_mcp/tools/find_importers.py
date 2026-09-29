@@ -9,6 +9,7 @@ from ..parser.imports import (
     expand_barrel_leaves,
     resolve_specifier,
 )
+from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo
 from .package_registry import (
     extract_root_package_from_specifier,
@@ -34,6 +35,49 @@ def _resolve_to_leaves(
     if not direct:
         return set()
     return expand_barrel_leaves(direct, imp.get("names", []), wildcard_map, named_map)
+
+
+def _dynamic_block(boundary: DynamicBoundary, file_path: str) -> Optional[dict]:
+    """(LEDGER L-73) The scoped dynamic imports that can load ``file_path``.
+
+    ⚠ They are NOT importers and never counted in ``importer_count``: the
+    module is named at runtime, so which file it loads is unknown. They are
+    named because an answer without them reads as "nothing imports this"
+    while `get_blast_radius` refuses to say so over the same file. The reach
+    rule is `_dynamic_boundary.DynamicBoundary`, the one every absence tool
+    reads (#876, L-70).
+    """
+    reaching = boundary.reaching(file_path)
+    if not reaching:
+        return None
+    return {
+        "files": reaching[:DYNAMIC_FILES_CAP],
+        "files_total": len(reaching),
+        "note": (
+            f"{len(reaching)} file(s) import a module by a computed name that can "
+            f"reach this file (e.g. {reaching[0]}). They are not counted as importers, "
+            "and a count without them is not evidence that nothing loads it."
+        ),
+    }
+
+
+def _opaque_disclosure(boundary: DynamicBoundary, file_paths, counts) -> Optional[dict]:
+    """(#876) Opaque sites, disclosed beside an EMPTY answer only.
+
+    The rule `get_blast_radius` applies: a loader that names its module from
+    data could reach anything, so it is disclosed and never refuses, and only
+    where the static answer is empty (jjg, 2026-09-29).
+    """
+    empty_py = [
+        fp for fp, n in zip(file_paths, counts)
+        if n == 0 and fp.endswith((".py", ".pyi"))
+    ]
+    if not empty_py:
+        return None
+    excluding: set[str] = set()
+    for fp in empty_py:
+        excluding.update(boundary.reaching(fp))
+    return boundary.disclosure(excluding=excluding)
 
 
 def _find_importers_single(
@@ -102,11 +146,21 @@ def _find_importers_single(
 
     elapsed = (time.perf_counter() - start) * 1000
     truncated = len(results) > max_results
-    return {
+    out: dict = {
         "repo": f"{owner}/{name}",
         "file_path": file_path,
         "importer_count": len(results),
         "importers": results[:max_results],
+    }
+    boundary = DynamicBoundary(index.imports)
+    if boundary:
+        block = _dynamic_block(boundary, file_path)
+        if block:
+            out["dynamic_import_boundary"] = block
+        unfollowed = _opaque_disclosure(boundary, [file_path], [len(results)])
+        if unfollowed:
+            out["dynamic_imports_unfollowed"] = unfollowed
+    out.update({
         "_meta": {
             "timing_ms": round(elapsed, 1),
             "truncated": truncated,
@@ -115,7 +169,8 @@ def _find_importers_single(
             else "Tip: use file_paths=['{0}','...'] to query multiple files in one call. "
                  "For usage-site matching beyond imports, also try check_references.".format(file_path),
         },
-    }
+    })
+    return out
 
 
 def _find_importers_batch(
@@ -179,21 +234,34 @@ def _find_importers_batch(
             for leaf in leaves:
                 import_map.setdefault(leaf, []).append(entry)
 
+    boundary = DynamicBoundary(index.imports)
     results = []
     for file_path in file_paths:
         file_results = import_map.get(file_path, [])  # O(1) lookup
         file_results.sort(key=lambda r: r["file"])
-        results.append({
+        entry = {
             "file_path": file_path,
             "importer_count": len(file_results),
             "importers": file_results[:max_results],
-        })
+        }
+        block = _dynamic_block(boundary, file_path) if boundary else None
+        if block:
+            entry["dynamic_import_boundary"] = block
+        results.append(entry)
 
-    return {
+    out: dict = {
         "repo": f"{owner}/{name}",
         "results": results,
-        "_meta": {"timing_ms": round((time.perf_counter() - start) * 1000, 1)},
     }
+    # Opaque sites are repo-wide, so a batch names them once, not per file.
+    unfollowed = (
+        _opaque_disclosure(boundary, file_paths, [e["importer_count"] for e in results])
+        if boundary else None
+    )
+    if unfollowed:
+        out["dynamic_imports_unfollowed"] = unfollowed
+    out["_meta"] = {"timing_ms": round((time.perf_counter() - start) * 1000, 1)}
+    return out
 
 
 def _find_cross_repo_importers(

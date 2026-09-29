@@ -119,7 +119,11 @@ def _split_importers_by_liveness(
             if "error" in res:
                 live.append(f)
                 continue
-            if int(res.get("importer_count", 0) or 0) == 0:
+            # (LEDGER L-73) A file a dynamic import can load has no static
+            # importer by construction; that is not evidence it is dead.
+            if res.get("dynamic_import_boundary"):
+                live.append(f)
+            elif int(res.get("importer_count", 0) or 0) == 0:
                 dead.append(f)
             else:
                 live.append(f)

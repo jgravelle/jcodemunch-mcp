@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+### Fixed - `find_importers` names the dynamic import that can load a file (LEDGER L-73)
+
+L-70 made every absence tool read #876's dynamic-import boundary, and
+`find_importers` was left out. For a module `import_module(f"adapters.{name}")`
+can load, it answered `importer_count: 0` with nothing beside it. That reads as
+"nothing imports this", one call away from `get_blast_radius` refusing to say
+so over the same file.
+
+A package- or prefix-scoped site that can reach the file is now named in a
+`dynamic_import_boundary` block (`files`, capped at ten, `files_total`, `note`),
+in singular and batch mode, whatever the static count. The loaders are not
+importers and are never counted in `importer_count`: the module is named at
+runtime. An opaque site is disclosed as `dynamic_imports_unfollowed` beside an
+EMPTY answer only, the rule `get_blast_radius` applies (#876); a batch names it
+once. Both are declared in the compact encoder, which drops an undeclared dict
+without a word.
+
+⚠⚠ The deletion investigator was the consumer that acted on the missing
+field. Its liveness split calls an importer file with `importer_count: 0`
+unreachable, so a helper imported only by a dynamically loaded module was
+offered for deletion as part of a dead cluster (`static_clear`). A loadable
+importer is live now, and that verdict is `unsafe`. `check_edit_safe` reads the
+same importer list for signature impact and does not read the boundary yet;
+that verdict change needs its own measurement and is LEDGER L-75.
+
 ### Fixed - the dead-code tools read the dynamic-import boundary the blast radius reads (LEDGER L-70)
 
 #876 records a Python dynamic import it cannot resolve as a site with a

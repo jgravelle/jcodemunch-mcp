@@ -17,7 +17,9 @@ _TABLES = [
 _SCALARS = ("repo", "file_path", "importer_count", "note")
 _META = ("timing_ms", "truncated", "tokens_saved", "total_tokens_saved")
 _META_JSON = ("verdict",)  # structured _meta that must survive compaction
-_JSON = ("results",)
+# (LEDGER L-73) BODY dicts: the dispatcher deletes `_meta` on the shipped
+# default, and an undeclared dict is dropped by the encoder without a word.
+_JSON = ("results", "dynamic_import_boundary", "dynamic_imports_unfollowed")
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:
