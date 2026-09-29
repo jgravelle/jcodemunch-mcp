@@ -795,7 +795,7 @@ def get_dead_code_v2(
     # vote is a property of the whole repository, so it cannot be known until
     # every symbol has been seen. Scoring inline was what made a signal that
     # fires on everything still worth a full third.
-    scored: list[tuple[dict, list[str]]] = []
+    scored: list[tuple[dict, list[str], list[str]]] = []
 
     for sym in index.symbols:
         sid = sym.get("id", "")
