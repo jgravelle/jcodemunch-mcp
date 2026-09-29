@@ -42,6 +42,54 @@ def test_2_the_next_test_starts_from_a_fresh_session():
     assert server._steer_state == {"hops": 0, "bundles": 0, "nudged": False, "repos": []}
 
 
+# (LEDGER L-74) The turn budget is session state too, and the reset above missed
+# it: `tools/turn_budget.get_turn_budget()` is a process singleton, so output
+# served by earlier tests on one xdist worker added up inside the 30 s turn gap
+# and whichever test crossed 80% gained a top-level `budget_warning`.
+# #932's CI failed that way in `test_a_result_cache_hit_answers_with_the_cold_calls_key_set`.
+# ⚠ Another PAIR in file order, for the same reason as the first.
+
+
+def test_3_a_test_spends_most_of_the_turn_budget():
+    from jcodemunch_mcp.tools.turn_budget import get_turn_budget
+
+    tb = get_turn_budget()
+    tb.record_output(19_000)
+    assert tb.percent_used() >= 0.8
+
+
+def test_4_the_next_test_starts_with_a_fresh_turn_budget(_indexed):
+    from jcodemunch_mcp.tools.turn_budget import get_turn_budget
+
+    before = get_turn_budget().percent_used()
+    body = json.loads(_text(asyncio.run(server.call_tool(
+        "search_symbols", {"repo": _indexed, "query": "refresh_token", "format": "json"}
+    ))))
+    assert before < 0.8, before
+    assert "budget_warning" not in body, body.get("budget_warning")
+
+
+# The session journal, found by the same question (L-74): negative evidence an
+# earlier test recorded is what `plan_turn` cites as a searched absence.
+
+
+def test_5_a_test_records_into_the_session_journal():
+    from jcodemunch_mcp.tools.session_journal import get_journal
+
+    journal = get_journal()
+    journal.record_read("src/leak.py", "get_file_content")
+    journal.record_negative_evidence({"query": "leaked_name", "repo": "local/leak"})
+    assert journal.get_negative_evidence_log()
+
+
+def test_6_the_next_test_starts_with_an_empty_session_journal():
+    from jcodemunch_mcp.tools.session_journal import get_journal
+
+    journal = get_journal()
+    assert journal.get_negative_evidence_log() == []
+    assert "src/leak.py" not in json.dumps(journal.get_context(), default=str)
+
+
 @pytest.fixture()
 def _indexed(tmp_path, monkeypatch):
     monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "idx"))

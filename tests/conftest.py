@@ -101,10 +101,19 @@ def _fresh_session(monkeypatch):
     globals reaches every reader. ⚠ `server` is patched only when something
     already imported it: importing it here would load the server for every
     test, and a first import builds a fresh `_steer_state` anyway.
+    ⚠ (LEDGER L-74) The turn budget and the session journal are session state
+    too, each a singleton its getter builds on first use: output served by
+    earlier tests added up to a `budget_warning`, and negative evidence they
+    recorded is what `plan_turn` cites as absence. Clearing the module globals
+    gives each test what a fresh process starts with. Every reader calls the
+    getter per call; nothing holds either instance.
     """
     from jcodemunch_mcp.storage import token_tracker
+    from jcodemunch_mcp.tools import session_journal, turn_budget
 
     monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
+    monkeypatch.setattr(turn_budget, "_budget", None)
+    monkeypatch.setattr(session_journal, "_journal", None)
     server = sys.modules.get("jcodemunch_mcp.server")
     if server is not None:
         monkeypatch.setattr(server, "_steer_state", {"hops": 0, "bundles": 0, "nudged": False, "repos": []})
