@@ -144,8 +144,13 @@ def test_a_passing_write_results_run_removes_a_stale_failed_file(scratch_repo):
     assert not stale.exists()
 
 
-def test_both_workflows_upload_the_failed_measurement():
-    for wf in ("pr-gate.yml", "main.yml"):
-        text = (REPO / ".github" / "workflows" / wf).read_text(encoding="utf-8")
-        assert "harness/results/self_latency.json" in text, wf
-        assert FAILED in text, f"{wf} uploads the tracked file but not the failed run's own measurement"
+def test_every_workflow_that_uploads_the_result_uploads_the_failed_measurement():
+    """Over every workflow, not a named list: the first draft named pr-gate and main,
+    and nightly.yml's `bench --write-results` upload kept the defect (review of L-72)."""
+    uploading = []
+    for wf in sorted((REPO / ".github" / "workflows").glob("*.y*ml")):
+        text = wf.read_text(encoding="utf-8")
+        if "harness/results/self_latency.json" in text:
+            uploading.append(wf.name)
+            assert FAILED in text, f"{wf.name} uploads the tracked file but not the failed run's own measurement"
+    assert {"pr-gate.yml", "main.yml", "nightly.yml"} <= set(uploading), uploading
