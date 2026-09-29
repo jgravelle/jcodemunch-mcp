@@ -34,7 +34,7 @@ from .policy import (  # noqa: F401,E402
 # Constants
 # ---------------------------------------------------------------------------
 
-_CLAUDE_MD_MARKER = "## Code Exploration Policy"
+from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402  (#871: one marker)
 
 
 # Policy for `tool_surface="counter"`, the default on a genuinely first-ever

@@ -228,7 +228,9 @@ def active_policy() -> str:
 
 
 
-_POLICY_MARKER = "## Code Exploration Policy"
+# THE marker: `cli.init` imports it, so "already present" and the drift check
+# find the same block (review of #871: there were two copies, matched two ways).
+POLICY_MARKER = "## Code Exploration Policy"
 
 
 def _policy_headings() -> set[str]:
@@ -252,13 +254,14 @@ def installed_policy_drift(text: str) -> dict | None:
 
     The block runs from the marker to the first ``## `` heading that is not one
     of the policy's own sections, or to the end of the file, so a user's own
-    sections after it are never compared. Whitespace and blank lines are not a
-    difference. ⚠ "differs" cannot tell an outdated block from one its owner
+    sections after it are never compared. Trailing whitespace and blank lines are
+    not a difference; indentation is. ⚠ "differs" cannot tell an outdated block from one its owner
     edited on purpose; the caller must say so, and must never rewrite it
     (the ``surface_offer`` rule: a message, never a migration).
     """
     lines = text.splitlines()
-    start = next((i for i, ln in enumerate(lines) if ln.strip() == _POLICY_MARKER), None)
+    # Found the way `init` finds it: the first line CONTAINING the marker.
+    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
     if start is None:
         return None
     own = _policy_headings()
@@ -273,8 +276,12 @@ def installed_policy_drift(text: str) -> dict | None:
         return {"state": "current"}
     import difflib
 
+    # Lines, not diff operations: a substituted line is one line that differs
+    # (an ndiff count reports it twice, as a removal and an addition).
     changed = sum(
-        1 for op in difflib.ndiff(installed, current) if op[:1] in ("-", "+")
+        max(i2 - i1, j2 - j1)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=installed, b=current, autojunk=False).get_opcodes()
+        if tag != "equal"
     )
     return {"state": "differs", "lines_differing": changed}
 
