@@ -179,8 +179,6 @@ def get_dependency_graph(
             repo_id = f"{owner}/{name}"
             file_imports_for_file = index.imports.get(file, [])
             for imp in file_imports_for_file:
-                if imp.get("dynamic_unresolved"):
-                    continue  # (#876) a marker edge, not a package: only blast_verdict reads it
                 specifier = imp.get("specifier", "")
                 lang = index.file_languages.get(file, "")
                 root_pkg = extract_root_package_from_specifier(specifier, lang)

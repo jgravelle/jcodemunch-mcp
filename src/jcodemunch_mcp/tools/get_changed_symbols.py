@@ -361,6 +361,8 @@ def get_changed_symbols(
                 "absence_refused": bool(verdict.get("absence_refused")),
                 "reason": (verdict.get("incomplete") or {}).get("reason"),
             }
+            if verdict.get("dynamic_imports_unfollowed"):
+                entry["blast_verdict"]["dynamic_imports_unfollowed"] = verdict["dynamic_imports_unfollowed"]
 
     # For each changed file, parse both versions and diff symbol sets
     added_symbols: list[dict] = []

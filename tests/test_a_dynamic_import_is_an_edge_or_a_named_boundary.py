@@ -17,13 +17,16 @@ reaches it through `__import__`. Fixed at the import authority
 - a literal passed one step into a parameter that feeds such a call is an edge
   (the reported case; the issue's bounded "one-step finite literal
   propagation", not symbolic execution);
-- a target still not a literal is recorded, and an empty Python blast radius
-  refuses its absence claim, naming the site.
+- a target still not a literal is recorded with the scope it can reach; an
+  empty blast radius refuses inside a package/prefix scope and discloses an
+  opaque site (jjg, 2026-09-29).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from jcodemunch_mcp.parser.imports import extract_imports
 from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
@@ -231,3 +234,138 @@ def test_a_method_feeder_skips_self():
 
 def test_an_unparseable_file_is_not_a_boundary():
     assert _markers("print 'py2'\nimportlib.import_module(x)\n") == []
+
+
+# --- review round 2 -------------------------------------------------------
+
+OPAQUE = {
+    "plugins.py": "import os\n\ndef load():\n    return __import__(os.environ['PLUGIN'])\n",
+    "lonely.py": "def alone():\n    return 0\n",
+}
+
+
+@pytest.mark.asyncio
+async def test_the_opaque_disclosure_survives_the_default_meta_fields(tmp_path, monkeypatch):
+    """`meta_fields: []` is the shipped default and strips `_meta` (Standing lesson 08-30)."""
+    import json
+
+    from jcodemunch_mcp import config as _config
+    from jcodemunch_mcp import server
+
+    repo, storage = _index(tmp_path, OPAQUE)
+    monkeypatch.setenv("CODE_INDEX_PATH", storage)
+    real = _config.get
+    monkeypatch.setattr(
+        _config, "get", lambda key, default=None, **kw: [] if key == "meta_fields" else real(key, default, **kw)
+    )
+    res = await server.call_tool("get_blast_radius", {"repo": repo, "symbol": "alone"})
+    content = getattr(res, "content", res)
+    body = json.loads(content[0].text)
+    assert "verdict" not in body.get("_meta", {}), "the default strips the verdict"
+    assert body["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
+
+
+@pytest.mark.parametrize("use", [
+    "results = list(map(_load, CONFIG))\n",
+    "registry.register(_load)\n",
+    "a._load(cfg)\n",
+    "",
+])
+def test_a_private_feeder_used_other_than_by_a_direct_call_is_a_site(use):
+    """Round 1's public-feeder rule, for every spelling of an escaping private one."""
+    src = (
+        "import importlib\n"
+        "def _load(name):\n    return importlib.import_module(name)\n"
+        + use
+    )
+    assert _markers(src) == ["opaque"], use
+
+
+def test_a_private_feeder_escaping_keeps_its_direct_call_edges_out():
+    src = (
+        "import importlib\n"
+        "def _load(name):\n    return importlib.import_module(name)\n"
+        "_load('pkg.x')\n"
+        "hooks = [_load]\n"
+    )
+    assert _markers(src) == ["opaque"]
+
+
+def test_a_rebound_feeder_parameter_is_not_the_callers_literal(tmp_path):
+    src = (
+        "import importlib\n"
+        "def _load(name):\n    name = 'plugins.' + name\n    return importlib.import_module(name)\n"
+        "_load('foo')\n"
+    )
+    assert "foo" not in [e["specifier"] for e in _edges(src)], "a wrong edge to an unrelated foo"
+    assert _markers(src) == ["opaque"]
+    repo, storage = _index(tmp_path, {
+        "run.py": src,
+        "foo.py": "def unrelated():\n    return 0\n",
+        "plugins/__init__.py": "",
+        "plugins/foo.py": "def hook():\n    return 1\n",
+    })
+    r = get_blast_radius(repo=repo, symbol="unrelated", storage_path=storage)
+    assert "run.py" not in _dependents(r)
+    assert r["dynamic_imports_unfollowed"]["files"] == ["run.py"]
+
+
+def test_a_rebound_loop_variable_is_not_its_loop_literals():
+    src = (
+        "import importlib\n"
+        "for m in ('a', 'b'):\n    pass\n"
+        "m = cfg\n"
+        "importlib.import_module(m)\n"
+    )
+    assert not {"a", "b"} & {e["specifier"] for e in _edges(src)}
+    assert _markers(src) == ["opaque"]
+
+
+@pytest.mark.parametrize("call", [
+    "importlib.import_module(f'.{m.name}', __package__)",
+    "importlib.import_module('.' + m.name, package=__name__)",
+])
+def test_a_relative_name_anchored_on_this_package_is_package_scope(call):
+    src = (
+        "import importlib, pkgutil\n"
+        "for m in pkgutil.iter_modules(__path__):\n"
+        f"    {call}\n"
+    )
+    assert _markers(src) == ["package"], call
+
+
+def test_a_parent_relative_name_is_not_this_package():
+    src = "import importlib\nimportlib.import_module('..' + n, __package__)\n"
+    assert _markers(src) == ["opaque"]
+
+
+def test_a_name_defined_twice_is_not_propagated_through():
+    src = (
+        "import importlib\n"
+        "class A:\n    def load(self, name):\n        return importlib.import_module(name)\n"
+        "class B:\n    def load(self, name):\n        return name\n"
+        "def load(name):\n    return importlib.import_module(name)\n"
+        "load('pkg.x')\n"
+    )
+    assert "pkg.x" not in [e["specifier"] for e in _edges(src)]
+    assert _markers(src) == ["opaque"]
+
+
+def test_the_marker_names_no_package_for_any_cross_repo_reader():
+    """One layer down: every reader of this helper skips the marker (review of #876)."""
+    from jcodemunch_mcp.parser.imports import DYNAMIC_IMPORT_UNRESOLVED
+    from jcodemunch_mcp.tools.package_registry import extract_root_package_from_specifier
+
+    for lang in ("python", "javascript"):
+        assert extract_root_package_from_specifier(DYNAMIC_IMPORT_UNRESOLVED, lang) == ""
+
+
+def test_a_comprehension_target_is_bounded_even_when_its_name_is_reused():
+    """The comprehension's variable is local to it; a later `m = ...` is another name."""
+    src = (
+        "import importlib\n"
+        "mods = {m: importlib.import_module(m) for m in ('adapter', 'run')}\n"
+        "m = cfg\n"
+    )
+    assert {"adapter", "run"} <= {e["specifier"] for e in _edges(src)}
+    assert _markers(src) == []

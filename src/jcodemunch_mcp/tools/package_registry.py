@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from ..parser.imports import DYNAMIC_IMPORT_UNRESOLVED
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -242,9 +244,10 @@ def extract_root_package_from_specifier(specifier: str, language: str) -> str:
         language: Language name (e.g. "python", "javascript", "go", "rust").
 
     Returns:
-        Root package name string, or "" for relative imports.
+        Root package name string, or "" for relative imports and for the
+        (#876) dynamic-import marker, which names no package.
     """
-    if not specifier:
+    if not specifier or specifier == DYNAMIC_IMPORT_UNRESOLVED:
         return ""
 
     lang = language.lower()

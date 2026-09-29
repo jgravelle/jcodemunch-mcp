@@ -576,7 +576,8 @@ INDEX_VERSION = 17
 #   `importlib.import_module("x")` with a literal target, or a literal passed
 #   one step into a parameter that feeds one, gain an edge to `x`; a target
 #   still not a literal is recorded as a `dynamic_unresolved` marker edge,
-#   which `blast_verdict` reads to refuse an empty Python walk. ⚠⚠ No symbol id
+#   with its scope, which `blast_verdict` reads: a scope reaching the file
+#   refuses an empty walk, an opaque one is disclosed. ⚠⚠ No symbol id
 #   moves; only `files.imports` changes, on UNCHANGED content, so an existing
 #   index gains the edges only by a re-parse (Standing lesson 08-05).
 PARSER_GENERATION = 9

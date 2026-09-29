@@ -797,6 +797,11 @@ def get_blast_radius(
     # `absence_citable: False` + `absence_blocked_by` with no second rule to keep
     # in sync.
     result["_meta"]["verdict"] = verdict
+    # (#876) BODY, not `_meta`: `meta_fields` defaults to `[]` and the
+    # dispatcher strips `_meta`, so a disclosure left only in the verdict never
+    # reaches a default install (Standing lesson 08-30).
+    if verdict.get("dynamic_imports_unfollowed"):
+        result["dynamic_imports_unfollowed"] = verdict["dynamic_imports_unfollowed"]
     if call_depth > 0:
         result["caller_count"] = len(callers)
         result["callers"] = callers
