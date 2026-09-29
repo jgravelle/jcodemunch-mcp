@@ -511,7 +511,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             vals = [literal(e) for e in g.iter.elts]
             if not (vals and all(vals)):
                 continue
-            body = [getattr(node, f) for f in ("elt", "key", "value") if hasattr(node, f)]
+            body = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
             for part in [*body, *g.ifs]:
                 for call in ast.walk(part):
                     if (
