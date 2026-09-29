@@ -62,7 +62,8 @@ them. No symbol id moves. Subprocess launches, config-driven dispatch and a
 function reached through a string lookup (`globals()["_load"](cfg)`) are
 not visible to the AST and are not covered. A public module-level table is
 trusted though another file could add to it, unlike a public loader
-function, which is a site: LEDGER L-71. `find_dead_code` and
+function, which is a site. That asymmetry is by design (jjg,
+2026-09-29; LEDGER L-71). `find_dead_code` and
 `check_delete_safe` read the new edges but not the boundary: LEDGER L-70.
 The marker names no package, so no cross-repo package match reads it.
 
