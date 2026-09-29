@@ -472,3 +472,25 @@ def test_changed_symbols_carries_the_opaque_disclosure_for_an_empty_blast(tmp_pa
     assert entry["blast_radius"] == []
     assert entry["blast_verdict"]["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
     assert r["blast_verdicts"]["lonely.py"]["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
+
+
+# --- review round 4 -------------------------------------------------------
+
+
+@pytest.mark.parametrize("table, change, read", [
+    ("{'a': {'m': 'pkg.a'}}", "T['a']['m'] = cfg\n", "T[k]['m']"),
+    ("{'a': ['pkg.a']}", "T['a'].append(cfg)\n", "T[k][0]"),
+    ("{'a': {'m': 'pkg.a'}}", "T['a'].update(m=cfg)\n", "T[k]['m']"),
+    ("{'a': ['pkg.a']}", "for v in T.values():\n    v.append(cfg)\n", "T[k][0]"),
+])
+def test_a_mutable_value_inside_a_table_makes_the_table_a_site(table, change, read):
+    """Only the table's NAME is guarded; a list or dict inside it can change unseen."""
+    src = (
+        "import importlib\n"
+        f"T = {table}\n"
+        + change
+        + f"def _l(k):\n    return importlib.import_module({read})\n"
+        "_l(x)\n"
+    )
+    assert "pkg.a" not in [e["specifier"] for e in _edges(src)], change
+    assert _markers(src) == ["opaque"], change

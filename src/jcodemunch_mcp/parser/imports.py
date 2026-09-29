@@ -431,6 +431,23 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
                 n += sum(1 for a in node.names if (a.asname or a.name.split(".")[0]) == name)
         return n
 
+    def _frozen(node) -> bool:
+        return isinstance(node, ast.Constant) or (
+            isinstance(node, ast.Tuple) and all(_frozen(e) for e in node.elts)
+        )
+
+    def _frozen_below(node) -> bool:
+        """Everything under the top level is a constant or a tuple of them.
+
+        Only the table's own name is guarded against change (`_only_read`); a
+        mutable value reached through it (`T["a"].append(cfg)`,
+        `for v in T.values(): v.append(cfg)`) is a change no name-level rule
+        sees, so such a table is not a literal at all (review of #876).
+        """
+        elts = node.values if isinstance(node, ast.Dict) else node.elts
+        keys_ok = all(k is None or _frozen(k) for k in node.keys) if isinstance(node, ast.Dict) else True
+        return keys_ok and all(_frozen(e) for e in elts)
+
     # Module-level literal tables.
     tables: dict[str, ast.AST] = {}
     for stmt in tree.body:
@@ -438,7 +455,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             [stmt.target] if isinstance(stmt, ast.AnnAssign) and stmt.value is not None else []
         )
         value = getattr(stmt, "value", None)
-        if isinstance(value, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+        if isinstance(value, (ast.Dict, ast.List, ast.Tuple, ast.Set)) and _frozen_below(value):
             for t in targets:
                 if isinstance(t, ast.Name):
                     tables[t.id] = value

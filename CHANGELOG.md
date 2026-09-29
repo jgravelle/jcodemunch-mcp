@@ -23,10 +23,12 @@ consumer inherits it:
   function in the file is a direct call: one passed to `map`, registered
   or called on another object can receive anything, and is a site.
 - A subscript into a module-level literal table (`GRAMMARS[name][1]`) is
-  the table's values along that path, never its keys, while nothing can
-  change what it holds: `T[k] = cfg`, `T.update(...)`, an alias or handing
-  it to a function makes it a site; `k in T`, `sorted(T)` and `T.get(k)`
-  are reads.
+  the table's values along that path, never its keys. The table must hold
+  only constants and tuples below its top level (a list or dict inside it
+  can be changed through any value read out of it), and nothing may change
+  the table itself: `T[k] = cfg`, `T.update(...)`, an alias or handing it
+  to a function makes it a site; `k in T`, `sorted(T)` and `T.get(k)` are
+  reads.
 - A loop variable over a literal sequence (`for m in ("a", "b")`) is each
   of its strings, when every binding of that name is such a loop; a
   comprehension's variable is local to it and counts unless the
@@ -58,7 +60,9 @@ sites. A file that does not parse yields no edges and no site.
 unchanged content, so an existing index re-parses once on upgrade to gain
 them. No symbol id moves. Subprocess launches, config-driven dispatch and a
 function reached through a string lookup (`globals()["_load"](cfg)`) are
-not visible to the AST and are not covered. `find_dead_code` and
+not visible to the AST and are not covered. A public module-level table is
+trusted though another file could add to it, unlike a public loader
+function, which is a site: LEDGER L-71. `find_dead_code` and
 `check_delete_safe` read the new edges but not the boundary: LEDGER L-70.
 The marker names no package, so no cross-repo package match reads it.
 
