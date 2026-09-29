@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - `check_edit_safe` does not certify an edit past a dynamic import (LEDGER L-75)
+
+`check_edit_safe` answers "what breaks if I change this" from `find_importers`'
+list, and it did not read #876's dynamic-import boundary. So a function in a
+module `import_module(f"adapters.{name}")` can load graded `safe_to_edit`,
+"no external callers", while the loader calls into it at runtime. L-70 and
+L-73 had closed the same gap in the delete preflight and the importer list.
+
+It now reads the `dynamic_import_boundary` block `find_importers` returns (one
+reach rule, `tools/_dynamic_boundary.py`). A function that would have graded
+`safe_to_edit` grades the bounded verdict `dynamic_import_boundary` instead,
+at the unproven ceiling, and names the loaders. The loader is a gap in
+`stop_rule`, so the verdict is never terminal. Only that absence verdict is
+replaced: `complexity_risk`, `untested`, `signature_impact` and
+`runtime_critical` rest on positive evidence and keep their names, gaining
+the loader as a blocker. An opaque site blocks nothing (#876).
+
+Measured on this repository (`l75-measure.txt`, one index, main's source and
+this branch's, every function and method in a file a scoped site reaches):
+167 of 392 moved from `safe_to_edit` to `dynamic_import_boundary`, and no other
+verdict moved. The reached files are the encoder schemas
+`encoding/schemas/registry.py` loads by package, the context providers and
+the competitive adapters, each named by the loader that reaches it. The tool
+description's verdict list is unchanged, as `check_delete_safe`'s was for
+its three bounded verdicts; that drift is LEDGER L-79.
+
 ### Fixed - `find_importers` names the dynamic import that can load a file (LEDGER L-73)
 
 L-70 made every absence tool read #876's dynamic-import boundary, and
