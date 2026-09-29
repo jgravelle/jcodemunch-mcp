@@ -228,6 +228,64 @@ def active_policy() -> str:
 
 
 
+# THE marker: `cli.init` imports it, so "already present" and the drift check
+# find the same block (review of #871: there were two copies, matched two ways).
+POLICY_MARKER = "## Code Exploration Policy"
+
+
+def _policy_headings() -> set[str]:
+    """Every `## ` heading any policy variant contains: the block's own sections."""
+    heads: set[str] = set()
+    for text in (_CLAUDE_MD_POLICY, _CLAUDE_MD_POLICY_COUNTER):
+        heads |= {ln.strip() for ln in text.splitlines() if ln.startswith("## ")}
+    return heads
+
+
+def _normalise(lines) -> list[str]:
+    return [ln.rstrip() for ln in lines if ln.strip()]
+
+
+def installed_policy_drift(text: str) -> dict | None:
+    """Does the policy block in a CLAUDE.md match what this version installs? (#871)
+
+    ``None`` when the text holds no policy block (nothing to compare: the
+    one-line ``jcodemunch_guide`` form, or no install). Otherwise
+    ``{"state": "current"}`` or ``{"state": "differs", "lines_differing": n}``.
+
+    The block runs from the marker to the first ``## `` heading that is not one
+    of the policy's own sections, or to the end of the file, so a user's own
+    sections after it are never compared. Trailing whitespace and blank lines are
+    not a difference; indentation is. ⚠ "differs" cannot tell an outdated block from one its owner
+    edited on purpose; the caller must say so, and must never rewrite it
+    (the ``surface_offer`` rule: a message, never a migration).
+    """
+    lines = text.splitlines()
+    # Found the way `init` finds it: the first line CONTAINING the marker.
+    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
+    if start is None:
+        return None
+    own = _policy_headings()
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("## ") and lines[i].strip() not in own:
+            end = i
+            break
+    installed = _normalise(lines[start:end])
+    current = _normalise(active_policy().splitlines())
+    if installed == current:
+        return {"state": "current"}
+    import difflib
+
+    # Lines, not diff operations: a substituted line is one line that differs
+    # (an ndiff count reports it twice, as a removal and an addition).
+    changed = sum(
+        max(i2 - i1, j2 - j1)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=installed, b=current, autojunk=False).get_opcodes()
+        if tag != "equal"
+    )
+    return {"state": "differs", "lines_differing": changed}
+
+
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:
     """Filter the CLAUDE.md policy to only reference available tools.
 

@@ -8391,6 +8391,17 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
 
 def _run_claude_md(generate: bool = False, fmt: str = "full") -> None:
     """Output the recommended CLAUDE.md snippet for the current tool set."""
+    if fmt == "policy":
+        # (#871) The exact block `init` installs and `config --check` compares
+        # against. `full` is a different generator's text, and replacing an
+        # installed block with it would make the drift permanent.
+        from .cli.init import ensure_config_loaded
+        from .cli.policy import active_policy
+
+        ensure_config_loaded()
+        _policy_text = active_policy()
+        print(_policy_text, end="" if _policy_text.endswith("\n") else "\n")
+        return
     missing_only = fmt == "append"
     snippet = _generate_claude_md_snippet(missing_only=missing_only)
     if missing_only and not snippet:
@@ -8969,6 +8980,26 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                         issues.append("claude_md")
                     else:
                         print(f"  {green(CHECK)} All {len(canonical_tools)} tools mentioned in CLAUDE.md")
+                # (#871) The tool-name check above cannot see a policy whose
+                # WORDING changed (#719 changed what agents are told about
+                # absence), and `init` skips a file that already holds the
+                # marker, so a correction never reached an existing install.
+                # A message only: this never rewrites the user's file.
+                from .cli.policy import installed_policy_drift as _drift_of
+
+                _drift = _drift_of(cm_content)
+                if _drift is not None and _drift["state"] == "current":
+                    print(f"  {green(CHECK)} Installed policy matches the policy this version installs")
+                elif _drift is not None:
+                    print(
+                        f"  {yellow(WARN)} Installed policy differs from the policy this version installs "
+                        f"({_drift['lines_differing']} line(s))"
+                    )
+                    print(f"  {dim('  It may be out of date, or you may have edited it on purpose; this check cannot tell which.')}")
+                    print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate --format policy')}")
+                    # A warning, never an issue (review of #871): a block its
+                    # owner edited on purpose must not fail the health check,
+                    # whose exit status clients read as a broken install.
             except Exception as _e:
                 print(f"  {yellow(WARN)} Could not read CLAUDE.md: {_e}")
         else:
@@ -9477,10 +9508,11 @@ def main(argv: Optional[list[str]] = None):
     )
     claude_md_parser.add_argument(
         "--format",
-        choices=["full", "append"],
+        choices=["full", "append", "policy"],
         default="full",
         dest="fmt",
-        help="'full' (default) — complete snippet; 'append' — only tools not yet in your CLAUDE.md",
+        help="'full' (default) — complete snippet; 'append' — only tools not yet in your CLAUDE.md; "
+        "'policy' — the exact Code Exploration Policy `init` installs, which `config --check` compares against",
     )
 
     # --- index-file ---

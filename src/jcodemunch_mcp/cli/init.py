@@ -34,7 +34,7 @@ from .policy import (  # noqa: F401,E402
 # Constants
 # ---------------------------------------------------------------------------
 
-_CLAUDE_MD_MARKER = "## Code Exploration Policy"
+from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402  (#871: one marker)
 
 
 # Policy for `tool_surface="counter"`, the default on a genuinely first-ever
@@ -645,6 +645,17 @@ def install_claude_md(scope: str = "global", *, dry_run: bool = False, backup: b
     """
     path = _claude_md_path(scope)
     if _has_policy(path):
+        # (#871) Present is not current: a corrected policy never reaches an
+        # install that already holds the marker. Say so; never rewrite it.
+        from .policy import installed_policy_drift
+
+        drift = installed_policy_drift(path.read_text(encoding="utf-8"))
+        if drift and drift["state"] == "differs":
+            return (
+                f"  policy already present in {path}, but it differs from the policy this "
+                "version installs (outdated, or edited on purpose; this cannot tell which). "
+                "See `jcodemunch-mcp config --check`."
+            )
         return f"  policy already present in {path}"
     if dry_run:
         return f"  would append policy to {path}"
