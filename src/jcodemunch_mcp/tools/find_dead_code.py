@@ -427,7 +427,9 @@ def find_dead_code(
         file_ceiling = min(ceiling, UNPROVEN_CEILING) if reaching else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
-            if reaching and confidence >= min_confidence:
+            # Only the files the boundary itself withheld: one the corpus
+            # ceiling alone already put under the threshold is not its doing.
+            if reaching and min(confidence, ceiling) >= min_confidence:
                 boundary_withheld += 1
             continue
 

@@ -64,6 +64,19 @@ def test_find_dead_code_does_not_prove_dead_a_file_a_scoped_site_can_load(tmp_pa
     assert row["dynamic_import_sites"] == ["run.py"]
 
 
+def test_the_withheld_count_names_only_what_the_boundary_withheld(tmp_path, monkeypatch):
+    from jcodemunch_mcp.tools import find_dead_code as fdc
+    from jcodemunch_mcp.tools._corpus_adequacy import CorpusAdequacy
+
+    repo, storage = _index(tmp_path, SCOPED)
+    assert find_dead_code(repo, storage_path=storage)["dynamic_import_boundary_withheld"] == 1
+    # A thin corpus already caps every file under the default threshold, so the
+    # boundary withholds nothing that would otherwise have been published.
+    monkeypatch.setattr(fdc, "assess_corpus", lambda *a, **k: CorpusAdequacy("stale", {}, None, ["stale_index"]))
+    thin = find_dead_code(repo, storage_path=storage)
+    assert "dynamic_import_boundary_withheld" not in thin, thin.get("dynamic_import_boundary_withheld")
+
+
 def test_find_dead_code_discloses_an_opaque_site_and_caps_nothing(tmp_path):
     repo, storage = _index(tmp_path, OPAQUE)
     result = find_dead_code(repo, storage_path=storage)
