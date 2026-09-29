@@ -23,9 +23,10 @@ consumer inherits it:
   function in the file is a direct call: one passed to `map`, registered
   or called on another object can receive anything, and is a site.
 - A subscript into a module-level literal table (`GRAMMARS[name][1]`) is
-  the table's values along that path, never its keys, while every other
-  use of the table is a subscript read: `T[k] = cfg`, `T.update(...)` or
-  handing it to a function makes it a site.
+  the table's values along that path, never its keys, while nothing can
+  change what it holds: `T[k] = cfg`, `T.update(...)`, an alias or handing
+  it to a function makes it a site; `k in T`, `sorted(T)` and `T.get(k)`
+  are reads.
 - A loop variable over a literal sequence (`for m in ("a", "b")`) is each
   of its strings, when every binding of that name is such a loop; a
   comprehension's variable is local to it and counts unless the

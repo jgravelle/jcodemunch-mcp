@@ -252,15 +252,23 @@ async def test_the_opaque_disclosure_survives_the_default_meta_fields(tmp_path, 
     from jcodemunch_mcp import config as _config
     from jcodemunch_mcp import server
 
+    from jcodemunch_mcp.storage.token_tracker import result_cache_invalidate
+
+    # Storage env BEFORE the index, a cleared shared cache and an explicit
+    # `format`: whatever an earlier test on this worker left behind must not
+    # choose the store, the cached answer or the encoding (the sibling
+    # dispatcher tests' fixture does the same).
+    monkeypatch.setenv("CODE_INDEX_PATH", str(tmp_path / "store"))
     repo, storage = _index(tmp_path, OPAQUE)
-    monkeypatch.setenv("CODE_INDEX_PATH", storage)
+    result_cache_invalidate()
     real = _config.get
     monkeypatch.setattr(
         _config, "get", lambda key, default=None, **kw: [] if key == "meta_fields" else real(key, default, **kw)
     )
-    res = await server.call_tool("get_blast_radius", {"repo": repo, "symbol": "alone"})
+    res = await server.call_tool("get_blast_radius", {"repo": repo, "symbol": "alone", "format": "json"})
     content = getattr(res, "content", res)
     body = json.loads(content[0].text)
+    assert "error" not in body, body
     assert "verdict" not in body.get("_meta", {}), "the default strips the verdict"
     assert body["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
 
@@ -380,6 +388,7 @@ def test_a_comprehension_target_is_bounded_even_when_its_name_is_reused():
     "T.update(cfg)\n",
     "del T['a']\n",
     "register(T)\n",
+    "U = T\n",
 ])
 def test_a_table_changed_anywhere_is_not_its_literal_values(change):
     """A seeded registry filled at runtime can hold anything (review of #876)."""
@@ -401,6 +410,21 @@ def test_control_a_table_only_read_by_subscript_stays_its_values():
         "def _l(k):\n    return importlib.import_module(T[k])\n"
         "_l(x)\n"
         "print(T['a'])\n"
+    )
+    assert "pkg.a" in [e["specifier"] for e in _edges(src)]
+    assert _markers(src) == []
+
+
+def test_control_a_table_read_by_membership_iteration_and_read_methods_stays_its_values():
+    """This repo's `grammar_pack.STANDALONE_GRAMMARS` shape: `in`, `sorted`, `.get` are reads."""
+    src = (
+        "import importlib\n"
+        "T = {'a': 'pkg.a'}\n"
+        "def _l(k):\n"
+        "    if k in T:\n        return importlib.import_module(T[k])\n"
+        "    return ', '.join(sorted(T)) or T.get(k)\n"
+        "_l(x)\n"
+        "for name in T:\n    print(f'{T}')\n"
     )
     assert "pkg.a" in [e["specifier"] for e in _edges(src)]
     assert _markers(src) == []

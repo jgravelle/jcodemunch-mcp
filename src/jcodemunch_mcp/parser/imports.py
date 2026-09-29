@@ -442,24 +442,44 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             for t in targets:
                 if isinstance(t, ast.Name):
                     tables[t.id] = value
-    # A table is the literal it was only while every other use of its name is
-    # a subscript READ: a rebinding, `T[k] = cfg`, `del T[k]`, `T.update(...)`
-    # or handing `T` to a function can change what it holds (review of #876).
-    def _only_read_by_subscript(name: str) -> bool:
+    # A table is the literal it was only while nothing can change what it
+    # holds: a rebinding, `T[k] = cfg`, `del T[k]`, a mutating method
+    # (`T.update(...)`), an alias (`U = T`) or handing `T` to a function we
+    # cannot see all make it a site (review of #876). Reads stay reads:
+    # `T[k]`, `k in T`, `for k in T`, `sorted(T)`, `T.get(k)`.
+    read_methods = {"get", "keys", "values", "items", "copy", "index", "count"}
+    read_builtins = {
+        "sorted", "len", "list", "tuple", "set", "frozenset", "dict", "iter",
+        "enumerate", "reversed", "any", "all", "min", "max", "str", "repr", "print",
+    }
+
+    def _use_is_a_read(parent, child) -> bool:
+        if isinstance(parent, ast.Subscript):
+            return parent.value is child and isinstance(parent.ctx, ast.Load)
+        if isinstance(parent, ast.Attribute):
+            return parent.attr in read_methods
+        if isinstance(parent, ast.Call):
+            return (
+                child in parent.args and isinstance(parent.func, ast.Name)
+                and parent.func.id in read_builtins
+            )
+        if isinstance(parent, (ast.For, ast.AsyncFor, ast.comprehension)):
+            return parent.iter is child
+        return isinstance(parent, (ast.Compare, ast.FormattedValue, ast.BoolOp, ast.UnaryOp, ast.If, ast.While))
+
+    def _only_read(name: str) -> bool:
         if stores(tree, name) != 1:
             return False
         for parent in ast.walk(tree):
             for child in ast.iter_child_nodes(parent):
-                if not (isinstance(child, ast.Name) and child.id == name and isinstance(child.ctx, ast.Load)):
-                    continue
-                if not (
-                    isinstance(parent, ast.Subscript) and parent.value is child
-                    and isinstance(parent.ctx, ast.Load)
+                if (
+                    isinstance(child, ast.Name) and child.id == name
+                    and isinstance(child.ctx, ast.Load) and not _use_is_a_read(parent, child)
                 ):
                     return False
         return True
 
-    tables = {k: v for k, v in tables.items() if _only_read_by_subscript(k)}
+    tables = {k: v for k, v in tables.items() if _only_read(k)}
 
     def _select(nodes: list, key) -> Optional[list]:
         """Apply one subscript to candidate container nodes; None when unknowable."""
