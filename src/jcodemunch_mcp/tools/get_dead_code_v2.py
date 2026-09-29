@@ -28,7 +28,7 @@ from ._call_graph import _word_match, build_symbols_by_file
 from ._entry_points import entry_point_spec
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
 from ._runtime_discovery import discover_dynamic_packages
-from ._dynamic_boundary import DynamicBoundary
+from ._dynamic_boundary import FILES_CAP, DynamicBoundary
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 
 
@@ -329,6 +329,7 @@ def _informative_signals(
     analysed: int,
     fire_counts: dict[str, int],
     cutoff: float = _DEGENERACY_CUTOFF,
+    undecided: Optional[dict[str, int]] = None,
 ) -> set[str]:
     """The signals that actually discriminate on this repository.
 
@@ -339,14 +340,20 @@ def _informative_signals(
     With no symbols analysed there is nothing to measure, so every signal is
     treated as informative — refusing to score on an empty repository would be
     inventing a verdict, not withholding one.
+
+    ``undecided`` (LEDGER L-70) counts symbols a signal could not be decided
+    for. Its rate is measured over the rest; a signal decided for no symbol
+    was not measured and gets no vote.
     """
     if not analysed:
         return set(_SIGNAL_NAMES)
     lo = 1.0 - cutoff
-    return {
-        s for s in _SIGNAL_NAMES
-        if lo < (fire_counts.get(s, 0) / analysed) < cutoff
-    }
+    out: set[str] = set()
+    for s in _SIGNAL_NAMES:
+        decided = analysed - (undecided or {}).get(s, 0)
+        if decided > 0 and lo < (fire_counts.get(s, 0) / decided) < cutoff:
+            out.add(s)
+    return out
 
 
 def _signal_diagnostics(
@@ -355,6 +362,7 @@ def _signal_diagnostics(
     cofire_counts: dict[str, int],
     entry_point_count: int,
     cutoff: float = _DEGENERACY_CUTOFF,
+    undecided: Optional[dict[str, int]] = None,
 ) -> dict:
     """Report what each signal actually measured on THIS repository (#408).
 
@@ -388,13 +396,22 @@ def _signal_diagnostics(
     }
     if not analysed:
         return diag
+    undecided = {s: n for s, n in (undecided or {}).items() if n}
     diag["fire_rate"] = {
-        s: round(fire_counts.get(s, 0) / analysed, 4) for s in _SIGNAL_NAMES
+        s: (
+            round(fire_counts.get(s, 0) / (analysed - undecided.get(s, 0)), 4)
+            if analysed - undecided.get(s, 0) > 0 else None
+        )
+        for s in _SIGNAL_NAMES
     }
+    if undecided:
+        # (LEDGER L-70) symbols a signal could not be decided for; its
+        # fire_rate is over the rest, and None when nothing was decided.
+        diag["undecided"] = undecided
     diag["cofire_rate"] = {
         k: round(v / analysed, 4) for k, v in sorted(cofire_counts.items())
     }
-    informative = _informative_signals(analysed, fire_counts, cutoff)
+    informative = _informative_signals(analysed, fire_counts, cutoff, undecided)
     diag["informative"] = sorted(informative)
     # ⚠ Semantics tightened in v1.108.231. In .230 this meant "rate is exactly
     # 0.0 or 1.0", a placeholder written before there was a measurement. It now
@@ -647,14 +664,7 @@ def get_dead_code_v2(
         if f in source_files
     }
 
-    # (f) (LEDGER L-70) a file a package- or prefix-scoped dynamic import can
-    # load (#876's recorded sites, the rule `get_blast_radius` reads). Signal
-    # 1 is `unreachable_file`, a claim that site makes unprovable. Same one
-    # direction as (e): it only ADDS roots. An opaque site adds nothing.
-    boundary = DynamicBoundary(index.imports)
-    boundary_entries = {f for f in source_files if boundary.reaching(f)} if boundary else set()
-
-    extra_entries = pkg_entries | declared_entries | dynamic_entries | boundary_entries
+    extra_entries = pkg_entries | declared_entries | dynamic_entries
     entry_point_count = (
         sum(1 for f in index.source_files
             if _is_entry_point(f) or f in declared_entries)
@@ -663,6 +673,27 @@ def get_dead_code_v2(
     reachable_files = _reachable_from_entry_points(
         list(index.source_files), rev, forward, extra_entries=extra_entries
     )
+
+    # (f) (LEDGER L-70) a file a package- or prefix-scoped dynamic import can
+    # load (#876's recorded sites, the rule `get_blast_radius` reads), and
+    # every file it imports, MAY be loaded. That makes signal 1
+    # (`unreachable_file`) UNDECIDED there, not false. ⚠⚠ It is not an entry
+    # point: a root is skipped whole, which silenced `no_callers` and
+    # `not_barrel_exported` too, and a loader at the repo root reaches every
+    # file, so nothing was analysed and a withheld health grade published.
+    # Undecided symbols leave signal 1's denominator, so its rate (and whether
+    # it votes) is measured only where it could be decided.
+    boundary = DynamicBoundary(index.imports)
+    boundary_roots = {f for f in source_files if boundary.reaching(f)} if boundary else set()
+    # Forward only: what a maybe-loaded file imports may load with it; what
+    # imports it is a separate question the graph already answers.
+    maybe_loaded = set(boundary_roots)
+    queue = deque(boundary_roots)
+    while queue:
+        for imported in forward.get(queue.popleft(), []):
+            if imported not in maybe_loaded:
+                maybe_loaded.add(imported)
+                queue.append(imported)
 
     # Pre-compute barrel exports (Signal 3 input). Recursively follows CJS
     # ``module.exports = require(...)`` / ESM ``export * from`` so that
@@ -758,6 +789,8 @@ def get_dead_code_v2(
     analysed_count = 0
     fire_counts: dict[str, int] = {s: 0 for s in _SIGNAL_NAMES}
     cofire_counts: dict[str, int] = {}
+    undecided_counts: dict[str, int] = {}
+    undecided_files: set[str] = set()
     # Pass 1 collects; pass 2 scores (v1.108.231). Which signals are worth a
     # vote is a property of the whole repository, so it cannot be known until
     # every symbol has been seen. Scoring inline was what made a signal that
@@ -797,10 +830,15 @@ def get_dead_code_v2(
             continue
 
         signals: list[str] = []
+        undecided: list[str] = []
 
         # Signal 1: File is not reachable from any entry point
         if sym_file not in reachable_files:
-            signals.append("unreachable_file")
+            if sym_file in maybe_loaded:
+                undecided.append("unreachable_file")
+                undecided_files.add(sym_file)
+            else:
+                signals.append("unreachable_file")
 
         # Signal 2: No callers in the call graph
         if sid not in callee_has_caller:
@@ -813,15 +851,17 @@ def get_dead_code_v2(
         analysed_count += 1
         for s in signals:
             fire_counts[s] += 1
+        for s in undecided:
+            undecided_counts[s] = undecided_counts.get(s, 0) + 1
         for i, a in enumerate(signals):
             for b in signals[i + 1:]:
                 cofire_counts[f"{a}+{b}"] = cofire_counts.get(f"{a}+{b}", 0) + 1
 
-        scored.append((sym, signals))
+        scored.append((sym, signals, undecided))
 
     # Pass 2: only signals that discriminate on THIS repository get a vote.
-    informative = _informative_signals(analysed_count, fire_counts, cutoff)
-    for sym, signals in scored:
+    informative = _informative_signals(analysed_count, fire_counts, cutoff, undecided_counts)
+    for sym, signals, undecided in scored:
         sid = sym["id"]
         if sid in seen_ids:
             continue
@@ -852,6 +892,8 @@ def get_dead_code_v2(
                 # Which of the fired signals actually carried the verdict. Only
                 # emitted when it differs, so the common case costs no tokens.
                 entry["counted_signals"] = counted
+            if undecided:
+                entry["undecided_signals"] = undecided
             dead_symbols.append(entry)
 
     dead_symbols.sort(key=lambda x: (-x["confidence"], x["file"], x["line"]))
@@ -878,10 +920,24 @@ def get_dead_code_v2(
             "total_matches": total_matches,
             "truncated": truncated,
             "signal_diagnostics": _signal_diagnostics(
-                analysed_count, fire_counts, cofire_counts, entry_point_count, cutoff
+                analysed_count, fire_counts, cofire_counts, entry_point_count, cutoff,
+                undecided_counts,
             ),
         },
     }
+    if undecided_files:
+        sites = sorted({s for f in undecided_files for s in boundary.reaching(f)})
+        result["dynamic_import_boundary"] = {
+            "files": len(undecided_files),
+            "symbols": undecided_counts.get("unreachable_file", 0),
+            "sites": sites[:FILES_CAP],
+            "sites_total": len(sites),
+            "note": (
+                "unreachable_file was not decided for these files: a package- or "
+                "prefix-scoped dynamic import may load them. Their other signals "
+                "still vote."
+            ),
+        }
     if file_pattern:
         result["_meta"]["file_pattern"] = file_pattern
     if pkg_entries:

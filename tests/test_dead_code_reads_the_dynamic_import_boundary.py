@@ -78,12 +78,61 @@ def test_control_no_dynamic_import_no_disclosure(tmp_path):
     assert "dynamic_import_sites" not in _rows(result)["lonely.py"]
 
 
-def test_dead_code_v2_does_not_call_a_reachable_file_unreachable(tmp_path):
+def test_dead_code_v2_leaves_signal_one_undecided_and_keeps_the_others(tmp_path):
     repo, storage = _index(tmp_path, SCOPED)
-    rows = get_dead_code_v2(repo, min_confidence=0.0, storage_path=storage)["dead_symbols"]
-    signals = {r["name"]: r["signals"] for r in rows}
-    assert "unreachable_file" not in signals.get("build", []), signals
-    assert "unreachable_file" in signals.get("alone", []), "control: an unreached file still fires signal 1"
+    result = get_dead_code_v2(repo, min_confidence=0.0, storage_path=storage)
+    rows = {r["name"]: r for r in result["dead_symbols"]}
+    # ⚠ Index the row, never `.get(name, [])`: a symbol dropped whole passes a
+    # "signal absent" check, and dropping it whole was round 1's defect.
+    build = rows["build"]
+    assert "unreachable_file" not in build["signals"]
+    assert "no_callers" in build["signals"], "the boundary silenced a signal it says nothing about"
+    assert build["undecided_signals"] == ["unreachable_file"]
+    assert "unreachable_file" in rows["alone"]["signals"], "control: an unreached file still fires signal 1"
+    assert "undecided_signals" not in rows["alone"]
+    assert result["dynamic_import_boundary"]["sites"] == ["run.py"]
+    assert result["_meta"]["signal_diagnostics"]["undecided"] == {"unreachable_file": 1}
+
+
+# A loader at the repo root reaches every file. Round 1 made each one an entry
+# point, v2 analysed nothing, and get_repo_health published a grade main withheld.
+ROOT_LOADER = {
+    "loader.py": "import importlib\n\ndef load(name):\n    return importlib.import_module('.' + name, __package__)\n",
+    **{f"m{i}.py": f"def f{i}():\n    return {i}\n\ndef g{i}():\n    return f{i}()\n" for i in range(15)},
+}
+
+
+def test_a_root_level_loader_does_not_turn_a_withheld_grade_into_a_published_one(tmp_path):
+    from jcodemunch_mcp.tools.get_repo_health import get_repo_health
+
+    repo, storage = _index(tmp_path, ROOT_LOADER)
+    v2 = get_dead_code_v2(repo, storage_path=storage)
+    diag = v2["_meta"]["signal_diagnostics"]
+    assert diag["analysed"] > 0, "the boundary removed symbols from analysis"
+    assert diag["fire_rate"]["unreachable_file"] is None
+    assert "unreachable_file" not in diag["informative"]
+    assert v2.get("signal_warning")
+    health = get_repo_health(repo, storage_path=storage)
+    assert health["dead_code_measurable"] is False
+    assert "dead_code" in health["radar"]["unmeasurable_axes"]
+
+
+# No entry point, so signal 1 fires on every decidable symbol, which is a
+# constant. Counting the undecided plugins as "did not fire" drags the rate into
+# the informative band and hands signal 1 a vote on every lib/ symbol.
+PLUGINS_NO_ENTRY = {
+    "plugins/loader.py": "import importlib\n\ndef load(name):\n    return importlib.import_module(f'{__package__}.{name}')\n",
+    **{f"plugins/p{i}.py": f"def run{i}():\n    return {i}\n" for i in range(12)},
+    **{f"lib/l{i}.py": f"def lib{i}():\n    return {i}\n" for i in range(12)},
+}
+
+
+def test_signal_one_is_measured_only_where_it_could_be_decided(tmp_path):
+    repo, storage = _index(tmp_path, PLUGINS_NO_ENTRY)
+    diag = get_dead_code_v2(repo, min_confidence=0.0, storage_path=storage)["_meta"]["signal_diagnostics"]
+    assert diag["undecided"]["unreachable_file"] >= 12
+    assert diag["fire_rate"]["unreachable_file"] == 1.0
+    assert "unreachable_file" not in diag["informative"]
 
 
 def test_check_delete_safe_does_not_certify_a_delete_past_the_boundary(tmp_path):
@@ -92,8 +141,31 @@ def test_check_delete_safe_does_not_certify_a_delete_past_the_boundary(tmp_path)
     assert reached["verdict"] == "dynamic_import_boundary", reached["verdict"]
     assert reached["confidence"] <= UNPROVEN_CEILING
     assert any(b.get("kind") == "dynamic_import_boundary" and b.get("files") == ["run.py"] for b in reached["blockers"])
+    assert reached["stop_rule"]["terminal"] is False
+    assert any("loader" in g["action"] for g in reached["stop_rule"]["would_change_verdict"])
     unreached = check_delete_safe(repo, "alone", storage_path=storage)
     assert unreached["verdict"] != "dynamic_import_boundary"
+
+
+def test_the_verdict_is_not_terminal_with_every_other_channel_closed(tmp_path, monkeypatch):
+    from jcodemunch_mcp.tools import check_delete_safe as cds
+
+    monkeypatch.setattr(cds, "_runtime_data_present", lambda *a, **k: True)
+    repo, storage = _index(tmp_path, SCOPED)
+    r = check_delete_safe(repo, "build", cross_repo=True, include_runtime=True, storage_path=storage)
+    assert r["verdict"] == "dynamic_import_boundary"
+    assert r["stop_rule"]["terminal"] is False, r["stop_rule"]
+
+
+def test_the_investigator_does_not_call_a_reachable_file_static_clear(tmp_path):
+    from jcodemunch_mcp.investigator import investigate_deletion_safety
+
+    repo, storage = _index(tmp_path, SCOPED)
+    reached = investigate_deletion_safety(repo, "build", storage_path=storage)
+    assert reached["verdict"] == "not_established", reached["verdict"]
+    assert "no_dynamic_loader" in reached["unresolved_obligations"]
+    unreached = investigate_deletion_safety(repo, "alone", storage_path=storage)
+    assert "no_dynamic_loader" not in [o["obligation"] for o in unreached["obligations"]]
 
 
 def test_the_new_verdict_is_bounded_never_terminal():

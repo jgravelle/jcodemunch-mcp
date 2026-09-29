@@ -474,10 +474,15 @@ def check_delete_safe(
         blockers.append(blocker)
 
     corpus_gap = None
+    # ⚠ Evaluated after the dynamic gate too: when that gate has already
+    # replaced the absence verdict, a thin corpus is still a blocker and a
+    # gap, and dropping it would hide the re-index that could change the
+    # answer. The dynamic verdict keeps the name; it is the narrower cause.
     if not corpus_adequacy.adequate and verdict in (
-        "safe_to_delete", "internal_only", "test_coverage_only",
+        "safe_to_delete", "internal_only", "test_coverage_only", "dynamic_import_boundary",
     ):
-        verdict = "corpus_inadequate"
+        if verdict != "dynamic_import_boundary":
+            verdict = "corpus_inadequate"
         corpus_gap = {
             "action": "re-index this repo",
             "why": corpus_adequacy.warning(),
@@ -500,6 +505,8 @@ def check_delete_safe(
         # Nothing was established either way: the same ceiling the other
         # unproven absence uses, never the 0.85 floor `safe_to_delete` gets.
         confidence = min(confidence, UNPROVEN_CEILING)
+        if corpus_gap:
+            confidence = min(confidence, corpus_adequacy.ceiling)
     elif verdict == "name_not_searchable":
         # ⚠ NOT `corpus_adequacy.ceiling`: the corpus may be perfectly adequate
         # -- the first draft used it and published confidence 1.0 on a refusal,
@@ -615,6 +622,7 @@ def check_delete_safe(
             include_runtime=include_runtime,
             runtime_data_present=runtime_data_present,
             corpus_gap=corpus_gap,
+            dynamic_gap=dynamic_gap,
         ),
         "corpus_adequacy": corpus_adequacy.as_dict(),
         "signals": {

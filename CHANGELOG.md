@@ -13,26 +13,44 @@ published it `zero_importers` at confidence 1.0, the value this project
 documents as provably unreachable. `check_delete_safe` certified its
 symbols `safe_to_delete`.
 
-The reach rule now lives in one place, `tools/_dynamic_boundary.py`, and all
-four tools read it:
+The reach rule now lives in one place, `tools/_dynamic_boundary.py`, and
+every absence tool reads it:
 - `find_dead_code` caps a file a package- or prefix-scoped site can reach at
   the unproven ceiling, beside `uncapped_confidence`, with
   `dynamic_import_boundary` in `confidence_capped_by` and the sites named in
   `dynamic_import_sites`. At the default threshold the file is withheld and
   counted in `dynamic_import_boundary_withheld`, never silently dropped.
-- `get_dead_code_v2` no longer fires `unreachable_file` for such a file, the
-  same one-direction rule it applies to #569's enumerated packages.
+- `get_dead_code_v2` records `unreachable_file` as UNDECIDED for such a file
+  and for everything it imports (`undecided_signals` on the row,
+  `signal_diagnostics.undecided`, and a `dynamic_import_boundary` block naming
+  the loaders). Its other two signals still vote, and signal 1's fire rate is
+  measured only over the symbols it could be decided for. ⚠⚠ The first draft
+  made those files entry points instead. An entry point is skipped whole, so
+  `no_callers` went silent with it, and a loader at the repo root reaches
+  every file: nothing was analysed, no `signal_warning` was raised, and
+  `get_repo_health` published a grade that main withholds. Counting the
+  undecided symbols as "did not fire" is the same error one step removed: it
+  pulls a constant signal into the informative band and hands it a vote on
+  every unrelated symbol.
 - `check_delete_safe` returns the new bounded verdict
   `dynamic_import_boundary`, naming the loaders. Like `corpus_inadequate` and
   `name_not_searchable`, it replaces only an absence verdict; a found
-  importer still blocks.
+  importer still blocks. The loader is a gap in `stop_rule`, so the verdict
+  is never terminal, and a thin corpus still adds its own blocker beside it.
+- The deletion investigator gains a `no_dynamic_loader` obligation, left
+  unestablished when a site reaches the file, so it answers
+  `not_established` there instead of `static_clear`.
 - An opaque site (a name computed from data) caps nothing and is disclosed
   as `dynamic_imports_unfollowed`, per the #876 ruling.
 
-On this repository (`l70-measure.txt`), the default `find_dead_code` output
-does not move: the corpus is already capped (`withheld_files`,
-`runtime_discovery_unresolved`). The twelve competitive adapters under
-`benchmarks/competitive/adapters/` now name the loader that reaches them.
+Measured on this repository (`l70-measure.txt`, one index, main's source and
+this branch's): the default `find_dead_code` still returns no dead files on
+either side, because the corpus is already capped (`withheld_files`,
+`runtime_discovery_unresolved`) below the default threshold. It now carries
+`dynamic_imports_unfollowed`, naming 4 files. `get_dead_code_v2` leaves
+`unreachable_file` undecided for 165 symbols in the twelve competitive
+adapters, which one test file loads by prefix, and returns 100 matches where
+main returned 144.
 
 ### Fixed - a dynamic import is an import edge when its target is a literal, and a named boundary when not (#876)
 

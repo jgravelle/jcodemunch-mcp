@@ -396,6 +396,30 @@ def investigate_deletion_safety(
         entry_ob.evidence.append("No route/command/task/signal indicator on the symbol")
     obligations.append(entry_ob)
 
+    # ── Obligation 4b: no dynamic import can load the file (LEDGER L-70) ─
+    # A package- or prefix-scoped dynamic import names its module at runtime,
+    # so obligations 2 and 3 pass by construction for every file it can load.
+    # Source CAN answer this (read the loader), so it is a static obligation
+    # left open, never `static_clear`. Only present when a site reaches the
+    # file; an opaque site is disclosed elsewhere and blocks nothing (#876).
+    from ..tools._dynamic_boundary import DynamicBoundary  # noqa: PLC0415
+
+    reaching = DynamicBoundary(index.imports).reaching(target_file)
+    if reaching:
+        obligations.append(
+            Obligation(
+                name="no_dynamic_loader",
+                question="Can a dynamic import load the file that defines it?",
+                status=UNESTABLISHED,
+                evidence=[
+                    f"{reaching[0]} imports a module by a computed name that can "
+                    f"reach {target_file}; read it for the names it can produce"
+                ],
+                detail={"loaders": reaching[:10], "loaders_total": len(reaching)},
+                calls=1,
+            )
+        )
+
     # ── Obligation 5: production never ran it ───────────────────────────
     # UNESTABLISHED when no traces exist. This is the obligation most likely to
     # be honestly unresolvable, and reporting it as satisfied would be the

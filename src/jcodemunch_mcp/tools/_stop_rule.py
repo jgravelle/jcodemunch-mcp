@@ -100,6 +100,7 @@ def _channel_gaps(
     include_runtime: bool,
     runtime_data_present: bool,
     corpus_gap: Optional[dict] = None,
+    dynamic_gap: Optional[dict] = None,
 ) -> list[dict]:
     """Evidence channels that could still move a bound-style verdict."""
     gaps: list[dict] = []
@@ -108,6 +109,10 @@ def _channel_gaps(
     # so it is listed FIRST: re-indexing can change what the other channels see.
     if corpus_gap:
         gaps.append(corpus_gap)
+    # (LEDGER L-70) A dynamic import that can reach the file is evidence no
+    # channel below can supply: only reading the loader settles it.
+    if dynamic_gap:
+        gaps.append(dynamic_gap)
     if not cross_repo:
         gaps.append({
             "action": "re-run with cross_repo=true",
@@ -137,6 +142,7 @@ def build_stop_rule(
     include_runtime: bool,
     runtime_data_present: bool,
     corpus_gap: Optional[dict] = None,
+    dynamic_gap: Optional[dict] = None,
 ) -> dict:
     """Return the ``stop_rule`` block for one verdict.
 
@@ -153,6 +159,7 @@ def build_stop_rule(
         include_runtime=include_runtime,
         runtime_data_present=runtime_data_present,
         corpus_gap=corpus_gap,
+        dynamic_gap=dynamic_gap,
     )
 
     if verdict in _BOUNDED.get(tool, frozenset()):
