@@ -138,6 +138,7 @@ jobs:
           path: |
             harness/results/latest.json
             harness/results/self_latency.json
+            harness/results/self_latency.failed.json
           retention-days: 90
       - name: Open a regression issue per failing Floor
         if: failure()

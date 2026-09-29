@@ -927,12 +927,29 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
         if step.get("restore"):
             subprocess.run(["git", "checkout", "--", *step["restore"]], cwd=REPO)
         if scratch_art is not None:
+            dest = REPO / step["artifact"]
+            failed_dest = dest.with_name(dest.stem + ".failed" + dest.suffix)
             if rc == 0 and scratch_art.exists():
                 arts[step["name"]] = json.loads(scratch_art.read_text(encoding="utf-8"))
                 if write_results:
-                    dest = REPO / step["artifact"]
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     dest.write_bytes(scratch_art.read_bytes())
+                    failed_dest.unlink(missing_ok=True)
+            elif scratch_art.exists():
+                # LEDGER L-72: a red run's measurement is the evidence (F-19), so
+                # it rides in the result and, under --write-results, BESIDE the
+                # tracked file -- never over it: the tracked copy is the last
+                # accepted weekly result, and CI used to upload it under the
+                # failing run's name while this measurement was deleted below.
+                try:
+                    arts[step["name"]]["measurement"] = json.loads(
+                        scratch_art.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValueError):
+                    arts[step["name"]]["measurement_unreadable"] = True
+                if write_results:
+                    failed_dest.parent.mkdir(parents=True, exist_ok=True)
+                    failed_dest.write_bytes(scratch_art.read_bytes())
             import shutil
 
             shutil.rmtree(scratch_art.parent, ignore_errors=True)

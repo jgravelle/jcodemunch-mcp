@@ -91,3 +91,61 @@ def test_every_step_that_declares_an_artifact_names_it_in_its_command_and_writes
     for s in declared:
         assert s["artifact"] in s["cmd"], (s["name"], s["artifact"], s["cmd"])
         assert s["artifact"].startswith("harness/results/"), (s["name"], s["artifact"])
+
+
+def _failing_measure(scratch_repo, monkeypatch):
+    """A step that WRITES its measurement and then fails a Floor, as measure.py does."""
+    script = scratch_repo / "measure_fail.py"
+    script.write_text(
+        "import json, sys\n"
+        "out = sys.argv[sys.argv.index('--out') + 1]\n"
+        "json.dump({'probe': 'failing-run', 'latency.x_warm_p95_ms': 116.3}, open(out, 'w'))\n"
+        "print('latency.x_warm_p95_ms crit 5 floor <= 27 observed 116.3 FAIL')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(hm, "TIERS", {"bench": [{"name": "self_latency", "cmd": [str(script), "--out", ARTIFACT], "artifact": ARTIFACT, "thresholds": []}]})
+
+
+FAILED = "harness/results/self_latency.failed.json"
+
+
+def test_a_failed_step_keeps_its_own_measurement_in_the_result(scratch_repo, monkeypatch):
+    """LEDGER L-72: the measurement of a red run was deleted with the scratch dir, and
+    CI uploaded the TRACKED file under the failing run's name (#922: log 116.3 FAIL,
+    artifact 1.6 from an older commit)."""
+    _failing_measure(scratch_repo, monkeypatch)
+    result: dict = {"tiers": {}}
+    assert hm.tier_bench(result, offline=True) is False
+    art = result["artifacts"]["self_latency"]
+    assert art["rc"] == 1
+    assert art["measurement"]["latency.x_warm_p95_ms"] == 116.3
+    assert not (scratch_repo / ARTIFACT).exists()
+    assert not (scratch_repo / FAILED).exists(), "a plain run writes nothing into the tree"
+
+
+def test_write_results_puts_a_failed_measurement_beside_the_tracked_file_never_over_it(scratch_repo, monkeypatch):
+    tracked = scratch_repo / ARTIFACT
+    tracked.write_text(json.dumps({"probe": "last-weekly-commit"}), encoding="utf-8")
+    _failing_measure(scratch_repo, monkeypatch)
+    result: dict = {"tiers": {}}
+    assert hm.tier_bench(result, offline=True, write_results=True) is False
+    assert json.loads(tracked.read_text(encoding="utf-8"))["probe"] == "last-weekly-commit"
+    failed = json.loads((scratch_repo / FAILED).read_text(encoding="utf-8"))
+    assert failed["probe"] == "failing-run"
+
+
+def test_a_passing_write_results_run_removes_a_stale_failed_file(scratch_repo):
+    """A .failed.json left by an earlier red run must not ride along with a green one."""
+    stale = scratch_repo / FAILED
+    stale.write_text("{}", encoding="utf-8")
+    result: dict = {"tiers": {}}
+    assert hm.tier_bench(result, offline=True, write_results=True) is True
+    assert not stale.exists()
+
+
+def test_both_workflows_upload_the_failed_measurement():
+    for wf in ("pr-gate.yml", "main.yml"):
+        text = (REPO / ".github" / "workflows" / wf).read_text(encoding="utf-8")
+        assert "harness/results/self_latency.json" in text, wf
+        assert FAILED in text, f"{wf} uploads the tracked file but not the failed run's own measurement"

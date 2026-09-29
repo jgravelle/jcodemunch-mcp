@@ -133,3 +133,7 @@ benchmarks/rust_fidelity/oracle/Cargo.lock
 !docs/inbound/
 # The competitive feedback loop (2026-09-05): docs/competitive/DESIGN.md D7.
 !docs/competitive/
+
+# LEDGER L-72: a failed bench run's own measurement, written beside the tracked
+# result under --write-results and uploaded by CI; never committed.
+harness/results/*.failed.json
