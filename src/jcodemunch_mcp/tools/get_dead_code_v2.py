@@ -28,6 +28,7 @@ from ._call_graph import _word_match, build_symbols_by_file
 from ._entry_points import entry_point_spec
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
 from ._runtime_discovery import discover_dynamic_packages
+from ._dynamic_boundary import DynamicBoundary
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 
 
@@ -646,7 +647,14 @@ def get_dead_code_v2(
         if f in source_files
     }
 
-    extra_entries = pkg_entries | declared_entries | dynamic_entries
+    # (f) (LEDGER L-70) a file a package- or prefix-scoped dynamic import can
+    # load (#876's recorded sites, the rule `get_blast_radius` reads). Signal
+    # 1 is `unreachable_file`, a claim that site makes unprovable. Same one
+    # direction as (e): it only ADDS roots. An opaque site adds nothing.
+    boundary = DynamicBoundary(index.imports)
+    boundary_entries = {f for f in source_files if boundary.reaching(f)} if boundary else set()
+
+    extra_entries = pkg_entries | declared_entries | dynamic_entries | boundary_entries
     entry_point_count = (
         sum(1 for f in index.source_files
             if _is_entry_point(f) or f in declared_entries)

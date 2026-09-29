@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### Fixed - the dead-code tools read the dynamic-import boundary the blast radius reads (LEDGER L-70)
+
+#876 records a Python dynamic import it cannot resolve as a site with a
+scope, and only `get_blast_radius` read the site. The other three absence
+tools got #876's edges and not its boundary. So a module that
+`import_module(f"adapters.{name}")` can load was "an empty result here is NOT
+evidence" in the blast radius, and at the same time `find_dead_code`
+published it `zero_importers` at confidence 1.0, the value this project
+documents as provably unreachable. `check_delete_safe` certified its
+symbols `safe_to_delete`.
+
+The reach rule now lives in one place, `tools/_dynamic_boundary.py`, and all
+four tools read it:
+- `find_dead_code` caps a file a package- or prefix-scoped site can reach at
+  the unproven ceiling, beside `uncapped_confidence`, with
+  `dynamic_import_boundary` in `confidence_capped_by` and the sites named in
+  `dynamic_import_sites`. At the default threshold the file is withheld and
+  counted in `dynamic_import_boundary_withheld`, never silently dropped.
+- `get_dead_code_v2` no longer fires `unreachable_file` for such a file, the
+  same one-direction rule it applies to #569's enumerated packages.
+- `check_delete_safe` returns the new bounded verdict
+  `dynamic_import_boundary`, naming the loaders. Like `corpus_inadequate` and
+  `name_not_searchable`, it replaces only an absence verdict; a found
+  importer still blocks.
+- An opaque site (a name computed from data) caps nothing and is disclosed
+  as `dynamic_imports_unfollowed`, per the #876 ruling.
+
+On this repository (`l70-measure.txt`), the default `find_dead_code` output
+does not move: the corpus is already capped (`withheld_files`,
+`runtime_discovery_unresolved`). The twelve competitive adapters under
+`benchmarks/competitive/adapters/` now name the loader that reaches them.
+
 ### Fixed - a dynamic import is an import edge when its target is a literal, and a named boundary when not (#876)
 
 Reported by @Torolosko (split from #718). The static model stopped at a

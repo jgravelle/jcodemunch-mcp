@@ -15,7 +15,8 @@ from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 from ._entry_points import entry_point_spec
 from ._runtime_discovery import discover_dynamic_packages
-from ._corpus_adequacy import assess_corpus
+from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
+from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +388,14 @@ def find_dead_code(
         ),
     )
     ceiling = adequacy.ceiling
+    # (LEDGER L-70) #876 records a Python dynamic import it cannot resolve
+    # as a site with a scope. A file a package- or prefix-scoped site can
+    # load is not provably unreachable, whatever the static graph says, so
+    # its absence claim is capped exactly like an inadequate corpus's --
+    # the rule `get_blast_radius` already applied, read from the one place
+    # both tools share. An opaque site caps nothing and is disclosed.
+    boundary = DynamicBoundary(index.imports)
+    boundary_withheld = 0
 
     dead_files: list[dict] = []
 
@@ -414,8 +423,12 @@ def find_dead_code(
             else:
                 continue  # file is reachable, skip
 
-        capped = min(confidence, ceiling)
+        reaching = boundary.reaching(f)
+        file_ceiling = min(ceiling, UNPROVEN_CEILING) if reaching else ceiling
+        capped = min(confidence, file_ceiling)
         if capped < min_confidence:
+            if reaching and confidence >= min_confidence:
+                boundary_withheld += 1
             continue
 
         entry = {
@@ -429,7 +442,13 @@ def find_dead_code(
             # verdict needs to see that the graph said one thing and the corpus
             # could not back it, which a single clamped figure hides.
             entry["uncapped_confidence"] = confidence
-            entry["confidence_capped_by"] = list(adequacy.blockers)
+            entry["confidence_capped_by"] = list(adequacy.blockers) + (
+                ["dynamic_import_boundary"] if reaching else []
+            )
+        if reaching:
+            entry["dynamic_import_sites"] = reaching[:DYNAMIC_FILES_CAP]
+            if len(reaching) > DYNAMIC_FILES_CAP:
+                entry["dynamic_import_sites_total"] = len(reaching)
         dead_files.append(entry)
 
     # -----------------------------------------------------------------------
@@ -527,6 +546,18 @@ def find_dead_code(
         }
     if dynamic.unresolved:
         result["runtime_discovery_unresolved"] = dynamic.unresolved
+    _unfollowed = boundary.disclosure()
+    if _unfollowed:
+        result["dynamic_imports_unfollowed"] = _unfollowed
+    if boundary_withheld:
+        # Withheld, not cleared: an empty list here would read as "no dead
+        # code" when it means "could not prove these dead" (#559's shape).
+        result["dynamic_import_boundary_withheld"] = boundary_withheld
+        analysis_notes.append(
+            f"{boundary_withheld} file(s) with no static importer were withheld: a "
+            "dynamic import scoped to their package can load them "
+            "(pass min_confidence=0 to see them with the sites named)"
+        )
     # ⚠⚠ A capped run returns FEWER findings, and an empty list read alone is
     # the `dead_code_pct: 0.0` shape (#559) seen from the other side — an
     # admission that nothing was established, rendered as a clean bill of

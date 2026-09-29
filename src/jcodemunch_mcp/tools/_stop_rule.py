@@ -70,6 +70,10 @@ _BOUNDED = {
         # ingesting runtime evidence can still move it either way, so it is
         # bounded rather than terminal.
         "name_not_searchable",
+        # (LEDGER L-70) A dynamic import scoped to the symbol's package can
+        # load it. Reading the named loaders, or runtime evidence, can still
+        # move it either way, so it is bounded rather than terminal.
+        "dynamic_import_boundary",
     }),
     "check_edit_safe": frozenset({
         "safe_to_edit",
