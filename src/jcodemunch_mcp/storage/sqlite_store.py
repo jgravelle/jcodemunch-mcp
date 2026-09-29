@@ -112,6 +112,9 @@ CREATE TABLE IF NOT EXISTS runtime_calls (
     p95_ms      REAL,
     first_seen  TEXT,
     last_seen   TEXT,
+    content_hash TEXT,
+    git_head    TEXT,
+    ingest_id   TEXT,
     PRIMARY KEY (symbol_id, source)
 );
 
@@ -638,6 +641,9 @@ def _migrate_v13_to_v14(conn: sqlite3.Connection) -> None:
             p95_ms      REAL,
             first_seen  TEXT,
             last_seen   TEXT,
+            content_hash TEXT,
+            git_head    TEXT,
+            ingest_id   TEXT,
             PRIMARY KEY (symbol_id, source)
         );
         CREATE INDEX IF NOT EXISTS idx_runtime_calls_last_seen ON runtime_calls(last_seen);
