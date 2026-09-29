@@ -76,6 +76,43 @@ def test_the_verdict_is_not_terminal_with_every_other_channel_closed(tmp_path, m
     assert r["stop_rule"]["terminal"] is False, r["stop_rule"]
 
 
+def test_untested_keeps_its_name_but_is_never_terminal_past_a_loader(tmp_path, monkeypatch):
+    """`untested` rests on the same "no external caller" claim, because
+    signature_impact outranks it. Reading the loader can move it (review, L-75),
+    so it keeps its name and is not terminal, even with every other channel
+    closed. The loader calling `.build()` is what makes it referenced."""
+    from jcodemunch_mcp.tools import check_edit_safe as ces
+
+    monkeypatch.setattr(ces, "_runtime_data_present", lambda *a, **k: True)
+    files = dict(SCOPED)
+    files["run.py"] = "import importlib\n\ndef make(name):\n    return importlib.import_module(f'adapters.{name}').build()\n"
+    repo, storage = _index(tmp_path, files)
+    r = check_edit_safe(repo, "build", cross_repo=True, include_runtime=True, storage_path=storage)
+    assert r["verdict"] == "untested", r["verdict"]
+    assert _loader_blocker(r)["files"] == ["run.py"]
+    assert r["stop_rule"]["terminal"] is False, r["stop_rule"]
+
+
+def test_a_capped_loader_list_says_how_many_it_left_out(tmp_path):
+    files = {k: v for k, v in SCOPED.items() if k != "run.py"}
+    for i in range(13):
+        files[f"load{i:02d}.py"] = "import importlib\n\ndef make(name):\n    return importlib.import_module(f'adapters.{name}')\n"
+    repo, storage = _index(tmp_path, files)
+    r = check_edit_safe(repo, "build", storage_path=storage)
+    assert r["verdict"] == "dynamic_import_boundary"
+    assert r["signals"]["dynamic_loader_count"] == 13
+    assert len(_loader_blocker(r)["files"]) < 13
+    assert "and 3 more" in r["recommended_action"], r["recommended_action"]
+
+
+def test_the_unproven_verdict_never_reads_safer_than_untested(tmp_path):
+    repo, storage = _index(tmp_path, SCOPED)
+    r = check_edit_safe(repo, "build", storage_path=storage)
+    assert r["verdict"] == "dynamic_import_boundary"
+    assert r["confidence"] <= 0.55, "higher = safer: an unseen caller outranked a seen use with no test"
+    assert check_edit_safe(repo, "alone", storage_path=storage)["signals"]["dynamic_loader_count"] == 0
+
+
 def test_a_verdict_backed_by_evidence_keeps_its_name_and_gains_the_loader(tmp_path):
     repo, storage = _index(tmp_path, SCOPED)
     r = check_edit_safe(repo, "branchy", storage_path=storage)

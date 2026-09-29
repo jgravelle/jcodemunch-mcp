@@ -270,9 +270,15 @@ def check_edit_safe(
     # ⚠ Only the ABSENCE verdict is replaced ("no external callers"): a verdict
     # built on positive evidence keeps its name and carries the loader as a
     # blocker. Same asymmetry as check_delete_safe's gate (L-70).
+    # ⚠ `untested` rests on the same claim (signature_impact outranks it, so
+    # "no external caller" holds there too): it keeps its name, since a known
+    # use with no test is positive evidence, but it is never terminal past a
+    # loader, because reading the loader can move it to signature_impact
+    # (review, L-75).
     dynamic_gap = None
-    if verdict == "safe_to_edit" and dynamic_block:
-        verdict = "dynamic_import_boundary"
+    if verdict in ("safe_to_edit", "untested") and dynamic_block:
+        if verdict == "safe_to_edit":
+            verdict = "dynamic_import_boundary"
         dynamic_gap = {
             "action": "read the named loaders for the module names they can produce",
             "why": (
@@ -283,20 +289,28 @@ def check_edit_safe(
         }
 
     # ── Confidence (higher = safer to edit freely) ─────────────────────────
-    confidence = {
+    _scale = {
         "runtime_critical": 0.15,
         "signature_impact": 0.40,
         "complexity_risk": 0.45,
         "untested": 0.55,
-        # Nothing was established either way: the ceiling this project uses for
-        # an absence nothing could prove (L-70), never safe_to_edit's 0.90.
-        "dynamic_import_boundary": UNPROVEN_CEILING,
         "safe_to_edit": 0.90,
-    }[verdict]
+    }
+    # Nothing was established either way: capped at the ceiling this project
+    # uses for an absence nothing could prove (L-70), and never read as safer
+    # than `untested` on this scale, since an unseen caller is no smaller a
+    # risk than a seen one without a test (review, L-75).
+    _scale["dynamic_import_boundary"] = min(UNPROVEN_CEILING, _scale["untested"])
+    confidence = _scale[verdict]
     if verdict == "safe_to_edit" and has_test_coverage:
         confidence = 0.95  # low complexity, no callers, and covered by tests
 
     # ── Recommended action ─────────────────────────────────────────────────
+    # The block's list is capped; a sentence naming ten of thirteen loaders
+    # must say so, or it reads as the whole list (review, L-75).
+    _named = list((dynamic_block or {}).get("files") or [])
+    _more = int((dynamic_block or {}).get("files_total", len(_named)) or 0) - len(_named)
+    loaders_named = ", ".join(_named) + (f", and {_more} more" if _more > 0 else "")
     callers = external_import_count + cross_repo_count + scip_external_count
     tests_note = "" if has_test_coverage else " No test coverage detected — add a characterization test first."
     actions = {
@@ -317,9 +331,8 @@ def check_edit_safe(
             "characterization test before editing to catch regressions."
         ),
         "dynamic_import_boundary": (
-            "No static caller, but a dynamic import can load this file ("
-            + ", ".join((dynamic_block or {}).get("files") or [])
-            + "). Read the loader for the module names it produces before changing the "
+            f"No static caller, but a dynamic import can load this file ({loaders_named}). "
+            "Read the loader for the module names it produces before changing the "
             f"signature; body edits that keep the contract are safe.{tests_note}"
         ),
         "safe_to_edit": (
@@ -407,6 +420,9 @@ def check_edit_safe(
             dynamic_gap=dynamic_gap,
         ),
         "signals": {
+            # (L-75) Survives the top-5 blocker cut, where the loader blocker can
+            # be displaced by higher-severity evidence.
+            "dynamic_loader_count": int((dynamic_block or {}).get("files_total", 0) or 0),
             "external_import_count": external_import_count,
             "cross_repo_count": cross_repo_count,
             "test_import_count": test_import_count,

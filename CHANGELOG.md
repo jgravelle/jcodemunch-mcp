@@ -12,12 +12,16 @@ L-73 had closed the same gap in the delete preflight and the importer list.
 
 It now reads the `dynamic_import_boundary` block `find_importers` returns (one
 reach rule, `tools/_dynamic_boundary.py`). A function that would have graded
-`safe_to_edit` grades the bounded verdict `dynamic_import_boundary` instead,
-at the unproven ceiling, and names the loaders. The loader is a gap in
-`stop_rule`, so the verdict is never terminal. Only that absence verdict is
-replaced: `complexity_risk`, `untested`, `signature_impact` and
+`safe_to_edit` grades the bounded verdict `dynamic_import_boundary` instead.
+Its confidence is capped at the unproven ceiling and never reads safer than
+`untested`, and it names the loaders, saying how many a capped list left
+out. The loader is a gap in `stop_rule`, so the verdict is never terminal.
+`untested` rests on the same "no external caller" claim, because
+`signature_impact` outranks it, so it keeps its name and is never terminal
+past a loader either. `complexity_risk`, `signature_impact` and
 `runtime_critical` rest on positive evidence and keep their names, gaining
-the loader as a blocker. An opaque site blocks nothing (#876).
+the loader as a blocker; `signals.dynamic_loader_count` survives the top-5
+blocker cut. An opaque site blocks nothing (#876).
 
 Measured on this repository (`l75-measure.txt`, one index, main's source and
 this branch's, every function and method in a file a scoped site reaches):
