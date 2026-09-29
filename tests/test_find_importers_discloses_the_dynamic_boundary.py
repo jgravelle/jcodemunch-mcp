@@ -85,6 +85,23 @@ def test_an_opaque_site_is_disclosed_beside_an_empty_answer_only(tmp_path):
     assert "dynamic_imports_unfollowed" not in found
 
 
+def test_a_scoped_block_supersedes_the_opaque_disclosure_as_in_the_blast_radius(tmp_path):
+    """`get_blast_radius` discloses an opaque site only when it did not already
+    refuse (review, L-73): the scoped block says the empty answer is not
+    evidence, and a second disclosure beside it says nothing new."""
+    files = dict(SCOPED)
+    files["plug.py"] = OPAQUE["plugins.py"]
+    repo, storage = _index(tmp_path, files)
+    reached = find_importers(repo, file_path="adapters/alpha.py", storage_path=storage)
+    assert reached["dynamic_import_boundary"]["files"] == ["run.py"]
+    assert "dynamic_imports_unfollowed" not in reached
+    assert find_importers(repo, file_path="lonely.py", storage_path=storage)["dynamic_imports_unfollowed"]["files"] == ["plug.py"]
+    batch = find_importers(repo, file_paths=["adapters/alpha.py"], storage_path=storage)
+    assert "dynamic_imports_unfollowed" not in batch
+    mixed = find_importers(repo, file_paths=["adapters/alpha.py", "lonely.py"], storage_path=storage)
+    assert mixed["dynamic_imports_unfollowed"]["files"] == ["plug.py"]
+
+
 def test_batch_mode_carries_the_same_answer_per_file(tmp_path):
     repo, storage = _index(tmp_path, SCOPED)
     r = find_importers(repo, file_paths=["adapters/alpha.py", "lonely.py"], storage_path=storage)

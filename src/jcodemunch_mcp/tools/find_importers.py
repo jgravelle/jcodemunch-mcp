@@ -64,20 +64,19 @@ def _dynamic_block(boundary: DynamicBoundary, file_path: str) -> Optional[dict]:
 def _opaque_disclosure(boundary: DynamicBoundary, file_paths, counts) -> Optional[dict]:
     """(#876) Opaque sites, disclosed beside an EMPTY answer only.
 
-    The rule `get_blast_radius` applies: a loader that names its module from
-    data could reach anything, so it is disclosed and never refuses, and only
-    where the static answer is empty (jjg, 2026-09-29).
+    The rule `get_blast_radius` applies, exactly: a loader that names its
+    module from data could reach anything, so it is disclosed and never
+    refuses, and only where the static answer is empty AND no scoped site
+    already says the empty answer is not evidence (jjg, 2026-09-29). A file
+    that qualifies has no reaching site, so nothing is excluded, and a batch
+    discloses what any one qualifying file would.
     """
-    empty_py = [
-        fp for fp, n in zip(file_paths, counts)
-        if n == 0 and fp.endswith((".py", ".pyi"))
-    ]
-    if not empty_py:
-        return None
-    excluding: set[str] = set()
-    for fp in empty_py:
-        excluding.update(boundary.reaching(fp))
-    return boundary.disclosure(excluding=excluding)
+    if any(
+        n == 0 and fp.endswith((".py", ".pyi")) and not boundary.reaching(fp)
+        for fp, n in zip(file_paths, counts)
+    ):
+        return boundary.disclosure()
+    return None
 
 
 def _find_importers_single(

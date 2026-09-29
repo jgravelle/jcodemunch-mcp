@@ -11,12 +11,12 @@ can load, it answered `importer_count: 0` with nothing beside it. That reads as
 so over the same file.
 
 A package- or prefix-scoped site that can reach the file is now named in a
-`dynamic_import_boundary` block (`files`, capped at ten, `files_total`, `note`),
+`dynamic_import_boundary` block (`files`, capped, beside `files_total`, and a `note`),
 in singular and batch mode, whatever the static count. The loaders are not
 importers and are never counted in `importer_count`: the module is named at
-runtime. An opaque site is disclosed as `dynamic_imports_unfollowed` beside an
-EMPTY answer only, the rule `get_blast_radius` applies (#876); a batch names it
-once. Both are declared in the compact encoder, which drops an undeclared dict
+runtime. An opaque site is disclosed as `dynamic_imports_unfollowed` only beside
+an EMPTY answer that no scoped site already qualifies, exactly the rule
+`get_blast_radius` applies (#876); a batch names it once. Both are declared in the compact encoder, which drops an undeclared dict
 without a word.
 
 ⚠⚠ The deletion investigator was the consumer that acted on the missing
