@@ -303,48 +303,76 @@ def blast_verdict(
         index_changed=_index_changed_since_load(index),
         incomplete=unresolvable,
     )["verdict"]
+    if probe and result_count == 0 and not unresolvable:
+        disclosed = _dynamic_import_disclosure(index.imports, sym_file)
+        if disclosed:
+            verdict["dynamic_imports_unfollowed"] = disclosed
     return verdict, unresolvable
 
 
 _DYNAMIC_BOUNDARY_FILES_CAP = 10
 
 
-def _dynamic_import_boundary(imports, sym_file: str) -> Optional[dict]:
-    """(#876) An empty Python walk cannot prove absence past an unresolved dynamic import.
+def _dynamic_sites(imports, sym_file: str) -> tuple[list[str], list[str]]:
+    """(#876) Files with an unresolved dynamic import: (reaching ``sym_file``, opaque).
 
-    `parser.imports` records an ``__import__``/``import_module`` call whose
-    target is not a literal (after one-step propagation) as a marker edge. Such a
-    call can load any module, so no Python file's empty importer walk proves
-    nothing depends on it. The sites are named, capped, with their total.
+    A ``package`` site reaches files under its own directory; a
+    ``prefix:<dotted>`` site reaches files under that module path; an
+    ``opaque`` site could reach anything and is returned separately, because
+    it is disclosed and never refused (jjg, 2026-09-29).
     """
+    reaching: set[str] = set()
+    opaque: set[str] = set()
     if not imports or not sym_file.endswith((".py", ".pyi")):
-        return None
+        return [], []
+    probe = "/" + sym_file
+    for site, edges in imports.items():
+        for e in edges or []:
+            if not (isinstance(e, dict) and e.get("dynamic_unresolved")):
+                continue
+            scope = e.get("dynamic_scope") or "opaque"
+            if scope == "opaque":
+                opaque.add(site)
+            elif scope == "package":
+                pkg = posixpath.dirname(site)
+                if not pkg or sym_file.startswith(pkg + "/"):
+                    reaching.add(site)
+            elif scope.startswith("prefix:"):
+                path = scope[len("prefix:"):].replace(".", "/")
+                if path and ("/" + path + "/" in probe or probe.endswith("/" + path + ".py")):
+                    reaching.add(site)
+    return sorted(reaching), sorted(opaque - reaching)
 
-    def _reaches(site: str, edge: dict) -> bool:
-        if edge.get("dynamic_scope") != "package":
-            return True
-        # A package-relative target loads only modules of the site's package.
-        pkg = posixpath.dirname(site)
-        return not pkg or sym_file.startswith(pkg + "/")
 
-    sites = sorted(
-        f for f, edges in imports.items()
-        if any(
-            isinstance(e, dict) and e.get("dynamic_unresolved") and _reaches(f, e)
-            for e in (edges or [])
-        )
-    )
-    if not sites:
+def _dynamic_import_boundary(imports, sym_file: str) -> Optional[dict]:
+    """(#876) An empty Python walk cannot prove absence past a dynamic import that reaches it."""
+    reaching, _opaque = _dynamic_sites(imports, sym_file)
+    if not reaching:
         return None
     return {
         "reason": "dynamic_import_boundary",
-        "files": sites[:_DYNAMIC_BOUNDARY_FILES_CAP],
-        "files_total": len(sites),
+        "files": reaching[:_DYNAMIC_BOUNDARY_FILES_CAP],
+        "files_total": len(reaching),
         "note": (
-            f"{len(sites)} file(s) import a module whose name is not a literal "
-            f"(__import__ / importlib.import_module), e.g. {sites[0]}. Such a call "
-            "can load this module, so an empty result here is NOT evidence that "
-            "nothing depends on it."
+            f"{len(reaching)} file(s) import a module by a name that is not a literal "
+            f"and can reach this file (e.g. {reaching[0]}). An empty result here is "
+            "NOT evidence that nothing depends on it."
+        ),
+    }
+
+
+def _dynamic_import_disclosure(imports, sym_file: str) -> Optional[dict]:
+    """(#876) Opaque dynamic imports: disclosed beside an empty walk, never refused."""
+    _reaching, opaque = _dynamic_sites(imports, sym_file)
+    if not opaque:
+        return None
+    return {
+        "files": opaque[:_DYNAMIC_BOUNDARY_FILES_CAP],
+        "files_total": len(opaque),
+        "note": (
+            f"{len(opaque)} file(s) import a module whose name is computed from data "
+            "(a registry, config or argument), which static analysis cannot follow. "
+            "This result does not account for them."
         ),
     }
 

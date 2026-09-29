@@ -15,27 +15,40 @@ consumer inherits it:
 - A literal target (`__import__("x")`, `importlib.import_module("x")`) is
   an import edge.
 - A literal passed one step into a parameter that feeds one, by position
-  or keyword, is an edge. That covers the reported case; it is the issue's
-  bounded "one-step finite literal propagation", not symbolic execution.
-- A subscript into a module-level literal table (`GRAMMARS[name][1]`) is a
-  finite set of candidate edges.
-- A target built from the package's own name (`f"{pkg_name}.{m}"`, the
-  #569 self-enumeration shape) can load only that package's modules.
-- Anything else is recorded as an unresolved boundary.
+  or keyword (a method's `self`/`cls` skipped), is an edge. That covers the
+  reported case; it is the issue's bounded "one-step finite literal
+  propagation", not symbolic execution.
+- A subscript into a module-level literal table (`GRAMMARS[name][1]`) is
+  the table's values along that path, never its keys.
+- A loop variable over a literal sequence (`for m in ("a", "b")`) is each
+  of its strings.
+- Anything else is a recorded site with a scope: `package` (built from
+  the package's own name, the #569 self-enumeration shape), `prefix:<m>`
+  (a literal module prefix like `f"adapters.{name}"`, or `X.__name__` of
+  an imported module), or `opaque` (a name computed from data). A public
+  loader function is also `opaque`, since another file can call it with
+  anything.
 
-`get_blast_radius.blast_verdict` then refuses an empty walk of a Python
-file with `dynamic_import_boundary`, naming the sites (capped at 10, with
-`files_total`). A package-scoped boundary applies only to files under the
-site's directory. On this repository that leaves one scoped site,
-`encoding/schemas/registry.py`, whose modules really are loaded
-dynamically. Before the table and package refinements there were two
-repository-wide sites that refused every empty Python blast radius here.
+`get_blast_radius.blast_verdict` refuses an empty walk of a Python file
+with `dynamic_import_boundary`, naming the sites (capped at 10, with
+`files_total`), only when a site's scope reaches that file. An opaque
+site is disclosed beside the empty result as `dynamic_imports_unfollowed`
+and does not flip it (jjg's ruling, 2026-09-29): most repositories have a
+registry- or config-driven loader, and a refusal that fires on every empty
+result teaches people to ignore it. The review measured the first draft
+refusing every empty Python blast radius on this repository. Measured over
+its 1,044 Python files (`dynamic-sites.txt`), 9 files hold an unresolved
+dynamic import. An ordinary module such as `tools/find_dead_code.py` now
+gets no refusal and 4 disclosed opaque sites. An `encoding/schemas/`
+module, which those loaders really do import, is refused by 3 scoped
+sites. A file that does not parse yields no edges and no site.
 
 `PARSER_GENERATION` 8 -> 9: the new edges change `files.imports` on
 unchanged content, so an existing index re-parses once on upgrade to gain
 them. No symbol id moves. Subprocess launches and config-driven dispatch
 are not import edges and are not covered. `find_dead_code` and
 `check_delete_safe` read the new edges but not the boundary: LEDGER L-70.
+`get_dependency_graph`'s cross-repo package match skips the marker.
 
 ### Fixed - runtime evidence says which body it observed (#875)
 

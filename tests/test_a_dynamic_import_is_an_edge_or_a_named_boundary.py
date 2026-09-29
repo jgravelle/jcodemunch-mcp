@@ -87,7 +87,9 @@ def test_propagation_is_one_step_and_by_position_or_keyword():
     assert "pkg.one" in specs and "pkg.two" in specs
 
 
-def test_an_unresolved_target_refuses_an_empty_blast_and_names_the_site(tmp_path):
+def test_an_opaque_target_is_disclosed_beside_an_empty_blast_not_refused(tmp_path):
+    """jjg, 2026-09-29: a name computed from data is disclosed; only a scope that
+    reaches the file refuses (a refusal on every empty result is ignored)."""
     repo, storage = _index(tmp_path, {
         "plugins.py": "import os\n\ndef load():\n    return __import__(os.environ['PLUGIN'])\n",
         "lonely.py": "def alone():\n    return 0\n",
@@ -95,9 +97,23 @@ def test_an_unresolved_target_refuses_an_empty_blast_and_names_the_site(tmp_path
     r = get_blast_radius(repo=repo, symbol="alone", storage_path=storage)
     assert _dependents(r) == set()
     v = r["_meta"]["verdict"]
-    assert v["state"] == "degraded" and v["absence_refused"] is True, v
-    assert v["incomplete"]["reason"] == "dynamic_import_boundary"
-    assert "plugins.py" in v["incomplete"]["files"]
+    assert v["state"] == "absent", v
+    assert v["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
+
+
+def test_a_literal_prefix_refuses_inside_that_package_only(tmp_path):
+    """`import_module(f"adapters.{name}")` can load only `adapters.*`."""
+    repo, storage = _index(tmp_path, {
+        "run.py": "import importlib\n\ndef make(name):\n    return importlib.import_module(f'adapters.{name}')\n",
+        "adapters/__init__.py": "",
+        "adapters/alpha.py": "def build():\n    return 1\n",
+        "lonely.py": "def alone():\n    return 0\n",
+    })
+    inside = get_blast_radius(repo=repo, symbol="build", storage_path=storage)["_meta"]["verdict"]
+    assert inside["state"] == "degraded" and inside["incomplete"]["reason"] == "dynamic_import_boundary"
+    assert inside["incomplete"]["files"] == ["run.py"]
+    outside = get_blast_radius(repo=repo, symbol="alone", storage_path=storage)["_meta"]["verdict"]
+    assert outside["state"] == "absent"
 
 
 def test_control_without_a_dynamic_import_absence_is_provable(tmp_path):
@@ -156,3 +172,62 @@ def test_a_package_relative_target_is_a_boundary_only_inside_that_package(tmp_pa
     assert inside["state"] == "degraded" and inside["incomplete"]["reason"] == "dynamic_import_boundary"
     outside = get_blast_radius(repo=repo, symbol="elsewhere", storage_path=storage)["_meta"]["verdict"]
     assert outside["state"] == "absent", "a package-scoped loader cannot reach a module outside its package"
+
+
+def _edges(src: str) -> list[dict]:
+    return extract_imports(src, "m.py", "python")
+
+
+def _markers(src: str) -> list[str]:
+    return sorted(e.get("dynamic_scope") for e in _edges(src) if e.get("dynamic_unresolved"))
+
+
+def test_a_module_name_attribute_scopes_to_that_module():
+    src = (
+        "import importlib\n"
+        "from pkg.encoding import schemas as schemas_pkg\n"
+        "def load(n):\n    return importlib.import_module(f'{schemas_pkg.__name__}.{n}')\n"
+    )
+    assert "prefix:pkg.encoding.schemas" in _markers(src)
+
+
+def test_a_loop_over_a_literal_sequence_is_a_set_of_edges():
+    src = "import importlib\nmods = {m: importlib.import_module(m) for m in ('adapter', 'run')}\n"
+    specs = [e["specifier"] for e in _edges(src)]
+    assert "adapter" in specs and "run" in specs
+    assert _markers(src) == []
+
+
+def test_a_public_loader_with_no_caller_here_is_an_opaque_site():
+    """Review: a library loader called from another file emitted nothing."""
+    src = "import importlib\ndef load(name):\n    return importlib.import_module(name)\n"
+    assert _markers(src) == ["opaque"]
+
+
+def test_a_private_loader_resolved_by_its_callers_is_no_site():
+    assert _markers(PASSTHROUGH) == []
+
+
+def test_a_table_is_indexed_along_its_subscript_path_never_by_its_keys():
+    src = (
+        "import importlib\n"
+        "T = {'os': ('dist-name', 'pkg.a'), 'json': ('other-dist', 'pkg.b')}\n"
+        "def load(k):\n    return importlib.import_module(T[k][1])\n"
+    )
+    specs = {e["specifier"] for e in _edges(src) if e.get("dynamic")}
+    assert specs == {"pkg.a", "pkg.b"}, "keys and other tuple positions are not candidates"
+
+
+def test_a_method_feeder_skips_self():
+    src = (
+        "import importlib\n"
+        "class L:\n"
+        "    def load(self, name):\n        return importlib.import_module(name)\n"
+        "    def go(self):\n        return self.load('pkg.x')\n"
+    )
+    edges = _edges(src)
+    assert "pkg.x" in [e["specifier"] for e in edges]
+
+
+def test_an_unparseable_file_is_not_a_boundary():
+    assert _markers("print 'py2'\nimportlib.import_module(x)\n") == []
