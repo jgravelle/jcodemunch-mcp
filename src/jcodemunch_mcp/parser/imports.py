@@ -442,8 +442,24 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             for t in targets:
                 if isinstance(t, ast.Name):
                     tables[t.id] = value
-    # A table rebound anywhere else is not the literal it was.
-    tables = {k: v for k, v in tables.items() if stores(tree, k) == 1}
+    # A table is the literal it was only while every other use of its name is
+    # a subscript READ: a rebinding, `T[k] = cfg`, `del T[k]`, `T.update(...)`
+    # or handing `T` to a function can change what it holds (review of #876).
+    def _only_read_by_subscript(name: str) -> bool:
+        if stores(tree, name) != 1:
+            return False
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                if not (isinstance(child, ast.Name) and child.id == name and isinstance(child.ctx, ast.Load)):
+                    continue
+                if not (
+                    isinstance(parent, ast.Subscript) and parent.value is child
+                    and isinstance(parent.ctx, ast.Load)
+                ):
+                    return False
+        return True
+
+    tables = {k: v for k, v in tables.items() if _only_read_by_subscript(k)}
 
     def _select(nodes: list, key) -> Optional[list]:
         """Apply one subscript to candidate container nodes; None when unknowable."""
@@ -500,7 +516,8 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
                     loop_bindings[target.id] = loop_bindings.get(target.id, 0) + 1
     loop_values = {k: v for k, v in loop_values.items() if stores(tree, k) == loop_bindings[k]}
     # A comprehension's target is local to it, so an import call in its body
-    # reading that target is bounded exactly, however else the name is used.
+    # reading that target is bounded exactly, however else the name is used
+    # outside it -- unless the comprehension itself binds the name again.
     comp_values: dict[int, list[str]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
@@ -511,6 +528,8 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             vals = [literal(e) for e in g.iter.elts]
             if not (vals and all(vals)):
                 continue
+            if stores(node, g.target.id) != 1:
+                continue  # shadowed by an inner comprehension or a later generator
             body = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
             for part in [*body, *g.ifs]:
                 for call in ast.walk(part):

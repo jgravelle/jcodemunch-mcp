@@ -23,10 +23,13 @@ consumer inherits it:
   function in the file is a direct call: one passed to `map`, registered
   or called on another object can receive anything, and is a site.
 - A subscript into a module-level literal table (`GRAMMARS[name][1]`) is
-  the table's values along that path, never its keys.
+  the table's values along that path, never its keys, while every other
+  use of the table is a subscript read: `T[k] = cfg`, `T.update(...)` or
+  handing it to a function makes it a site.
 - A loop variable over a literal sequence (`for m in ("a", "b")`) is each
   of its strings, when every binding of that name is such a loop; a
-  comprehension's variable is local to it and always counts.
+  comprehension's variable is local to it and counts unless the
+  comprehension binds the name again.
 - Anything else is a recorded site with a scope: `package` (built from
   the package's own name, the #569 self-enumeration shape, including the
   relative spelling `import_module(f".{m.name}", __package__)`), `prefix:<m>`
@@ -52,8 +55,9 @@ sites. A file that does not parse yields no edges and no site.
 
 `PARSER_GENERATION` 8 -> 9: the new edges change `files.imports` on
 unchanged content, so an existing index re-parses once on upgrade to gain
-them. No symbol id moves. Subprocess launches and config-driven dispatch
-are not import edges and are not covered. `find_dead_code` and
+them. No symbol id moves. Subprocess launches, config-driven dispatch and a
+function reached through a string lookup (`globals()["_load"](cfg)`) are
+not visible to the AST and are not covered. `find_dead_code` and
 `check_delete_safe` read the new edges but not the boundary: LEDGER L-70.
 The marker names no package, so no cross-repo package match reads it.
 

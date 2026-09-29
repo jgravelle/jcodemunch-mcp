@@ -369,3 +369,82 @@ def test_a_comprehension_target_is_bounded_even_when_its_name_is_reused():
     )
     assert {"adapter", "run"} <= {e["specifier"] for e in _edges(src)}
     assert _markers(src) == []
+
+
+# --- review round 3 -------------------------------------------------------
+
+
+@pytest.mark.parametrize("change", [
+    "T = load_config()\n",
+    "T['b'] = cfg\n",
+    "T.update(cfg)\n",
+    "del T['a']\n",
+    "register(T)\n",
+])
+def test_a_table_changed_anywhere_is_not_its_literal_values(change):
+    """A seeded registry filled at runtime can hold anything (review of #876)."""
+    src = (
+        "import importlib\n"
+        "T = {'a': 'pkg.a'}\n"
+        + change
+        + "def _l(k):\n    return importlib.import_module(T[k])\n"
+        "_l(x)\n"
+    )
+    assert "pkg.a" not in [e["specifier"] for e in _edges(src)], change
+    assert _markers(src) == ["opaque"], change
+
+
+def test_control_a_table_only_read_by_subscript_stays_its_values():
+    src = (
+        "import importlib\n"
+        "T = {'a': 'pkg.a'}\n"
+        "def _l(k):\n    return importlib.import_module(T[k])\n"
+        "_l(x)\n"
+        "print(T['a'])\n"
+    )
+    assert "pkg.a" in [e["specifier"] for e in _edges(src)]
+    assert _markers(src) == []
+
+
+@pytest.mark.parametrize("comp", [
+    "[[importlib.import_module(m) for m in cfg] for m in ('a', 'b')]",
+    "[importlib.import_module(m) for m in ('a', 'b') for m in cfg]",
+])
+def test_a_shadowed_comprehension_target_is_not_the_outer_literals(comp):
+    src = f"import importlib\nx = {comp}\n"
+    assert not {"a", "b"} & {e["specifier"] for e in _edges(src)}, comp
+    assert _markers(src) == ["opaque"], comp
+
+
+def test_changed_symbols_carries_the_opaque_disclosure_for_an_empty_blast(tmp_path):
+    """The second consumer of `blast_verdict` publishes the disclosure too."""
+    import subprocess
+
+    from jcodemunch_mcp.tools.get_changed_symbols import get_changed_symbols
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=str(root), check=True, capture_output=True, text=True,
+            encoding="utf-8", stdin=subprocess.DEVNULL,
+        ).stdout.strip()
+
+    root = tmp_path / "r"
+    root.mkdir()
+    for rel, text in OPAQUE.items():
+        (root / rel).write_text(text, encoding="utf-8")
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    git("add", "-A")
+    git("commit", "-qm", "c0")
+    base = git("rev-parse", "HEAD")
+    (root / "lonely.py").write_text("def alone():\n    return 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "c1")
+    storage = str(tmp_path / "store")
+    repo = index_folder(str(root), use_ai_summaries=False, storage_path=storage, identity_mode="local")["repo"]
+    r = get_changed_symbols(repo, since_sha=base, include_blast_radius=True, storage_path=storage)
+    entry = next(e for e in r["changed_symbols"] if e["name"] == "alone")
+    assert entry["blast_radius"] == []
+    assert entry["blast_verdict"]["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
+    assert r["blast_verdicts"]["lonely.py"]["dynamic_imports_unfollowed"]["files"] == ["plugins.py"]
