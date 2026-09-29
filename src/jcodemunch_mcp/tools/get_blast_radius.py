@@ -291,6 +291,8 @@ def blast_verdict(
                 index.alias_map,
                 getattr(index, "psr4_map", None),
             )
+            if unresolvable is None:
+                unresolvable = _dynamic_import_boundary(index.imports, sym_file)
     verdict = build_verdict(
         result_count=result_count,
         scanned_files=len(source_files),
@@ -302,6 +304,49 @@ def blast_verdict(
         incomplete=unresolvable,
     )["verdict"]
     return verdict, unresolvable
+
+
+_DYNAMIC_BOUNDARY_FILES_CAP = 10
+
+
+def _dynamic_import_boundary(imports, sym_file: str) -> Optional[dict]:
+    """(#876) An empty Python walk cannot prove absence past an unresolved dynamic import.
+
+    `parser.imports` records an ``__import__``/``import_module`` call whose
+    target is not a literal (after one-step propagation) as a marker edge. Such a
+    call can load any module, so no Python file's empty importer walk proves
+    nothing depends on it. The sites are named, capped, with their total.
+    """
+    if not imports or not sym_file.endswith((".py", ".pyi")):
+        return None
+
+    def _reaches(site: str, edge: dict) -> bool:
+        if edge.get("dynamic_scope") != "package":
+            return True
+        # A package-relative target loads only modules of the site's package.
+        pkg = posixpath.dirname(site)
+        return not pkg or sym_file.startswith(pkg + "/")
+
+    sites = sorted(
+        f for f, edges in imports.items()
+        if any(
+            isinstance(e, dict) and e.get("dynamic_unresolved") and _reaches(f, e)
+            for e in (edges or [])
+        )
+    )
+    if not sites:
+        return None
+    return {
+        "reason": "dynamic_import_boundary",
+        "files": sites[:_DYNAMIC_BOUNDARY_FILES_CAP],
+        "files_total": len(sites),
+        "note": (
+            f"{len(sites)} file(s) import a module whose name is not a literal "
+            f"(__import__ / importlib.import_module), e.g. {sites[0]}. Such a call "
+            "can load this module, so an empty result here is NOT evidence that "
+            "nothing depends on it."
+        ),
+    }
 
 
 def _bfs_importers(

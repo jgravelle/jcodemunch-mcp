@@ -349,7 +349,160 @@ def _extract_python_imports(content: str) -> list[dict]:
                 seen.add(mod)
                 edges.append({"specifier": mod, "names": []})
 
+    if "__import__" in content or "import_module" in content:
+        edges.extend(_python_dynamic_imports(content, seen))
+
     return edges
+
+
+# (#876) The marker edge for a dynamic import whose target is not a literal.
+# Its specifier resolves to nothing, so every consumer skips it the way it
+# skips any unresolvable specifier; `get_blast_radius.blast_verdict` reads the
+# flag and refuses an empty walk over Python files, naming the site.
+DYNAMIC_IMPORT_UNRESOLVED = "<dynamic-import>"
+
+
+def _is_dynamic_import_call(node) -> bool:
+    import ast
+
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id in ("__import__", "import_module")
+    if isinstance(func, ast.Attribute):
+        return func.attr == "import_module" or func.attr == "__import__"
+    return False
+
+
+def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
+    """Dynamic imports as edges (#876): a literal target, or a literal passed
+    ONE step into a parameter that feeds one. Anything else is recorded once as
+    an unresolved boundary. Not symbolic execution: one step, literals only.
+    """
+    import ast
+
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        # A file we cannot parse cannot be shown free of dynamic imports.
+        return [{"specifier": DYNAMIC_IMPORT_UNRESOLVED, "names": [], "dynamic_unresolved": True}]
+
+    out: list[dict] = []
+    unresolved = False
+    unresolved_in_package = False
+
+    def add(spec: str) -> None:
+        if spec and spec not in seen:
+            seen.add(spec)
+            out.append({"specifier": spec, "names": [], "dynamic": True})
+
+    def literal(node) -> Optional[str]:
+        return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+    # Module-level literal tables: `T = {"a": ("x", "y")}`. A target that is a
+    # subscript chain into one can only be one of its strings: a finite set.
+    tables: dict[str, list[str]] = {}
+    for stmt in tree.body:
+        targets = stmt.targets if isinstance(stmt, ast.Assign) else (
+            [stmt.target] if isinstance(stmt, ast.AnnAssign) and stmt.value is not None else []
+        )
+        value = getattr(stmt, "value", None)
+        if not isinstance(value, (ast.Dict, ast.List, ast.Tuple, ast.Set)):
+            continue
+        leaves = [n for n in ast.walk(value) if isinstance(n, ast.Constant)]
+        strings = [n.value for n in leaves if isinstance(n.value, str)]
+        if leaves and len(strings) == len(leaves):
+            for t in targets:
+                if isinstance(t, ast.Name):
+                    tables[t.id] = strings
+
+    def table_candidates(node) -> Optional[list[str]]:
+        while isinstance(node, ast.Subscript):
+            node = node.value
+        return tables.get(node.id) if isinstance(node, ast.Name) else None
+
+    # Names bound to this package's own name (the #569 self-enumeration shape:
+    # `from . import __name__ as pkg_name` then `import_module(f"{pkg_name}.x")`).
+    pkg_names = {"__name__", "__package__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name in ("__name__", "__package__") and a.asname:
+                    pkg_names.add(a.asname)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) and node.value.id in ("__name__", "__package__"):
+            pkg_names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+
+    def package_relative(node) -> bool:
+        if isinstance(node, ast.JoinedStr) and node.values:
+            first = node.values[0]
+            return isinstance(first, ast.FormattedValue) and isinstance(first.value, ast.Name) and first.value.id in pkg_names
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = node.left
+            while isinstance(left, ast.BinOp) and isinstance(left.op, ast.Add):
+                left = left.left
+            return isinstance(left, ast.Name) and left.id in pkg_names
+        return False
+
+    def resolve_target(node) -> bool:
+        """Add the edge(s) a target names; False when it names nothing knowable."""
+        nonlocal unresolved_in_package
+        target = literal(node)
+        if target is not None:
+            add(target)
+            return True
+        candidates = table_candidates(node)
+        if candidates is not None:
+            for c in candidates:
+                add(c)
+            return True
+        if package_relative(node):
+            unresolved_in_package = True
+            return True
+        return False
+
+    # Parameters that feed a dynamic import, by function name: (position, name).
+    feeders: dict[str, tuple[int, str]] = {}
+    fed_calls: set[int] = set()
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
+        for call in ast.walk(fn):
+            if isinstance(call, ast.Call) and _is_dynamic_import_call(call) and call.args:
+                arg = call.args[0]
+                if isinstance(arg, ast.Name) and arg.id in params:
+                    feeders[fn.name] = (params.index(arg.id), arg.id)
+                    fed_calls.add(id(call))
+
+    for call in ast.walk(tree):
+        if not isinstance(call, ast.Call):
+            continue
+        if _is_dynamic_import_call(call):
+            if id(call) in fed_calls:
+                continue  # resolved (or not) at its call sites below
+            if not (call.args and resolve_target(call.args[0])):
+                unresolved = True
+            continue
+        callee = call.func.id if isinstance(call.func, ast.Name) else (
+            call.func.attr if isinstance(call.func, ast.Attribute) else None
+        )
+        if callee in feeders:
+            pos, pname = feeders[callee]
+            value = call.args[pos] if pos < len(call.args) else next(
+                (k.value for k in call.keywords if k.arg == pname), None
+            )
+            if value is None or not resolve_target(value):
+                unresolved = True
+
+    if unresolved:
+        out.append({"specifier": DYNAMIC_IMPORT_UNRESOLVED, "names": [], "dynamic_unresolved": True})
+    elif unresolved_in_package:
+        # Can load only modules of the site's own package: the boundary is
+        # scoped to the site's directory, not the repository.
+        out.append({
+            "specifier": DYNAMIC_IMPORT_UNRESOLVED, "names": [],
+            "dynamic_unresolved": True, "dynamic_scope": "package",
+        })
+    return out
 
 
 def _extract_go_imports(content: str) -> list[dict]:

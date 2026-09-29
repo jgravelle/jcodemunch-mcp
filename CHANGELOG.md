@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Fixed - a dynamic import is an import edge when its target is a literal, and a named boundary when not (#876)
+
+Reported by @Torolosko (split from #718). The static model stopped at a
+dynamic dispatch and said nothing. `_passthrough("run_g_gates", rest)`
+fed `__import__(module_name)`, and an impact query on `run_g_gates.main`
+came back empty although a real consumer reaches it. An empty result
+there read as "nothing depends on this".
+
+Fixed at the import authority (`parser/imports.py`), so every graph
+consumer inherits it:
+- A literal target (`__import__("x")`, `importlib.import_module("x")`) is
+  an import edge.
+- A literal passed one step into a parameter that feeds one, by position
+  or keyword, is an edge. That covers the reported case; it is the issue's
+  bounded "one-step finite literal propagation", not symbolic execution.
+- A subscript into a module-level literal table (`GRAMMARS[name][1]`) is a
+  finite set of candidate edges.
+- A target built from the package's own name (`f"{pkg_name}.{m}"`, the
+  #569 self-enumeration shape) can load only that package's modules.
+- Anything else is recorded as an unresolved boundary.
+
+`get_blast_radius.blast_verdict` then refuses an empty walk of a Python
+file with `dynamic_import_boundary`, naming the sites (capped at 10, with
+`files_total`). A package-scoped boundary applies only to files under the
+site's directory. On this repository that leaves one scoped site,
+`encoding/schemas/registry.py`, whose modules really are loaded
+dynamically. Before the table and package refinements there were two
+repository-wide sites that refused every empty Python blast radius here.
+
+`PARSER_GENERATION` 8 -> 9: the new edges change `files.imports` on
+unchanged content, so an existing index re-parses once on upgrade to gain
+them. No symbol id moves. Subprocess launches and config-driven dispatch
+are not import edges and are not covered. `find_dead_code` and
+`check_delete_safe` read the new edges but not the boundary: LEDGER L-70.
+
 ### Fixed - runtime evidence says which body it observed (#875)
 
 Reported by @Torolosko (split from #718). Runtime evidence is cumulative
