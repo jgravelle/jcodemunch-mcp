@@ -93,7 +93,7 @@ Jobs, strictly sequential:
 5. **`release: tag`**. `git tag -a vX -m "<CHANGELOG heading>"` on the pre-flight's SHA, pushed by the workflow token with `contents: write`. Refuses if the SHA is no longer `main`'s HEAD (something merged mid-release; re-dispatch).
 6. **`release: pypi`** (environment `pypi`, `id-token: write`). Trusted publishing with attestations. Skipped entirely under `dry_run`.
 7. **`release: post-publish (<os>)`** x 2 (`handshake.yml`'s job, moved here). Poll PyPI up to 10 min, fresh venv, install `==X`, handshake, **and** assert the tool count from `surface` equals the pre-flight's count (both computed this run; never a literal). OPENS ISSUE `P0: post-publish check failed for vX` labeled `release`, `P0` on failure. No yank.
-8. **`release: github release`**. Notes generated from `CHANGELOG.md`'s `## [X]` block verbatim (the prose is human-written in the PR; nothing is composed here), tool count and Python range inserted from the pre-flight outputs, `dist/` and the sigstore bundles attached (fold `sign-release.yml` in: sign the artifact set from step 2 before upload). Marked as latest.
+8. **`release: github release`**. Notes rendered by `scripts/release_notes.py` from `CHANGELOG.md`'s `## [X]` block: verbatim when it fits GitHub's 125,000-character release body, and otherwise the block's lead paragraph, every entry heading and a link to the full block at the tag (LEDGER L-92; the prose is human-written in the PR; nothing is composed here), tool count and Python range inserted from the pre-flight outputs, `dist/` and the sigstore bundles attached (fold `sign-release.yml` in: sign the artifact set from step 2 before upload). Marked as latest.
 9. **`release: mcp registry`**. `mcp-publisher login github-oidc && mcp-publisher publish`, then the nested-row verification from CLAUDE.md as a script. `dry_run`: login + `--dry-run` publish only. OPENS ISSUE on failure; PyPI is already live, so this is a follow-up, not a rollback.
 
 Runtime: ~15 min real, ~8 min dry-run. Steps 3, 6 and 9 are the only ones with
@@ -228,8 +228,8 @@ verdict; updated in place on each push (one comment per PR).
 - **Major/minor version decisions.** MINOR has been 108 for four months by
   choice; the pipeline verifies the number, it never picks it.
 - **Changelog and release-note prose.** Both are written by a human in the
-  PR; the release copies the block verbatim and fills in only computed
-  figures.
+  PR; the release copies the block (verbatim when it fits GitHub's limit,
+  its lead and headings when not) and fills in only computed figures.
 - **Whether a change is user-facing.** A label (`release`, `no-changelog`)
   set by the human who knows; the gate checks consistency with the label,
   not the judgement behind it.

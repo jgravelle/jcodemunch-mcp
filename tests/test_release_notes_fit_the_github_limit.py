@@ -87,3 +87,29 @@ def test_even_the_heading_list_is_bounded():
 def test_a_missing_block_refuses():
     with pytest.raises(SystemExit):
         release_notes.render("0.0.1", "91", CHANGELOG, PYPROJECT)
+
+
+def test_an_oversized_block_with_no_headings_fits():
+    """Review: the fallback's lead is the whole block when there is no `###`."""
+    big = "## [4.0.0] - 2099-01-01 - t\n\n" + ("word " * 60_000) + "\n\n## [1.0.0] - x\n"
+    notes = release_notes.render("4.0.0", "91", big, PYPROJECT)
+    assert len(notes) + 1 <= LIMIT, len(notes)
+    assert "blob/v4.0.0/CHANGELOG.md" in notes
+
+
+def test_a_lead_longer_than_the_limit_is_cut_and_says_where_the_rest_is():
+    lead = "x" * (LIMIT + 10)
+    big = f"## [5.0.0] - 2099-01-01 - t\n\n{lead}\n\n### Fixed - one\n\nbody\n\n## [1.0.0] - x\n"
+    notes = release_notes.render("5.0.0", "91", big, PYPROJECT)
+    assert len(notes) + 1 <= LIMIT, len(notes)
+    assert "Fixed - one" in notes
+    assert "continued in [CHANGELOG.md at v5.0.0]" in notes
+
+
+def test_a_block_at_exactly_the_limit_still_fits_with_the_written_newline():
+    """`main` writes the notes plus one newline, and `gh --notes-file` sends the file."""
+    footer = release_notes._footer("91", PYPROJECT)
+    body = "z" * (LIMIT - len(footer) - 2)
+    block = f"## [6.0.0] - 2099-01-01 - t\n\n{body}\n\n## [1.0.0] - x\n"
+    notes = release_notes.render("6.0.0", "91", block, PYPROJECT)
+    assert len(notes) + 1 <= LIMIT, len(notes)

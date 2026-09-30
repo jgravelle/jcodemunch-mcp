@@ -20,8 +20,12 @@ import re
 import sys
 from pathlib import Path
 
-# GitHub's documented maximum for a release body.
+# GitHub's maximum for a release body, as its API refuses it: "body is too long
+# (maximum is 125000 characters)". Characters are code points on both sides.
 GITHUB_RELEASE_BODY_LIMIT = 125_000
+# The lead paragraph kept in the fallback; a longer one is cut, so a block with
+# no headings, or one long lead, cannot push the fallback over the limit.
+LEAD_MAX = 20_000
 REPO_URL = "https://github.com/jgravelle/jcodemunch-mcp"
 
 
@@ -44,12 +48,18 @@ def render(version: str, count: str, changelog: str, pyproject: str) -> str:
     block = m.group(1).strip()
     footer = _footer(count, pyproject)
     verbatim = f"{block}\n\n{footer}"
-    if len(verbatim) <= GITHUB_RELEASE_BODY_LIMIT:
+    # `main` writes one trailing newline, and `gh --notes-file` sends the file as is.
+    if len(verbatim) + 1 <= GITHUB_RELEASE_BODY_LIMIT:
         return verbatim
 
     lead = block.split("\n### ", 1)[0].strip() if not block.startswith("### ") else ""
-    heads = [line[4:].strip() for line in block.splitlines() if line.startswith("### ")]
     link = f"{REPO_URL}/blob/v{version}/CHANGELOG.md"
+    if len(lead) > LEAD_MAX:
+        lead = (
+            lead[:LEAD_MAX].rstrip()
+            + f" ... (continued in [CHANGELOG.md at v{version}]({link}))"
+        )
+    heads = [line[4:].strip() for line in block.splitlines() if line.startswith("### ")]
     intro = (
         f"The full notes for this release are {len(block):,} characters, over GitHub's release body "
         f"limit, so every entry is listed by its heading here and the text is in "
@@ -66,13 +76,18 @@ def render(version: str, count: str, changelog: str, pyproject: str) -> str:
             break
         items.append(item)
         used += len(item)
-    left = len(heads) - len(items)
-    listing = "".join(items).rstrip("\n")
-    if left:
-        listing += (
-            f"\n- ... and {left} more entries, in [CHANGELOG.md at v{version}]({link})"
-        )
-    return head_text + listing + tail
+    while True:
+        left = len(heads) - len(items)
+        listing = "".join(items).rstrip("\n")
+        if left:
+            listing += f"\n- ... and {left} more entries, in [CHANGELOG.md at v{version}]({link})"
+        notes = head_text + listing + tail
+        # The guarantee, by construction: drop list items until it holds.
+        if len(notes) + 1 <= GITHUB_RELEASE_BODY_LIMIT or not items:
+            break
+        items.pop()
+    assert len(notes) + 1 <= GITHUB_RELEASE_BODY_LIMIT, len(notes)
+    return notes
 
 
 def main(argv: list[str]) -> int:
