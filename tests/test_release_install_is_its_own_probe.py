@@ -419,7 +419,51 @@ def test_the_step_name_does_not_promise_polling_it_does_not_do():
 
 
 # (LEDGER L-93) A retry that reuses a cached answer is not a retry.
-_REFRESH = re.compile(r"--refresh(?:-package(?:\s+|=)\S+)?\b|--no-cache\b|\s-n\b")
+#
+# ⚠ Read from the INSTALL COMMAND'S OWN ARGUMENTS, never the whole line, and a
+# `--refresh-package` must name THIS distribution (review, L-93): scanned over
+# the line, `[ -n "$V" ] && uv pip install ...` and `echo -n x; ...` passed on an
+# unrelated `-n`, and `--refresh-package pytest` passed while refreshing the
+# wrong entry -- a ratchet that passes against the defect it names.
+_CMD_END = re.compile(r"\s*(?:;|&&|\|\||\|)")
+
+
+def _install_args(line: str) -> str:
+    """The install command's text, from its verb to the next shell separator."""
+    m = _INSTALL_VERB.search(line)
+    if not m:
+        return ""
+    rest = line[m.start():]
+    end = _CMD_END.search(rest)
+    return rest[: end.start()] if end else rest
+
+
+def _refreshes_this_package(line: str) -> bool:
+    args = _install_args(line)
+    for m in re.finditer(r"--refresh-package(?:\s+|=)(\S+)", args):
+        if _DIST.search(m.group(1).strip("'\"")):
+            return True
+    return bool(re.search(r"(?<!\S)(?:--refresh|--no-cache|-n)(?=\s|$)", args))
+
+
+_REFRESH_CASES = [
+    ("refresh this package", 'uv pip install --refresh-package jcodemunch-mcp "jcodemunch-mcp==$V"', True),
+    ("refresh with =", 'uv pip install --refresh-package=jcodemunch-mcp "jcodemunch-mcp==$V"', True),
+    ("refresh everything", 'uv pip install --refresh "jcodemunch-mcp==$V"', True),
+    ("no cache", 'uv pip install --no-cache "jcodemunch-mcp==$V"', True),
+    ("short no cache", 'uv pip install -n "jcodemunch-mcp==$V"', True),
+    ("no flag", 'uv pip install "jcodemunch-mcp==$V"', False),
+    ("another package refreshed", 'uv pip install --refresh-package pytest "jcodemunch-mcp==$V"', False),
+    ("-n in a test before it", '[ -n "$V" ] && uv pip install "jcodemunch-mcp==$V"', False),
+    ("-n in an echo before it", 'echo -n x; uv pip install "jcodemunch-mcp==$V"', False),
+    ("--no-cache after the command", 'uv pip install "jcodemunch-mcp==$V" && pip download --no-cache x', False),
+    ("a longer flag that only starts with --refresh", 'uv pip install --refresh-packages-x "jcodemunch-mcp==$V"', False),
+]
+
+
+@pytest.mark.parametrize("label,line,expected", _REFRESH_CASES, ids=[c[0] for c in _REFRESH_CASES])
+def test_the_refresh_predicate_answers_each_spelling(label: str, line: str, expected: bool):
+    assert _refreshes_this_package(line) is expected, label
 
 
 @pytest.mark.parametrize("job,name,run", _remote_install_steps(), ids=lambda v: str(v)[:40])
@@ -438,7 +482,7 @@ def test_a_retried_install_refreshes_the_index_every_attempt(job: str, name: str
     for line in _logical_lines(run):
         if not _is_remote_install(line):
             continue
-        assert _REFRESH.search(line), (
+        assert _refreshes_this_package(line), (
             f"{RELEASE.name} job {job!r}, step {name!r}: this retried install reads "
             f"uv's cached index, so an attempt that ran before the upload propagated "
             f"poisons every attempt after it:\n    {line.strip()}\n"

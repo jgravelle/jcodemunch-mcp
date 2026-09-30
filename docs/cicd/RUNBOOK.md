@@ -103,7 +103,7 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
 
    ```
    uv venv %TEMP%\pp --python 3.12
-   uv pip install --python %TEMP%\pp\Scripts\python.exe jcodemunch-mcp==X.Y.Z
+   uv pip install --python %TEMP%\pp\Scripts\python.exe --refresh-package jcodemunch-mcp jcodemunch-mcp==X.Y.Z
    %TEMP%\pp\Scripts\python.exe scripts\handshake.py --expect-version X.Y.Z --command %TEMP%\pp\Scripts\jcodemunch-mcp.exe --fixture tests\fixtures\pkg_smoke --expect-languages python,typescript,javascript,go
    ```
 
@@ -129,9 +129,12 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
   the install still fails. On 1.108.319 the job's own probe did exactly that and
   skipped the GitHub release and the registry publish. **The only reliable
   readiness signal for an install is the install.**
-  ⚠ If a re-run keeps failing, `uv pip install "jcodemunch-mcp==X.Y.Z"` in a
-  scratch venv is the same question asked by hand; a 404 from the JSON API is
-  evidence of nothing either way.
+  ⚠ If a re-run keeps failing, `uv pip install --refresh-package jcodemunch-mcp
+  "jcodemunch-mcp==X.Y.Z"` in a scratch venv is the same question asked by
+  hand; a 404 from the JSON API is evidence of nothing either way. ⚠ Without
+  `--refresh-package`, `uv` answers from the index page it cached on the first
+  ask, and both indexes send `max-age=600`: one ask before propagation is ten
+  minutes of the same "no such version" (LEDGER L-93).
 - **Test PyPI down**: `release: test pypi` fails; re-dispatch later. There is
   no skip switch by design.
 
