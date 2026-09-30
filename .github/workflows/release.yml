@@ -327,25 +327,16 @@ jobs:
         uses: sigstore/gh-action-sigstore-python@04cffa1d795717b140764e8b640de88853c92acc  # v3.3.0
         with:
           inputs: dist/*.whl dist/*.tar.gz
-      - name: Notes = the CHANGELOG block verbatim + computed figures
+      - name: Notes = the CHANGELOG block (verbatim when it fits GitHub's limit) + computed figures
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           V="${{ needs.preflight.outputs.version }}"
-          python - "$V" "${{ needs.preflight.outputs.tool_count }}" > "${RUNNER_TEMP}/notes.md" <<'PY'
-          import re, sys, pathlib
-          v, count = sys.argv[1], sys.argv[2]
-          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
-          m = re.search(rf"^## \[{re.escape(v)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text, re.M | re.S)
-          if not m:
-              sys.exit(f"no CHANGELOG block for {v}")
-          py = re.search(r'requires-python\s*=\s*"([^"]+)"', pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
-          print(m.group(1).strip())
-          print()
-          print(f"---\n{count} tools in the `full` surface; Python {py.group(1) if py else 'unknown'}. Published by the Release workflow with PyPI trusted publishing and sigstore-signed artifacts.")
-          PY
+          # (LEDGER L-92) A tested renderer, never an inline script: GitHub refuses a body over
+          # 125,000 characters and this job runs AFTER the PyPI publish.
+          python scripts/release_notes.py "$V" "${{ needs.preflight.outputs.tool_count }}" > "${RUNNER_TEMP}/notes.md"
           TITLE=$(grep -m1 -E "^## \[$V\]" CHANGELOG.md | sed -E 's/^## \[[^]]+\] *-? *[0-9-]* *-? *//')
           if [ "${{ needs.preflight.outputs.dry_run }}" = "true" ]; then
             { echo "## github release (DRY RUN) — v$V — $TITLE"; echo; cat "${RUNNER_TEMP}/notes.md"; } >> "$GITHUB_STEP_SUMMARY"; exit 0
