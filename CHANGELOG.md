@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - the safety preflights' descriptions name every verdict they return (LEDGER L-79)
+
+`check_delete_safe` and `check_edit_safe` list their verdicts in the tool
+description, and the list stopped growing when the verdicts did. Four of
+`check_delete_safe`'s and one of `check_edit_safe`'s were classified in
+`_stop_rule.py`, returned to callers, and absent from the description a caller
+reads first: `scip_referenced`, `corpus_inadequate` (#566), `name_not_searchable`
+(#714) and `dynamic_import_boundary` (L-70, L-75). The LEDGER row named three;
+the ratchet found `scip_referenced` too, missing since v1.108.120.
+
+Nothing bound the prose to the verdicts. `test_stop_rule` binds the verdicts a
+tool assigns to `known_verdicts`, and
+`tests/test_preflight_descriptions_name_every_verdict.py` now binds
+`known_verdicts` to the published description in both directions, so a tier
+added or retired fails until the description says so. The descriptions grow
+by 23 tokens under `standard` and `full`; `core` and `counter` do not carry
+these tools and did not move (`benchmarks/schema_baseline.json`, re-pinned in
+`harness/corpora.json`).
+
 ### Fixed - `check_edit_safe` does not certify an edit past a dynamic import (LEDGER L-75)
 
 `check_edit_safe` answers "what breaks if I change this" from `find_importers`'

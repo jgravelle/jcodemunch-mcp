@@ -69,7 +69,7 @@
     "schema_baseline": {
       "path": "benchmarks/schema_baseline.json",
       "pattern": null,
-      "sha256": "4def21d73e4daaa57cc5e07baefc2cecce8ec90553e142d7e72e3a03796fc398"
+      "sha256": "f9efa30c574a267b525cda48b10cbcfd3342c992d7dba214d1b09ecaf157242b"
     },
     "token_tasks": {
       "path": "benchmarks/tasks.json",
