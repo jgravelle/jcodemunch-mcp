@@ -158,9 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.320](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.320)** (2026-09-30) — a member the index never saw and a caller the search never found both read as nothing there
+- **[v1.108.319](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.319)** (2026-09-16) — the numbers a competitor published about us were right, and so was the refusal we had shipped over twice
 - **[v1.108.318](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.318)** (2026-09-11) — the process is code that cannot skip a step, and the field is measured from result files
 - **[v1.108.317](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.317)** (2026-09-04) — CI runs the harness on every change; publishing is a dispatched workflow
-- **[v1.108.316](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.316)** (2026-09-02) — A display preference edited the data it was displaying
 <!-- WHATSNEW:END -->
 
 ---

@@ -1,11 +1,17 @@
 {
-  "current": "1.108.319",
+  "current": "1.108.320",
   "entries": [
+    {
+      "version": "1.108.320",
+      "date": "2026-09-30",
+      "title": "a member the index never saw and a caller the search never found both read as nothing there",
+      "summary": "A symbol the index never recorded and a caller the reference search never found both answer \"nothing is there\", and the delete preflight read either one as proof. This release closes both. Class members and class state are indexed and owned in the languages that dropped them: Java, Kotlin, Go, Rust, Dart, Ruby, PHP, Python, JavaScript and TypeScript, C and C++, Pascal, F#, Nim, Zig, Swift and others, and Haskell, which extracted nothing at all (#713-#858). The safety preflights stopped certifying an absence their search could not see: a dynamic import that can load the file (#876, L-70, L-73, L-75), a name no call site writes (#714, L-80, L-81), a call written in another Unicode spelling or hidden behind a differently-cased sibling (L-84, L-88), and a page of test mentions that pushed the real caller out of view (L-89)."
+    },
     {
       "version": "1.108.319",
       "date": "2026-09-16",
       "title": "the numbers a competitor published about us were right, and so was the refusal we had shipped over twice",
-      "summary": "A benchmark run by someone else, against our own tool, named two real defects. TypeScript and TSX never indexed an `abstract class` at all, because the grammar spells it as a node type neither language spec listed, so every abstract class was absent and its methods lost their owner (#698). And `search_symbols` cut its page with a heap keyed on score alone, so an exact-name match could be evicted outright by same-named locals declared inside function bodies -- not ranked lower, absent (#699); all three cut sites read one rule now. Beside them, `/release` step 4 had refused three consecutive releases on the same six benchmark rows and two shipped over it: the per-repo cells in both READMEs are derived from `benchmarks/jcm_reference.json` now, and a ratchet gates the cells a reader actually reads rather than the grand total everyone remembers to update. Also in the block: `get_tectonic_map` partitions by Louvain instead of returning one plate holding most of the repository (#668) and its co-churn signal runs and says when it cannot be trusted (#667), changed paths resolve when the index is rooted below the git top level (#685), a triage result the model cannot produce is escalated instead of retried forever (#670), committing a tree no longer invalidates the full-tier stamp taken on it (#675), the inbound jobs that bill a model have their own switch and it is off, and `import-trace --diagnostics` maps a checker's own output to the symbol it names."
+      "summary": "`/release` step 4 recomputes every published figure and refuses on a disagreement. It refused three consecutive releases on the same thing, and the first two shipped over it — which is how a refusal becomes ceremony."
     },
     {
       "version": "1.108.318",
@@ -18,12 +24,6 @@
       "date": "2026-09-04",
       "title": "CI runs the harness on every change; publishing is a dispatched workflow",
       "summary": "The eight workflows are five: `pr-gate.yml` (five staged jobs, every one a required check on `main` by name), `main.yml` (full witness + online bench after a merge, a `regression` issue per failing Floor, a weekly results PR), `nightly.yml` (the matrix with fresh corpora, `drift` issues),"
-    },
-    {
-      "version": "1.108.316",
-      "date": "2026-09-02",
-      "title": "A display preference edited the data it was displaying",
-      "summary": "Reported by @rknighton, twice: #570 for the crash and #572 for the cause, with a standard-library reproduction that builds its own repo and needs no fixtures. `cache_put` stored the caller's dict and `cache_get` returned that same dict, so the dispatcher's metadata step — a DISPLAY preference — reached into the session"
     }
   ]
 }

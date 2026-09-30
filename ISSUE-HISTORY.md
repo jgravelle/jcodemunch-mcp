@@ -2046,3 +2046,17 @@ Maintenance Practice 5 as it stood in CLAUDE.md before the 2026-09-26 haircut, v
    moving only the forensics — verified by asserting all nine policy numbers,
    six commands and seven prohibitions still resolve. **Write that check as a
    script; a rotation reviewed by eye is how a command goes missing.**
+
+## Current State rotation (2026-09-30, release 1.108.320)
+
+The 1.108.317 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.317):** **CI runs the harness on every change; publishing is a dispatched workflow** (five workflows; every PR-gate job a REQUIRED check on `main` by name; `enforce_admins` and `strict` ON; `release.yml` dispatched with a version, Test PyPI first, trusted publishing). ⚠⚠ The gate caught its own author four times before it merged and the pre-flight was wrong twice about a MAIN commit (C-13, C-14: the PR gate's jobs live on the PR's merge ref; main's witnesses are `main.yml`'s). ⚠ Windows runners are 3x this box on the full tier: `suite.full_seconds_ci_windows`, a platform-scoped Floor, not a loosening. Rules: the CI/CD section, `docs/cicd/`; forensics: `ISSUE-HISTORY.md` (rotated 2026-09-11).
+
+The 1.108.319 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.319 — **The numbers a competitor published about us were right, and so was the refusal we had shipped over twice.** An external benchmark (`amritessh/scalpel-fse2027-artifact`, reproducible from its own raw data) named two real defects in us. TypeScript and TSX never indexed an `abstract class` at all — the grammar spells it `abstract_class_declaration` and neither spec listed it, so every abstract class was absent and its methods lost their owner (#698). And `search_symbols` cut its page on score alone, so an exact-name match could be evicted OUTRIGHT — not ranked lower, absent — by same-named locals declared inside function bodies (#699); all three cut sites read one `(declaration rank, score)` key now, and locals are demoted, never filtered. ⚠⚠ **That rank needs BOTH a kind and an owner condition, and the first draft shipped the owner probe alone, passed its own suite, and left the reported case byte-for-byte unchanged** — the fixture could not express the other crowding shape, so re-run the REPORTED corpus through the product before calling a fix done. ⚠⚠ **W-16 is FIXED after two releases shipped over its refusal**: every per-repo cell in `README.md` and `benchmarks/README.md` derives from `benchmarks/jcm_reference.json`, and `tests/test_benchmark_tables_mirror_the_reference.py` gates the cells a reader quotes — `test_provenance.py` gated only the grand total, which is the figure everyone remembers to update. Also in the block, in full in `CHANGELOG.md`: `get_tectonic_map` partitions by Louvain instead of one plate holding two-thirds of the tree (#668) and discloses an untrustworthy co-churn signal (#667); changed paths resolve when the index is rooted below the git top level (#685); an unproducible triage result is escalated, not retried forever (#670); committing a tree no longer invalidates the full-tier stamp taken on it (#675); the inbound jobs that bill a model have their own switch and it is OFF. Forensics: `docs/workflows/FINDINGS.md`.
+
+The `Tests:` line's 1.108.317 count, verbatim:
+
+- ⚠ Prior (1.108.317): 9241 passed, 19 skipped, **0 failed** (9260 total; the skip count is 19 under `uv run` and 13 under `PYTHONPATH=src python -m pytest`, harness F-05).

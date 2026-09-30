@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.108.320] - 2026-09-30 - a member the index never saw and a caller the search never found both read as nothing there
+
+A symbol the index never recorded and a caller the reference search never found
+both answer "nothing is there", and the delete preflight read either one as
+proof. This release closes both. Class members and class state are indexed and
+owned in the languages that dropped them: Java, Kotlin, Go, Rust, Dart, Ruby,
+PHP, Python, JavaScript and TypeScript, C and C++, Pascal, F#, Nim, Zig, Swift
+and others, and Haskell, which extracted nothing at all (#713-#858). The safety
+preflights stopped certifying an absence their search could not see: a dynamic
+import that can load the file (#876, L-70, L-73, L-75), a name no call site
+writes (#714, L-80, L-81), a call written in another Unicode spelling or hidden
+behind a differently-cased sibling (L-84, L-88), and a page of test mentions
+that pushed the real caller out of view (L-89).
+
 ### Fixed - a differently-cased sibling no longer hides a caller (LEDGER L-88)
 
 `check_references` leaves the definition's own lines out of its content
