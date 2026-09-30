@@ -629,7 +629,7 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
   the product before calling a fix done.**
   [[a-fixture-that-cannot-express-the-reported-shape-cannot-fail-on-it]]
 
-- **A loop that ends at a merge never asks to ship.** 09-30: eleven `/fix-issue` passes in one session each ended at a merge line, and 1.108.320 went out 14 days and 124 PRs after 1.108.319 — several of them stopping a delete preflight certifying a used function. Policy 2e covers it and nobody applied it, because no step raised it. **Name the unreleased age at every merge**, and gate it rather than trust anyone to notice.
+- **A loop that ends at a merge never asks to ship.** 09-30: eleven `/fix-issue` passes in one session each ended at a merge line, and 1.108.320 went out 14 days and 124 PRs after 1.108.319 — several of them stopping a delete preflight certifying a used function. Policy 2e covers it and nobody applied it, because no step raised it. **Name the unreleased age at every merge.** Gated since by `release.unreleased_max_hours` (N8, `harness/release_age.py`); a harness-only change carries no `[Unreleased]` entry, since an entry starts the clock.
 
 ## Issue + release policy (2026-07-28)
 
