@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - `check_references` finds a call written in another spelling of the name (LEDGER L-84)
+
+Python normalises identifiers to NFKC, so `def file()` called as `ﬁle()`
+(the fi ligature) is one function called once. `check_references` tested
+whether the identifier's bytes appeared in a line, so it never saw that call,
+and `check_delete_safe`, which reads it for its no-reference evidence, graded
+the used function `safe_to_delete` at confidence 1.0. The name gate could not
+catch it, because `file` is a plain ASCII identifier. The same held for a
+decomposed accent, a fullwidth letter or a mathematical-bold letter on either
+side, and for an import written in another spelling.
+
+`check_references` now compares NFKC-folded text: the identifier, every
+content line, every imported name and the definition span it excludes. It is
+applied to every language, because folding can only add matches and a found
+reference only ever blocks a delete; the search already over-matches on
+purpose (substring, case-insensitive). ASCII text skips the normalisation,
+since NFKC changes nothing there. Measured on this repository's own index, the
+median over five runs went from 524 to 534 ms for a name that appears nowhere
+and from 247 to 272 ms for `verdict` (`evidence/perf.txt`).
+
 ### Fixed - `name_not_searchable` names the re-index and the loaders that could move it (LEDGER L-81)
 
 `check_delete_safe` runs three gates over an absence verdict: the name gate

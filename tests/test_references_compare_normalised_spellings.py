@@ -1,0 +1,86 @@
+"""The reference search compares identifiers the way Python does (LEDGER L-84).
+
+`check_references` found a use by testing whether the identifier appeared in a
+line, case-insensitively, byte for byte. Python normalises identifiers to NFKC,
+so `def file()` called as `ﬁle()` (the fi ligature) is one function called
+once, and the search never saw the call. `check_delete_safe` reads that search
+for its "no reference" evidence, and on main it graded the used function
+`safe_to_delete` at confidence 1.0.
+
+The fix compares NFKC-folded text on both sides. It can only ADD matches, which
+is the conservative direction for every consumer (a found reference blocks a
+delete, never licenses one), so it is safe for languages that do not normalise
+too. Every pair below is run under Python first, so each names one function.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+
+import pytest
+
+from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+from jcodemunch_mcp.tools.check_references import check_references
+from jcodemunch_mcp.tools.index_folder import index_folder
+
+_ABSENCE = ("safe_to_delete", "internal_only", "test_coverage_only")
+
+# (declared spelling, call spelling), each naming ONE Python function.
+_PAIRS = [
+    pytest.param("file", "ﬁle", id="ascii-definition-ligature-call"),
+    pytest.param("foo", "\U0001d41foo", id="ascii-definition-math-bold-call"),
+    pytest.param("café", "café", id="composed-definition-decomposed-call"),
+    pytest.param("café", "café", id="decomposed-definition-composed-call"),
+    pytest.param("café", "ｃafé", id="fullwidth-call"),
+]
+
+
+def _repo(tmp_path, files):
+    for rel, text in files.items():
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    storage = str(tmp_path / "idx")
+    return index_folder(path=str(tmp_path), use_ai_summaries=False, storage_path=storage)["repo"], storage
+
+
+def _runs(path):
+    out = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, encoding="utf-8")
+    return out.stdout.strip()
+
+
+@pytest.mark.parametrize("declared,called", _PAIRS)
+def test_a_call_in_another_spelling_is_a_reference(tmp_path, declared, called):
+    src = f"def {declared}():\n    return 1\n\ndef go():\n    return {called}()\n\nprint(go())\n"
+    repo, sp = _repo(tmp_path, {"m.py": src})
+    assert _runs(tmp_path / "m.py") == "1", "the pair must name one function, or the fixture proves nothing"
+    got = check_references(repo, identifier=declared, storage_path=sp)
+    assert got["is_referenced"] is True, got
+    lines = [m["line"] for f in got["content_references"] for m in f["matches"]]
+    assert 5 in lines, lines
+    assert 1 not in lines, "the definition's own line is not a reference to itself"
+
+
+def test_the_live_case_is_not_certified_deletable(tmp_path):
+    """The shape L-84 measured on main: an ASCII definition, which the name gate
+    admits, called under a ligature in the same file."""
+    src = "def file():\n    return 1\n\ndef go():\n    return ﬁle()\n\nprint(go())\n"
+    repo, sp = _repo(tmp_path, {"m.py": src})
+    assert _runs(tmp_path / "m.py") == "1"
+    got = check_delete_safe(repo, "file", storage_path=sp)
+    assert got["verdict"] not in _ABSENCE, (got["verdict"], got["confidence"])
+
+
+def test_an_import_under_another_spelling_is_a_reference(tmp_path):
+    repo, sp = _repo(tmp_path, {
+        "a.py": "def file():\n    return 1\n",
+        "b.py": "from a import ﬁle\n\nprint(ﬁle())\n",
+    })
+    got = check_references(repo, identifier="file", search_content=False, storage_path=sp)
+    assert got["is_referenced"] is True, got
+    assert got["import_references"], got
+
+
+def test_control_a_different_name_is_still_not_a_reference(tmp_path):
+    """Folding must not make every name match: `fire` is not `file`."""
+    repo, sp = _repo(tmp_path, {"m.py": "def file():\n    return 1\n\ndef fire():\n    return 2\n\nfire()\n"})
+    got = check_references(repo, identifier="file", storage_path=sp)
+    assert got["is_referenced"] is False, got
