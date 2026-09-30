@@ -17,7 +17,9 @@ The exclusion now matches the declared spelling exactly, case included. An
 exclusion removes matches, so it must never be wider than the definition it
 stands for, the rule L-84 set for Unicode spellings. In a case-insensitive
 language, exact case errs toward counting a differently-cased declaration as
-a reference, which blocks a delete and never licenses one. Measured on this
+a reference, which blocks a delete and never licenses one; the same false
+positive means the post-task diagnostic stops listing an unused `load` beside
+`Load` as unreferenced, and the reuse audit reads it as live. Measured on this
 repository's index: of the 359 names that share a lowercase form with another
 spelling, every one gains the sibling's lines, and none changes between
 referenced and unreferenced or loses a line.
