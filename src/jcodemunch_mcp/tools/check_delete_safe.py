@@ -623,6 +623,7 @@ def check_delete_safe(
             runtime_data_present=runtime_data_present,
             corpus_gap=corpus_gap,
             dynamic_gap=dynamic_gap,
+            name_gap=unreachable_name,
         ),
         "corpus_adequacy": corpus_adequacy.as_dict(),
         "signals": {

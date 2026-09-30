@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - `check_delete_safe` no longer tells an agent to stop checking on an unsearchable name (LEDGER L-80)
+
+`name_not_searchable` (#714) is the verdict for a symbol no call site names:
+a C# operator is invoked as `a + b`, so "no reference found" proves nothing.
+The tool built the gap that says what would settle it ("read the call sites by
+hand") and never passed it to the stop rule. With cross-repo on, runtime on
+and traces ingested, no other channel was open, and the verdict came back
+`stop_rule.terminal: true`, an instruction to stop checking before a delete
+the tool's own docstring calls unproven. #714's test asserted the opposite
+and passed only because no traces were ingested, so the runtime channel
+stayed open; the fixture could not reach the failing shape.
+
+The fix is in the stop rule, not only at the call site. `_stop_rule._UNSETTLED`
+names the verdicts whose meaning is that an absence could not be established
+(`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary` for
+`check_delete_safe`; `dynamic_import_boundary` for `check_edit_safe`), and
+those are never terminal, whichever gaps the caller passed. A caller that
+forgets its gap now loses the specific action, which falls back to "review
+manually", and never the verdict's meaning. `check_delete_safe` also passes
+the name gap, so the action it names is reading the call sites.
+
 ### Fixed - the safety preflights' descriptions name every verdict they return (LEDGER L-79)
 
 `check_delete_safe` and `check_edit_safe` list their verdicts in the tool

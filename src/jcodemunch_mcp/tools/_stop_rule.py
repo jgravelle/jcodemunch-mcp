@@ -84,6 +84,23 @@ _BOUNDED = {
     }),
 }
 
+# (LEDGER L-80) Bounded verdicts whose MEANING is that the absence could not
+# be established. They are never terminal, whichever gaps the caller passed:
+# `name_not_searchable` built its gap and never handed it over, so with every
+# channel open it came back terminal, telling an agent to stop checking before
+# a delete on a claim the tool calls "not evidence of disuse". A gap a caller
+# forgets now costs the specific action, never the verdict's meaning.
+_UNSETTLED = {
+    "check_delete_safe": frozenset({
+        "corpus_inadequate",
+        "name_not_searchable",
+        "dynamic_import_boundary",
+    }),
+    "check_edit_safe": frozenset({
+        "dynamic_import_boundary",
+    }),
+}
+
 # Tools whose evidence is already folded into each verdict. Named in the tool
 # DESCRIPTION so an agent does not re-derive them, not in the response.
 ALREADY_CONSULTED = {
@@ -104,6 +121,7 @@ def _channel_gaps(
     runtime_data_present: bool,
     corpus_gap: Optional[dict] = None,
     dynamic_gap: Optional[dict] = None,
+    name_gap: Optional[dict] = None,
 ) -> list[dict]:
     """Evidence channels that could still move a bound-style verdict."""
     gaps: list[dict] = []
@@ -116,6 +134,10 @@ def _channel_gaps(
     # channel below can supply: only reading the loader settles it.
     if dynamic_gap:
         gaps.append(dynamic_gap)
+    # (#714, LEDGER L-80) A name no call site writes: only reading the call
+    # sites settles it, and no channel below can.
+    if name_gap:
+        gaps.append(name_gap)
     if not cross_repo:
         gaps.append({
             "action": "re-run with cross_repo=true",
@@ -146,6 +168,7 @@ def build_stop_rule(
     runtime_data_present: bool,
     corpus_gap: Optional[dict] = None,
     dynamic_gap: Optional[dict] = None,
+    name_gap: Optional[dict] = None,
 ) -> dict:
     """Return the ``stop_rule`` block for one verdict.
 
@@ -163,7 +186,19 @@ def build_stop_rule(
         runtime_data_present=runtime_data_present,
         corpus_gap=corpus_gap,
         dynamic_gap=dynamic_gap,
+        name_gap=name_gap,
     )
+
+    if verdict in _UNSETTLED.get(tool, frozenset()):
+        if not gaps:
+            gaps = [{
+                "action": "review manually",
+                "why": (
+                    f"verdict {verdict!r} means the absence could not be "
+                    "established, and no channel that settles it was named"
+                ),
+            }]
+        return {"terminal": False, "would_change_verdict": gaps}
 
     if verdict in _BOUNDED.get(tool, frozenset()):
         return {"terminal": not gaps, "would_change_verdict": gaps}
