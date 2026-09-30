@@ -54,7 +54,9 @@ stays green and `/release` will cut. The escape paths:
   release first and merge the fix after. Nothing else unblocks it short of
   §6.
 - A contributor PR failing only this row did nothing wrong. Say so on the
-  thread; it passes on a re-run once the release merges.
+  thread; it passes once its branch is UPDATED after the release merges. A
+  re-run reuses the old test merge, whose first parent is the pre-release
+  `main`, so the row stays red.
 - A local refusal while `main` is already released: `git fetch`. The gate
   reads the upstream remote's `main` as last fetched, and its line names the
   fetch age.

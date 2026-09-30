@@ -260,6 +260,53 @@ def test_locally_the_upstream_is_found_by_url_not_by_the_name_origin(
     assert RA.pick_ref(repo, {}) == "upstream/main"
 
 
+def test_an_owner_that_merely_ends_in_the_name_is_not_upstream(repo: Path) -> None:
+    """Review round 2: `xjgravelle/jcodemunch-mcp` ends with the slug and is someone else."""
+    _git(
+        repo,
+        "remote",
+        "add",
+        "lookalike",
+        "https://github.com/xjgravelle/jcodemunch-mcp",
+    )
+    _git(repo, "update-ref", "refs/remotes/lookalike/main", "HEAD")
+    assert RA.pick_ref(repo, {}) == "HEAD"
+    _git(repo, "remote", "add", "ssh", "git@github.com:jgravelle/jcodemunch-mcp.git")
+    _git(repo, "update-ref", "refs/remotes/ssh/main", "HEAD")
+    assert RA.pick_ref(repo, {}) == "ssh/main"
+
+
+def test_a_failed_parent_listing_is_unknown_not_a_root_commit(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review round 2: a git error on `^1` read as a root commit and shortened the age."""
+    _commit(repo, _with("a"), T0 + HOUR, "fix a")
+    _commit(repo, _with("a", "b"), T0 + 2 * HOUR, "fix b")
+    real = RA._git
+
+    def flaky(root, *args):
+        if args[:2] == ("rev-list", "--parents"):
+            return 128, ""
+        return real(root, *args)
+
+    monkeypatch.setattr(RA, "_git", flaky)
+    age = RA.measure(repo, ref="HEAD", now=T0 + 3 * HOUR)
+    assert age.hours is None
+    assert RA.verdict(age) is False
+
+
+def test_a_date_far_in_the_future_is_unknown_and_seconds_of_skew_are_not(
+    repo: Path,
+) -> None:
+    _commit(repo, _with("a"), T0 + 10 * HOUR, "fix a")
+    far = RA.measure(repo, ref="HEAD", now=T0 + 9 * HOUR)
+    assert far.hours is None
+    assert RA.verdict(far) is False
+    near = RA.measure(repo, ref="HEAD", now=T0 + 10 * HOUR - 30)
+    assert near.hours == 0.0
+    assert RA.verdict(near) is True
+
+
 def test_a_not_applicable_run_is_not_a_verdict(repo: Path) -> None:
     age = RA.measure(
         repo,

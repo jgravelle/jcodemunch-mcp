@@ -38,6 +38,9 @@ TID = "release.unreleased_max_hours"
 CHANGELOG = "CHANGELOG.md"
 _HEAD = "## [Unreleased]"
 UPSTREAM = "jgravelle/jcodemunch-mcp"
+# A squash merge is stamped by GitHub's clock; minutes of disagreement with
+# this one are skew, more is a date nobody can trust and reads UNKNOWN.
+_SKEW_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -103,7 +106,7 @@ def _remote_for_upstream(root: Path) -> str | None:
         parts = line.split()
         if len(parts) >= 2:
             url = parts[1].lower().removesuffix(".git").rstrip("/")
-            if url.endswith(UPSTREAM):
+            if url.endswith(("/" + UPSTREAM, ":" + UPSTREAM)):
                 return parts[0]
     return None
 
@@ -224,7 +227,10 @@ def measure(
         if (now - ct) / 3600 > floor:
             settled = True  # older still is only later: the verdict is decided
             break
-        if not _resolves(root, f"{sha}^1"):
+        rc, parents = _git(root, "rev-list", "--parents", "-n", "1", sha)
+        if rc != 0:
+            return unknown(f"cannot list the parents of {sha[:10]}", sha)
+        if len(parents.split()) < 2:
             break  # a root commit: nothing before it
         pstatus, parent = _read(root, f"{sha}^1")
         if pstatus == "error":
@@ -233,14 +239,10 @@ def measure(
             break
     if start is None:
         return unknown(f"no commit on {ref} touches {CHANGELOG}")
-    if now < ct:
-        return Age(
-            0.0,
-            start,
-            ref,
-            f"clock skew: {start[:10]} is dated in the future{note}",
-            True,
-        )
+    if now < ct - _SKEW_SECONDS:
+        return unknown(f"clock skew: {start[:10]} is dated in the future", start)
+    if now < ct:  # seconds of skew between this clock and the committer's
+        ct = now
     hours = round((now - ct) / 3600, 2)
     what = (
         "an entry waiting since at least"
