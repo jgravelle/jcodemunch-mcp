@@ -441,7 +441,7 @@ def _install_args(line: str) -> str:
 def _refreshes_this_package(line: str) -> bool:
     args = _install_args(line)
     for m in re.finditer(r"--refresh-package(?:\s+|=)(\S+)", args):
-        if _DIST.search(m.group(1).strip("'\"")):
+        if _DIST.fullmatch(m.group(1).strip("'\"")):
             return True
     return bool(re.search(r"(?<!\S)(?:--refresh|--no-cache|-n)(?=\s|$)", args))
 
@@ -457,6 +457,7 @@ _REFRESH_CASES = [
     ("-n in a test before it", '[ -n "$V" ] && uv pip install "jcodemunch-mcp==$V"', False),
     ("-n in an echo before it", 'echo -n x; uv pip install "jcodemunch-mcp==$V"', False),
     ("--no-cache after the command", 'uv pip install "jcodemunch-mcp==$V" && pip download --no-cache x', False),
+    ("a package whose name only contains ours", 'uv pip install --refresh-package jcodemunch-mcp-extras "jcodemunch-mcp==$V"', False),
     ("a longer flag that only starts with --refresh", 'uv pip install --refresh-packages-x "jcodemunch-mcp==$V"', False),
 ]
 
