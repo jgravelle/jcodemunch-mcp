@@ -217,6 +217,15 @@ Target: a step that fails the job when `skipped` exceeds the floor.
 Status: MEASURED and enforced (`pr-gate.yml` fails a leg over [`ci.skips_ubuntu`] / [`ci.skips_windows`]; the full tier applies the same ceiling locally).
 Gap: reconcile the 19-vs-13 local delta (FINDINGS F-05).
 
+### N8. Release latency
+Metric: hours an entry in `CHANGELOG.md`'s `[Unreleased]` block has waited, from the commit at which the block last went from empty to non-empty on the measured ref's first-parent chain.
+Method: `harness/release_age.py`, run by the fast tier (`python -m harness check release.unreleased_max_hours`). The ref is `origin/main` locally and the merge ref on a `pull_request` run; every other GitHub event prints `not evaluated`. An empty block in the working tree reads 0, so a release cut is never refused.
+Current: 1.108.320 shipped 14 days and 124 PRs after 1.108.319 (CLAUDE.md Standing lesson 09-30).
+Floor: at or under [`release.unreleased_max_hours`] (jjg, 2026-09-30). UNKNOWN (a shallow history, a git failure) fails.
+Target: the Floor, held.
+Status: MEASURED (fast tier, commit hook and `pr-gate.yml` stage 1).
+Gap: a release PR merged but not dispatched reads 0; the tag is the publish, and `scripts/release_preflight.py` owns that gap.
+
 ---
 
 ## Definition of Regression

@@ -711,6 +711,26 @@
         "harness/__main__.py",
         ".github/workflows/pr-gate.yml"
       ]
+    },
+    {
+      "id": "release.unreleased_max_hours",
+      "criterion": "N8",
+      "metric": "hours since CHANGELOG.md's [Unreleased] block last went from empty to non-empty on the measured ref's first-parent chain (committer time); origin/main locally, the merge ref on a pull_request run, not evaluated on any other GitHub event",
+      "comparator": "<=",
+      "floor": 2,
+      "unit": "hours",
+      "set_at": {
+        "commit": "3d939cbe",
+        "date": "2026-09-30",
+        "reason": "STANDARD N8, jjg's ruling of 2026-09-30: 1.108.320 shipped 14 days and 124 PRs after 1.108.319 because no step in the fix loop asked whether it was time to ship (CLAUDE.md Standing lesson 09-30). A cadence set by ruling, not measured from a median: the gate exists to change the behaviour it measures."
+      },
+      "measured": null,
+      "history": [],
+      "enforced_by": [
+        "harness/release_age.py",
+        "harness/__main__.py",
+        "tests/test_release_cadence_gate.py"
+      ]
     }
   ]
 }

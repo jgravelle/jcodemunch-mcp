@@ -82,7 +82,7 @@ Branch prefix `feat/`. Loop 3, LOOPS §2.3; the 94% DoD-incomplete rate.
 
 | Step | Does | Invokes | Produces |
 |---|---|---|---|
-| 1 spec | Restates the request as `SPEC.md` with acceptance criteria, each mapped to a STANDARD.md criterion (1-10, N1-N7) by number and to the Floor ids it could move (`python -m harness thresholds` is the list) | skill `standard-axes` | `.claude/state/runs/<run>/SPEC.md` |
+| 1 spec | Restates the request as `SPEC.md` with acceptance criteria, each mapped to a STANDARD.md criterion (1-10, N1-N8) by number and to the Floor ids it could move (`python -m harness thresholds` is the list) | skill `standard-axes` | `.claude/state/runs/<run>/SPEC.md` |
 | 2 surface impact | Asks: does any tool get added, removed, renamed, gain an argument, or change its description? Answers from `python scripts/surface_diff.py --base-ref origin/main` (names) and a `_build_tools_list()` description dump (W-1). If yes: records that README, CLAUDE.md/KEY-FILES, CHANGELOG and the schema baseline all change and that stage 5 (`done: tool surface`) will check; loads `tool-surface-discipline` | skill `tool-surface-discipline`, `scripts/surface_diff.py` | `evidence/surface.md` |
 | 3 tests first | Writes the failing tests in the tier the change belongs to: a new file in `tests/` is in the FULL tier automatically; adding it to `harness/tiers.json` `fast` is a judgment stated in the PR (offline, under the ceiling). Runs them: must FAIL. | `uv run pytest <files> -q` → `evidence/red.txt` | red.txt |
 | 4 implement | Edits. `hook-posttooluse` reindexes; H2/H3 fire as applicable. | — | — |

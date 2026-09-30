@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from harness import thresholds as T  # noqa: E402
 from harness import corpora as C  # noqa: E402
+from harness import release_age as RA  # noqa: E402
 
 TIERS = json.loads((HERE / "tiers.json").read_text(encoding="utf-8"))
 RESULTS_DIR = HERE / "results"
@@ -656,6 +657,15 @@ def check(
     tid: str, *, stamp: bool = False, explicit: bool = False
 ) -> tuple[bool | None, object]:
     e = T.get(tid)
+    if tid == RA.TID:
+        # N8: the clock, the environment and the checkout decide this one, and
+        # a run where it does not apply prints why instead of a PASS.
+        age = RA.measure()
+        print(RA.describe(age))
+        ok = RA.verdict(age)
+        if stamp and ok is not None and age.hours is not None:
+            _stamp(tid, age.hours)
+        return ok, age.hours
     if tid in NETWORK_MEASURERS and not explicit:
         print(
             f"{tid:<40} crit {e['criterion']:<3} floor {e['comparator']} {e['floor']!s:<12} delegated to `python -m harness check {tid}` (network; pr-gate.yml stage 1)"

@@ -15,7 +15,7 @@ telemetry honesty; 10 breadth of language support.
 
 Non-functional: N1 test-suite runtime ceiling; N2 coverage floor; N3 lint
 and type cleanliness; N4 deterministic benchmark output; N5 no network
-during tests; N6 agent-instruction budget; N7 CI skip count.
+during tests; N6 agent-instruction budget; N7 CI skip count; N8 release latency.
 
 Every acceptance criterion in a spec names one of these by number and the
 Floor ids it could move (`uv run python -m harness thresholds` lists them;

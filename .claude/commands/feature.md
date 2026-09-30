@@ -35,7 +35,7 @@ under `.claude/state/evidence/`. Authority for every rule is
 2. **Spec.** Load the `standard-axes` skill. Write `SPEC.md` in the run
    directory: the request restated in one paragraph, then acceptance
    criteria as a numbered list, each mapped to a STANDARD.md criterion
-   number (1-10, N1-N7) and to the Floor ids it could move (run
+   number (1-10, N1-N8) and to the Floor ids it could move (run
    `uv run python -m harness thresholds` for the list; cite ids, never
    values). A criterion mapped to nothing is a refusal.
 3. **Surface impact.** Load `tool-surface-discipline`. Answer in SPEC.md:
