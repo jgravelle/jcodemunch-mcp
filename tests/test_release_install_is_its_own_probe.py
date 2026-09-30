@@ -416,3 +416,31 @@ def test_the_step_name_does_not_promise_polling_it_does_not_do():
             f"{RELEASE.name} job {job!r}: step name {name!r} promises polling and the "
             f"step body has no retry loop"
         )
+
+
+# (LEDGER L-93) A retry that reuses a cached answer is not a retry.
+_REFRESH = re.compile(r"--refresh(?:-package(?:\s+|=)\S+)?\b|--no-cache\b|\s-n\b")
+
+
+@pytest.mark.parametrize("job,name,run", _remote_install_steps(), ids=lambda v: str(v)[:40])
+def test_a_retried_install_refreshes_the_index_every_attempt(job: str, name: str, run: str):
+    """`uv` caches the index page it fetched, so every retry after the first
+    re-read the answer the first attempt got.
+
+    On 1.108.320 (run 36759801785) the ubuntu smoke asked Test PyPI 13 s after
+    the upload finished, got an index that did not list the version yet, and
+    spent its ten-minute budget re-reading that cached page twenty times;
+    windows asked 16 s later and installed first try. The retry loop existed
+    and waited, and never asked again. `--refresh-package <dist>` makes each
+    attempt fetch this package's entry afresh and leaves every other package's
+    cache alone.
+    """
+    for line in _logical_lines(run):
+        if not _is_remote_install(line):
+            continue
+        assert _REFRESH.search(line), (
+            f"{RELEASE.name} job {job!r}, step {name!r}: this retried install reads "
+            f"uv's cached index, so an attempt that ran before the upload propagated "
+            f"poisons every attempt after it:\n    {line.strip()}\n"
+            f"Add `--refresh-package <distribution>` (or `--refresh`)."
+        )

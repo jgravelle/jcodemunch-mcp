@@ -173,7 +173,9 @@ jobs:
             uv pip install --python "$VENV" dist/*.whl
           else
             for i in $(seq 1 20); do
-              if uv pip install --python "$VENV" --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match "jcodemunch-mcp==$V"; then break; fi
+              # --refresh-package: each attempt asks the index afresh; a cached page from an
+              # attempt before the upload propagated answered all twenty on 1.108.320 (L-93).
+              if uv pip install --python "$VENV" --refresh-package jcodemunch-mcp --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match "jcodemunch-mcp==$V"; then break; fi
               echo "not on Test PyPI yet ($i)"; sleep 30
             done
             # An exhausted retry must still fail (C-19): the `if` that makes the
@@ -281,7 +283,8 @@ jobs:
             # index that had not published the file yet. The `if` is load-bearing
             # twice -- it retries, and it stops `set -e` aborting on attempt one.
             for i in $(seq 1 40); do
-              if uv pip install --python "$VENV" "jcodemunch-mcp==$V"; then break; fi
+              # --refresh-package: each attempt asks the index afresh (L-93).
+              if uv pip install --python "$VENV" --refresh-package jcodemunch-mcp "jcodemunch-mcp==$V"; then break; fi
               echo "not on PyPI yet ($i/40)"; sleep 15
             done
             uv pip show --python "$VENV" jcodemunch-mcp >/dev/null 2>&1 || {
