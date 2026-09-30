@@ -55,9 +55,14 @@ def _check_single(
 ) -> dict:
     """Core logic for checking a single identifier against import + content data."""
     ident_lower = _fold(identifier)
-    # The exclusion's key: exact spelling, case-insensitive as before (see
-    # `_fold`'s ⚠⚠ -- an exclusion must never widen).
-    ident_exact = identifier.lower()
+    # The exclusion's key: the EXACT declared spelling, case included. An
+    # exclusion REMOVES matches, so it must never widen (see `_fold`'s ⚠⚠):
+    # compared case-insensitively, Java `File()` beside `file()` skipped the
+    # body of `File` as `file`'s own definition and lost the call inside it,
+    # grading the used `file` `safe_to_delete` at 1.0 (LEDGER L-88). In a
+    # case-insensitive language, exact case errs toward counting a
+    # differently-cased declaration as a reference, which only blocks.
+    ident_exact = identifier
 
     # ── Import-level check ──────────────────────────────────────────────────
     import_references = []
@@ -111,7 +116,7 @@ def _check_single(
     defining_spans: dict[str, list[tuple[int, int]]] = {}
     unspanned_files: set[str] = set()
     for sym in index.symbols:
-        if sym.get("name", "").lower() != ident_exact:
+        if sym.get("name", "") != ident_exact:
             continue
         file_path = sym.get("file", "")
         if not file_path:

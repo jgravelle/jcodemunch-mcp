@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - a differently-cased sibling no longer hides a caller (LEDGER L-88)
+
+`check_references` leaves the definition's own lines out of its content
+search, so a declaration is not counted as a use of itself (#406). It picked
+those lines by matching every symbol's name to the identifier
+case-insensitively. In a case-sensitive language that names a different
+symbol: Java `File()` beside `file()` is two methods, and the call to `file()`
+inside `File()`'s body was skipped as `file`'s own definition.
+`check_delete_safe` then graded the used `file` `safe_to_delete` at confidence
+1.0.
+
+The exclusion now matches the declared spelling exactly, case included. An
+exclusion removes matches, so it must never be wider than the definition it
+stands for, the rule L-84 set for Unicode spellings. In a case-insensitive
+language, exact case errs toward counting a differently-cased declaration as
+a reference, which blocks a delete and never licenses one. Measured on this
+repository's index: of the 359 names that share a lowercase form with another
+spelling, every one gains the sibling's lines, and none changes between
+referenced and unreferenced or loses a line.
+
 ### Fixed - a page of test mentions no longer hides a real caller from `check_delete_safe` (LEDGER L-89)
 
 `check_delete_safe` asked `check_references` for at most 20 files and built
