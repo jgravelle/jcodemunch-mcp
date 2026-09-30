@@ -21,12 +21,22 @@ def _fold(text: str) -> str:
     comparison never saw the call: `check_delete_safe` read that as no
     reference and graded the used function `safe_to_delete` at 1.0.
 
-    NFKC on BOTH sides, for every language: folding can only ADD matches,
-    and a found reference only ever blocks a delete, so a language that
-    does not normalise loses nothing but a little precision -- the search
-    already over-matches on purpose (substring, case-insensitive). ASCII is
-    returned as `lower()` without normalising: NFKC is the identity there,
-    and this runs on every line of every file.
+    NFKC on both sides of a LINE or IMPORT match, for every language: a
+    found reference only ever blocks a delete, and the search already
+    over-matches on purpose (substring, case-insensitive). Folding can drop
+    a raw hit only where a combining mark follows the identifier and NFKC
+    composes it onto the last letter (`file` + U+0301), which spells a
+    different identifier, so no real reference is lost.
+
+    ⚠⚠ NEVER fold the definition-span EXCLUSION (review, L-84): that step
+    REMOVES matches, and in a language that does not normalise, Java's
+    `\ufb01le()` and `file()` are two methods. Folding it skipped the body of
+    `\ufb01le` as `file`'s own definition and lost the call inside it --
+    `safe_to_delete` at 1.0 where main blocked. The identifier is the
+    declared spelling, so the exclusion needs no folding to find it.
+
+    ASCII is returned as `lower()` without normalising: NFKC is the
+    identity there, and this runs on every line of every file.
     """
     if text.isascii():
         return text.lower()
@@ -45,6 +55,9 @@ def _check_single(
 ) -> dict:
     """Core logic for checking a single identifier against import + content data."""
     ident_lower = _fold(identifier)
+    # The exclusion's key: exact spelling, case-insensitive as before (see
+    # `_fold`'s ⚠⚠ -- an exclusion must never widen).
+    ident_exact = identifier.lower()
 
     # ── Import-level check ──────────────────────────────────────────────────
     import_references = []
@@ -98,7 +111,7 @@ def _check_single(
     defining_spans: dict[str, list[tuple[int, int]]] = {}
     unspanned_files: set[str] = set()
     for sym in index.symbols:
-        if _fold(sym.get("name", "")) != ident_lower:
+        if sym.get("name", "").lower() != ident_exact:
             continue
         file_path = sym.get("file", "")
         if not file_path:

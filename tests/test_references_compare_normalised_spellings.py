@@ -7,10 +7,11 @@ once, and the search never saw the call. `check_delete_safe` reads that search
 for its "no reference" evidence, and on main it graded the used function
 `safe_to_delete` at confidence 1.0.
 
-The fix compares NFKC-folded text on both sides. It can only ADD matches, which
-is the conservative direction for every consumer (a found reference blocks a
-delete, never licenses one), so it is safe for languages that do not normalise
-too. Every pair below is run under Python first, so each names one function.
+The fix compares NFKC-folded text on both sides of a line or import match,
+which only widens what counts as a reference, the conservative direction for
+every consumer. The definition-span EXCLUSION is never folded: it removes
+matches, and in Java `\ufb01le()` and `file()` are two methods (review, L-84).
+Every Python pair below is run under Python first, so each names one function.
 """
 from __future__ import annotations
 
@@ -77,6 +78,28 @@ def test_an_import_under_another_spelling_is_a_reference(tmp_path):
     got = check_references(repo, identifier="file", search_content=False, storage_path=sp)
     assert got["is_referenced"] is True, got
     assert got["import_references"], got
+
+
+def test_a_sibling_whose_name_folds_to_the_target_keeps_its_call(tmp_path):
+    """Java does not normalise identifiers: `\ufb01le()` and `file()` are two
+    methods, and the call to `file()` sits inside `\ufb01le`'s body. A folded
+    exclusion skipped that body as `file`'s own definition."""
+    src = (
+        "public class A {\n"
+        "    public int \ufb01le() {\n"
+        "        return file();\n"
+        "    }\n"
+        "    private int file() {\n"
+        "        return 1;\n"
+        "    }\n"
+        "}\n"
+    )
+    repo, sp = _repo(tmp_path, {"A.java": src})
+    got = check_references(repo, identifier="file", storage_path=sp)
+    lines = [m["line"] for f in got["content_references"] for m in f["matches"]]
+    assert 3 in lines, got
+    verdict = check_delete_safe(repo, "file", storage_path=sp)["verdict"]
+    assert verdict not in _ABSENCE, verdict
 
 
 def test_control_a_different_name_is_still_not_a_reference(tmp_path):

@@ -13,14 +13,17 @@ catch it, because `file` is a plain ASCII identifier. The same held for a
 decomposed accent, a fullwidth letter or a mathematical-bold letter on either
 side, and for an import written in another spelling.
 
-`check_references` now compares NFKC-folded text: the identifier, every
-content line, every imported name and the definition span it excludes. It is
-applied to every language, because folding can only add matches and a found
-reference only ever blocks a delete; the search already over-matches on
-purpose (substring, case-insensitive). ASCII text skips the normalisation,
-since NFKC changes nothing there. Measured on this repository's own index, the
-median over five runs went from 524 to 534 ms for a name that appears nowhere
-and from 247 to 272 ms for `verdict` (`evidence/perf.txt`).
+`check_references` now compares NFKC-folded text on both sides of a line match
+and an import match, for every language: a found reference only ever blocks a
+delete, and the search already over-matches on purpose (substring,
+case-insensitive). The exclusion of the definition's own lines is NOT folded.
+Review found that folding it removes matches: in Java, `\ufb01le()` and `file()`
+are two methods, and a folded exclusion skipped the body of `\ufb01le` as `file`'s
+definition, losing the call inside it and grading the used method
+`safe_to_delete` at 1.0 where main blocked. ASCII text skips the
+normalisation, since NFKC changes nothing there. Measured with a scratch script
+on this repository's own index, the median over five runs went from 524 to 534
+ms for a name that appears nowhere and from 247 to 272 ms for `verdict`.
 
 ### Fixed - `name_not_searchable` names the re-index and the loaders that could move it (LEDGER L-81)
 
