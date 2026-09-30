@@ -264,16 +264,20 @@ def check_delete_safe(
     internal_ref_count = 0
     test_ref_count = 0
     try:
-        from .check_references import check_references  # noqa: PLC0415
-        # Batch form (identifiers=[...]) so check_references returns its grouped
-        # `results` shape — singular (identifier=...) returns a flat response with
-        # no `results` key, which this loop would silently read as empty (#338).
-        ref_out = check_references(
-            repo=f"{owner}/{name}", identifiers=[target_name],
-            search_content=True, max_content_results=20,
-            storage_path=storage_path,
-        )
-        for entry in ref_out.get("results", []) or []:
+        from . import check_references  # noqa: PLC0415
+        # ⚠⚠ (LEDGER L-89) EVERY file, never a page. The public tool caps its
+        # content search at 20 files (100 at most), and this verdict was built
+        # from that page alone: twenty test files that merely MENTION the name
+        # pushed the one real caller off it, and a used function graded
+        # `test_coverage_only`. An absence claim needs the whole corpus -- a
+        # count taken after the page is cut describes the page (#559). The
+        # cost is at most one full scan, which a no-match search pays anyway.
+        ref_entries = [check_references._check_single(
+            identifier=target_name, index=index, search_content=True,
+            max_content_results=max(1, len(index.source_files)),
+            owner=owner, name=name, store=store, start=time.perf_counter(),
+        )]
+        for entry in ref_entries:
             for ref in entry.get("content_references", []) or []:
                 ref_file = ref.get("file", "")
                 if not ref_file:

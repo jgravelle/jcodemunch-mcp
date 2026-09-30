@@ -107,3 +107,18 @@ def test_control_a_different_name_is_still_not_a_reference(tmp_path):
     repo, sp = _repo(tmp_path, {"m.py": "def file():\n    return 1\n\ndef fire():\n    return 2\n\nfire()\n"})
     got = check_references(repo, identifier="file", storage_path=sp)
     assert got["is_referenced"] is False, got
+
+
+def test_a_full_page_of_test_mentions_does_not_hide_a_real_caller(tmp_path):
+    """LEDGER L-89 (L-84 review): `check_delete_safe` read `check_references`
+    capped at 20 files and classified from that page alone, so twenty test files
+    that merely mention the name pushed the one real caller off the page and the
+    verdict fell to `test_coverage_only`. Folding (L-84) adds a new way to fill
+    the page; the raw spelling below shows the page was already the defect."""
+    files = {"zz_lib.py": "def file():\n    return 1\n\nprint(file())\n"}
+    (tmp_path / "tests").mkdir()
+    for i in range(20):
+        files[f"tests/test_{i:02d}.py"] = "# see the file helper\n"
+    repo, sp = _repo(tmp_path, files)
+    got = check_delete_safe(repo, "file", storage_path=sp)
+    assert got["verdict"] not in _ABSENCE, (got["verdict"], [b.get("file") for b in got["blockers"]])
