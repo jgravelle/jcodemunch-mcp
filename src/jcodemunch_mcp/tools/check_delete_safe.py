@@ -521,8 +521,6 @@ def check_delete_safe(
         # the number this project already uses for "an absence nothing could
         # establish", which is exactly this.
         confidence = min(confidence, UNPROVEN_CEILING)
-        if corpus_gap:
-            confidence = min(confidence, corpus_adequacy.ceiling)
     elif verdict == "safe_to_delete":
         confidence = max(confidence, 0.85 if dead_code_conf < 0.9 else 0.95)
     elif verdict == "runtime_observed":

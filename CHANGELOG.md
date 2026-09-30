@@ -15,9 +15,11 @@ could change the answer, and the blocker list dropped the corpus blocker.
 Both gates now run on `name_not_searchable` too. The verdict keeps its name,
 because the name gate is the narrower cause, the same rule the corpus gate
 already applies to `dynamic_import_boundary`, and it gains the other gates'
-blockers and gaps. Only the corpus half is reachable on a real repo today, a
-C# operator on a stale index. The dynamic half needs a Python name the name
-predicate refuses, and none exists, so its test drives the reach rule's seam.
+blockers and gaps. Both halves are reachable on a real repo: a C# operator on a
+stale index, and a Python function with a non-ASCII name (`def café()`) in a
+package that loads its modules by computed name. The name predicate is
+ASCII-only, so it refuses `café` though a call site writes it; that is LEDGER
+L-83, and it fails toward a refusal, never a deletion.
 
 ### Fixed - `check_delete_safe` no longer tells an agent to stop checking on an unsearchable name (LEDGER L-80)
 
