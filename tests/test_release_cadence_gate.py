@@ -111,12 +111,65 @@ def test_a_commit_that_does_not_touch_the_changelog_moves_nothing(repo: Path) ->
     assert age.hours == pytest.approx(5.0)
 
 
+_CUT = (
+    "# Changelog\n\n## [Unreleased]\n\n## [1.1.0] - 2026-01-02 - second\n\n- a\n\n"
+    "## [1.0.0] - 2026-01-01 - first\n\n- old\n"
+)
+
+
 def test_a_release_cut_in_the_working_tree_reads_zero(repo: Path) -> None:
-    """The release commit empties the block; the gate must never refuse it."""
+    """The release commit empties the block under a new version heading; never refused."""
     _commit(repo, _with("a"), T0 + HOUR, "fix a")
-    (repo / "CHANGELOG.md").write_text(_EMPTY, encoding="utf-8")
+    (repo / "CHANGELOG.md").write_text(_CUT, encoding="utf-8")
     age = RA.measure(repo, ref="HEAD", now=T0 + 40 * HOUR)
     assert age.hours == 0.0
+    assert "release cut" in age.basis
+
+
+def test_an_empty_tree_that_is_not_a_release_does_not_hide_the_ref(repo: Path) -> None:
+    """Review probe: a branch cut before main's entry has an empty block and is no release."""
+    _commit(repo, _with("a"), T0 + HOUR, "fix a on main")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "topic", "HEAD~1")
+    age = RA.measure(repo, ref="origin/main", now=T0 + 50 * HOUR)
+    assert age.hours == pytest.approx(49.0)
+    assert RA.verdict(age) is False
+
+
+def test_an_unreadable_ref_is_unknown_never_empty(repo: Path) -> None:
+    (repo / "CHANGELOG.md").write_text(_with("a"), encoding="utf-8")
+    age = RA.measure(repo, ref="no-such-ref", now=T0 + 50 * HOUR)
+    assert age.hours is None
+    assert RA.verdict(age) is False
+
+
+def test_a_failed_parent_read_is_unknown_not_a_shorter_age(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review probe: a failed read mid-walk stopped at a newer commit and under-reported."""
+    _commit(repo, _with("a"), T0 + HOUR, "fix a")
+    _commit(repo, _with("a", "b"), T0 + 2 * HOUR, "fix b")
+    real = RA._read
+    monkeypatch.setattr(
+        RA,
+        "_read",
+        lambda root, rev: ("error", None) if rev.endswith("^1") else real(root, rev),
+    )
+    age = RA.measure(repo, ref="HEAD", now=T0 + 3 * HOUR)
+    assert age.hours is None
+    assert RA.verdict(age) is False
+
+
+def test_the_walk_stops_once_the_verdict_is_settled(repo: Path) -> None:
+    """Review probe: a 14-day block walked every commit (216 git calls, 5.88 s)."""
+    _commit(repo, _with("a"), T0 + HOUR, "fix a")
+    _commit(repo, _with("a", "b"), T0 + 2 * HOUR, "fix b")
+    newest = _commit(repo, _with("a", "b", "c"), T0 + 3 * HOUR, "fix c")
+    age = RA.measure(repo, ref="HEAD", now=T0 + 30 * HOUR)
+    assert age.commit == newest
+    assert age.hours == pytest.approx(27.0)
+    assert "at least" in age.basis
+    assert RA.verdict(age) is False
 
 
 def test_an_entry_that_is_not_yet_on_the_ref_reads_zero(repo: Path) -> None:
@@ -172,12 +225,39 @@ def test_github_evaluates_pull_requests_only(env: dict, applies: bool) -> None:
         assert "not evaluated" in reason
 
 
-def test_the_ref_is_head_on_a_pull_request_and_origin_main_locally(repo: Path) -> None:
+def test_the_ref_is_the_test_merges_base_on_a_pull_request(repo: Path) -> None:
+    """A PR's own entry has reached nobody; a re-run hours later must not date it."""
     pr = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request"}
-    assert RA.pick_ref(repo, pr) == "HEAD"
-    assert RA.pick_ref(repo, {}) == "HEAD"  # no origin/main in the scratch repo
+    assert RA.pick_ref(repo, pr) == "HEAD"  # not a merge
+    _git(repo, "checkout", "-q", "-b", "topic")
+    _commit(repo, _with("mine"), T0 + HOUR, "fix on the branch")
+    _git(repo, "checkout", "-q", "main")
+    _git(
+        repo, "merge", "-q", "--no-ff", "-m", "test merge", "topic", when=T0 + 2 * HOUR
+    )
+    assert RA.pick_ref(repo, pr) == "HEAD^1"
+    age = RA.measure(repo, now=T0 + 20 * HOUR, env=pr)
+    assert age.hours == 0.0
+
+
+def test_locally_the_upstream_is_found_by_url_not_by_the_name_origin(
+    repo: Path,
+) -> None:
+    assert RA.pick_ref(repo, {}) == "HEAD"  # no remote in the scratch repo
     _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
     assert RA.pick_ref(repo, {}) == "origin/main"
+    _git(
+        repo, "remote", "add", "origin", "https://github.com/someone/jcodemunch-mcp.git"
+    )
+    _git(
+        repo,
+        "remote",
+        "add",
+        "upstream",
+        "https://github.com/jgravelle/jcodemunch-mcp.git",
+    )
+    _git(repo, "update-ref", "refs/remotes/upstream/main", "HEAD")
+    assert RA.pick_ref(repo, {}) == "upstream/main"
 
 
 def test_a_not_applicable_run_is_not_a_verdict(repo: Path) -> None:

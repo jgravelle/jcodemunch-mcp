@@ -44,6 +44,21 @@ to whoever owns that login.
 `dry_run=true` (the default until the first real publish) stops before any
 upload, tag, release or registry write and smokes the built wheel instead.
 
+⚠⚠ **The release cadence (STANDARD N8, `release.unreleased_max_hours`).** Once
+`main`'s `[Unreleased]` block has waited past the Floor, every PR's
+`fast: harness fast tier` fails, and so does every local commit. The release
+PR itself passes: its tree empties the block under a new version heading.
+`main.yml`, `nightly.yml` and `release.yml` never evaluate it, so `main`
+stays green and `/release` will cut. The escape paths:
+- A fix `main` needs before the release: put it IN the release PR, or cut the
+  release first and merge the fix after. Nothing else unblocks it short of
+  §6.
+- A contributor PR failing only this row did nothing wrong. Say so on the
+  thread; it passes on a re-run once the release merges.
+- A local refusal while `main` is already released: `git fetch`. The gate
+  reads the upstream remote's `main` as last fetched, and its line names the
+  fetch age.
+
 ⚠ Never push a `v*` tag by hand. The workflow refuses it and says so.
 ⚠ Never run `twine upload` locally again. After the first pipeline publish,
 revoke the `~/.pypirc` token on PyPI (Account settings → API tokens) and

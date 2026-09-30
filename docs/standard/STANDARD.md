@@ -219,12 +219,12 @@ Gap: reconcile the 19-vs-13 local delta (FINDINGS F-05).
 
 ### N8. Release latency
 Metric: hours an entry in `CHANGELOG.md`'s `[Unreleased]` block has waited, from the commit at which the block last went from empty to non-empty on the measured ref's first-parent chain.
-Method: `harness/release_age.py`, run by the fast tier (`python -m harness check release.unreleased_max_hours`). The ref is `origin/main` locally and the merge ref on a `pull_request` run; every other GitHub event prints `not evaluated`. An empty block in the working tree reads 0, so a release cut is never refused.
+Method: `harness/release_age.py`, run by the fast tier (`python -m harness check release.unreleased_max_hours`). The ref is `main` as users receive it: the upstream remote's `main` locally (found by URL, with the fetch age in the verdict line), the test merge's first parent on a `pull_request` run; every other GitHub event prints `not evaluated`. A release cut in the working tree (the block emptied under a new version heading) reads 0, so the release commit is never refused.
 Current: 1.108.320 shipped 14 days and 124 PRs after 1.108.319 (CLAUDE.md Standing lesson 09-30).
 Floor: at or under [`release.unreleased_max_hours`] (jjg, 2026-09-30). UNKNOWN (a shallow history, a git failure) fails.
 Target: the Floor, held.
 Status: MEASURED (fast tier, commit hook and `pr-gate.yml` stage 1).
-Gap: a release PR merged but not dispatched reads 0; the tag is the publish, and `scripts/release_preflight.py` owns that gap.
+Gap: a release PR merged but not dispatched reads 0; the tag is the publish, and `scripts/release_preflight.py` owns that gap. Past the Floor, a fix `main` needs before the release cannot merge on its own: it rides the release PR, or follows it (`docs/cicd/RUNBOOK.md` section 1).
 
 ---
 

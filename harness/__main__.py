@@ -717,7 +717,13 @@ def offline_checks(stamp: bool = False) -> tuple[bool, list[dict]]:
                 "id": tid,
                 "floor": T.floor(tid),
                 "observed": obs,
-                "verdict": "PASS" if ok else ("FAIL" if ok is False else "DELEGATED"),
+                "verdict": "PASS"
+                if ok
+                else (
+                    "FAIL"
+                    if ok is False
+                    else ("NOT EVALUATED" if tid == RA.TID else "DELEGATED")
+                ),
             }
         )
         if ok is False:
