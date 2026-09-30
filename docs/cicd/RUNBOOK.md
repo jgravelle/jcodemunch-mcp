@@ -63,8 +63,10 @@ uvx --from twine twine upload dist-ci\jcodemunch_mcp-X.Y.Z*
 
 then the post-publish smoke from PyPI in a fresh venv
 (`scripts\handshake.py --expect-version X.Y.Z --command <venv>\Scripts\jcodemunch-mcp.exe --fixture testsixtures\pkg_smoke`),
-`gh release create vX.Y.Z dist-ci\* --title ... --notes-file ...` with the
-notes rendered from the CHANGELOG block, and the registry line from
+`gh release create vX.Y.Z dist-ci\* --title ... --notes-file notes.md` with the
+notes rendered by `python scripts\release_notes.py X.Y.Z <tool_count> > notes.md`
+(never the block pasted by hand: GitHub refuses a body over 125,000
+characters, and 1.108.320's block alone was 335,730; LEDGER L-92), and the registry line from
 CLAUDE.md. The publisher is listed on PyPI since 2026-09-11 (FINDINGS C-15);
 the next dispatched run is the proof; if it is refused again, re-enter
 the form before each release. When `release: pypi` passes once, this
