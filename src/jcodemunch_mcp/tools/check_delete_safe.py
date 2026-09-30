@@ -453,8 +453,13 @@ def check_delete_safe(
     # not a blocker (jjg, 2026-09-29); `get_blast_radius` discloses it.
     dynamic_gap = None
     reaching = DynamicBoundary(index.imports).reaching(target.get("file", ""))
-    if reaching and verdict in ("safe_to_delete", "internal_only", "test_coverage_only"):
-        verdict = "dynamic_import_boundary"
+    # (LEDGER L-81) `name_not_searchable` gains the gap and the blocker and
+    # keeps its name, the narrower cause; skipping it hid the loaders.
+    if reaching and verdict in (
+        "safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable",
+    ):
+        if verdict != "name_not_searchable":
+            verdict = "dynamic_import_boundary"
         dynamic_gap = {
             "action": "read the named loaders for the module names they can produce",
             "why": (
@@ -477,11 +482,13 @@ def check_delete_safe(
     # ⚠ Evaluated after the dynamic gate too: when that gate has already
     # replaced the absence verdict, a thin corpus is still a blocker and a
     # gap, and dropping it would hide the re-index that could change the
-    # answer. The dynamic verdict keeps the name; it is the narrower cause.
+    # answer. The dynamic verdict keeps the name; it is the narrower cause,
+    # and so does `name_not_searchable` (LEDGER L-81).
     if not corpus_adequacy.adequate and verdict in (
         "safe_to_delete", "internal_only", "test_coverage_only", "dynamic_import_boundary",
+        "name_not_searchable",
     ):
-        if verdict != "dynamic_import_boundary":
+        if verdict not in ("dynamic_import_boundary", "name_not_searchable"):
             verdict = "corpus_inadequate"
         corpus_gap = {
             "action": "re-index this repo",
@@ -514,6 +521,8 @@ def check_delete_safe(
         # the number this project already uses for "an absence nothing could
         # establish", which is exactly this.
         confidence = min(confidence, UNPROVEN_CEILING)
+        if corpus_gap:
+            confidence = min(confidence, corpus_adequacy.ceiling)
     elif verdict == "safe_to_delete":
         confidence = max(confidence, 0.85 if dead_code_conf < 0.9 else 0.95)
     elif verdict == "runtime_observed":
