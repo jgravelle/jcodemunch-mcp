@@ -20,6 +20,8 @@ import io
 import json
 import runpy
 import sys
+import time
+import types
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -30,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "registry_verify.py"
 NAME = "io.github.jgravelle/jcodemunch-mcp"
 META = "io.modelcontextprotocol.registry/official"
+_REAL_SLEEP, _REAL_MONOTONIC = time.sleep, time.monotonic
 
 
 @pytest.fixture()
@@ -39,7 +42,12 @@ def rv(monkeypatch):
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    # The module's own `time` name, not the real module's attribute (F-40).
+    monkeypatch.setattr(
+        mod,
+        "time",
+        types.SimpleNamespace(sleep=lambda s: None, monotonic=time.monotonic),
+    )
     return mod
 
 
@@ -66,6 +74,18 @@ def _paged(monkeypatch, pages: dict[str | None, dict]):
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     return asked
+
+
+def test_the_fixture_leaves_the_process_clock_alone(rv):
+    """The script's `time` NAME is replaced, never an attribute of the real module.
+
+    The first form of this fixture set `time.sleep` on the module every thread
+    in the worker shares. Under xdist a background thread left by another test
+    slept through the fake 258,047 times and `len(slept) == 1` failed on one CI
+    leg (harness FINDINGS F-40); each of those sleeps also returned at once.
+    """
+    assert rv.time is not time
+    assert time.sleep is _REAL_SLEEP and time.monotonic is _REAL_MONOTONIC
 
 
 def test_the_latest_row_on_a_later_page_is_found(rv, monkeypatch, capsys):
@@ -301,7 +321,6 @@ def test_a_row_with_a_malformed_inside_is_no_answer(rv, monkeypatch, capsys, row
 def test_the_process_exits_with_what_main_returns(monkeypatch, capsys, pages, expected):
     """Run as `python scripts/registry_verify.py`, the way `release.yml` runs it."""
     _paged(monkeypatch, pages)
-    monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(
         sys, "argv", [str(SCRIPT), "--version", "9.9.9", "--attempts", "1"]
     )

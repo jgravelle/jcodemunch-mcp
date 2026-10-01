@@ -19,6 +19,9 @@ import importlib.util
 import io
 import json
 import re
+import threading
+import time
+import types
 import urllib.error
 from pathlib import Path
 
@@ -27,6 +30,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "io.github.jgravelle/jcodemunch-mcp"
 META = "io.modelcontextprotocol.registry/official"
+_REAL_SLEEP, _REAL_MONOTONIC = time.sleep, time.monotonic
 
 
 @pytest.fixture()
@@ -37,7 +41,12 @@ def rv(monkeypatch):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     mod.slept = []
-    monkeypatch.setattr(mod.time, "sleep", mod.slept.append)
+    # The module's own `time` name, not the real module's attribute (F-40).
+    monkeypatch.setattr(
+        mod,
+        "time",
+        types.SimpleNamespace(sleep=mod.slept.append, monotonic=time.monotonic),
+    )
     return mod
 
 
@@ -66,6 +75,40 @@ def _serve(rv, monkeypatch, answers):
 
     monkeypatch.setattr(rv.urllib.request, "urlopen", urlopen)
     return calls
+
+
+def test_the_fixture_leaves_the_process_clock_alone(rv):
+    """The script's `time` NAME is replaced, never an attribute of the real module.
+
+    The first form of this fixture set `time.sleep` on the module every thread
+    in the worker shares. Under xdist a background thread left by another test
+    slept through the fake 258,047 times and `len(slept) == 1` failed on one CI
+    leg (harness FINDINGS F-40); each of those sleeps also returned at once.
+    """
+    assert rv.time is not time
+    assert time.sleep is _REAL_SLEEP and time.monotonic is _REAL_MONOTONIC
+
+
+def test_a_thread_sleeping_elsewhere_does_not_reach_the_fixture(
+    rv, monkeypatch, capsys
+):
+    """F-40 reproduced on purpose: another test's leftover thread sleeps while this one runs."""
+    stop = threading.Event()
+
+    def napper():
+        while not stop.is_set():
+            time.sleep(0.001)
+
+    t = threading.Thread(target=napper, daemon=True)
+    t.start()
+    try:
+        _serve(rv, monkeypatch, [TimeoutError("timed out"), _payload("9.9.9")])
+        assert rv.main(["--version", "9.9.9"]) == 0
+        _REAL_SLEEP(0.05)
+    finally:
+        stop.set()
+        t.join(5)
+    assert rv.slept == [20.0], f"{len(rv.slept)} sleeps recorded"
 
 
 def test_one_timed_out_read_does_not_fail_a_good_publish(rv, monkeypatch, capsys):
