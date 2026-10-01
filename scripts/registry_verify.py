@@ -33,8 +33,10 @@ API = "https://registry.modelcontextprotocol.io/v0/servers"
 UNREADABLE = 75
 
 
-def fetch(name: str) -> list[dict]:
-    url = f"{API}?search={urllib.request.quote(name)}&limit=100"
+MAX_PAGES = 50
+
+
+def _page(url: str) -> tuple[list[dict], str | None]:
     with urllib.request.urlopen(url, timeout=30) as r:  # noqa: S310
         data = json.load(r)
     if not isinstance(data, dict):
@@ -46,7 +48,39 @@ def fetch(name: str) -> list[dict]:
         # An error object served with a 200 (`{"error": ...}`) has no row
         # list. Read as zero rows it would be a FAIL about the publish.
         raise ValueError(f"no row list in the body (keys: {sorted(data)[:5]})")
-    return rows
+    meta = data.get("metadata")
+    cursor = meta.get("nextCursor") if isinstance(meta, dict) else None
+    return rows, cursor if isinstance(cursor, str) and cursor else None
+
+
+def fetch(name: str) -> list[dict]:
+    """Every page (LEDGER L-99).
+
+    Rows come back `limit` a page, ordered by version STRING (the live
+    read ends on `1.8.6`), and `metadata.nextCursor` names the next page.
+    Which page holds the latest row is therefore not knowable from here:
+    one page of 100 held all 66 rows on 2026-10-01 and would have dropped
+    rows at 101. A page that fails fails the whole read; half a read is
+    never judged.
+    """
+    base = f"{API}?search={urllib.request.quote(name)}&limit=100"
+    rows: list[dict] = []
+    seen: set[str] = set()
+    cursor = None
+    for _ in range(MAX_PAGES):
+        url = (
+            base
+            if cursor is None
+            else f"{base}&cursor={urllib.request.quote(cursor, safe='')}"
+        )
+        page, cursor = _page(url)
+        rows.extend(page)
+        if cursor is None:
+            return rows
+        if cursor in seen:
+            raise ValueError(f"the cursor did not advance ({cursor!r})")
+        seen.add(cursor)
+    raise ValueError(f"more than {MAX_PAGES} pages")
 
 
 def verdict(rows: list[dict], name: str, version: str) -> tuple[bool, list[str]]:
@@ -97,18 +131,26 @@ def main(argv=None) -> int:
             time.sleep(a.delay)
         try:
             rows = fetch(a.name)
-        except (OSError, http.client.HTTPException, ValueError) as exc:
+            ok, lines = verdict(rows, a.name, a.version)
+        except (
+            OSError,
+            http.client.HTTPException,
+            ValueError,
+            AttributeError,
+            TypeError,
+        ) as exc:
             # URLError, HTTPError and a socket timeout are OSError; a cut or
             # malformed response (IncompleteRead, BadStatusLine) is
             # HTTPException and NOT OSError; a body that is not a JSON
-            # object carrying a row list is ValueError. None of them is an
-            # answer.
+            # object carrying a row list is ValueError; a row whose inside
+            # is not the registry's shape raises AttributeError or TypeError
+            # in `verdict` (LEDGER L-98). None of them is an answer.
             print(
                 f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})",
                 flush=True,
             )
             continue
-        ok, answered = verdict(rows, a.name, a.version)
+        answered = lines
         if ok:
             print("\n".join(answered))
             return 0
