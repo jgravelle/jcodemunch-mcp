@@ -114,6 +114,47 @@ def test_a_csharp_long_escape_is_a_reference(tmp_path):
     assert "B.cs" in {f["file"] for f in got.get("content_references", [])}, got
 
 
+def _node_runs(tmp_path, rel: str) -> None:
+    """Run the JS fixture OUTSIDE the indexed tree, so the index stays fresh."""
+    if not shutil.which("node"):
+        return
+    copy = tmp_path.parent / (tmp_path.name + "-node")
+    copy.mkdir()
+    (copy / rel).write_text((tmp_path / rel).read_text(encoding="utf-8"), encoding="utf-8")
+    out = subprocess.run(["node", str(copy / rel)], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "1", "the pair must name one function, or the fixture proves nothing"
+
+
+def test_a_javascript_braced_escape_blocks_the_delete(tmp_path):
+    """Review: ECMAScript's braced escape also names the identifier, and the
+    first fix left `check_delete_safe` at `safe_to_delete` 1.0 for it."""
+    call = BS + "u{66}ile()"
+    src = "function file() { return 1; }\nfunction main() { return " + call + "; }\nconsole.log(main());\n"
+    repo, sp = _written(tmp_path, {"a.js": src})
+    assert BS in (tmp_path / "a.js").read_text(encoding="utf-8")
+    _node_runs(tmp_path, "a.js")
+    refs = check_references(repo, identifier="file", storage_path=sp)
+    lines = [m["line"] for f in refs.get("content_references", []) for m in f["matches"]]
+    assert 2 in lines, refs
+    got = check_delete_safe(repo, "file", storage_path=sp)
+    assert got["verdict"] not in _ABSENCE, (got["verdict"], got.get("confidence"))
+
+
+def test_two_escaped_surrogates_are_one_character():
+    """Java spells an astral character as two escaped surrogates. Joined, the
+    mathematical bold `f` folds (NFKC) to `f`; left apart, nothing matches."""
+    from jcodemunch_mcp.tools.check_references import _fold
+
+    pair = BS + "u" + "d835" + BS + "u" + "dc1f"
+    assert "file" in _fold(pair + "ile()")
+
+
+def test_a_lone_escaped_surrogate_does_not_eat_its_neighbour():
+    from jcodemunch_mcp.tools.check_references import _fold
+
+    assert "file" in _fold(BS + "u" + "d800" + "file()")
+
+
 def test_an_escape_of_another_letter_is_not_a_reference(tmp_path):
     """Control: decoding must not invent a match. escape(`g`) + `ile` is `gile`."""
     repo, sp = _written(tmp_path, {"A.java": _A, "B.java": _b("A." + esc("g") + "ile()")})

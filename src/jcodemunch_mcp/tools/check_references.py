@@ -37,11 +37,18 @@ def _fold(text: str) -> str:
     declared spelling, so the exclusion needs no folding to find it.
 
     (LEDGER L-86) Unicode escapes are decoded first. Java translates them
-    before it lexes (JLS 3.3) and C# accepts them inside an identifier, so a
-    call spelled with a backslash-u escape names the method it spells, and the
-    raw line never matched it: a used Java method graded `safe_to_delete` at
-    1.0. Decoding is done for every language and every line, strings and
-    comments included: it only adds matches, the same direction as the fold.
+    before it lexes (JLS 3.3), C# accepts them inside an identifier, and
+    ECMAScript accepts its braced form there too, so a call spelled with an
+    escape names the function it spells, and the raw line never matched it: a
+    used Java method graded `safe_to_delete` at 1.0, and a JS function the
+    same way through the braced form (review). Decoding runs on every line of
+    every language, strings and comments included.
+    ⚠ It cannot drop a CALL: wherever an escape can stand before a call, it
+    IS one. It can drop a textual MENTION whose letters sit inside an
+    escape's hex digits (a Windows path segment after a backslash that starts
+    with `u` and four hex digits), which this search counted before; that is
+    a mention, not a use. ⚠ Java's even-backslash rule is not applied: an
+    escaped backslash followed by `u` decodes too, which only adds a match.
 
     ASCII is returned as `lower()` without normalising: NFKC is the
     identity there, and this runs on every line of every file.
@@ -53,13 +60,14 @@ def _fold(text: str) -> str:
     return unicodedata.normalize("NFKC", text).lower()
 
 
-# A backslash, then one or more `u` and four hex digits (Java, C#), or `U` and
-# eight (C#). Java allows the repeated `u`; the hex digits take either case.
-_ESCAPE = re.compile(r"\\(?:u+([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8}))")
+# A backslash, then: `u` and 1-6 hex digits in braces (ECMAScript); one or
+# more `u` and four hex digits (Java, C#, ECMAScript); or `U` and eight (C#).
+# Java allows the repeated `u`; the hex digits take either case.
+_ESCAPE = re.compile(r"\\(?:u\{([0-9A-Fa-f]{1,6})\}|u+([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8}))")
 
 
 def _unescape(m: "re.Match[str]") -> str:
-    cp = int(m.group(1) or m.group(2), 16)
+    cp = int(m.group(1) or m.group(2) or m.group(3), 16)
     return chr(cp) if cp <= 0x10FFFF else m.group(0)
 
 
