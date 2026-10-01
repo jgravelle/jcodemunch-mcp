@@ -82,6 +82,9 @@ def test_a_specifier_stem_match_is_not_an_import_of_the_name(tmp_path):
         "src/shapes.js": "export function file() { return 1; }\n",
         "src/file.js": "export function other() { return 2; }\n",
         "src/main.js": "import { other } from './file.js';\nexport function boot() { return other(); }\n",
+        # Without an importer of its own, main.js reads unreachable and the
+        # obligation is SATISFIED whether or not the stem match is filtered.
+        "src/app.js": "import { boot } from './main.js';\nboot();\n",
     }
     repo, storage = _index(tmp_path, files)
     r = investigate_deletion_safety(repo, "src/shapes.js::file#function", storage_path=storage)

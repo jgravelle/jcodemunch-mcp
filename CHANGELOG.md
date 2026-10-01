@@ -11,7 +11,9 @@
   `export_not_imported` SATISFIED for a name a live file imports. The filter was only ever meant to
   separate a named import from a specifier-stem match, and every row already states that as
   `match_type`. It reads that field now and compares no name of its own, so a spelling the search
-  learns later reaches the investigator with no second change.
+  learns later reaches the investigator with no second change. That includes one it already had:
+  the fold ignores case, so `from shapes import File` now refutes for `file` as well. It can only
+  block a delete, never permit one.
 
 ## [1.108.321] - 2026-10-01 - a call written with an escape is still a call
 
