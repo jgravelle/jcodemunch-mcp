@@ -9,6 +9,12 @@ read returned ZERO rows on a publish that had completely succeeded, and it
 survives `&limit=100`. Never re-publish on a zero-row read; fix the parse.
 Exit 1 unless a row with `server.version == X` exists, is marked latest, and
 its `packages[].version` advanced too.
+
+The read is retried, and the exit code says which thing went wrong (LEDGER
+L-96). 1: the registry ANSWERED and the row is wrong. 2 (`UNREADABLE`): no
+attempt got an answer, which says nothing about the publish. One read with no
+retry timed out after the 1.108.321 publish had succeeded, and `release.yml`
+opened "registry publish failed" over it.
 """
 
 from __future__ import annotations
@@ -16,9 +22,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
+import urllib.error
 import urllib.request
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
+UNREADABLE = 2
 
 
 def fetch(name: str) -> list[dict]:
@@ -64,10 +73,38 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True)
     ap.add_argument("--name", default="io.github.jgravelle/jcodemunch-mcp")
+    ap.add_argument("--attempts", type=int, default=6)
+    ap.add_argument(
+        "--delay", type=float, default=20.0, help="seconds between attempts"
+    )
     a = ap.parse_args(argv)
-    ok, lines = verdict(fetch(a.name), a.name, a.version)
-    print("\n".join(lines))
-    return 0 if ok else 1
+    attempts = max(a.attempts, 1)
+    answered: list[str] = []
+    for attempt in range(1, attempts + 1):
+        if attempt > 1:
+            time.sleep(a.delay)
+        try:
+            rows = fetch(a.name)
+        except (OSError, ValueError) as exc:
+            # URLError, HTTPError and a socket timeout are OSError; a body
+            # that is not JSON is ValueError. None of them is an answer.
+            print(f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})")
+            continue
+        ok, answered = verdict(rows, a.name, a.version)
+        if ok:
+            print("\n".join(answered))
+            return 0
+        # A wrong row is asked again too: the registry can serve the old
+        # version for a moment after a publish.
+        print(f"attempt {attempt}: {answered[-1]}")
+    if answered:
+        print("\n".join(answered))
+        return 1
+    print(
+        f"UNREADABLE: the registry gave no answer in {attempts} attempt(s). "
+        "This is not evidence about the publish; read the registry again before any re-publish."
+    )
+    return UNREADABLE
 
 
 if __name__ == "__main__":
