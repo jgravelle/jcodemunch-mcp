@@ -280,10 +280,16 @@ def investigate_deletion_safety(
             ref_ob.evidence.append(f"check_references failed: {refs['error']}")
         else:
             import_refs = refs.get("import_references") or []
+            # ⚠ Read the match check_references made; never compare names
+            # again here (LEDGER L-90). Its comparison folds Unicode forms
+            # and escapes, so a raw `target_name in names` dropped an import
+            # it had found and this obligation read SATISFIED over a live
+            # importer. `match_type` already separates a named import from a
+            # specifier-stem one, which is all this filter is for.
             named_importers = [
                 r["file"]
                 for r in import_refs
-                if any(target_name in (m.get("names") or []) for m in r.get("matches", []))
+                if any(m.get("match_type") == "named" for m in r.get("matches", []))
             ]
             if named_importers:
                 # A refutation is only real if the thing that would break is

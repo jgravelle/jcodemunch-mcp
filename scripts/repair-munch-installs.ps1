@@ -57,6 +57,29 @@ $Targets = @(
 
 function Write-Head($text) { Write-Host "`n=== $text ===" -ForegroundColor Cyan }
 
+# ⚠⚠ EVERY call to $Python goes through this. Windows PowerShell 5.1 turns
+#    each stderr line of a native command into an ErrorRecord once stderr is
+#    redirected, and under `$ErrorActionPreference = 'Stop'` the first one
+#    TERMINATES the script. pip writes a blank line to stderr after a
+#    successful editable install, so the 2026-10-01 run reinstalled
+#    jcodemunch-mcp, then died before the other four products. The exit code
+#    is the verdict, read from $LASTEXITCODE; stderr is text.
+#    -Merge returns stderr lines too (pip's messages); without it only stdout.
+function Invoke-Py {
+    param([string[]]$PyArgs, [switch]$Merge)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $all = & $Python @PyArgs 2>&1 } finally { $ErrorActionPreference = $old }
+    foreach ($x in $all) {
+        if ($x -is [System.Management.Automation.ErrorRecord]) {
+            # A blank stderr line has an empty message and would print as the
+            # exception's type name.
+            $m = $x.Exception.Message
+            if ($Merge -and $m) { $m }
+        } else { "$x" }
+    }
+}
+
 # --------------------------------------------------------------------------
 # Pre-flight: refuse while any MCP server holds its console script open.
 # --------------------------------------------------------------------------
@@ -86,19 +109,24 @@ Write-Host 'No *munch* processes running.' -ForegroundColor Green
 # --------------------------------------------------------------------------
 # Report current state
 # --------------------------------------------------------------------------
+# ⚠⚠ SINGLE QUOTES ONLY inside this Python. Windows PowerShell 5.1 strips an
+#    embedded double quote when it passes an argument to a native program, so
+#    `d.metadata["Name"] or ""` reached python.exe as a syntax error on line 4
+#    and the report was empty (2026-10-01, run as `powershell -File`). pwsh 7
+#    keeps them, which is why it worked where it was written.
 $probe = @'
 import importlib.metadata as md
 rows = set()
 for d in md.distributions():
-    n = (d.metadata["Name"] or "")
-    if "munch" in n.lower():
+    n = (d.metadata['Name'] or '')
+    if 'munch' in n.lower():
         rows.add((n, d.version, str(d._path)))
 for n, v, p in sorted(rows):
-    print(f"{n}\t{v}\t{p}")
+    print(chr(9).join((n, v, p)))
 '@
 
 function Get-MunchDists {
-    $out = & $Python -c $probe 2>$null
+    $out = Invoke-Py @('-c', $probe)
     if (-not $out) { return @() }
     $out | ForEach-Object {
         $f = $_ -split "`t"
@@ -128,7 +156,7 @@ if ($unmanaged) {
 # --------------------------------------------------------------------------
 Write-Head 'Staging leftovers ("~" dist-info)'
 
-$siteDirs = & $Python -c "import site,sys;[print(p) for p in set(site.getsitepackages()+([site.getusersitepackages()] if site.ENABLE_USER_SITE else []))]" 2>$null
+$siteDirs = Invoke-Py @('-c', 'import site,sys;[print(p) for p in set(site.getsitepackages()+([site.getusersitepackages()] if site.ENABLE_USER_SITE else []))]')
 $turds = foreach ($sd in $siteDirs) {
     if (Test-Path $sd) {
         Get-ChildItem -Path $sd -Directory -Filter '~*munch*' -ErrorAction SilentlyContinue
@@ -192,7 +220,7 @@ foreach ($t in $Targets) {
     #   it is a decision, so say it out loud rather than performing it quietly.
     $importsFromTree = $false
     $modName = $dist -replace '-', '_'
-    $loc = & $Python -c "import $modName as m; print(m.__file__)" 2>$null
+    $loc = Invoke-Py @('-c', "import $modName as m; print(m.__file__)")
     if ($LASTEXITCODE -eq 0 -and $loc -like "$tree*") { $importsFromTree = $true }
     if (-not $importsFromTree) {
         Write-Host '  NOTE: currently a regular install; this will convert it to editable' -ForegroundColor Yellow
@@ -209,7 +237,7 @@ foreach ($t in $Targets) {
         $still = @(Get-MunchDists | Where-Object { $_.Name -eq $dist })
         if ($still.Count -eq 0) { break }
         Write-Host "  uninstall pass $i (remaining: $($still.Count))"
-        & $Python -m pip uninstall -y $dist 2>&1 | Out-Null
+        Invoke-Py @('-m', 'pip', 'uninstall', '-y', $dist) -Merge | Out-Null
     }
 
     $left = @(Get-MunchDists | Where-Object { $_.Name -eq $dist })
@@ -229,10 +257,13 @@ foreach ($t in $Targets) {
     Write-Host '  reinstalling editable from tree'
     Push-Location $tree
     try {
-        & $Python -m pip install -e . --no-deps 2>&1 |
+        Invoke-Py @('-m', 'pip', 'install', '-e', '.', '--no-deps') -Merge |
             Select-String -Pattern 'error|ERROR|Successfully' | ForEach-Object {
                 Write-Host "    $_"
             }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    pip install exited $LASTEXITCODE for $dist" -ForegroundColor Red
+        }
     } finally { Pop-Location }
 }
 
@@ -268,7 +299,7 @@ foreach ($t in $Targets) {
     $mod = $t.Dist -replace '-', '_'
     if ($mod -eq 'jragmunch') { $mod = 'jragmunch' }
     $code = "import $mod as m; print('$($t.Dist)', getattr(m,'__version__','(no __version__)'), '<-', getattr(m,'__file__','?'))"
-    $r = & $Python -c $code 2>&1
+    $r = Invoke-Py @('-c', $code) -Merge
     if ($LASTEXITCODE -eq 0) { Write-Host "  $r" } else { Write-Host "  $($t.Dist): NOT IMPORTABLE" -ForegroundColor Red }
 }
 

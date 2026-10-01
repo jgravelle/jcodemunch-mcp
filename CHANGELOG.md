@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The deletion investigator dropped an import the reference search had found (LEDGER L-90).**
+  `check_references` compares import names through one fold, so `from shapes import` of `file`
+  spelled with the fi ligature, or with a Unicode escape, is an import of `file`. The investigator
+  then filtered those rows again with a raw `target_name in names`, lost both, and answered
+  `export_not_imported` SATISFIED for a name a live file imports. The filter was only ever meant to
+  separate a named import from a specifier-stem match, and every row already states that as
+  `match_type`. It reads that field now and compares no name of its own, so a spelling the search
+  learns later reaches the investigator with no second change.
+
 ## [1.108.321] - 2026-10-01 - a call written with an escape is still a call
 
 A Java, C# or JavaScript call can spell a name with a Unicode escape, and the
