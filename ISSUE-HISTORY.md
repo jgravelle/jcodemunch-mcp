@@ -2060,3 +2060,17 @@ The 1.108.319 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.317 count, verbatim:
 
 - ⚠ Prior (1.108.317): 9241 passed, 19 skipped, **0 failed** (9260 total; the skip count is 19 under `uv run` and 13 under `PYTHONPATH=src python -m pytest`, harness F-05).
+
+## Current State rotation (2026-10-01, release 1.108.321)
+
+The 1.108.318 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.318):** **The process is code that cannot skip a step, and the field is measured from result files.** Three layers: the workflows layer (`/feature` · `/fix-issue` · `/release` · `/review` · `/triage-issue` · `/benchmark-compare` · `/competitive-compare`, with hooks that refuse a commit without the fast tier, a PR without a full-tier stamp on THIS tree, and every irreversible verb), the inbound layer (nine headless jobs, OFF until `INBOUND_ENABLED`, the model never holding a write token) and the competitive tier (the nulls, jCodeMunch and nine adapters over pinned corpora in a sandbox, every FINDINGS number script-written from a result file). Forensics: `docs/workflows/FINDINGS.md`, `docs/inbound/FINDINGS.md`, `docs/competitive/FINDINGS.md`.
+
+The 1.108.320 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.320 — **A member the index never saw and a caller the search never found both read as nothing there.** Class members and class state are indexed and owned in the languages that dropped them (Java, Kotlin, Go, Rust, Dart, Ruby, PHP, Python, JS/TS, C/C++, Pascal, F#, Nim, Zig, Swift; Haskell extracted nothing at all; #713-#858). The delete and edit preflights stopped certifying an absence their search could not see: a dynamic import that can load the file (#876, L-70, L-73, L-75; `tools/_dynamic_boundary.py` is the one reach rule), a name no call site writes (#714, L-80, L-81; a `_stop_rule._UNSETTLED` verdict is never terminal), a call in another Unicode spelling (L-84: `check_references` folds line and import matches through NFKC), a differently-cased sibling (L-88), and a page of test mentions hiding the caller (L-89: `check_delete_safe` reads every file). ⚠⚠ **The definition-span exclusion is NEVER folded and matches the exact declared spelling** — an exclusion removes matches, and both a folded and a case-insensitive one certified a used method `safe_to_delete` at 1.0. ⚠⚠ **It shipped 14 days after 1.108.319**, with 124 PRs merged in between: nothing in the fix loop asked whether it was time to ship (Standing lesson 09-30). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.318 count, verbatim:
+
+- ⚠ Prior (1.108.318): 10185 passed, 24 skipped, **0 failed** (10209 total; the skip count is 24 under the full tier, harness F-05).

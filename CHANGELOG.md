@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.108.321] - 2026-10-01 - a call written with an escape is still a call
+
+A Java, C# or JavaScript call can spell a name with a Unicode escape, and the
+compiler reads it as the plain name. The reference search compared raw text,
+so it never saw such a call, and the delete preflight graded the called
+function `safe_to_delete` at confidence 1.0. This release decodes escapes in
+the one comparison every reference match goes through. It is also the first
+release cut under the release cadence: an unreleased change now fails the
+fast tier once it has waited past the Floor (STANDARD N8).
+
 ### Fixed - a call spelled with a Unicode escape is a call (LEDGER L-86)
 
 Java translates Unicode escapes before it reads a single token, so a call

@@ -1,29 +1,29 @@
 {
-  "current": "1.108.320",
+  "current": "1.108.321",
   "entries": [
+    {
+      "version": "1.108.321",
+      "date": "2026-10-01",
+      "title": "a call written with an escape is still a call",
+      "summary": "A Java, C# or JavaScript call can spell a name with a Unicode escape, and the compiler reads it as the plain name. The reference search compared raw text, so it never saw such a call, and the delete preflight graded the called function `safe_to_delete` at confidence 1.0. This release decodes escapes in"
+    },
     {
       "version": "1.108.320",
       "date": "2026-09-30",
       "title": "a member the index never saw and a caller the search never found both read as nothing there",
-      "summary": "A symbol the index never recorded and a caller the reference search never found both answer \"nothing is there\", and the delete preflight read either one as proof. This release closes both. Class members and class state are indexed and owned in the languages that dropped them: Java, Kotlin, Go, Rust, Dart, Ruby, PHP, Python, JavaScript and TypeScript, C and C++, Pascal, F#, Nim, Zig, Swift and others, and Haskell, which extracted nothing at all (#713-#858). The safety preflights stopped certifying an absence their search could not see: a dynamic import that can load the file (#876, L-70, L-73, L-75), a name no call site writes (#714, L-80, L-81), a call written in another Unicode spelling or hidden behind a differently-cased sibling (L-84, L-88), and a page of test mentions that pushed the real caller out of view (L-89)."
+      "summary": "A symbol the index never recorded and a caller the reference search never found both answer \"nothing is there\", and the delete preflight read either one as proof. This release closes both. Class members and class state are indexed and owned in the languages that dropped them: Java, Kotlin, Go, Rust, Dart, Ruby,"
     },
     {
       "version": "1.108.319",
       "date": "2026-09-16",
       "title": "the numbers a competitor published about us were right, and so was the refusal we had shipped over twice",
-      "summary": "`/release` step 4 recomputes every published figure and refuses on a disagreement. It refused three consecutive releases on the same thing, and the first two shipped over it — which is how a refusal becomes ceremony."
+      "summary": "`/release` step 4 recomputes every published figure and refuses on a disagreement. It refused three consecutive releases on the same thing, and the first two shipped over it \u2014 which is how a refusal becomes ceremony."
     },
     {
       "version": "1.108.318",
       "date": "2026-09-11",
       "title": "the process is code that cannot skip a step, and the field is measured from result files",
       "summary": "Three layers ship in this block, every one off by default where it can act: the workflows layer (seven Claude Code commands and the hooks that refuse a commit without the fast tier, a PR without a full-tier run on the tree it describes, and every irreversible verb), the inbound layer (nine headless jobs that draft and never post, the model never holding a token that can write) and the competitive tier (the null alternatives, jCodeMunch and nine competitors over pinned corpora in a sandbox, every recorded number written by a script from a result file). Beside them: the usage-site question reaches the tool that answers it (CF-63), a failed embedding batch names its cause (CF-66), the watcher's startup and its deletion reconciliation (#641, #629, @marcelruhf), a notice for installs on tree-sitter-language-pack 1.x (#608, @kecsap), the CodeQL triage's fixes (#628) and an sdist without `.github/`."
-    },
-    {
-      "version": "1.108.317",
-      "date": "2026-09-04",
-      "title": "CI runs the harness on every change; publishing is a dispatched workflow",
-      "summary": "The eight workflows are five: `pr-gate.yml` (five staged jobs, every one a required check on `main` by name), `main.yml` (full witness + online bench after a merge, a `regression` issue per failing Floor, a weekly results PR), `nightly.yml` (the matrix with fresh corpora, `drift` issues),"
     }
   ]
 }
