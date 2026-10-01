@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.323] - 2026-10-01 - an entry point has no importer, and that does not make it dead
+
 ### Fixed
 
 - **The deletion investigator called an entry point dead, and had its own answer to the question

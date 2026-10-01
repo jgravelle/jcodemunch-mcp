@@ -2088,3 +2088,17 @@ The 1.108.321 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.319 count, verbatim:
 
 - ⚠ Prior (1.108.319): 10521 passed, 24 skipped, **0 failed** (10545 total).
+
+## Current State rotation (2026-10-01, release 1.108.323)
+
+The 1.108.320 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.320):** **A member the index never saw and a caller the search never found both read as nothing there.** Class members and state indexed in the languages that dropped them (#713-#858); the delete and edit preflights stopped certifying an absence their search could not see (a dynamic import, an unsearchable name, another Unicode spelling, a differently-cased sibling, a page of test mentions). ⚠⚠ **The definition-span exclusion is NEVER folded and matches the exact declared spelling.** Shipped 14 days after .319 (Standing lesson 09-30). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-01).
+
+The 1.108.322 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.322 — **The deletion investigator reads the match the search made.** `check_references` matches import names through `_fold`; the investigator filtered those rows again with a raw `target_name in names`, so an import in another Unicode form or written with an escape was dropped and `export_not_imported` read SATISFIED over a live importer (L-90). It reads `match_type` and compares no name of its own. ⚠⚠ **Never re-compare what `check_references` matched**; `find_references` still does, at two sites (L-95). First release cut inside the 2-hour cadence (N8). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.320 count, verbatim:
+
+- ⚠ Prior (1.108.320): 13905 passed, 25 skipped, **0 failed** (13930 total).

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.322",
+  "current": "1.108.323",
   "entries": [
+    {
+      "version": "1.108.323",
+      "date": "2026-10-01",
+      "title": "an entry point has no importer, and that does not make it dead",
+      "summary": "The deletion investigator called an importer dead when nothing imported it. An entry point has no importer by construction, so a name imported only by main.py, by the file package.json names, by a package's __init__.py or by a test read as imported by nothing live. The investigator asks find_dead_code, which knows the project's roots, and keeps no answer of its own."
+    },
     {
       "version": "1.108.322",
       "date": "2026-10-01",
@@ -18,12 +24,6 @@
       "date": "2026-09-30",
       "title": "a member the index never saw and a caller the search never found both read as nothing there",
       "summary": "A symbol the index never recorded and a caller the reference search never found both answer \"nothing is there\", and the delete preflight read either one as proof. This release closes both. Class members and class state are indexed and owned in the languages that dropped them: Java, Kotlin, Go, Rust, Dart, Ruby,"
-    },
-    {
-      "version": "1.108.319",
-      "date": "2026-09-16",
-      "title": "the numbers a competitor published about us were right, and so was the refusal we had shipped over twice",
-      "summary": "`/release` step 4 recomputes every published figure and refuses on a disagreement. It refused three consecutive releases on the same thing, and the first two shipped over it \u2014 which is how a refusal becomes ceremony."
     }
   ]
 }
