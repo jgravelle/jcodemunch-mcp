@@ -4,7 +4,8 @@
 
 ### Fixed
 
-- **The deletion investigator called an entry point dead (LEDGER L-94).** It split a name's
+- **The deletion investigator called an entry point dead, and had its own answer to the question
+  (LEDGER L-94).** It split a name's
   importers into live and dead by asking whether anything imported the importer. An entry point
   has no importer by construction, so a name imported only by `main.py`, by the file
   `package.json` names as `main`, by a package's `__init__.py` or by a test read
@@ -14,7 +15,9 @@
   had its own second answer beside it. It asks that tool now and keeps none: a root added there
   later is a live importer here with no second change. Only a file the tool reports at its default
   confidence counts as dead; one it is unsure of, or a call that errors, leaves the importer live,
-  so the change can block a delete and cannot permit one that was blocked.
+  so the change can block a delete and cannot permit one that was blocked. It inherits that tool's
+  gaps with its roots: a root-level `tests/` directory (L-101) and an undeclared non-Python entry
+  point such as `index.js` with no `package.json` (L-102) still read as dead, there and here.
 
 ## [1.108.322] - 2026-10-01 - the deletion investigator reads the match the search made
 

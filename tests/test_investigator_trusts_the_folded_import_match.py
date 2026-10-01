@@ -10,8 +10,10 @@ The filter it needed was only "named, not specifier-stem", which every row
 already states as `match_type`. The last test pins that half: a file imported
 by its stem alone is not an import of a name.
 
-Each importer here has an importer of its own: the investigator counts a file
-nothing imports as unreachable, entry points included (LEDGER L-94).
+Each importer here has an importer of its own. When this was written the
+investigator counted a file nothing imports as unreachable, entry points
+included (LEDGER L-94, fixed since); the fixtures stay as they are so the two
+properties are tested apart.
 """
 
 from __future__ import annotations

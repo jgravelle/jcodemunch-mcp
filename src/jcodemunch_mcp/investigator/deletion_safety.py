@@ -112,9 +112,13 @@ def _split_importers_by_liveness(
     ⚠ Only a file it reports at its default confidence is dead. A lower one
     (`all_importers_dead`, a capped corpus) is a file it is unsure of, and an
     importer we cannot classify counts as REACHABLE, so uncertainty blocks
-    deletion rather than permitting it. A test file is never in its answer
-    (a root, or left out, by `include_tests`), so a test that imports the name
-    is a live importer: it breaks when the name goes.
+    deletion rather than permitting it. A test file that tool RECOGNISES is
+    never in its answer, so a test importing the name is a live importer.
+
+    ⚠ This inherits the authority's gaps as well as its roots. It does not
+    recognise a root-level `tests/` directory (LEDGER L-101) or an undeclared
+    non-Python entry point such as `index.js` with no `package.json` (L-102),
+    and both still read as dead here. Fix them THERE.
     """
     try:
         from ..tools.find_dead_code import find_dead_code  # noqa: PLC0415
