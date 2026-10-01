@@ -1,6 +1,12 @@
 {
-  "current": "1.108.321",
+  "current": "1.108.322",
   "entries": [
+    {
+      "version": "1.108.322",
+      "date": "2026-10-01",
+      "title": "the deletion investigator reads the match the search made",
+      "summary": "The reference search compares import names through one fold, so an import spelled in another Unicode form or with an escape is an import of the plain name. The deletion investigator then filtered those rows again with a raw comparison, lost them, and answered that no file imports a name a live file imports. It reads the match type the search already states and compares no name of its own."
+    },
     {
       "version": "1.108.321",
       "date": "2026-10-01",
@@ -18,12 +24,6 @@
       "date": "2026-09-16",
       "title": "the numbers a competitor published about us were right, and so was the refusal we had shipped over twice",
       "summary": "`/release` step 4 recomputes every published figure and refuses on a disagreement. It refused three consecutive releases on the same thing, and the first two shipped over it \u2014 which is how a refusal becomes ceremony."
-    },
-    {
-      "version": "1.108.318",
-      "date": "2026-09-11",
-      "title": "the process is code that cannot skip a step, and the field is measured from result files",
-      "summary": "Three layers ship in this block, every one off by default where it can act: the workflows layer (seven Claude Code commands and the hooks that refuse a commit without the fast tier, a PR without a full-tier run on the tree it describes, and every irreversible verb), the inbound layer (nine headless jobs that draft and never post, the model never holding a token that can write) and the competitive tier (the null alternatives, jCodeMunch and nine competitors over pinned corpora in a sandbox, every recorded number written by a script from a result file). Beside them: the usage-site question reaches the tool that answers it (CF-63), a failed embedding batch names its cause (CF-66), the watcher's startup and its deletion reconciliation (#641, #629, @marcelruhf), a notice for installs on tree-sitter-language-pack 1.x (#608, @kecsap), the CodeQL triage's fixes (#628) and an sdist without `.github/`."
     }
   ]
 }

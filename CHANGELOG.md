@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.322] - 2026-10-01 - the deletion investigator reads the match the search made
+
 ### Fixed
 
 - **The deletion investigator dropped an import the reference search had found (LEDGER L-90).**
