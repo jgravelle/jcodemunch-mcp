@@ -52,53 +52,58 @@ _HARD_BLOCKER = {
     }),
 }
 
-# Verdicts asserting an upper BOUND on usage. Every one of these is an absence
-# claim underneath ("no callers", "only tests", "no test coverage"), so a
-# disabled or empty evidence channel can overturn them. Terminal only when no
+# Verdicts asserting an upper BOUND on usage. Every one is an absence claim
+# underneath ("no callers", "only tests", "no test coverage"), so a disabled or
+# empty evidence channel can overturn it. ⚠⚠ (LEDGER L-82) Never write this
+# dict by hand: it is DERIVED below from two declared halves, so a new bounded
+# verdict cannot be added without saying which half it belongs to. A literal
+# here is where a fifth unsettled verdict went in unforced and came back
+# terminal (`tests/test_bounded_verdicts_declare_whether_absence_was_established.py`).
+
+# The absence WAS established on the channels consulted. Terminal when no
 # channel gap remains.
-_BOUNDED = {
+_ESTABLISHED = {
     "check_delete_safe": frozenset({
         "safe_to_delete",
         "internal_only",
         "test_coverage_only",
-        # (#566) The corpus could not back an absence claim. It belongs here
-        # rather than among the hard blockers because nothing was PROVEN to use
-        # the symbol — re-indexing can still move it either way.
-        "corpus_inadequate",
-        # (#714) Nothing was proven to use the symbol and nothing could be:
-        # the name never reaches a call site. Reading the call sites or
-        # ingesting runtime evidence can still move it either way, so it is
-        # bounded rather than terminal.
-        "name_not_searchable",
-        # (LEDGER L-70) A dynamic import scoped to the symbol's package can
-        # load it. Reading the named loaders, or runtime evidence, can still
-        # move it either way, so it is bounded rather than terminal.
-        "dynamic_import_boundary",
     }),
     "check_edit_safe": frozenset({
         "safe_to_edit",
         "untested",
-        # (LEDGER L-75) safe_to_edit's absence claim, unproven past a dynamic
-        # import that can load the file. Reading the loader can move it.
-        "dynamic_import_boundary",
     }),
 }
 
-# (LEDGER L-80) Bounded verdicts whose MEANING is that the absence could not
-# be established. They are never terminal, whichever gaps the caller passed:
+# (LEDGER L-80) The verdict's MEANING is that the absence could not be
+# established. Never terminal, whichever gaps the caller passed:
 # `name_not_searchable` built its gap and never handed it over, so with every
 # channel open it came back terminal, telling an agent to stop checking before
 # a delete on a claim the tool calls "not evidence of disuse". A gap a caller
 # forgets now costs the specific action, never the verdict's meaning.
+# (LEDGER L-82) Each maps to the `build_stop_rule` argument that carries its
+# cause, so a forgotten gap is named rather than lost.
 _UNSETTLED = {
-    "check_delete_safe": frozenset({
-        "corpus_inadequate",
-        "name_not_searchable",
-        "dynamic_import_boundary",
-    }),
-    "check_edit_safe": frozenset({
-        "dynamic_import_boundary",
-    }),
+    "check_delete_safe": {
+        # (#566) The corpus could not back an absence claim; nothing was PROVEN
+        # to use the symbol, and re-indexing can move it either way.
+        "corpus_inadequate": "corpus_gap",
+        # (#714) The name never reaches a call site; reading the call sites or
+        # runtime evidence can move it either way.
+        "name_not_searchable": "name_gap",
+        # (LEDGER L-70) A dynamic import scoped to the symbol's package can
+        # load it; reading the named loaders can move it either way.
+        "dynamic_import_boundary": "dynamic_gap",
+    },
+    "check_edit_safe": {
+        # (LEDGER L-75) safe_to_edit's absence claim, unproven past a dynamic
+        # import that can load the file. Reading the loader can move it.
+        "dynamic_import_boundary": "dynamic_gap",
+    },
+}
+
+_BOUNDED = {
+    tool: _ESTABLISHED.get(tool, frozenset()) | frozenset(_UNSETTLED.get(tool, ()))
+    for tool in sorted(set(_ESTABLISHED) | set(_UNSETTLED))
 }
 
 # Tools whose evidence is already folded into each verdict. Named in the tool
@@ -189,15 +194,22 @@ def build_stop_rule(
         name_gap=name_gap,
     )
 
-    if verdict in _UNSETTLED.get(tool, frozenset()):
-        if not gaps:
+    unsettled = _UNSETTLED.get(tool, {})
+    if verdict in unsettled:
+        cause = {
+            "corpus_gap": corpus_gap,
+            "dynamic_gap": dynamic_gap,
+            "name_gap": name_gap,
+        }.get(unsettled[verdict])
+        if not cause:
             gaps = [{
                 "action": "review manually",
                 "why": (
                     f"verdict {verdict!r} means the absence could not be "
-                    "established, and no channel that settles it was named"
+                    f"established, and the caller passed no {unsettled[verdict]} "
+                    "naming what settles it"
                 ),
-            }]
+            }] + gaps
         return {"terminal": False, "would_change_verdict": gaps}
 
     if verdict in _BOUNDED.get(tool, frozenset()):
