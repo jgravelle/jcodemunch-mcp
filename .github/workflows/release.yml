@@ -386,10 +386,9 @@ jobs:
         run: |
           # No pipe: the script's exit code names the outcome (1 the row is wrong, 75 no read got an answer).
           # The code is written before the summary, so a failed append cannot lose it.
-          set +e
-          python scripts/registry_verify.py --version "${{ needs.preflight.outputs.version }}" > verify.txt 2>&1
-          code=$?
-          set -e
+          # `|| code=$?` and not `set +e`: this shell runs with -e, and the step must reach the write below.
+          code=0
+          python scripts/registry_verify.py --version "${{ needs.preflight.outputs.version }}" > verify.txt 2>&1 || code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           cat verify.txt
           cat verify.txt >> "$GITHUB_STEP_SUMMARY"

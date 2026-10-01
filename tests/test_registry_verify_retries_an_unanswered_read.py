@@ -102,8 +102,22 @@ def test_a_body_that_is_not_json_is_an_unanswered_read(rv, monkeypatch, capsys):
         b"null",  # valid JSON, and not the registry's object
         b"[]",
         b"",
+        b'{"error": "rate limited"}',  # an object, served with a 200, with no row list
+        b'{"servers": "x"}',
+        b'{"servers": [null]}',
     ],
-    ids=["cut", "bad-status", "http-503", "reset", "json-null", "json-list", "empty"],
+    ids=[
+        "cut",
+        "bad-status",
+        "http-503",
+        "reset",
+        "json-null",
+        "json-list",
+        "empty",
+        "error-object",
+        "rows-not-a-list",
+        "row-not-an-object",
+    ],
 )
 def test_every_spelling_of_no_answer_is_unreadable(rv, monkeypatch, capsys, unanswered):
     answer = io.BytesIO(unanswered) if isinstance(unanswered, bytes) else unanswered
@@ -121,6 +135,13 @@ def test_the_unreadable_code_is_one_nothing_else_exits_with(rv, capsys):
     capsys.readouterr()
     assert usage.value.code == 2
     assert rv.UNREADABLE not in (0, 1, 2)
+
+
+def test_an_empty_row_list_is_an_answer(rv, monkeypatch, capsys):
+    """`{"servers": []}` is the registry saying it has no such server: exit 1, not UNREADABLE."""
+    _serve(rv, monkeypatch, [io.BytesIO(b'{"servers": []}')])
+    assert rv.main(["--version", "9.9.9", "--attempts", "2"]) == 1
+    assert "FAIL" in capsys.readouterr().out
 
 
 def test_a_registry_still_serving_the_old_version_is_asked_again(
@@ -181,11 +202,23 @@ def test_the_workflow_carries_the_scripts_code_into_the_issue():
     cmds = _commands(verify)
     assert "id: verify" in cmds
     run = next(c for c in cmds if "registry_verify.py" in c)
-    assert "|" not in run, "the verify script's exit status is the left side of a pipe"
-    at = cmds.index(run)
-    assert cmds[at + 1] == "code=$?", cmds[at + 1]
+    assert "|" not in run.replace("||", ""), (
+        "the verify script's exit status is the left side of a pipe"
+    )
     assert 'echo "code=$code" >> "$GITHUB_OUTPUT"' in cmds
     assert cmds[-1] == 'exit "$code"', cmds[-1]
+    # The whole script, in order. Actions runs it under `bash -e`, so a bare
+    # failing line ends the step before the code is written and the issue is
+    # titled as a failed publish; `|| code=$?` is what keeps the step alive.
+    assert run.endswith(" > verify.txt 2>&1 || code=$?"), run
+    assert cmds[cmds.index("run: |") + 1 :] == [
+        "code=0",
+        run,
+        'echo "code=$code" >> "$GITHUB_OUTPUT"',
+        "cat verify.txt",
+        'cat verify.txt >> "$GITHUB_STEP_SUMMARY"',
+        'exit "$code"',
+    ]
     _, issue = _registry_steps()
     assert "steps.verify.outputs.code" in "".join(_commands(issue))
     # A failed append to the summary must not lose the code.
@@ -196,6 +229,7 @@ def test_the_workflow_carries_the_scripts_code_into_the_issue():
 def test_the_issue_does_not_call_an_unanswered_read_a_failed_publish(rv):
     _, issue = _registry_steps()
     cmds = _commands(issue)
+    assert "if: failure()" in cmds
     test = f'if [ "${{{{ steps.verify.outputs.code }}}}" = "{rv.UNREADABLE}" ]; then'
     assert cmds.count(test) == 1, f"expected exactly one {test!r}"
     assert cmds.count("else") == 1 and cmds[-1] == "fi"

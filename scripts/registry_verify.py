@@ -40,7 +40,13 @@ def fetch(name: str) -> list[dict]:
     if not isinstance(data, dict):
         # `null` or a list is a proxy's or an error page's body, not the registry's answer.
         raise ValueError(f"body is {type(data).__name__}, not an object")
-    return data.get("servers") or data.get("items") or []
+    key = next((k for k in ("servers", "items") if k in data), None)
+    rows = data.get(key) if key else None
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        # An error object served with a 200 (`{"error": ...}`) has no row
+        # list. Read as zero rows it would be a FAIL about the publish.
+        raise ValueError(f"no row list in the body (keys: {sorted(data)[:5]})")
+    return rows
 
 
 def verdict(rows: list[dict], name: str, version: str) -> tuple[bool, list[str]]:
@@ -95,7 +101,8 @@ def main(argv=None) -> int:
             # URLError, HTTPError and a socket timeout are OSError; a cut or
             # malformed response (IncompleteRead, BadStatusLine) is
             # HTTPException and NOT OSError; a body that is not a JSON
-            # object is ValueError. None of them is an answer.
+            # object carrying a row list is ValueError. None of them is an
+            # answer.
             print(
                 f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})",
                 flush=True,
