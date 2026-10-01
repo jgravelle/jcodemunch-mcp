@@ -384,26 +384,27 @@ jobs:
         if: needs.preflight.outputs.dry_run != 'true'
         shell: bash
         run: |
-          # No pipe: the script's exit code names the outcome (1 the row is wrong, 2 no read got an answer).
+          # No pipe: the script's exit code names the outcome (1 the row is wrong, 75 no read got an answer).
+          # The code is written before the summary, so a failed append cannot lose it.
           set +e
           python scripts/registry_verify.py --version "${{ needs.preflight.outputs.version }}" > verify.txt 2>&1
           code=$?
           set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
           cat verify.txt
           cat verify.txt >> "$GITHUB_STEP_SUMMARY"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
           exit "$code"
       - name: Open an issue (PyPI is live; the registry is a follow-up, not a rollback)
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ steps.verify.outputs.code }}" = "2" ]; then
+          if [ "${{ steps.verify.outputs.code }}" = "75" ]; then
             gh issue create --repo "${{ github.repository }}" --label release \
               --title="registry could not be read after publishing v${{ needs.preflight.outputs.version }}" \
-              --body "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. PyPI and the GitHub release are live, and the publish step passed. No read of the registry got an answer, so nothing here says the publish failed. Run scripts/registry_verify.py again; do not re-publish on this issue."
+              --body "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. PyPI and the GitHub release are live, and the publish step passed. No read of the registry got an answer, so nothing here says the publish failed. Run scripts/registry_verify.py again (docs/cicd/RUNBOOK.md section 3a); do not re-publish on this issue."
           else
             gh issue create --repo "${{ github.repository }}" --label release \
               --title="registry publish failed for v${{ needs.preflight.outputs.version }}" \
-              --body "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. PyPI and the GitHub release are live. Read the failed step first: a verify that answered with the wrong row and a publish step that failed are different. Never re-publish on a zero-row read. Fallback is the cmd.exe line in CLAUDE.md (Registry verification reads a NESTED row)."
+              --body "Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. PyPI and the GitHub release are live. Read the failed step first: a verify that answered with the wrong row and a publish step that failed are different. Never re-publish on a zero-row read (docs/cicd/RUNBOOK.md section 3a). Fallback is the cmd.exe line in CLAUDE.md (Registry verification reads a NESTED row)."
           fi

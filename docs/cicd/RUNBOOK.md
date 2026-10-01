@@ -129,6 +129,33 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
    check was wrong, fix the check in a PR and close the issue with the run
    link. Either way the issue records the decision.
 
+## 3a. The registry job failed (a `release` issue was opened)
+
+PyPI and the GitHub release are live. Nothing is rolled back. The issue's
+title says which of two things happened (LEDGER L-96).
+
+1. **"registry could not be read after publishing vX.Y.Z".** The publish step
+   passed. No read of the registry got an answer: `scripts/registry_verify.py`
+   exited with its `UNREADABLE` code after every attempt timed out, was cut, or
+   returned a body that was not the registry's. This says nothing about the
+   publish. Read the registry again:
+
+   ```
+   cd /d C:\MCPs\jcodemunch-mcp && python scripts\registry_verify.py --version X.Y.Z
+   ```
+
+   `PASS`: close the issue with that output. Do not re-publish.
+2. **"registry publish failed for vX.Y.Z".** Open the run and read which step
+   failed.
+   - The verify step failed with `FAIL:` lines: the registry answered and the
+     row is wrong. Run the line above. A zero-row read is the parse or the
+     name, never the publish. If the latest row is still the previous version,
+     the publish did not take; use the publish line in CLAUDE.md ("Registry
+     verification reads a NESTED row").
+   - The install or the publish step failed: the verify step never ran. Run
+     the line above first; publish by hand only if it does not read `PASS`.
+3. The issue records what was run and what it printed.
+
 ## 4. PyPI quarantine or index trouble
 
 - **Quarantine / account block** (it happened 2026-06): the pipeline's

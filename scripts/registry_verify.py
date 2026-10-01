@@ -11,8 +11,10 @@ Exit 1 unless a row with `server.version == X` exists, is marked latest, and
 its `packages[].version` advanced too.
 
 The read is retried, and the exit code says which thing went wrong (LEDGER
-L-96). 1: the registry ANSWERED and the row is wrong. 2 (`UNREADABLE`): no
-attempt got an answer, which says nothing about the publish. One read with no
+L-96). 1: the registry ANSWERED and the row is wrong. `UNREADABLE` (75, the
+sysexits temporary-failure code): no attempt got an answer, which says nothing
+about the publish. Not 2: argparse and a missing script file both exit 2, and
+`release.yml` titles an issue from this code. One read with no
 retry timed out after the 1.108.321 publish had succeeded, and `release.yml`
 opened "registry publish failed" over it.
 """
@@ -20,6 +22,7 @@ opened "registry publish failed" over it.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import sys
 import time
@@ -27,13 +30,16 @@ import urllib.error
 import urllib.request
 
 API = "https://registry.modelcontextprotocol.io/v0/servers"
-UNREADABLE = 2
+UNREADABLE = 75
 
 
 def fetch(name: str) -> list[dict]:
     url = f"{API}?search={urllib.request.quote(name)}&limit=100"
     with urllib.request.urlopen(url, timeout=30) as r:  # noqa: S310
         data = json.load(r)
+    if not isinstance(data, dict):
+        # `null` or a list is a proxy's or an error page's body, not the registry's answer.
+        raise ValueError(f"body is {type(data).__name__}, not an object")
     return data.get("servers") or data.get("items") or []
 
 
@@ -85,10 +91,15 @@ def main(argv=None) -> int:
             time.sleep(a.delay)
         try:
             rows = fetch(a.name)
-        except (OSError, ValueError) as exc:
-            # URLError, HTTPError and a socket timeout are OSError; a body
-            # that is not JSON is ValueError. None of them is an answer.
-            print(f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})")
+        except (OSError, http.client.HTTPException, ValueError) as exc:
+            # URLError, HTTPError and a socket timeout are OSError; a cut or
+            # malformed response (IncompleteRead, BadStatusLine) is
+            # HTTPException and NOT OSError; a body that is not a JSON
+            # object is ValueError. None of them is an answer.
+            print(
+                f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})",
+                flush=True,
+            )
             continue
         ok, answered = verdict(rows, a.name, a.version)
         if ok:
