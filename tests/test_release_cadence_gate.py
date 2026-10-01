@@ -5,10 +5,15 @@ jjg, 2026-09-30, after 1.108.320 shipped 14 days and 124 PRs behind
 (Standing lesson 09-30). `release.unreleased_max_hours` (criterion N8) fails
 the fast tier when `[Unreleased]` has held an entry longer than the Floor.
 
-Every case builds its own git repository under `tmp_path` and passes `now`,
-`env` and `ref` explicitly: the gate reads the clock, the environment and the
-checkout, and a test that inherited any of the three would be measuring this
-box (Standing lesson 09-04, a default bound at import pins the wrong repo).
+Every case builds its own git repository under `tmp_path` and passes `now`
+and `ref` explicitly, and `_no_ci_environment` strips the CI variables for
+every test: the gate reads the clock, the environment and the checkout, and a
+test that inherited any of the three would be measuring the box it runs on.
+⚠⚠ This docstring once said every case passed `env` explicitly, and none did:
+on `main.yml`'s push run `GITHUB_ACTIONS` is set and the event is not
+`pull_request`, so the gate read "not evaluated" and 15 tests failed on main.
+The PR gate's own runs passed, because their event WAS `pull_request`. The
+fixture is autouse so a test written later inherits it (Standing lesson 09-04).
 """
 
 from __future__ import annotations
@@ -69,6 +74,18 @@ def _commit(
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "--allow-empty", "-m", msg, when=when)
     return _git(root, "rev-parse", "HEAD")
+
+
+@pytest.fixture(autouse=True)
+def _no_ci_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A local run, wherever the suite runs. Tests about CI pass `env` themselves."""
+    for name in ("GITHUB_ACTIONS", "GITHUB_EVENT_NAME"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_the_suite_does_not_inherit_the_runners_event() -> None:
+    """Pins the fixture: main.yml's push event made every measure() a no-op."""
+    assert RA.applies(os.environ)[0] is True
 
 
 @pytest.fixture
