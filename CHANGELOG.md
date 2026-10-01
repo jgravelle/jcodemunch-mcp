@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - a call spelled with a Unicode escape is a call (LEDGER L-86)
+
+Java translates Unicode escapes before it reads a single token, so a call
+written with the escape for `f` followed by `ile()` is a call to `file()`.
+C# accepts the same escape inside an identifier, and an eight-digit form too.
+`check_references` compared the raw line, so it never saw that call.
+`check_delete_safe` reads that search for its "no reference" evidence. With no
+import edge between the two files, which is the ordinary case in one Java
+package, it graded the called method `safe_to_delete` at confidence 1.0.
+
+The reference search now decodes escapes before it compares, in the one place
+LEDGER L-84 already folds spellings. That covers the repeated-`u` form Java
+allows and hex digits in either case. Every spelling in the test is compiled
+and run with `javac` first, so each is proven to name the method it is
+counted against. Decoding can only add a match, and a found reference only
+ever blocks a delete. An escape of a different letter still names a
+different identifier and does not match.
+
 ## [1.108.320] - 2026-09-30 - a member the index never saw and a caller the search never found both read as nothing there
 
 A symbol the index never recorded and a caller the reference search never found
