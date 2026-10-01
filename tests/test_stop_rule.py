@@ -149,7 +149,10 @@ class TestVerdictCoverage:
         assert not unclassified, (
             f"{tool} can emit {sorted(unclassified)} but _stop_rule.py does not "
             "classify them, so they fall to the never-terminal branch. Add them "
-            "to _HARD_BLOCKER (a blocker was found) or _BOUNDED (an absence claim)."
+            "to _HARD_BLOCKER (a blocker was found), _ESTABLISHED (an absence "
+            "established on the channels consulted) or _UNSETTLED (an absence "
+            "that could not be established, naming its *_gap). _BOUNDED is "
+            "derived from the last two; never edit it (LEDGER L-82)."
         )
 
 

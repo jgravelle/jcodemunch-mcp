@@ -182,6 +182,10 @@ def build_stop_rule(
     terminal: a value this module has not classified is exactly the case where
     it does not know, and not knowing resolves to "keep checking".
     """
+    # (LEDGER L-82 review) The cause gaps are read off THIS signature, never
+    # restated: a `*_gap` argument added later reaches `_channel_gaps` and the
+    # unsettled lookup below without a second list to forget it in.
+    causes = {k: v for k, v in locals().items() if k.endswith("_gap")}
     if verdict in _HARD_BLOCKER.get(tool, frozenset()):
         return {"terminal": True, "would_change_verdict": []}
 
@@ -189,27 +193,21 @@ def build_stop_rule(
         cross_repo=cross_repo,
         include_runtime=include_runtime,
         runtime_data_present=runtime_data_present,
-        corpus_gap=corpus_gap,
-        dynamic_gap=dynamic_gap,
-        name_gap=name_gap,
+        **causes,
     )
 
     unsettled = _UNSETTLED.get(tool, {})
     if verdict in unsettled:
-        cause = {
-            "corpus_gap": corpus_gap,
-            "dynamic_gap": dynamic_gap,
-            "name_gap": name_gap,
-        }.get(unsettled[verdict])
-        if not cause:
-            gaps = [{
+        if not causes.get(unsettled[verdict]):
+            # Appended, so a passed corpus gap stays first (`_channel_gaps`).
+            gaps = gaps + [{
                 "action": "review manually",
                 "why": (
                     f"verdict {verdict!r} means the absence could not be "
                     f"established, and the caller passed no {unsettled[verdict]} "
                     "naming what settles it"
                 ),
-            }] + gaps
+            }]
         return {"terminal": False, "would_change_verdict": gaps}
 
     if verdict in _BOUNDED.get(tool, frozenset()):

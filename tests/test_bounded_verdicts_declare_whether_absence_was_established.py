@@ -65,3 +65,47 @@ def test_each_unsettled_verdict_names_the_gap_that_carries_its_cause(tool, verdi
     out = _stop_rule.build_stop_rule(tool, verdict, **_OPEN)
     assert out["terminal"] is False
     assert any(kwarg in g["why"] for g in out["would_change_verdict"]), out
+
+
+# The spec, stated independently of the module: which argument each producer
+# passes with each unsettled verdict (`check_delete_safe` passes corpus_gap,
+# dynamic_gap and name_gap; `check_edit_safe` passes dynamic_gap). Read off the
+# module instead, the check below is circular, and a wrong mapping passed it.
+_CAUSE = {
+    ("check_delete_safe", "corpus_inadequate"): "corpus_gap",
+    ("check_delete_safe", "name_not_searchable"): "name_gap",
+    ("check_delete_safe", "dynamic_import_boundary"): "dynamic_gap",
+    ("check_edit_safe", "dynamic_import_boundary"): "dynamic_gap",
+}
+
+
+def test_every_unsettled_verdict_has_a_stated_cause():
+    declared = {(t, v) for t, vs in _stop_rule._UNSETTLED.items() for v in vs}
+    assert declared == set(_CAUSE), sorted(declared ^ set(_CAUSE))
+
+
+@pytest.mark.parametrize("tool,verdict", sorted(_CAUSE))
+def test_passing_the_named_gap_and_only_it_settles_the_fallback(tool, verdict):
+    """Review: a wrong mapping (`name_not_searchable` -> `dynamic_gap`) told every
+    caller that passed `name_gap` it had passed nothing, with the suite green."""
+    kwarg = _CAUSE[(tool, verdict)]
+    assert _stop_rule._UNSETTLED[tool][verdict] == kwarg
+    mine = {"action": f"settle {verdict}", "why": "the cause this verdict names"}
+    out = _stop_rule.build_stop_rule(tool, verdict, **_OPEN, **{kwarg: mine})
+    assert out["terminal"] is False
+    assert mine in out["would_change_verdict"]
+    assert not any(g["action"] == "review manually" for g in out["would_change_verdict"]), out
+    for other in _gap_kwargs() - {kwarg}:
+        wrong = _stop_rule.build_stop_rule(tool, verdict, **_OPEN, **{other: mine})
+        assert any(g["action"] == "review manually" for g in wrong["would_change_verdict"]), (
+            f"{verdict} settled by {other}, but it names {kwarg}"
+        )
+
+
+def test_a_passed_corpus_gap_stays_first_ahead_of_the_fallback():
+    corpus = {"action": "re-index", "why": "stale"}
+    out = _stop_rule.build_stop_rule(
+        "check_delete_safe", "name_not_searchable", **_OPEN, corpus_gap=corpus
+    )
+    assert out["would_change_verdict"][0] == corpus
+    assert out["would_change_verdict"][-1]["action"] == "review manually"
