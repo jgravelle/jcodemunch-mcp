@@ -38,9 +38,12 @@ Read-only. This plans and reads. It never edits, executes, or deletes.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 SATISFIED = "satisfied"      # we established this obligation holds
 REFUTED = "refuted"          # we established it does NOT hold: a real blocker
@@ -96,39 +99,36 @@ def _split_importers_by_liveness(
 ) -> tuple[list[str], list[str]]:
     """Partition importer files into (unreachable, reachable).
 
-    One level of recursion only, deliberately. A file with zero importers of its
-    own is unreachable; deciding that its importers are in turn unreachable is
-    the same question one level up, and unbounded walking would turn a bounded
-    investigation into a graph traversal with no budget. One level covers the
-    case the 2026-03-18 A/B actually hit (a dead loader importing a helper) and
-    reports the rest honestly rather than guessing.
+    ⚠⚠ `find_dead_code` is the authority on whether a file is dead, and this
+    asks it (LEDGER L-94). The first form asked `find_importers` whether the
+    importer had an importer of its own, which is a second answer to that
+    question and a wrong one for every root: an entry point has no importer BY
+    CONSTRUCTION, so a name imported only by `main.py`, by the file
+    `package.json` names, by a package's `__init__.py` or by a test read as
+    imported by nothing live. `find_dead_code` knows those roots, the
+    framework profile, render edges and the dynamic-import boundary (L-73),
+    and a root added there later is inherited here.
 
-    An importer we cannot classify counts as REACHABLE, so uncertainty blocks
-    deletion rather than permitting it.
+    ⚠ Only a file it reports at its default confidence is dead. A lower one
+    (`all_importers_dead`, a capped corpus) is a file it is unsure of, and an
+    importer we cannot classify counts as REACHABLE, so uncertainty blocks
+    deletion rather than permitting it. A test file is never in its answer
+    (a root, or left out, by `include_tests`), so a test that imports the name
+    is a live importer: it breaks when the name goes.
     """
-    dead: list[str] = []
-    live: list[str] = []
     try:
-        from ..tools.find_importers import find_importers  # noqa: PLC0415
-    except Exception:  # pragma: no cover - defensive
+        from ..tools.find_dead_code import find_dead_code  # noqa: PLC0415
+
+        res = find_dead_code(repo, granularity="file", storage_path=storage_path)
+        if "error" in res:
+            return [], list(files)
+        dead_files = {d["file"] for d in res.get("dead_files") or []}
+    except Exception:  # noqa: BLE001
+        logger.debug("_split_importers_by_liveness: find_dead_code raised", exc_info=True)
         return [], list(files)
 
-    for f in files:
-        try:
-            res = find_importers(repo, f, storage_path=storage_path)
-            if "error" in res:
-                live.append(f)
-                continue
-            # (LEDGER L-73) A file a dynamic import can load has no static
-            # importer by construction; that is not evidence it is dead.
-            if res.get("dynamic_import_boundary"):
-                live.append(f)
-            elif int(res.get("importer_count", 0) or 0) == 0:
-                dead.append(f)
-            else:
-                live.append(f)
-        except Exception:  # pragma: no cover - defensive
-            live.append(f)
+    dead = [f for f in files if f in dead_files]
+    live = [f for f in files if f not in dead_files]
     return dead, live
 
 
@@ -301,7 +301,7 @@ def investigate_deletion_safety(
                 dead_importers, live_importers = _split_importers_by_liveness(
                     repo, named_importers, storage_path
                 )
-                ref_ob.calls += len(named_importers)
+                ref_ob.calls += 1  # one find_dead_code call classifies them all
                 if live_importers:
                     ref_ob.status = REFUTED
                     ref_ob.evidence = [
@@ -368,7 +368,7 @@ def investigate_deletion_safety(
                 dead_m, live_m = _split_importers_by_liveness(
                     repo, [f for f in other_files if f], storage_path
                 )
-                text_ob.calls += len(other_files)
+                text_ob.calls += 1  # one find_dead_code call classifies them all
                 if live_m:
                     text_ob.status = REFUTED
                     text_ob.evidence = [f"Name appears in {f}" for f in live_m[:5]]

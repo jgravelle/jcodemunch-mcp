@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The deletion investigator called an entry point dead (LEDGER L-94).** It split a name's
+  importers into live and dead by asking whether anything imported the importer. An entry point
+  has no importer by construction, so a name imported only by `main.py`, by the file
+  `package.json` names as `main`, by a package's `__init__.py` or by a test read
+  `export_not_imported` SATISFIED, with the evidence "Imported only by main.py, which is itself
+  unreachable". The text sweep asked the same question of the same file and agreed. `find_dead_code`
+  already answers whether a file is dead, with every root this project knows, and the investigator
+  had its own second answer beside it. It asks that tool now and keeps none: a root added there
+  later is a live importer here with no second change. Only a file the tool reports at its default
+  confidence counts as dead; one it is unsure of, or a call that errors, leaves the importer live,
+  so the change can block a delete and cannot permit one that was blocked.
+
 ## [1.108.322] - 2026-10-01 - the deletion investigator reads the match the search made
 
 ### Fixed
