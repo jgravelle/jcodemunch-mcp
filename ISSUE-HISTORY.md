@@ -2074,3 +2074,17 @@ The 1.108.320 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.318 count, verbatim:
 
 - ⚠ Prior (1.108.318): 10185 passed, 24 skipped, **0 failed** (10209 total; the skip count is 24 under the full tier, harness F-05).
+
+## Current State rotation (2026-10-01, release 1.108.322)
+
+The 1.108.319 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.319):** **The numbers a competitor published about us were right, and so was the refusal we had shipped over twice.** TypeScript/TSX never indexed an `abstract class` (#698), and `search_symbols` could evict an exact-name match outright on score alone; all three cut sites read one `(declaration rank, score)` key (#699). ⚠⚠ **That rank needs BOTH a kind and an owner condition** — the owner probe alone passed its suite and left the reported case unchanged. ⚠⚠ **W-16:** every per-repo cell in `README.md` and `benchmarks/README.md` derives from `benchmarks/jcm_reference.json`, gated by `tests/test_benchmark_tables_mirror_the_reference.py`. Full text: `CHANGELOG.md`; the product half verbatim in `ISSUE-HISTORY.md` (2026-09-30).
+
+The 1.108.321 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.321 — **A call written with an escape is still a call.** A Java, C# or JavaScript call can spell a name with a Unicode escape, and the compiler reads the plain name; the reference search compared raw text and the delete preflight graded the called function `safe_to_delete` at 1.0 (L-86). `check_references._fold`, the one comparison every reference match goes through, decodes escapes before it compares. ⚠⚠ **A literal escape typed into a tool input reaches disk DECODED**: build escapes from `chr(92)` and assert the backslash reached the fixture (two drafts tested the plain spelling). Also the first release under the cadence gate (STANDARD N8, `release.unreleased_max_hours`), whose own tests failed on `main` for three merges because they inherited the runner's CI event (Standing lesson 10-01). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.319 count, verbatim:
+
+- ⚠ Prior (1.108.319): 10521 passed, 24 skipped, **0 failed** (10545 total).
