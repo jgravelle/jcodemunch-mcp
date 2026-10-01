@@ -150,11 +150,12 @@ title says which of two things happened (LEDGER L-96).
    The last line decides: `attempt N: FAIL: ...` lines above a final `PASS`
    are a stale row that was asked again.
    `UNREADABLE` again: read the `attempt N: no answer (<type>: ...)` lines.
-   - A timeout, a connection error or an HTTP 5xx: the registry is still not
-     answering. Wait and run it again.
-   - The same `ValueError` on every attempt (a body, a cursor or a row in
-     another shape, a cursor that did not advance, too many pages): waiting
-     will not fix it. The registry's shape changed or the script is wrong.
+   - A timeout, a connection error, an HTTP 5xx or an HTTP 429: the registry
+     is still not answering. Wait and run it again.
+   - The same `ValueError` or `JSONDecodeError` on every attempt (a body, a
+     cursor or a row in another shape, a cursor that did not advance, too
+     many pages), or any other HTTP 4xx (the request itself is refused):
+     waiting will not fix it. The registry's shape changed or the script is wrong.
      Read the row by hand
      (`https://registry.modelcontextprotocol.io/v0/servers?search=io.github.jgravelle/jcodemunch-mcp&version=latest`),
      close the issue on what it shows, and fix the script in a PR.
