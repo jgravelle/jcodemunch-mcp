@@ -81,9 +81,10 @@ def test_the_fixture_leaves_the_process_clock_alone(rv):
     """The script's `time` NAME is replaced, never an attribute of the real module.
 
     The first form of this fixture set `time.sleep` on the module every thread
-    in the worker shares. Under xdist a background thread left by another test
-    slept through the fake 258,047 times and `len(slept) == 1` failed on one CI
-    leg (harness FINDINGS F-40); each of those sleeps also returned at once.
+    in the worker shares. `tests/test_v1_108_182.py` abandons a provider thread
+    that sleeps 10 ms at a time for 30 s; under xdist it called the fake 258,047
+    times in one test and `len(slept) == 1` failed on two CI legs (harness
+    FINDINGS F-40). Each of those sleeps also returned at once.
     """
     assert rv.time is not time
     assert time.sleep is _REAL_SLEEP and time.monotonic is _REAL_MONOTONIC
@@ -108,6 +109,7 @@ def test_a_thread_sleeping_elsewhere_does_not_reach_the_fixture(
     finally:
         stop.set()
         t.join(5)
+    assert not t.is_alive()
     assert rv.slept == [20.0], f"{len(rv.slept)} sleeps recorded"
 
 
