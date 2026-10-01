@@ -34,10 +34,15 @@ UNREADABLE = 75
 
 
 MAX_PAGES = 50
+REQUEST_SECONDS = 30.0
+# The whole run, every attempt and every page. `release.yml`'s registry job is
+# cancelled at its `timeout-minutes`, and a cancelled job opens no issue at
+# all, so the script must finish, and say what it found, before that.
+BUDGET_SECONDS = 600.0
 
 
-def _page(url: str) -> tuple[list[dict], str | None]:
-    with urllib.request.urlopen(url, timeout=30) as r:  # noqa: S310
+def _page(url: str, timeout: float = REQUEST_SECONDS) -> tuple[list[dict], str | None]:
+    with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310
         data = json.load(r)
     if not isinstance(data, dict):
         # `null` or a list is a proxy's or an error page's body, not the registry's answer.
@@ -49,11 +54,21 @@ def _page(url: str) -> tuple[list[dict], str | None]:
         # list. Read as zero rows it would be a FAIL about the publish.
         raise ValueError(f"no row list in the body (keys: {sorted(data)[:5]})")
     meta = data.get("metadata")
-    cursor = meta.get("nextCursor") if isinstance(meta, dict) else None
-    return rows, cursor if isinstance(cursor, str) and cursor else None
+    if meta is None:
+        return rows, None
+    if not isinstance(meta, dict):
+        raise ValueError(f"metadata is {type(meta).__name__}, not an object")
+    cursor = meta.get("nextCursor")
+    if cursor is None:
+        return rows, None
+    if not isinstance(cursor, str) or not cursor:
+        # Read as "last page", a cursor in a shape this script does not know
+        # would end the read early and the partial read would be judged.
+        raise ValueError(f"nextCursor is {cursor!r}, not a non-empty string")
+    return rows, cursor
 
 
-def fetch(name: str) -> list[dict]:
+def fetch(name: str, deadline: float | None = None) -> list[dict]:
     """Every page (LEDGER L-99).
 
     Rows come back `limit` a page, ordered by version STRING (the live
@@ -73,7 +88,13 @@ def fetch(name: str) -> list[dict]:
             if cursor is None
             else f"{base}&cursor={urllib.request.quote(cursor, safe='')}"
         )
-        page, cursor = _page(url)
+        timeout = REQUEST_SECONDS
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("the time budget ran out before the last page")
+            timeout = min(REQUEST_SECONDS, left)
+        page, cursor = _page(url, timeout)
         rows.extend(page)
         if cursor is None:
             return rows
@@ -115,6 +136,19 @@ def verdict(rows: list[dict], name: str, version: str) -> tuple[bool, list[str]]
     return True, lines + ["PASS"]
 
 
+def _judge(rows: list[dict], name: str, version: str) -> tuple[bool, list[str]]:
+    """`verdict`, with a row it cannot read turned into no answer (LEDGER L-98).
+
+    Only `verdict` is wrapped. An AttributeError or TypeError anywhere else is
+    a bug in this script and must raise with its traceback, not be retried six
+    times and reported as a registry that could not be read.
+    """
+    try:
+        return verdict(rows, name, version)
+    except (AttributeError, TypeError) as exc:
+        raise ValueError(f"malformed row ({type(exc).__name__}: {exc})") from exc
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True)
@@ -123,28 +157,33 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--delay", type=float, default=20.0, help="seconds between attempts"
     )
+    ap.add_argument(
+        "--budget",
+        type=float,
+        default=BUDGET_SECONDS,
+        help="seconds for the whole run, every attempt and every page",
+    )
     a = ap.parse_args(argv)
     attempts = max(a.attempts, 1)
+    deadline = time.monotonic() + a.budget
     answered: list[str] = []
+    made = 0
     for attempt in range(1, attempts + 1):
         if attempt > 1:
+            if time.monotonic() + a.delay >= deadline:
+                print(f"the {a.budget:g} s budget is spent after {made} attempt(s)")
+                break
             time.sleep(a.delay)
+        made = attempt
         try:
-            rows = fetch(a.name)
-            ok, lines = verdict(rows, a.name, a.version)
-        except (
-            OSError,
-            http.client.HTTPException,
-            ValueError,
-            AttributeError,
-            TypeError,
-        ) as exc:
+            rows = fetch(a.name, deadline)
+            ok, lines = _judge(rows, a.name, a.version)
+        except (OSError, http.client.HTTPException, ValueError) as exc:
             # URLError, HTTPError and a socket timeout are OSError; a cut or
             # malformed response (IncompleteRead, BadStatusLine) is
-            # HTTPException and NOT OSError; a body that is not a JSON
-            # object carrying a row list is ValueError; a row whose inside
-            # is not the registry's shape raises AttributeError or TypeError
-            # in `verdict` (LEDGER L-98). None of them is an answer.
+            # HTTPException and NOT OSError; a body, a cursor or a row that
+            # is not the registry's shape is ValueError. None of them is an
+            # answer.
             print(
                 f"attempt {attempt}: no answer ({type(exc).__name__}: {exc})",
                 flush=True,
@@ -161,8 +200,10 @@ def main(argv=None) -> int:
         print("\n".join(answered))
         return 1
     print(
-        f"UNREADABLE: the registry gave no answer in {attempts} attempt(s). "
-        "This is not evidence about the publish; read the registry again before any re-publish."
+        f"UNREADABLE: the registry gave no answer in {made} attempt(s). "
+        "This is not evidence about the publish; read the registry again before any re-publish. "
+        "The same cause on every attempt that is not a timeout or a connection error "
+        "means the registry's shape changed or this script is wrong, and waiting will not fix it."
     )
     return UNREADABLE
 

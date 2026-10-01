@@ -104,6 +104,8 @@ def test_cursors_that_never_end_are_no_answer(rv, monkeypatch, capsys):
 
     def urlopen(url, timeout=None):
         asked.append(url)
+        # With the cap gone the script would ask for ever; fail by name instead of hanging.
+        assert len(asked) <= rv.MAX_PAGES + 1, "the script asked past its page cap"
         body = {
             "servers": [_row("9.9.8")],
             "metadata": {"nextCursor": f"c{len(asked)}"},
@@ -114,6 +116,125 @@ def test_cursors_that_never_end_are_no_answer(rv, monkeypatch, capsys):
     assert rv.main(["--version", "9.9.9", "--attempts", "1"]) == rv.UNREADABLE
     assert len(asked) == rv.MAX_PAGES
     assert "FAIL" not in capsys.readouterr().out
+
+
+def test_the_cursor_reaches_the_registry_as_it_was_given(rv, monkeypatch):
+    """A live cursor is `<name>:<version>`; unquoted, a `&` or `#` in one would cut the query."""
+    cursor = NAME + ":1.108.287&x=1#y z"
+    asked = _paged(
+        monkeypatch,
+        {
+            None: {"servers": [_row("9.9.8")], "metadata": {"nextCursor": cursor}},
+            cursor: {"servers": [_row("9.9.9", latest=True)]},
+        },
+    )
+    assert rv.main(["--version", "9.9.9", "--attempts", "1"]) == 0
+    assert asked == [None, cursor]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"nextCursor": 5},
+        {"nextCursor": {"after": "c1"}},
+        {"nextCursor": ""},
+        "c1",
+        ["c1"],
+    ],
+    ids=[
+        "cursor-a-number",
+        "cursor-an-object",
+        "cursor-empty",
+        "metadata-a-string",
+        "metadata-a-list",
+    ],
+)
+def test_a_cursor_in_an_unknown_shape_is_no_answer(rv, monkeypatch, capsys, metadata):
+    """Read as "last page", it would end the read early and the partial read would be judged:
+    the first page here says the old version is latest, and that must not become a FAIL."""
+    _paged(
+        monkeypatch,
+        {None: {"servers": [_row("9.9.8", latest=True)], "metadata": metadata}},
+    )
+    assert rv.main(["--version", "9.9.9", "--attempts", "1"]) == rv.UNREADABLE
+    assert "FAIL" not in capsys.readouterr().out
+
+
+def test_no_cursor_and_a_null_cursor_are_the_last_page(rv, monkeypatch):
+    for metadata in ({}, {"nextCursor": None}, {"count": 1}):
+        _paged(
+            monkeypatch,
+            {None: {"servers": [_row("9.9.9", latest=True)], "metadata": metadata}},
+        )
+        assert rv.main(["--version", "9.9.9", "--attempts", "1"]) == 0
+    _paged(monkeypatch, {None: {"servers": [_row("9.9.9", latest=True)]}})
+    assert rv.main(["--version", "9.9.9", "--attempts", "1"]) == 0
+
+
+class _Clock:
+    """Time that moves only when the script waits: a request costs what it was allowed."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.timeouts: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def test_the_whole_run_ends_inside_its_budget(rv, monkeypatch, capsys):
+    """`release.yml` cancels the job at its timeout, and a cancelled job opens no issue.
+    Six attempts of fifty pages at thirty seconds each is hours; the budget is what bounds it."""
+    clock = _Clock()
+    monkeypatch.setattr(rv.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(rv.time, "sleep", clock.sleep)
+
+    def urlopen(url, timeout=None):
+        clock.timeouts.append(timeout)
+        clock.now += timeout  # every request runs to its timeout
+        body = {
+            "servers": [_row("9.9.8")],
+            "metadata": {"nextCursor": f"c{len(clock.timeouts)}"},
+        }
+        return io.BytesIO(json.dumps(body).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    code = rv.main(["--version", "9.9.9", "--budget", "100", "--delay", "20"])
+    out = capsys.readouterr().out
+    assert code == rv.UNREADABLE
+    assert clock.now - 1000.0 <= 100.0, f"ran {clock.now - 1000.0} s on a 100 s budget"
+    assert clock.timeouts == [30.0, 30.0, 30.0, 10.0], clock.timeouts
+    assert "budget" in out and "FAIL" not in out
+
+
+def test_the_default_budget_fits_the_registry_job(rv):
+    """The job's `timeout-minutes` covers the install and the publish as well."""
+    flow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    job = flow[
+        flow.index("Verify the registry row") - 4000 : flow.index(
+            "Verify the registry row"
+        )
+    ]
+    minutes = int(job[job.rindex("timeout-minutes:") :].split(":")[1].split()[0])
+    assert rv.BUDGET_SECONDS <= minutes * 60 * 0.75, (rv.BUDGET_SECONDS, minutes)
+
+
+def test_a_bug_in_the_paging_code_raises_and_is_not_retried(rv, monkeypatch):
+    """Only a row `verdict` cannot read is no answer. Anything else of that type is this
+    script's own error and must surface with a traceback, not as an unreadable registry."""
+    calls = []
+
+    def broken(name, deadline=None):
+        calls.append(name)
+        return None.rows  # AttributeError inside fetch
+
+    monkeypatch.setattr(rv, "fetch", broken)
+    with pytest.raises(AttributeError):
+        rv.main(["--version", "9.9.9"])
+    assert len(calls) == 1
 
 
 def test_a_later_page_that_is_not_the_registrys_makes_the_whole_read_no_answer(

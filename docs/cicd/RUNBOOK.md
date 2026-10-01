@@ -137,16 +137,28 @@ title says which of two things happened (LEDGER L-96).
 1. **"registry could not be read after publishing vX.Y.Z".** The publish step
    passed. No read of the registry got an answer: `scripts/registry_verify.py`
    exited with its `UNREADABLE` code after every attempt timed out, was cut,
-   got an HTTP error status, or returned a body that was not the registry's.
-   This says nothing about the publish. Read the registry again:
+   got an HTTP error status, returned a body, a page cursor or a row that was
+   not in the registry's shape, did not reach the last page, or the run's time
+   budget ran out. This says nothing about the publish. Read the registry
+   again:
 
    ```
    cd /d C:\MCPs\jcodemunch-mcp && python scripts\registry_verify.py --version X.Y.Z
    ```
 
    `PASS`: close the issue with that output. Do not re-publish.
-   `UNREADABLE` again: the registry is still not answering; wait and run it
-   again. `FAIL:` lines: the registry answered; go to item 2's first case.
+   The last line decides: `attempt N: FAIL: ...` lines above a final `PASS`
+   are a stale row that was asked again.
+   `UNREADABLE` again: read the `attempt N: no answer (<type>: ...)` lines.
+   - A timeout, a connection error or an HTTP 5xx: the registry is still not
+     answering. Wait and run it again.
+   - The same `ValueError` on every attempt (a body, a cursor or a row in
+     another shape, a cursor that did not advance, too many pages): waiting
+     will not fix it. The registry's shape changed or the script is wrong.
+     Read the row by hand
+     (`https://registry.modelcontextprotocol.io/v0/servers?search=io.github.jgravelle/jcodemunch-mcp&version=latest`),
+     close the issue on what it shows, and fix the script in a PR.
+   `FAIL:` as the last lines: the registry answered; go to item 2's first case.
 2. **"registry publish failed for vX.Y.Z".** Open the run and read which step
    failed.
    - The verify step failed with `FAIL:` lines: the registry answered and the
