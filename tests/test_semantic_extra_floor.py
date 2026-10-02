@@ -1,0 +1,58 @@
+"""The `semantic` extra cannot resolve to a sentence-transformers that runs a local model's code unasked.
+
+GHSA-jhr6-gm9c-rqjv (critical): before 5.6.0, loading a LOCAL model directory
+bypassed `trust_remote_code` and executed the custom Python inside it.
+`embed_repo` passes `JCODEMUNCH_EMBED_MODEL` straight to `SentenceTransformer`,
+and that value may be a path. The extra declared `>=2.2.0`, so a fresh
+`pip install "jcodemunch-mcp[semantic]"` took the latest release and was fine,
+while an environment that already held an older one satisfied the requirement
+and stayed exposed. The floor is the fixed release.
+
+The lock is checked as well: the repository's own environments are built from
+it, and it held 5.3.0 and a urllib3 with three open advisories
+(GHSA-8988-9cw3-xx77, GHSA-vxq7-64xx-v4gw, GHSA-gh4c-6fx4-qh6g).
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # 3.10: pytest depends on tomli there
+    import tomli as tomllib
+
+import pytest
+from packaging.requirements import Requirement
+from packaging.version import Version
+
+ROOT = Path(__file__).resolve().parent.parent
+FIXED = {"sentence-transformers": Version("5.6.0"), "urllib3": Version("2.8.0")}
+
+
+def _extras() -> dict[str, list[Requirement]]:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return {k: [Requirement(r) for r in v] for k, v in data["project"]["optional-dependencies"].items()}
+
+
+def test_every_extra_that_names_sentence_transformers_excludes_the_vulnerable_releases():
+    fixed = FIXED["sentence-transformers"]
+    seen = []
+    for extra, reqs in _extras().items():
+        for req in reqs:
+            if req.name == "sentence-transformers":
+                seen.append(extra)
+                vulnerable = [v for v in ("2.2.0", "4.1.0", "5.3.0", "5.5.1") if req.specifier.contains(v)]
+                assert vulnerable == [], (extra, str(req), vulnerable)
+                assert req.specifier.contains(str(fixed)), (extra, str(req))
+    assert sorted(seen) == ["all", "semantic"], seen
+
+
+@pytest.mark.parametrize("name", sorted(FIXED))
+def test_the_lock_holds_a_fixed_release(name):
+    text = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    versions = re.findall(rf'(?m)^name = "{re.escape(name)}"\r?\nversion = "([^"]+)"', text)
+    assert versions, name
+    assert all(Version(v) >= FIXED[name] for v in versions), (name, versions)
