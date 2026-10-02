@@ -17,7 +17,8 @@ What is checked here:
   `with` target, argument, import alias, `match` capture, `except ... as`.
   Each module that imports the name holds the shared function. A write
   through `globals()` or onto another module's attribute is not a form the
-  scan reads. ⚠ A copy under ANOTHER name, or a rule written inline, is
+  scan reads. Nor is a function-local import of the same name from
+  another module: the identity check reads module attributes. ⚠ A copy under ANOTHER name, or a rule written inline, is
   not seen by that scan. Only the tools this file runs are covered by what
   they answer; `get_pr_risk_profile`, `find_similar_symbols`, the reuse
   audit, `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
@@ -146,6 +147,11 @@ def _modules():
         yield p.relative_to(SRC).as_posix(), ast.parse(p.read_text(encoding="utf-8"))
 
 
+def _refused(name: str) -> bool:
+    """A name the copies used: the predicate's, or a TEST regex constant's."""
+    return bool(_PREDICATE_NAME.match(name) or _RULE_CONSTANT.match(name))
+
+
 def test_no_module_writes_its_own_rule():
     """Under the names the copies used. A rule under another name is not seen here."""
     found = []
@@ -153,17 +159,17 @@ def test_no_module_writes_its_own_rule():
         if rel == AUTHORITY:
             continue
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and _PREDICATE_NAME.match(node.name):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and _refused(node.name):
                 found.append(f"{rel}:{node.lineno} def {node.name}")
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for t in (n for target in targets for n in ast.walk(target)):
-                    if isinstance(t, ast.Name) and (_RULE_CONSTANT.match(t.id) or _PREDICATE_NAME.match(t.id)):
+                    if isinstance(t, ast.Name) and _refused(t.id):
                         found.append(f"{rel}:{node.lineno} {t.id}")
             # Every other statement that binds a name: walrus, loop and `with` targets, `del`.
-            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) and _PREDICATE_NAME.match(node.id):
+            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) and _refused(node.id):
                 found.append(f"{rel}:{node.lineno} name {node.id}")
-            if isinstance(node, ast.arg) and _PREDICATE_NAME.match(node.arg):
+            if isinstance(node, ast.arg) and _refused(node.arg):
                 found.append(f"{rel}:{node.lineno} arg {node.arg}")
             # Bindings the AST holds as a plain string: a `match` capture and `except ... as`.
             for attr in ("name", "rest"):
@@ -171,14 +177,14 @@ def test_no_module_writes_its_own_rule():
                 if (
                     isinstance(node, (ast.MatchAs, ast.MatchStar, ast.MatchMapping, ast.ExceptHandler))
                     and isinstance(captured, str)
-                    and _PREDICATE_NAME.match(captured)
+                    and _refused(captured)
                 ):
                     found.append(f"{rel}:{node.lineno} {type(node).__name__} {captured}")
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 for a in node.names:
                     bound = a.asname or a.name
                     origin = a.name.rsplit(".", 1)[-1]
-                    if _PREDICATE_NAME.match(bound) and not (_PREDICATE_NAME.match(origin) or origin == "is_test_file"):
+                    if _refused(bound) and not (_refused(origin) or origin == "is_test_file"):
                         found.append(f"{rel}:{node.lineno} import {a.name} as {bound}")
     assert sorted(set(found)) == [], sorted(set(found))
     assert found == [], found
