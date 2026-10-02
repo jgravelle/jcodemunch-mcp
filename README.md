@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.327](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.327)** (2026-10-02) — a local model path is refused when the installed sentence-transformers would run its code
 - **[v1.108.326](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.326)** (2026-10-02) — the semantic extra requires a sentence-transformers that does not run a local model's code
 - **[v1.108.325](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.325)** (2026-10-02) — a lookup that found nothing is remembered
 - **[v1.108.324](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.324)** (2026-10-02) — one rule says whether a path is a test file
-- **[v1.108.323](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.323)** (2026-10-01) — an entry point has no importer, and that does not make it dead
 <!-- WHATSNEW:END -->
 
 ---

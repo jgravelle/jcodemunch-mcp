@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.327] - 2026-10-02 - a local model path is refused when the installed sentence-transformers would run its code
+
 ### Security
 
 - **A local model path is refused when the installed `sentence-transformers` would run its code.**

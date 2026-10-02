@@ -1,6 +1,12 @@
 {
-  "current": "1.108.326",
+  "current": "1.108.327",
   "entries": [
+    {
+      "version": "1.108.327",
+      "date": "2026-10-02",
+      "title": "a local model path is refused when the installed sentence-transformers would run its code",
+      "summary": "1.108.326 raised the semantic extra's floor, and a floor is install metadata: an upgrade that does not name the extra keeps an older sentence-transformers. The embedding call now checks the release it imported. When embed_model is a path that exists and the release is older than 5.6.0, the call refuses before the model is constructed and names the advisory (GHSA-jhr6-gm9c-rqjv) and the upgrade command. A Hub model name is not refused. Fusion search now says why its semantic channel did not run instead of reading the same as a repository that was never embedded."
+    },
     {
       "version": "1.108.326",
       "date": "2026-10-02",
@@ -18,12 +24,6 @@
       "date": "2026-10-02",
       "title": "one rule says whether a path is a test file",
       "summary": "A test directory at the repository root was not a test directory: find_dead_code reported tests/helpers.py dead, and the deletion investigator called a name it imports imported by nothing live. Six rules answered the question and no two agreed. There is one rule now and every tool imports it; check_delete_safe and check_edit_safe read it too, so a production models/pod_spec.py is not a test."
-    },
-    {
-      "version": "1.108.323",
-      "date": "2026-10-01",
-      "title": "an entry point has no importer, and that does not make it dead",
-      "summary": "The deletion investigator called an importer dead when nothing imported it. An entry point has no importer by construction, so a name imported only by main.py, by the file package.json names, by a package's __init__.py or by a test read as imported by nothing live. The investigator asks find_dead_code, which knows the project's roots, and keeps no answer of its own."
     }
   ]
 }
