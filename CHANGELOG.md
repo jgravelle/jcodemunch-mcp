@@ -15,7 +15,14 @@
   2.8.0 (GHSA-8988-9cw3-xx77, GHSA-vxq7-64xx-v4gw, GHSA-gh4c-6fx4-qh6g); neither is in the runtime
   dependency set, and the published wheel pins neither. `benchmarks/requirements-rag-bench.txt`
   pinned `sentence-transformers<4.0`, which required a vulnerable release; it reads `>=5.6.0,<7.0`
-  now, and the RAG baseline has not been re-run under it (LEDGER L-106).
+  now, and the RAG baseline has not been re-run under it (LEDGER L-106). The upgrade crosses a major
+  version. What was run: `embed_repo`'s `sentence-transformers` path under 6.1.0 on Windows, Python
+  3.10, CPU, with `all-MiniLM-L6-v2` (`evidence/embed_under_6.txt`: 384-dimension vectors, the two
+  similar inputs closer than the unrelated one). Linux, Python 3.11 to 3.13 and a GPU were not run, and
+  CI installs neither embedding backend. Still open: three competitive-sandbox pin files require a
+  `urllib3` before 2.8.0 (L-107; they build competitor containers, not anything a user installs), and
+  the floor is install metadata, so `pip install -U jcodemunch-mcp` without the extra keeps an older
+  `sentence-transformers` and nothing at the call site checks it (L-108).
 
 ## [1.108.325] - 2026-10-02 - a lookup that found nothing is remembered
 
