@@ -17,7 +17,8 @@
   is not a miss and is not remembered, and neither is one that a save overtook while it was in
   flight. `IndexStore.delete_index` also drops the keys resolved for the index, which used to
   outlive it. The hit cache holds at least one whole listing, so a store past 256 indexes no longer
-  evicts the key it just resolved. Measured with 17 indexes in storage and 1,000 candidate files under a root that
+  evicts the key it just resolved. One shape is still not held: past roughly 256 indexes, many
+  different source-root PATHS asked in turn push each other out (LEDGER L-105). Measured with 17 indexes in storage and 1,000 candidate files under a root that
   matches none (the run is in the PR body): 1,005 listings and 40.98 s before, 1
   listing and 4.05 s after.
 
