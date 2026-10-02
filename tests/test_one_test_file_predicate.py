@@ -9,9 +9,19 @@ file imports "imported by nothing live". `check_delete_safe` and
 `find_similar_symbols` saw the root directory and missed `a_test.py` and
 `__tests__/`.
 
-The cases are pinned here against the shared rule, every module-level
-predicate under `src/` is checked against the same cases, and the two
-reported shapes run through the product.
+What is checked here:
+
+- the cases, pinned against the shared rule, in both directions;
+- every name a module exports for the question IS the shared function, and no
+  module defines a predicate or a TEST regex constant under the names the
+  copies used. ⚠ A copy under another name, or a rule written inline, is not
+  seen by that scan; the tools are covered by what they answer;
+- the root-level shapes through `find_dead_code`, `get_dead_code_v2`, the
+  deletion investigator and `get_file_risk`;
+- `check_delete_safe` and `check_edit_safe` on a PRODUCTION file whose name
+  looks like a test (`models/pod_spec.py`). They read this rule to call a use
+  a test use, which downgrades a blocking verdict, so a false positive in the
+  rule is a delete certified over a real consumer.
 """
 
 from __future__ import annotations
@@ -24,7 +34,11 @@ from pathlib import Path
 import pytest
 
 from jcodemunch_mcp.investigator import REFUTED, investigate_deletion_safety
+from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+from jcodemunch_mcp.tools.check_edit_safe import check_edit_safe
 from jcodemunch_mcp.tools.find_dead_code import find_dead_code
+from jcodemunch_mcp.tools.get_dead_code_v2 import get_dead_code_v2
+from jcodemunch_mcp.tools.get_file_risk import get_file_risk
 from jcodemunch_mcp.tools.index_folder import index_folder
 
 SRC = Path(__file__).resolve().parent.parent / "src" / "jcodemunch_mcp"
@@ -34,23 +48,28 @@ TEST_PATHS = [
     "tests/helpers.py",
     "test/helpers.py",
     "__tests__/shapes.js",
+    "__test__/shapes.js",
     "Tests/Unit/Foo.php",
     "pkg/tests/helpers.py",
     "pkg/__tests__/a.js",
     "pkg\\tests\\helpers.py",
+    "src/unit_tests/a.py",
+    "src/integration_tests/a.py",
+    "src/test_utils/x.py",
+    "src/test/java/Foo.java",
     "test_a.py",
     "pkg/test_a.py",
     "pkg/a_test.py",
     "pkg/a_test.go",
+    "src/protest_test.py",
     "conftest.py",
     "pkg/conftest.py",
     "src/a.spec.ts",
+    "src/a.spec.jsx",
     "src/a.test.js",
+    "src/a.test.mjs",
     "src/a_spec.rb",
-    "src/test/java/Foo.java",
-    "src/test_utils/x.py",
     "app/tests.py",
-    "src/protest_test.py",
 ]
 SOURCE_PATHS = [
     "",
@@ -66,10 +85,18 @@ SOURCE_PATHS = [
     "spec/openapi.yaml",
     ".github/workflows/test.yml",
     "src/main/java/Foo.java",
+    "models/pod_spec.py",
+    "client/v1_pod_spec.go",
+    "docs/api_spec.yaml",
+    "docs/openapi_spec.json",
+    "src/api.spec.yaml",
+    "src/load.test.sh",
+    "src/ab_test/variants.py",
+    "src/tests.js",
 ]
 
 _PREDICATE_NAME = re.compile(r"^_?is_test_(file|path)$")
-_RULE_CONSTANT = re.compile(r"^_?TEST_(FILE|FILENAME|PATH|DIR)\w*$")
+_RULE_CONSTANT = re.compile(r"^_?\w*TEST\w*_RE$|^_?TEST_(FILE|FILENAME|PATH|DIR)\w*$")
 
 
 def _shared():
@@ -92,7 +119,7 @@ def _modules():
 
 
 def test_no_module_writes_its_own_rule():
-    """A definition or a rule constant outside the authority is a second answer."""
+    """Under the names the copies used. A rule under another name is not seen here."""
     found = []
     for rel, tree in _modules():
         if rel == AUTHORITY:
@@ -103,27 +130,30 @@ def test_no_module_writes_its_own_rule():
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for t in targets:
-                    if isinstance(t, ast.Name) and _RULE_CONSTANT.match(t.id):
+                    if isinstance(t, ast.Name) and (_RULE_CONSTANT.match(t.id) or _PREDICATE_NAME.match(t.id)):
                         found.append(f"{rel}:{node.lineno} {t.id}")
     assert found == [], found
 
 
 def test_every_module_that_names_the_predicate_gives_the_shared_answer():
-    """The name each tool exports is the shared rule, checked by what it answers."""
+    """Read by identity at import, so a def, a lambda or a bound method under the name fails."""
     shared = _shared()
     seen = []
     for rel, tree in _modules():
-        names = set()
-        for node in ast.walk(tree):
+        bound = set()
+        for node in tree.body:
             if isinstance(node, ast.ImportFrom):
-                names |= {a.asname or a.name for a in node.names}
+                bound |= {a.asname or a.name for a in node.names}
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                names.add(node.name)
-        for name in sorted(n for n in names if _PREDICATE_NAME.match(n) or n == "is_test_file"):
-            module = importlib.import_module("jcodemunch_mcp." + rel[:-3].replace("/", "."))
-            fn = getattr(module, name, None)
-            if fn is None:
-                continue  # imported inside a function
+                bound.add(node.name)
+            elif isinstance(node, ast.Assign):
+                bound |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        names = sorted(n for n in bound if _PREDICATE_NAME.match(n) or n == "is_test_file")
+        if not names:
+            continue
+        module = importlib.import_module("jcodemunch_mcp." + rel[:-3].replace("/", "."))
+        for name in names:
+            fn = getattr(module, name)
             seen.append(f"{rel}:{name}")
             wrong = [p for p in TEST_PATHS if not fn(p)] + [p for p in SOURCE_PATHS if fn(p)]
             assert wrong == [], (rel, name, wrong)
@@ -141,22 +171,15 @@ def _index(root: Path, files: dict[str, str]) -> tuple[str, str]:
     return res.get("repo", str(root)), storage
 
 
+_PY_TEST = "from shapes import area\n\n\ndef check():\n    return area()\n"
 ROOT_DIRS = {
     "python-tests": (
-        {
-            "shapes.py": "def area():\n    return 1\n",
-            "main.py": "print(1)\n",
-            "tests/helpers.py": "from shapes import area\n\n\ndef check():\n    return area()\n",
-        },
+        {"shapes.py": "def area():\n    return 1\n", "main.py": "print(1)\n", "tests/helpers.py": _PY_TEST},
         "shapes.py::area#function",
         "tests/helpers.py",
     ),
     "python-test": (
-        {
-            "shapes.py": "def area():\n    return 1\n",
-            "main.py": "print(1)\n",
-            "test/helpers.py": "from shapes import area\n\n\ndef check():\n    return area()\n",
-        },
+        {"shapes.py": "def area():\n    return 1\n", "main.py": "print(1)\n", "test/helpers.py": _PY_TEST},
         "shapes.py::area#function",
         "test/helpers.py",
     ),
@@ -183,6 +206,20 @@ def test_a_root_level_test_directory_is_not_reported_dead(tmp_path, case):
 
 
 @pytest.mark.parametrize("case", sorted(ROOT_DIRS))
+def test_the_second_dead_code_tool_skips_a_root_level_test_and_reports_it_when_asked(tmp_path, case):
+    files, _symbol, test_file = ROOT_DIRS[case]
+    repo, storage = _index(tmp_path, files)
+
+    def files_reported(include_tests: bool) -> set[str]:
+        res = get_dead_code_v2(repo, min_confidence=0.0, include_tests=include_tests, storage_path=storage)
+        assert "error" not in res, res
+        return {d["file"] for d in res.get("dead_symbols") or []}
+
+    assert test_file not in files_reported(False)
+    assert test_file in files_reported(True), "the fixture must be able to report the file"
+
+
+@pytest.mark.parametrize("case", sorted(ROOT_DIRS))
 def test_a_name_a_root_level_test_imports_is_imported(tmp_path, case):
     files, symbol, test_file = ROOT_DIRS[case]
     repo, storage = _index(tmp_path, files)
@@ -196,10 +233,63 @@ def test_a_name_a_root_level_test_imports_is_imported(tmp_path, case):
 @pytest.mark.parametrize("case", sorted(ROOT_DIRS))
 def test_a_root_level_test_counts_as_a_test_of_the_file_it_imports(tmp_path, case):
     """`get_file_risk` reads the rule inline, with no predicate name to scan for."""
-    from jcodemunch_mcp.tools.get_file_risk import get_file_risk
-
     files, symbol, _test_file = ROOT_DIRS[case]
     repo, storage = _index(tmp_path, files)
     res = get_file_risk(repo, symbol.split("::", 1)[0], storage_path=storage)
     assert "error" not in res, res
     assert res["file_metrics"]["has_tests"] is True, res["file_metrics"]
+
+
+def test_a_production_importer_is_not_a_test_of_the_file_it_imports(tmp_path):
+    files = {
+        "shapes.py": "def area():\n    return 1\n",
+        "models/pod_spec.py": "from shapes import area\n\n\ndef run():\n    return area()\n",
+        "main.py": "from models.pod_spec import run\n\nprint(run())\n",
+    }
+    repo, storage = _index(tmp_path, files)
+    res = get_file_risk(repo, "shapes.py", storage_path=storage)
+    assert res["file_metrics"]["has_tests"] is False, res["file_metrics"]
+
+
+def _consumer_repo(root: Path, importer: str) -> tuple[str, str]:
+    module = importer[:-3].replace("/", ".")
+    return _index(
+        root,
+        {
+            "core.py": "def helper():\n    return 1\n",
+            importer: "from core import helper\n\n\ndef run():\n    return helper()\n",
+            "main.py": f"from {module} import run\n\nprint(run())\n",
+        },
+    )
+
+
+LOOKS_LIKE_A_TEST = ["models/pod_spec.py", "models/api_spec.py"]
+
+
+@pytest.mark.parametrize("tool", [check_delete_safe, check_edit_safe], ids=["delete", "edit"])
+@pytest.mark.parametrize("importer", LOOKS_LIKE_A_TEST)
+def test_a_production_consumer_named_like_a_spec_blocks_as_any_other(tmp_path, tool, importer):
+    """The verdict for a `*_spec.py` consumer is the verdict for `models/pod.py`."""
+    control_repo, control_storage = _consumer_repo(tmp_path / "control", "models/pod.py")
+    control = tool(control_repo, "core.py::helper#function", cross_repo=False, storage_path=control_storage)
+    repo, storage = _consumer_repo(tmp_path / "case", importer)
+    res = tool(repo, "core.py::helper#function", cross_repo=False, storage_path=storage)
+    assert "error" not in control and "error" not in res, (control, res)
+    assert res["verdict"] == control["verdict"], (res["verdict"], control["verdict"])
+    assert res["verdict"] not in ("test_coverage_only", "safe_to_delete", "safe_to_edit"), res["verdict"]
+    assert res["signals"].get("test_import_count", 0) == 0, res["signals"]
+
+
+def test_a_test_consumer_is_counted_as_a_test_by_the_delete_preflight(tmp_path):
+    """The other direction, so the case above cannot pass on a rule that sees no tests."""
+    repo, storage = _index(
+        tmp_path,
+        {
+            "core.py": "def helper():\n    return 1\n",
+            "main.py": "print(1)\n",
+            "__tests__/check_core.py": "from core import helper\n\n\ndef check():\n    return helper()\n",
+        },
+    )
+    res = check_delete_safe(repo, "core.py::helper#function", cross_repo=False, storage_path=storage)
+    assert "error" not in res, res
+    assert res["verdict"] == "test_coverage_only", res

@@ -8,22 +8,29 @@ was reported dead at confidence 1.0 where `pkg/tests/helpers.py` was skipped.
 missed `a_test.py`, `a.spec.ts` and `__tests__/`. `get_pr_risk_profile`
 matched `"/test" in path`, which calls `src/testimonials.tsx` a test.
 
-Every caller imports `is_test_file` from here. A seventh rule written beside
-a tool fails `tests/test_one_test_file_predicate.py`.
+Every caller imports `is_test_file` from here. Add a spelling HERE, never
+beside a tool.
 
-⚠ The rule reads the PATH. A JUnit `FooTest.java` outside `src/test/` and
-Rust's inline `#[cfg(test)]` module are not recognised.
+⚠⚠ `check_delete_safe` and `check_edit_safe` read this rule to decide that a
+use is a TEST use, which downgrades a blocking verdict. A false positive here
+is therefore worse than a false negative, and each suffix is tied to the
+extensions that carry its convention: `_spec` is RSpec (`.rb`) and
+`.spec.`/`.test.` are JavaScript and TypeScript. `models/pod_spec.py` and
+`api_spec.yaml` are not tests.
 ⚠ `spec/` is not a test directory here: it also names a folder of
-specifications. A `_spec.rb` or `.spec.ts` FILE is a test by its name.
+specifications.
+⚠ The rule reads the PATH, relative to the repository. A JUnit `FooTest.java`
+outside `src/test/`, a bare `test.py`, and Rust's inline `#[cfg(test)]`
+module are not recognised (LEDGER L-104).
 """
 
 from __future__ import annotations
 
 import re
 
-_TEST_DIR_RE = re.compile(r"^(tests?|__tests__|test_.+)$", re.IGNORECASE)
+_TEST_DIR_RE = re.compile(r"^(tests?|__tests?__|test_.+|.+_tests)$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(
-    r"^(test_.*|.+_(test|spec)\.[^.]+|.+\.(test|spec)\.[^.]+|conftest\.py|tests\.py)$",
+    r"^(test_.*|.+_test\.[^.]+|.+_spec\.rb|.+\.(test|spec)\.[cm]?[jt]sx?|conftest\.py|tests\.py)$",
     re.IGNORECASE,
 )
 

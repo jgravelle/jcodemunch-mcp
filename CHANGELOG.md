@@ -13,14 +13,37 @@
   agreed: `check_delete_safe` and `find_similar_symbols` saw the root directory and missed `a_test.py`,
   `a.spec.ts` and `__tests__/`; `get_pr_risk_profile` matched `"/test"` anywhere, which made
   `src/testimonials.tsx` a test. There is one rule now, `tools/_test_paths.is_test_file`, and every
-  tool imports it: a directory named `tests`, `test`, `__tests__` or `test_*` at any depth, or a
-  filename `test_*`, `*_test.*`, `*_spec.*`, `*.test.*`, `*.spec.*`, `conftest.py` or `tests.py`.
-  A seventh copy fails `tests/test_one_test_file_predicate.py`. What moves: the two dead-code tools,
-  `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and `get_parity_map` gain the root
-  directory and `*_test.go`; `check_delete_safe`, `check_edit_safe`, `find_similar_symbols` and the
-  reuse audit gain `conftest.py`, `*_test.*`, `*.spec.*` and `__tests__/`; `get_pr_risk_profile` stops
-  calling `src/testing/`, `testdata/` and `.github/workflows/test.yml` tests. `get_repo_health`'s
-  production-path rule answers a different question and is unchanged (L-104).
+  tool imports it: a directory named `tests`, `test`, `__tests__`, `__test__`, `test_*` or `*_tests`
+  at any depth, or a filename `test_*`, `*_test.*`, `conftest.py`, `tests.py`, `*_spec.rb`, or
+  `*.test.*` / `*.spec.*` with a JavaScript or TypeScript extension. Each suffix is tied to the
+  extensions that carry its convention because `check_delete_safe` and `check_edit_safe` read the
+  rule to call a use a TEST use, which downgrades a blocking verdict: `models/pod_spec.py` and
+  `docs/api_spec.yaml` are not tests, and a test holds those two tools to the verdict they give for
+  `models/pod.py`.
+
+  Every tool's answer moves on some path. For each old rule against the new one:
+  - `find_dead_code`, and `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
+    `get_parity_map`, which import its predicate: gain the root-level directories, `*_tests/` and
+    `test_*/` directories, `*_test.<any extension>`, `*_spec.rb` and `tests.py`; lose `*.spec.*` and
+    `*.test.*` outside JavaScript and TypeScript.
+  - `get_dead_code_v2`: the same gains, plus `__tests__/` at any depth and `*.spec.*` / `*.test.*`,
+    which it never had.
+  - `check_delete_safe`, `check_edit_safe`, `find_similar_symbols` and the reuse audit: gain
+    `__tests__/`, `*_tests/`, `*_test.*`, `*.spec.*`, `*.test.*`, `*_spec.rb` and `tests.py`; the last
+    two tools also gain `conftest.py`. ⚠ A use in `experiments/ab_test.py` or `certs/tests.py` is
+    now a test use to the delete and edit preflights, as a use in `test_utils.py` already was: the
+    verdict there is `test_coverage_only`, which tells the caller to remove the tests with the symbol,
+    and never `safe_to_delete`.
+  - `get_pr_risk_profile`: stops calling `testing/`, `testutil/`, `testdata/`, `pytest_*.py`,
+    `test.py`, `*_spec.<not rb>` and `.github/workflows/test.yml` tests; gains `conftest.py`, a
+    root-level `__tests__/` and `*_tests/`.
+  - `get_file_risk` (`has_tests`, which feeds its `test_gap` score): gains `conftest.py`, `tests.py`,
+    `*.spec.*`, `*.test.*` and `*_spec.rb`; loses a directory ending `_test` (`src/ab_test/`).
+
+  `tests/test_one_test_file_predicate.py` pins the cases in both directions and fails when a module
+  binds its own rule under the names the copies used; a rule under a new name is seen only through
+  the tools that test runs. `get_repo_health`'s production-path rule answers a different question and
+  is unchanged (L-104).
 
 ## [1.108.323] - 2026-10-01 - an entry point has no importer, and that does not make it dead
 
