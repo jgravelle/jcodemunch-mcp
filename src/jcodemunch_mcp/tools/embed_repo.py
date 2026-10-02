@@ -214,6 +214,66 @@ def warm_up_embedding_backend() -> Optional[str]:
 # ── Per-provider embedding functions (all lazy-imported) ───────────────────
 
 
+# GHSA-jhr6-gm9c-rqjv: before this release, loading a LOCAL model directory
+# bypassed `trust_remote_code` and executed the custom Python inside it.
+_ST_LOCAL_CODE_FIXED = (5, 6, 0)
+
+
+def _sentence_transformers_version() -> tuple[Optional[tuple[int, ...]], str]:
+    """(parsed release, raw text) of the sentence-transformers actually imported.
+
+    The module's own `__version__` first, then the distribution metadata.
+    `None` means it could not be read, which is not the same as fixed.
+    """
+    import re
+    import sys
+
+    raw = getattr(sys.modules.get("sentence_transformers"), "__version__", None)
+    if not isinstance(raw, str):
+        try:
+            import importlib.metadata
+
+            raw = importlib.metadata.version("sentence-transformers")
+        except Exception:
+            logger.debug("sentence-transformers version could not be read", exc_info=True)
+            return None, ""
+    match = re.match(r"\s*(\d+)\.(\d+)(?:\.(\d+))?", raw)
+    if not match:
+        return None, raw
+    return tuple(int(part or 0) for part in match.groups()), raw
+
+
+def _is_local_model_path(model_name: str) -> bool:
+    """True when the name is a path that exists, which is when the library loads it from disk."""
+    expanded = os.path.expanduser(os.path.expandvars(model_name))
+    return os.path.exists(model_name) or os.path.exists(expanded)
+
+
+def _refuse_local_model_on_an_old_release(model_name: str) -> None:
+    """Raise before a local model directory reaches a release that runs its code unasked.
+
+    The `semantic` extra's floor is install metadata: an upgrade that does not
+    name the extra, or a `sentence-transformers` installed directly, keeps an
+    older release. A Hub name is not refused; the advisory is the local path.
+    """
+    if not _is_local_model_path(model_name):
+        return
+    parsed, raw = _sentence_transformers_version()
+    if parsed is not None and parsed >= _ST_LOCAL_CODE_FIXED:
+        return
+    found = f"sentence-transformers {raw}" if parsed is not None else (
+        "a sentence-transformers whose version could not be read"
+    )
+    # The cause and the remedy come first: the failure ledger keeps the first
+    # 300 characters of a message, and a path can be longer than that.
+    raise RuntimeError(
+        f"Refused: this environment has {found}, and releases before 5.6.0 run the custom "
+        "code inside a local model directory with trust_remote_code off (GHSA-jhr6-gm9c-rqjv). "
+        "Run: pip install -U 'jcodemunch-mcp[semantic]', or set embed_model to a Hub model name. "
+        f"embed_model is the local path {model_name!r}."
+    )
+
+
 def _embed_sentence_transformers(texts: list[str], model_name: str) -> list[list[float]]:
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import]
@@ -222,6 +282,7 @@ def _embed_sentence_transformers(texts: list[str], model_name: str) -> list[list
             "sentence-transformers is not installed. "
             "Run: pip install 'jcodemunch-mcp[semantic]'"
         ) from exc
+    _refuse_local_model_on_an_old_release(model_name)
     model = SentenceTransformer(model_name)
     raw = model.encode(texts, convert_to_numpy=False, show_progress_bar=False)
     return [list(map(float, e)) for e in raw]

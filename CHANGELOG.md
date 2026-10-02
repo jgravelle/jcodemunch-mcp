@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Security
+
+- **A local model path is refused when the installed `sentence-transformers` would run its code.**
+  1.108.326 raised the `semantic` extra's floor to 5.6.0 (GHSA-jhr6-gm9c-rqjv), and a floor is install
+  metadata: `pip install -U jcodemunch-mcp` without the extra named, or a `sentence-transformers`
+  installed directly, keeps the older release, and nothing said so. `embed_repo` and semantic search now
+  check the release they imported. When `embed_model` (or `JCODEMUNCH_EMBED_MODEL`) is a path that
+  exists and the release is older than 5.6.0, or its version cannot be read, the call refuses before the
+  model is constructed and names the advisory and the upgrade command; `embed_repo` reports it under
+  `error_causes`. A Hub model name is not refused, because the bypass is in the local-directory path.
+  A fixed release behaves as before (LEDGER L-108).
+
 ## [1.108.326] - 2026-10-02 - the semantic extra requires a sentence-transformers that does not run a local model's code
 
 ### Security
