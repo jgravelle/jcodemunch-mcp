@@ -1906,6 +1906,7 @@ def _search_symbols_fusion(
     #  embed_repo.embed_texts; the earlier EmbeddingStore(base_path=)/get_all(owner,name)/
     #  _embed_texts forms all raised and were swallowed, so this channel never ran.)
     similarity_used = False
+    similarity_error: Optional[dict] = None
     try:
         # v1.108.185: read-only, because the plain read wrote. `_connect` runs a
         # WAL pragma and a CREATE-TABLE script on every connection, so probing for
@@ -1931,11 +1932,18 @@ def _search_symbols_fusion(
                     )
                     channels.append(sim_ch)
                     similarity_used = True
-    except Exception:
+    except Exception as exc:
         import logging as _logging
         _logging.getLogger(__name__).debug(
             "fusion similarity channel unavailable", exc_info=True
         )
+        # The channel was attempted and failed. Saying `off` here read the same as a
+        # repo with no embeddings, and dropped a refusal's reason (L-108): a local
+        # model on an old sentence-transformers is refused inside `embed_texts`.
+        from ..embeddings.failures import FailureLedger
+        _ledger = FailureLedger()
+        _ledger.record(exc)
+        similarity_error = _ledger.rows()[0]
 
     # Fuse
     fused = fuse(channels, smoothing=smoothing, weights=weights)
@@ -2145,9 +2153,16 @@ def _search_symbols_fusion(
         query_terms=query_terms,
         scope=file_pattern,
         state_before=state_before,
-        semantic_channel="ok" if similarity_used else "off",
+        semantic_channel=(
+            "ok" if similarity_used else "unavailable" if similarity_error else "off"
+        ),
     )
     meta["verdict"] = _vres["verdict"]
+    if similarity_error:
+        # In the result, not `_meta`: `meta_fields: []` is the default and strips `_meta`.
+        result["semantic_channel_error"] = {
+            "type": similarity_error["type"], "message": similarity_error["message"],
+        }
     if _vres["negative_evidence"] is not None:
         # Parity with this tool's other exits: the same question must not get a
         # differently-honest answer depending on which ranking mode ran.

@@ -219,8 +219,8 @@ def warm_up_embedding_backend() -> Optional[str]:
 _ST_LOCAL_CODE_FIXED = (5, 6, 0)
 
 
-def _sentence_transformers_version() -> tuple[Optional[tuple[int, ...]], str]:
-    """(parsed release, raw text) of the sentence-transformers actually imported.
+def _sentence_transformers_version() -> tuple[Optional[tuple[int, ...]], bool, str]:
+    """(parsed release, is a pre-release, raw text) of the sentence-transformers actually imported.
 
     The module's own `__version__` first, then the distribution metadata.
     `None` means it could not be read, which is not the same as fixed.
@@ -236,15 +236,24 @@ def _sentence_transformers_version() -> tuple[Optional[tuple[int, ...]], str]:
             raw = importlib.metadata.version("sentence-transformers")
         except Exception:
             logger.debug("sentence-transformers version could not be read", exc_info=True)
-            return None, ""
-    match = re.match(r"\s*(\d+)\.(\d+)(?:\.(\d+))?", raw)
+            return None, False, ""
+    if not isinstance(raw, str):  # a distribution with no Version field answers None
+        return None, False, ""
+    match = re.fullmatch(r"(\d+)\.(\d+)(?:\.(\d+))?(.*)", raw.strip())
     if not match:
-        return None, raw
-    return tuple(int(part or 0) for part in match.groups()), raw
+        return None, False, raw
+    pre = bool(re.match(r"[-_.]?(a|b|c|rc|alpha|beta|pre|preview|dev)\d*", match.group(4), re.IGNORECASE))
+    return tuple(int(part or 0) for part in match.groups()[:3]), pre, raw
 
 
 def _is_local_model_path(model_name: str) -> bool:
-    """True when the name is a path that exists, which is when the library loads it from disk."""
+    """True when the name is a path that exists.
+
+    The library tests `os.path.exists` on the RAW name, so the raw check is the
+    one that matches what it would load. The expanded check (`~`, `$VAR`) only
+    adds refusals: the library does not expand, so such a name would not load
+    from disk there. Refusing it is the safe direction.
+    """
     expanded = os.path.expanduser(os.path.expandvars(model_name))
     return os.path.exists(model_name) or os.path.exists(expanded)
 
@@ -258,8 +267,9 @@ def _refuse_local_model_on_an_old_release(model_name: str) -> None:
     """
     if not _is_local_model_path(model_name):
         return
-    parsed, raw = _sentence_transformers_version()
-    if parsed is not None and parsed >= _ST_LOCAL_CODE_FIXED:
+    parsed, pre, raw = _sentence_transformers_version()
+    # A pre-release OF the fixed release (5.6.0.dev0, 5.6.0rc1) may predate the fix.
+    if parsed is not None and (parsed > _ST_LOCAL_CODE_FIXED or (parsed == _ST_LOCAL_CODE_FIXED and not pre)):
         return
     found = f"sentence-transformers {raw}" if parsed is not None else (
         "a sentence-transformers whose version could not be read"
@@ -267,7 +277,7 @@ def _refuse_local_model_on_an_old_release(model_name: str) -> None:
     # The cause and the remedy come first: the failure ledger keeps the first
     # 300 characters of a message, and a path can be longer than that.
     raise RuntimeError(
-        f"Refused: this environment has {found}, and releases before 5.6.0 run the custom "
+        f"Refused: this environment has {found}, and releases before 5.6.0 final run the custom "
         "code inside a local model directory with trust_remote_code off (GHSA-jhr6-gm9c-rqjv). "
         "Run: pip install -U 'jcodemunch-mcp[semantic]', or set embed_model to a Hub model name. "
         f"embed_model is the local path {model_name!r}."
