@@ -1190,6 +1190,8 @@ class IndexStore:
         self._lock_path(owner, name).unlink(missing_ok=True)
         self._checksum_path(index_path).unlink(missing_ok=True)
 
+        # The set of indexes changed: a remembered repo-key miss may now be wrong (#960).
+        _config.forget_repo_resolutions()
         return result
 
     def has_index(self, owner: str, name: str) -> bool:
@@ -1593,6 +1595,8 @@ class IndexStore:
         """
         db_existed = self._sqlite.has_index(owner, name)
         deleted = self._sqlite.delete_index(owner, name)
+        # A resolved repo key must not outlive its index (#960).
+        _config.forget_repo_resolutions()
 
         index_path = self._index_path(owner, name)
         meta_path = self._meta_path(owner, name)

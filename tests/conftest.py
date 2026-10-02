@@ -191,6 +191,7 @@ def _reset_config_state():
         cfg._PROJECT_CONFIGS.clear()
         cfg._PROJECT_CONFIG_HASHES.clear()
         cfg._REPO_PATH_CACHE.clear()
+        cfg._REPO_MISS_CACHE.clear()
     except ImportError:
         pass
 

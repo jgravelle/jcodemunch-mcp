@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import threading
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,14 @@ _PROJECT_CONFIG_MIRRORS: set[str] = set()
 _DEPRECATED_ENV_VARS_LOGGED: set[str] = set()
 _CONFIG_LOCK = threading.Lock()
 _REPO_PATH_CACHE: dict[str, str] = {}
+# Identifiers `_resolve_repo_key` looked up and did not find, with the
+# monotonic time each stops being believed (#960). Misses are forgotten when
+# this process saves or deletes an index; the TTL is for a save made by
+# ANOTHER process, which nothing here hears about. A loaded project config
+# needs no forgetting: its key is answered from `_PROJECT_CONFIGS` first.
+_REPO_MISS_CACHE: dict[str, float] = {}
+_REPO_MISS_TTL_SECONDS = 5.0
+_REPO_CACHE_MAX = 512
 
 ENV_VAR_MAPPING = {
     "JCODEMUNCH_USE_AI_SUMMARIES": "use_ai_summaries",
@@ -940,6 +949,25 @@ def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
                 _GLOBAL_CONFIG[config_key] = parsed
 
 
+def forget_repo_resolutions() -> None:
+    """Drop everything `_resolve_repo_key` has learned, hits and misses.
+
+    Called when the set of indexes changes in this process (an index saved or
+    deleted) and by `invalidate_cache`. The next lookup lists the store once.
+    """
+    with _CONFIG_LOCK:
+        _REPO_PATH_CACHE.clear()
+        _REPO_MISS_CACHE.clear()
+
+
+def _trim_oldest(cache: dict) -> None:
+    """Hold a lookup cache to `_REPO_CACHE_MAX` entries, oldest first. Caller holds the lock."""
+    excess = len(cache) - _REPO_CACHE_MAX
+    if excess > 0:
+        for k in list(cache)[:excess]:
+            del cache[k]
+
+
 def _resolve_repo_key(repo: str) -> str | None:
     """Resolve a repo identifier to the absolute path key used in _PROJECT_CONFIGS.
 
@@ -949,14 +977,22 @@ def _resolve_repo_key(repo: str) -> str | None:
     - A repo identifier like "jcodemunch-mcp" or "local/jcodemunch-mcp-384d867b"
 
     Returns the resolved key if found, None otherwise.
+
+    ⚠⚠ Both answers are remembered (#960, @ebataeva). A lookup that reaches the
+    store lists every index, and `list_repos` opens every `.db`. Discovery asks
+    once per FILE, so a miss that was not written back cost one full listing
+    per candidate file, scaling with how many indexes the user has. A source
+    root that matched was not written back either. A listing that RAISES is
+    not a miss and is not remembered.
     """
     with _CONFIG_LOCK:
         if repo in _PROJECT_CONFIGS:
             return repo
         if repo in _REPO_PATH_CACHE:
-            cached = _REPO_PATH_CACHE[repo]
-            # None = negative cache (unknown repo), str = resolved path
-            return cached
+            return _REPO_PATH_CACHE[repo]
+        expires = _REPO_MISS_CACHE.get(repo)
+        if expires is not None and time.monotonic() < expires:
+            return None
 
     # Miss: query store without holding the lock (I/O)
     try:
@@ -976,18 +1012,21 @@ def _resolve_repo_key(repo: str) -> str | None:
                 updates[display_name] = resolved
             if repo_name:
                 updates[repo_name] = resolved
+            updates[resolved] = resolved
             if repo == display_name or repo == repo_name or repo == resolved:
                 result = resolved
         with _CONFIG_LOCK:
             _REPO_PATH_CACHE.update(updates)
+            if result is None:
+                _REPO_MISS_CACHE[repo] = time.monotonic() + _REPO_MISS_TTL_SECONDS
+            else:
+                _REPO_MISS_CACHE.pop(repo, None)
             # Prevent unbounded growth (evict oldest entries first)
-            if len(_REPO_PATH_CACHE) > 512:
-                excess = len(_REPO_PATH_CACHE) - 512
-                for k in list(_REPO_PATH_CACHE)[:excess]:
-                    del _REPO_PATH_CACHE[k]
+            _trim_oldest(_REPO_PATH_CACHE)
+            _trim_oldest(_REPO_MISS_CACHE)
         return result
     except Exception:
-        pass
+        logger.debug("_resolve_repo_key: could not list the index store", exc_info=True)
     return None
 
 

@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A repo-key lookup that found nothing was never remembered (#960, reported by @ebataeva).**
+  `config._resolve_repo_key` documented a negative cache and wrote none: a `repo=` value that matched
+  no index listed every index in storage on every call, and the listing opens every `.db`. Discovery
+  asks once per candidate file (`is_secret_file(rel_path, repo=str(root))`), so indexing a
+  subdirectory of a git root paid one full listing per file, and the bill grew with the number of
+  indexes the user has. A source root that DID match was not written back either, which is the
+  second, smaller cost in the report. Both answers are remembered now. A remembered miss is dropped
+  when this process saves or deletes an index, and expires after `_REPO_MISS_TTL_SECONDS` for a save
+  made by another process, which nothing here is told about; a listing that raises is not a miss
+  and is not remembered. Deleting an index also drops the keys resolved for it, which used to
+  outlive it. Measured with 17 indexes in storage and 1,000 candidate files under a root that
+  matches none (`evidence/live_960_discovery.txt` in the PR): 1,005 listings and 45.41 s before, 1
+  listing and 3.96 s after.
+
 ## [1.108.324] - 2026-10-02 - one rule says whether a path is a test file
 
 ### Fixed

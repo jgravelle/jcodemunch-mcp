@@ -53,8 +53,8 @@ def invalidate_cache(
     _force_full_reindex.add(f"{owner}/{name}")
 
     # Clear all in-process caches (X1 / C4-B / T4.5)
+    _cfg.forget_repo_resolutions()
     with _cfg._CONFIG_LOCK:
-        _cfg._REPO_PATH_CACHE.clear()
         if source_root:
             _cfg._PROJECT_CONFIGS.pop(source_root, None)
             _cfg._PROJECT_CONFIG_HASHES.pop(source_root, None)
