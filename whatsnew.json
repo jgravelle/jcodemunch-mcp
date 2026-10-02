@@ -1,6 +1,12 @@
 {
-  "current": "1.108.325",
+  "current": "1.108.326",
   "entries": [
+    {
+      "version": "1.108.326",
+      "date": "2026-10-02",
+      "title": "the semantic extra requires a sentence-transformers that does not run a local model's code",
+      "summary": "sentence-transformers before 5.6.0 runs the custom Python inside a local model directory with trust_remote_code off (GHSA-jhr6-gm9c-rqjv, critical), and embed_repo hands the embed_model setting to it, where that value may be a path. The semantic and all extras declared >=2.2.0, so an environment that already held an older release kept it. They require >=5.6.0 now. If you use the local sentence-transformers provider, upgrade with the extra named: pip install -U \"jcodemunch-mcp[semantic]\". The default install and the ONNX provider do not import it."
+    },
     {
       "version": "1.108.325",
       "date": "2026-10-02",
@@ -18,12 +24,6 @@
       "date": "2026-10-01",
       "title": "an entry point has no importer, and that does not make it dead",
       "summary": "The deletion investigator called an importer dead when nothing imported it. An entry point has no importer by construction, so a name imported only by main.py, by the file package.json names, by a package's __init__.py or by a test read as imported by nothing live. The investigator asks find_dead_code, which knows the project's roots, and keeps no answer of its own."
-    },
-    {
-      "version": "1.108.322",
-      "date": "2026-10-01",
-      "title": "the deletion investigator reads the match the search made",
-      "summary": "The reference search compares import names through one fold, so an import spelled in another Unicode form or with an escape is an import of the plain name. The deletion investigator then filtered those rows again with a raw comparison, lost them, and answered that no file imports a name a live file imports. It reads the match type the search already states and compares no name of its own."
     }
   ]
 }

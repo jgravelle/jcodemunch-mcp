@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.326] - 2026-10-02 - the semantic extra requires a sentence-transformers that does not run a local model's code
+
 ### Security
 
 - **The `semantic` and `all` extras require `sentence-transformers>=5.6.0`.** GHSA-jhr6-gm9c-rqjv

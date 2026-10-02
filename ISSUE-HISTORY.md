@@ -2130,3 +2130,17 @@ The 1.108.324 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.322 count, verbatim:
 
 - ⚠ Prior (1.108.322): 13994 passed, 25 skipped, **0 failed** (14019 total).
+
+## Current State rotation (2026-10-02, release 1.108.326)
+
+The 1.108.323 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.323):** **An entry point has no importer, and that does not make it dead.** The deletion investigator's `_split_importers_by_liveness` asks `find_dead_code` and keeps no answer of its own (L-94). ⚠⚠ **It inherits that tool's gaps with its roots**: an undeclared non-Python entry point (L-102) still reads dead; fix it THERE. Also `registry_verify.py` retries, pages inside a budget and exits `UNREADABLE` for an unanswered read (L-96, L-98, L-99; RUNBOOK 3a). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-02, release 1.108.324).
+
+The 1.108.325 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.325 — **A lookup that found nothing is remembered.** `config._resolve_repo_key` documented a negative cache and never wrote one, so a `repo=` matching no index listed every index (opening every `.db`) on every call, and discovery asks once per candidate FILE (#960, @ebataeva). Both answers are cached; `forget_repo_resolutions()` runs on `IndexStore.save_index`/`delete_index`, and a miss expires after `_REPO_MISS_TTL_SECONDS` for a save made by another process. ⚠⚠ **A lookup writes NOTHING if a forget overtook its listing** (`_REPO_CACHE_GENERATION`); without it a miss written after a save hid the new index's project config. ⚠ The identifier is compared raw and many root PATHS past ~256 indexes are not all held (L-105). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.323 count, verbatim:
+
+- ⚠ Prior (1.108.323): 14049 passed, 25 skipped, **0 failed** (14074 total).
