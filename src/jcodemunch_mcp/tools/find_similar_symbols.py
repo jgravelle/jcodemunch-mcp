@@ -28,6 +28,7 @@ from typing import Optional
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import symbol_span_bytes
 from ._utils import index_status_to_tool_error, resolve_repo
+from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 from .get_context_bundle import _count_tokens
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,6 @@ _DUNDER_SKIP = frozenset({
     "__lt__", "__le__", "__gt__", "__ge__", "__ne__",
     "__enter__", "__exit__", "__getitem__", "__setitem__",
 })
-_TEST_FILENAME_RE = re.compile(r"(^|[/\\])(test_|tests?[/\\]|_test\.)", re.IGNORECASE)
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -140,10 +140,6 @@ def _byte_ratio(a: int, b: int) -> float:
 def _looks_generated(file_path: str) -> bool:
     fl = file_path.lower()
     return any(p in fl for p in _GENERATED_PATTERNS)
-
-
-def _is_test_file(file_path: str) -> bool:
-    return bool(_TEST_FILENAME_RE.search(file_path or ""))
 
 
 def _structural_disclosure(mode: str, semantic_state: str) -> dict:

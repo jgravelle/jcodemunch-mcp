@@ -53,6 +53,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from ..tools._test_paths import is_test_file as _is_test_path
+
 from .deletion_safety import (
     Obligation,
     REFUTED,
@@ -224,12 +226,6 @@ def _identifier_forms(terms: list[str]) -> list[str]:
         if f and f not in out:
             out.append(f)
     return out
-
-
-def _is_test_path(path: str) -> bool:
-    from ..tools.find_similar_symbols import _is_test_file  # noqa: PLC0415
-
-    return _is_test_file(path or "")
 
 
 def _index_was_rewritten(index) -> bool:

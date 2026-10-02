@@ -37,6 +37,7 @@ from ..storage import IndexStore
 from ..storage.generation import connect_readonly
 from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo
+from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 
 logger = logging.getLogger(__name__)
 
@@ -183,17 +184,6 @@ def _build_reverse_adjacency(
             if target and target != src_file:
                 rev.setdefault(target, []).append(src_file)
     return {k: list(dict.fromkeys(v)) for k, v in rev.items()}
-
-
-def _is_test_file(path: str) -> bool:
-    """Quick heuristic for test files."""
-    p = path.lower().replace("\\", "/")
-    return (
-        "/test" in p or "/tests/" in p or "/__tests__/" in p
-        or p.startswith("test") or p.startswith("tests/")
-        or "_test." in p or ".test." in p or ".spec." in p
-        or "_spec." in p or "test_" in p.split("/")[-1]
-    )
 
 
 def get_pr_risk_profile(

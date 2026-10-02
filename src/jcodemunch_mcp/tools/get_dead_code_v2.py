@@ -29,6 +29,7 @@ from ._entry_points import entry_point_spec
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
 from ._runtime_discovery import discover_dynamic_packages
 from ._dynamic_boundary import FILES_CAP, DynamicBoundary
+from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 
 
@@ -999,16 +1000,6 @@ def get_dead_code_v2(
             "List each extension separately and add the flat form."
         )
     return result
-
-
-def _is_test_file(file_path: str) -> bool:
-    fp = file_path.replace("\\", "/")
-    fn = fp.rsplit("/", 1)[-1]
-    return (
-        "/tests/" in fp or "/test/" in fp
-        or fn.startswith("test_") or fn.endswith("_test.py")
-        or fn == "conftest.py"
-    )
 
 
 def _call_graph_only_dead_code(

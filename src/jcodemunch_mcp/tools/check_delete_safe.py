@@ -47,6 +47,7 @@ from . import _name_reachability
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._stop_rule import build_stop_rule
+from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 from ._utils import index_status_to_tool_error, resolve_repo
 
 logger = logging.getLogger(__name__)
@@ -70,11 +71,6 @@ _ENTRY_DECORATOR_RE = re.compile(
     re.IGNORECASE,
 )
 
-_TEST_FILE_RE = re.compile(r"(^|[/\\])(test_|tests?[/\\]|_test\.|conftest\.py)", re.IGNORECASE)
-
-
-def _is_test_file(file_path: str) -> bool:
-    return bool(_TEST_FILE_RE.search(file_path or ""))
 
 
 def _resolve_target(index, symbol: str) -> Optional[dict]:

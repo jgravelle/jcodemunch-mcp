@@ -25,13 +25,13 @@ gutter refresh.
 from __future__ import annotations
 
 import logging
-import re
 import subprocess
 import time
 from typing import Optional
 
 from ..storage import IndexStore
 from ._utils import index_status_to_tool_error, resolve_repo
+from ._test_paths import is_test_file
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +123,6 @@ def _churn_for_file(file_path: str, source_root: str, days: int = 30) -> int:
         return 0
 
 
-_TEST_FILE_RE = re.compile(r"(?:(?:^|/)test_[^/]+|(?:^|/)[^/]+_test|(?:^|/)tests?/)", re.IGNORECASE)
-
-
 def _file_has_tests(index, file_path: str) -> bool:
     """Does any test file in the index import this file?"""
     if not index.imports:
@@ -138,7 +135,7 @@ def _file_has_tests(index, file_path: str) -> bool:
     alias_map = getattr(index, "alias_map", None)
     psr4_map = getattr(index, "psr4_map", None)
     for src, file_imports in index.imports.items():
-        if not _TEST_FILE_RE.search(src):
+        if not is_test_file(src):
             continue
         for imp in file_imports:
             target = resolve_specifier(

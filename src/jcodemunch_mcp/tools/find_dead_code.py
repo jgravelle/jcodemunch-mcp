@@ -17,6 +17,7 @@ from ._entry_points import entry_point_spec
 from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
+from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 
 logger = logging.getLogger(__name__)
 
@@ -85,22 +86,6 @@ def _is_entry_point_filename(file_path: str) -> bool:
 def _is_init_file(file_path: str) -> bool:
     filename = file_path.replace("\\", "/").rsplit("/", 1)[-1]
     return filename == "__init__.py"
-
-
-def _is_test_file(file_path: str) -> bool:
-    fp = file_path.replace("\\", "/")
-    fn = fp.rsplit("/", 1)[-1]
-    base = fn.rsplit(".", 1)[0] if "." in fn else fn
-    return (
-        "/tests/" in fp
-        or "/test/" in fp
-        or "/__tests__/" in fp
-        or fn.startswith("test_")
-        or fn.endswith("_test.py")
-        or fn == "conftest.py"
-        or base.endswith(".spec")    # foo.spec.ts, foo.spec.js
-        or base.endswith(".test")    # foo.test.ts, foo.test.js
-    )
 
 
 def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:

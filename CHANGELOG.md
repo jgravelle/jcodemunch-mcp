@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A test directory at the repository root was not a test directory (LEDGER L-101).**
+  `find_dead_code` and `get_dead_code_v2` asked whether `"/tests/"` appears in a path, which needs a
+  slash BEFORE the directory, so `tests/helpers.py`, `test/helpers.py` and `__tests__/shapes.js` at
+  the root were reported dead at confidence 1.0 while `pkg/tests/helpers.py` was skipped. The deletion
+  investigator asks `find_dead_code` whether an importer is dead (L-94), so it called a name such a
+  file imports "imported by nothing live". The rule existed six times under `src/` and no two copies
+  agreed: `check_delete_safe` and `find_similar_symbols` saw the root directory and missed `a_test.py`,
+  `a.spec.ts` and `__tests__/`; `get_pr_risk_profile` matched `"/test"` anywhere, which made
+  `src/testimonials.tsx` a test. There is one rule now, `tools/_test_paths.is_test_file`, and every
+  tool imports it: a directory named `tests`, `test`, `__tests__` or `test_*` at any depth, or a
+  filename `test_*`, `*_test.*`, `*_spec.*`, `*.test.*`, `*.spec.*`, `conftest.py` or `tests.py`.
+  A seventh copy fails `tests/test_one_test_file_predicate.py`. What moves: the two dead-code tools,
+  `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and `get_parity_map` gain the root
+  directory and `*_test.go`; `check_delete_safe`, `check_edit_safe`, `find_similar_symbols` and the
+  reuse audit gain `conftest.py`, `*_test.*`, `*.spec.*` and `__tests__/`; `get_pr_risk_profile` stops
+  calling `src/testing/`, `testdata/` and `.github/workflows/test.yml` tests. `get_repo_health`'s
+  production-path rule answers a different question and is unchanged (L-104).
+
 ## [1.108.323] - 2026-10-01 - an entry point has no importer, and that does not make it dead
 
 ### Fixed
