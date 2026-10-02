@@ -1,6 +1,6 @@
 """One rule says whether a path is a test file (LEDGER L-101).
 
-Six modules under `src/` each kept their own rule and no two agreed.
+Six rules answered the question under `src/` and no two agreed.
 `find_dead_code` and `get_dead_code_v2` tested `"/tests/" in path`, which
 needs a leading slash, so a test directory at the repository root was not
 one: `tests/helpers.py` was reported dead at confidence 1.0, and the deletion
@@ -12,9 +12,10 @@ file imports "imported by nothing live". `check_delete_safe` and
 What is checked here:
 
 - the cases, pinned against the shared rule, in both directions;
-- no module defines or assigns the predicate's names, or a TEST regex
-  constant, at any depth, and each module that imports the name holds the
-  shared function. ⚠ A copy under ANOTHER name, or a rule written inline, is
+- no module binds the predicate's names, or a TEST regex constant, by any
+  statement at any depth (def, class, assignment, walrus, loop or `with`
+  target, argument, import alias), and each module that imports the name
+  holds the shared function. ⚠ A copy under ANOTHER name, or a rule written inline, is
   not seen by that scan. Only the tools this file runs are covered by what
   they answer; `get_pr_risk_profile`, `find_similar_symbols`, the reuse
   audit, `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
@@ -157,6 +158,18 @@ def test_no_module_writes_its_own_rule():
                 for t in (n for target in targets for n in ast.walk(target)):
                     if isinstance(t, ast.Name) and (_RULE_CONSTANT.match(t.id) or _PREDICATE_NAME.match(t.id)):
                         found.append(f"{rel}:{node.lineno} {t.id}")
+            # Every other statement that binds a name: walrus, loop and `with` targets, `del`.
+            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load) and _PREDICATE_NAME.match(node.id):
+                found.append(f"{rel}:{node.lineno} name {node.id}")
+            if isinstance(node, ast.arg) and _PREDICATE_NAME.match(node.arg):
+                found.append(f"{rel}:{node.lineno} arg {node.arg}")
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for a in node.names:
+                    bound = a.asname or a.name
+                    origin = a.name.rsplit(".", 1)[-1]
+                    if _PREDICATE_NAME.match(bound) and not (_PREDICATE_NAME.match(origin) or origin == "is_test_file"):
+                        found.append(f"{rel}:{node.lineno} import {a.name} as {bound}")
+    assert sorted(set(found)) == [], sorted(set(found))
     assert found == [], found
 
 
@@ -337,3 +350,19 @@ def test_a_consumer_under_an_ambiguous_test_name_is_never_a_safe_delete(tmp_path
     assert res["verdict"] == "test_coverage_only", res["verdict"]
     assert res["stop_rule"]["terminal"] is False, res["stop_rule"]
     assert importer in str(res["blockers"]), res["blockers"]
+
+
+@pytest.mark.parametrize("importer", AMBIGUOUS + ["__tests__/check_core.py", "tests/check_core.py"])
+def test_the_edit_preflight_counts_a_test_consumer_as_a_test(tmp_path, importer):
+    """The edit side in the positive direction, the ambiguous spellings included.
+
+    ⚠ For `experiments/ab_test.py` this pins the disclosed trade: the edit
+    preflight says `safe_to_edit` over a file that may be production code
+    (LEDGER L-104). Narrowing the rule changes this test on purpose.
+    """
+    repo, storage = _consumer_repo(tmp_path, importer)
+    res = check_edit_safe(repo, "core.py::helper#function", cross_repo=False, storage_path=storage)
+    assert "error" not in res, res
+    assert res["signals"]["test_import_count"] == 1, res["signals"]
+    assert res["signals"]["has_test_coverage"] is True, res["signals"]
+    assert res["verdict"] == "safe_to_edit", res["verdict"]

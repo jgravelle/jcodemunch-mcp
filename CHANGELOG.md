@@ -30,24 +30,25 @@
   - `get_dead_code_v2`: the same gains, plus `__tests__/` at any depth and `*.spec.*` / `*.test.*`,
     which it never had.
   - `check_delete_safe`, `check_edit_safe`, `find_similar_symbols` and the reuse audit: gain
-    `__tests__/`, `*_tests/`, `*_test.*`, `*.spec.*`, `*.test.*`, `*_spec.rb` and `tests.py`; the last
+    `__tests__/`, `__test__/`, `*_tests/`, `*_test.*`, `*.spec.*`, `*.test.*`, `*_spec.rb` and `tests.py`; the last
     two tools also gain `conftest.py`. ⚠⚠ Three of those spellings can name a production file:
     `experiments/ab_test.py`, `certs/tests.py` and `experiments/ab_tests/`. A use there is a test
     use to both preflights now, as a use in `test_utils.py` already was. `check_delete_safe` answers
     `test_coverage_only` where it answered `external_uses_blocking`: not terminal, the file named as
-    a blocker, never `safe_to_delete` (pinned by a test). `check_edit_safe` answers `safe_to_edit`
-    where it answered `signature_impact`, so read `test_import_count` before trusting that verdict
-    on a repository that names production files this way.
-  - `get_pr_risk_profile`: stops calling `testing/`, `testutil/`, `testdata/`, `pytest_*.py`,
+    a blocker, never `safe_to_delete`. `check_edit_safe` answers `safe_to_edit` where it answered
+    `signature_impact`, so read `test_import_count` before trusting that verdict on a repository
+    that names production files this way. Both verdicts are pinned by tests.
+  - `get_pr_risk_profile`: stops calling `testing/`, `testutil/`, `testdata/`, `pytest_*.py`, a
+    filename with `test_` after its first character (`_test_paths.py`),
     `test.py`, `test.js`, `tests.js`, `*_spec.<not rb>`, `*.spec.*` and `*.test.*` outside JavaScript
     and TypeScript (`x.test.d.ts` included), `my_test.config.js` and `.github/workflows/test.yml`
-    tests; gains `conftest.py`, a root-level `__tests__/` and `*_tests/`.
+    tests; gains `conftest.py`, a root-level `__tests__/`, `__test__/` and `*_tests/`.
   - `get_file_risk` (`has_tests`, which feeds its `test_gap` score): gains `conftest.py`, `tests.py`,
     `*.spec.*`, `*.test.*` and `*_spec.rb`; loses every name its old pattern matched in the middle
     of a segment: a directory ending `_test` (`src/ab_test/`), `my_test.config.js`, `foo_testing.py`.
 
   `tests/test_one_test_file_predicate.py` pins the cases in both directions and fails when a module
-  defines or assigns the names the copies used, at any depth. A rule under a new name is seen only
+  binds the names the copies used, by any statement at any depth. A rule under a new name is seen only
   through the tools that test runs: the two dead-code tools, the investigator, `get_file_risk` and
   the two preflights. `get_repo_health`'s production-path rule answers a different question and
   is unchanged (L-104).
