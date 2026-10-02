@@ -12,10 +12,12 @@ file imports "imported by nothing live". `check_delete_safe` and
 What is checked here:
 
 - the cases, pinned against the shared rule, in both directions;
-- no module binds the predicate's names, or a TEST regex constant, by any
-  statement at any depth (def, class, assignment, walrus, loop or `with`
-  target, argument, import alias), and each module that imports the name
-  holds the shared function. ⚠ A copy under ANOTHER name, or a rule written inline, is
+- no module binds the predicate's names, or a TEST regex constant, at any
+  depth by one of these forms: def, class, assignment, walrus, loop or
+  `with` target, argument, import alias, `match` capture, `except ... as`.
+  Each module that imports the name holds the shared function. A write
+  through `globals()` or onto another module's attribute is not a form the
+  scan reads. ⚠ A copy under ANOTHER name, or a rule written inline, is
   not seen by that scan. Only the tools this file runs are covered by what
   they answer; `get_pr_risk_profile`, `find_similar_symbols`, the reuse
   audit, `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
@@ -27,7 +29,7 @@ What is checked here:
   a test use, which downgrades a blocking verdict, so a false positive in the
   rule is a delete certified over a real consumer. The spellings kept
   although a production file can carry them (`ab_test.py`, `tests.py`,
-  `ab_tests/`) are pinned to the verdict the delete preflight gives.
+  `ab_tests/`) are pinned to the verdict each preflight gives.
 """
 
 from __future__ import annotations
@@ -163,6 +165,15 @@ def test_no_module_writes_its_own_rule():
                 found.append(f"{rel}:{node.lineno} name {node.id}")
             if isinstance(node, ast.arg) and _PREDICATE_NAME.match(node.arg):
                 found.append(f"{rel}:{node.lineno} arg {node.arg}")
+            # Bindings the AST holds as a plain string: a `match` capture and `except ... as`.
+            for attr in ("name", "rest"):
+                captured = getattr(node, attr, None)
+                if (
+                    isinstance(node, (ast.MatchAs, ast.MatchStar, ast.MatchMapping, ast.ExceptHandler))
+                    and isinstance(captured, str)
+                    and _PREDICATE_NAME.match(captured)
+                ):
+                    found.append(f"{rel}:{node.lineno} {type(node).__name__} {captured}")
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 for a in node.names:
                     bound = a.asname or a.name

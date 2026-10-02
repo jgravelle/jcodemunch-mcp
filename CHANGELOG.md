@@ -48,7 +48,9 @@
     of a segment: a directory ending `_test` (`src/ab_test/`), `my_test.config.js`, `foo_testing.py`.
 
   `tests/test_one_test_file_predicate.py` pins the cases in both directions and fails when a module
-  binds the names the copies used, by any statement at any depth. A rule under a new name is seen only
+  binds the names the copies used, at any depth, by a def, a class, an assignment,
+  a walrus, a loop or `with` target, an argument, an import alias, a `match` capture or an
+  `except ... as`. A rule under a new name is seen only
   through the tools that test runs: the two dead-code tools, the investigator, `get_file_risk` and
   the two preflights. `get_repo_health`'s production-path rule answers a different question and
   is unchanged (L-104).
