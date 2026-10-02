@@ -8,7 +8,7 @@ straight to `SentenceTransformer`, and that value may be a path. The extra decla
 while an environment that already held an older one satisfied the requirement
 and stayed exposed. The floor is the fixed release.
 
-Every tracked requirements file is read too: `benchmarks/requirements-rag-bench.txt`
+Every tracked requirements, constraints and `.pins` file is read too: `benchmarks/requirements-rag-bench.txt`
 pinned `<4.0`, which REQUIRED a vulnerable release, and a check of the
 extras alone could not see it.
 
@@ -20,6 +20,7 @@ it, and it held 5.3.0 and a urllib3 with three open advisories
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ else:  # 3.10: pytest depends on tomli there
 
 import pytest
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 from packaging.version import Version
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,27 +56,60 @@ def test_every_extra_that_names_sentence_transformers_excludes_the_vulnerable_re
     assert sorted(seen) == ["all", "semantic"], seen
 
 
-_OUTSIDE_THE_TREE = {".venv", ".git", "node_modules", "build", "dist", ".claude", "__pycache__"}
+_PIN_FILE = re.compile(r"(requirements|constraints)[^/]*\.(txt|in)$|\.pins$", re.IGNORECASE)
 _VULNERABLE_SAMPLES = ("2.2.0", "3.4.1", "4.1.0", "5.3.0", "5.5.1")
 
 
+def _tracked_pin_files() -> list[str]:
+    """Tracked files that pin packages: requirements and constraints (.txt, .in) and `.pins`."""
+    out = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, encoding="utf-8", check=True
+    ).stdout
+    return sorted(rel for rel in out.splitlines() if _PIN_FILE.search(rel))
+
+
 def _requirement_lines():
-    for path in sorted(ROOT.rglob("*requirements*.txt")):
-        if _OUTSIDE_THE_TREE & set(path.relative_to(ROOT).parts):
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line.lower().startswith("sentence-transformers"):
-                yield path.relative_to(ROOT).as_posix(), Requirement(line)
+    for rel in _tracked_pin_files():
+        for line in (ROOT / rel).read_text(encoding="utf-8").splitlines():
+            line = line.split("#", 1)[0].strip().rstrip(chr(92)).strip()
+            if not re.match(r"sentence[-_.]transformers", line, re.IGNORECASE):
+                continue
+            req = Requirement(line)
+            if canonicalize_name(req.name) == "sentence-transformers":
+                yield rel, req
 
 
 def test_no_requirements_file_admits_a_vulnerable_sentence_transformers():
+    """Over TRACKED pin files, by canonical name, so `sentence_transformers==3.0.0` is seen.
+
+    The file names read are requirements and constraints files and `.pins`;
+    a pin written anywhere else is not seen here.
+    """
     found = list(_requirement_lines())
-    assert [rel for rel, _ in found] == ["benchmarks/requirements-rag-bench.txt"], found
+    assert [rel for rel, _ in found] == [
+        "benchmarks/competitive/sandbox/cocoindex.pins",
+        "benchmarks/requirements-rag-bench.txt",
+    ], found
     for rel, req in found:
         vulnerable = [v for v in _VULNERABLE_SAMPLES if req.specifier.contains(v)]
         assert vulnerable == [], (rel, str(req), vulnerable)
-        assert any(req.specifier.contains(v) for v in ("5.6.0", "6.1.0")), (rel, str(req))
+        assert any(req.specifier.contains(v) for v in ("5.6.0", "6.0.1", "6.1.0")), (rel, str(req))
+
+
+@pytest.mark.parametrize(
+    "line,seen",
+    [
+        ("sentence_transformers==3.0.0", True),
+        ("Sentence.Transformers>=2.2.0,<4.0", True),
+        ("sentence-transformers==6.0.1 " + chr(92), True),
+        ("sentence-transformers-extras==1.0", False),
+    ],
+)
+def test_the_scan_reads_every_spelling_of_the_name(tmp_path, monkeypatch, line, seen):
+    (tmp_path / "requirements-x.txt").write_text("numpy>=1.0\n" + line + "\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "_tracked_pin_files", lambda: ["requirements-x.txt"])
+    assert bool(list(_requirement_lines())) is seen
 
 
 @pytest.mark.parametrize("name", sorted(FIXED))
