@@ -1,6 +1,6 @@
 """THE one answer to "is this path a test file?" (LEDGER L-101).
 
-Six modules each kept their own rule and no two agreed. `find_dead_code` and
+Six rules answered this under `src/` and no two agreed. `find_dead_code` and
 `get_dead_code_v2` tested `"/tests/" in path`, which needs a LEADING slash,
 so a test directory at the repository root was not one: `tests/helpers.py`
 was reported dead at confidence 1.0 where `pkg/tests/helpers.py` was skipped.
@@ -17,6 +17,10 @@ is therefore worse than a false negative, and each suffix is tied to the
 extensions that carry its convention: `_spec` is RSpec (`.rb`) and
 `.spec.`/`.test.` are JavaScript and TypeScript. `models/pod_spec.py` and
 `api_spec.yaml` are not tests.
+⚠⚠ Three spellings are kept although a production file can carry them:
+`*_test.<ext>`, `tests.py` and a `*_tests/` directory. A use in
+`experiments/ab_test.py` reads `test_coverage_only` to the delete preflight
+(never `safe_to_delete`) and `safe_to_edit` to the edit preflight.
 ⚠ `spec/` is not a test directory here: it also names a folder of
 specifications.
 ⚠ The rule reads the PATH, relative to the repository. A JUnit `FooTest.java`

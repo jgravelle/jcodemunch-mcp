@@ -12,16 +12,21 @@ file imports "imported by nothing live". `check_delete_safe` and
 What is checked here:
 
 - the cases, pinned against the shared rule, in both directions;
-- every name a module exports for the question IS the shared function, and no
-  module defines a predicate or a TEST regex constant under the names the
-  copies used. ⚠ A copy under another name, or a rule written inline, is not
-  seen by that scan; the tools are covered by what they answer;
+- no module defines or assigns the predicate's names, or a TEST regex
+  constant, at any depth, and each module that imports the name holds the
+  shared function. ⚠ A copy under ANOTHER name, or a rule written inline, is
+  not seen by that scan. Only the tools this file runs are covered by what
+  they answer; `get_pr_risk_profile`, `find_similar_symbols`, the reuse
+  audit, `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
+  `get_parity_map` are not among them;
 - the root-level shapes through `find_dead_code`, `get_dead_code_v2`, the
   deletion investigator and `get_file_risk`;
 - `check_delete_safe` and `check_edit_safe` on a PRODUCTION file whose name
   looks like a test (`models/pod_spec.py`). They read this rule to call a use
   a test use, which downgrades a blocking verdict, so a false positive in the
-  rule is a delete certified over a real consumer.
+  rule is a delete certified over a real consumer. The spellings kept
+  although a production file can carry them (`ab_test.py`, `tests.py`,
+  `ab_tests/`) are pinned to the verdict the delete preflight gives.
 """
 
 from __future__ import annotations
@@ -70,6 +75,8 @@ TEST_PATHS = [
     "src/a.test.mjs",
     "src/a_spec.rb",
     "app/tests.py",
+    "experiments/ab_tests/variants.py",
+    "experiments/ab_test.py",
 ]
 SOURCE_PATHS = [
     "",
@@ -99,6 +106,24 @@ _PREDICATE_NAME = re.compile(r"^_?is_test_(file|path)$")
 _RULE_CONSTANT = re.compile(r"^_?\w*TEST\w*_RE$|^_?TEST_(FILE|FILENAME|PATH|DIR)\w*$")
 
 
+# Every place the name is bound today. A module that starts or stops importing it changes this list.
+BINDINGS = [
+    "investigator/reuse_audit.py:_is_test_path",
+    "tools/_test_paths.py:is_test_file",
+    "tools/check_delete_safe.py:_is_test_file",
+    "tools/check_edit_safe.py:_is_test_file",
+    "tools/find_dead_code.py:_is_test_file",
+    "tools/find_similar_symbols.py:_is_test_file",
+    "tools/find_unused_paths.py:_is_test_file",
+    "tools/get_blast_radius.py:_is_test_file",
+    "tools/get_dead_code_v2.py:_is_test_file",
+    "tools/get_file_risk.py:is_test_file",
+    "tools/get_parity_map.py:_is_test_file",
+    "tools/get_pr_risk_profile.py:_is_test_file",
+    "tools/get_untested_symbols.py:_is_test_file",
+]
+
+
 def _shared():
     return importlib.import_module("jcodemunch_mcp.tools._test_paths").is_test_file
 
@@ -124,24 +149,24 @@ def test_no_module_writes_its_own_rule():
     for rel, tree in _modules():
         if rel == AUTHORITY:
             continue
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _PREDICATE_NAME.match(node.name):
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and _PREDICATE_NAME.match(node.name):
                 found.append(f"{rel}:{node.lineno} def {node.name}")
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for t in targets:
+                for t in (n for target in targets for n in ast.walk(target)):
                     if isinstance(t, ast.Name) and (_RULE_CONSTANT.match(t.id) or _PREDICATE_NAME.match(t.id)):
                         found.append(f"{rel}:{node.lineno} {t.id}")
     assert found == [], found
 
 
 def test_every_module_that_names_the_predicate_gives_the_shared_answer():
-    """Read by identity at import, so a def, a lambda or a bound method under the name fails."""
+    """Each module that imports the name, at any depth, holds the shared function."""
     shared = _shared()
     seen = []
     for rel, tree in _modules():
         bound = set()
-        for node in tree.body:
+        for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 bound |= {a.asname or a.name for a in node.names}
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -159,6 +184,7 @@ def test_every_module_that_names_the_predicate_gives_the_shared_answer():
             assert wrong == [], (rel, name, wrong)
             assert fn is shared, (rel, name)
     assert len(seen) >= 8, seen
+    assert sorted(seen) == sorted(BINDINGS), sorted(set(seen) ^ set(BINDINGS))
 
 
 def _index(root: Path, files: dict[str, str]) -> tuple[str, str]:
@@ -293,3 +319,21 @@ def test_a_test_consumer_is_counted_as_a_test_by_the_delete_preflight(tmp_path):
     res = check_delete_safe(repo, "core.py::helper#function", cross_repo=False, storage_path=storage)
     assert "error" not in res, res
     assert res["verdict"] == "test_coverage_only", res
+
+
+AMBIGUOUS = ["experiments/ab_test.py", "certs/tests.py", "experiments/ab_tests/variants.py"]
+
+
+@pytest.mark.parametrize("importer", AMBIGUOUS)
+def test_a_consumer_under_an_ambiguous_test_name_is_never_a_safe_delete(tmp_path, importer):
+    """The disclosed trade: these read as tests, and the delete preflight stays short of safe.
+
+    A production file can carry each name. The verdict is `test_coverage_only`,
+    which is not terminal and names the file as a blocker.
+    """
+    repo, storage = _consumer_repo(tmp_path, importer)
+    res = check_delete_safe(repo, "core.py::helper#function", cross_repo=False, storage_path=storage)
+    assert "error" not in res, res
+    assert res["verdict"] == "test_coverage_only", res["verdict"]
+    assert res["stop_rule"]["terminal"] is False, res["stop_rule"]
+    assert importer in str(res["blockers"]), res["blockers"]

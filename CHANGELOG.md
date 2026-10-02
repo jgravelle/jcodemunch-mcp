@@ -9,7 +9,7 @@
   slash BEFORE the directory, so `tests/helpers.py`, `test/helpers.py` and `__tests__/shapes.js` at
   the root were reported dead at confidence 1.0 while `pkg/tests/helpers.py` was skipped. The deletion
   investigator asks `find_dead_code` whether an importer is dead (L-94), so it called a name such a
-  file imports "imported by nothing live". The rule existed six times under `src/` and no two copies
+  file imports "imported by nothing live". Six rules answered the question under `src/` and no two
   agreed: `check_delete_safe` and `find_similar_symbols` saw the root directory and missed `a_test.py`,
   `a.spec.ts` and `__tests__/`; `get_pr_risk_profile` matched `"/test"` anywhere, which made
   `src/testimonials.tsx` a test. There is one rule now, `tools/_test_paths.is_test_file`, and every
@@ -23,26 +23,33 @@
 
   Every tool's answer moves on some path. For each old rule against the new one:
   - `find_dead_code`, and `get_blast_radius`, `get_untested_symbols`, `find_unused_paths` and
-    `get_parity_map`, which import its predicate: gain the root-level directories, `*_tests/` and
-    `test_*/` directories, `*_test.<any extension>`, `*_spec.rb` and `tests.py`; lose `*.spec.*` and
-    `*.test.*` outside JavaScript and TypeScript.
+    `get_parity_map`, which import its predicate: gain the root-level directories, `__test__/`,
+    `*_tests/` and `test_*/` directories, `*_test.<any extension>`, `*_spec.rb` and `tests.py`, and
+    match without regard to case (`Tests/`, `TEST_PLAN.md`); lose `*.spec.*` and `*.test.*` outside
+    JavaScript and TypeScript.
   - `get_dead_code_v2`: the same gains, plus `__tests__/` at any depth and `*.spec.*` / `*.test.*`,
     which it never had.
   - `check_delete_safe`, `check_edit_safe`, `find_similar_symbols` and the reuse audit: gain
     `__tests__/`, `*_tests/`, `*_test.*`, `*.spec.*`, `*.test.*`, `*_spec.rb` and `tests.py`; the last
-    two tools also gain `conftest.py`. ⚠ A use in `experiments/ab_test.py` or `certs/tests.py` is
-    now a test use to the delete and edit preflights, as a use in `test_utils.py` already was: the
-    verdict there is `test_coverage_only`, which tells the caller to remove the tests with the symbol,
-    and never `safe_to_delete`.
+    two tools also gain `conftest.py`. ⚠⚠ Three of those spellings can name a production file:
+    `experiments/ab_test.py`, `certs/tests.py` and `experiments/ab_tests/`. A use there is a test
+    use to both preflights now, as a use in `test_utils.py` already was. `check_delete_safe` answers
+    `test_coverage_only` where it answered `external_uses_blocking`: not terminal, the file named as
+    a blocker, never `safe_to_delete` (pinned by a test). `check_edit_safe` answers `safe_to_edit`
+    where it answered `signature_impact`, so read `test_import_count` before trusting that verdict
+    on a repository that names production files this way.
   - `get_pr_risk_profile`: stops calling `testing/`, `testutil/`, `testdata/`, `pytest_*.py`,
-    `test.py`, `*_spec.<not rb>` and `.github/workflows/test.yml` tests; gains `conftest.py`, a
-    root-level `__tests__/` and `*_tests/`.
+    `test.py`, `test.js`, `tests.js`, `*_spec.<not rb>`, `*.spec.*` and `*.test.*` outside JavaScript
+    and TypeScript (`x.test.d.ts` included), `my_test.config.js` and `.github/workflows/test.yml`
+    tests; gains `conftest.py`, a root-level `__tests__/` and `*_tests/`.
   - `get_file_risk` (`has_tests`, which feeds its `test_gap` score): gains `conftest.py`, `tests.py`,
-    `*.spec.*`, `*.test.*` and `*_spec.rb`; loses a directory ending `_test` (`src/ab_test/`).
+    `*.spec.*`, `*.test.*` and `*_spec.rb`; loses every name its old pattern matched in the middle
+    of a segment: a directory ending `_test` (`src/ab_test/`), `my_test.config.js`, `foo_testing.py`.
 
   `tests/test_one_test_file_predicate.py` pins the cases in both directions and fails when a module
-  binds its own rule under the names the copies used; a rule under a new name is seen only through
-  the tools that test runs. `get_repo_health`'s production-path rule answers a different question and
+  defines or assigns the names the copies used, at any depth. A rule under a new name is seen only
+  through the tools that test runs: the two dead-code tools, the investigator, `get_file_risk` and
+  the two preflights. `get_repo_health`'s production-path rule answers a different question and
   is unchanged (L-104).
 
 ## [1.108.323] - 2026-10-01 - an entry point has no importer, and that does not make it dead
