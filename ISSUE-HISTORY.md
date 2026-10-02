@@ -2116,3 +2116,17 @@ The 1.108.323 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.321 count, verbatim:
 
 - ⚠ Prior (1.108.321): 13991 passed, 25 skipped, **0 failed** (14016 total).
+
+## Current State rotation (2026-10-02, release 1.108.325)
+
+The 1.108.322 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.322):** **The deletion investigator reads the match the search made.** It re-filtered `check_references`' import rows with a raw name comparison and dropped an import spelled in another Unicode form or with an escape (L-90); it reads `match_type` now. ⚠⚠ **Never re-compare what `check_references` matched**; `find_references` still does, at two sites (L-95). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-01, release 1.108.323).
+
+The 1.108.324 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.324 — **One rule says whether a path is a test file.** Six rules under `src/` answered it and no two agreed; the dead-code pair needed a slash before `tests/`, so a root-level test file read dead and the deletion investigator called a name it imports unimported (L-101). `tools/_test_paths.is_test_file` is the one rule (Key Files). ⚠⚠ **`check_delete_safe` and `check_edit_safe` read it to DOWNGRADE a blocking verdict**: `*_test.*`, `tests.py` and `*_tests/` are kept, so a production consumer named that way reads `test_coverage_only` / `safe_to_edit` (L-104, OPEN). Forensics: `docs/workflows/LEDGER.md`; harness F-41 (the local full tier sits a few seconds under its wall-clock Floor).
+
+The `Tests:` line's 1.108.322 count, verbatim:
+
+- ⚠ Prior (1.108.322): 13994 passed, 25 skipped, **0 failed** (14019 total).

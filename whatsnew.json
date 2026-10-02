@@ -1,6 +1,12 @@
 {
-  "current": "1.108.324",
+  "current": "1.108.325",
   "entries": [
+    {
+      "version": "1.108.325",
+      "date": "2026-10-02",
+      "title": "a lookup that found nothing is remembered",
+      "summary": "config._resolve_repo_key documented a negative cache and never wrote one, so a repo= value that matched no index listed every index in storage on every call, and discovery asks once per candidate file. Indexing a subdirectory of a git root paid one full listing per file. Both answers are remembered now, and a remembered miss cannot outlive an index saved in the same process. Reported by @ebataeva (#960)."
+    },
     {
       "version": "1.108.324",
       "date": "2026-10-02",
@@ -18,12 +24,6 @@
       "date": "2026-10-01",
       "title": "the deletion investigator reads the match the search made",
       "summary": "The reference search compares import names through one fold, so an import spelled in another Unicode form or with an escape is an import of the plain name. The deletion investigator then filtered those rows again with a raw comparison, lost them, and answered that no file imports a name a live file imports. It reads the match type the search already states and compares no name of its own."
-    },
-    {
-      "version": "1.108.321",
-      "date": "2026-10-01",
-      "title": "a call written with an escape is still a call",
-      "summary": "A Java, C# or JavaScript call can spell a name with a Unicode escape, and the compiler reads it as the plain name. The reference search compared raw text, so it never saw such a call, and the delete preflight graded the called function `safe_to_delete` at confidence 1.0. This release decodes escapes in"
     }
   ]
 }

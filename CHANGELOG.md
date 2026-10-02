@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.325] - 2026-10-02 - a lookup that found nothing is remembered
+
 ### Fixed
 
 - **A repo-key lookup that found nothing was never remembered (#960, reported by @ebataeva).**
