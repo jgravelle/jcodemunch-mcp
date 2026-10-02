@@ -6,14 +6,16 @@
 
 - **The `semantic` and `all` extras require `sentence-transformers>=5.6.0`.** GHSA-jhr6-gm9c-rqjv
   (critical): before 5.6.0, loading a LOCAL model directory bypassed `trust_remote_code` and ran the
-  custom Python inside it. `embed_repo` hands `JCODEMUNCH_EMBED_MODEL` to `SentenceTransformer`, and
-  that value may be a path. The extras declared `>=2.2.0`: a fresh install resolved to the latest
+  custom Python inside it. `embed_repo` hands the `embed_model` config key, or `JCODEMUNCH_EMBED_MODEL`, to
+  `SentenceTransformer`, and that value may be a path. The extras declared `>=2.2.0`: a fresh install resolved to the latest
   release, but an environment that already held an older one satisfied the requirement and kept it.
   If you use the local `sentence-transformers` provider, upgrade it (`pip install -U
   "jcodemunch-mcp[semantic]"`); the default install and the ONNX provider do not import it. The
   repository's lock moves `sentence-transformers` from 5.3.0 to 6.1.0 and `urllib3` from 2.7.0 to
   2.8.0 (GHSA-8988-9cw3-xx77, GHSA-vxq7-64xx-v4gw, GHSA-gh4c-6fx4-qh6g); neither is in the runtime
-  dependency set, and the published wheel pins neither.
+  dependency set, and the published wheel pins neither. `benchmarks/requirements-rag-bench.txt`
+  pinned `sentence-transformers<4.0`, which required a vulnerable release; it reads `>=5.6.0,<7.0`
+  now, and the RAG baseline has not been re-run under it (LEDGER L-106).
 
 ## [1.108.325] - 2026-10-02 - a lookup that found nothing is remembered
 
