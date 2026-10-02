@@ -2140,6 +2140,13 @@ def _search_symbols_fusion(
     # weakens the RANKING and cannot manufacture a false absence. That asymmetry is
     # exactly what the semantic exit lacked, and it is why there is no
     # `absence_unprovable` here.
+    #
+    # ⚠ That holds when the similarity channel was ATTEMPTED AND FAILED too
+    # (L-108): the fused set is still every candidate the lexical and identity
+    # passes scored, so `absent` stays reachable and is the same corpus fact the
+    # lexical path reports. What the caller is owed is the label and the cause:
+    # `semantic: unavailable` and `semantic_channel_error`, beside the verdict.
+    # tests/test_embed_model_version_floor.py pins that pair on a zero-row call.
     from ..retrieval.verdict import retrieval_verdict_for_index as _rv
     _vres = _rv(
         index,
@@ -2180,7 +2187,10 @@ def _search_symbols_fusion(
             )
 
     _attach_index_truncation(result.get("_meta"), index)
-    if cacheable and cache_key is not None:
+    # A failed channel is not cached: the key holds neither provider nor library
+    # version, so a replay would assert the failure for a call that never had it,
+    # including after the upgrade the refusal tells the user to run.
+    if cacheable and cache_key is not None and not similarity_error:
         from ..retrieval import subject_state as _subject
         _result_cache_put(
             cache_key,

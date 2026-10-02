@@ -15,7 +15,13 @@
   it as the error; `search_symbols(fusion=true)` still answers from its other channels and carries it
   in a new `semantic_channel_error` field, with the verdict's semantic channel reading `unavailable`.
   That fusion exit used to catch every failure of its similarity channel and answer `off`, the same as
-  a repository that was never embedded; any failure there is named now, not only this refusal. A Hub
+  a repository that was never embedded; any exception there is named now, not only this refusal, with
+  the message redacted and cut like `error_causes`. Two things follow. A fusion answer whose channel
+  failed is not cached, so the next call tries the channel again (a cached refusal would have been
+  replayed after the upgrade it asks for). And a fusion search that returns nothing while the channel
+  failed still reads `absent`, as it did before: its lexical and identity passes score every candidate,
+  so zero rows is a fact about the corpus. The failed channel is labelled beside that verdict.
+  An embedded repository with no provider configured still reads `off`; nothing was attempted there. A Hub
   model name is not refused, because the bypass is in the local-directory path. A name that is a path
   only after `~` or `$VAR` expansion is refused too, although the library would not load it from disk.
   A fixed release behaves as before (LEDGER L-108). jdocmunch-mcp and jdatamunch-mcp have their own

@@ -242,7 +242,8 @@ def test_fusion_search_names_the_refusal_instead_of_reading_off(monkeypatch, tmp
 
     built = _fake_library(monkeypatch, "6.1.0")
     with off, off2:
-        ran = search_symbols("test/fusion", "foo bar", fusion=True, storage_path=str(storage))
+        # The SAME query: a refused answer must not be replayed from the result cache after the upgrade.
+        ran = search_symbols("test/fusion", "foo", fusion=True, storage_path=str(storage))
     assert built == [str(model_dir)]
     assert "semantic_channel_error" not in ran
     assert ran["_meta"]["verdict"]["channels"]["semantic"] == "ok"
@@ -259,3 +260,116 @@ def test_the_compact_encoder_keeps_the_refusal():
     }
     payload, _ = schema.encode("search_symbols", response)
     assert schema.decode(payload)["semantic_channel_error"] == response["semantic_channel_error"]
+
+
+def _embedded_repo(tmp_path, monkeypatch, name):
+    """A one-symbol repo with a stored vector, a provider selected, and ONNX off."""
+    from jcodemunch_mcp.embeddings import local_encoder
+    from jcodemunch_mcp.parser.symbols import Symbol
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.storage.embedding_store import EmbeddingStore
+
+    storage = tmp_path / "store"
+    symbol = Symbol(
+        id="s1", file="src/a.py", name="foo", qualified_name="foo", kind="function", language="python",
+        signature="def foo():", byte_offset=0, byte_length=50, summary="",
+    )
+    store = IndexStore(base_path=str(storage))
+    store.save_index(
+        owner="test", name=name, source_files=["src/a.py"], symbols=[symbol],
+        raw_files={"src/a.py": "def foo(): pass"}, languages={"python": 1}, file_languages={"src/a.py": "python"},
+    )
+    EmbeddingStore(store._sqlite._db_path("test", name)).set_many({"s1": [0.0, 1.0]})
+    monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+    monkeypatch.setattr(local_encoder, "is_model_available", lambda: False)
+    monkeypatch.setattr(local_encoder, "is_onnxruntime_available", lambda: False)
+    return str(storage)
+
+
+def test_fusion_search_names_any_failure_of_its_similarity_channel(tmp_path, monkeypatch):
+    """Not only the L-108 refusal: a provider that times out is named the same way, and is not cached."""
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    storage = _embedded_repo(tmp_path, monkeypatch, "anyfail")
+    calls = {"n": 0}
+
+    def flaky(texts, provider, model, task_type=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("provider timed out")
+        return [[0.0, 1.0] for _ in texts]
+
+    monkeypatch.setattr(embed_repo, "embed_texts", flaky)
+    first = search_symbols("test/anyfail", "foo", fusion=True, storage_path=storage)
+    assert first["semantic_channel_error"] == {"type": "TimeoutError", "message": "provider timed out"}
+    assert first["_meta"]["verdict"]["channels"]["semantic"] == "unavailable"
+
+    second = search_symbols("test/anyfail", "foo", fusion=True, storage_path=storage)
+    assert calls["n"] == 2  # the channel was tried again, not replayed
+    assert "semantic_channel_error" not in second
+    assert second["_meta"]["verdict"]["channels"]["semantic"] == "ok"
+
+
+def test_a_zero_row_fusion_answer_with_a_failed_channel_is_absent_and_says_the_channel_failed(tmp_path, monkeypatch):
+    """Decided, not accidental (v1.108.185's ruling stands): fusion's lexical and identity
+    passes score every candidate, so zero rows is a corpus fact whether or not the
+    similarity channel ran. The failed channel is labelled and its cause carried beside it.
+
+    A real folder index: a hand-built one has no source root, freshness reads
+    `unknown`, and that gate degrades the verdict before this one is reached.
+    """
+    from jcodemunch_mcp.embeddings import local_encoder
+    from jcodemunch_mcp.storage import IndexStore
+    from jcodemunch_mcp.storage.embedding_store import EmbeddingStore
+    from jcodemunch_mcp.tools.index_folder import index_folder
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    storage = tmp_path / "idx"
+    monkeypatch.setenv("CODE_INDEX_PATH", str(storage))
+    project = tmp_path / "proj"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "a.py").write_text("def refresh_token(user):\n    return user\n", encoding="utf-8")
+    repo = index_folder(path=str(project), use_ai_summaries=False, storage_path=str(storage))["repo"]
+    owner, name = repo.split("/", 1)
+    store = IndexStore(base_path=str(storage))
+    ids = [s["id"] for s in store.load_index(owner, name).symbols]
+    EmbeddingStore(store._sqlite._db_path(owner, name)).set_many({i: [0.0, 1.0] for i in ids})
+    monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
+    monkeypatch.setattr(local_encoder, "is_model_available", lambda: False)
+    monkeypatch.setattr(local_encoder, "is_onnxruntime_available", lambda: False)
+
+    def down(texts, provider, model, task_type=None):
+        raise TimeoutError("provider timed out")
+
+    monkeypatch.setattr(embed_repo, "embed_texts", down)
+    result = search_symbols(repo, "zzzqqqxyzzy", fusion=True, storage_path=str(storage))
+    assert result["results"] == []
+    verdict = result["_meta"]["verdict"]
+    assert verdict["state"] == "absent", verdict
+    assert verdict["channels"]["semantic"] == "unavailable"
+    assert result["semantic_channel_error"] == {"type": "TimeoutError", "message": "provider timed out"}
+
+    def up(texts, provider, model, task_type=None):
+        return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(embed_repo, "embed_texts", up)
+    again = search_symbols(repo, "zzzqqqxyzzy", fusion=True, storage_path=str(storage))
+    assert "semantic_channel_error" not in again  # the failed answer was not cached
+    assert again["_meta"]["verdict"]["channels"]["semantic"] == "ok"
+
+
+def test_the_fusion_error_is_redacted_and_cut(tmp_path, monkeypatch):
+    """The key is in the body, which survives the default `_meta` strip, so a provider's secret must not ride in it."""
+    from jcodemunch_mcp.embeddings.failures import MESSAGE_CHARS
+    from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+    storage = _embedded_repo(tmp_path, monkeypatch, "redact")
+    secret = "sk-ant-" + "api03-" + "A" * 95
+
+    def leaky(texts, provider, model, task_type=None):
+        raise RuntimeError("401 for key " + secret + " " + "x" * 600)
+
+    monkeypatch.setattr(embed_repo, "embed_texts", leaky)
+    message = search_symbols("test/redact", "foo", fusion=True, storage_path=storage)["semantic_channel_error"]["message"]
+    assert secret not in message and "[REDACTED" in message
+    assert len(message) <= MESSAGE_CHARS + 3
