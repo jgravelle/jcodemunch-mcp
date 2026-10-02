@@ -92,7 +92,9 @@ def test_discovery_under_an_unindexed_root_does_not_list_per_file(storage):
     assert storage.calls["n"] <= 2, storage.calls["n"]
 
 
-def test_a_remembered_miss_does_not_outlive_an_index_saved_here(storage):
+def test_a_remembered_miss_does_not_outlive_an_index_saved_here(storage, monkeypatch):
+    # A frozen clock: the miss cannot end on its own while the index is built.
+    monkeypatch.setattr(cfg, "time", types.SimpleNamespace(monotonic=lambda: 1000.0))
     later = storage.tmp / "later"
     later.mkdir()
     (later / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
@@ -152,7 +154,66 @@ def test_the_remembered_hits_are_bounded(storage, monkeypatch):
     ]
     monkeypatch.setattr(IndexStore, "list_repos", lambda self: many)
     assert cfg._resolve_repo_key("r7") == str((storage.tmp / "r7").resolve())
+    assert len(cfg._REPO_PATH_CACHE) == 2 * cfg._REPO_CACHE_MAX
+    monkeypatch.setattr(IndexStore, "list_repos", lambda self: many[:3])
+    assert cfg._resolve_repo_key("no-such-repo") is None
     assert len(cfg._REPO_PATH_CACHE) == cfg._REPO_CACHE_MAX
+    # The oldest entries went; the newest stayed.
+    assert "local/r5" not in cfg._REPO_PATH_CACHE
+    assert f"r{cfg._REPO_CACHE_MAX - 1}" in cfg._REPO_PATH_CACHE
+
+
+@pytest.mark.parametrize("count", [10, 400, 512, 600])
+def test_a_store_larger_than_the_bound_still_lists_once(storage, monkeypatch, count):
+    """Two keys per index: past 256 indexes one listing is larger than the bound."""
+    many = [
+        {"repo": f"local/r{i}", "display_name": f"r{i}", "source_root": str(storage.tmp / f"r{i}")}
+        for i in range(count)
+    ]
+    listings = {"n": 0}
+
+    def counted(self):
+        listings["n"] += 1
+        return many
+
+    monkeypatch.setattr(IndexStore, "list_repos", counted)
+    root = str((storage.tmp / "r7").resolve())
+    for identifier in ("local/r7", "r7", root, "local/r0", f"r{count - 1}"):
+        for _ in range(20):
+            assert cfg._resolve_repo_key(identifier) is not None
+    assert listings["n"] <= 2, listings["n"]
+
+
+def test_a_listing_overtaken_by_a_save_is_not_remembered(storage, monkeypatch):
+    """The interleaving, pinned: the store is listed, THEN an index is saved, THEN the lookup returns.
+
+    A miss written after the save's forget would hide the new index for the
+    whole TTL, and `config.get` would answer from global over the project's value.
+    """
+    monkeypatch.setattr(cfg, "time", types.SimpleNamespace(monotonic=lambda: 1000.0))
+    later = storage.tmp / "race"
+    later.mkdir()
+    (later / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
+    (later / ".jcodemunch.jsonc").write_text('{"max_file_size": 1234}', encoding="utf-8")
+    root = str(later.resolve())
+    real = IndexStore.list_repos
+    state = {"saved": False}
+
+    def list_then_save(self):
+        listed = real(self)
+        if not state["saved"]:
+            state["saved"] = True
+            res = index_folder(root, use_ai_summaries=False, storage_path=str(storage.dir))
+            assert "error" not in res, res
+            state["repo"] = res["repo"]
+        return listed
+
+    monkeypatch.setattr(IndexStore, "list_repos", list_then_save)
+    assert cfg._resolve_repo_key("race") is None  # the listing predates the save
+    assert state["saved"] is True
+    assert "race" not in cfg._REPO_MISS_CACHE
+    assert cfg._resolve_repo_key("race") == root
+    assert cfg.get("max_file_size", repo="race") == 1234
 
 
 def test_a_listing_that_raises_is_not_remembered_as_a_miss(storage, monkeypatch):

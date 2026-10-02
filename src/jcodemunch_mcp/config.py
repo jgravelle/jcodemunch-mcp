@@ -38,6 +38,9 @@ _REPO_PATH_CACHE: dict[str, str] = {}
 _REPO_MISS_CACHE: dict[str, float] = {}
 _REPO_MISS_TTL_SECONDS = 5.0
 _REPO_CACHE_MAX = 512
+# Bumped by `forget_repo_resolutions`. A lookup that listed the store BEFORE a
+# forget must not write what it learned AFTER it: the listing predates the save.
+_REPO_CACHE_GENERATION = 0
 
 ENV_VAR_MAPPING = {
     "JCODEMUNCH_USE_AI_SUMMARIES": "use_ai_summaries",
@@ -955,14 +958,21 @@ def forget_repo_resolutions() -> None:
     Called when the set of indexes changes in this process (an index saved or
     deleted) and by `invalidate_cache`. The next lookup lists the store once.
     """
+    global _REPO_CACHE_GENERATION
     with _CONFIG_LOCK:
         _REPO_PATH_CACHE.clear()
         _REPO_MISS_CACHE.clear()
+        _REPO_CACHE_GENERATION += 1
 
 
-def _trim_oldest(cache: dict) -> None:
-    """Hold a lookup cache to `_REPO_CACHE_MAX` entries, oldest first. Caller holds the lock."""
-    excess = len(cache) - _REPO_CACHE_MAX
+def _trim_oldest(cache: dict, keep: int = 0) -> None:
+    """Hold a lookup cache to its bound, oldest first. Caller holds the lock.
+
+    The bound is `_REPO_CACHE_MAX` or `keep`, whichever is larger. `keep` is the
+    size of one listing: a cache smaller than the listing that fills it evicts
+    the key just resolved, and every lookup lists again.
+    """
+    excess = len(cache) - max(_REPO_CACHE_MAX, keep)
     if excess > 0:
         for k in list(cache)[:excess]:
             del cache[k]
@@ -983,7 +993,9 @@ def _resolve_repo_key(repo: str) -> str | None:
     once per FILE, so a miss that was not written back cost one full listing
     per candidate file, scaling with how many indexes the user has. A source
     root that matched was not written back either. A listing that RAISES is
-    not a miss and is not remembered.
+    not a miss and is not remembered, and neither is one that an index save or
+    delete overtook. A miss is believed for `_REPO_MISS_TTL_SECONDS`, so a
+    long walk lists once per window, not once per file.
     """
     with _CONFIG_LOCK:
         if repo in _PROJECT_CONFIGS:
@@ -993,6 +1005,7 @@ def _resolve_repo_key(repo: str) -> str | None:
         expires = _REPO_MISS_CACHE.get(repo)
         if expires is not None and time.monotonic() < expires:
             return None
+        generation = _REPO_CACHE_GENERATION
 
     # Miss: query store without holding the lock (I/O)
     try:
@@ -1012,17 +1025,26 @@ def _resolve_repo_key(repo: str) -> str | None:
                 updates[display_name] = resolved
             if repo_name:
                 updates[repo_name] = resolved
-            updates[resolved] = resolved
             if repo == display_name or repo == repo_name or repo == resolved:
                 result = resolved
+        if result is not None:
+            # The identifier asked for, written last so it is the newest entry.
+            # This is what remembers a source-root path, which is neither a
+            # display name nor a repo id.
+            updates.pop(repo, None)
+            updates[repo] = result
         with _CONFIG_LOCK:
+            if generation != _REPO_CACHE_GENERATION:
+                # An index was saved or deleted while this listing was in
+                # flight. The answer is returned and nothing is remembered.
+                return result
             _REPO_PATH_CACHE.update(updates)
             if result is None:
                 _REPO_MISS_CACHE[repo] = time.monotonic() + _REPO_MISS_TTL_SECONDS
             else:
                 _REPO_MISS_CACHE.pop(repo, None)
             # Prevent unbounded growth (evict oldest entries first)
-            _trim_oldest(_REPO_PATH_CACHE)
+            _trim_oldest(_REPO_PATH_CACHE, keep=len(updates))
             _trim_oldest(_REPO_MISS_CACHE)
         return result
     except Exception:
