@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.324] - 2026-10-02 - one rule says whether a path is a test file
+
 ### Fixed
 
 - **A test directory at the repository root was not a test directory (LEDGER L-101).**

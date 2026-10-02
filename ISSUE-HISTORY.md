@@ -2102,3 +2102,17 @@ The 1.108.322 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.320 count, verbatim:
 
 - ⚠ Prior (1.108.320): 13905 passed, 25 skipped, **0 failed** (13930 total).
+
+## Current State rotation (2026-10-02, release 1.108.324)
+
+The 1.108.321 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.321):** **A call written with an escape is still a call.** `check_references._fold` decodes Unicode escapes before it compares, so an escaped Java, C# or JavaScript call is a reference and the delete preflight no longer grades the called function `safe_to_delete` (L-86). ⚠⚠ **A literal escape typed into a tool input reaches disk DECODED**: build escapes from `chr(92)` and assert the backslash reached the fixture. First release under the cadence gate (STANDARD N8; Standing lesson 10-01). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-01, release 1.108.322).
+
+The 1.108.323 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.323 — **An entry point has no importer, and that does not make it dead.** The deletion investigator called an importer dead when nothing imported it, so a name imported only by `main.py`, `package.json`'s `main`, a package `__init__.py` or a test read `export_not_imported` SATISFIED (L-94). `_split_importers_by_liveness` asks `find_dead_code` and keeps no answer of its own; only a file reported at the default confidence is dead. ⚠⚠ **It inherits that tool's gaps with its roots**: an undeclared non-Python entry point (L-102) still reads dead; fix it THERE. The root-level `tests/` gap (L-101) is fixed in `[Unreleased]`: `tools/_test_paths.is_test_file` is the ONE test-file rule. Also: `registry_verify.py` retries, reads every page inside a time budget and exits `UNREADABLE` for a read that got no answer (L-96, L-98, L-99; RUNBOOK 3a). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.321 count, verbatim:
+
+- ⚠ Prior (1.108.321): 13991 passed, 25 skipped, **0 failed** (14016 total).

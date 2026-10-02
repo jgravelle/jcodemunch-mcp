@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.324](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.324)** (2026-10-02) — one rule says whether a path is a test file
 - **[v1.108.323](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.323)** (2026-10-01) — an entry point has no importer, and that does not make it dead
 - **[v1.108.322](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.322)** (2026-10-01) — the deletion investigator reads the match the search made
 - **[v1.108.321](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.321)** (2026-10-01) — a call written with an escape is still a call
-- **[v1.108.320](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.320)** (2026-09-30) — a member the index never saw and a caller the search never found both read as nothing there
 <!-- WHATSNEW:END -->
 
 ---
