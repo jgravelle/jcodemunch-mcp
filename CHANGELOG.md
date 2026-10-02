@@ -18,7 +18,8 @@
   now, and the RAG baseline has not been re-run under it (LEDGER L-106). The upgrade crosses a major
   version. What was run: `embed_repo`'s `sentence-transformers` path under 6.1.0 on Windows, Python
   3.10, CPU, with `all-MiniLM-L6-v2` (`evidence/embed_under_6.txt`: 384-dimension vectors, the two
-  similar inputs closer than the unrelated one). Linux, Python 3.11 to 3.13 and a GPU were not run, and
+  similar inputs closer than the unrelated one). That environment was a fresh resolve of 6.1.0 and
+  not the one `uv.lock` describes; the file lists the versions it installed. Linux, Python 3.11 to 3.13 and a GPU were not run, and
   CI installs neither embedding backend. Still open: three competitive-sandbox pin files require a
   `urllib3` before 2.8.0 (L-107; they build competitor containers, not anything a user installs), and
   the floor is install metadata, so `pip install -U jcodemunch-mcp` without the extra keeps an older

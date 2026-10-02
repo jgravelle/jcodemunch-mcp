@@ -8,8 +8,11 @@ straight to `SentenceTransformer`, and that value may be a path. The extra decla
 while an environment that already held an older one satisfied the requirement
 and stayed exposed. The floor is the fixed release.
 
-Every requirement table in `pyproject.toml` is read (dependencies, extras, dependency
-groups), by canonical name. Every tracked requirements, constraints and `.pins` file is read too: `benchmarks/requirements-rag-bench.txt`
+Three tables of `pyproject.toml` are read, by canonical name: `project.dependencies`, the
+extras and the dependency groups. `build-system.requires` and a `[tool.*]` table are not; a
+`tool.uv` constraint reaches the lock, which is checked below. Every tracked requirements,
+constraints and `.pins` file is read too, with what it includes; a line there that names the
+package and cannot be parsed fails the test: `benchmarks/requirements-rag-bench.txt`
 pinned `<4.0`, which REQUIRED a vulnerable release, and a check of the
 extras alone could not see it.
 
@@ -98,8 +101,10 @@ def test_the_pyproject_scan_reads_every_table_and_spelling(toml, where):
 
 
 _PIN_FILE = re.compile(
-    r"(^|/)requirements/[^/]+\.(txt|in)$|(requirements|constraints)[^/]*\.(txt|in|lock)$|\.pins$", re.IGNORECASE
+    r"(^|/)(requirements|constraints)/.+\.(txt|in|lock)$|(requirements|constraints)[^/]*\.(txt|in|lock)$|\.pins$",
+    re.IGNORECASE,
 )
+_INCLUDE = re.compile(r"(?:-r|-c|--requirement|--constraint)[\s=]*(\S+)")
 
 
 @pytest.mark.parametrize(
@@ -108,9 +113,13 @@ _PIN_FILE = re.compile(
         ("requirements.txt", True),
         ("benchmarks/requirements-rag-bench.txt", True),
         ("requirements/bench.txt", True),
+        ("requirements/x.lock", True),
+        ("requirements/sub/x.txt", True),
+        ("constraints/ci.txt", True),
         ("requirements.lock", True),
         ("constraints-ci.in", True),
         ("benchmarks/competitive/sandbox/aider.pins", True),
+        ("deps/base.txt", False),  # read only when a pin file includes it
         ("docs/requirements.md", False),
         ("src/requirements/loader.py", False),
     ],
@@ -120,32 +129,61 @@ def test_the_file_names_read_as_pin_files(rel, is_pin_file):
 
 
 def _tracked_pin_files() -> list[str]:
-    """Tracked files that pin packages: requirements and constraints files, `requirements/`, and `.pins`."""
+    """Tracked files that pin packages: requirements and constraints files and directories, and `.pins`."""
     out = subprocess.run(
         ["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True, encoding="utf-8", check=True
     ).stdout
     return sorted(rel for rel in out.splitlines() if _PIN_FILE.search(rel))
 
 
+def _names_the_package(text: str) -> bool:
+    return _NAME in re.sub(r"[-_.]+", "-", text.lower())
+
+
+def _read_pin_file(rel: str, done: set[str]):
+    """(file, Requirement or None) per line naming the package; None is a line that could not be parsed.
+
+    A `-r` or `-c` target is followed. A line `Requirement` rejects (a URL, a VCS
+    link, an editable, a wheel path) is not dropped: if its text names the
+    package it is yielded as unreadable, and the caller fails on it.
+    """
+    if rel in done:
+        return
+    done.add(rel)
+    path = ROOT / rel
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = re.sub(r"(^|\s+)#.*$", "", raw).strip()
+        include = _INCLUDE.match(line)
+        if include:
+            target = path.parent / include.group(1)
+            if target.is_file():
+                yield from _read_pin_file(target.resolve().relative_to(ROOT.resolve()).as_posix(), done)
+            continue
+        line = re.split(r"\s+--", line, maxsplit=1)[0].rstrip(chr(92)).strip()
+        if not line:
+            continue
+        try:
+            req = None if line.startswith("-") else Requirement(line)
+        except InvalidRequirement:
+            req = None
+        if req is None:
+            if _names_the_package(line):
+                yield rel, None
+        elif canonicalize_name(req.name) == _NAME:
+            yield rel, req
+
+
 def _requirement_lines():
-    """Every line that parses as a requirement is compared by canonical name; no text filter runs first."""
+    done: set[str] = set()
     for rel in _tracked_pin_files():
-        for line in (ROOT / rel).read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].split(" --", 1)[0].strip().rstrip(chr(92)).strip()
-            if not line or line.startswith("-"):
-                continue
-            try:
-                req = Requirement(line)
-            except InvalidRequirement:
-                continue
-            if canonicalize_name(req.name) == _NAME:
-                yield rel, req
+        yield from _read_pin_file(rel, done)
 
 
 def test_no_requirements_file_admits_a_vulnerable_sentence_transformers():
-    """Over TRACKED pin files, by canonical name, so `sentence_transformers==3.0.0` is seen.
+    """Over TRACKED pin files and what they include, by canonical name.
 
-    The files read are the ones `_PIN_FILE` names; a pin written anywhere else is not seen here.
+    The files read are the ones `_PIN_FILE` names plus every `-r`/`-c` target;
+    a pin written anywhere else is not seen here.
     """
     found = list(_requirement_lines())
     assert [rel for rel, _ in found] == [
@@ -153,27 +191,58 @@ def test_no_requirements_file_admits_a_vulnerable_sentence_transformers():
         "benchmarks/requirements-rag-bench.txt",
     ], found
     for rel, req in found:
+        assert req is not None, (rel, "a line names the package and could not be parsed")
         assert _admitted(req) == [], (rel, str(req))
         assert any(req.specifier.contains(v) for v in _FIXED_SAMPLES), (rel, str(req))
+
+
+_GIT = "git+https://github.com/UKPLab/sentence-transformers@v3.0.0"
 
 
 @pytest.mark.parametrize(
     "line,seen",
     [
-        ("sentence_transformers==3.0.0", True),
-        ("Sentence.Transformers>=2.2.0,<4.0", True),
-        ("sentence-transformers==6.0.1 " + chr(92), True),
-        ("sentence__transformers==3.0.0", True),
-        ("sentence-transformers[train]==3.0.0 --hash=sha256:00", True),
-        ("sentence-transformers-extras==1.0", False),
-        ("-r other.txt", False),
+        ("sentence_transformers==3.0.0", "parsed"),
+        ("Sentence.Transformers>=2.2.0,<4.0", "parsed"),
+        ("sentence-transformers==6.0.1 " + chr(92), "parsed"),
+        ("sentence__transformers==3.0.0", "parsed"),
+        ("sentence-transformers[train]==3.0.0 --hash=sha256:00", "parsed"),
+        ("sentence-transformers==3.0.0" + chr(9) + "--hash=sha256:00", "parsed"),
+        ("sentence-transformers @ " + _GIT, "parsed"),
+        (_GIT + "#egg=sentence-transformers", "unreadable"),
+        ("git+https://example.invalid/st.git#egg=sentence_transformers", "unreadable"),
+        ("-e " + _GIT, "unreadable"),
+        ("https://example.invalid/sentence_transformers-3.0.0-py3-none-any.whl", "unreadable"),
+        ("./vendor/sentence_transformers-3.0.0-py3-none-any.whl", "unreadable"),
+        ("sentence-transformers-extras==1.0", "absent"),
+        ("-r other.txt", "absent"),
+        ("numpy>=1.0  # sentence-transformers is pinned elsewhere", "absent"),
     ],
 )
 def test_the_scan_reads_every_spelling_of_the_name(tmp_path, monkeypatch, line, seen):
     (tmp_path / "requirements-x.txt").write_text("numpy>=1.0\n" + line + "\n", encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "_tracked_pin_files", lambda: ["requirements-x.txt"])
-    assert bool(list(_requirement_lines())) is seen
+    found = list(_requirement_lines())
+    if seen == "absent":
+        assert found == []
+    else:
+        assert len(found) == 1 and (found[0][1] is None) is (seen == "unreadable"), found
+        if seen == "parsed":
+            assert _admitted(found[0][1]) != [] or found[0][1].specifier.contains("6.0.1")
+
+
+def test_the_scan_reads_past_a_byte_order_mark_and_follows_includes(tmp_path, monkeypatch):
+    (tmp_path / "deps").mkdir()
+    (tmp_path / "deps" / "base.txt").write_text("sentence-transformers==3.0.0\n-r ../requirements.txt\n", encoding="utf-8")
+    (tmp_path / "requirements.txt").write_text("-r deps/base.txt\n--constraint=deps/base.txt\n", encoding="utf-8")
+    (tmp_path / "constraints.txt").write_text("sentence-transformers==3.4.1\n", encoding="utf-8-sig")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "_tracked_pin_files", lambda: ["constraints.txt", "requirements.txt"])
+    assert [(rel, str(req)) for rel, req in _requirement_lines()] == [
+        ("constraints.txt", "sentence-transformers==3.4.1"),
+        ("deps/base.txt", "sentence-transformers==3.0.0"),
+    ]
 
 
 @pytest.mark.parametrize("name", sorted(FIXED))
