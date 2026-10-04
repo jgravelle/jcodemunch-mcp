@@ -53,10 +53,14 @@ def _make_project(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
+    # The padding goes BEFORE the function. tree-sitter's Python grammar is
+    # quadratic in a run of comment lines that FOLLOWS an indented block (the
+    # same file with the function first took 11.6 s to parse, LEDGER L-113),
+    # and this file is about the cap, not about that.
     padding = "# " + ("x" * 78) + "\n"
     (project / "big_module.py").write_text(
-        "def marker_symbol():\n    return 1\n\n"
-        + padding * (OVERSIZE // len(padding) + 1),
+        padding * (OVERSIZE // len(padding) + 1)
+        + "\ndef marker_symbol():\n    return 1\n",
         encoding="utf-8",
     )
     (project / "small_helper.py").write_text(
