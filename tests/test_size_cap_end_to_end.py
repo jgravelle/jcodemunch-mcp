@@ -199,3 +199,21 @@ def test_the_default_refuses_only_the_oversize_file(tmp_path):
         "an oversize file was indexed with NO cap raised; the 500 KB default "
         "is not being enforced"
     )
+
+
+def test_the_oversize_fixture_pads_before_its_function(tmp_path):
+    """The fixture's comment padding must not FOLLOW an indented block.
+
+    tree-sitter's Python grammar is quadratic there (LEDGER L-113): with the
+    function first, this 505 KB file took 11 s to parse and six cases of this
+    module took 14 to 16 s each, which spent the full tier's whole wall-clock
+    margin (harness F-41). Nothing below a comment run may be indented code
+    that precedes it.
+    """
+    text = (_make_project(tmp_path) / "big_module.py").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    first_code = next(i for i, line in enumerate(lines) if line and not line.startswith("#"))
+    last_comment = max(i for i, line in enumerate(lines) if line.startswith("#"))
+    assert last_comment < first_code, (
+        f"comment padding runs to line {last_comment + 1}, after code that starts at line {first_code + 1}"
+    )
