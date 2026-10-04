@@ -2248,6 +2248,19 @@ def resolve_specifier(
                     if cand in source_files:
                         return cand
 
+    # Python bare module name: a script's own directory is `sys.path[0]`, so
+    # `import checks` in `tools/run.py` is `tools/checks.py`, ahead of the root.
+    # Climb out of packages (there a bare name is absolute) to the first plain
+    # directory and stop: only that one is on `sys.path`.
+    if importer_path.endswith((".py", ".pyi")) and "." not in specifier:
+        script_dir = posixpath.dirname(importer_path)
+        while script_dir and f"{script_dir}/__init__.py" in source_files:
+            script_dir = posixpath.dirname(script_dir)
+        if script_dir:
+            for c in (f"{script_dir}/{specifier}/__init__.py", f"{script_dir}/{specifier}.py"):
+                if c in source_files:
+                    return c
+
     # Absolute: try direct match first (e.g., for Go or absolute paths)
     for c in _candidates(specifier):
         if c in source_files:

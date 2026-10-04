@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A bare Python module name resolves to the script directory beside the importer (#972).**
+  `from checks import verify` in `tools/run.py` names `tools/checks.py`, because a script's own
+  directory is first on `sys.path`, but `resolve_specifier` tried a bare name against the repo root
+  only. No edge was built: `find_importers` returned nothing for the module and `find_dead_code`
+  listed it as dead. The lookup now climbs from the importer through package directories to the
+  first directory without an `__init__.py`, tries the name there before the root, and stops:
+  nothing above it is on `sys.path`.
+
 ## [1.108.329] - 2026-10-05 - the parse budget stops a slow parse
 
 ### Fixed
