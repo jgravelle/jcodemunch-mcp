@@ -53,10 +53,10 @@ def _make_project(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
-    # The padding goes BEFORE the function. tree-sitter's Python grammar is
-    # quadratic in a run of comment lines that FOLLOWS an indented block (the
-    # same file with the function first took 11.6 s to parse, LEDGER L-113),
-    # and this file is about the cap, not about that.
+    # The padding OPENS the file. tree-sitter's Python grammar is quadratic in
+    # a run of comment lines that follows any statement (LEDGER L-113): with the
+    # function first this file took about 11 s to parse
+    # (`evidence/l113_shapes.txt`), and this module is about the cap, not that.
     padding = "# " + ("x" * 78) + "\n"
     (project / "big_module.py").write_text(
         padding * (OVERSIZE // len(padding) + 1)
@@ -201,19 +201,20 @@ def test_the_default_refuses_only_the_oversize_file(tmp_path):
     )
 
 
-def test_the_oversize_fixture_pads_before_its_function(tmp_path):
-    """The fixture's comment padding must not FOLLOW an indented block.
+def test_the_oversize_fixture_opens_with_its_padding(tmp_path):
+    """Every comment line of the oversize fixture comes before its first statement.
 
-    tree-sitter's Python grammar is quadratic there (LEDGER L-113): with the
-    function first, this 505 KB file took 11 s to parse and six cases of this
-    module took 14 to 16 s each, which spent the full tier's whole wall-clock
-    margin (harness F-41). Nothing below a comment run may be indented code
-    that precedes it.
+    A comment run after any statement parses in quadratic time (LEDGER L-113):
+    with the function first, this file took about 11 s to parse and six cases of
+    this module took 14 to 16 s each, which spent the full tier's wall-clock
+    margin (harness F-41). Only a run that opens the file is free, so that is
+    the shape pinned here, for indented comments as well as column-0 ones.
     """
     text = (_make_project(tmp_path) / "big_module.py").read_text(encoding="utf-8")
     lines = text.splitlines()
-    first_code = next(i for i, line in enumerate(lines) if line and not line.startswith("#"))
-    last_comment = max(i for i, line in enumerate(lines) if line.startswith("#"))
-    assert last_comment < first_code, (
-        f"comment padding runs to line {last_comment + 1}, after code that starts at line {first_code + 1}"
+    comments = [i for i, line in enumerate(lines) if line.lstrip().startswith("#")]
+    code = [i for i, line in enumerate(lines) if line.strip() and not line.lstrip().startswith("#")]
+    assert comments and code, "the fixture needs its padding and its function"
+    assert max(comments) < min(code), (
+        f"a comment on line {max(comments) + 1} follows code that starts on line {min(code) + 1}"
     )
