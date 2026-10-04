@@ -2,9 +2,11 @@
 
 ## [Unreleased]
 
+## [1.108.328] - 2026-10-04 - a file a package.json script runs is an entry point
+
 ### Fixed
 
-- **A repeat `index <subdir>` inside a git root is incremental (#961).** A subdirectory of a git
+- **A repeat `index <subdir>` inside a git root is incremental (#961, @ebataeva).** A subdirectory of a git
   working tree is indexed under the git root's identity and walked as `walk_prefix`; the collision
   guard sets `_merge_with_existing` so files outside the prefix carry over, and the incremental
   branch ran only when `_merge_with_existing` was `None`. So no repeat subdir walk could reach the

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.327",
+  "current": "1.108.328",
   "entries": [
+    {
+      "version": "1.108.328",
+      "date": "2026-10-04",
+      "title": "a file a package.json script runs is an entry point",
+      "summary": "find_dead_code and get_dead_code_v2 read a package.json's main, exports and bin but not its scripts, so a server started by \"start\": \"node server.js\" was reported dead at confidence 1.0 along with everything only it imports. scripts is read now, as an allowlist: a runner from a list of twelve, flags that runner is known to take, and a path that resolves to one indexed file the way that runner resolves it. Anything else roots nothing, so a wrong guess cannot hide a dead file. Also, a repeat index of a subdirectory inside a git root is incremental (#961, thanks @ebataeva)."
+    },
     {
       "version": "1.108.327",
       "date": "2026-10-02",
@@ -18,12 +24,6 @@
       "date": "2026-10-02",
       "title": "a lookup that found nothing is remembered",
       "summary": "config._resolve_repo_key documented a negative cache and never wrote one, so a repo= value that matched no index listed every index in storage on every call, and discovery asks once per candidate file. Indexing a subdirectory of a git root paid one full listing per file. Both answers are remembered now, and a remembered miss cannot outlive an index saved in the same process. Reported by @ebataeva (#960)."
-    },
-    {
-      "version": "1.108.324",
-      "date": "2026-10-02",
-      "title": "one rule says whether a path is a test file",
-      "summary": "A test directory at the repository root was not a test directory: find_dead_code reported tests/helpers.py dead, and the deletion investigator called a name it imports imported by nothing live. Six rules answered the question and no two agreed. There is one rule now and every tool imports it; check_delete_safe and check_edit_safe read it too, so a production models/pod_spec.py is not a test."
     }
   ]
 }

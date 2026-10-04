@@ -2158,3 +2158,17 @@ The 1.108.326 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.324 count, verbatim:
 
 - ⚠ Prior (1.108.324): 14125 passed, 25 skipped, **0 failed** (14150 total).
+
+## Current State rotation (2026-10-04, release 1.108.328)
+
+The 1.108.325 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.325):** **A lookup that found nothing is remembered.** `config._resolve_repo_key` caches hits and misses; `forget_repo_resolutions()` runs on `IndexStore.save_index`/`delete_index` (#960, @ebataeva). ⚠⚠ **A lookup writes NOTHING if a forget overtook its listing** (`_REPO_CACHE_GENERATION`). ⚠ The identifier is compared raw (L-105, OPEN). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-02, release 1.108.326).
+
+The 1.108.327 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.327 — **A local model path is refused when the installed `sentence-transformers` would run its code.** `tools/embed_repo._refuse_local_model_on_an_old_release` raises before `SentenceTransformer(...)` when `embed_model` is an existing path and the imported release is older than 5.6.0, a pre-release of it, or unreadable (L-108; GHSA-jhr6-gm9c-rqjv). A Hub name is not refused. ⚠⚠ **The message leads with the cause and the remedy**: `FailureLedger` keeps 300 characters and a path can fill them. ⚠⚠ `search_symbols(fusion=true)` names ANY failure of its similarity channel as the body key `semantic_channel_error` (declared in the compact encoder's `_JSON_BLOBS`), labels the channel `unavailable`, and does NOT cache that answer; a zero-row one stays `absent` (the v1.108.185 ruling). ⚠ jdoc and jdata have no such check (L-109). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.325 count, verbatim:
+
+- ⚠ Prior (1.108.325): 14142 passed, 25 skipped, **0 failed** (14167 total).
