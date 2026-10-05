@@ -21,7 +21,9 @@
   - The parse deadline counts the parsing thread's own time, not wall-clock, so a parse in another
     thread cannot spend it: 0 of 192 under-budget files were skipped beside an over-budget parse in a
     second thread (`evidence/l114_r2_two_threads.txt`), and 0 of 120 across ten first indexes run
-    beside another (`evidence/l114_r3_first_index_two_threads.txt`).
+    beside another (`evidence/l114_r3_first_index_two_threads.txt`). The other side of that clock: on
+    the wall, a stop arrives later than the budget while another thread is busy (the over-budget
+    index in that second run took 4.67 to 7.12 s at a 2 s budget).
   Parsing this repository's 287 Python files took a mean 3.167 s with the budget on and 3.130 s with
   it off over five alternating rounds (`evidence/l114_cost.txt`). Not covered, and unchanged by this
   release: time spent in Python after the tree is built. The first index waits for it (a Vue file

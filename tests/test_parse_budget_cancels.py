@@ -413,25 +413,29 @@ def test_two_threads_parsing_at_once_each_have_their_own_deadline(budget):
     outcomes = []
     lock = threading.Lock()
 
-    def work(source, name, rounds):
-        for _ in range(rounds):
-            try:
-                result = [s.name for s in extractor.parse_file(source, name, "python")]
-            except ParseBudgetExceeded:
-                result = "budget"
-            with lock:
-                outcomes.append((name, result))
+    def work(tag):
+        # Each thread mixes slow and fast files, so its own clock has moved on
+        # by the time it parses a fast one; a deadline read off another
+        # thread's clock then refuses the fast file.
+        for round_no in range(2):
+            for name, source in [("slow.py", slow)] + [("fast.py", fast)] * 10:
+                try:
+                    result = [s.name for s in extractor.parse_file(source, name, "python")]
+                except ParseBudgetExceeded:
+                    result = "budget"
+                with lock:
+                    outcomes.append((name, result))
 
-    threads = [threading.Thread(target=work, args=(slow, "slow.py", 2))]
-    threads += [threading.Thread(target=work, args=(fast, f"fast{i}.py", 40)) for i in range(3)]
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(4)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
-    assert [r for n, r in outcomes if n == "slow.py"] == ["budget", "budget"]
-    wrong = [(n, r) for n, r in outcomes if n != "slow.py" and r != ["quick"]]
-    assert not wrong, f"{len(wrong)} fast parses were not served beside a slow one: {wrong[:3]}"
+    slow_results = [r for n, r in outcomes if n == "slow.py"]
+    assert slow_results == ["budget"] * 8, slow_results
+    wrong = [(n, r) for n, r in outcomes if n == "fast.py" and r != ["quick"]]
+    assert not wrong, f"{len(wrong)} of 80 fast parses were not served beside slow ones: {wrong[:3]}"
 
 
 def test_a_standalone_grammars_parser_is_bound_too(budget):
