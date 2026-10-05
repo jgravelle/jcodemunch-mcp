@@ -29,8 +29,8 @@ from jcodemunch_mcp.tools.index_folder import index_folder
 BUDGET = 0.25
 
 # ⚠ Every duration this file bounds is `time.thread_time()`, the test thread's
-# own time. A wall-clock bound missed once in five runs on the fixed code with
-# the machine oversubscribed twice over (review round 4; harness FINDINGS F-33).
+# own time: a wall-clock bound fails the fixed code on a starved machine
+# (harness FINDINGS F-33's instrument defect).
 
 _PADDING = "# " + ("x" * 78) + "\n"
 
@@ -200,7 +200,7 @@ def test_every_parser_a_file_loads_carries_its_deadline(budget):
 
 def test_an_over_budget_embedded_script_is_stopped(monkeypatch):
     """The slow parse is the Vue file's SECOND one; the first (the template) is instant."""
-    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.1")
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.05")
     script = "".join(f"export function f{i}(a: number): number {{ return a + {i}; }}\n" for i in range(30000))
     vue = '<template><div/></template>\n<script setup lang="ts">\n' + script + "</script>\n"
     with pytest.raises(ParseBudgetExceeded):
@@ -541,7 +541,7 @@ def test_a_stopped_file_is_named_even_when_another_part_of_it_parsed(monkeypatch
     small = "---\nexport function early(a: number): number { return a }\n---\n<div/>\n"
     assert extractor.parse_file(small, "a.astro", "astro"), "the fixture needs a part that parses"
 
-    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.1")
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.05")
     script = "".join(f"export function f{i}(a: number): number {{ return a + {i}; }}\n" for i in range(30000))
     with pytest.raises(ParseBudgetExceeded):
         extractor.parse_file("---\n" + script + "---\n<div/>\n", "a.astro", "astro")
@@ -584,7 +584,7 @@ def test_a_full_index_names_the_over_budget_file_and_keeps_the_rest(tmp_path, bu
     assert elapsed < 6.0, f"the index took {elapsed:.2f} s; the slow parse was not stopped"
 
 
-def test_a_first_index_leaves_no_thread_behind(tmp_path, budget):
+def test_a_first_index_leaves_no_thread_behind(tmp_path, budget, monkeypatch):
     """Review round 2: the first index is the default route, and the wall-clock
     thread wait of the other routes (LEDGER L-116) charged a fast file for
     time another thread held the GIL. The first index parses in its own thread;
@@ -602,11 +602,9 @@ def test_a_first_index_leaves_no_thread_behind(tmp_path, budget):
         started.append(self.name)
         return real_start(self, *args, **kwargs)
 
-    threading.Thread.start = recording_start
-    try:
-        result = _index(project, tmp_path)
-    finally:
-        threading.Thread.start = real_start
+    monkeypatch.setattr(threading.Thread, "start", recording_start)
+    result = _index(project, tmp_path)
+    monkeypatch.undo()
 
     assert result.get("success") is True and result.get("symbol_count", 0) >= 2
     # git subprocesses start reader threads; the wait's worker runs `_target`.

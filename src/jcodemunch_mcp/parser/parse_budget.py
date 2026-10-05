@@ -70,8 +70,9 @@ _clock = getattr(time, "thread_time", time.monotonic)
 class ParseBudgetExceeded(Exception):
     """Raised when a single file's parse overruns its budget.
 
-    From the parser the budget is the parsing thread's own time; from
-    `parse_file_budgeted`'s thread wait it is wall-clock.
+    From the parser the budget is the parsing thread's own time between a
+    file's parses and tree-sitter's wall timer inside one (module docstring);
+    from `parse_file_budgeted`'s thread wait it is wall-clock.
     """
 
 
