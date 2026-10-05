@@ -2172,3 +2172,17 @@ The 1.108.327 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.325 count, verbatim:
 
 - ⚠ Prior (1.108.325): 14142 passed, 25 skipped, **0 failed** (14167 total).
+
+## Current State rotation (2026-10-05, release 1.108.329)
+
+The 1.108.326 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.326):** **The `semantic` extra requires a `sentence-transformers` that does not run a local model's code.** The `semantic`/`all` extras floor is `>=5.6.0`; the lock holds 6.1.0 and `urllib3` 2.8.0; `tests/test_semantic_extra_floor.py` reads `pyproject.toml`, tracked pin files and the lock. ⚠ The RAG baseline is not re-run under the new pin (L-106); three sandbox `.pins` hold an old `urllib3` (L-107). ⚠ The PR gate's audit reads the RUNTIME set only. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-02, release 1.108.327).
+
+The 1.108.328 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.328 — **A file a `package.json` script runs is an entry point** (L-102). `tools/_entry_points.package_json_entries` is the one manifest reader of both dead-code tools and reads `scripts` as an ALLOWLIST: `[NAME=value] [npx|cross-env] RUNNER [flags its table knows] PATH`, twelve runners, every per-runner fact run against the installed binary; anything else roots NOTHING (rules: Key Files `_entry_points.py`; residue L-111). Also a repeat `index <subdir>` inside a git root is incremental (#961, @ebataeva). Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.326 count, verbatim:
+
+- ⚠ Prior (1.108.326): 14177 passed, 25 skipped, **0 failed** (14202 total).

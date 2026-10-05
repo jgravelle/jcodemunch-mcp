@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.329] - 2026-10-05 - the parse budget stops a slow parse
+
 ### Fixed
 
 - **`JCODEMUNCH_PARSE_BUDGET_SECONDS` stops a slow parse (LEDGER L-114).** The budget was a thread wait
