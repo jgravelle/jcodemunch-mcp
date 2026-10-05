@@ -129,7 +129,14 @@ def armed(language: str, size: int) -> Iterator[Optional[_Scope]]:
 
 
 class _BudgetedParser:
-    """A tree-sitter parser whose `parse` stops at its file's deadline."""
+    """A tree-sitter parser whose `parse` stops at its file's deadline.
+
+    ⚠ It exposes `parse` and `language` and nothing else, by name: a computed
+    `getattr` pass-through here would blind the spec-field scan of
+    `tests/test_grammar_spelled_forms.py`. A grammar call that needs another
+    parser attribute adds it here; `tests/test_parse_budget_cancels.py` fails
+    on a parser attribute this class does not carry.
+    """
 
     __slots__ = ("_parser", "_scope")
 
@@ -137,8 +144,9 @@ class _BudgetedParser:
         self._parser = parser
         self._scope = scope
 
-    def __getattr__(self, name: str):
-        return getattr(self._parser, name)
+    @property
+    def language(self):
+        return self._parser.language
 
     def parse(self, *args, **kwargs):
         scope = self._scope

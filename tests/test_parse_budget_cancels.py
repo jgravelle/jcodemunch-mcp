@@ -170,6 +170,21 @@ def test_a_nested_call_gets_the_open_deadline_not_a_new_one(budget):
     assert parse_budget.active() is None
 
 
+def test_every_parser_attribute_the_extractor_reads_is_on_the_bound_parser():
+    """The bound parser carries named attributes only; a missing one would raise
+    inside a dedicated parser's `except Exception` and read as a file with no symbols."""
+    import re
+    from pathlib import Path
+
+    from jcodemunch_mcp.parser import parse_budget
+
+    source = Path(extractor.__file__).read_text(encoding="utf-8")
+    read = set(re.findall(r"\b[A-Za-z_]*parser\.([A-Za-z_]+)", source))
+    assert "parse" in read, "the scan found no parser.parse call; its pattern is stale"
+    missing = sorted(name for name in read if not hasattr(parse_budget._BudgetedParser, name))
+    assert not missing, f"the extractor reads parser.{missing} and _BudgetedParser does not carry it"
+
+
 def test_a_cancelled_parse_leaves_no_deadline_behind(budget):
     from jcodemunch_mcp.parser import parse_budget
 
