@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from . import parse_budget
+
 # Branch keywords that increment cyclomatic complexity
 _BRANCH_RE = re.compile(
     r"\bif\b|\belif\b|\belse\b|\bfor\b|\bwhile\b|\bdo\b"
@@ -53,6 +55,7 @@ def _count_params(signature: str) -> int:
         depth = 0
         end = start
         for i, ch in enumerate(signature[start:], start):
+            parse_budget.checkpoint()
             if ch == "(":
                 depth += 1
             elif ch == ")":
@@ -119,11 +122,13 @@ def _indent_nesting_depth(body: str) -> int:
     stack: list[int] = []
     max_depth = 0
     for raw in body.split("\n"):
+        parse_budget.checkpoint()
         if not raw.strip() or not _BLOCK_OPENER_RE.match(raw):
             continue
         indent = len(raw) - len(raw.lstrip())
         # A sibling or outdented opener closes everything at or below it.
         while stack and stack[-1] >= indent:
+            parse_budget.checkpoint()
             stack.pop()
         stack.append(indent)
         if len(stack) > max_depth:

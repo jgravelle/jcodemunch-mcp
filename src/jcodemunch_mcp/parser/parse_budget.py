@@ -107,10 +107,15 @@ def budget_seconds() -> float:
         return DEFAULT_PARSE_BUDGET_SECONDS
 
 
+# The clock is read once in this many checkpoints: a checkpoint sits on the
+# hottest paths of the extractor, and a clock read costs more than the rest of it.
+CHECK_EVERY = 64
+
+
 class _Scope:
     """One file's deadline, shared by every parser its `parse_file` call loads."""
 
-    __slots__ = ("budget", "started", "deadline", "language", "size", "cancelled", "ticks")
+    __slots__ = ("budget", "started", "deadline", "language", "size", "cancelled", "left")
 
     def __init__(self, budget: float, language: str, size: int) -> None:
         self.budget = budget
@@ -119,10 +124,15 @@ class _Scope:
         self.language = language
         self.size = size
         self.cancelled = False
-        self.ticks = 0
+        self.left = CHECK_EVERY  # checkpoints until the next clock read
 
     def remaining(self) -> float:
         return self.deadline - _clock()
+
+    def stop(self) -> None:
+        """Record that this file is over budget; the next checkpoint raises."""
+        self.cancelled = True
+        self.left = 1
 
     def error(self) -> ParseBudgetExceeded:
         return ParseBudgetExceeded(
@@ -130,11 +140,6 @@ class _Scope:
             f"{self.language}); file skipped and its symbols are absent from this "
             f"index. Raise JCODEMUNCH_PARSE_BUDGET_SECONDS to allow more time."
         )
-
-
-# The clock is read once in this many checkpoints: a checkpoint sits on the
-# hottest paths of the extractor, and a clock read costs more than the rest of it.
-CHECK_EVERY = 64
 
 
 def checkpoint() -> None:
@@ -148,13 +153,16 @@ def checkpoint() -> None:
     scope = getattr(_state, "scope", None)
     if scope is None:
         return
-    if scope.cancelled:
-        raise scope.error()
-    scope.ticks += 1
-    if scope.ticks % CHECK_EVERY:
+    scope.left -= 1
+    if scope.left:
         return
+    # The slow path, once in CHECK_EVERY: a stopped file stays on it.
+    if scope.cancelled:
+        scope.left = 1
+        raise scope.error()
+    scope.left = CHECK_EVERY
     if scope.remaining() <= 0:
-        scope.cancelled = True
+        scope.stop()
         raise scope.error()
 
 
@@ -211,7 +219,7 @@ class _BudgetedParser:
         scope = self._scope
         remaining = scope.remaining()
         if remaining <= 0:
-            scope.cancelled = True
+            scope.stop()
             raise scope.error()
         try:
             self._parser.timeout_micros = max(1, int(remaining * 1_000_000))
@@ -230,12 +238,12 @@ class _BudgetedParser:
         except ValueError as exc:
             if str(exc) == _STOPPED:
                 self._release()
-                scope.cancelled = True
+                scope.stop()
                 raise scope.error() from None
             raise
         if tree is None:
             self._release()
-            scope.cancelled = True
+            scope.stop()
             raise scope.error()
         return tree
 

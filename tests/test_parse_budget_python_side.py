@@ -8,11 +8,15 @@ thread held the GIL; its abandoned worker kept running and could write to the
 parse cache for a file the caller was told is skipped; and it counted
 characters where the parse limit counts bytes.
 
-The wait is gone. Building a `Symbol` is a checkpoint: inside a `parse_file`
-call it reads the file's deadline (the parsing thread's own time) and raises
-`ParseBudgetExceeded` once the deadline has passed. Every extractor builds
-symbols, so every route and every language has the limit by construction, and
-no second thread exists to abandon.
+The wait is gone and no second thread exists to abandon. The parsing thread
+passes checkpoints: inside a `parse_file` call a checkpoint reads the file's
+deadline (the thread's own time) once in `CHECK_EVERY` and raises
+`ParseBudgetExceeded` once it has passed. The limit is cooperative, so it holds
+only where a checkpoint is passed, and two review rounds each found a loop that
+passed none. The rule this file holds is therefore over the source, not over a
+list of walkers: every `for` and `while` statement in the modules a parse runs
+through starts with a checkpoint, every function there that can call itself
+passes one, and building a `Symbol` is one. The exemptions are named below.
 
 The Python side is isolated with a clock the test controls: the deadline
 "passes" the moment the file's C parse returns, so nothing here depends on a
@@ -86,7 +90,7 @@ def deadline_already_passed(monkeypatch):
 
     def clock():
         armed["n"] += 1
-        return real_clock() + (0.0 if armed["n"] == 1 else 1000.0)  # the first read sets the deadline
+        return real_clock() + (0.0 if armed["n"] == 1 else 5.5)  # the first read sets the deadline
 
     monkeypatch.setattr(parse_budget, "_clock", clock)
 
@@ -249,8 +253,100 @@ def test_no_recursion_in_the_extractor_lacks_a_checkpoint():
     assert _recursion_without_a_checkpoint(_extractor_functions()) == []
 
 
+_PARSER_DIR = Path(extractor.__file__).parent
+
+# The modules a `parse_file` call runs Python loops in.
+_ON_THE_PARSE_PATH = {
+    "extractor.py", "astro_shared.py", "complexity.py", "racket_reader.py",
+    "sql_preprocessor.py", "template_shared.py",
+}
+# Every other module of the package, and why its loops need no checkpoint. A
+# new module must be put in one set or the other (the test below).
+_OFF_THE_PARSE_PATH = {
+    "__init__.py": "re-exports",
+    "parse_budget.py": "the budget itself",
+    "symbols.py": "the Symbol dataclass; its checkpoint is `__post_init__`",
+    "grammar_pack.py": "loads a parser; no loop over a file's content",
+    "parse_cache.py": "wraps `parse_file` from outside its deadline",
+    "languages.py": "registry tables and path-suffix lookups; no loop over a file's content",
+    "imports.py": "import extraction runs after `parse_file`, outside its deadline",
+    "hierarchy.py": "builds the outline from finished symbols, outside `parse_file`",
+    "fqn.py": "name translation for lookups, outside `parse_file`",
+}
+# Loops that pass no checkpoint of their own, each with the reason it is safe.
+# (module, function, the loop's iterable as source text)
+_LOOPS_WITHOUT_A_CHECKPOINT = {
+    ("complexity.py", "_bracket_nesting_depth", "body"):
+        "one pass over one symbol's characters; a checkpoint here was two thirds of all checkpoint calls",
+    ("complexity.py", "_count_params", "params_str"):
+        "one pass over one signature's characters",
+    ("extractor.py", "_walk_tree", "(*node.children, *adopted) if adopted else node.children"):
+        "every iteration enters `_walk_tree`, whose first statement is a checkpoint",
+}
+
+
+def _loops(module: str):
+    tree = ast.parse((_PARSER_DIR / module).read_text(encoding="utf-8"))
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for node in _own_nodes(fn):
+                if isinstance(node, (ast.For, ast.While, ast.AsyncFor)):
+                    yield fn.name, node
+    for node in tree.body:  # module-level loops belong to no function
+        if isinstance(node, (ast.For, ast.While)):
+            yield "<module>", node
+
+
+def _starts_with_a_checkpoint(loop) -> bool:
+    return _passes_a_checkpoint([loop.body[0].value]) if isinstance(loop.body[0], ast.Expr) else False
+
+
+def test_every_loop_on_the_parse_path_starts_with_a_checkpoint():
+    """Review round 2: `_find_enclosing_symbol` (a `for` per call site, each
+    rescanning every symbol), a Razor brace scan (`while i < len(content)`) and
+    a dbt directive loop each ran quadratic and unstopped, 9.6 s to 375 s at a
+    budget of 2 s or less, because the scans then held looked for recursion
+    and `while stack:` only. The rule is every loop statement."""
+    missing, exempt_seen = [], set()
+    for module in sorted(_ON_THE_PARSE_PATH):
+        for function, loop in _loops(module):
+            if _starts_with_a_checkpoint(loop):
+                continue
+            key = (module, function, ast.unparse(loop.iter if hasattr(loop, "iter") else loop.test))
+            if key in _LOOPS_WITHOUT_A_CHECKPOINT:
+                exempt_seen.add(key)
+            else:
+                missing.append(f"{module}:{loop.lineno} {function}")
+    assert missing == [], "a loop on the parse path does not start with parse_budget.checkpoint()"
+    assert exempt_seen == set(_LOOPS_WITHOUT_A_CHECKPOINT), "an exemption names a loop that is gone or has a checkpoint"
+    # The third exemption rests on `_walk_tree` STARTING with a checkpoint.
+    walkers = [fn for fn in _extractor_functions() if fn.name == "_walk_tree"]
+    assert len(walkers) == 1
+    body = walkers[0].body
+    first = body[1] if isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) else body[0]
+    assert isinstance(first, ast.Expr) and _passes_a_checkpoint([first.value]), (
+        "`_walk_tree` no longer starts with a checkpoint, and its child loop is exempt because it did"
+    )
+
+
+def test_a_file_stopped_by_the_parser_is_stopped_at_the_next_checkpoint(monkeypatch):
+    """tree-sitter's timer is wall-clock and the deadline here is the thread's
+    own time, so a parser can stop a file whose deadline has NOT passed (a
+    starved box). The file is stopped all the same: every later checkpoint
+    raises, though the clock would say there is time left."""
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "60")
+    with parse_budget.armed("python", 10) as scope:
+        parse_budget.checkpoint()
+        scope.stop()
+        assert scope.remaining() > 0
+        for _ in range(3):
+            with pytest.raises(ParseBudgetExceeded):
+                parse_budget.checkpoint()
+
+
 def test_no_work_list_loop_in_the_extractor_lacks_a_checkpoint():
-    """`while stack:` is the other way the extractor visits a whole tree."""
+    """`while stack:` visits a whole tree. Round 1's narrower scan, kept: the
+    exemption table above must never grow a work-list loop."""
     missing = [
         f"{fn.name}:{node.lineno}"
         for fn in _extractor_functions()
@@ -258,6 +354,41 @@ def test_no_work_list_loop_in_the_extractor_lacks_a_checkpoint():
         if isinstance(node, ast.While) and isinstance(node.test, ast.Name) and not _passes_a_checkpoint(ast.walk(node))
     ]
     assert missing == []
+
+
+def test_every_module_of_the_parser_package_is_on_the_path_or_named_off_it():
+    on_disk = {p.name for p in _PARSER_DIR.glob("*.py")}
+    assert on_disk == _ON_THE_PARSE_PATH | set(_OFF_THE_PARSE_PATH)
+    assert not _ON_THE_PARSE_PATH & set(_OFF_THE_PARSE_PATH)
+
+
+# Review round 2's three inputs, small: each loop below builds no symbol while
+# it runs and none of the three is a recursion.
+_QUADRATIC_SHAPES = {
+    "python-call-sites": (
+        "calls.py", "python",
+        "".join(f"def f{i}(): return {i}\n" for i in range(300)) + "".join(f"f{i % 300}()\n" for i in range(1500)),
+    ),
+    "razor-code-blocks": ("a.razor", "razor", "@code {\n" * 1500),
+    "dbt-directives": ("m.sql", "sql", "{# \n{% macro m() %}\n" * 300),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_QUADRATIC_SHAPES))
+def test_a_loop_that_builds_nothing_and_is_no_recursion_is_stopped(shape, monkeypatch):
+    filename, language, source = _QUADRATIC_SHAPES[shape]
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "5")
+    real_clock = parse_budget._clock
+    reads = []
+
+    def clock():
+        reads.append(1)
+        return real_clock() + (0.0 if len(reads) == 1 else 5.5)  # the first read sets the deadline
+
+    monkeypatch.setattr(parse_budget, "_clock", clock)
+    with pytest.raises(ParseBudgetExceeded):
+        parse_file_budgeted(source, filename, language)
+    assert len(reads) <= 3, f"the walk went on for {len(reads)} clock reads after its deadline"
 
 
 def test_the_recursion_scan_sees_a_cycle_it_should():
@@ -442,7 +573,7 @@ def only_the_slow_module_is_late(monkeypatch):
         return tree
 
     def clock():
-        return real_clock() + (1000.0 if getattr(late, "on", False) and getattr(late, "passed", False) else 0.0)
+        return real_clock() + (5.5 if getattr(late, "on", False) and getattr(late, "passed", False) else 0.0)
 
     monkeypatch.setattr(parse_budget, "armed", armed)
     monkeypatch.setattr(parse_budget._BudgetedParser, "parse", parse)
@@ -492,11 +623,23 @@ def test_no_route_starts_a_thread_to_parse_a_large_file(tmp_path, monkeypatch, i
         started.append(traceback.extract_stack())
         return real_start(self, *args, **kwargs)
 
+    parsed_on = []
+    real_parse_file = extractor.parse_file
+
+    def recording_parse_file(*args, **kwargs):
+        parsed_on.append(threading.get_ident())
+        return real_parse_file(*args, **kwargs)
+
     monkeypatch.setattr(threading.Thread, "start", recording_start)
+    monkeypatch.setattr(extractor, "parse_file", recording_parse_file)
     result = _index(project, tmp_path, incremental=incremental)
     monkeypatch.undo()
 
     assert result.get("success") is True
+    # The property, at the route: every file is parsed on the thread that
+    # called `index_folder` (review round 2: a wait put back around
+    # `parse_file_budgeted` from `_indexing_pipeline.py` passed the check below).
+    assert parsed_on and set(parsed_on) == {threading.get_ident()}, "a file was parsed on another thread"
     # git subprocesses start reader threads, so "no thread at all" is not the
     # property. A thread started from anywhere under a file's parse is: found
     # by WHERE it was started, never by its name (review round 1 of L-116: a

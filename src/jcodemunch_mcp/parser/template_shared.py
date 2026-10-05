@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from . import parse_budget
 from .sql_preprocessor import extract_dbt_directives
 from .symbols import Symbol, compute_content_hash, make_symbol_id
 
@@ -69,6 +70,7 @@ def extract_jinja_directives(
     for d in extract_dbt_directives(
         text.encode("utf-8"), directive_keywords=_TEMPLATE_DIRECTIVES
     ):
+        parse_budget.checkpoint()
         kind = _DIRECTIVE_KIND[d.directive]
         signature = (
             f"{{% {d.directive} {d.name}({d.params}) %}}"

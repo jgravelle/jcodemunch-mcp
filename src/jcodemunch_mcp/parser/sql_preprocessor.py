@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 
+from . import parse_budget
+
 
 # Matches {{ expr }}, {% block %}, and {# comment #} in any order
 JINJA_PATTERN = re.compile(
@@ -84,6 +86,7 @@ def extract_dbt_directives(
     directives: list[DbtDirective] = []
 
     for m in _directive_pattern(tuple(directive_keywords)).finditer(sql_str):
+        parse_budget.checkpoint()
         directive = m.group("directive")
         name = m.group("name")
         params = (m.group("params") or "").strip()
@@ -146,6 +149,7 @@ def _extract_preceding_docstring(sql_str: str, offset: int) -> str:
         # Clean up leading * on each line
         cleaned_lines = []
         for line in comment_body.strip().splitlines():
+            parse_budget.checkpoint()
             stripped = line.strip()
             if stripped.startswith("*"):
                 stripped = stripped[1:].strip()
@@ -154,6 +158,7 @@ def _extract_preceding_docstring(sql_str: str, offset: int) -> str:
 
     # Check for -- comment lines immediately before
     for line in reversed(preceding.splitlines()):
+        parse_budget.checkpoint()
         stripped = line.strip()
         if stripped.startswith("--"):
             lines.insert(0, stripped[2:].strip())
