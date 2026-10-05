@@ -12,14 +12,16 @@
   worker could not be stopped, kept running after the caller was told the file is skipped, and with
   `JCODEMUNCH_PARSE_CACHE` set stored that file's result in the parse cache. Its message counted
   characters where the parse limit counts bytes. The wait is gone and no second thread replaces it:
-  building a `Symbol` is a checkpoint (`parse_budget.checkpoint()`, called from
-  `Symbol.__post_init__` and at each node of the generic walker), and inside a `parse_file` call it
-  raises once the file's deadline has passed. Every extractor builds symbols, so every language and
-  every route has the limit without a list of loops to keep. Measured on a 441,827-byte `.vue` whose
-  plain `<script>` holds 6000 functions (L-115's shape), at a 2 s budget
-  (`evidence/l116_vue_first_index_and_reindex.txt`): on 1.108.329 the first index took 13.98 s and
-  indexed the file with no warning, and a re-index after an edit skipped and named it after 4.61 s
-  and left a thread behind; now the first index takes 2.80 s and the re-index 2.79 s, both name the
+  the parsing thread checks its own deadline at a checkpoint (`parse_budget.checkpoint()`), and
+  inside a `parse_file` call a checkpoint raises once the deadline has passed. Building a `Symbol`
+  is one, so a parser that builds symbols is stopped whatever its loop looks like. A walk that
+  builds none needs its own: every function of the extractor that can call itself, directly or
+  through another, passes one, and so does every `while stack:` work-list loop, and two scans of the
+  file in the test suite fail on a recursion or a work-list loop that does not. Measured on a
+  441,827-byte `.vue` whose plain `<script>` holds 6000 functions (L-115's shape), at a 2 s budget
+  (`evidence/l116_vue_first_index_and_reindex.txt`): on 1.108.329 the first index took 15.96 s and
+  indexed the file with no warning, and a re-index after an edit skipped and named it after 4.42 s
+  and left a thread behind; now the first index takes 2.91 s and the re-index 2.90 s, both name the
   file, and neither starts a thread. What changes for a user:
   - A file whose Python-side walk runs past the budget (default 20 s) is skipped and named on the
     first index and at any size. The first index used to wait for it, and the wait on the other
@@ -34,18 +36,25 @@
   - The warning counts bytes on every route.
   - `SECURITY.md` loses the "An abandoned parse worker" line added in 1.108.329. The behaviour it
     disclosed no longer exists: indexing starts no thread to parse a file.
-  The limit is cooperative, and that is its residue: a loop that builds no symbol, loads no parser
-  and is not the generic walker has no checkpoint and is not bounded. None is known; a dedicated
-  parser that grows one calls `parse_budget.checkpoint()`. A parser that catches the stop per item
-  is still stopped (once a file is stopped every checkpoint raises) and `parse_file` names the file.
+  The limit is cooperative, and what it does not reach is stated here. Not bounded: a `for` loop
+  that builds no symbol, and a single call into C (one `re.findall` over a file, PyYAML's load of an
+  OpenAPI document). With the deadline forced to pass as the tree-sitter parse returned, on 400 KB
+  inputs that build no symbol (`evidence/l116_residue_probe.txt`, a probe written by this change's
+  reviewer), six inputs still ran to the end: Haskell 0.12 s, GraphQL 0.11 s and Erlang 0.14 s past
+  the deadline, Nix, TOML and Fortran 0.02 s each. An OpenAPI document of that size took 2.16 s in
+  PyYAML and was not stopped. All of these are linear in the file's size. On 1.108.329 the same
+  probe ran 1.64 s past the deadline for C, 1.08 s for C++, 0.64 s for Objective-C and 0.42 to
+  0.45 s for HCL, Julia and XML; those are stopped now. A parser that catches the stop per item is
+  still stopped (once a file is stopped every checkpoint raises) and `parse_file` names the file.
   What it costs (`evidence/l116_checkpoint_cost.txt`, this package's 287 Python files, five
-  alternating rounds, two runs each side): a mean 3.134 s and 3.120 s with the budget off against
-  3.015 s and 3.062 s on 1.108.329, and 3.215 s and 3.241 s with it on against 3.006 s and 3.104 s.
-  Building 500,000 symbols outside a parse, which is what loading an index does, took a mean 0.643 s
-  against 0.397 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is L-115,
+  alternating rounds, two runs each side): a mean 3.526 s and 3.631 s with the budget off against
+  3.327 s and 3.532 s on 1.108.329, and 3.627 s and 3.604 s with it on against 3.403 s and 3.500 s.
+  Building 500,000 symbols outside a parse, which is what a parse-cache hit and `get_file_outline`
+  do (loading an index builds none), took a mean 0.736 s against 0.426 s
+  (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is L-115,
   still open: `_preceding_comment` rescans every sibling for each function, 3.127 s of a 3.353 s
   parse at 3000 functions (`evidence/l115_cause_profile.txt`). Guard:
-  `tests/test_parse_budget_python_side.py`; 11 reintroduced defects of 11 fail it
+  `tests/test_parse_budget_python_side.py`; 19 reintroduced defects of 19 fail it
   (`evidence/l116_mutants.txt`). One test is retired, `tests/test_v1_108_182.py::
   test_pathological_parse_raises_named_budget_error`: it replaced `parse_file` with a sleep and
   asserted the waiting caller came back, which states the mechanism (a caller that returns) and not
