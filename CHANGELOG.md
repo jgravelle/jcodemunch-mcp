@@ -43,8 +43,8 @@
   What a checkpoint cannot do is cut one slow call short. Three things pass none: a regex over the
   whole file (also when it is the iterable of a `for`, which runs before that loop's checkpoint), a
   comprehension, and Python code outside the six modules, which here is PyYAML's loader. Such a
-  file is named when the call returns, at the next checkpoint or by `parse_file`, which reads the
-  deadline once more at the end. Against the old wait, on the routes and sizes where it existed
+  file is named after the call returns, at the next clock read (within 64 checkpoints) or by
+  `parse_file`, which reads the deadline once more at the end. Against the old wait, on the routes and sizes where it existed
   (`evidence/l116_one_call_shapes.txt`, a 0.5 s budget): it could not cut a regex short either,
   because the call holds the interpreter, and a 140,000-byte EJS file of unclosed scriptlets held
   its caller 30.62 s on 1.108.329 and 30.90 s now, named both times; an Astro and a dbt file of
@@ -52,7 +52,7 @@
   PyYAML, with the load still running behind it: a 400,000-byte YAML list was named after 0.53 s on
   1.108.329 and is named after 1.87 s now. That is the one measured case where a caller waits
   longer than before. With the deadline forced to pass as the tree-sitter parse returned, on 66
-  inputs of 400 KB that build no symbol, with every language enabled
+  inputs of 400 KB, with every language enabled
   (`evidence/l116_residue_probe.txt`, a probe written by this change's reviewer; the counts are the
   file's own summary): 55 were stopped and named, 48 of them with the forced deadline in effect and
   none more than 0.12 s past it, 7 by the real 0.3 s budget alone; the other 11 load no parser, so
@@ -76,7 +76,7 @@
   0.651 s against 0.396 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is
   L-115, still open: `_preceding_comment` rescans every sibling for each function, 3.127 s of a
   3.353 s parse at 3000 functions (`evidence/l115_cause_profile.txt`). Guard:
-  `tests/test_parse_budget_python_side.py`; 25 reintroduced defects of 25 fail it
+  `tests/test_parse_budget_python_side.py`; 26 reintroduced defects of 26 fail it
   (`evidence/l116_mutants.txt`). One test is retired, `tests/test_v1_108_182.py::
   test_pathological_parse_raises_named_budget_error`: it replaced `parse_file` with a sleep and
   asserted the waiting caller came back, which states the mechanism (a caller that returns) and not
