@@ -40,11 +40,14 @@ skipped. ⚠⚠ The limit is COOPERATIVE: it holds where a checkpoint is passed
 and nowhere else, and two review rounds each found a loop that passed none.
 `tests/test_parse_budget_python_side.py` therefore scans the SOURCE (every
 loop statement, every recursion, every module of this package classified) and
-names the three loops that are exempt and why. ⚠ NOT bounded: one call into C
-(a `re.findall` over a file, PyYAML's load of an OpenAPI or Ansible document)
-and a comprehension. The old wait released its caller during such a call, with
-the work still running; now the caller waits for the call to return, and the
-file is stopped at the next checkpoint. Measurements: the L-116 row.
+names the three loops that are exempt and why. ⚠ NOT stopped part-way: one
+slow call that passes no checkpoint. That is a regex over the whole file
+(including the iterable of a `for`, which runs before the loop's checkpoint), a
+comprehension, and Python code outside these modules (PyYAML's loader for a
+YAML, OpenAPI or Ansible document). The file is named when the call returns: at
+the next checkpoint, or by `parse_file`, which reads the deadline once more at
+the end. The old wait could not cut a regex short either (it holds the GIL);
+it did release its caller during PyYAML. Measurements: the L-116 row.
 
 ⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is
 counted in the parsing thread's own time (`time.thread_time`): a parse in
