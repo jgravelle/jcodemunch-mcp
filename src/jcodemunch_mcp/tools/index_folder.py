@@ -18,7 +18,7 @@ import pathspec
 logger = logging.getLogger(__name__)
 
 from .. import config as _config
-from ..parser import LANGUAGE_EXTENSIONS, get_language_for_path
+from ..parser import cached_parse_file as parse_file, LANGUAGE_EXTENSIONS, get_language_for_path
 from ..parser import grammar_pack
 from ..parser.context import discover_providers, enrich_symbols, collect_metadata, collect_extra_imports
 from ..parser.context._route_utils import iter_source_files
@@ -766,7 +766,6 @@ from ._indexing_pipeline import (
     language_counts as _language_counts,
     complete_file_summaries as _complete_file_summaries,
     parse_and_prepare_incremental,
-    parse_file_budgeted,
     parse_immediate,
 )
 from ._utils import (
@@ -2926,9 +2925,11 @@ def index_folder(
                 # content eligible for GC after this iteration
                 continue
             try:
-                # Budgeted like the other two routes (L-114): the same file must not
-                # be indexed by a first index and skipped by a re-index.
-                symbols = parse_file_budgeted(content, rel_path, language, repo=str(folder_path), source_bytes=content_bytes)
+                # `parse_file` stops an over-budget tree-sitter parse itself (L-114).
+                # ⚠ Deliberately NOT `parse_file_budgeted`: its wall-clock thread wait
+                # charges a file for time another thread held the GIL and leaves an
+                # abandoned walk running, and this is the default route (L-116).
+                symbols = parse_file(content, rel_path, language, source_bytes=content_bytes, repo=str(folder_path))
                 if symbols:
                     all_symbols.extend(symbols)
                     symbols_by_file[rel_path].extend(symbols)

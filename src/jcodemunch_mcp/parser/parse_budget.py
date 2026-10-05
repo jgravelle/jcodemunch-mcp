@@ -180,13 +180,25 @@ class _BudgetedParser:
             tree = self._parser.parse(*args, **kwargs)
         except ValueError as exc:
             if str(exc) == _STOPPED:
+                self._release()
                 scope.cancelled = True
                 raise scope.error() from None
             raise
         if tree is None:
+            self._release()
             scope.cancelled = True
             raise scope.error()
         return tree
+
+    def _release(self) -> None:
+        # ⚠ tree-sitter keeps a stopped parse to RESUME it: the next `parse` on
+        # the same object returned the old source's tree, with the timeout still
+        # set. The pack builds a parser per call today, and nothing promises that.
+        try:
+            self._parser.reset()
+            self._parser.timeout_micros = 0
+        except Exception:
+            logger.debug("could not reset a stopped parser", exc_info=True)
 
 
 def _install_filter() -> None:

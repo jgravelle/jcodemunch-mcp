@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 # ⚠⚠ The ceiling that stops a tree-sitter parse is NOT here (L-114): it is in
 # `parser/parse_budget.py`, inside `parse_file`, on every route. The thread wait
 # below cannot stop or outwait a parse, because the parse holds the GIL; it
-# bounds what is left, the Python-side walk of a large file's tree.
+# bounds what is left, the Python-side walk of a large file's tree, on the two
+# re-index routes only. ⚠ It is WALL-CLOCK, so time another thread held the
+# GIL is charged to the file it waits on (L-116).
 _DEFAULT_PARSE_BUDGET_SECONDS = DEFAULT_PARSE_BUDGET_SECONDS
 
 # The watchdog costs a thread per file, so it is only armed for files large
@@ -34,7 +36,7 @@ _PARSE_WATCHDOG_MIN_BYTES = 131072
 _parse_budget_seconds = budget_seconds
 
 
-def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None, source_bytes: Optional[bytes] = None) -> list:
+def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None) -> list:
     """``parse_file`` with a wall-clock ceiling on large files.
 
     Raises ``ParseBudgetExceeded`` on overrun so the caller's existing
@@ -43,18 +45,15 @@ def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None, s
     same class from the worker. This wait covers the rest: an abandoned
     Python-side walk keeps running, so it bounds the INDEX, not the CPU.
     """
-    # `source_bytes` only when the caller has them: every other call keeps the
-    # four-argument shape `parse_file` has always been called with here.
-    extra = {} if source_bytes is None else {"source_bytes": source_bytes}
     budget = _parse_budget_seconds()
     if budget <= 0 or len(content) < _PARSE_WATCHDOG_MIN_BYTES:
-        return parse_file(content, rel_path, language, repo=repo, **extra)
+        return parse_file(content, rel_path, language, repo=repo)
 
     box: dict = {}
 
     def _target() -> None:
         try:
-            box["symbols"] = parse_file(content, rel_path, language, repo=repo, **extra)
+            box["symbols"] = parse_file(content, rel_path, language, repo=repo)
         except BaseException as exc:  # noqa: BLE001 — re-raised to the caller
             box["exc"] = exc
 

@@ -227,6 +227,11 @@ class _FakeParser:
         self._outcome = outcome
         self._setter_raises = setter_raises
         self.timeouts = []
+        self.parsed = 0
+        self.resets = 0
+
+    def reset(self):
+        self.resets += 1
 
     @property
     def timeout_micros(self):
@@ -239,6 +244,7 @@ class _FakeParser:
         self.timeouts.append(value)
 
     def parse(self, *args, **kwargs):
+        self.parsed += 1
         if isinstance(self._outcome, BaseException):
             raise self._outcome
         return self._outcome
@@ -287,14 +293,87 @@ def test_the_bound_parser_is_given_what_is_left_of_the_deadline():
     assert 4_000_000 < fake.timeouts[0] <= 5_000_000
 
 
-def test_time_this_thread_did_not_spend_is_not_charged_to_the_file(budget):
+def test_time_another_thread_spent_is_not_charged_to_the_file(budget):
     """Review round 1: on a wall clock, another thread's GIL-holding parse spent
-    this file's deadline and an under-budget file was skipped as over budget."""
+    this file's deadline and an under-budget file was skipped as over budget.
+
+    The other thread BURNS CPU here (round 2: a sleep cannot tell this thread's
+    clock from the process's, and a process clock charges the file again)."""
+    import threading
+
     from jcodemunch_mcp.parser import parse_budget
 
+    stop = threading.Event()
+
+    def burn():
+        while not stop.is_set():
+            sum(range(2000))
+
+    burner = threading.Thread(target=burn, daemon=True)
     with parse_budget.armed("python", 10) as scope:
-        time.sleep(budget * 2)
-        assert scope.remaining() > budget * 0.5, "idle time was charged to the file's parse budget"
+        burner.start()
+        try:
+            time.sleep(budget * 3)
+        finally:
+            stop.set()
+            burner.join()
+        assert scope.remaining() > budget * 0.5, "another thread's time was charged to this file's parse budget"
+
+
+def test_a_parser_asked_after_the_deadline_is_refused_and_the_file_is_named():
+    """A file's second parse (a C header's re-parse, a Vue script) can start after
+    the deadline; it must not run, and `parse_file` must still raise for the file."""
+    fake = _FakeParser("tree")
+    parser, scope = _bound(fake)
+    scope.deadline = scope.started - 1.0
+    with pytest.raises(ParseBudgetExceeded):
+        parser.parse(b"x")
+    assert fake.parsed == 0, "a parse was started after its file's deadline"
+    assert scope.cancelled is True, "the refusal was not recorded, so a parser that swallows it hides the file"
+
+
+def test_a_later_parser_gets_what_is_left_not_the_whole_budget():
+    fake = _FakeParser("tree")
+    parser, scope = _bound(fake, seconds=5.0)
+    scope.deadline -= 3.0
+    parser.parse(b"x")
+    assert 1_000_000 < fake.timeouts[0] <= 2_000_000
+
+
+def test_a_remainder_under_a_microsecond_still_sets_a_timeout(monkeypatch):
+    """`timeout_micros = 0` means no timeout at all."""
+    from jcodemunch_mcp.parser import parse_budget
+
+    monkeypatch.setattr(parse_budget, "_clock", lambda: 100.0)
+    fake = _FakeParser("tree")
+    parser, scope = _bound(fake)
+    scope.deadline = 100.0 + 1e-8
+    parser.parse(b"x")
+    assert fake.timeouts == [1]
+
+
+def test_a_stopped_parser_is_reset_before_it_is_let_go():
+    fake = _FakeParser(ValueError("Parsing failed"))
+    parser, _ = _bound(fake)
+    with pytest.raises(ParseBudgetExceeded):
+        parser.parse(b"x")
+    assert fake.resets == 1 and fake.timeout_micros == 0
+
+
+def test_a_stopped_tree_sitter_parser_parses_the_next_source_from_scratch(budget):
+    """Review round 2: tree-sitter keeps a stopped parse to resume it, and the
+    same object then returned the OLD source's tree for a new source."""
+    from tree_sitter_language_pack import get_parser
+
+    from jcodemunch_mcp.parser import parse_budget
+
+    raw = get_parser("python")
+    scope = parse_budget._Scope(budget, "python", 10)
+    with pytest.raises(ParseBudgetExceeded):
+        parse_budget._BudgetedParser(raw, scope).parse(_slow_python().encode("utf-8"))
+    tree = raw.parse(b"def after():\n    return 1\n")
+    assert not tree.root_node.has_error
+    assert [child.type for child in tree.root_node.children] == ["function_definition"]
 
 
 def test_the_warning_filter_is_installed_once_not_per_file(budget, monkeypatch):
@@ -362,30 +441,34 @@ def test_a_full_index_names_the_over_budget_file_and_keeps_the_rest(tmp_path, bu
     assert elapsed < 6.0, f"the index took {elapsed:.2f} s; the slow parse was not stopped"
 
 
-def test_a_full_index_asks_the_python_side_wait_too(tmp_path, budget, monkeypatch):
-    """Review round 1: the full-index loop called `parse_file` directly, so a file
-    slow in the Python-side walk was indexed by a first index and skipped by a re-index."""
-    from jcodemunch_mcp.tools import _indexing_pipeline
+def test_a_first_index_leaves_no_thread_behind(tmp_path, budget):
+    """Review round 2: the first index is the default route, and the wall-clock
+    thread wait of the re-index routes (LEDGER L-116) charged a 0.28 s file for
+    time another thread held the GIL. The first index parses in its own thread;
+    the tree-sitter limit inside `parse_file` is the one it has."""
+    import threading
 
-    real = _indexing_pipeline.parse_file
-
-    def _slow_walk(content, path, language, **kwargs):
-        if path.endswith("slow_module.py"):
-            time.sleep(3)  # releases the GIL, as a Python-side walk does between bytecodes
-            return []
-        return real(content, path, language, **kwargs)
-
-    monkeypatch.setattr(_indexing_pipeline, "parse_file", _slow_walk)
     big_fast = _PADDING * 2000 + "def marker_symbol():\n    return 1\n"
     assert len(big_fast) >= _PARSE_WATCHDOG_MIN_BYTES
     project = _project(tmp_path, big_fast)
 
-    started = time.monotonic()
-    result = _index(project, tmp_path)
-    elapsed = time.monotonic() - started
+    started = []
+    real_start = threading.Thread.start
 
-    assert _parse_warnings(result), f"no warning names the file: {result.get('warnings')}"
-    assert elapsed < 2.5, f"the index waited {elapsed:.2f} s for a walk over its {budget} s budget"
+    def recording_start(self, *args, **kwargs):
+        started.append(self.name)
+        return real_start(self, *args, **kwargs)
+
+    threading.Thread.start = recording_start
+    try:
+        result = _index(project, tmp_path)
+    finally:
+        threading.Thread.start = real_start
+
+    assert result.get("success") is True and result.get("symbol_count", 0) >= 2
+    # git subprocesses start reader threads; the wait's worker runs `_target`.
+    waits = [name for name in started if "_target" in name]
+    assert waits == [], f"the first index started a parse wait thread: {started}"
 
 
 def test_an_incremental_reindex_names_the_over_budget_file(tmp_path, budget):
