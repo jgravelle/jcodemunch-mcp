@@ -21,18 +21,18 @@
   single passes over one symbol's characters, and one loop whose every iteration enters a function
   that starts with a checkpoint). Measured on a 441,827-byte `.vue` whose plain `<script>` holds
   6000 functions (L-115's shape), at a 2 s budget (`evidence/l116_vue_first_index_and_reindex.txt`):
-  on 1.108.329 the first index took 14.02 s and indexed the file with no warning, and a re-index
-  after an edit skipped and named it after 4.22 s and left a thread behind; now the first index
-  takes 2.85 s and the re-index 2.86 s, both name the file, and neither starts a thread. What
+  on 1.108.329 the first index took 13.96 s and indexed the file with no warning, and a re-index
+  after an edit skipped and named it after 4.39 s and left a thread behind; now the first index
+  takes 2.86 s and the re-index 2.85 s, both name the file, and neither starts a thread. What
   changes for a user:
   - A file whose Python-side work runs past the budget (default 20 s) is skipped and named on the
     first index and at any size. The first index used to wait for it, and the wait on the other
     routes armed only at 128 KiB. A file that was indexed slowly can now be absent and named in
     `warnings`; raise the variable to keep it. A 50,000-byte Razor file of repeated `@code {` lines
-    held its caller 41.51 s on 1.108.329 at a 2 s budget and was not named; it is stopped and named
+    held its caller 41.34 s on 1.108.329 at a 2 s budget and was not named; it is stopped and named
     after 2.01 s (`evidence/l116_quadratic_shapes.txt`).
   - The deadline counts the parsing thread's own time. Beside one over-budget parse in a second
-    thread, a 201,780-char file that parses in 0.33 s alone was named over a 1 s budget in 9 of 60
+    thread, a 201,780-char file that parses in 0.32 s alone was named over a 1 s budget in 9 of 60
     calls on 1.108.329 and in 0 of 60 now (`evidence/l116_two_threads.txt`).
   - A stopped file writes nothing. On 1.108.329 the parse cache held 0 rows for the skipped file
     when the caller was told and 1 row after the abandoned worker ended; now 0 and 0, with no other
@@ -40,44 +40,50 @@
   - The warning counts bytes on every route.
   - `SECURITY.md` loses the "An abandoned parse worker" line added in 1.108.329. The behaviour it
     disclosed no longer exists: indexing starts no thread to parse a file.
-  What the old wait did that this does not: on a re-index, `index_file` and `index_repo`, for a
-  file of 128 KiB or more, it released its caller at the budget whatever the work was, including
-  during one long call into C, with that work still running behind it. Now the caller waits for
-  such a call to return and the file is stopped at the next checkpoint. Not bounded, then: one call
-  into C (a `re.findall` over a file, PyYAML's load of an OpenAPI or Ansible document) and a
-  comprehension. With the deadline forced to pass as the tree-sitter parse returned, on 400 KB
-  inputs that build no symbol and with every language enabled (`evidence/l116_residue_probe.txt`,
-  a probe written by this change's reviewer), 66 inputs were stopped and eight ran on to their end:
-  Haskell, Solidity and Apex 0.12 s past the deadline, GraphQL 0.11 s, Zig 0.03 s, Nix, TOML and
-  OCaml 0.02 s. At a real 0.3 s budget a 400 KB YAML, OpenAPI or Ansible document was stopped only
-  when PyYAML returned, after 1.88, 1.83 and 1.81 s. Larger sizes were not run. The first form of
-  this fix checkpointed only where a symbol is built, in recursions and in work-list loops, and
-  under it a 309,590-byte Python file of 6,250 functions and 20,000 module-level calls held a
-  re-index 11.09 s at a 2 s budget and was not named, where 1.108.329 released it at 2.02 s (found
-  by review round 2; a quadratic loop that attributes call sites; that one run was made while a
-  test tier used the box). It is stopped and named after 2.03 s. A parser that catches the stop
-  per item is still stopped (once a file is stopped every checkpoint raises) and `parse_file` names
-  the file.
+  What a checkpoint cannot do is cut one slow call short. Three things pass none: a regex over the
+  whole file (also when it is the iterable of a `for`, which runs before that loop's checkpoint), a
+  comprehension, and Python code outside the six modules, which here is PyYAML's loader. Such a
+  file is named when the call returns, at the next checkpoint or by `parse_file`, which reads the
+  deadline once more at the end. Against the old wait, on the routes and sizes where it existed
+  (`evidence/l116_one_call_shapes.txt`, a 0.5 s budget): it could not cut a regex short either,
+  because the call holds the interpreter, and a 140,000-byte EJS file of unclosed scriptlets held
+  its caller 30.62 s on 1.108.329 and 30.90 s now, named both times; an Astro and a dbt file of
+  that kind took 11.21 s and 23.76 s then, 11.16 s and 23.63 s now. It did release its caller during
+  PyYAML, with the load still running behind it: a 400,000-byte YAML list was named after 0.53 s on
+  1.108.329 and is named after 1.87 s now. That is the one measured case where a caller waits
+  longer than before. With the deadline forced to pass as the tree-sitter parse returned, on 66
+  inputs of 400 KB that build no symbol, with every language enabled
+  (`evidence/l116_residue_probe.txt`, a probe written by this change's reviewer; the counts are the
+  file's own summary): 55 were stopped and named, 48 of them with the forced deadline in effect and
+  none more than 0.12 s past it, 7 by the real 0.3 s budget alone; the other 11 load no parser, so
+  the forced deadline never applied and they returned. The first form of this fix checkpointed only
+  where a symbol is built, in recursions and in work-list loops, and under it a 309,590-byte Python
+  file of 6,250 functions and 20,000 module-level calls held a re-index 9.62 s at a 2 s budget and
+  was not named, where 1.108.329 released it at 2.03 s (found by review round 2; a quadratic loop
+  that attributes call sites). It is stopped and named after 2.02 s
+  (`evidence/l116_quadratic_shapes.txt`). A parser that catches the stop per item is still stopped
+  (once a file is stopped every checkpoint raises) and `parse_file` names the file. The slow loops
+  and regexes themselves are not made faster here; they are ledger rows L-117 and L-118.
   What it costs. This package's 287 Python files, five alternating rounds, two runs each side
-  (`evidence/l116_checkpoint_cost.txt`): a mean 3.140 s and 3.142 s with the budget off against
-  2.987 s and 2.954 s on 1.108.329, and 3.206 s and 3.188 s with it on against 2.982 s and 2.970 s.
+  (`evidence/l116_checkpoint_cost.txt`): a mean 3.140 s and 3.115 s with the budget off against
+  2.963 s and 2.954 s on 1.108.329, and 3.198 s and 3.181 s with it on against 2.963 s and 2.958 s.
   The dedicated walkers pay more, because their loops are short and a checkpoint is a function call
   (`evidence/l116_checkpoint_cost_other_languages.txt`, 3000 definitions per file, median of ten
-  calls, budget on, first of two runs): C++ 0.3317 s against 0.2968 s, C 0.3690 against 0.3432,
-  TypeScript 0.4474 against 0.4168, Lua 0.1682 against 0.1480, HCL 0.1418 against 0.1161, XML
-  0.1461 against 0.1086, SQL 0.1165 against 0.1032. Building 500,000 symbols outside a parse, which
+  calls, budget on, first of two runs): C++ 0.3305 s against 0.2945 s, C 0.3656 against 0.3423,
+  TypeScript 0.4481 against 0.4181, Lua 0.1677 against 0.1466, HCL 0.1431 against 0.1180, XML
+  0.1468 against 0.1078, SQL 0.1182 against 0.1032. Building 500,000 symbols outside a parse, which
   is what a parse-cache hit and `get_file_outline` do (loading an index builds none), took a mean
-  0.640 s against 0.394 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is
+  0.651 s against 0.396 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is
   L-115, still open: `_preceding_comment` rescans every sibling for each function, 3.127 s of a
   3.353 s parse at 3000 functions (`evidence/l115_cause_profile.txt`). Guard:
-  `tests/test_parse_budget_python_side.py`; 24 reintroduced defects of 24 fail it
+  `tests/test_parse_budget_python_side.py`; 25 reintroduced defects of 25 fail it
   (`evidence/l116_mutants.txt`). One test is retired, `tests/test_v1_108_182.py::
   test_pathological_parse_raises_named_budget_error`: it replaced `parse_file` with a sleep and
   asserted the waiting caller came back, which states the mechanism (a caller that returns) and not
   the outcome (work that stops). Its replacement is
   `test_a_walk_past_the_deadline_is_stopped_and_the_file_named` in the new file. What the retired
   test held and the replacement does not, a caller released during work that passes no checkpoint,
-  is the residue above.
+  is the PyYAML case above.
 
 ## [1.108.329] - 2026-10-05 - the parse budget stops a slow parse
 
