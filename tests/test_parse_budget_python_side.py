@@ -530,16 +530,24 @@ def test_another_threads_time_is_not_charged_to_the_walk(monkeypatch):
     # A sleep after the C parse stands in for waiting on the interpreter while
     # another thread runs: wall time passes, this thread's own time does not.
     # No race: a second real thread would make the outcome depend on the box.
-    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.3")
+    # ⚠ The file must fit its budget in the thread's OWN time on any runner: a
+    # 0.3 s budget failed on a cold windows-latest job (PR #978), where loading
+    # the grammar and parsing took longer than that. So the grammar is loaded
+    # first, the file is small, and the budget is a second; the sleep is longer
+    # than the budget, which is all the wall-clock mutant needs.
+    source = _python_source(50)
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0")
+    assert len(extractor.parse_file(source, "warm.py", "python")) == 50
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "1")
     real_parse = parse_budget._BudgetedParser.parse
 
     def parse(self, *args, **kwargs):
         tree = real_parse(self, *args, **kwargs)
-        time.sleep(0.6)
+        time.sleep(1.3)
         return tree
 
     monkeypatch.setattr(parse_budget._BudgetedParser, "parse", parse)
-    assert len(extractor.parse_file(_python_source(), "a.py", "python")) == N_FUNCTIONS
+    assert len(extractor.parse_file(source, "a.py", "python")) == 50
 
 
 # --- the routes, where a user stands ------------------------------------------
