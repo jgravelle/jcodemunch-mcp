@@ -30,13 +30,17 @@ pack's own object, unchanged.
 
 ⚠⚠ The PYTHON side of a file has the same deadline (L-116), and no second
 thread enforces it. `checkpoint()` is called where a `Symbol` is built
-(`symbols.Symbol.__post_init__`) and at each node of the generic walker; inside
-a `parse_file` call it raises once the deadline has passed. The thread wait it
-replaced (`parse_file_budgeted`, 1.108.182) was wall-clock, so a file was
-charged for time another thread held the GIL, and its abandoned worker kept
-running after the caller was told the file is skipped. ⚠ The limit is
-COOPERATIVE: a loop that builds no symbol, loads no parser and is not the
-generic walker has no checkpoint and is not bounded.
+(`symbols.Symbol.__post_init__`), in every function of the extractor that can
+call itself, and in its work-list loops (`while stack:`); inside a `parse_file`
+call it raises once the deadline has passed. The thread wait it replaced
+(`parse_file_budgeted`, 1.108.182) was wall-clock, so a file was charged for
+time another thread held the GIL, and its abandoned worker kept running after
+the caller was told the file is skipped. ⚠ The limit is COOPERATIVE, and
+`tests/test_parse_budget_python_side.py` scans the extractor for a recursion or
+a work-list loop that passes no checkpoint. NOT bounded: a `for` loop that
+builds no symbol, and a single call into C (one `re.findall` over a file,
+PyYAML's load of an OpenAPI document). Those are linear in the file's size;
+the measurements are the L-116 row.
 
 ⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is
 counted in the parsing thread's own time (`time.thread_time`): a parse in

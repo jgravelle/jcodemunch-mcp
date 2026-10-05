@@ -34,11 +34,11 @@ class Symbol:
     call_references: list[str] = field(default_factory=list)  # Called names from AST call_expression nodes
 
     def __post_init__(self) -> None:
-        # ⚠ The parse budget's Python-side checkpoint (L-116). Every extractor
-        # builds symbols, so every language and every route is bounded here, by
-        # construction, with no list of loops to keep. Outside a `parse_file`
-        # call (an index load builds every stored symbol) it is one attribute
-        # read and no clock.
+        # ⚠ The parse budget's Python-side checkpoint (L-116): a parser that
+        # builds symbols is stopped here whatever its loop looks like. The
+        # walkers that build none carry their own (`parse_budget`'s docstring).
+        # Outside a `parse_file` call (a parse-cache hit, `get_file_outline`)
+        # it is one attribute read and no clock.
         parse_budget.checkpoint()
 
 

@@ -20,8 +20,12 @@ fixture being slow on a particular machine.
 """
 from __future__ import annotations
 
+import ast
+import os
 import threading
 import time
+import traceback
+from pathlib import Path
 
 import pytest
 
@@ -67,7 +71,9 @@ def deadline_passes_after_the_c_parse(monkeypatch):
         return tree
 
     monkeypatch.setattr(parse_budget._BudgetedParser, "parse", parse)
-    monkeypatch.setattr(parse_budget, "_clock", lambda: real_clock() + (1000.0 if state["late"] else 0.0))
+    # ⚠ Half a second past the 5 s budget, not a thousand: a checkpoint that
+    # stopped a file only when it was far over would pass a larger jump.
+    monkeypatch.setattr(parse_budget, "_clock", lambda: real_clock() + (5.5 if state["late"] else 0.0))
     return state
 
 
@@ -134,6 +140,141 @@ def test_a_walk_that_builds_no_symbol_is_stopped_too(deadline_passes_after_the_c
     assert symbols_built == []
 
 
+def test_a_deadline_that_passes_late_in_the_walk_stops_it_there(monkeypatch, symbols_built):
+    """The clock goes late after several clock reads, not before the first: a
+    checkpoint that stopped reading the clock part-way would pass every case
+    whose deadline is already gone at the first read (review round 1)."""
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "5")
+    late_after = 5 * parse_budget.CHECK_EVERY
+    real_clock = parse_budget._clock
+    monkeypatch.setattr(
+        parse_budget, "_clock", lambda: real_clock() + (5.5 if len(symbols_built) >= late_after else 0.0)
+    )
+
+    with pytest.raises(ParseBudgetExceeded):
+        extractor.parse_file(_python_source(), "a.py", "python")
+
+    assert late_after <= len(symbols_built) <= late_after + parse_budget.CHECK_EVERY
+
+
+# Each of these is parsed by a dedicated walker that builds no symbol for the
+# input: a tree of calls or values and no definition. Review round 1 of L-116
+# found seven such walkers with no checkpoint, running on past the deadline.
+_SYMBOL_FREE = {
+    "lua": ("a.lua", "f(1)\n"),
+    "julia": ("a.jl", "f(1)\n"),
+    "elixir": ("a.ex", "IO.puts(1)\n"),
+    "xml": ("a.xml", "<a/>"),
+    "hcl": ("a.tf", "x = [1]\n"),
+    "objc": ("a.m", "void f(void){g(1);}\n"),
+    "c": ("a.c", "int x[] = {1};\n"),
+}
+
+
+@pytest.mark.parametrize("language", sorted(_SYMBOL_FREE))
+def test_a_dedicated_walker_is_stopped_on_a_tree_with_nothing_to_build(
+    language, deadline_passes_after_the_c_parse
+):
+    filename, unit = _SYMBOL_FREE[language]
+    source = unit * 2000
+    if language == "xml":
+        source = "<r>" + source + "</r>"
+
+    with pytest.raises(ParseBudgetExceeded):
+        extractor.parse_file(source, filename, language)
+
+
+def _own_nodes(function):
+    """The function's own body: not the bodies of functions defined inside it."""
+    todo = list(ast.iter_child_nodes(function))
+    while todo:
+        node = todo.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            todo.extend(ast.iter_child_nodes(node))
+
+
+def _passes_a_checkpoint(nodes) -> bool:
+    return any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "checkpoint"
+        for n in nodes
+    )
+
+
+def _extractor_functions():
+    tree = ast.parse(Path(extractor.__file__).read_text(encoding="utf-8"))
+    return [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+
+def _recursion_without_a_checkpoint(functions) -> list[str]:
+    """Names on a call cycle that no checkpoint breaks.
+
+    Keyed by name: the extractor has dozens of nested `_walk`s, and a name is
+    covered only when EVERY function of that name passes a checkpoint.
+    """
+    by_name: dict = {}
+    for fn in functions:
+        by_name.setdefault(fn.name, []).append(fn)
+    covered = {name for name, fns in by_name.items() if all(_passes_a_checkpoint(_own_nodes(f)) for f in fns)}
+    graph = {
+        name: {
+            n.func.id
+            for f in fns
+            for n in _own_nodes(f)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in by_name
+        } - covered
+        for name, fns in by_name.items()
+        if name not in covered
+    }
+
+    def reaches_itself(start: str) -> bool:
+        seen, todo = set(), list(graph[start])
+        while todo:
+            name = todo.pop()
+            if name == start:
+                return True
+            if name not in seen:
+                seen.add(name)
+                todo.extend(graph.get(name, ()))
+        return False
+
+    return sorted(name for name in graph if reaches_itself(name))
+
+
+def test_no_recursion_in_the_extractor_lacks_a_checkpoint():
+    """The Python side is bounded only where a checkpoint is passed (it is
+    cooperative), so the property is over the file, not over a list of
+    walkers: a function that can call itself, directly or through another,
+    passes a checkpoint somewhere on the way round."""
+    assert _recursion_without_a_checkpoint(_extractor_functions()) == []
+
+
+def test_no_work_list_loop_in_the_extractor_lacks_a_checkpoint():
+    """`while stack:` is the other way the extractor visits a whole tree."""
+    missing = [
+        f"{fn.name}:{node.lineno}"
+        for fn in _extractor_functions()
+        for node in _own_nodes(fn)
+        if isinstance(node, ast.While) and isinstance(node.test, ast.Name) and not _passes_a_checkpoint(ast.walk(node))
+    ]
+    assert missing == []
+
+
+def test_the_recursion_scan_sees_a_cycle_it_should():
+    """The scan against the defect it names: self-recursion, a pair, and a
+    nested function whose parent has the checkpoint."""
+    tree = ast.parse(
+        "def direct(n):\n    direct(n)\n"
+        "def ping(n):\n    pong(n)\n"
+        "def pong(n):\n    ping(n)\n"
+        "def outer(n):\n    parse_budget.checkpoint()\n    def inner(m):\n        inner(m)\n    inner(n)\n"
+        "def fine(n):\n    parse_budget.checkpoint()\n    fine(n)\n"
+        "def leaf(n):\n    return n\n"
+    )
+    functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    assert _recursion_without_a_checkpoint(functions) == ["direct", "inner", "ping", "pong"]
+
+
 def test_the_same_files_parse_in_full_when_the_deadline_holds(monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "60")
     for source, filename, language in (
@@ -169,7 +310,8 @@ def test_with_the_budget_off_nothing_is_stopped_and_no_clock_is_read(monkeypatch
 
 
 def test_a_symbol_built_outside_parse_file_reads_no_clock(monkeypatch):
-    """Loading an index builds every stored symbol; that path must not pay for the budget."""
+    """A parse-cache hit rebuilds every stored symbol of a file outside any
+    parse; that path must not read a clock."""
     monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "5")
     reads = []
     real_clock = parse_budget._clock
@@ -309,8 +451,8 @@ def only_the_slow_module_is_late(monkeypatch):
 
 
 def test_a_first_index_names_the_file_whose_walk_ran_over(tmp_path, only_the_slow_module_is_late):
-    """The first index never asked the old wait: L-115's Vue file was indexed
-    after 14.91 s at a 2 s budget, with no warning."""
+    """The first index never asked the old wait: on 1.108.329 it indexed a file
+    whose walk ran far past the budget, with no warning (the L-116 row)."""
     result = _index(_project(tmp_path, _python_source(2000)), tmp_path, incremental=False)
 
     named = _named(result)
@@ -347,7 +489,7 @@ def test_no_route_starts_a_thread_to_parse_a_large_file(tmp_path, monkeypatch, i
     real_start = threading.Thread.start
 
     def recording_start(self, *args, **kwargs):
-        started.append(self.name)
+        started.append(traceback.extract_stack())
         return real_start(self, *args, **kwargs)
 
     monkeypatch.setattr(threading.Thread, "start", recording_start)
@@ -355,8 +497,17 @@ def test_no_route_starts_a_thread_to_parse_a_large_file(tmp_path, monkeypatch, i
     monkeypatch.undo()
 
     assert result.get("success") is True
-    # git subprocesses start reader threads; a parse worker ran `_target`.
-    assert [name for name in started if "_target" in name] == [], started
+    # git subprocesses start reader threads, so "no thread at all" is not the
+    # property. A thread started from anywhere under a file's parse is: found
+    # by WHERE it was started, never by its name (review round 1 of L-116: a
+    # name match passed with a thread started inside `parse_file`).
+    parse_files = {"extractor.py", "parse_budget.py", "grammar_pack.py", "parse_cache.py"}
+    under_a_parse = [
+        [f"{os.path.basename(f.filename)}:{f.name}" for f in stack][-6:]
+        for stack in started
+        if any(os.path.basename(f.filename) in parse_files or f.name == "parse_file_budgeted" for f in stack)
+    ]
+    assert under_a_parse == []
 
 
 def test_parse_file_budgeted_is_parse_file(monkeypatch):
