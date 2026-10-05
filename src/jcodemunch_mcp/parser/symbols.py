@@ -4,6 +4,8 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import Optional
 
+from . import parse_budget
+
 
 @dataclass
 class Symbol:
@@ -30,6 +32,14 @@ class Symbol:
     max_nesting: int = 0           # Max bracket-nesting depth relative to opening brace
     param_count: int = 0           # Number of parameters in the signature
     call_references: list[str] = field(default_factory=list)  # Called names from AST call_expression nodes
+
+    def __post_init__(self) -> None:
+        # ⚠ The parse budget's Python-side checkpoint (L-116). Every extractor
+        # builds symbols, so every language and every route is bounded here, by
+        # construction, with no list of loops to keep. Outside a `parse_file`
+        # call (an index load builds every stored symbol) it is one attribute
+        # read and no clock.
+        parse_budget.checkpoint()
 
 
 

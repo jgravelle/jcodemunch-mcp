@@ -28,6 +28,16 @@ raised into one of those would be swallowed, so the scope RECORDS it and
 ⚠ A parser loaded outside `parse_file` (`search_ast`) has no scope and is the
 pack's own object, unchanged.
 
+⚠⚠ The PYTHON side of a file has the same deadline (L-116), and no second
+thread enforces it. `checkpoint()` is called where a `Symbol` is built
+(`symbols.Symbol.__post_init__`) and at each node of the generic walker; inside
+a `parse_file` call it raises once the deadline has passed. The thread wait it
+replaced (`parse_file_budgeted`, 1.108.182) was wall-clock, so a file was
+charged for time another thread held the GIL, and its abandoned worker kept
+running after the caller was told the file is skipped. ⚠ The limit is
+COOPERATIVE: a loop that builds no symbol, loads no parser and is not the
+generic walker has no checkpoint and is not bounded.
+
 ⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is
 counted in the parsing thread's own time (`time.thread_time`): a parse in
 another thread holds the GIL, and on a wall clock that wait was charged to this
@@ -70,9 +80,8 @@ _clock = getattr(time, "thread_time", time.monotonic)
 class ParseBudgetExceeded(Exception):
     """Raised when a single file's parse overruns its budget.
 
-    From the parser the budget is the parsing thread's own time between a
-    file's parses and tree-sitter's wall timer inside one (module docstring);
-    from `parse_file_budgeted`'s thread wait it is wall-clock.
+    The budget is the parsing thread's own time between a file's parses and
+    tree-sitter's wall timer inside one (module docstring).
     """
 
 
@@ -97,7 +106,7 @@ def budget_seconds() -> float:
 class _Scope:
     """One file's deadline, shared by every parser its `parse_file` call loads."""
 
-    __slots__ = ("budget", "started", "deadline", "language", "size", "cancelled")
+    __slots__ = ("budget", "started", "deadline", "language", "size", "cancelled", "ticks")
 
     def __init__(self, budget: float, language: str, size: int) -> None:
         self.budget = budget
@@ -106,6 +115,7 @@ class _Scope:
         self.language = language
         self.size = size
         self.cancelled = False
+        self.ticks = 0
 
     def remaining(self) -> float:
         return self.deadline - _clock()
@@ -116,6 +126,32 @@ class _Scope:
             f"{self.language}); file skipped and its symbols are absent from this "
             f"index. Raise JCODEMUNCH_PARSE_BUDGET_SECONDS to allow more time."
         )
+
+
+# The clock is read once in this many checkpoints: a checkpoint sits on the
+# hottest paths of the extractor, and a clock read costs more than the rest of it.
+CHECK_EVERY = 64
+
+
+def checkpoint() -> None:
+    """Raise `ParseBudgetExceeded` if this thread's open file is past its deadline.
+
+    A no-op outside a `parse_file` call and with the budget off: one attribute
+    read, no clock. ⚠ Once a file is stopped every later checkpoint raises at
+    once, so a parser that catches the stop per item still unwinds; the file is
+    named by `parse_file` either way, off `scope.cancelled`.
+    """
+    scope = getattr(_state, "scope", None)
+    if scope is None:
+        return
+    if scope.cancelled:
+        raise scope.error()
+    scope.ticks += 1
+    if scope.ticks % CHECK_EVERY:
+        return
+    if scope.remaining() <= 0:
+        scope.cancelled = True
+        raise scope.error()
 
 
 def active() -> Optional[_Scope]:

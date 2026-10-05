@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The parse budget bounds a file's Python-side time, on every route, in the thread that parses
+  (LEDGER L-116).** 1.108.329 put the tree-sitter half of `JCODEMUNCH_PARSE_BUDGET_SECONDS` inside
+  the parser and left the other half, the time spent in Python walking the finished tree, to the old
+  thread wait (`parse_file_budgeted`). That wait had four defects. The first index of a folder never
+  asked it. It was wall-clock, so a file was charged for time another thread held the interpreter. Its
+  worker could not be stopped, kept running after the caller was told the file is skipped, and with
+  `JCODEMUNCH_PARSE_CACHE` set stored that file's result in the parse cache. Its message counted
+  characters where the parse limit counts bytes. The wait is gone and no second thread replaces it:
+  building a `Symbol` is a checkpoint (`parse_budget.checkpoint()`, called from
+  `Symbol.__post_init__` and at each node of the generic walker), and inside a `parse_file` call it
+  raises once the file's deadline has passed. Every extractor builds symbols, so every language and
+  every route has the limit without a list of loops to keep. Measured on a 441,827-byte `.vue` whose
+  plain `<script>` holds 6000 functions (L-115's shape), at a 2 s budget
+  (`evidence/l116_vue_first_index_and_reindex.txt`): on 1.108.329 the first index took 13.98 s and
+  indexed the file with no warning, and a re-index after an edit skipped and named it after 4.61 s
+  and left a thread behind; now the first index takes 2.80 s and the re-index 2.79 s, both name the
+  file, and neither starts a thread. What changes for a user:
+  - A file whose Python-side walk runs past the budget (default 20 s) is skipped and named on the
+    first index and at any size. The first index used to wait for it, and the wait on the other
+    routes armed only at 128 KiB. A file that was indexed slowly can now be absent and named in
+    `warnings`; raise the variable to keep it.
+  - The deadline counts the parsing thread's own time. Beside one over-budget parse in a second
+    thread, a 201,780-char file that parses in 0.31 s alone was named over a 1 s budget in 10 of 60
+    calls on 1.108.329 and in 0 of 60 now (`evidence/l116_two_threads.txt`).
+  - A stopped file writes nothing. On 1.108.329 the parse cache held 0 rows for the skipped file
+    when the caller was told and 1 row after the abandoned worker ended; now 0 and 0, with no other
+    thread started (`evidence/l116_parse_cache.txt`).
+  - The warning counts bytes on every route.
+  - `SECURITY.md` loses the "An abandoned parse worker" line added in 1.108.329. The behaviour it
+    disclosed no longer exists: indexing starts no thread to parse a file.
+  The limit is cooperative, and that is its residue: a loop that builds no symbol, loads no parser
+  and is not the generic walker has no checkpoint and is not bounded. None is known; a dedicated
+  parser that grows one calls `parse_budget.checkpoint()`. A parser that catches the stop per item
+  is still stopped (once a file is stopped every checkpoint raises) and `parse_file` names the file.
+  What it costs (`evidence/l116_checkpoint_cost.txt`, this package's 287 Python files, five
+  alternating rounds, two runs each side): a mean 3.134 s and 3.120 s with the budget off against
+  3.015 s and 3.062 s on 1.108.329, and 3.215 s and 3.241 s with it on against 3.006 s and 3.104 s.
+  Building 500,000 symbols outside a parse, which is what loading an index does, took a mean 0.643 s
+  against 0.397 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is L-115,
+  still open: `_preceding_comment` rescans every sibling for each function, 3.127 s of a 3.353 s
+  parse at 3000 functions (`evidence/l115_cause_profile.txt`). Guard:
+  `tests/test_parse_budget_python_side.py`; 10 reintroduced defects of 10 fail it
+  (`evidence/l116_mutants.txt`). One test is retired, `tests/test_v1_108_182.py::
+  test_pathological_parse_raises_named_budget_error`: it replaced `parse_file` with a sleep and
+  asserted the waiting caller came back, which states the mechanism (a caller that returns) and not
+  the outcome (work that stops). Its replacement is
+  `test_a_walk_past_the_deadline_is_stopped_and_the_file_named` in the new file.
+
 ## [1.108.329] - 2026-10-05 - the parse budget stops a slow parse
 
 ### Fixed

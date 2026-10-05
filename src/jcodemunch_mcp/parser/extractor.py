@@ -852,6 +852,10 @@ def _walk_tree(
     child function to a method. It stays False when the parent is another
     function, so nested/closure functions keep kind='function' (audit V7).
     """
+    # A tree can hold millions of nodes and few symbols (a generated table, a
+    # data literal), so the walk checks its file's deadline itself (L-116).
+    parse_budget.checkpoint()
+
     # Dart: function_signature inside method_signature is handled by method_signature
     if node.type == "function_signature" and node.parent and node.parent.type == "method_signature":
         return
