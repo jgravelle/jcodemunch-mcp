@@ -5,6 +5,7 @@ import dataclasses
 import logging
 import re
 from typing import Any, Callable, Optional
+from . import parse_budget
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
 
 from .racket_reader import read_racket
@@ -348,7 +349,23 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
 
     Returns:
         List of Symbol objects
+
+    Raises:
+        ParseBudgetExceeded: a tree-sitter parse of this file ran past
+            ``JCODEMUNCH_PARSE_BUDGET_SECONDS`` and was stopped (L-114). Raised
+            here, after the dispatch, because most dedicated parsers catch
+            ``Exception`` around their parse and return ``[]``.
     """
+    size = len(source_bytes) if source_bytes is not None else len(content)
+    with parse_budget.armed(language, size) as scope:
+        symbols = _parse_file_within_budget(content, filename, language, source_bytes, repo)
+    if scope is not None and scope.cancelled:
+        raise scope.error()
+    return symbols
+
+
+def _parse_file_within_budget(content: str, filename: str, language: str, source_bytes: Optional[bytes], repo: Optional[str]) -> list[Symbol]:
+    """`parse_file`'s dispatch; every parser it loads carries the open deadline."""
     if language not in LANGUAGE_REGISTRY:
         return []
 

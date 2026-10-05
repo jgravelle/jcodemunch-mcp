@@ -27,7 +27,8 @@ capability (`index_folder` warnings, the capability certificate,
 
 ⚠ Nothing here imports the pack's network-touching API: `manifest_languages()`
 is a remote call, so the unavailable-language list is what the extractor SAW
-fail, never a lookup we performed. A leaf: stdlib and importlib.metadata only.
+fail, never a lookup we performed. A leaf: stdlib, importlib.metadata and the
+stdlib-only `parse_budget`.
 """
 
 from __future__ import annotations
@@ -98,13 +99,19 @@ def get_parser(name: str):
     fails on a bare `from tree_sitter_language_pack import get_parser`
     anywhere else under `src/`. Re-raises unchanged, so every caller's own
     handling is what it was.
+
+    ⚠ Being the one site is also what lets the parse budget reach every grammar
+    call (L-114): inside a `parse_file` call the parser comes back carrying that
+    file's deadline (`parse_budget.bind`); outside one it is the pack's own.
     """
+    from . import parse_budget
+
     try:
         if name in STANDALONE_GRAMMARS:
-            return _standalone_parser(name)
+            return parse_budget.bind(_standalone_parser(name))
         from tree_sitter_language_pack import get_parser as _real  # type: ignore
 
-        return _real(name)
+        return parse_budget.bind(_real(name))
     except Exception as exc:
         record_failure(name, exc)
         raise

@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`JCODEMUNCH_PARSE_BUDGET_SECONDS` stops a slow parse (LEDGER L-114).** The budget was a thread wait
+  around `parse_file`, and tree-sitter's parse holds the GIL for its whole duration, so the wait could
+  not return before the parse did. An over-budget file came back with its symbols and no warning after
+  the full parse time, and the first index of a folder never consulted the budget at all. The limit is
+  now inside the parser: `parse_file` opens one deadline per file, the one loader every grammar call
+  uses (`grammar_pack.get_parser`) hands back a parser carrying what is left of it, and tree-sitter's
+  own timeout ends the parse in the C code. Measured at a 2 s budget on a 324,035-byte file that takes
+  4.87 s to parse (`evidence/l114_after.txt`): `parse_file` raised `ParseBudgetExceeded` after 2.09 to
+  2.19 s on four calls of four, and a first index, an incremental first index and a re-index after an
+  edit each finished in 2.22 to 2.37 s with the file named in `warnings` and the other file's symbol
+  kept. What changes for a user: the budget applies on every indexing route and to a file of any size
+  (the old wait armed only at 128 KiB, and an 80 KB file had taken 11.6 s), so a file whose parse runs
+  past the default 20 s is now skipped and named where a first index used to wait for it. Parsing this
+  repository's 287 Python files costs the same with the budget on and off (`evidence/l114_cost.txt`).
+  Not covered: the Python-side walk of a finished tree still cannot be interrupted (the thread wait
+  stays for it), `search_ast` parses outside the budget, and the mechanism is `Parser.timeout_micros`,
+  which tree-sitter 0.25 deprecates; its replacement, the progress callback, crashed the interpreter
+  on every variant tried (`evidence/l114_read_cb_variants.txt`), and a test fails if an installed
+  tree-sitter can no longer cancel a parse.
+
 ## [1.108.328] - 2026-10-04 - a file a package.json script runs is an entry point
 
 ### Fixed
