@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`JCODEMUNCH_PARSE_BUDGET_SECONDS` stops a slow parse (LEDGER L-114).** The budget was a thread wait
+  around `parse_file`, and tree-sitter's parse holds the GIL for its whole duration, so the wait could
+  not return before the parse did. An over-budget file came back with its symbols and no warning after
+  the full parse time, and the first index of a folder never consulted the budget at all. The limit is
+  now inside the parser: `parse_file` opens one deadline per file, the one loader every grammar call
+  uses (`grammar_pack.get_parser`) hands back a parser carrying what is left of it, and tree-sitter's
+  own timeout ends the parse in the C code. Measured at a 2 s budget on a 324,035-byte file that takes
+  4.66 s to parse (`evidence/l114_after.txt`): `parse_file` raised `ParseBudgetExceeded` after 2.01 to
+  2.07 s on four calls of four, and a first index, an incremental first index and a re-index after an
+  edit each finished in 2.22 to 2.26 s with the file named in `warnings` and the other file's symbol
+  kept. What changes for a user:
+  - The parse limit applies to a file of any size (the old wait armed only at 128 KiB) and on every
+    indexing route. A file whose tree-sitter parse runs past the default 20 s is now skipped and
+    named where a first index used to wait for it.
+  - Between a file's parses the deadline counts the parsing thread's own time, so a parse in
+    another thread of the server cannot spend it: 0 of 192 under-budget files were skipped beside an
+    over-budget parse in a second thread (`evidence/l114_r2_two_threads.txt`), and 0 of 120 across
+    ten first indexes run beside another (`evidence/l114_r3_first_index_two_threads.txt`). The index
+    that holds a stopped file still returns later than the budget while another thread is busy (4.67
+    to 7.12 s at a 2 s budget in that second run), because the time it waits for the interpreter
+    between steps is not charged. Inside a parse the timer is tree-sitter's own and it is
+    wall-clock, so other PROCESSES can spend a file's budget: beside 48 CPU-burning processes on 24 cores, a file that parses in 0.672 s alone was
+    stopped at a 1.01 s budget 12 times of 12 (`evidence/l114_r4_other_processes.txt`). The file is
+    named when that happens; not measured at the default 20 s.
+  Parsing this package's 287 Python files took a mean 3.167 s with the budget on and 3.130 s with
+  it off over five alternating rounds (`evidence/l114_cost.txt`). Not covered, and unchanged by this
+  release: time spent in Python after the tree is built. The first index waits for it (a Vue file
+  slow in that walk was indexed after 14.91 s at a 2 s budget, no warning); every other route (an
+  incremental `index_folder`, `index_file`, `index_repo`) still wraps it in the old thread wait, which
+  is wall-clock, arms at 128 KiB, skipped and named the same file after 4.27 s on a re-index
+  (`evidence/l114_r2_python_side.txt`) and can charge a file for another thread's time (L-116; the
+  slow walk itself is L-115). Also not covered: `search_ast` parses outside
+  the budget (`get_changed_symbols` is inside it, and reports an over-budget file as one it could
+  not diff), and the mechanism is `Parser.timeout_micros`, which tree-sitter 0.25 deprecates. Its
+  replacement, the progress callback, crashed the interpreter on every variant tried
+  (`evidence/l114_read_cb_variants.txt`), and a test fails if an installed tree-sitter can no longer
+  cancel a parse.
+
 ## [1.108.328] - 2026-10-04 - a file a package.json script runs is an entry point
 
 ### Fixed

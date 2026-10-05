@@ -36,6 +36,7 @@ src/jcodemunch_mcp/
     languages.py       # LANGUAGE_REGISTRY, extension → language map, LanguageSpec
     extractor.py       # parse_file() dispatch; custom parsers for Erlang, Fortran, SQL, Razor
     grammar_pack.py    # (#608) Which GENERATION of tree-sitter-language-pack is installed (bundled 0.x / download 1.x / absent) and what that costs; records a grammar-load failure per language, once, where the extractor used to swallow it as `[]`. A leaf that never calls the pack's network API: the unavailable-language list is what the extractor SAW fail, never a manifest lookup. Read by index_folder (warnings + `grammar_pack` block), evidence/capability.py (`grammar_source`) and install-status; on a bundled pack with no failures `notice()` is None so a 0.x result is byte-identical
+    parse_budget.py    # (L-114) The per-file parse budget, enforced in the parser: `armed()` opens one deadline per `parse_file` call (a nested call shares it), counted in the parsing thread's own time between parses and by tree-sitter's wall timer inside one; `bind()` wraps a parser so tree-sitter's own timeout stops the parse at the deadline, and a cancel swallowed by a dedicated parser is still raised by `parse_file`. Stdlib-only leaf; `ParseBudgetExceeded` lives here and `tools/_indexing_pipeline` re-exports it.
     fqn.py             # PHP FQN ↔ symbol_id translation (PSR-4); symbol_to_fqn(), fqn_to_symbol()
   encoding/
     __init__.py          # Dispatcher: encode_response(tool, response, format) — auto/compact/json

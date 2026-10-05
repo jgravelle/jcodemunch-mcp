@@ -25,10 +25,10 @@ with a scheduler in front of it.
 
 ⚠ The slice budget bounds the CALLER, not the machine. `--pause-ms` is what
 actually lowers the duty cycle: a slice that runs flat out for its whole budget
-still saturates a core while it runs. Python cannot preempt a running parse
-(tree-sitter is C), so the same limit applies here as to
-`JCODEMUNCH_PARSE_BUDGET_SECONDS`: a budget makes the run END on time, it does
-not make it cheap while it runs.
+still saturates a core while it runs. The budget is checked between batches,
+so a batch in progress finishes first (one file's parse is bounded separately,
+by `JCODEMUNCH_PARSE_BUDGET_SECONDS`): a budget makes the run END on time, it
+does not make it cheap while it runs.
 """
 
 import json

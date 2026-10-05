@@ -2925,6 +2925,10 @@ def index_folder(
                 # content eligible for GC after this iteration
                 continue
             try:
+                # `parse_file` stops an over-budget tree-sitter parse itself (L-114).
+                # ⚠ Deliberately NOT `parse_file_budgeted`: its wall-clock thread wait
+                # charges a file for time another thread held the GIL and leaves an
+                # abandoned walk running, and this is the default route (L-116).
                 symbols = parse_file(content, rel_path, language, source_bytes=content_bytes, repo=str(folder_path))
                 if symbols:
                     all_symbols.extend(symbols)

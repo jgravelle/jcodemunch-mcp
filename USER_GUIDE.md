@@ -583,8 +583,8 @@ Three things worth knowing before scheduling it:
 
 * **The budget bounds when a run ENDS, not what it costs while it runs.** A slice
   running flat out still saturates a core. `--pause-ms` is what lowers the duty
-  cycle. Python cannot preempt a running parse (tree-sitter is C), so the same
-  limit applies here as to `JCODEMUNCH_PARSE_BUDGET_SECONDS`.
+  cycle. The budget is checked between batches, so a batch in progress finishes
+  first; one file's parse is bounded separately by `JCODEMUNCH_PARSE_BUDGET_SECONDS`.
 * **AI summaries are off by default here**, unlike `index_folder`. A scheduled
   background job must not bill a paid summarizer API without being asked.
 * **A `parser_generation` upgrade is only claimed when the whole corpus has been

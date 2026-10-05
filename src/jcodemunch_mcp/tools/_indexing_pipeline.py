@@ -1,7 +1,6 @@
 """Shared indexing pipeline used by index_folder, index_file, and index_repo."""
 
 import logging
-import os
 import threading
 from collections import defaultdict
 from typing import Optional
@@ -9,6 +8,7 @@ from typing import Optional
 from ..parser import cached_parse_file as parse_file, get_language_for_path
 from ..parser.context import ContextProvider, enrich_symbols, collect_extra_imports
 from ..parser.imports import extract_imports
+from ..parser.parse_budget import DEFAULT_PARSE_BUDGET_SECONDS, ParseBudgetExceeded, budget_seconds
 from ..parser.symbols import Symbol
 from ..summarizer import summarize_symbols, generate_file_summaries
 
@@ -18,7 +18,14 @@ logger = logging.getLogger(__name__)
 # whole index: without this, a grammar that degrades on some particular shape
 # (a minified bundle, a generated blob, a deeply nested literal) stalls the run
 # with no output and no name to blame.
-_DEFAULT_PARSE_BUDGET_SECONDS = 20.0
+#
+# ⚠⚠ The ceiling that stops a tree-sitter parse is NOT here (L-114): it is in
+# `parser/parse_budget.py`, inside `parse_file`, on every route. The thread wait
+# below cannot stop or outwait a parse, because the parse holds the GIL; it
+# bounds what is left, the Python-side walk of a large file's tree, on every
+# route but `index_folder`'s full-index loop. ⚠ It is WALL-CLOCK, so time
+# another thread held the GIL is charged to the file it waits on (L-116).
+_DEFAULT_PARSE_BUDGET_SECONDS = DEFAULT_PARSE_BUDGET_SECONDS
 
 # The watchdog costs a thread per file, so it is only armed for files large
 # enough to plausibly hit the ceiling. Below this, parsing runs inline exactly
@@ -26,35 +33,17 @@ _DEFAULT_PARSE_BUDGET_SECONDS = 20.0
 # 20s is a bug we want to see rather than paper over.
 _PARSE_WATCHDOG_MIN_BYTES = 131072
 
-
-class ParseBudgetExceeded(Exception):
-    """Raised when a single file's parse overruns its wall-clock budget."""
-
-
-def _parse_budget_seconds() -> float:
-    """Per-file parse budget; ``0`` or negative disables the ceiling."""
-    raw = os.environ.get("JCODEMUNCH_PARSE_BUDGET_SECONDS")
-    if raw is None:
-        return _DEFAULT_PARSE_BUDGET_SECONDS
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        logger.warning(
-            "Ignoring non-numeric JCODEMUNCH_PARSE_BUDGET_SECONDS=%r; using %.1fs",
-            raw, _DEFAULT_PARSE_BUDGET_SECONDS,
-        )
-        return _DEFAULT_PARSE_BUDGET_SECONDS
+_parse_budget_seconds = budget_seconds
 
 
 def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None) -> list:
     """``parse_file`` with a wall-clock ceiling on large files.
 
     Raises ``ParseBudgetExceeded`` on overrun so the caller's existing
-    parse-error handling names the file in ``warnings`` and moves on. The
-    abandoned parse thread keeps running — tree-sitter is C code and cannot be
-    interrupted — so this bounds the INDEX, not the CPU. That is the trade:
-    one file's cost becomes bounded latency plus a named skip, instead of an
-    unbounded stall with nothing to point at.
+    parse-error handling names the file in ``warnings`` and moves on. A slow
+    tree-sitter parse is stopped inside ``parse_file`` itself and raises the
+    same class from the worker. This wait covers the rest: an abandoned
+    Python-side walk keeps running, so it bounds the INDEX, not the CPU.
     """
     budget = _parse_budget_seconds()
     if budget <= 0 or len(content) < _PARSE_WATCHDOG_MIN_BYTES:
