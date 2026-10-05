@@ -1,98 +1,102 @@
 {
   "schema": "jcm-harness-result/v1",
-  "date": "2026-09-28T00:31:26",
+  "date": "2026-10-05T01:59:36",
   "env": {
     "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
     "python": "3.12.14",
     "cpus": 4,
     "runner": "github",
-    "commit": "8e7c5583"
+    "commit": "2ba8b6ae"
   },
   "tiers": {
     "bench": {
-      "seconds": 45.18,
+      "seconds": 38.69,
       "ok": true
     }
   },
   "artifacts": {
     "replay_gate": {
       "rc": 0,
-      "seconds": 4.69,
+      "seconds": 3.74,
       "tail": "  \"recall\": 1.0,\n  \"predicted_count\": 10.0\n}"
     },
     "route_recall_human": {
       "rc": 0,
-      "seconds": 2.23,
+      "seconds": 1.89,
       "tail": "  relate     n=11  route  81.8%   menu  81.8%\n  shape      n= 8  route 100.0%   menu  75.0%\n  transform  n= 3  route 100.0%   menu 100.0%"
     },
     "route_recall_holdout": {
       "rc": 0,
-      "seconds": 0.97,
+      "seconds": 0.78,
       "tail": "  relate     n= 7  route  57.1%   menu  14.3%\n  shape      n= 8  route  87.5%   menu  25.0%\n  transform  n= 3  route  33.3%   menu   0.0%"
     },
     "route_emitted": {
       "rc": 0,
-      "seconds": 0.77,
+      "seconds": 0.61,
       "tail": "    \"1967c6f1-c155-5c52-a158-82165b3eb5c2\"\n  ]\n}"
     },
     "schema_baseline_live": {
       "rc": 0,
-      "seconds": 1.59,
+      "seconds": 0.95,
       "tail": "  get_signal_chains                     490   2.0%\n  get_parity_map                        480   2.0%\n  find_similar_symbols                  436   1.8%"
     },
     "tier_switch": {
       "rc": 0,
-      "seconds": 0.68,
+      "seconds": 0.53,
       "tail": "   25,000\n   50,000\n  100,000"
     },
     "goldset": {
       "rc": 0,
-      "seconds": 0.38,
+      "seconds": 0.29,
       "tail": "  ast        precision=0.818 recall=1.0 (tp=9 fp=2 fn=0)\n  duck       precision=0.5 recall=1.0 (tp=6 fp=6 fn=0)\n  decorator  precision=0.556 recall=1.0 (tp=5 fp=4 fn=0)"
     },
     "description_smells": {
       "rc": 0,
-      "seconds": 0.12,
+      "seconds": 0.09,
       "tail": "   Opaque Parameters                3/194 (  1.5%)\n   Underspecified or Incomplete     0/194 (  0.0%)\n   Exemplar Issues                  0/194 (  0.0%)"
     },
     "self_latency": {
       "schema": "jcm-self-latency/v1",
       "n": 20,
-      "date": "2026-09-28T00:31:51",
-      "commit": "8e7c5583",
-      "corpus_sha256": "a15a6042aefcae326da7002178755f0b52dcf0e7cd0f2955d36a81fa3bb8dd9a",
+      "date": "2026-10-05T01:59:57",
+      "commit": "2ba8b6ae",
+      "corpus_sha256": "b56151f88ead9f5cfafe28b8fe5ade6934dbc70b3231a73332b287598abd610a",
       "env": {
         "os": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
         "python": "3.12.14",
         "cpus": 4
       },
-      "index.cold_self_seconds": 3.365,
+      "index.cold_self_seconds": 3.282,
       "index.cold_runs": [
-        3.365,
-        3.317,
-        3.367
+        3.32,
+        3.282,
+        3.272
       ],
-      "files": 281,
-      "symbols": 4189,
-      "repo": "local/corpus-c14dba2a",
-      "index.one_file_reindex_ms": 81.4,
-      "index.one_file_reindex_p95_ms": 91.4,
-      "latency.search_symbols_cold_ms": 745.7,
-      "latency.search_symbols_warm_p95_ms": 9.9,
-      "latency.search_symbols_warm_median_ms": 0.6,
-      "latency.search_text_cold_ms": 27.5,
-      "latency.search_text_warm_p95_ms": 82.3,
-      "latency.search_text_warm_median_ms": 73.7,
-      "latency.get_symbol_source_cold_ms": 5.7,
-      "latency.get_symbol_source_warm_p95_ms": 1.8,
-      "latency.get_symbol_source_warm_median_ms": 1.1,
-      "latency.get_file_outline_cold_ms": 7.4,
-      "latency.get_file_outline_warm_p95_ms": 2.3,
-      "latency.get_file_outline_warm_median_ms": 1.4
+      "files": 284,
+      "symbols": 4275,
+      "repo": "local/corpus-c62a8d2c",
+      "index.one_file_reindex_ms": 73.5,
+      "index.one_file_reindex_p95_ms": 85.8,
+      "latency.search_symbols_cold_ms": 607.6,
+      "latency.search_symbols_warm_p95_ms": 7.9,
+      "latency.search_symbols_warm_median_ms": 0.3,
+      "latency.search_symbols_resampled": false,
+      "latency.search_text_cold_ms": 21.2,
+      "latency.search_text_warm_p95_ms": 58.6,
+      "latency.search_text_warm_median_ms": 48.7,
+      "latency.search_text_resampled": false,
+      "latency.get_symbol_source_cold_ms": 4.4,
+      "latency.get_symbol_source_warm_p95_ms": 2.4,
+      "latency.get_symbol_source_warm_median_ms": 0.9,
+      "latency.get_symbol_source_resampled": false,
+      "latency.get_file_outline_cold_ms": 4.1,
+      "latency.get_file_outline_warm_p95_ms": 1.9,
+      "latency.get_file_outline_warm_median_ms": 1.2,
+      "latency.get_file_outline_resampled": false
     },
     "token_benchmark": {
       "rc": 0,
-      "seconds": 5.22,
+      "seconds": 3.88,
       "tail": "> Measured with tiktoken `cl100k_base`. Read-all = every indexed source file. Grep-top-3 = `rg -l` the query terms, then open the top 3 matching files whole. jMunch = search_symbols (top 5) + get_symbol x 3 per query. Both baselines are measured in THIS run against THIS corpus.\ntoken.grand_ratio_vs_grep                crit 2   floor >= 20.0         observed 28.86        PASS\ntoken.per_repo_rise_max                  crit 2   floor <= 0.1          observed -0.0001      PASS   per repo: {'expressjs/express': -0.0328, 'fastapi/fastapi': -0.0001, 'gin-gonic/gin': -0.0341}"
     }
   }
