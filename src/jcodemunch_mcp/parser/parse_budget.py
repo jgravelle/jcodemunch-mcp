@@ -44,9 +44,9 @@ names the three loops that are exempt and why. ⚠ NOT stopped part-way: one
 slow call that passes no checkpoint. That is a regex over the whole file
 (including the iterable of a `for`, which runs before the loop's checkpoint), a
 comprehension, and Python code outside these modules (PyYAML's loader for a
-YAML, OpenAPI or Ansible document). The file is named when the call returns: at
-the next checkpoint, or by `parse_file`, which reads the deadline once more at
-the end. The old wait could not cut a regex short either (it holds the GIL);
+YAML, OpenAPI or Ansible document). The file is named after the call returns:
+at the next clock read (within `CHECK_EVERY` checkpoints), or by `parse_file`,
+which reads the deadline once more at the end. The old wait could not cut a regex short either (it holds the GIL);
 it did release its caller during PyYAML. Measurements: the L-116 row.
 
 ⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is

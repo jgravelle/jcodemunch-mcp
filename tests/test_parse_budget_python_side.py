@@ -341,6 +341,16 @@ def test_a_file_that_ends_past_its_deadline_with_no_checkpoint_seeing_it_is_name
     assert len(symbols_built) == 1, "the walk was stopped early; this case is about the end of the file"
 
 
+def test_a_file_that_ends_past_its_deadline_having_built_nothing_is_named_too(
+    deadline_passes_after_the_c_parse, symbols_built
+):
+    """Review round 4: the end-of-file read must not depend on the file having
+    symbols; an empty result is exactly what a slow file with none returns."""
+    with pytest.raises(ParseBudgetExceeded):
+        extractor.parse_file("print(1)\n", "a.py", "python")
+    assert symbols_built == []
+
+
 def test_a_file_stopped_by_the_parser_is_stopped_at_the_next_checkpoint(monkeypatch):
     """tree-sitter's timer is wall-clock and the deadline here is the thread's
     own time, so a parser can stop a file whose deadline has NOT passed (a
