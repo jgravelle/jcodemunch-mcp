@@ -21,6 +21,7 @@ fixture being slow on a particular machine.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -231,21 +232,19 @@ def test_the_clock_is_not_read_at_every_checkpoint(monkeypatch):
 def test_another_threads_time_is_not_charged_to_the_walk(monkeypatch):
     """The wait this replaces was wall-clock: 10 of 60 fast files were named over
     budget beside another thread's parse (the L-116 row)."""
-    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.5")
-    stop = threading.Event()
+    # A sleep after the C parse stands in for waiting on the interpreter while
+    # another thread runs: wall time passes, this thread's own time does not.
+    # No race: a second real thread would make the outcome depend on the box.
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.3")
+    real_parse = parse_budget._BudgetedParser.parse
 
-    def burn():
-        while not stop.is_set():
-            sum(range(2000))
+    def parse(self, *args, **kwargs):
+        tree = real_parse(self, *args, **kwargs)
+        time.sleep(0.6)
+        return tree
 
-    burner = threading.Thread(target=burn, daemon=True)
-    burner.start()
-    try:
-        results = [len(extractor.parse_file(_python_source(200), "a.py", "python")) for _ in range(40)]
-    finally:
-        stop.set()
-        burner.join()
-    assert results == [200] * 40
+    monkeypatch.setattr(parse_budget._BudgetedParser, "parse", parse)
+    assert len(extractor.parse_file(_python_source(), "a.py", "python")) == N_FUNCTIONS
 
 
 # --- the routes, where a user stands ------------------------------------------

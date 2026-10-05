@@ -45,7 +45,7 @@
   against 0.397 s (`evidence/l116_symbol_build_cost.txt`). Why the slow Vue walk exists is L-115,
   still open: `_preceding_comment` rescans every sibling for each function, 3.127 s of a 3.353 s
   parse at 3000 functions (`evidence/l115_cause_profile.txt`). Guard:
-  `tests/test_parse_budget_python_side.py`; 10 reintroduced defects of 10 fail it
+  `tests/test_parse_budget_python_side.py`; 11 reintroduced defects of 11 fail it
   (`evidence/l116_mutants.txt`). One test is retired, `tests/test_v1_108_182.py::
   test_pathological_parse_raises_named_budget_error`: it replaced `parse_file` with a sleep and
   asserted the waiting caller came back, which states the mechanism (a caller that returns) and not
