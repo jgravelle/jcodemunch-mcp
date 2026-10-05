@@ -11,28 +11,29 @@
   now inside the parser: `parse_file` opens one deadline per file, the one loader every grammar call
   uses (`grammar_pack.get_parser`) hands back a parser carrying what is left of it, and tree-sitter's
   own timeout ends the parse in the C code. Measured at a 2 s budget on a 324,035-byte file that takes
-  5.04 s to parse (`evidence/l114_after.txt`): `parse_file` raised `ParseBudgetExceeded` after 2.02 to
-  2.15 s on four calls of four, and a first index, an incremental first index and a re-index after an
-  edit each finished in 2.23 to 2.35 s with the file named in `warnings` and the other file's symbol
+  4.66 s to parse (`evidence/l114_after.txt`): `parse_file` raised `ParseBudgetExceeded` after 2.01 to
+  2.07 s on four calls of four, and a first index, an incremental first index and a re-index after an
+  edit each finished in 2.22 to 2.26 s with the file named in `warnings` and the other file's symbol
   kept. What changes for a user:
-  - The budget applies to a file of any size (the old wait armed only at 128 KiB) and on every
-    indexing route. A file whose parse runs past the default 20 s is now skipped and named where a
-    first index used to wait for it.
-  - The first index of a folder also asks the thread wait that covers Python-side time, as a re-index
-    already did, so the two routes skip the same files. Before, a large file slow in the Python-side
-    walk was indexed by the first and skipped by the second.
-  - The deadline counts the parsing thread's own time, not wall-clock, so a parse in another thread
-    cannot spend this file's budget: 0 of 192 under-budget files were skipped beside an over-budget
-    parse in a second thread (`evidence/l114_r2_two_threads.txt`).
-  Parsing this repository's 287 Python files took a mean 3.391 s with the budget on and 3.389 s with
-  it off over five alternating rounds (`evidence/l114_cost.txt`). Not covered: the Python-side walk of
-  a finished tree cannot be interrupted, so past its wait the index moves on while that walk keeps a
-  core busy (a Vue file slow in the walk: named, and the index took 5.45 s at a 2 s budget,
-  `evidence/l114_r2_python_side.txt`; that slowness is L-115); that wait still arms only at 128 KiB;
-  `search_ast` parses outside the budget; and the mechanism is `Parser.timeout_micros`, which
-  tree-sitter 0.25 deprecates. Its replacement, the progress callback, crashed the interpreter on
-  every variant tried (`evidence/l114_read_cb_variants.txt`), and a test fails if an installed
-  tree-sitter can no longer cancel a parse.
+  - The parse limit applies to a file of any size (the old wait armed only at 128 KiB) and on every
+    indexing route. A file whose tree-sitter parse runs past the default 20 s is now skipped and
+    named where a first index used to wait for it.
+  - The parse deadline counts the parsing thread's own time, not wall-clock, so a parse in another
+    thread cannot spend it: 0 of 192 under-budget files were skipped beside an over-budget parse in a
+    second thread (`evidence/l114_r2_two_threads.txt`), and 0 of 120 across ten first indexes run
+    beside another (`evidence/l114_r3_first_index_two_threads.txt`).
+  Parsing this repository's 287 Python files took a mean 3.167 s with the budget on and 3.130 s with
+  it off over five alternating rounds (`evidence/l114_cost.txt`). Not covered, and unchanged by this
+  release: time spent in Python after the tree is built. The first index waits for it (a Vue file
+  slow in that walk was indexed after 14.91 s at a 2 s budget, no warning); every other route (an
+  incremental `index_folder`, `index_file`, `index_repo`) still wraps it in the old thread wait, which
+  is wall-clock, arms at 128 KiB, skipped and named the same file after 4.27 s on a re-index
+  (`evidence/l114_r2_python_side.txt`) and can charge a file for another thread's time (L-116; the
+  slow walk itself is L-115). Also not covered: `search_ast` parses outside
+  the budget, and the mechanism is `Parser.timeout_micros`, which tree-sitter 0.25 deprecates. Its
+  replacement, the progress callback, crashed the interpreter on every variant tried
+  (`evidence/l114_read_cb_variants.txt`), and a test fails if an installed tree-sitter can no longer
+  cancel a parse.
 
 ## [1.108.328] - 2026-10-04 - a file a package.json script runs is an entry point
 

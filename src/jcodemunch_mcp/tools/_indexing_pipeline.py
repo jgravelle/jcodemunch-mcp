@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 # ⚠⚠ The ceiling that stops a tree-sitter parse is NOT here (L-114): it is in
 # `parser/parse_budget.py`, inside `parse_file`, on every route. The thread wait
 # below cannot stop or outwait a parse, because the parse holds the GIL; it
-# bounds what is left, the Python-side walk of a large file's tree, on the two
-# re-index routes only. ⚠ It is WALL-CLOCK, so time another thread held the
-# GIL is charged to the file it waits on (L-116).
+# bounds what is left, the Python-side walk of a large file's tree, on every
+# route but `index_folder`'s full-index loop. ⚠ It is WALL-CLOCK, so time
+# another thread held the GIL is charged to the file it waits on (L-116).
 _DEFAULT_PARSE_BUDGET_SECONDS = DEFAULT_PARSE_BUDGET_SECONDS
 
 # The watchdog costs a thread per file, so it is only armed for files large
