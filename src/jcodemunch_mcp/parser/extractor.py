@@ -356,6 +356,8 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
             here, after the dispatch, because most dedicated parsers catch
             ``Exception`` around their parse and return ``[]``.
     """
+    if language not in LANGUAGE_REGISTRY:
+        return []  # before the encode: an unregistered language never raised on its text
     if source_bytes is None:
         source_bytes = content.encode("utf-8")
     with parse_budget.armed(language, len(source_bytes)) as scope:

@@ -64,7 +64,11 @@ _clock = getattr(time, "thread_time", time.monotonic)
 
 
 class ParseBudgetExceeded(Exception):
-    """Raised when a single file's parse overruns its wall-clock budget."""
+    """Raised when a single file's parse overruns its budget.
+
+    From the parser the budget is the parsing thread's own time; from
+    `parse_file_budgeted`'s thread wait it is wall-clock.
+    """
 
 
 def budget_seconds() -> float:

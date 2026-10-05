@@ -404,6 +404,105 @@ def test_a_bad_budget_value_is_logged_once_not_per_file(monkeypatch, caplog):
     assert len([r for r in caplog.records if "non-numeric" in r.getMessage()]) == 1
 
 
+def test_two_threads_parsing_at_once_each_have_their_own_deadline(budget):
+    """Review round 3: with one deadline shared by every thread, a slow file in
+    one thread left the fast files of the others empty and unnamed."""
+    import threading
+
+    slow, fast = _slow_python(), "def quick():\n    return 1\n"
+    outcomes = []
+    lock = threading.Lock()
+
+    def work(source, name, rounds):
+        for _ in range(rounds):
+            try:
+                result = [s.name for s in extractor.parse_file(source, name, "python")]
+            except ParseBudgetExceeded:
+                result = "budget"
+            with lock:
+                outcomes.append((name, result))
+
+    threads = [threading.Thread(target=work, args=(slow, "slow.py", 2))]
+    threads += [threading.Thread(target=work, args=(fast, f"fast{i}.py", 40)) for i in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert [r for n, r in outcomes if n == "slow.py"] == ["budget", "budget"]
+    wrong = [(n, r) for n, r in outcomes if n != "slow.py" and r != ["quick"]]
+    assert not wrong, f"{len(wrong)} fast parses were not served beside a slow one: {wrong[:3]}"
+
+
+def test_a_standalone_grammars_parser_is_bound_too(budget):
+    """F# brings its own wheel and takes `get_parser`'s other branch."""
+    from jcodemunch_mcp.parser import parse_budget
+
+    assert grammar_pack.STANDALONE_GRAMMARS, "no standalone grammar is registered; this guard is stale"
+    for name in grammar_pack.STANDALONE_GRAMMARS:
+        with parse_budget.armed(name, 10) as scope:
+            parser = grammar_pack.get_parser(name)
+        assert type(parser) is parse_budget._BudgetedParser and parser._scope is scope, name
+
+
+def test_a_negative_budget_disables_the_limit(monkeypatch):
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "-1")
+    symbols = extractor.parse_file("def f():\n    return 1\n", "a.py", "python")
+    assert [s.name for s in symbols] == ["f"]
+
+
+def test_a_binding_that_cannot_cancel_gets_its_own_parser_back_and_one_warning(budget, monkeypatch, caplog):
+    """Wrapping a parser with no `timeout_micros` would raise AttributeError
+    inside a dedicated parser's `except Exception` and lose every file."""
+    import logging
+
+    from jcodemunch_mcp.parser import parse_budget
+
+    class _NoTimeout:
+        def parse(self, source):
+            return "tree"
+
+    monkeypatch.setattr(parse_budget, "_warned_no_timeout", False)
+    raw = _NoTimeout()
+    with caplog.at_level(logging.WARNING, logger=parse_budget.__name__):
+        with parse_budget.armed("python", 10):
+            assert parse_budget.bind(raw) is raw
+            assert parse_budget.bind(raw) is raw
+    assert len([r for r in caplog.records if "timeout_micros" in r.getMessage()]) == 1
+
+
+def test_a_stop_that_returns_no_tree_resets_the_parser_too():
+    fake = _FakeParser(None)
+    parser, _ = _bound(fake)
+    with pytest.raises(ParseBudgetExceeded):
+        parser.parse(b"x")
+    assert fake.resets == 1 and fake.timeout_micros == 0
+
+
+def test_a_parser_that_cannot_be_reset_still_names_the_file():
+    class _NoReset(_FakeParser):
+        def reset(self):
+            raise RuntimeError("no reset in this binding")
+
+    parser, scope = _bound(_NoReset(ValueError("Parsing failed")))
+    with pytest.raises(ParseBudgetExceeded):
+        parser.parse(b"x")
+    assert scope.cancelled is True
+
+
+def test_the_message_counts_bytes_not_characters(budget):
+    source = '"""' + "\u00e9" * 10 + '"""\n' + _slow_python()
+    assert len(source.encode("utf-8")) == len(source) + 10
+    with pytest.raises(ParseBudgetExceeded) as exc:
+        extractor.parse_file(source, "slow.py", "python")
+    assert f"({len(source.encode('utf-8')):,} bytes, python)" in str(exc.value)
+
+
+def test_text_in_an_unregistered_language_is_never_encoded():
+    """`main` returned [] before touching the text; a lone surrogate must not raise now."""
+    assert extractor.parse_file("\ud800", "a.zzz", "no-such-language") == []
+
+
 def test_the_pipeline_and_the_parser_raise_the_same_class():
     """`except ParseBudgetExceeded` at either import path catches both."""
     from jcodemunch_mcp.parser import parse_budget
@@ -443,7 +542,7 @@ def test_a_full_index_names_the_over_budget_file_and_keeps_the_rest(tmp_path, bu
 
 def test_a_first_index_leaves_no_thread_behind(tmp_path, budget):
     """Review round 2: the first index is the default route, and the wall-clock
-    thread wait of the re-index routes (LEDGER L-116) charged a 0.28 s file for
+    thread wait of the other routes (LEDGER L-116) charged a fast file for
     time another thread held the GIL. The first index parses in its own thread;
     the tree-sitter limit inside `parse_file` is the one it has."""
     import threading
