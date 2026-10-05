@@ -277,7 +277,7 @@ _OFF_THE_PARSE_PATH = {
 # (module, function, the loop's iterable as source text)
 _LOOPS_WITHOUT_A_CHECKPOINT = {
     ("complexity.py", "_bracket_nesting_depth", "body"):
-        "one pass over one symbol's characters; a checkpoint here was two thirds of all checkpoint calls",
+        "one pass over one symbol's characters, once per symbol from a loop that has its checkpoint",
     ("complexity.py", "_count_params", "params_str"):
         "one pass over one signature's characters",
     ("extractor.py", "_walk_tree", "(*node.children, *adopted) if adopted else node.children"):
@@ -304,9 +304,9 @@ def _starts_with_a_checkpoint(loop) -> bool:
 def test_every_loop_on_the_parse_path_starts_with_a_checkpoint():
     """Review round 2: `_find_enclosing_symbol` (a `for` per call site, each
     rescanning every symbol), a Razor brace scan (`while i < len(content)`) and
-    a dbt directive loop each ran quadratic and unstopped, 9.6 s to 375 s at a
-    budget of 2 s or less, because the scans then held looked for recursion
-    and `while stack:` only. The rule is every loop statement."""
+    a dbt directive loop each ran quadratic and unstopped, because the scans
+    then held looked for recursion and `while stack:` only (timings: the L-116
+    row). The rule is every loop statement."""
     missing, exempt_seen = [], set()
     for module in sorted(_ON_THE_PARSE_PATH):
         for function, loop in _loops(module):
@@ -327,6 +327,18 @@ def test_every_loop_on_the_parse_path_starts_with_a_checkpoint():
     assert isinstance(first, ast.Expr) and _passes_a_checkpoint([first.value]), (
         "`_walk_tree` no longer starts with a checkpoint, and its child loop is exempt because it did"
     )
+
+
+def test_a_file_that_ends_past_its_deadline_with_no_checkpoint_seeing_it_is_named(
+    deadline_passes_after_the_c_parse, symbols_built
+):
+    """Review round 3: one slow call (a regex over the whole file) passes no
+    checkpoint, and a small file passes fewer than `CHECK_EVERY` after it, so
+    the clock was never read again and the file came back unnamed. One
+    function here: a handful of checkpoints, then the end of the file."""
+    with pytest.raises(ParseBudgetExceeded):
+        extractor.parse_file("def f():\n    return 1\n", "a.py", "python")
+    assert len(symbols_built) == 1, "the walk was stopped early; this case is about the end of the file"
 
 
 def test_a_file_stopped_by_the_parser_is_stopped_at_the_next_checkpoint(monkeypatch):

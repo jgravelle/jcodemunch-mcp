@@ -370,6 +370,12 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         source_bytes = content.encode("utf-8")
     with parse_budget.armed(language, len(source_bytes)) as scope:
         symbols = _parse_file_within_budget(content, filename, language, source_bytes, repo)
+        # The clock is read once in `CHECK_EVERY` checkpoints, and one slow call
+        # (a regex over the whole file) passes none: a file can finish past its
+        # deadline with no checkpoint having seen it. It is over budget all the
+        # same, so it is skipped and named like any other (L-116, review round 3).
+        if scope is not None and not scope.cancelled and scope.remaining() <= 0:
+            scope.stop()
     if scope is not None and scope.cancelled:
         raise scope.error()
     return symbols

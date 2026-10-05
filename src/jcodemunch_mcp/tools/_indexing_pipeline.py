@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 #
 # ⚠⚠ The ceiling is NOT here. It is `parser/parse_budget.py`, inside
 # `parse_file`, in the parsing thread: tree-sitter's own timeout for the parse
-# (L-114) and a checkpoint where symbols are built for the Python side (L-116).
+# (L-114) and a checkpoint in every loop of the parse path for the Python side
+# (L-116).
 # This module used to wrap `parse_file` in a thread and wait on it. That wait
 # could not stop a parse (the parse holds the GIL), charged a file for time
 # another thread held the GIL, and left its worker running after the caller had
