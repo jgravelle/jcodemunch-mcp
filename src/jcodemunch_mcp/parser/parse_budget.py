@@ -2,10 +2,10 @@
 
 `JCODEMUNCH_PARSE_BUDGET_SECONDS` was a thread wait around `parse_file`
 (`tools/_indexing_pipeline.parse_file_budgeted`). ⚠⚠ tree-sitter's parse holds
-the GIL for its whole duration, so that wait cannot return early: measured, a
-`join(2.0)` returned after 4.57 s with the parse already finished, and the
-over-budget file came back with its symbols and no warning. The full-index loop
-of `index_folder` never asked it at all.
+the GIL for its whole duration, so that wait cannot return early: it returned
+when the parse did, and the over-budget file came back with its symbols and no
+warning (the measurements are the L-114 row). The full-index loop of
+`index_folder` never asked it at all.
 
 So the limit lives here, one layer down. `extractor.parse_file` opens a deadline
 with `armed()`, and `grammar_pack.get_parser`, the one loader every grammar call
@@ -28,6 +28,12 @@ raised into one of those would be swallowed, so the scope RECORDS it and
 ⚠ A parser loaded outside `parse_file` (`search_ast`) has no scope and is the
 pack's own object, unchanged.
 
+⚠ The deadline is counted in the PARSING THREAD's own time
+(`time.thread_time`), not wall-clock. A parse in another thread holds the GIL,
+and on a wall clock that wait was charged to this file, which was then skipped
+as over budget having used a fraction of it. While this thread's own C parse
+runs, the two clocks agree.
+
 A leaf: stdlib only.
 """
 
@@ -45,13 +51,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PARSE_BUDGET_SECONDS = 20.0
 
-# tree-sitter checks its clock between parse operations, so a cancel arrives a
-# little after the deadline, never before it. A parse that fails this close to
-# the deadline or later is the timeout; one that fails earlier is a real error.
-_CANCEL_SLACK = 0.9
-
 _state = threading.local()
 _warned_no_timeout = False
+_warned_bad_env = False
+_filter_installed = False
+
+# What py-tree-sitter raises when `ts_parser_parse` returns no tree. On a parser
+# with a language set, that happens only when the parse was stopped.
+_STOPPED = "Parsing failed"
+
+_clock = getattr(time, "thread_time", time.monotonic)
 
 
 class ParseBudgetExceeded(Exception):
@@ -66,10 +75,13 @@ def budget_seconds() -> float:
     try:
         return float(raw)
     except (TypeError, ValueError):
-        logger.warning(
-            "Ignoring non-numeric JCODEMUNCH_PARSE_BUDGET_SECONDS=%r; using %.1fs",
-            raw, DEFAULT_PARSE_BUDGET_SECONDS,
-        )
+        global _warned_bad_env
+        if not _warned_bad_env:  # once: this is read for every file
+            _warned_bad_env = True
+            logger.warning(
+                "Ignoring non-numeric JCODEMUNCH_PARSE_BUDGET_SECONDS=%r; using %.1fs",
+                raw, DEFAULT_PARSE_BUDGET_SECONDS,
+            )
         return DEFAULT_PARSE_BUDGET_SECONDS
 
 
@@ -80,11 +92,14 @@ class _Scope:
 
     def __init__(self, budget: float, language: str, size: int) -> None:
         self.budget = budget
-        self.started = time.monotonic()
+        self.started = _clock()
         self.deadline = self.started + budget
         self.language = language
         self.size = size
         self.cancelled = False
+
+    def remaining(self) -> float:
+        return self.deadline - _clock()
 
     def error(self) -> ParseBudgetExceeded:
         return ParseBudgetExceeded(
@@ -114,12 +129,7 @@ def armed(language: str, size: int) -> Iterator[Optional[_Scope]]:
     if budget <= 0:
         yield None
         return
-    # The timeout's setter warns on every call (deprecated in 0.25). Suppressed
-    # by message, once per file, without `catch_warnings`, which is not safe
-    # across threads.
-    warnings.filterwarnings(
-        "ignore", message=r"Use the progress_callback in parse\(\)", category=DeprecationWarning,
-    )
+    _install_filter()
     scope = _Scope(budget, language, size)
     _state.scope = scope
     try:
@@ -150,23 +160,50 @@ class _BudgetedParser:
 
     def parse(self, *args, **kwargs):
         scope = self._scope
-        remaining = scope.deadline - time.monotonic()
+        remaining = scope.remaining()
         if remaining <= 0:
             scope.cancelled = True
             raise scope.error()
-        self._parser.timeout_micros = max(1, int(remaining * 1_000_000))
-        asked = time.monotonic()
+        try:
+            self._parser.timeout_micros = max(1, int(remaining * 1_000_000))
+        except Warning:
+            # The host turned this DeprecationWarning into an error after our
+            # filter went in. Parse without the limit; raising here would land
+            # in a dedicated parser's `except Exception` as a file with no symbols.
+            logger.debug("could not set the parse timeout; parsing unbounded", exc_info=True)
+            return self._parser.parse(*args, **kwargs)
+        # ⚠ No clock decides whether the parse was stopped. The first draft
+        # compared elapsed time with the deadline, and Python's monotonic clock
+        # ticks at 15.6 ms on Windows before 3.13, so a cancel near the end of
+        # a deadline read as a real error and the file came back empty, unnamed.
         try:
             tree = self._parser.parse(*args, **kwargs)
-        except ValueError:
-            if time.monotonic() - asked >= remaining * _CANCEL_SLACK:
+        except ValueError as exc:
+            if str(exc) == _STOPPED:
                 scope.cancelled = True
                 raise scope.error() from None
             raise
-        if tree is None and time.monotonic() - asked >= remaining * _CANCEL_SLACK:
+        if tree is None:
             scope.cancelled = True
             raise scope.error()
         return tree
+
+
+def _install_filter() -> None:
+    """Silence the timeout setter's DeprecationWarning, by message, ONCE per process.
+
+    ⚠ Once: `warnings.filterwarnings` bumps the filter version on every call,
+    which clears every module's warn-once registry, so calling it per file made
+    a host's own once-only warnings print again after each parsed file. Not
+    `catch_warnings`, which is not safe across threads.
+    """
+    global _filter_installed
+    if _filter_installed:
+        return
+    _filter_installed = True
+    warnings.filterwarnings(
+        "ignore", message=r"Use the progress_callback in parse\(\)", category=DeprecationWarning,
+    )
 
 
 def _can_cancel(parser) -> bool:

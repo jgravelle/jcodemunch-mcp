@@ -356,8 +356,9 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
             here, after the dispatch, because most dedicated parsers catch
             ``Exception`` around their parse and return ``[]``.
     """
-    size = len(source_bytes) if source_bytes is not None else len(content)
-    with parse_budget.armed(language, size) as scope:
+    if source_bytes is None:
+        source_bytes = content.encode("utf-8")
+    with parse_budget.armed(language, len(source_bytes)) as scope:
         symbols = _parse_file_within_budget(content, filename, language, source_bytes, repo)
     if scope is not None and scope.cancelled:
         raise scope.error()

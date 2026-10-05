@@ -34,7 +34,7 @@ _PARSE_WATCHDOG_MIN_BYTES = 131072
 _parse_budget_seconds = budget_seconds
 
 
-def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None) -> list:
+def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None, source_bytes: Optional[bytes] = None) -> list:
     """``parse_file`` with a wall-clock ceiling on large files.
 
     Raises ``ParseBudgetExceeded`` on overrun so the caller's existing
@@ -43,15 +43,18 @@ def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None) -
     same class from the worker. This wait covers the rest: an abandoned
     Python-side walk keeps running, so it bounds the INDEX, not the CPU.
     """
+    # `source_bytes` only when the caller has them: every other call keeps the
+    # four-argument shape `parse_file` has always been called with here.
+    extra = {} if source_bytes is None else {"source_bytes": source_bytes}
     budget = _parse_budget_seconds()
     if budget <= 0 or len(content) < _PARSE_WATCHDOG_MIN_BYTES:
-        return parse_file(content, rel_path, language, repo=repo)
+        return parse_file(content, rel_path, language, repo=repo, **extra)
 
     box: dict = {}
 
     def _target() -> None:
         try:
-            box["symbols"] = parse_file(content, rel_path, language, repo=repo)
+            box["symbols"] = parse_file(content, rel_path, language, repo=repo, **extra)
         except BaseException as exc:  # noqa: BLE001 — re-raised to the caller
             box["exc"] = exc
 

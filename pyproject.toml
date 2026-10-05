@@ -154,6 +154,9 @@ exclude = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# pytest resets the warning filters for every test, which removes the one
+# `parser/parse_budget.py` installs; without this line each parse is recorded.
+filterwarnings = ["ignore:Use the progress_callback in parse:DeprecationWarning"]
 
 [tool.ruff]
 target-version = "py310"
