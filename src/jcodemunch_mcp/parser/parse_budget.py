@@ -29,18 +29,22 @@ raised into one of those would be swallowed, so the scope RECORDS it and
 pack's own object, unchanged.
 
 ⚠⚠ The PYTHON side of a file has the same deadline (L-116), and no second
-thread enforces it. `checkpoint()` is called where a `Symbol` is built
-(`symbols.Symbol.__post_init__`), in every function of the extractor that can
-call itself, and in its work-list loops (`while stack:`); inside a `parse_file`
-call it raises once the deadline has passed. The thread wait it replaced
-(`parse_file_budgeted`, 1.108.182) was wall-clock, so a file was charged for
-time another thread held the GIL, and its abandoned worker kept running after
-the caller was told the file is skipped. ⚠ The limit is COOPERATIVE, and
-`tests/test_parse_budget_python_side.py` scans the extractor for a recursion or
-a work-list loop that passes no checkpoint. NOT bounded: a `for` loop that
-builds no symbol, and a single call into C (one `re.findall` over a file,
-PyYAML's load of an OpenAPI document). Those are linear in the file's size;
-the measurements are the L-116 row.
+thread enforces it. `checkpoint()` is the first statement of every `for` and
+`while` loop in the modules a parse runs through, it is called where a `Symbol`
+is built (`symbols.Symbol.__post_init__`), and every function there that can
+call itself passes one; inside a `parse_file` call it raises once the deadline
+has passed. The thread wait it replaced (`parse_file_budgeted`, 1.108.182) was
+wall-clock, so a file was charged for time another thread held the GIL, and
+its abandoned worker kept running after the caller was told the file is
+skipped. ⚠⚠ The limit is COOPERATIVE: it holds where a checkpoint is passed
+and nowhere else, and two review rounds each found a loop that passed none.
+`tests/test_parse_budget_python_side.py` therefore scans the SOURCE (every
+loop statement, every recursion, every module of this package classified) and
+names the three loops that are exempt and why. ⚠ NOT bounded: one call into C
+(a `re.findall` over a file, PyYAML's load of an OpenAPI or Ansible document)
+and a comprehension. The old wait released its caller during such a call, with
+the work still running; now the caller waits for the call to return, and the
+file is stopped at the next checkpoint. Measurements: the L-116 row.
 
 ⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is
 counted in the parsing thread's own time (`time.thread_time`): a parse in
