@@ -28,11 +28,15 @@ raised into one of those would be swallowed, so the scope RECORDS it and
 ⚠ A parser loaded outside `parse_file` (`search_ast`) has no scope and is the
 pack's own object, unchanged.
 
-⚠ The deadline is counted in the PARSING THREAD's own time
-(`time.thread_time`), not wall-clock. A parse in another thread holds the GIL,
-and on a wall clock that wait was charged to this file, which was then skipped
-as over budget having used a fraction of it. While this thread's own C parse
-runs, the two clocks agree.
+⚠ TWO clocks, and the split matters. BETWEEN a file's parses the deadline is
+counted in the parsing thread's own time (`time.thread_time`): a parse in
+another thread holds the GIL, and on a wall clock that wait was charged to this
+file, which was then skipped as over budget having used a fraction of it.
+INSIDE a parse the timer is tree-sitter's, and it is wall-clock: what is left
+of the deadline is handed to it as a duration. So another THREAD of this
+process cannot spend a file's budget (it cannot run while the parse holds the
+GIL), and another PROCESS can: on a box whose cores are all taken, a parse that
+would fit its budget is stopped.
 
 A leaf: stdlib only.
 """

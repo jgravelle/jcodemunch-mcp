@@ -18,12 +18,16 @@
   - The parse limit applies to a file of any size (the old wait armed only at 128 KiB) and on every
     indexing route. A file whose tree-sitter parse runs past the default 20 s is now skipped and
     named where a first index used to wait for it.
-  - The parse deadline counts the parsing thread's own time, not wall-clock, so a parse in another
-    thread cannot spend it: 0 of 192 under-budget files were skipped beside an over-budget parse in a
-    second thread (`evidence/l114_r2_two_threads.txt`), and 0 of 120 across ten first indexes run
-    beside another (`evidence/l114_r3_first_index_two_threads.txt`). The other side of that clock: on
-    the wall, a stop arrives later than the budget while another thread is busy (the over-budget
-    index in that second run took 4.67 to 7.12 s at a 2 s budget).
+  - Between a file's parses the deadline counts the parsing thread's own time, so a parse in
+    another thread of the server cannot spend it: 0 of 192 under-budget files were skipped beside an
+    over-budget parse in a second thread (`evidence/l114_r2_two_threads.txt`), and 0 of 120 across
+    ten first indexes run beside another (`evidence/l114_r3_first_index_two_threads.txt`). Inside a
+    parse the timer is tree-sitter's own and it is wall-clock, which has two consequences. A stop
+    arrives later than the budget on the wall while another thread is busy (the over-budget index in
+    that second run took 4.67 to 7.12 s at a 2 s budget). And other PROCESSES can spend a file's
+    budget: beside 48 CPU-burning processes on 24 cores, a file that parses in 0.672 s alone was
+    stopped at a 1.01 s budget 12 times of 12 (`evidence/l114_r4_other_processes.txt`). The file is
+    named when that happens; not measured at the default 20 s.
   Parsing this repository's 287 Python files took a mean 3.167 s with the budget on and 3.130 s with
   it off over five alternating rounds (`evidence/l114_cost.txt`). Not covered, and unchanged by this
   release: time spent in Python after the tree is built. The first index waits for it (a Vue file

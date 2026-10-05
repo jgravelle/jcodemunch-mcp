@@ -28,6 +28,10 @@ from jcodemunch_mcp.tools.index_folder import index_folder
 
 BUDGET = 0.25
 
+# ⚠ Every duration this file bounds is `time.thread_time()`, the test thread's
+# own time. A wall-clock bound missed once in five runs on the fixed code with
+# the machine oversubscribed twice over (review round 4; harness FINDINGS F-33).
+
 _PADDING = "# " + ("x" * 78) + "\n"
 
 
@@ -77,12 +81,12 @@ def test_the_installed_tree_sitter_can_cancel_a_parse():
         "cannot cancel a parse on it (parser/parse_budget.py)"
     )
     parser.timeout_micros = 100_000
-    started = time.monotonic()
+    started = time.thread_time()
     try:
         tree = parser.parse(_slow_python().encode("utf-8"))
     except ValueError:
         tree = None
-    elapsed = time.monotonic() - started
+    elapsed = time.thread_time() - started
     assert tree is None, "the parse finished under a 0.1 s timeout; the fixture is not slow here"
     assert elapsed < 3.0, f"a 0.1 s timeout took {elapsed:.2f} s to fire"
 
@@ -91,10 +95,10 @@ def test_the_installed_tree_sitter_can_cancel_a_parse():
 
 
 def test_parse_file_stops_an_over_budget_parse(budget):
-    started = time.monotonic()
+    started = time.thread_time()
     with pytest.raises(ParseBudgetExceeded) as exc:
         extractor.parse_file(_slow_python(), "slow.py", "python")
-    elapsed = time.monotonic() - started
+    elapsed = time.thread_time() - started
 
     assert elapsed < 3.0, f"the parse ran {elapsed:.2f} s against a {budget} s budget"
     message = str(exc.value)
@@ -507,6 +511,42 @@ def test_text_in_an_unregistered_language_is_never_encoded():
     assert extractor.parse_file("\ud800", "a.zzz", "no-such-language") == []
 
 
+def test_with_the_variable_unset_the_limit_is_on_at_its_default(monkeypatch):
+    """Review round 4: every other test here sets the variable, so the shipped
+    configuration could be switched off with this file green (#437's shape)."""
+    from jcodemunch_mcp.parser import parse_budget
+
+    monkeypatch.delenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", raising=False)
+    assert parse_budget.DEFAULT_PARSE_BUDGET_SECONDS == 20.0  # the documented default (CLAUDE.md Env Vars)
+    assert parse_budget.budget_seconds() == parse_budget.DEFAULT_PARSE_BUDGET_SECONDS
+    with parse_budget.armed("python", 10) as scope:
+        assert scope is not None and scope.budget == parse_budget.DEFAULT_PARSE_BUDGET_SECONDS
+        assert type(grammar_pack.get_parser("python")) is parse_budget._BudgetedParser
+
+
+def test_a_value_that_is_not_a_number_keeps_the_default_limit(monkeypatch):
+    """A typo must not switch the limit off."""
+    from jcodemunch_mcp.parser import parse_budget
+
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "soon")
+    with parse_budget.armed("python", 10) as scope:
+        assert scope is not None and scope.budget == parse_budget.DEFAULT_PARSE_BUDGET_SECONDS
+
+
+def test_a_stopped_file_is_named_even_when_another_part_of_it_parsed(monkeypatch):
+    """Review round 4: an Astro file's over-budget frontmatter is stopped inside a
+    nested call that swallows it, and the outer dispatch still returns a symbol
+    for the template. A partial file returned unnamed is L-114's own symptom."""
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0")
+    small = "---\nexport function early(a: number): number { return a }\n---\n<div/>\n"
+    assert extractor.parse_file(small, "a.astro", "astro"), "the fixture needs a part that parses"
+
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.1")
+    script = "".join(f"export function f{i}(a: number): number {{ return a + {i}; }}\n" for i in range(30000))
+    with pytest.raises(ParseBudgetExceeded):
+        extractor.parse_file("---\n" + script + "---\n<div/>\n", "a.astro", "astro")
+
+
 def test_the_pipeline_and_the_parser_raise_the_same_class():
     """`except ParseBudgetExceeded` at either import path catches both."""
     from jcodemunch_mcp.parser import parse_budget
@@ -532,9 +572,9 @@ def _parse_warnings(result):
 def test_a_full_index_names_the_over_budget_file_and_keeps_the_rest(tmp_path, budget):
     project = _project(tmp_path, _slow_python())
 
-    started = time.monotonic()
+    started = time.thread_time()
     result = _index(project, tmp_path)
-    elapsed = time.monotonic() - started
+    elapsed = time.thread_time() - started
 
     named = _parse_warnings(result)
     assert named, f"no warning names the over-budget file: {result.get('warnings')}"
