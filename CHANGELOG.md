@@ -15,8 +15,7 @@
   both languages (ids, lines, signatures and docstrings, compared by digest), so no re-index is
   owed. Since 1.108.330 such a file was skipped and named once its walk passed the parse budget
   (20 s by default); it is now indexed. Not changed: a `/* */` comment's docstring keeps its
-  closing `*/` (LEDGER L-124). Not run: Astro and Razor script walks, a `<script setup lang="ts">`
-  block.
+  closing `*/` (LEDGER L-124). Not run: Astro and Razor script walks.
 
 - **A full re-index keeps the embedding metadata beside the vectors it describes (#522,
   @lsg1103275794).** `save_index` cleared the whole `meta` table, and the embedding store keeps

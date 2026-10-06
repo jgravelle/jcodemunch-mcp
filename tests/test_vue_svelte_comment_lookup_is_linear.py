@@ -1,9 +1,9 @@
 """The doc-comment lookup in a Vue or Svelte `<script>` is linear in the script (LEDGER L-115).
 
 `_preceding_comment` walked ALL of the parent's children, from the first one,
-for every declaration it was asked about, so a script of N top-level functions
-cost N * N child visits: a 441,827-char `.vue` of 6000 functions spent 14 s in
-Python with its two C parses done in 0.12 s.
+for every declaration it was asked about, so a script of N sibling declarations
+cost N * N child visits, all in Python after the parse. The measurements are in
+the ledger row.
 
 The property is counted, not timed: every loop on the parse path starts with
 `parse_budget.checkpoint()` (L-116's rule), so the number of checkpoints passed
@@ -35,6 +35,17 @@ def _svelte(n: int) -> tuple[str, str]:
     return "big.svelte", f"<script>\n{_script(n)}</script>\n<div/>\n"
 
 
+def _vue_options(n: int) -> tuple[str, str]:
+    methods = "".join(f"    // about m{i}\n    m{i}(a) {{ return a }},\n" for i in range(n))
+    script = f"export default {{\n  methods: {{\n{methods}  }},\n}}\n"
+    return "opts.vue", f"<template><div/></template>\n<script>\n{script}</script>\n"
+
+
+def _svelte_props(n: int) -> tuple[str, str]:
+    props = "".join(f"// about p{i}\nexport let p{i} = {i}\n" for i in range(n))
+    return "props.svelte", f"<script>\n{props}</script>\n<div/>\n"
+
+
 def _checkpoints(monkeypatch, filename: str, content: str, language: str) -> tuple[int, list]:
     count = 0
     real = parse_budget.checkpoint
@@ -62,6 +73,21 @@ def test_twice_the_script_is_about_twice_the_work(monkeypatch, language, build):
     assert len([s for s in big_syms if s.kind == "function"]) == big_n
     assert big / small < 2.6, (
         f"{language}: {small} loop iterations for {small_n} functions and {big} for {big_n} "
+        f"(x{big / small:.2f}); a quadratic walk reads about x4"
+    )
+
+
+@pytest.mark.parametrize("language, build", [("vue", _vue_options), ("svelte", _svelte_props)])
+def test_the_other_parents_are_linear_too(monkeypatch, language, build):
+    """The lookup is asked from more than one place: an options-API `methods`
+    object and Svelte props had the same cost under a different parent."""
+    small_n, big_n = 150, 300
+    small, small_syms = _checkpoints(monkeypatch, *build(small_n), language)
+    big, big_syms = _checkpoints(monkeypatch, *build(big_n), language)
+
+    assert len(small_syms) >= small_n and len(big_syms) >= big_n
+    assert big / small < 2.6, (
+        f"{language}: {small} loop iterations for {small_n} declarations and {big} for {big_n} "
         f"(x{big / small:.2f}); a quadratic walk reads about x4"
     )
 

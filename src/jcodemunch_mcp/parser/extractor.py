@@ -8120,10 +8120,10 @@ class _CommentBefore:
 
     ⚠⚠ ONE pass per PARENT, never one per question (LEDGER L-115). Both walks
     asked this for every declaration by scanning the parent's children from
-    the first one, so a script of N top-level functions cost N * N child
-    visits: 14 s of Python on a 6000-function `.vue` whose C parses took
-    0.12 s. `tests/test_vue_svelte_comment_lookup_is_linear.py` counts the
-    loop iterations at two sizes and fails on the quadratic form.
+    the first one, so a script of N sibling declarations cost N * N child
+    visits, all in Python after the parse (measurements: the ledger row).
+    `tests/test_vue_svelte_comment_lookup_is_linear.py` counts the loop
+    iterations at two sizes and fails on the quadratic form.
 
     ⚠ The table keeps its parent NODE, not only the id: a node id is an
     address, a `.vue` file can hold two script trees, and a freed tree's
