@@ -3,8 +3,9 @@
 `save_index` cleared the whole `meta` table, and `EmbeddingStore` keeps
 `embed_dimension` / `embed_model` / `embed_task_type` there. A full save left
 `symbol_embeddings` in place, so the store held vectors with no record of what
-produced them, and `embed_repo`'s model-change check (#500) then read the
-stored model as unknown and let a different model append to them.
+produced them. A semantic `search_symbols` then stamped the store with the
+current model as it embedded the symbols with no vector, and after a model
+change `embed_repo`'s check (#500) compared the new model with itself.
 
 The keys are read off `embedding_store` rather than listed here, so a key the
 embedding store adds later is covered on arrival.
