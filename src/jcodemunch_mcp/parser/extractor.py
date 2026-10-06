@@ -8133,7 +8133,7 @@ class _CommentBefore:
     __slots__ = ("_tables",)
 
     def __init__(self) -> None:
-        self._tables: dict[int, tuple[object, dict[int, object]]] = {}
+        self._tables: dict[int, tuple[Any, dict[int, Any]]] = {}
 
     def __call__(self, n):
         parent = n.parent
@@ -8141,7 +8141,7 @@ class _CommentBefore:
             return None
         entry = self._tables.get(parent.id)
         if entry is None:
-            table: dict[int, object] = {}
+            table: dict[int, Any] = {}
             prev = None
             for c in parent.children:
                 parse_budget.checkpoint()
