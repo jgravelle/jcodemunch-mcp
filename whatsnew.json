@@ -1,6 +1,12 @@
 {
-  "current": "1.108.329",
+  "current": "1.108.330",
   "entries": [
+    {
+      "version": "1.108.330",
+      "date": "2026-10-06",
+      "title": "the parse budget bounds a file's Python-side time",
+      "summary": "1.108.329 put the tree-sitter half of JCODEMUNCH_PARSE_BUDGET_SECONDS inside the parser and left the Python-side half to a thread wait that the first index of a folder never asked, that charged a file for another thread's time, and whose worker kept running after the file was reported skipped. The wait is gone. The parsing thread checks its own deadline at checkpoints, so a file whose Python-side work runs past the budget (default 20 s) is skipped and named in the index result's warnings on every indexing route and at any size, and no thread is left behind. One slow call (a regex over the whole file, PyYAML's loader) is not cut short; the file is named when the call returns. Also: a bare Python module name resolves to the script directory beside the importer (#972, @whakomatic)."
+    },
     {
       "version": "1.108.329",
       "date": "2026-10-05",
@@ -18,12 +24,6 @@
       "date": "2026-10-02",
       "title": "a local model path is refused when the installed sentence-transformers would run its code",
       "summary": "1.108.326 raised the semantic extra's floor, and a floor is install metadata: an upgrade that does not name the extra keeps an older sentence-transformers. The embedding call now checks the release it imported. When embed_model is a path that exists and the release is older than 5.6.0, the call refuses before the model is constructed and names the advisory (GHSA-jhr6-gm9c-rqjv) and the upgrade command. A Hub model name is not refused. Fusion search now says why its semantic channel did not run instead of reading the same as a repository that was never embedded."
-    },
-    {
-      "version": "1.108.326",
-      "date": "2026-10-02",
-      "title": "the semantic extra requires a sentence-transformers that does not run a local model's code",
-      "summary": "sentence-transformers before 5.6.0 runs the custom Python inside a local model directory with trust_remote_code off (GHSA-jhr6-gm9c-rqjv, critical), and embed_repo hands the embed_model setting to it, where that value may be a path. The semantic and all extras declared >=2.2.0, so an environment that already held an older release kept it. They require >=5.6.0 now. If you use the local sentence-transformers provider, upgrade with the extra named: pip install -U \"jcodemunch-mcp[semantic]\". The default install and the ONNX provider do not import it."
     }
   ]
 }

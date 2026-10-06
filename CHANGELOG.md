@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.330] - 2026-10-06 - the parse budget bounds a file's Python-side time
+
 ### Fixed
 
 - **The parse budget bounds a file's Python-side time, on every route, in the thread that parses

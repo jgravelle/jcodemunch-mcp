@@ -2186,3 +2186,17 @@ The 1.108.328 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.326 count, verbatim:
 
 - ⚠ Prior (1.108.326): 14177 passed, 25 skipped, **0 failed** (14202 total).
+
+## Current State rotation (2026-10-06, release 1.108.330)
+
+The 1.108.327 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.327):** **A local model path is refused when the installed `sentence-transformers` would run its code** (L-108; GHSA-jhr6-gm9c-rqjv). ⚠⚠ `search_symbols(fusion=true)` names any similarity-channel failure as `semantic_channel_error`, labels the channel `unavailable` and does not cache it; a zero-row one stays `absent`. ⚠ jdoc and jdata have no such check (L-109). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-04, release 1.108.328).
+
+The 1.108.329 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.329 — **The parse budget stops a slow parse** (L-114). `JCODEMUNCH_PARSE_BUDGET_SECONDS` is enforced inside `parse_file` (`parser/parse_budget.py`): one deadline per file, bound to every parser by `grammar_pack.get_parser`, ended by tree-sitter's own timeout; an over-budget file is skipped and named in `warnings` on every route, at any size. ⚠ Python-side time after the parse is NOT covered (L-116), and a Vue/Svelte plain `<script>` is slow there (L-115). Rules: the Env Vars row. Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.327 count, verbatim:
+
+- ⚠ Prior (1.108.327): 14213 passed, 25 skipped, **0 failed** (14238 total).
