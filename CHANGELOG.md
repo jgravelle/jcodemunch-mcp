@@ -85,13 +85,21 @@
   test held and the replacement does not, a caller released during work that passes no checkpoint,
   is the PyYAML case above.
 
-- **A bare Python module name resolves to the script directory beside the importer (#972).**
+- **A bare Python module name resolves to the script directory beside the importer (#972, @whakomatic).**
   `from checks import verify` in `tools/run.py` names `tools/checks.py`, because a script's own
   directory is first on `sys.path`, but `resolve_specifier` tried a bare name against the repo root
   only. No edge was built: `find_importers` returned nothing for the module and `find_dead_code`
   listed it as dead. The lookup now climbs from the importer through package directories to the
   first directory without an `__init__.py`, tries the name there before the root, and stops:
-  nothing above it is on `sys.path`.
+  nothing above it is treated as being on `sys.path`. Two cases build no edge, because a false edge
+  gives a file an importer it does not have and `find_dead_code` then stops reporting it with no
+  sign. A standard-library name is never the file beside the importer (`import types` next to a
+  `types.py`). A directory without an `__init__.py` whose parent is a package is read as a
+  namespace sub-package, where a bare name is absolute; a real script directory kept inside a
+  package (`pkg/tests/`) gets no edge either, as before this change. Still unresolved, as before:
+  a dotted name through a directory with no `__init__.py` (`from helpers import util`), a nested
+  test directory importing a module beside a `conftest.py` above it, and a sibling that exists
+  only as `.pyi` (LEDGER L-120).
 
 ## [1.108.329] - 2026-10-05 - the parse budget stops a slow parse
 

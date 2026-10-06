@@ -5,6 +5,7 @@ import logging
 import os
 import posixpath
 import re
+import sys
 import threading
 from collections import deque
 from pathlib import Path
@@ -2251,12 +2252,29 @@ def resolve_specifier(
     # Python bare module name: a script's own directory is `sys.path[0]`, so
     # `import checks` in `tools/run.py` is `tools/checks.py`, ahead of the root.
     # Climb out of packages (there a bare name is absolute) to the first plain
-    # directory and stop: only that one is on `sys.path`.
-    if importer_path.endswith((".py", ".pyi")) and "." not in specifier:
+    # directory and stop: only that one is treated as being on `sys.path`.
+    #
+    # ⚠⚠ Two refusals, and both err toward NO edge. A false edge gives a file
+    # an importer it does not have, so `find_dead_code` stops reporting it and
+    # nothing shows; a missed edge is the behaviour before this branch existed.
+    # (1) A standard-library name is the standard library: `import types`
+    # beside a `types.py` is not that file. (2) A directory with no
+    # `__init__.py` whose PARENT is a package is a namespace sub-package, not a
+    # script directory (`pkg/files/main.py` is imported as `pkg.files.main`), so
+    # a bare name there is absolute. That also refuses a real script directory
+    # kept inside a package (`pkg/tests/`, `pkg/demos/`).
+    if (
+        importer_path.endswith((".py", ".pyi"))
+        and "." not in specifier
+        and "/" not in specifier
+        and specifier not in sys.stdlib_module_names
+    ):
         script_dir = posixpath.dirname(importer_path)
         while script_dir and f"{script_dir}/__init__.py" in source_files:
             script_dir = posixpath.dirname(script_dir)
-        if script_dir:
+        parent = posixpath.dirname(script_dir)
+        parent_init = f"{parent}/__init__.py" if parent else "__init__.py"
+        if script_dir and parent_init not in source_files:
             for c in (f"{script_dir}/{specifier}/__init__.py", f"{script_dir}/{specifier}.py"):
                 if c in source_files:
                     return c
