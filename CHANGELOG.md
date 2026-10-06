@@ -27,6 +27,7 @@
   - Not repaired: a store an earlier full save already stripped has no model name to recover.
   - Not fixed here: the semantic top-up in `search_symbols` still checks no stored model before
     it writes (LEDGER L-121).
+
 - **`embed_repo` no longer re-embeds a whole corpus for a task-type row that was never written
   (#523, @lsg1103275794).** The gate compared the stored `embed_task_type` with the provider's
   and read an absent row as `None`, which never equals the empty string every provider but

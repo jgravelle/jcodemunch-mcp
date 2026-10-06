@@ -70,7 +70,30 @@ def repo(tmp_path, monkeypatch):
             conn.commit()
             conn.close()
 
+        @staticmethod
+        def full_reindex_with_a_new_file():
+            (src / "extra.py").write_text("def extra():\n    return 9\n")
+            result = index_folder(
+                str(src), use_ai_summaries=False, storage_path=str(store_dir),
+                incremental=False,
+            )
+            assert result["success"] is True
+
     return Harness
+
+
+def test_a_full_reindex_then_the_same_model_rebuilds_nothing(repo):
+    """The pair the reporter measured (#522 with #523): a full re-index used to
+    erase the rows and the gate then billed a whole re-embed."""
+    repo.embed()
+    repo.full_reindex_with_a_new_file()
+
+    result = repo.embed()
+
+    assert repo.calls == [(1, None)], f"more than the one new symbol was embedded: {repo.calls}"
+    assert result["symbols_embedded"] == 1
+    assert "rebuild_reason" not in result
+    assert repo.store().count() == 6
 
 
 def test_a_store_with_no_task_type_row_is_not_re_embedded(repo):
