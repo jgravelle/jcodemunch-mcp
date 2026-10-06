@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, cast
 
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
+from .embedding_store import META_KEY_PREFIX as _EMBED_META_PREFIX
 
 # Cache of base_path strings that have already had mkdir called — avoids
 # a redundant CreateDirectoryW syscall on every tool call.
@@ -1521,7 +1522,12 @@ class SQLiteIndexStore:
             conn.execute("BEGIN")
             conn.execute("DELETE FROM symbols")
             conn.execute("DELETE FROM files")
-            conn.execute("DELETE FROM meta")
+            # The embedding store keeps its own rows in `meta`, and this save
+            # keeps `symbol_embeddings`, so its rows stay with its vectors (#522).
+            conn.execute(
+                "DELETE FROM meta WHERE substr(key, 1, ?) != ?",
+                (len(_EMBED_META_PREFIX), _EMBED_META_PREFIX),
+            )
 
             self._write_meta(conn, index)
 

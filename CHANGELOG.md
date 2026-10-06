@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A full re-index keeps the embedding metadata beside the vectors it describes (#522,
+  @lsg1103275794).** `save_index` cleared the whole `meta` table, and the embedding store keeps
+  `embed_dimension`, `embed_model` and `embed_task_type` there. The same save leaves
+  `symbol_embeddings` in place, so after any full save (a `PARSER_GENERATION` bump, an unloadable
+  index, `incremental=False`) the store held vectors with no record of the model that produced
+  them. `embed_repo` reads a missing model as unknown and does not treat unknown as a change, so a
+  later model swap appended vectors of another width to the old ones, which is the failure #500
+  was shipped to stop. The save now deletes the index's own keys and leaves the embedding store's.
+  The embedding store declares the prefix its keys carry and the save reads it, so a key added
+  there later is kept without a second edit, and a test fails if a key lacks the prefix. An index
+  key the new index does not write is still removed. Not repaired: a store an earlier full save
+  already stripped has no model name to recover.
+
 ## [1.108.330] - 2026-10-06 - the parse budget bounds a file's Python-side time
 
 ### Fixed

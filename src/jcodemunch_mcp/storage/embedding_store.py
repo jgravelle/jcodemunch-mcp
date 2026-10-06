@@ -41,6 +41,14 @@ CREATE TABLE IF NOT EXISTS symbol_embeddings (
 # on modern builds but 999 on older ones; 900 clears the floor with headroom.
 _GET_MANY_CHUNK = 900
 
+# Every key this store keeps in the shared `meta` table starts with this prefix.
+# `save_index` clears the index's own keys on a full save and leaves these, because
+# it leaves `symbol_embeddings` too: metadata erased beside surviving vectors reads
+# as "model unknown", and `embed_repo` does not treat unknown as a change (#522).
+# A new key must carry the prefix; `tests/test_full_save_keeps_embedding_meta.py`
+# reads the `_EMBED_*_KEY` names off this module and fails if one does not.
+META_KEY_PREFIX = "embed_"
+
 _EMBED_DIM_KEY = "embed_dimension"
 _EMBED_MODEL_KEY = "embed_model"
 _EMBED_TASK_TYPE_KEY = "embed_task_type"
