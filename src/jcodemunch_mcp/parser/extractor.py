@@ -8111,6 +8111,51 @@ class _EmbeddedScriptClasses:
 _OPTIONS_WRAPPER_NOISE = frozenset({"type_arguments", "comment"})
 
 
+class _CommentBefore:
+    """Which comment node, if any, sits directly before a node among its siblings.
+
+    Shared by the Vue and Svelte script walks. A comment (or a template
+    substitution) counts for the next sibling unless a node other than `,`,
+    a newline or a space comes between them.
+
+    ⚠⚠ ONE pass per PARENT, never one per question (LEDGER L-115). Both walks
+    asked this for every declaration by scanning the parent's children from
+    the first one, so a script of N top-level functions cost N * N child
+    visits: 14 s of Python on a 6000-function `.vue` whose C parses took
+    0.12 s. `tests/test_vue_svelte_comment_lookup_is_linear.py` counts the
+    loop iterations at two sizes and fails on the quadratic form.
+
+    ⚠ The table keeps its parent NODE, not only the id: a node id is an
+    address, a `.vue` file can hold two script trees, and a freed tree's
+    addresses are reused.
+    """
+
+    __slots__ = ("_tables",)
+
+    def __init__(self) -> None:
+        self._tables: dict[int, tuple[object, dict[int, object]]] = {}
+
+    def __call__(self, n):
+        parent = n.parent
+        if parent is None:
+            return None
+        entry = self._tables.get(parent.id)
+        if entry is None:
+            table: dict[int, object] = {}
+            prev = None
+            for c in parent.children:
+                parse_budget.checkpoint()
+                if prev is not None:
+                    table[c.id] = prev
+                if c.type in ("comment", "template_substitution"):
+                    prev = c
+                elif c.type not in (",", "\n", " "):
+                    prev = None
+            entry = (parent, table)
+            self._tables[parent.id] = entry
+        return entry[1].get(n.id)
+
+
 def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from Vue Single-File Components (.vue).
 
@@ -8202,21 +8247,11 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _node_text(n) -> str:
         return script_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
 
+    _comment_before = _CommentBefore()
+
     def _preceding_comment(n) -> str:
         """Return preceding // or /* */ comment text as docstring."""
-        # Walk backwards in parent's children list
-        parent = n.parent
-        if parent is None:
-            return ""
-        prev = None
-        for c in parent.children:
-            parse_budget.checkpoint()
-            if c.id == n.id:
-                break
-            if c.type in ("comment", "template_substitution"):
-                prev = c
-            elif c.type not in (",", "\n", " "):
-                prev = None
+        prev = _comment_before(n)
         if prev and prev.type == "comment":
             txt = _node_text(prev).strip()
             return txt.lstrip("/").lstrip("*").strip()
@@ -8622,20 +8657,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         def _node_text(n) -> str:
             return script_bytes[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
 
+        _comment_before = _CommentBefore()
+
         def _preceding_comment(n) -> str:
             """Return preceding // or /* */ comment text as docstring."""
-            parent = n.parent
-            if parent is None:
-                return ""
-            prev = None
-            for c in parent.children:
-                parse_budget.checkpoint()
-                if c.id == n.id:
-                    break
-                if c.type in ("comment", "template_substitution"):
-                    prev = c
-                elif c.type not in (",", "\n", " "):
-                    prev = None
+            prev = _comment_before(n)
             if prev and prev.type == "comment":
                 txt = _node_text(prev).strip()
                 return txt.lstrip("/").lstrip("*").strip()

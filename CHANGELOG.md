@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **A large Vue or Svelte `<script>` is indexed in time proportional to its size (LEDGER L-115).**
+  Both script walks look for the comment above each declaration, and both did it by scanning the
+  parent's children from the first one, once per declaration: a script of N top-level functions
+  cost N times N child visits, all in Python after the parse. The two scans are one shared
+  table now, built in one pass per parent node and read per declaration. Measured on a
+  368,717-byte `.vue` whose `<script>` holds 6000 functions (`evidence/l115_before_after.txt`):
+  `parse_file` took 22.674 s on 1.108.330 and takes 0.176 s; the same script in a `.svelte`
+  took 22.703 s and takes 0.122 s. The symbols are the same at each of three sizes for
+  both languages (ids, lines, signatures and docstrings, compared by digest), so no re-index is
+  owed. Since 1.108.330 such a file was skipped and named once its walk passed the parse budget
+  (20 s by default); it is now indexed. Not changed: a `/* */` comment's docstring keeps its
+  closing `*/` (LEDGER L-124). Not run: Astro and Razor script walks, a `<script setup lang="ts">`
+  block.
+
 - **A full re-index keeps the embedding metadata beside the vectors it describes (#522,
   @lsg1103275794).** `save_index` cleared the whole `meta` table, and the embedding store keeps
   `embed_dimension`, `embed_model` and `embed_task_type` there. The same save leaves
