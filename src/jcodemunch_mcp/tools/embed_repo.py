@@ -501,14 +501,35 @@ def embed_repo(
 
     # If the task type changed (e.g. Gemini task-awareness toggled), existing
     # embeddings were built with a different task type and must be regenerated.
+    #
+    # ⚠⚠ Three states, not two (#523). `None` is NEVER RECORDED and `""` is
+    # RECORDED AS NONE: the empty string is what every provider but task-aware
+    # Gemini writes, so testing truthiness would miss a real toggle from `""`,
+    # and comparing `None` with `""` billed a full re-embed for an absent row.
+    # An absent row beside a recorded dimension is unknown, and unknown is not
+    # a change, as for the model above.
+    #
+    # ⚠ Vectors with NO metadata at all (no dimension either) are a different
+    # case and are still rebuilt: nothing says what produced them, and the
+    # first batch below would stamp the store with the CURRENT model over them.
+    # A full re-index left stores in that state before #522.
     stored_task_type = emb_store.get_task_type()
-    if not force and stored_task_type != (doc_task_type or "") and emb_store.count() > 0:
-        logger.info(
-            "embed_repo: task_type changed (%r → %r); forcing re-embed",
-            stored_task_type,
-            doc_task_type,
-        )
-        force = True
+    rebuild_reason: Optional[str] = None
+    if not force and emb_store.count() > 0:
+        if stored_task_type is None and stored_dim is None:
+            logger.info(
+                "embed_repo: vectors with no embedding metadata; forcing re-embed"
+            )
+            rebuild_reason = "embedding_metadata_missing"
+            force = True
+        elif stored_task_type is not None and stored_task_type != (doc_task_type or ""):
+            logger.info(
+                "embed_repo: task_type changed (%r → %r); forcing re-embed",
+                stored_task_type,
+                doc_task_type,
+            )
+            rebuild_reason = "embedding_task_type_changed"
+            force = True
 
     if force:
         emb_store.clear()
@@ -598,4 +619,8 @@ def embed_repo(
         # corpus and the caller did not ask for one.
         result["model_changed_from"] = stored_model
         result["rebuild_reason"] = "embedding_model_changed"
+    elif rebuild_reason:
+        # The same disclosure for the two rebuilds this function decides on
+        # its own besides a model change (#523).
+        result["rebuild_reason"] = rebuild_reason
     return result

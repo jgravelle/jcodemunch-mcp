@@ -27,6 +27,24 @@
   - Not repaired: a store an earlier full save already stripped has no model name to recover.
   - Not fixed here: the semantic top-up in `search_symbols` still checks no stored model before
     it writes (LEDGER L-121).
+- **`embed_repo` no longer re-embeds a whole corpus for a task-type row that was never written
+  (#523, @lsg1103275794).** The gate compared the stored `embed_task_type` with the provider's
+  and read an absent row as `None`, which never equals the empty string every provider but
+  task-aware Gemini records. So a store with no such row was billed a full re-embed on its next
+  `embed_repo`, while the model gate three lines above it treats the same unknown as no change.
+  The reporter measured 9,938 symbols re-embedded through a cloud provider in about 18.2
+  minutes on a run where the model had not changed. The gate now tells three states apart:
+  - recorded and different (a Gemini task-awareness toggle): rebuilt, as before, and the
+    response now says `rebuild_reason: embedding_task_type_changed`. The empty string is a
+    recorded value, so a toggle from it is still caught; a test fails on the truthiness form
+    that would miss it.
+  - never recorded, beside a recorded dimension: unknown, and unknown is not a change. Nothing
+    is re-embedded. The row stays absent, so a later toggle on that store is not detected until
+    a rebuild writes it.
+  - vectors with no embedding metadata at all: STILL rebuilt, deliberately, and the response
+    now says `rebuild_reason: embedding_metadata_missing`. Nothing records what produced those
+    vectors, and embedding beside them would stamp the store with the current model. This is
+    the state a full re-index left before #522, so a store already in it pays one rebuild.
 
 ## [1.108.330] - 2026-10-06 - the parse budget bounds a file's Python-side time
 
