@@ -39,12 +39,15 @@
     recorded value, so a toggle from it is still caught; a test fails on the truthiness form
     that would miss it.
   - never recorded, beside a recorded dimension: unknown, and unknown is not a change. Nothing
-    is re-embedded. The row stays absent, so a later toggle on that store is not detected until
-    a rebuild writes it.
+    is re-embedded; a symbol with no vector is embedded with the current task type beside the
+    old ones. The row stays absent, so a later toggle on that store is not detected until a
+    rebuild writes it.
   - vectors with no embedding metadata at all: STILL rebuilt, deliberately, and the response
     now says `rebuild_reason: embedding_metadata_missing`. Nothing records what produced those
     vectors, and embedding beside them would stamp the store with the current model. This is
-    the state a full re-index left before #522, so a store already in it pays one rebuild.
+    the store in the report (no `embed_*` rows at all), so its rebuild is NOT removed by this
+    change: what stops it recurring is the #522 entry above, which keeps a full re-index from
+    erasing those rows. A store already in that state pays one more rebuild, which writes them.
 
 ## [1.108.330] - 2026-10-06 - the parse budget bounds a file's Python-side time
 

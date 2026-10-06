@@ -77,6 +77,8 @@ def test_a_store_with_no_task_type_row_is_not_re_embedded(repo):
     """The reported defect: a row that was never written is not a toggle."""
     first = repo.embed()
     assert first["symbols_embedded"] == 5
+    # a first embed of an empty store is not a rebuild of anything
+    assert "rebuild_reason" not in first
     repo.drop_meta("embed_task_type")
     assert repo.store().get_task_type() is None
     assert repo.store().get_dimension() == WIDTH
