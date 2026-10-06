@@ -1,6 +1,12 @@
 {
-  "current": "1.108.330",
+  "current": "1.108.331",
   "entries": [
+    {
+      "version": "1.108.331",
+      "date": "2026-10-06",
+      "title": "a full re-index keeps the embedding metadata beside its vectors",
+      "summary": "A full re-index cleared the table where the embedding store records which model, dimension and task type produced its vectors, and kept the vectors. A semantic search after a model change could then leave vectors of two widths under the new model's name, and embed_repo re-embedded the whole corpus after every full re-index. The save now keeps the embedding store's rows, so a model change after a full re-index is detected and named, and embed_repo embeds only the symbols that have no vector. Pass force=true to refresh every vector (#522, @lsg1103275794). Also: a large Vue or Svelte <script> is indexed in time proportional to its size; a 6000-function script that took over 20 seconds to parse now takes a fraction of a second, with the same symbols. Also: embed_repo no longer re-embeds a corpus for a task-type row that was never written, and names the reason when it does rebuild (#523, @lsg1103275794)."
+    },
     {
       "version": "1.108.330",
       "date": "2026-10-06",
@@ -18,12 +24,6 @@
       "date": "2026-10-04",
       "title": "a file a package.json script runs is an entry point",
       "summary": "find_dead_code and get_dead_code_v2 read a package.json's main, exports and bin but not its scripts, so a server started by \"start\": \"node server.js\" was reported dead at confidence 1.0 along with everything only it imports. scripts is read now, as an allowlist: a runner from a list of twelve, flags that runner is known to take, and a path that resolves to one indexed file the way that runner resolves it. Anything else roots nothing, so a wrong guess cannot hide a dead file. Also, a repeat index of a subdirectory inside a git root is incremental (#961, thanks @ebataeva)."
-    },
-    {
-      "version": "1.108.327",
-      "date": "2026-10-02",
-      "title": "a local model path is refused when the installed sentence-transformers would run its code",
-      "summary": "1.108.326 raised the semantic extra's floor, and a floor is install metadata: an upgrade that does not name the extra keeps an older sentence-transformers. The embedding call now checks the release it imported. When embed_model is a path that exists and the release is older than 5.6.0, the call refuses before the model is constructed and names the advisory (GHSA-jhr6-gm9c-rqjv) and the upgrade command. A Hub model name is not refused. Fusion search now says why its semantic channel did not run instead of reading the same as a repository that was never embedded."
     }
   ]
 }

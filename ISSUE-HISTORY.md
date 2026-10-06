@@ -2200,3 +2200,17 @@ The 1.108.329 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.327 count, verbatim:
 
 - ⚠ Prior (1.108.327): 14213 passed, 25 skipped, **0 failed** (14238 total).
+
+## Current State rotation (2026-10-06, release 1.108.331)
+
+The 1.108.328 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.328):** **A file a `package.json` script runs is an entry point** (L-102): `tools/_entry_points.package_json_entries` reads `scripts` as an ALLOWLIST and anything else roots NOTHING (rules: Key Files `_entry_points.py`; residue L-111). Also a repeat `index <subdir>` inside a git root is incremental (#961, @ebataeva). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-05, release 1.108.329).
+
+The 1.108.330 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.330 — **The parse budget bounds a file's Python-side time** (L-116). No second thread waits on a parse: `parse_budget.checkpoint()` raises inside `parse_file` once the file's deadline (the parsing thread's own time) has passed, on every route, at any size. ⚠ One slow call (a whole-file regex, PyYAML) is not cut short (L-118), and loops are still slow BELOW the budget (L-115, L-117). Also a bare Python module name resolves to the script directory beside the importer (#972, @whakomatic; refusals and residue: L-120). Rules: the Env Vars row. Forensics: `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.328 count, verbatim:
+
+- ⚠ Prior (1.108.328): 14684 passed, 25 skipped, **0 failed** (14709 total).

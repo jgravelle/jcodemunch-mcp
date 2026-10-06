@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.331] - 2026-10-06 - a full re-index keeps the embedding metadata beside its vectors
+
 ### Fixed
 
 - **A large Vue or Svelte `<script>` is indexed in time proportional to its size (LEDGER L-115).**
