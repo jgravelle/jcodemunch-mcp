@@ -23,10 +23,15 @@ import time
 import pytest
 
 from jcodemunch_mcp.parser import extractor, grammar_pack
-from jcodemunch_mcp.tools._indexing_pipeline import ParseBudgetExceeded, _PARSE_WATCHDOG_MIN_BYTES
+from jcodemunch_mcp.tools._indexing_pipeline import ParseBudgetExceeded
 from jcodemunch_mcp.tools.index_folder import index_folder
 
 BUDGET = 0.25
+
+# The size under which the retired thread wait (1.108.182 to 1.108.329) did not
+# arm. Nothing in src/ reads it now (L-116); the fixtures still stand on both
+# sides of it, because that is where the old behaviour changed.
+OLD_WAIT_GATE = 131072
 
 # ⚠ Every duration this file bounds is `time.thread_time()`, the test thread's
 # own time: a wall-clock bound fails the fixed code on a starved machine
@@ -43,7 +48,7 @@ def _slow_python(lines: int = 5000) -> str:
 def _slow_small_python() -> str:
     """The same shape under the old 128 KiB arming threshold."""
     text = "def marker_symbol():\n    return 1\n\n" + "#\n" * 15000
-    assert len(text.encode("utf-8")) < _PARSE_WATCHDOG_MIN_BYTES
+    assert len(text.encode("utf-8")) < OLD_WAIT_GATE
     return text
 
 
@@ -585,14 +590,14 @@ def test_a_full_index_names_the_over_budget_file_and_keeps_the_rest(tmp_path, bu
 
 
 def test_a_first_index_leaves_no_thread_behind(tmp_path, budget, monkeypatch):
-    """Review round 2: the first index is the default route, and the wall-clock
-    thread wait of the other routes (LEDGER L-116) charged a fast file for
-    time another thread held the GIL. The first index parses in its own thread;
-    the tree-sitter limit inside `parse_file` is the one it has."""
+    """Review round 2: the first index is the default route, and a wall-clock
+    thread wait (LEDGER L-116, retired) charged a fast file for time another
+    thread held the GIL. The first index parses in its own thread. Every
+    route: tests/test_parse_budget_python_side.py."""
     import threading
 
     big_fast = _PADDING * 2000 + "def marker_symbol():\n    return 1\n"
-    assert len(big_fast) >= _PARSE_WATCHDOG_MIN_BYTES
+    assert len(big_fast) >= OLD_WAIT_GATE
     project = _project(tmp_path, big_fast)
 
     started = []

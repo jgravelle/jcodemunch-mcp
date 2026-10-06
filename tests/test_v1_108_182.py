@@ -314,30 +314,6 @@ def test_small_files_bypass_the_watchdog(monkeypatch):
     assert "thread" in calls
 
 
-def test_pathological_parse_raises_named_budget_error(monkeypatch):
-    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "0.2")
-
-    def _never_returns(content, path, language, repo=None):
-        time.sleep(30)
-        return []
-
-    monkeypatch.setattr(
-        "jcodemunch_mcp.tools._indexing_pipeline.parse_file", _never_returns
-    )
-
-    big = "a" * 200_000
-    started = time.monotonic()
-    with pytest.raises(ParseBudgetExceeded) as exc:
-        parse_file_budgeted(big, "vendor/bundle.min.js", "javascript")
-    elapsed = time.monotonic() - started
-
-    assert elapsed < 10.0
-    # The message is what lands in the index result's warnings, next to the
-    # file name, so it has to say what happened and how to override it.
-    assert "0.2s budget" in str(exc.value)
-    assert "JCODEMUNCH_PARSE_BUDGET_SECONDS" in str(exc.value)
-
-
 def test_large_file_under_budget_still_parses(monkeypatch):
     monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "10")
     monkeypatch.setattr(

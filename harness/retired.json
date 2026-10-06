@@ -148,6 +148,13 @@
       "replacement": "tests/test_framework_script_bindings.py::test_a_local_function_binding_is_a_function",
       "commit": "L-42",
       "date": "2026-09-27"
+    },
+    {
+      "path": "tests/test_v1_108_182.py::test_pathological_parse_raises_named_budget_error",
+      "lesson": "A wait in a second thread is not a limit on the work. The test replaced `parse_file` with a 30 s sleep, which releases the GIL, and asserted the waiting caller came back inside the budget: true for a sleep, false for a tree-sitter parse (L-114, it holds the GIL) and wrong for a Python walk (L-116: the wait was wall-clock, so a file was charged for time another thread held the GIL, and the abandoned worker kept running and could write the parse cache). It stated the mechanism, a caller that returns, and not the outcome, work that stops (Practice 9). The budget is enforced in the parsing thread now, so a fake `parse_file` that sleeps is not stopped by anything and the assertion cannot hold.",
+      "replacement": "tests/test_parse_budget_python_side.py::test_a_walk_past_the_deadline_is_stopped_and_the_file_named",
+      "commit": "L-116",
+      "date": "2026-10-05"
     }
   ]
 }

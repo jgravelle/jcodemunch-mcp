@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from . import parse_budget
+
 
 _ASTRO_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
@@ -16,6 +18,7 @@ def split_astro_frontmatter(text: str) -> tuple[Optional[str], str, int, int]:
 
     i = 0
     while i < len(lines) and lines[i].strip() == "":
+        parse_budget.checkpoint()
         i += 1
 
     if i >= len(lines) or lines[i].strip() != "---":
@@ -24,6 +27,7 @@ def split_astro_frontmatter(text: str) -> tuple[Optional[str], str, int, int]:
     start = i + 1
     j = start
     while j < len(lines):
+        parse_budget.checkpoint()
         if lines[j].strip() == "---":
             frontmatter = "".join(lines[start:j])
             remainder = "".join(lines[j + 1:])

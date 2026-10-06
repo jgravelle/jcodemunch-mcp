@@ -140,6 +140,7 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
     - Constructor: new Foo() -> "Foo"
     - Return None for complex computed calls.
     """
+    parse_budget.checkpoint()
     node_type = node.type
 
     if node_type == "identifier":
@@ -154,6 +155,7 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
         # For JS call_expression: the function is first child (could be identifier or member expression)
         first_child = None
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type not in ("(", ")", "[", "]", "new"):
                 first_child = child
                 break
@@ -169,6 +171,7 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
             # For Python: attribute node contains two identifiers (object and method)
             # First check for property_identifier (JS/TS way)
             for child in first_child.children:
+                parse_budget.checkpoint()
                 if child.type == "property_identifier":
                     return child.text.decode("utf-8", errors="replace")
             # Fallback: for Python attribute, get the last identifier (method name)
@@ -182,6 +185,7 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
             # Could be a parenthesized expression or other complex case
             # Try to find an identifier within
             for child in first_child.children:
+                parse_budget.checkpoint()
                 if child.type == "identifier":
                     return child.text.decode("utf-8", errors="replace")
 
@@ -207,6 +211,7 @@ def _collect_calls(
     """
     stack = [node]
     while stack:
+        parse_budget.checkpoint()
         current = stack.pop()
         if current.type in call_types:
             name = _extract_call_name(current, source_bytes)
@@ -241,6 +246,7 @@ def _find_enclosing_symbol(
 
     # Scan backwards to find the innermost enclosing symbol
     while idx >= 0:
+        parse_budget.checkpoint()
         start, end, line, sym = sorted_syms[idx]
         if start <= byte_offset <= end:
             return sym
@@ -273,6 +279,7 @@ def _attribute_calls_to_symbols(
         return
 
     for call_offset, called_name in calls:
+        parse_budget.checkpoint()
         enclosing = _find_enclosing_symbol(callable_syms, call_offset)
         if enclosing and enclosing.name != called_name:
             if called_name not in enclosing.call_references:
@@ -351,8 +358,9 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         List of Symbol objects
 
     Raises:
-        ParseBudgetExceeded: a tree-sitter parse of this file ran past
-            ``JCODEMUNCH_PARSE_BUDGET_SECONDS`` and was stopped (L-114). Raised
+        ParseBudgetExceeded: this file ran past
+            ``JCODEMUNCH_PARSE_BUDGET_SECONDS`` and was stopped, in a
+            tree-sitter parse (L-114) or at a Python-side checkpoint (L-116). Raised
             here, after the dispatch, because most dedicated parsers catch
             ``Exception`` around their parse and return ``[]``.
     """
@@ -362,6 +370,12 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
         source_bytes = content.encode("utf-8")
     with parse_budget.armed(language, len(source_bytes)) as scope:
         symbols = _parse_file_within_budget(content, filename, language, source_bytes, repo)
+        # The clock is read once in `CHECK_EVERY` checkpoints, and one slow call
+        # (a regex over the whole file) passes none: a file can finish past its
+        # deadline with no checkpoint having seen it. It is over budget all the
+        # same, so it is skipped and named like any other (L-116, review round 3).
+        if scope is not None and not scope.cancelled and scope.remaining() <= 0:
+            scope.stop()
     if scope is not None and scope.cancelled:
         raise scope.error()
     return symbols
@@ -369,6 +383,7 @@ def parse_file(content: str, filename: str, language: str, source_bytes: Optiona
 
 def _parse_file_within_budget(content: str, filename: str, language: str, source_bytes: Optional[bytes], repo: Optional[str]) -> list[Symbol]:
     """`parse_file`'s dispatch; every parser it loads carries the open deadline."""
+    parse_budget.checkpoint()
     if language not in LANGUAGE_REGISTRY:
         return []
 
@@ -626,8 +641,10 @@ def _bitfield_brace_list(field):
     """The `{ A }` of `enum class API E : std::uint8_t { A };` in a class
     body, which the grammar reads as the bit-field width `std::uint8_t{ A }`."""
     for child in field.children:
+        parse_budget.checkpoint()
         if child.type == "bitfield_clause":
             for width in child.named_children:
+                parse_budget.checkpoint()
                 if width.type == "compound_literal_expression":
                     return width.child_by_field_name("value")
     return None
@@ -656,6 +673,7 @@ def _export_macro_spans(root) -> list:
     spans: list = []
     stack = [root]
     while stack:
+        parse_budget.checkpoint()
         node = stack.pop()
         if node.type == "function_definition":
             head = node.child_by_field_name("type")
@@ -692,6 +710,7 @@ def _export_macro_spans(root) -> list:
 def _has_descendant_of_type(node, node_type: str) -> bool:
     stack = [node]
     while stack:
+        parse_budget.checkpoint()
         current = stack.pop()
         if current.type == node_type:
             return True
@@ -716,11 +735,13 @@ def _parse_c_family(parser, source_bytes: bytes):
     tree = parser.parse(source_bytes)
     masked = source_bytes
     for _ in range(_EXPORT_MACRO_PASSES):
+        parse_budget.checkpoint()
         spans = _export_macro_spans(tree.root_node)
         if not spans:
             break
         buffer = bytearray(masked)
         for macro in spans:
+            parse_budget.checkpoint()
             buffer[macro.start_byte:macro.end_byte] = b" " * (macro.end_byte - macro.start_byte)
             # Same length, same rows and columns: an exact edit, so the parser
             # re-reads only what the blanked tokens touch.
@@ -852,6 +873,10 @@ def _walk_tree(
     child function to a method. It stays False when the parent is another
     function, so nested/closure functions keep kind='function' (audit V7).
     """
+    # A tree can hold millions of nodes and few symbols (a generated table, a
+    # data literal), so the walk checks its file's deadline itself (L-116).
+    parse_budget.checkpoint()
+
     # Dart: function_signature inside method_signature is handled by method_signature
     if node.type == "function_signature" and node.parent and node.parent.type == "method_signature":
         return
@@ -941,6 +966,7 @@ def _walk_tree(
                 # `tests/test_a_c_typedef_binds_every_name.py`). #852: a
                 # prototype list (`int f(int), g(int);`) the same way.
                 for extra in _extra_declared_names(node, spec, source_bytes, filename):
+                    parse_budget.checkpoint()
                     prefix = symbol.qualified_name[: len(symbol.qualified_name) - len(symbol.name)]
                     qualified = prefix + extra
                     symbols.append(
@@ -1081,6 +1107,7 @@ def _walk_tree(
         # `field_declaration` answer to one rule now.
         if parent_symbol is not None:
             for c in consts:
+                parse_budget.checkpoint()
                 c.qualified_name = f"{parent_symbol.qualified_name}.{c.name}"
                 c.id = make_symbol_id(filename, c.qualified_name, "constant")
                 c.parent = parent_symbol.id
@@ -1117,6 +1144,7 @@ def _walk_tree(
             fields = []
         if parent_symbol is not None:
             for f in fields:
+                parse_budget.checkpoint()
                 f.qualified_name = f"{parent_symbol.qualified_name}.{f.name}"
                 # ⚠ `f.kind`, never the literal "field": the id must agree with
                 # the kind the symbol carries, and this channel emits `property`
@@ -1208,6 +1236,7 @@ def _walk_tree(
     if spilled:
         taken = {n.id for nodes in spilled.values() for n in nodes}
         for child in node.children:
+            parse_budget.checkpoint()
             if child.id in taken:
                 continue
             accessors = spilled.get(child.id, ())
@@ -1267,6 +1296,7 @@ def _rust_impl_type_name(node, source_bytes: bytes) -> Optional[str]:
     ty = node.child_by_field_name("type")
     seen = 0
     while ty is not None and seen < 8:
+        parse_budget.checkpoint()
         seen += 1
         if ty.type == "generic_type":
             ty = ty.child_by_field_name("type")
@@ -1352,6 +1382,7 @@ def _js_class_expression_binder(node, source_bytes: bytes):
     child = node
     up = node.parent
     while up is not None and up.type in _JS_EXPRESSION_WRAPPERS:
+        parse_budget.checkpoint()
         child, up = up, up.parent
     if up is None:
         return None
@@ -1522,8 +1553,10 @@ def _detect_interface_keywords(node, language: str) -> list[str]:
             return ["interface"]
         if ntype == "class_declaration":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "modifiers":
                     for mod in child.children:
+                        parse_budget.checkpoint()
                         if mod.type == "abstract":
                             return ["abstract"]
             return []
@@ -1535,6 +1568,7 @@ def _detect_interface_keywords(node, language: str) -> list[str]:
             return ["interface"]
         if ntype == "class_declaration":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "modifier" and child.text and child.text.decode("utf-8", errors="replace") == "abstract":
                     return ["abstract"]
             return []
@@ -1719,8 +1753,10 @@ def kotlin_property_name(node, source_bytes: bytes) -> Optional[str]:
     it here would have to pick one of its names, which is worse than nothing.
     """
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "variable_declaration":
             for sub in child.children:
+                parse_budget.checkpoint()
                 if sub.type == "simple_identifier":
                     return source_bytes[sub.start_byte:sub.end_byte].decode("utf-8")
             return None
@@ -1835,6 +1871,7 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     is_val = False
     has_initializer = False
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "binding_pattern_kind":
             is_val = source_bytes[child.start_byte:child.end_byte] == b"val"
         elif child.type in ("property_delegate", "receiver_type"):
@@ -1851,6 +1888,7 @@ def kotlin_file_scope_binding_kind(node, source_bytes: bytes) -> Optional[str]:
     # Comments, and the annotations of a spilled accessor, which the grammar
     # spills as siblings of their own ahead of it (`@JvmName("k") get() = ...`).
     while following is not None and following.type in _KOTLIN_SPILL_SKIP:
+        parse_budget.checkpoint()
         gap += source_bytes[cursor:following.start_byte]
         cursor = following.end_byte
         following = following.next_named_sibling
@@ -1884,6 +1922,7 @@ def _kotlin_first_token(node):
     `prefix_expression(annotation, get(...))` (#807)."""
     first = node
     while first.child_count:
+        parse_budget.checkpoint()
         first = next(
             (c for c in first.children if c.type not in _KOTLIN_SPILL_SKIP),
             first.children[0],
@@ -1925,6 +1964,7 @@ def _kotlin_gap(source_bytes: bytes, start: int, skipped: list, end: int) -> byt
     gap = bytearray()
     cursor = start
     for node in skipped:
+        parse_budget.checkpoint()
         gap += source_bytes[cursor:node.start_byte]
         cursor = node.end_byte
     gap += source_bytes[cursor:end]
@@ -1951,11 +1991,13 @@ def _kotlin_adopted_accessors(children, source_bytes: bytes) -> dict:
     """
     adopted: dict = {}
     for index, child in enumerate(children):
+        parse_budget.checkpoint()
         if child.type != "property_declaration":
             continue
         taken: list = []
         pending: list = []
         for position in range(index + 1, len(children)):
+            parse_budget.checkpoint()
             following = children[position]
             if not following.is_named:
                 break
@@ -1996,6 +2038,7 @@ def _kotlin_cover_adopted(symbols: list, start: int, node, last, source_bytes: b
     spanning exactly `node`) over its adopted accessors, as the one-line form
     spans them (#858)."""
     for index in range(start, len(symbols)):
+        parse_budget.checkpoint()
         symbol = symbols[index]
         if symbol.byte_offset == node.start_byte and symbol.byte_length == node.end_byte - node.start_byte:
             symbols[index] = dataclasses.replace(
@@ -2011,11 +2054,14 @@ def _kotlin_next_leaf(node):
     """The leaf after `node` in document order, skipping comments, or None."""
     current = node
     while current is not None:
+        parse_budget.checkpoint()
         sibling = current.next_sibling
         while sibling is not None and sibling.type in ("line_comment", "multiline_comment"):
+            parse_budget.checkpoint()
             sibling = sibling.next_sibling
         if sibling is not None:
             while sibling.child_count:
+                parse_budget.checkpoint()
                 sibling = sibling.children[0]
             if sibling.type in ("line_comment", "multiline_comment"):
                 current = sibling
@@ -2059,8 +2105,10 @@ def kotlin_property_is_constant(node, source_bytes: bytes) -> bool:
     is_const = False
     is_val = False
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "modifiers":
             for mod in child.children:
+                parse_budget.checkpoint()
                 if source_bytes[mod.start_byte:mod.end_byte] == b"const":
                     is_const = True
         elif child.type == "binding_pattern_kind":
@@ -2117,6 +2165,7 @@ def has_modifier_keyword(node, keyword: str) -> bool:
     `_STATE_KIND_REFINERS`; `solidity_state_variable_kind` is the same shape.
     """
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "modifier":
             if any(g.type == keyword for g in child.children):
                 return True
@@ -2147,9 +2196,11 @@ def dlang_variable_kind(node) -> Optional[str]:
     if node.type != "variable_declaration":
         return None
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type != "type":
             continue
         for g in child.children:
+            parse_budget.checkpoint()
             if g.type == "type_ctor" and any(
                 k.type in ("immutable", "const") for k in g.children
             ):
@@ -2299,6 +2350,7 @@ def _go_receiver_type_name(method_node, source: "ByteSlicedSource") -> Optional[
         return None
     stack = list(receiver.children)
     while stack:
+        parse_budget.checkpoint()
         node = stack.pop(0)
         if node.type == "type_identifier":
             return source[node.start_byte:node.end_byte]
@@ -2325,6 +2377,7 @@ def _go_field_names(field_node, source: "ByteSlicedSource") -> list[str]:
         return named
     embedded = [c for c in field_node.children if c.type != "field_identifier"]
     while embedded:
+        parse_budget.checkpoint()
         node = embedded.pop(0)
         if node.type == "type_identifier":
             return [source[node.start_byte:node.end_byte]]
@@ -2389,9 +2442,11 @@ def _attach_go_receivers_and_fields(
     types_by_name: dict[str, Symbol] = {}
     spec_owners: list[tuple[object, Symbol]] = []
     for decl in root_node.children:
+        parse_budget.checkpoint()
         if decl.type != "type_declaration":
             continue
         for spec in decl.children:
+            parse_budget.checkpoint()
             if spec.type != "type_spec":
                 continue
             # ⚠⚠ **The join asks `_go_binding_span_node`, which is the same
@@ -2417,6 +2472,7 @@ def _attach_go_receivers_and_fields(
     # A Go method is only ever declared at package scope, so this does not
     # descend either.
     for node in root_node.children:
+        parse_budget.checkpoint()
         if node.type != "method_declaration":
             continue
         owner = types_by_name.get(_go_receiver_type_name(node, source) or "")
@@ -2429,16 +2485,20 @@ def _attach_go_receivers_and_fields(
         method.id = make_symbol_id(filename, qualified, method.kind)
 
     for node, owner in spec_owners:
+        parse_budget.checkpoint()
         struct = next((c for c in node.children if c.type == "struct_type"), None)
         if struct is None:
             continue
         for field_list in struct.children:
+            parse_budget.checkpoint()
             if field_list.type != "field_declaration_list":
                 continue
             for field in field_list.children:
+                parse_budget.checkpoint()
                 if field.type != "field_declaration":
                     continue
                 for name in _go_field_names(field, source):
+                    parse_budget.checkpoint()
                     qualified, owner_id = _member_of(owner, name)
                     symbols.append(Symbol(
                         id=make_symbol_id(filename, qualified, "field"),
@@ -2570,6 +2630,7 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # Dart: mixin_declaration has identifier as direct child (no field name)
     if node.type == "mixin_declaration":
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "identifier":
                 return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
         return None
@@ -2577,6 +2638,7 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # Dart: method_signature wraps function_signature or getter_signature
     if node.type == "method_signature":
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in ("function_signature", "getter_signature"):
                 name_node = child.child_by_field_name("name")
                 if name_node:
@@ -2592,6 +2654,7 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
         if left is not None:
             stack = [left]
             while stack:
+                parse_budget.checkpoint()
                 cur = stack.pop(0)
                 if cur.type == "identifier":
                     return source_bytes[cur.start_byte:cur.end_byte].decode("utf-8")
@@ -2601,6 +2664,7 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # Dart: type_alias name is the first type_identifier child
     if node.type == "type_alias" and spec.ts_language == "dart":
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "type_identifier":
                 return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
         return None
@@ -2609,11 +2673,13 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     if spec.ts_language == "kotlin":
         if node.type in ("class_declaration", "object_declaration", "type_alias"):
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "type_identifier":
                     return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
             return None
         if node.type == "function_declaration":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "simple_identifier":
                     return source_bytes[child.start_byte:child.end_byte].decode("utf-8")
             return None
@@ -2621,6 +2687,7 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # Gleam: type_definition and type_alias names live inside a type_name child
     if spec.ts_language == "gleam" and node.type in ("type_definition", "type_alias"):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "type_name":
                 name_node = child.child_by_field_name("name")
                 if name_node:
@@ -2674,9 +2741,11 @@ def _extract_name(node, spec: LanguageSpec, source_bytes: bytes) -> Optional[str
     # C#: field_declaration and event_field_declaration wrappers
     if spec.ts_language == "csharp" and node.type in ("field_declaration", "event_field_declaration"):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "variable_declaration":
                 # Find the first variable_declarator child
                 for vdecl in child.children:
+                    parse_budget.checkpoint()
                     if vdecl.type == "variable_declarator":
                         name_node = vdecl.child_by_field_name("name")
                         if name_node:
@@ -2795,6 +2864,7 @@ def _c_declarator_name(name_node, source_bytes: bytes) -> str:
         # ⚠ `parenthesized_declarator` carries its inner declarator as an
         # UNNAMED child (no `declarator` field), which is why the pre-#823 loop
         # stopped there and named `(*Cb)`.
+        parse_budget.checkpoint()
         inner = name_node.child_by_field_name("declarator") or next(
             (c for c in name_node.named_children if c.type in _C_DECLARATOR_WRAPPERS or c.type.endswith("identifier")),
             None,
@@ -2882,6 +2952,7 @@ def _abstract_could_be_expression(node) -> bool:
     abstract function, so both could. A pointer or reference, an empty `[]`
     and a parameter list no argument can spell (`(int)`) cannot, at any depth:
     `(Foo (*)(int))` and `(Foo (&)[3])` are prototypes (review round 2)."""
+    parse_budget.checkpoint()
     kind = node.type
     if kind == "abstract_array_declarator":
         if node.child_by_field_name("size") is None:
@@ -2916,6 +2987,7 @@ def _parameters_could_be_arguments(function_declarator) -> bool:
     if params is None:
         return False
     for param in params.named_children:
+        parse_budget.checkpoint()
         if param.type not in _PARAMETER_DECLARATIONS:
             continue
         # A default value is an expression either way, so it decides nothing:
@@ -2946,6 +3018,7 @@ def _swift_bound_identifier(pattern_node, source_bytes: bytes) -> Optional[str]:
     found = []
     stack = list(pattern_node.children)
     while stack:
+        parse_budget.checkpoint()
         current = stack.pop(0)
         if current.type == "simple_identifier":
             found.append(current)
@@ -2977,6 +3050,7 @@ def _extract_cpp_name(name_node, source_bytes: bytes) -> Optional[str]:
     """Extract C++ symbol names from nested declarators."""
     current = name_node
     while current.type in _CPP_DECLARATOR_WRAPPERS:
+        parse_budget.checkpoint()
         inner = current.child_by_field_name("declarator")
         if not inner:
             break
@@ -3022,6 +3096,7 @@ def _cpp_template_type_is_whole(node, source_bytes: bytes) -> bool:
     text = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
     angle = paren = 0
     for ch in text:
+        parse_budget.checkpoint()
         if ch in "([":
             paren += 1
         elif ch in ")]":
@@ -3055,6 +3130,7 @@ def _cpp_owner_in_scope(segments: list[str], scope_parts: list[str]) -> str:
     `testing.testing` (gtest in fmt's tree, found in L-07's corpus diff)."""
     base = list(scope_parts)
     for depth in range(len(scope_parts) - 1, -1, -1):
+        parse_budget.checkpoint()
         if scope_parts[depth] == segments[0]:
             base = list(scope_parts[:depth])
             break
@@ -3075,10 +3151,12 @@ def _cpp_template_parameter_names(node, source_bytes: bytes) -> list[list[str]]:
     lists: list[list[str]] = []
     current = node.parent
     while current is not None:
+        parse_budget.checkpoint()
         if current.type == "template_declaration":
             params = current.child_by_field_name("parameters")
             names: list[str] = []
             for param in params.named_children if params is not None else ():
+                parse_budget.checkpoint()
                 name = _cpp_template_parameter_name(param, source_bytes)
                 if name:
                     names.append(name)
@@ -3093,6 +3171,7 @@ def _cpp_template_parameter_name(param, source_bytes: bytes) -> Optional[str]:
         # `class T`, `class... Ts`, and the trailing `class TT` of a template
         # template parameter: the last identifier outside a nested list.
         for child in reversed(param.named_children):
+            parse_budget.checkpoint()
             if child.type in ("type_identifier", "identifier"):
                 named = child
                 break
@@ -3151,6 +3230,7 @@ def _cpp_resolve_owner(qualified, source_bytes: bytes, scope_parts, symbols):
     primary_chain: list[str] = []
     current = qualified
     while current is not None and current.type == "qualified_identifier":
+        parse_budget.checkpoint()
         scope = current.child_by_field_name("scope")
         if scope is None:
             return None
@@ -3192,6 +3272,7 @@ def _cpp_is_explicit_specialisation(node) -> bool:
         if name is not None and name.start_byte == node.start_byte and name.end_byte == node.end_byte:
             current = current.parent
     while current is not None:
+        parse_budget.checkpoint()
         if current.type == "template_declaration":
             params = current.child_by_field_name("parameters")
             if params is not None and not params.named_children:
@@ -3271,6 +3352,7 @@ def _cpp_out_of_class_declarator(node):
         return None
     current = fn.child_by_field_name("declarator")
     while current is not None and current.type in _CPP_DECLARATOR_WRAPPERS:
+        parse_budget.checkpoint()
         current = current.child_by_field_name("declarator")
     if current is None or current.type != "qualified_identifier":
         return None
@@ -3349,6 +3431,7 @@ def _cpp_out_of_class_member(
 
 def _find_cpp_name_in_subtree(node, source_bytes: bytes) -> Optional[str]:
     """Best-effort extraction of a callable/type name from a declarator subtree."""
+    parse_budget.checkpoint()
     direct_types = {"identifier", "field_identifier", "operator_name", "destructor_name", "type_identifier"}
     if node.type in direct_types:
         text = source_bytes[node.start_byte:node.end_byte].decode("utf-8").strip()
@@ -3360,6 +3443,7 @@ def _find_cpp_name_in_subtree(node, source_bytes: bytes) -> Optional[str]:
             return _find_cpp_name_in_subtree(name_node, source_bytes)
 
     for child in node.children:
+        parse_budget.checkpoint()
         if not child.is_named:
             continue
         found = _find_cpp_name_in_subtree(child, source_bytes)
@@ -3374,6 +3458,7 @@ def _build_signature(node, spec: LanguageSpec, source_bytes: bytes) -> str:
         inner = node.child_by_field_name("declaration")
         if not inner:
             for child in reversed(node.children):
+                parse_budget.checkpoint()
                 if child.is_named:
                     inner = child
                     break
@@ -3391,6 +3476,7 @@ def _build_signature(node, spec: LanguageSpec, source_bytes: bytes) -> str:
         # Kotlin uses no named fields; find body child by type
         body = None
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in ("function_body", "class_body", "enum_class_body"):
                 body = child
                 break
@@ -3419,6 +3505,7 @@ def _nearest_cpp_template_wrapper(node):
     current = node
     wrapper = None
     while current.parent and current.parent.type == "template_declaration":
+        parse_budget.checkpoint()
         wrapper = current.parent
         current = current.parent
     return wrapper
@@ -3475,6 +3562,7 @@ def _drop_redundant_c_prototypes(symbols: list[Symbol], source_bytes: bytes) -> 
     kept: list[Symbol] = []
     declared: set[str] = set()
     for s in symbols:
+        parse_budget.checkpoint()
         if s.kind == "function" and _text(s).endswith(b";"):
             if s.qualified_name in defined or s.qualified_name in declared:
                 continue
@@ -3512,6 +3600,7 @@ def _c_family_function_declarator(node):
     is kept for the declarator that names it.
     """
     for declarator in node.children_by_field_name("declarator"):
+        parse_budget.checkpoint()
         if _cpp_declarator_is_function(declarator):
             return declarator
     return None
@@ -3521,6 +3610,7 @@ def _in_block_scope(node) -> bool:
     """Is a C-family `declaration` inside a function body (#850)?"""
     parent = node.parent
     while parent is not None:
+        parse_budget.checkpoint()
         if parent.type == "compound_statement":
             return True
         if parent.type in ("translation_unit", "declaration_list", "field_declaration_list"):
@@ -3587,6 +3677,7 @@ def _later_prototype(node) -> bool:
 def _declarator_subtree_has_function(node) -> bool:
     """A function declarator anywhere under `node`, never inside a lambda
     (#850)."""
+    parse_budget.checkpoint()
     if node.type in {"function_declarator", "abstract_function_declarator"}:
         return True
     if node.type == "lambda_expression":
@@ -3649,6 +3740,7 @@ def _cpp_declarator_leaf(declarator):
     while node.type in _CPP_DECLARATOR_WRAPPERS:
         # ⚠ Never into an ERROR node: the grammar errors on the `H::` of a
         # pointer-to-member and still exposes the declarator beside it.
+        parse_budget.checkpoint()
         inner = node.child_by_field_name("declarator") or next(
             (c for c in node.named_children if c.type != "ERROR"), None
         )
@@ -3663,6 +3755,7 @@ def _extract_cpp_namespace_name(node, source_bytes: bytes) -> Optional[str]:
     name_node = node.child_by_field_name("name")
     if not name_node:
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in {"namespace_identifier", "identifier"}:
                 name_node = child
                 break
@@ -3693,6 +3786,7 @@ def _has_cpp_only_construct(root) -> bool:
     an ERROR? A function body is not entered: a declaration is what decides."""
     stack = [root]
     while stack:
+        parse_budget.checkpoint()
         node = stack.pop()
         if node.type in _CPP_ONLY_DECLARATIONS:
             return True
@@ -3729,6 +3823,7 @@ def _count_error_nodes(node) -> int:
     """Count parser ERROR nodes in a syntax tree subtree."""
     count = 1 if node.type == "ERROR" else 0
     for child in node.children:
+        parse_budget.checkpoint()
         count += _count_error_nodes(child)
     return count
 
@@ -3750,6 +3845,7 @@ def _extract_python_docstring(node, source_bytes: bytes) -> str:
     
     # Find first expression_statement in body (function docstrings)
     for child in body.children:
+        parse_budget.checkpoint()
         if child.type == "expression_statement":
             # Check if it's a string
             expr = child.child_by_field_name("expression")
@@ -3791,8 +3887,10 @@ def _extract_preceding_comments(node, source_bytes: bytes) -> str:
     # Walk backwards through siblings, skipping past annotations/decorators
     prev = node.prev_named_sibling
     while prev and prev.type in ("annotation", "marker_annotation"):
+        parse_budget.checkpoint()
         prev = prev.prev_named_sibling
     while prev and prev.type in ("comment", "line_comment", "block_comment", "documentation_comment", "pod"):
+        parse_budget.checkpoint()
         comment_text = source_bytes[prev.start_byte:prev.end_byte].decode("utf-8")
         comments.insert(0, comment_text)
         prev = prev.prev_named_sibling
@@ -3810,6 +3908,7 @@ def _clean_comment_markers(text: str) -> str:
     if text.lstrip().startswith("="):
         content_lines = []
         for line in text.split("\n"):
+            parse_budget.checkpoint()
             stripped = line.strip()
             if stripped.startswith("="):
                 continue
@@ -3819,6 +3918,7 @@ def _clean_comment_markers(text: str) -> str:
     lines = text.split("\n")
     cleaned = []
     for line in lines:
+        parse_budget.checkpoint()
         line = line.strip()
         # Remove leading comment markers (order matters: longer prefixes first)
         if line.startswith("/**"):
@@ -3855,6 +3955,7 @@ def _extract_decorators(node, spec: LanguageSpec, source_bytes: bytes) -> list[s
     if spec.decorator_from_children:
         # C#: attribute_list nodes are direct children of the declaration
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == spec.decorator_node_type:
                 decorator_text = source_bytes[child.start_byte:child.end_byte].decode("utf-8")
                 decorators.append(decorator_text.strip())
@@ -3862,6 +3963,7 @@ def _extract_decorators(node, spec: LanguageSpec, source_bytes: bytes) -> list[s
         # Other languages: decorators are preceding siblings
         prev = node.prev_named_sibling
         while prev and prev.type == spec.decorator_node_type:
+            parse_budget.checkpoint()
             decorator_text = source_bytes[prev.start_byte:prev.end_byte].decode("utf-8")
             decorators.insert(0, decorator_text.strip())
             prev = prev.prev_named_sibling
@@ -3913,6 +4015,7 @@ def _extract_python_class_fields(
     for stmt in block.children:
         # The grammar wraps a statement-level assignment in an
         # `expression_statement`; older versions exposed it directly.
+        parse_budget.checkpoint()
         if stmt.type == "expression_statement" and stmt.named_child_count == 1:
             stmt = stmt.named_children[0]
         if stmt.type != "assignment":
@@ -3922,6 +4025,7 @@ def _extract_python_class_fields(
         # subscript or attribute target is not a name and is passed over.
         link = stmt
         while link is not None and link.type == "assignment":
+            parse_budget.checkpoint()
             left = link.child_by_field_name("left")
             if left is not None and left.type == "identifier":
                 fname = source_bytes[left.start_byte:left.end_byte].decode("utf-8", errors="replace")
@@ -4230,10 +4334,12 @@ def _go_var_spec_nodes(node):
     `test_a_grouped_var_block_binds_every_name`.
     """
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "var_spec":
             yield child
         elif child.type == "var_spec_list":
             for spec_node in child.children:
+                parse_budget.checkpoint()
                 if spec_node.type == "var_spec":
                     yield spec_node
 
@@ -4265,11 +4371,13 @@ def _extract_go_variables(
 
     found: list[Symbol] = []
     for spec_node in _go_var_spec_nodes(node):
+        parse_budget.checkpoint()
         for child in spec_node.children:
             # Names precede the `=`; the value side lives in an expression_list.
             # A spec with a type and no value (`var ErrNotFound error`) has no
             # `=` at all, and its type is a `type_identifier`, never an
             # `identifier`, so the same loop reads it correctly.
+            parse_budget.checkpoint()
             if child.type == "=":
                 break
             if child.type == "identifier":
@@ -4543,6 +4651,7 @@ def _cpp_member_has_an_owner(node) -> bool:
     to stop, one nesting level down.
     """
     while True:
+        parse_budget.checkpoint()
         body = node.parent
         container = body.parent if body is not None else None
         if container is None or not _cpp_anonymous_container(container):
@@ -4622,6 +4731,7 @@ def _js_class_declares_method(class_body, name: str, source_bytes: bytes) -> boo
     if class_body is None:
         return False
     for member in class_body.named_children:
+        parse_budget.checkpoint()
         if member.type not in ("method_definition", "abstract_method_signature", "method_signature"):
             continue
         member_name = member.child_by_field_name("name")
@@ -4877,6 +4987,7 @@ def _js_binding_pattern_names(node, source_bytes: bytes, depth: int = 0) -> list
     ⚠ A plain `identifier` enters here too, so the common case and the pattern
     case are ONE path rather than a branch that has to stay in step.
     """
+    parse_budget.checkpoint()
     if depth > _MAX_BINDING_PATTERN_DEPTH:
         return []
     node_type = node.type
@@ -4894,6 +5005,7 @@ def _js_binding_pattern_names(node, source_bytes: bytes, depth: int = 0) -> list
     if node_type in _JS_BINDING_PATTERN_TYPES:
         names: list[str] = []
         for child in node.children:
+            parse_budget.checkpoint()
             if child.is_named:
                 names.extend(_js_binding_pattern_names(child, source_bytes, depth + 1))
         return names
@@ -4933,6 +5045,7 @@ def _js_declarator_bindings(node, source_bytes: bytes) -> list[tuple[str, Any]]:
     """
     pairs: list[tuple[str, Any]] = []
     for declarator in node.children:
+        parse_budget.checkpoint()
         if declarator.type != "variable_declarator":
             continue
         name_node = declarator.child_by_field_name("name")
@@ -5024,6 +5137,7 @@ def _js_value_is_a_class(value) -> bool:
     `satisfies`, `!`, `<T>`) seen through? Shared by every site that asks, so
     a parenthesised class is a class at all of them (#861 review round 3)."""
     while value is not None and value.type in _JS_EXPRESSION_WRAPPERS:
+        parse_budget.checkpoint()
         value = next(
             (c for c in value.named_children if c.type == "class" or c.type in _JS_EXPRESSION_WRAPPERS),
             None,
@@ -5053,6 +5167,7 @@ def _extract_php_properties(
     """
     found: list[Symbol] = []
     for element in node.children:
+        parse_budget.checkpoint()
         if element.type != "property_element":
             continue
         variable = element.child_by_field_name("name")
@@ -5090,10 +5205,12 @@ def _extract_go_constants(
     """
     found: list[Symbol] = []
     for spec_node in node.children:
+        parse_budget.checkpoint()
         if spec_node.type != "const_spec":
             continue
         for child in spec_node.children:
             # Names precede the `=`; the value side lives in an expression_list.
+            parse_budget.checkpoint()
             if child.type == "=":
                 break
             if child.type == "identifier":
@@ -5110,6 +5227,7 @@ def _extract_php_constants(
     """PHP `const A = 1, B = 2;` -- one `const_element` per bound name (#428)."""
     found: list[Symbol] = []
     for element in node.children:
+        parse_budget.checkpoint()
         if element.type != "const_element":
             continue
         name_node = _first_named_child(element)
@@ -5158,6 +5276,7 @@ def _java_declarator_names(node, source_bytes: bytes) -> list[str]:
     """
     names: list[str] = []
     for declarator in node.children:
+        parse_budget.checkpoint()
         if declarator.type != "variable_declarator":
             continue
         name_node = declarator.child_by_field_name("name")
@@ -5302,6 +5421,7 @@ def _extract_ruby_members(
         return []
     out = []
     for arg in args.children:
+        parse_budget.checkpoint()
         if arg.type == "simple_symbol":
             # `:view` -> `view`; the colon is the literal's syntax, not the name.
             name = source[arg.start_byte:arg.end_byte].lstrip(":")
@@ -5359,11 +5479,13 @@ def _extract_dart_members(
     kind = _dart_member_kind(node)
     names = []
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type not in (
             "initialized_identifier_list", "static_final_declaration_list"
         ):
             continue
         for declarator in child.children:
+            parse_budget.checkpoint()
             if declarator.type not in (
                 "initialized_identifier", "static_final_declaration"
             ):
@@ -5407,6 +5529,7 @@ def _extract_bash_constants(
 
     found: list[Symbol] = []
     for child in children:
+        parse_budget.checkpoint()
         if child.type != "variable_assignment":
             continue
         name_node = child.child_by_field_name("name")
@@ -5520,6 +5643,7 @@ def _extract_constant(
             pkg_name = source_bytes[children[1].start_byte:children[1].end_byte].decode("utf-8")
             if pkg_name == "constant":
                 for child in children:
+                    parse_budget.checkpoint()
                     if child.type == "list_expression" and child.child_count >= 1:
                         name_node = child.children[0]
                         if name_node.type == "autoquoted_bareword":
@@ -5580,6 +5704,7 @@ def _extract_constant(
         # Only extract immutable `let` bindings (not `var`)
         binding = None
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "value_binding_pattern":
                 binding = child
                 break
@@ -5595,6 +5720,7 @@ def _extract_constant(
         if not name_node:
             # fallback: first simple_identifier in pattern
             for child in pattern.children:
+                parse_budget.checkpoint()
                 if child.type == "simple_identifier":
                     name_node = child
                     break
@@ -5660,6 +5786,7 @@ def _get_elixir_args(node) -> Optional[object]:
     scanning named_children.
     """
     for child in node.named_children:
+        parse_budget.checkpoint()
         if child.type == "arguments":
             return child
     return None
@@ -5732,6 +5859,7 @@ def _parse_elixir_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
 def _walk_elixir(node, source_bytes: bytes, filename: str, symbols: list, parent_symbol: Optional[Symbol]):
     """Recursively walk Elixir AST and extract symbols."""
+    parse_budget.checkpoint()
     if node.type == "call":
         target = node.child_by_field_name("target")
         if target is None:
@@ -5773,12 +5901,14 @@ def _walk_elixir(node, source_bytes: bytes, filename: str, symbols: list, parent
 
 def _walk_elixir_children(node, source_bytes: bytes, filename: str, symbols: list, parent_symbol: Optional[Symbol]):
     for child in node.children:
+        parse_budget.checkpoint()
         _walk_elixir(child, source_bytes, filename, symbols, parent_symbol)
 
 
 def _find_elixir_do_block(call_node) -> Optional[object]:
     """Find the do_block child of a call node."""
     for child in call_node.children:
+        parse_budget.checkpoint()
         if child.type == "do_block":
             return child
     return None
@@ -5819,6 +5949,7 @@ def _extract_elixir_module(node, keyword: str, source_bytes: bytes, filename: st
 def _extract_elixir_alias_name(arguments, source_bytes: bytes) -> Optional[str]:
     """Extract module name from an `alias` node in arguments."""
     for child in arguments.children:
+        parse_budget.checkpoint()
         if child.type == "alias":
             return source_bytes[child.start_byte:child.end_byte].decode("utf-8").strip()
         # Sometimes the module name is an `atom` (rare) or `identifier`
@@ -5834,11 +5965,13 @@ def _extract_elixir_defimpl_name(arguments, source_bytes: bytes, parent_symbol: 
     for_name = None
 
     for child in arguments.children:
+        parse_budget.checkpoint()
         if child.type == "alias" and proto_name is None:
             proto_name = source_bytes[child.start_byte:child.end_byte].decode("utf-8").strip()
         # `for:` keyword argument: keywords > pair > (atom "for") + alias
         if child.type == "keywords":
             for pair in child.children:
+                parse_budget.checkpoint()
                 if pair.type == "pair":
                     key_node = pair.child_by_field_name("key")
                     val_node = pair.child_by_field_name("value")
@@ -5917,6 +6050,7 @@ def _extract_elixir_doc(node, source_bytes: bytes) -> str:
     """Walk backward through prev_named_sibling looking for @doc attribute."""
     prev = node.prev_named_sibling
     while prev is not None:
+        parse_budget.checkpoint()
         if prev.type == "unary_operator":
             attr = _get_elixir_attr_name(prev, source_bytes)
             if attr == "doc":
@@ -5941,6 +6075,7 @@ def _extract_elixir_moduledoc(do_block, source_bytes: bytes) -> str:
     if do_block is None:
         return ""
     for child in do_block.children:
+        parse_budget.checkpoint()
         if child.type == "unary_operator":
             if _get_elixir_attr_name(child, source_bytes) == "moduledoc":
                 inner = _first_named_child(child)
@@ -5955,6 +6090,7 @@ def _extract_elixir_string_arg(call_node, source_bytes: bytes) -> str:
         return ""
 
     for child in arguments.children:
+        parse_budget.checkpoint()
         if child.type == "string":
             text = source_bytes[child.start_byte:child.end_byte].decode("utf-8")
             return _strip_quotes(text)
@@ -5972,6 +6108,7 @@ def _extract_elixir_type_attribute(node, attr_name: str, inner_call, source_byte
     # The first named child is a `binary_operator` with `::` operator
     # whose left side is the type name (possibly a call for parameterized types)
     for child in arguments.children:
+        parse_budget.checkpoint()
         if child.is_named:
             name = _extract_elixir_type_name(child, source_bytes)
             if not name:
@@ -5991,6 +6128,7 @@ def _extract_elixir_type_attribute(node, attr_name: str, inner_call, source_byte
 def _extract_elixir_type_name(type_expr_node, source_bytes: bytes) -> Optional[str]:
     """Extract just the name from a type expression like `name :: type` or `name(params) :: type`."""
     # `binary_operator` with `::` — left side is the name
+    parse_budget.checkpoint()
     if type_expr_node.type == "binary_operator":
         left = type_expr_node.child_by_field_name("left")
         if left:
@@ -6029,6 +6167,7 @@ def _disambiguate_and_compute_complexity(
     seen_ids: set[str] = set()
     has_duplicates = False
     for sym in symbols:
+        parse_budget.checkpoint()
         if sym.id in seen_ids:
             has_duplicates = True
             break
@@ -6045,6 +6184,7 @@ def _disambiguate_and_compute_complexity(
     # old id -> the symbols that carried it, in document order (#821).
     renumbered: dict[str, list[Symbol]] = {}
     for sym in symbols:
+        parse_budget.checkpoint()
         if has_duplicates and sym.id in duplicated:
             old_id = sym.id
             ordinals[old_id] = ordinals.get(old_id, 0) + 1
@@ -6108,6 +6248,7 @@ def _repoint_members_at_renumbered_owners(
     whose owner was unique keeps its pointer untouched.
     """
     for symbol in symbols:
+        parse_budget.checkpoint()
         twins = renumbered.get(symbol.parent or "")
         if not twins:
             continue
@@ -6351,6 +6492,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     char_off = 0
     byte_off = 0
     for line in lines:
+        parse_budget.checkpoint()
         char_line_starts.append(char_off)
         byte_line_starts.append(byte_off)
         char_off += len(line) + 1              # +1 for \n (char count)
@@ -6363,6 +6505,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         lo, hi = 0, len(char_line_starts) - 1
         while lo < hi:
+            parse_budget.checkpoint()
             mid = (lo + hi + 1) // 2
             if char_line_starts[mid] <= char_pos:
                 lo = mid
@@ -6387,6 +6530,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # Find the 0-based line index via binary search
         lo, hi = 0, len(char_line_starts) - 1
         while lo < hi:
+            parse_budget.checkpoint()
             mid = (lo + hi + 1) // 2
             if char_line_starts[mid] <= char_pos:
                 lo = mid
@@ -6414,6 +6558,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         doc_lines: list[str] = []
         i = line_idx - 1
         while i >= 0:
+            parse_budget.checkpoint()
             stripped = lines[i].strip()
             if stripped.startswith("#"):
                 doc_lines.append(stripped.lstrip("# ").strip())
@@ -6434,6 +6579,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         decs: list[str] = []
         i = line_idx - 1
         while i >= 0:
+            parse_budget.checkpoint()
             stripped = lines[i].strip()
             if stripped.startswith("@"):
                 decs.append(stripped)
@@ -6459,6 +6605,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         last = start_line_idx
         for i in range(start_line_idx + 1, len(lines)):
+            parse_budget.checkpoint()
             stripped = lines[i].strip()
             if not stripped or stripped.startswith("#") or stripped.startswith("@"):
                 continue  # blank, comment, or decorator lines don't end blocks
@@ -6497,6 +6644,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         best = None
         for _indent, cname, _ckind, cstart, cend in containers:
+            parse_budget.checkpoint()
             if member_indent > _indent and cstart <= member_line_1idx <= cend:
                 if best is None or _indent > best[0]:
                     best = (_indent, cname)
@@ -6520,6 +6668,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # returns the complete definition including all members.
 
     for m in _VERSE_DEF_RE.finditer(content):
+        parse_budget.checkpoint()
         indent_str = m.group(1)
         indent = len(indent_str)
         name = m.group(2)
@@ -6602,6 +6751,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # (Receiver:type).Name pattern that doesn't overlap with regular methods.
 
     for m in _VERSE_EXT_METHOD_RE.finditer(content):
+        parse_budget.checkpoint()
         indent_str = m.group(1)
         indent = len(indent_str)
         receiver = m.group(2)
@@ -6659,6 +6809,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # params would be unusual in digest files and are skipped.
 
     for m in _VERSE_METHOD_RE.finditer(content):
+        parse_budget.checkpoint()
         indent_str = m.group(1)
         indent = len(indent_str)
         name = m.group(2)
@@ -6719,6 +6870,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Stored as "constant" kind (jcodemunch doesn't distinguish var/const).
 
     for m in _VERSE_VAR_RE.finditer(content):
+        parse_budget.checkpoint()
         indent_str = m.group(1)
         indent = len(indent_str)
         name = m.group(2)
@@ -6763,6 +6915,7 @@ def _parse_verse_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # take priority via seen_ids.
 
     for m in _VERSE_CONST_RE.finditer(content):
+        parse_budget.checkpoint()
         indent_str = m.group(1)
         indent = len(indent_str)
         name = m.group(2)
@@ -6829,12 +6982,14 @@ def _parse_blade_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     line_start_offsets: list[int] = []
     offset = 0
     for line in lines:
+        parse_budget.checkpoint()
         line_start_offsets.append(offset)
         offset += len(line.encode("utf-8")) + 1
 
     def byte_to_line(byte_pos: int) -> int:
         lo, hi = 0, len(line_start_offsets) - 1
         while lo < hi:
+            parse_budget.checkpoint()
             mid = (lo + hi + 1) // 2
             if line_start_offsets[mid] <= byte_pos:
                 lo = mid
@@ -6846,7 +7001,9 @@ def _parse_blade_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     seen: set[tuple[str, str]] = set()
 
     for kind, pattern, group in _BLADE_COMPILED:
+        parse_budget.checkpoint()
         for m in pattern.finditer(content):
+            parse_budget.checkpoint()
             name = m.group(group)
             key = (kind, name)
             if key in seen:
@@ -6993,12 +7150,14 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     line_start_offsets: list[int] = []
     offset = 0
     for line in lines:
+        parse_budget.checkpoint()
         line_start_offsets.append(offset)
         offset += len(line.encode("utf-8")) + 1
 
     def byte_to_line(byte_pos: int) -> int:
         lo, hi = 0, len(line_start_offsets) - 1
         while lo < hi:
+            parse_budget.checkpoint()
             mid = (lo + hi + 1) // 2
             if line_start_offsets[mid] <= byte_pos:
                 lo = mid
@@ -7010,6 +7169,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     objects: list[tuple[str, str, int, int, str]] = []  # (name, kind, start, end, objtype)
     obj_matches = list(_AL_OBJECT_RE.finditer(content))
     for i, m in enumerate(obj_matches):
+        parse_budget.checkpoint()
         objtype = m.group("objtype").lower()
         name = m.group("qname") or m.group("iname")
         if not name:
@@ -7023,6 +7183,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Emit object symbols
     for name, kind, start, end, _objtype in objects:
+        parse_budget.checkpoint()
         line_no = byte_to_line(start)
         sig_end = content.find("\n", start)
         if sig_end == -1:
@@ -7052,6 +7213,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         Returns (name, symbol_id, objtype) or None.
         """
         for name, kind, start, end, objtype in objects:
+            parse_budget.checkpoint()
             if start <= pos < end:
                 return (name, make_symbol_id(filename, name, kind), objtype)
         return None
@@ -7066,6 +7228,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         doc_lines: list[str] = []
         idx = line_idx - 1
         while idx >= 0:
+            parse_budget.checkpoint()
             stripped = lines[idx].strip()
             if stripped.startswith("///"):
                 doc_lines.insert(0, stripped[3:].strip())
@@ -7082,6 +7245,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # Fallback: look for // inline comments
         idx = line_idx - 1
         while idx >= 0:
+            parse_budget.checkpoint()
             stripped = lines[idx].strip()
             if stripped.startswith("//") and not stripped.startswith("///"):
                 doc_lines.insert(0, stripped[2:].strip())
@@ -7100,6 +7264,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         attrs: list[str] = []
         idx = line_idx - 1
         while idx >= 0:
+            parse_budget.checkpoint()
             stripped = lines[idx].strip()
             if _AL_ATTR_RE.match(stripped):
                 attrs.insert(0, stripped)
@@ -7113,6 +7278,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 2: find procedures
     for m in _AL_PROCEDURE_RE.finditer(content):
+        parse_budget.checkpoint()
         access = m.group("access") or ""
         name = m.group("name") or m.group("name2")
         params = m.group("params") or m.group("params2") or ""
@@ -7158,6 +7324,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 3: find triggers
     for m in _AL_TRIGGER_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("name")
         parent_info = _find_parent(m.start())
         parent_name = parent_info[0] if parent_info else None
@@ -7186,6 +7353,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 4: find fields (only in table/tableextension objects)
     for m in _AL_FIELD_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         field_type = m.group("type").strip()
         if not name:
@@ -7221,6 +7389,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 5: find enum values (only in enum/enumextension objects)
     for m in _AL_ENUM_VALUE_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7253,6 +7422,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 6: find page actions (only in page/pageextension objects)
     for m in _AL_ACTION_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7285,6 +7455,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 7: find keys (only in table/tableextension objects)
     for m in _AL_KEY_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7318,6 +7489,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 8: find report/query columns (only in report/query/reportextension)
     for m in _AL_COLUMN_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7351,6 +7523,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 9: find fieldgroups (only in table/tableextension objects)
     for m in _AL_FIELDGROUP_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7384,6 +7557,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 10: find dataitems (only in report/query/reportextension)
     for m in _AL_DATAITEM_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7417,6 +7591,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 11: find xmlport elements (only in xmlport objects)
     for m in _AL_XMLPORT_ELEMENT_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7454,6 +7629,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Pass 12: find controladdin events (only in controladdin objects)
     for m in _AL_EVENT_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("name")
         if not name:
             continue
@@ -7488,6 +7664,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Pass 13: find page layout fields (only in page/pageextension)
     # These use field(Name; Source) without a numeric ID, unlike table fields
     for m in _AL_PAGE_FIELD_RE.finditer(content):
+        parse_budget.checkpoint()
         name = m.group("qname") or m.group("iname")
         if not name:
             continue
@@ -7526,6 +7703,7 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Pass 14: find variable declarations (inside var sections)
     _in_var = False
     for i, line in enumerate(lines):
+        parse_budget.checkpoint()
         stripped = line.strip()
         if stripped.lower() == "var":
             _in_var = True
@@ -7599,6 +7777,7 @@ def _walk_nix_bindings(node, source_bytes: bytes, filename: str, symbols: list, 
         return
 
     for child in node.children:
+        parse_budget.checkpoint()
         if child.type == "binding":
             _extract_nix_binding(child, source_bytes, filename, symbols)
         elif child.type in ("binding_set", "let_expression", "attrset_expression", "source_code"):
@@ -7637,11 +7816,13 @@ def _extract_nix_binding(node, source_bytes: bytes, filename: str, symbols: list
     comment_lines = []
     prev = node.prev_named_sibling
     while prev and prev.type == "comment":
+        parse_budget.checkpoint()
         comment_lines.insert(0, source_bytes[prev.start_byte:prev.end_byte].decode("utf-8"))
         prev = prev.prev_named_sibling
     if not comment_lines and node.prev_named_sibling is None and node.parent:
         prev = node.parent.prev_named_sibling
         while prev and prev.type == "comment":
+            parse_budget.checkpoint()
             comment_lines.insert(0, source_bytes[prev.start_byte:prev.end_byte].decode("utf-8"))
             prev = prev.prev_named_sibling
     if comment_lines:
@@ -7755,6 +7936,7 @@ class _EmbeddedScriptClasses:
         # class node (a comment or a string is not). A whole-tree walk here
         # cost the corpus more than the parse it gates (review round 3).
         for match in _CLASS_KEYWORD_RE.finditer(script):
+            parse_budget.checkpoint()
             leaf = self._root_node.descendant_for_byte_range(match.start(), match.end())
             if leaf is None or leaf.type == "ERROR":
                 return True
@@ -7768,6 +7950,7 @@ class _EmbeddedScriptClasses:
                 # JSX in its body was an ERROR here and a class there (review
                 # round 4; the grammars match since L-39). A real syntax error,
                 # or any future grammar mismatch, has the same shape.
+                parse_budget.checkpoint()
                 if ancestor.type == "ERROR":
                     return True
                 # ⚠ Skipped ONLY where the generic walk gives a nested class an
@@ -7793,6 +7976,7 @@ class _EmbeddedScriptClasses:
         )
         children: dict[str, list[Symbol]] = {}
         for sym in parsed:
+            parse_budget.checkpoint()
             if sym.parent:
                 children.setdefault(sym.parent, []).append(sym)
         def _rewrap(sym: Symbol, parent_id: str) -> Symbol:
@@ -7809,6 +7993,7 @@ class _EmbeddedScriptClasses:
 
         groups = []
         for root in parsed:
+            parse_budget.checkpoint()
             if root.parent:
                 continue
             if root.kind != "class" and not self._is_unbound_class_member(root):
@@ -7818,6 +8003,7 @@ class _EmbeddedScriptClasses:
             # the (Optional) original parent is needed.
             stack = [(child, out[0].id) for child in children.get(root.id, ())]
             while stack:
+                parse_budget.checkpoint()
                 sym, parent_id = stack.pop(0)
                 rewrapped = _rewrap(sym, parent_id)
                 out.append(rewrapped)
@@ -7842,6 +8028,7 @@ class _EmbeddedScriptClasses:
             return False
         node = root.descendant_for_byte_range(sym.byte_offset, sym.byte_offset + max(sym.byte_length, 1))
         while node is not None:
+            parse_budget.checkpoint()
             if node.type == "class_body":
                 return True
             node = node.parent
@@ -7968,6 +8155,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             tag_text = source_bytes[start_tag.start_byte:start_tag.end_byte].decode("utf-8", errors="replace")
             is_setup = "setup" in tag_text
             for attr in start_tag.children:
+                parse_budget.checkpoint()
                 if attr.type == "attribute":
                     attr_text = source_bytes[attr.start_byte:attr.end_byte].decode("utf-8", errors="replace")
                     if 'lang="ts"' in attr_text or "lang='ts'" in attr_text:
@@ -8022,6 +8210,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return ""
         prev = None
         for c in parent.children:
+            parse_budget.checkpoint()
             if c.id == n.id:
                 break
             if c.type in ("comment", "template_substitution"):
@@ -8135,6 +8324,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
             kind = "constant" if js_binding_is_constant(node) else "variable"
             for decl in node.children:
+                parse_budget.checkpoint()
                 if decl.type != "variable_declarator":
                     continue
                 name_node = decl.child_by_field_name("name")
@@ -8166,6 +8356,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     continue
                 sig = _node_text(node).split("\n")[0].rstrip("{").strip()
                 for name in _js_binding_pattern_names(name_node, script_bytes):
+                    parse_budget.checkpoint()
                     sym = Symbol(
                         id=make_symbol_id(filename, name, kind),
                         name=name,
@@ -8187,6 +8378,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         skip_recurse = node.type in _HAND_WALK_STOP_TYPES
         if not skip_recurse:
             for child in node.children:
+                parse_budget.checkpoint()
                 _walk_composition(child, parent_id)
 
     def _walk_options(node):
@@ -8196,7 +8388,9 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for c in node.children:
                 # `export default {...} as X` / `satisfies X` / `({...})`: the
                 # options sit INSIDE the wrapper (L-43, review round 1).
+                parse_budget.checkpoint()
                 while c is not None and c.type in _JS_EXPRESSION_WRAPPERS:
+                    parse_budget.checkpoint()
                     c = next((n for n in c.named_children if n.type not in _OPTIONS_WRAPPER_NOISE), None)
                 if c is None:
                     continue
@@ -8209,11 +8403,13 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # `defineComponent` script lost its methods (L-43).
                     args = c.child_by_field_name("arguments")
                     for a in args.children if args is not None else ():
+                        parse_budget.checkpoint()
                         if a.type == "object":
                             _extract_options_object(a)
                             break
             return
         for child in node.children:
+            parse_budget.checkpoint()
             _walk_options(child)
 
     def _emit_options_data(node):
@@ -8235,6 +8431,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _extract_options_object(obj_node):
         """Extract methods/computed/props/data from Options API object."""
         for pair in obj_node.children:
+            parse_budget.checkpoint()
             if pair.type == "method_definition":
                 # `data() { return {...} }`, the usual spelling, is a METHOD
                 # DEFINITION, not a `pair`; only `data: () => ...` was read
@@ -8253,6 +8450,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
             if key in ("methods", "computed") and val_node.type == "object":
                 for method_pair in val_node.children:
+                    parse_budget.checkpoint()
                     if method_pair.type in ("pair", "method_definition"):
                         mkey = method_pair.child_by_field_name("key") or method_pair.child_by_field_name("name")
                         if mkey:
@@ -8307,6 +8505,7 @@ def _parse_vue_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     for script_node in script_nodes:
         # A `<script src="...">` has no text to read; it must not end the
         # parse (it used to return [] and hide the other block, L-44).
+        parse_budget.checkpoint()
         raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
         if raw_node is None:
             continue
@@ -8397,6 +8596,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         start_tag = next((c for c in script_node.children if c.type == "start_tag"), None)
         if start_tag:
             for attr in start_tag.children:
+                parse_budget.checkpoint()
                 if attr.type != "attribute":
                     continue
                 attr_text = source_bytes[attr.start_byte:attr.end_byte].decode("utf-8", errors="replace")
@@ -8429,6 +8629,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return ""
             prev = None
             for c in parent.children:
+                parse_budget.checkpoint()
                 if c.id == n.id:
                     break
                 if c.type in ("comment", "template_substitution"):
@@ -8471,6 +8672,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             """Named props from an object-destructuring pattern (`let { a, b=1 } = $props()`)."""
             out: list[str] = []
             for c in obj_pattern.children:
+                parse_budget.checkpoint()
                 if c.type == "shorthand_property_identifier_pattern":
                     out.append(_node_text(c))
                 elif c.type == "object_assignment_pattern":
@@ -8587,6 +8789,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # than per statement is what tells them apart.
                     keyword_kind = "constant" if js_binding_is_constant(inner) else "variable"
                     for decl in inner.children:
+                        parse_budget.checkpoint()
                         if decl.type != "variable_declarator":
                             continue
                         name_node = decl.child_by_field_name("name")
@@ -8613,6 +8816,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             else:
                                 continue
                         for pname in _js_binding_pattern_names(name_node, script_bytes):
+                            parse_budget.checkpoint()
                             _emit_const(
                                 pname, decl, node, _first_line(node),
                                 kind="property" if is_prop else keyword_kind,
@@ -8635,6 +8839,7 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     return
                 kind = "constant" if js_binding_is_constant(node) else "variable"
                 for decl in node.children:
+                    parse_budget.checkpoint()
                     if decl.type != "variable_declarator":
                         continue
                     name_node = decl.child_by_field_name("name")
@@ -8680,12 +8885,14 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # the value, and `...rest` binds a name but names no
                         # prop. Same nodes, opposite sides.
                         for pname in _destructured_names(name_node):
+                            parse_budget.checkpoint()
                             _emit_const(pname, decl, node, f"{pname} = {rune}()", kind="property")
                         continue
                     # `let props = $props()` binds the whole input object, so it
                     # is a declared input under any spelling.
                     bind_kind = "property" if rune == "$props" else kind
                     for pname in _js_binding_pattern_names(name_node, script_bytes):
+                        parse_budget.checkpoint()
                         signature = f"{pname} = {rune}()" if rune else _first_line(node)
                         _emit_const(pname, decl, node, signature, kind=bind_kind)
 
@@ -8694,9 +8901,11 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 label = node.children[0] if node.children else None
                 if label is not None and label.type == "statement_identifier" and _node_text(label) == "$":
                     for stmt in node.children:
+                        parse_budget.checkpoint()
                         if stmt.type != "expression_statement":
                             continue
                         for expr in stmt.children:
+                            parse_budget.checkpoint()
                             if expr.type != "assignment_expression":
                                 continue
                             left = expr.child_by_field_name("left") or (
@@ -8716,12 +8925,14 @@ def _parse_svelte_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             skip_recurse = node.type in _HAND_WALK_STOP_TYPES
             if not skip_recurse:
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child)
 
         _walk(sub_tree.root_node)
         symbols.extend(script_classes.emit())
 
     for script_node in script_nodes:
+        parse_budget.checkpoint()
         raw_node = next((c for c in script_node.children if c.type == "raw_text"), None)
         if raw_node is None:
             continue
@@ -8763,12 +8974,14 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     line_starts: list[int] = []
     offset = 0
     for line in lines:
+        parse_budget.checkpoint()
         line_starts.append(offset)
         offset += len(line.encode("utf-8")) + 1  # +1 for \n
 
     def offset_to_line(byte_pos: int) -> int:
         lo, hi = 0, len(line_starts) - 1
         while lo < hi:
+            parse_budget.checkpoint()
             mid = (lo + hi + 1) // 2
             if line_starts[mid] <= byte_pos:
                 lo = mid
@@ -8801,9 +9014,11 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Extract JS functions from scriptlet blocks
     for scriptlet_match in _EJS_SCRIPTLET_RE.finditer(content):
+        parse_budget.checkpoint()
         scriptlet_text = scriptlet_match.group(1)
         scriptlet_start = scriptlet_match.start()
         for func_match in _EJS_FUNC_RE.finditer(scriptlet_text):
+            parse_budget.checkpoint()
             name = func_match.group(1)
             params = func_match.group(2).strip()
             byte_pos = scriptlet_start + func_match.start()
@@ -8830,6 +9045,7 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # Extract include references as import symbols
     seen_includes: set[str] = set()
     for inc_match in _EJS_INCLUDE_RE.finditer(content):
+        parse_budget.checkpoint()
         partial = inc_match.group(1)
         if partial in seen_includes:
             continue
@@ -8924,6 +9140,7 @@ def _keep_block_parents(pairs: list[tuple[Symbol, Symbol]]) -> list[Symbol]:
     """
     new_ids = {old.id: new.id for old, new in pairs}
     for old, new in pairs:
+        parse_budget.checkpoint()
         if old.parent in new_ids:
             new.parent = new_ids[old.parent]
     return [new for _, new in pairs]
@@ -9008,6 +9225,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     # HTML ids and external script refs
     seen_ids: set[str] = set()
     for match in _RAZOR_ID_RE.finditer(content):
+        parse_budget.checkpoint()
         elem_id = match.group(1)
         if elem_id in seen_ids:
             continue
@@ -9033,6 +9251,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     seen_script_src: set[str] = set()
     script_index = 0
     for script_match in _RAZOR_SCRIPT_RE.finditer(content):
+        parse_budget.checkpoint()
         script_index += 1
         attrs = script_match.group(1) or ""
         body = script_match.group(2) or ""
@@ -9081,6 +9300,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ]))
 
     for idx, style_match in enumerate(_RAZOR_STYLE_RE.finditer(content), start=1):
+        parse_budget.checkpoint()
         attrs = (style_match.group(1) or "").strip()
         line_no = _line_for_offset(style_match.start())
         style_name = f"style_{idx}"
@@ -9105,6 +9325,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for code_match in _RAZOR_CODE_BLOCK_RE.finditer(content):
+        parse_budget.checkpoint()
         block = _extract_razor_brace_block(content, code_match.end() - 1)
         if block is None:
             continue
@@ -9141,6 +9362,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Extract @page routes (Blazor components)
     for page_match in _RAZOR_PAGE_RE.finditer(content):
+        parse_budget.checkpoint()
         route = page_match.group(1)
         line_no = _line_for_offset(page_match.start())
         snippet = page_match.group(0).encode("utf-8")
@@ -9162,6 +9384,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Extract @inject directives (Blazor components)
     for inject_match in _RAZOR_INJECT_RE.finditer(content):
+        parse_budget.checkpoint()
         service_type = inject_match.group(1)
         prop_name = inject_match.group(2)
         line_no = _line_for_offset(inject_match.start())
@@ -9277,6 +9500,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     line_starts = [0]
     for idx, ch in enumerate(content):
+        parse_budget.checkpoint()
         if ch == "\n":
             line_starts.append(idx + 1)
 
@@ -9361,6 +9585,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     masked_template = mask_html_comments_keep_offsets(template_body)
     seen_ids: set[str] = set()
     for id_match in _ASTRO_ID_RE.finditer(masked_template):
+        parse_budget.checkpoint()
         elem_id = id_match.group(1)
         if elem_id in seen_ids:
             continue
@@ -9386,6 +9611,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # ── 3. <script> blocks (client-side JS/TS)
     for script_idx, script_match in enumerate(_ASTRO_SCRIPT_RE.finditer(content), start=1):
+        parse_budget.checkpoint()
         attrs = script_match.group(1)
         body = script_match.group(2)
 
@@ -9431,6 +9657,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # ── 4. <style> blocks → constant symbol (like Razor)
     for style_match in _ASTRO_STYLE_RE.finditer(content):
+        parse_budget.checkpoint()
         line_no = _line_for_offset(style_match.start())
         style_name = f"style:{line_no}"
         snippet = style_match.group(0).encode("utf-8")
@@ -9454,6 +9681,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     deduped: list[Symbol] = []
     seen_symbol_keys: set[tuple[str, int, int, int]] = set()
     for sym in symbols:
+        parse_budget.checkpoint()
         dedup_key = (sym.id, sym.line, sym.end_line, sym.byte_offset)
         if dedup_key in seen_symbol_keys:
             continue
@@ -9478,6 +9706,7 @@ def _extract_razor_brace_block(content: str, brace_pos: int) -> Optional[tuple[i
     in_block_comment = False
 
     while i < len(content):
+        parse_budget.checkpoint()
         ch = content[i]
         nxt = content[i + 1] if i + 1 < len(content) else ""
 
@@ -9595,6 +9824,7 @@ def _parse_lua_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         comments: list[str] = []
         prev = node.prev_named_sibling
         while prev and prev.type == "comment":
+            parse_budget.checkpoint()
             raw = _node_text(prev)
             line = raw.lstrip("-").strip()
             comments.insert(0, line)
@@ -9605,6 +9835,7 @@ def _parse_lua_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if node.type == "function_declaration":
             _extract_lua_function(node)
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     def _extract_lua_function(node) -> None:
@@ -9613,6 +9844,7 @@ def _parse_lua_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         is_local = False
 
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "local":
                 is_local = True
             elif child.type in ("identifier", "dot_index_expression", "method_index_expression"):
@@ -9713,6 +9945,7 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         comments: list[str] = []
         prev = node.prev_named_sibling
         while prev and prev.type == "comment":
+            parse_budget.checkpoint()
             raw = _node_text(prev)
             line = raw.lstrip("-").strip()
             comments.insert(0, line)
@@ -9725,6 +9958,7 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type == "type_definition":
             _extract_luau_type(node)
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     def _extract_luau_function(node) -> None:
@@ -9733,6 +9967,7 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         is_local = False
 
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "local":
                 is_local = True
             elif child.type in ("identifier", "dot_index_expression", "method_index_expression") and name_node is None:
@@ -9759,6 +9994,7 @@ def _parse_luau_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         seen_params = False
         seen_colon = False
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "parameters":
                 seen_params = True
                 seen_colon = False
@@ -9863,6 +10099,7 @@ def _unlit_haskell(source_bytes: bytes) -> bytes:
     out: list[bytes] = []
     in_block = False
     for line in source_bytes.splitlines(keepends=True):
+        parse_budget.checkpoint()
         body = line.rstrip(b"\r\n")
         ending = line[len(body):]
         stripped = body.strip()
@@ -9936,6 +10173,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         def _collect(n) -> None:
             for child in n.children:
+                parse_budget.checkpoint()
                 if child.start_byte >= end:
                     break
                 if child.type in _HASKELL_COMMENT_NODES:
@@ -9947,6 +10185,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         parts: list[bytes] = []
         at = node.start_byte
         for start, stop in cuts:
+            parse_budget.checkpoint()
             parts.append(code_bytes[at:start])
             at = stop
         parts.append(code_bytes[at:end])
@@ -9963,6 +10202,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # `declarations`, not a child of it.
             prev = node.parent.prev_named_sibling
         while prev is not None and prev.type in _HASKELL_COMMENT_NODES:
+            parse_budget.checkpoint()
             comments.insert(0, _text(prev).strip())
             prev = prev.prev_named_sibling
         # Read line by line, because the grammar merges adjacent `--` lines
@@ -9972,10 +10212,12 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # lines until a `|` line (or a new comment) points forwards again.
         lines: list[str] = []
         for raw in comments:
+            parse_budget.checkpoint()
             forwards = True
             if raw.startswith("{-") and raw.endswith("-}"):
                 raw = raw[2:-2]
             for line in raw.splitlines():
+                parse_budget.checkpoint()
                 body = line.strip().lstrip("-").strip()
                 if body.startswith("^"):
                     forwards = False
@@ -10012,6 +10254,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _equations(body, kind: str, parent: Optional[Symbol]) -> None:
         """Group a run of same-named signature/clause siblings into one symbol."""
+        parse_budget.checkpoint()
         group: list = []
         group_name: Optional[str] = None
 
@@ -10030,6 +10273,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             group.clear()
 
         for child in body.named_children:
+            parse_budget.checkpoint()
             if child.type in _HASKELL_COMMENT_NODES:
                 continue
             # A signature is glue, not a declared form: it only ever joins or
@@ -10051,6 +10295,7 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         _flush()
 
     def _declaration(node) -> None:
+        parse_budget.checkpoint()
         kind = kinds.get(node.type)
         name_node = _name(node)
         if kind is None or name_node is None:
@@ -10076,10 +10321,12 @@ def _parse_haskell_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     name = f"{name} {' '.join(_text(patterns).split())}"
             owner = _emit(node, node, name, kind, None, head)
             for child in node.named_children:
+                parse_budget.checkpoint()
                 if child.type in ("class_declarations", "instance_declarations"):
                     _equations(child, "method", owner)
 
     for top in tree.root_node.named_children:
+        parse_budget.checkpoint()
         if top.type == "declarations":
             _equations(top, "function", None)
 
@@ -10124,6 +10371,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         lines: list[str] = []
         prev = node.prev_named_sibling
         while prev and prev.type == "comment":
+            parse_budget.checkpoint()
             raw = _node_text(prev).lstrip("%").strip()
             # Strip @doc / @spec tags (EDoc convention)
             if raw.startswith("@doc"):
@@ -10136,6 +10384,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # Get the first function_clause named child
         clause = None
         for child in node.named_children:
+            parse_budget.checkpoint()
             if child.type == "function_clause":
                 clause = child
                 break
@@ -10146,6 +10395,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         name_node = None
         args_node = None
         for child in clause.named_children:
+            parse_budget.checkpoint()
             if child.type == "atom" and name_node is None:
                 name_node = child
             elif child.type == "expr_args" and args_node is None:
@@ -10211,6 +10461,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """Handle type_alias and opaque nodes."""
         type_name_node = None
         for child in node.named_children:
+            parse_budget.checkpoint()
             if child.type == "type_name":
                 type_name_node = child
                 break
@@ -10219,6 +10470,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         atom_node = None
         for child in type_name_node.named_children:
+            parse_budget.checkpoint()
             if child.type == "atom":
                 atom_node = child
                 break
@@ -10253,6 +10505,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """Handle record_decl nodes (struct-like)."""
         atom_node = None
         for child in node.named_children:
+            parse_budget.checkpoint()
             if child.type == "atom":
                 atom_node = child
                 break
@@ -10286,6 +10539,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """Handle pp_define (macro constant) nodes."""
         macro_lhs = None
         for child in node.named_children:
+            parse_budget.checkpoint()
             if child.type == "macro_lhs":
                 macro_lhs = child
                 break
@@ -10295,6 +10549,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # macro_lhs contains a var or atom for the macro name
         name_node = None
         for child in macro_lhs.named_children:
+            parse_budget.checkpoint()
             if child.type in ("var", "atom"):
                 name_node = child
                 break
@@ -10328,6 +10583,7 @@ def _parse_erlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for node in tree.root_node.named_children:
+        parse_budget.checkpoint()
         if node.type == "fun_decl":
             _extract_fun_decl(node)
         elif node.type in ("type_alias", "opaque"):
@@ -10375,6 +10631,7 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         lines: list[str] = []
         prev = node.prev_named_sibling
         while prev and prev.type == "comment":
+            parse_budget.checkpoint()
             raw = _node_text(prev).lstrip("!").strip()
             lines.insert(0, raw)
             prev = prev.prev_named_sibling
@@ -10462,6 +10719,7 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _extract_parameter_constants(node, parent_name: Optional[str] = None) -> None:
         """Extract named constants from a variable_declaration with parameter qualifier."""
         for child in node.named_children:
+            parse_budget.checkpoint()
             if child.type == "init_declarator":
                 id_node = child.child_by_field_name("name")
                 if id_node is None:
@@ -10481,6 +10739,7 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _walk_scope(nodes, parent_name: Optional[str] = None) -> None:
         """Walk a sequence of nodes extracting symbols with an optional parent."""
         for node in nodes:
+            parse_budget.checkpoint()
             if node.type in ("function", "subroutine"):
                 _extract_procedure(node, parent_name)
             elif node.type == "derived_type_definition":
@@ -10517,6 +10776,7 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Walk translation_unit top-level children
     for node in tree.root_node.named_children:
+        parse_budget.checkpoint()
         if node.type in ("function", "subroutine"):
             _extract_procedure(node, parent_name=None)
         elif node.type in ("module", "program"):
@@ -10564,6 +10824,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         dbt_directives = extract_dbt_directives(source_bytes)
         for d in dbt_directives:
             # Map directive type to symbol kind
+            parse_budget.checkpoint()
             if d.directive in ("macro", "test", "materialization"):
                 kind = "function"
             else:  # snapshot
@@ -10625,6 +10886,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # create_table, create_view, create_function: name in object_reference child
         if node_type in ("create_table", "create_view", "create_function"):
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "object_reference":
                     # object_reference may contain schema.name (multiple identifiers)
                     # Take the full text as the name (e.g. "schema.table_name")
@@ -10634,6 +10896,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         # create_index, create_schema, cte: name is a direct identifier child
         if node_type in ("create_index", "create_schema", "cte"):
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "identifier":
                     return _node_text(child)
             return None
@@ -10650,6 +10913,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             args_text = ""
             return_text = ""
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "function_arguments":
                     args_text = _node_text(child)
                 elif child.type == "keyword_returns":
@@ -10663,6 +10927,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name = _extract_name(node) or "?"
             # Include column list summary
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "column_definitions":
                     cols = [_node_text(c).split()[0] for c in child.children
                             if c.type == "column_definition"]
@@ -10679,6 +10944,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # Find the ON target
             on_target = ""
             for i, child in enumerate(node.children):
+                parse_budget.checkpoint()
                 if child.type == "keyword_on" and i + 1 < len(node.children):
                     on_target = f" ON {_node_text(node.children[i + 1])}"
             return f"CREATE INDEX {name}{on_target}"
@@ -10698,6 +10964,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         lines: list[str] = []
         prev = node.prev_named_sibling
         while prev and prev.type in ("comment", "marginalia"):
+            parse_budget.checkpoint()
             raw = _node_text(prev).lstrip("-").lstrip("/").lstrip("*").strip()
             lines.insert(0, raw)
             prev = prev.prev_named_sibling
@@ -10740,6 +11007,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(sym)
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -10772,6 +11040,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _get_class_name(node) -> Optional[str]:
         """First identifier child is the class name in ObjC @interface/@implementation."""
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "identifier":
                 return source[child.start_byte:child.end_byte]
         return None
@@ -10786,6 +11055,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         identifiers: list[str] = []
         has_params = False
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "identifier":
                 identifiers.append(source[child.start_byte:child.end_byte])
             elif child.type == "method_parameter":
@@ -10804,10 +11074,12 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         adds a wrapper does not silently drop the member.
         """
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "struct_declaration":
                 yield child
             elif child.type == "instance_variable":
                 for g in child.children:
+                    parse_budget.checkpoint()
                     if g.type == "struct_declaration":
                         yield g
 
@@ -10839,6 +11111,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(sym)
                 current_class[0] = sym
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child)
                 current_class[0] = prev_class
                 return
@@ -10850,7 +11123,9 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # split, where the CHANNEL is not the kind.
             kind = "field" if node.type == "instance_variables" else "property"
             for declaration in _struct_declarations(node):
+                parse_budget.checkpoint()
                 for declarator in declaration.children:
+                    parse_budget.checkpoint()
                     if declarator.type != "struct_declarator":
                         continue
                     ident = next(
@@ -10907,8 +11182,10 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type == "function_definition":
             name = None
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "function_declarator":
                     for sub in child.children:
+                        parse_budget.checkpoint()
                         if sub.type == "identifier":
                             name = source[sub.start_byte:sub.end_byte]
                             break
@@ -10931,6 +11208,7 @@ def _parse_objc_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 )
                 symbols.append(sym)
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -10963,6 +11241,7 @@ def _parse_proto_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         Return the full text of the name node which equals the identifier text.
         """
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == name_child_type:
                 return source[child.start_byte:child.end_byte].strip()
         return None
@@ -10991,9 +11270,11 @@ def _parse_proto_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(sym)
                 new_scope = qualified if node.type in ("message", "service") else scope
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child, new_scope)
                 return
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -11035,6 +11316,7 @@ def _parse_hcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         HCL string_lit children: quoted_template_start + template_literal + quoted_template_end
         """
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "template_literal":
                 return source[child.start_byte:child.end_byte].strip()
         # fallback: strip surrounding quotes from raw text
@@ -11045,6 +11327,7 @@ def _parse_hcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             block_type: Optional[str] = None
             labels: list[str] = []
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "identifier" and block_type is None:
                     block_type = source[child.start_byte:child.end_byte].strip()
                 elif child.type == "string_lit" and block_type is not None:
@@ -11084,6 +11367,7 @@ def _parse_hcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(sym)
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -11119,6 +11403,7 @@ def _parse_graphql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _get_name(node) -> Optional[str]:
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "name":
                 return source[child.start_byte:child.end_byte].strip()
             if child.type == "fragment_name":
@@ -11131,6 +11416,7 @@ def _parse_graphql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name = _get_name(node)
             if not name and node.type == "operation_definition":
                 for child in node.children:
+                    parse_budget.checkpoint()
                     if child.type == "operation_type":
                         name = source[child.start_byte:child.end_byte].strip()
                         break
@@ -11158,6 +11444,7 @@ def _parse_graphql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return  # don't recurse into definitions
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -11207,6 +11494,7 @@ def _parse_css_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         )
 
     for node in tree.root_node.children:
+        parse_budget.checkpoint()
         if node.type == "rule_set":
             selectors_node = next((c for c in node.children if c.type == "selectors"), None)
             if selectors_node is None:
@@ -11264,6 +11552,7 @@ def _parse_json_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return []
 
     for pair in obj.children:
+        parse_budget.checkpoint()
         if pair.type != "pair":
             continue
         key_node = next((c for c in pair.children if c.type == "string"), None)
@@ -11344,6 +11633,7 @@ def _parse_toml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type == "dotted_key":
             parts: list[str] = []
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type in ("bare_key", "quoted_key", "dotted_key"):
                     parts.extend(_extract_key_parts(child))
             return [p for p in parts if p]
@@ -11407,6 +11697,7 @@ def _parse_toml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     ))
                     new_path = parent_path + key_parts
                     for child in node.children:
+                        parse_budget.checkpoint()
                         _walk_node(child, new_path)
             return
 
@@ -11432,12 +11723,14 @@ def _parse_toml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     ))
                     new_path = parent_path + key_parts
                     for child in node.children:
+                        parse_budget.checkpoint()
                         _walk_node(child, new_path)
             return
 
         if node.type == "pair":
             key_node = None
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type in ("bare_key", "quoted_key", "dotted_key"):
                     key_node = child
                     break
@@ -11466,6 +11759,7 @@ def _parse_toml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk_node(child, parent_path)
 
     _walk_node(tree.root_node)
@@ -11514,6 +11808,7 @@ def _parse_scss_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return raw[:80] if len(raw) > 80 else raw
 
     def _walk(node) -> None:
+        parse_budget.checkpoint()
         if node.type == "declaration":
             # Top-level $variable declarations
             prop = next((c for c in node.children if c.type == "property_name"), None)
@@ -11561,6 +11856,7 @@ def _parse_scss_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(_make(first_line, "type", node, first_line))
 
     for child in tree.root_node.children:
+        parse_budget.checkpoint()
         _walk(child)
 
     return symbols
@@ -11635,6 +11931,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         depth = 0
         while node is not None and node.type in _NAME_WRAPPERS:
+            parse_budget.checkpoint()
             if depth >= _MAX_NAME_WRAPPERS:
                 return None
             named = [c for c in node.children if c.is_named]
@@ -11643,6 +11940,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if node is None or node.type != "call_expression":
             return None
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in ("identifier", "operator"):
                 return source[child.start_byte:child.end_byte]
         return None
@@ -11650,6 +11948,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _func_name(node) -> Optional[str]:
         """Extract the name from a `function_definition` via its `signature`."""
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "signature":
                 named = [c for c in child.children if c.is_named]
                 if not named:
@@ -11703,6 +12002,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         """
         head = None
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "type_head":
                 head = child
                 break
@@ -11715,6 +12015,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         current = named[0] if named else None
         depth = 0
         while current is not None and current.type in _TYPE_HEAD_WRAPPERS:
+            parse_budget.checkpoint()
             if depth >= _MAX_NAME_WRAPPERS:
                 return None
             inner = [c for c in current.children if c.is_named]
@@ -11727,6 +12028,7 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _direct_name(node) -> Optional[str]:
         """Return first identifier child text."""
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "identifier":
                 return source[child.start_byte:child.end_byte]
         return None
@@ -11822,10 +12124,12 @@ def _parse_julia_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             symbols.append(sym)
             new_scope = qualified if node.type == "module_definition" else scope
             for child in node.children:
+                parse_budget.checkpoint()
                 _walk(child, new_scope)
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -11863,6 +12167,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _first_id_in_unit(unit_node) -> Optional[str]:
         """Get first identifier text inside a 'unit' node."""
         for child in unit_node.children:
+            parse_budget.checkpoint()
             t = _id_text(child)
             if t:
                 return t
@@ -11871,8 +12176,10 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _func_name_in_unit(unit_node) -> Optional[str]:
         """Find a func > identifier name inside a unit node."""
         for child in unit_node.children:
+            parse_budget.checkpoint()
             if child.type == "func":
                 for sub in child.children:
+                    parse_budget.checkpoint()
                     t = _id_text(sub)
                     if t:
                         return t
@@ -11903,6 +12210,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         kids = [c for c in node.children if c.type != "\n"]
         found: list[tuple[int, str]] = []
         for i, child in enumerate(kids):
+            parse_budget.checkpoint()
             if child.type != "operators" or i == 0:
                 continue
             name_node = kids[i - 1]
@@ -11919,6 +12227,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # adjacent nodes and stopping at the first reads it as `=`.
             end = i
             while end + 1 < len(kids) and kids[end + 1].type == "operators":
+                parse_budget.checkpoint()
                 end += 1
             if end + 1 >= len(kids):
                 continue  # nothing assigned
@@ -11936,6 +12245,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _walk_commands(nodes, parent: Optional[Symbol] = None) -> None:
         """Walk a list of sibling nodes looking for command patterns."""
         for node in nodes:
+            parse_budget.checkpoint()
             if node.type != "command":
                 continue
 
@@ -11992,6 +12302,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 units_to_check += [c for c in block.children if c.type == "unit"]
             found_method = False
             for unit in units_to_check:
+                parse_budget.checkpoint()
                 method_name = _func_name_in_unit(unit)
                 if method_name:
                     qualified, owner_id = _member_of(parent, method_name)
@@ -12047,6 +12358,7 @@ def _parse_groovy_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             raw = source[node.start_byte:node.end_byte]
             signature = raw.strip().splitlines()[0][:120] if raw.strip() else ""
             for _, field_name in assignments:
+                parse_budget.checkpoint()
                 qualified, owner_id = _member_of(parent, field_name)
                 symbols.append(Symbol(
                     id=make_symbol_id(filename, qualified, kind),
@@ -12127,6 +12439,7 @@ def _parse_autohotkey_symbols(source_bytes: bytes, filename: str) -> list[Symbol
 
     for line_no, raw_line in enumerate(lines, start=1):
         # Strip inline ; comments for analysis (preserve original for nothing else)
+        parse_budget.checkpoint()
         stripped = re.sub(r'\s*;[^\n]*$', '', raw_line).rstrip()
         if not stripped.strip():
             continue
@@ -12166,6 +12479,7 @@ def _parse_autohotkey_symbols(source_bytes: bytes, filename: str) -> list[Symbol
         depth += opens - closes
         # Pop classes whose body we have left
         while class_stack and depth < class_stack[-1][1]:
+            parse_budget.checkpoint()
             class_stack.pop()
 
         # ── #HotIf directive ──────────────────────────────────────────────
@@ -12287,8 +12601,10 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         the STag or EmptyElemTag child.
         """
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in ("STag", "EmptyElemTag"):
                 for sub in child.children:
+                    parse_budget.checkpoint()
                     if sub.type == "Name":
                         return source[sub.start_byte:sub.end_byte]
                 return None
@@ -12301,12 +12617,15 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         Attribute children, then matches by Name and extracts AttValue.
         """
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in ("STag", "EmptyElemTag"):
                 for attr in child.children:
+                    parse_budget.checkpoint()
                     if attr.type == "Attribute":
                         a_name = None
                         a_value = None
                         for sub in attr.children:
+                            parse_budget.checkpoint()
                             if sub.type == "Name":
                                 a_name = source[sub.start_byte:sub.end_byte]
                             elif sub.type == "AttValue":
@@ -12329,12 +12648,14 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         # Skip CharData whitespace to find Comments
         while prev and prev.type == "CharData":
+            parse_budget.checkpoint()
             prev = prev.prev_named_sibling
 
         # For root elements, comments may be inside the prolog
         if prev and prev.type == "prolog":
             # Walk prolog children in reverse to find trailing Comments
             for child in reversed(prev.children):
+                parse_budget.checkpoint()
                 if child.type == "Comment":
                     raw = source[child.start_byte:child.end_byte]
                     if raw.startswith("<!--"):
@@ -12349,6 +12670,7 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return "\n".join(lines) if lines else ""
 
         while prev and prev.type == "Comment":
+            parse_budget.checkpoint()
             raw = source[prev.start_byte:prev.end_byte]
             # Strip <!-- and --> delimiters
             if raw.startswith("<!--"):
@@ -12361,6 +12683,7 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             prev = prev.prev_named_sibling
             # Skip CharData whitespace between consecutive comments
             while prev and prev.type == "CharData":
+                parse_budget.checkpoint()
                 prev = prev.prev_named_sibling
         return "\n".join(lines) if lines else ""
 
@@ -12371,6 +12694,7 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             tag = _tag_name(node)
             if not tag:
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child)
                 return
 
@@ -12467,6 +12791,7 @@ def _parse_xml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 symbols.append(sym)
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -12508,6 +12833,7 @@ def _key_text_loader():
         loader.flatten_mapping(node)
         mapping = {}
         for key_node, value_node in node.value:
+            parse_budget.checkpoint()
             if isinstance(key_node, _yaml.ScalarNode):
                 key = key_node.value  # raw source text, no 1.1 coercion
             else:
@@ -12554,6 +12880,7 @@ def _build_line_offsets(source: str) -> tuple[list[str], list[int]]:
     lines = source.splitlines(keepends=True)
     offsets = [0]
     for line in lines:
+        parse_budget.checkpoint()
         offsets.append(offsets[-1] + len(line.encode("utf-8")))
     return lines, offsets
 
@@ -12571,6 +12898,7 @@ def _find_line(lines: list[str], text: str, after: int = 0) -> int:
     if not needle:
         return max(after + 1, 1)
     for idx in range(max(after, 0), len(lines)):
+        parse_budget.checkpoint()
         if needle in lines[idx].lower():
             return idx + 1
     return max(after + 1, 1)
@@ -12610,6 +12938,7 @@ def _find_key_line(lines: list[str], key: str, after: int = 0) -> int:
         re.IGNORECASE,
     )
     for idx in range(max(after, 0), len(lines)):
+        parse_budget.checkpoint()
         if pattern.match(lines[idx]):
             return idx + 1
     return KEY_NOT_FOUND
@@ -12752,6 +13081,7 @@ def _yaml_line_map(source: str) -> dict:
         if isinstance(node, _yaml.MappingNode):
             shallow = {}
             for k, v in node.value:
+                parse_budget.checkpoint()
                 if isinstance(k, _yaml.ScalarNode) and isinstance(v, _yaml.ScalarNode):
                     shallow[str(k.value)] = str(v.value)
             return shallow
@@ -12762,6 +13092,7 @@ def _yaml_line_map(source: str) -> dict:
     def walk(node, path_parts: list[str]) -> None:
         if isinstance(node, _yaml.MappingNode):
             for key_node, value_node in node.value:
+                parse_budget.checkpoint()
                 if not isinstance(key_node, _yaml.ScalarNode):
                     continue
                 parts = path_parts + [str(key_node.value)]
@@ -12769,6 +13100,7 @@ def _yaml_line_map(source: str) -> dict:
                 walk(value_node, parts)
         elif isinstance(node, _yaml.SequenceNode):
             for index, item in enumerate(node.value):
+                parse_budget.checkpoint()
                 parts = path_parts + [_yaml_list_item_segment(_plain(item), index)]
                 out.setdefault(".".join(parts), item.start_mark.line + 1)
                 walk(item, parts)
@@ -12781,6 +13113,7 @@ def _yaml_list_item_segment(item: object, index: int) -> str:
     """Prefer semantic list item names over raw indices when possible."""
     if isinstance(item, dict):
         for key in ("name", "key", "id"):
+            parse_budget.checkpoint()
             value = item.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -12821,6 +13154,7 @@ def _walk_yaml_value(
         cursor = max(after_line - 1, 0)
         last = cursor
         for key, child in value.items():
+            parse_budget.checkpoint()
             key_name = str(key)
             qualified_name = ".".join(path_parts + [key_name]) if path_parts else key_name
             line = (line_map or {}).get(qualified_name) or _find_key_line(lines, key_name, cursor)
@@ -12862,6 +13196,7 @@ def _walk_yaml_value(
         cursor = after_line
         last = cursor
         for index, child in enumerate(value):
+            parse_budget.checkpoint()
             segment = _yaml_list_item_segment(child, index)
             mapped = (line_map or {}).get(
                 ".".join(path_parts + [segment]) if path_parts else segment
@@ -12905,6 +13240,7 @@ def _parse_yaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     if isinstance(data, list) and all(isinstance(item, dict) for item in data):
         cursor = 0
         for item in data:
+            parse_budget.checkpoint()
             _walk_yaml_value(item, [], filename, "yaml", symbols, lines, offsets, cursor, line_map)
             cursor += 1
         return symbols
@@ -12932,6 +13268,7 @@ def _ansible_task_name(task: dict, index: int) -> str:
         "include_tasks", "block", "rescue", "always",
     }
     for key in task:
+        parse_budget.checkpoint()
         if key not in skip:
             return str(key)
     return f"task_{index + 1}"
@@ -12943,6 +13280,7 @@ def _ansible_role_name(role: object, index: int) -> str:
         return role.strip()
     if isinstance(role, dict):
         for key in ("role", "name"):
+            parse_budget.checkpoint()
             value = role.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -12965,6 +13303,7 @@ def _append_ansible_tasks(
         return
     cursor = start_line
     for index, task in enumerate(tasks):
+        parse_budget.checkpoint()
         if not isinstance(task, dict):
             continue
         task_name = _ansible_task_name(task, index)
@@ -13006,6 +13345,7 @@ def _append_ansible_vars(
     if isinstance(values, dict):
         cursor = after_line
         for key, child in values.items():
+            parse_budget.checkpoint()
             key_name = str(key)
             qualified_name = f"{scope_name}.{key_name}" if scope_name else key_name
             line = _find_line(lines, f"{key_name}:", cursor - 1)
@@ -13022,6 +13362,7 @@ def _append_ansible_vars(
                 )
                 list_cursor = next_cursor
                 for idx, item in enumerate(child):
+                    parse_budget.checkpoint()
                     segment = _yaml_list_item_segment(item, idx)
                     if isinstance(item, dict):
                         item_line = list_cursor
@@ -13063,6 +13404,7 @@ def _parse_ansible_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     if isinstance(data, list) and any(_looks_like_ansible_play(item) for item in data):
         cursor = 0
         for index, play in enumerate(data):
+            parse_budget.checkpoint()
             if not isinstance(play, dict):
                 continue
             play_name = play.get("name")
@@ -13089,6 +13431,7 @@ def _parse_ansible_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 docstring=docstring,
             )
             for section in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                parse_budget.checkpoint()
                 _append_ansible_tasks(
                     symbols, filename, offsets, lines, section, play.get(section), str(play_name), play_id, play_line
                 )
@@ -13096,6 +13439,7 @@ def _parse_ansible_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             if isinstance(roles, list):
                 role_cursor = play_line
                 for role_index, role in enumerate(roles):
+                    parse_budget.checkpoint()
                     role_name = _ansible_role_name(role, role_index)
                     role_line = _find_line(lines, role_name, role_cursor - 1)
                     role_cursor = role_line
@@ -13167,11 +13511,13 @@ def _parse_openapi_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     lines = source.splitlines(keepends=True)
     offsets = [0]
     for ln in lines:
+        parse_budget.checkpoint()
         offsets.append(offsets[-1] + len(ln.encode("utf-8")))
 
     def _find_line(text: str, after: int = 0) -> int:
         t = text.lower()
         for i in range(after, len(lines)):
+            parse_budget.checkpoint()
             if t in lines[i].lower():
                 return i + 1
         return max(after + 1, 1)
@@ -13184,10 +13530,12 @@ def _parse_openapi_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Path operations
     for path_str, path_item in (data.get("paths") or {}).items():
+        parse_budget.checkpoint()
         if not isinstance(path_item, dict):
             continue
         path_line = _find_line(str(path_str))
         for method in HTTP_METHODS:
+            parse_budget.checkpoint()
             op = path_item.get(method)
             if not isinstance(op, dict):
                 continue
@@ -13227,6 +13575,7 @@ def _parse_openapi_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         schemas = data.get("definitions") or {}
 
     for schema_name, schema_def in (schemas or {}).items():
+        parse_budget.checkpoint()
         if not isinstance(schema_def, dict):
             continue
         description = (schema_def.get("description") or "").strip()
@@ -13401,6 +13750,7 @@ def _parse_asm_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return name
 
     for line_no, raw_line in enumerate(lines, start=1):
+        parse_budget.checkpoint()
         line = raw_line.rstrip()
         stripped = line.strip()
 
@@ -13700,6 +14050,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return source.count("\n", 0, pos) + 1
 
     for m in _VHDL_ENTITY.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13711,6 +14062,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_ARCHITECTURE.finditer(source):
+        parse_budget.checkpoint()
         arch_name, entity_name = m.group(1), m.group(2)
         qualified = f"{entity_name}.{arch_name}"
         ln = _line_of(m.start())
@@ -13723,6 +14075,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_PACKAGE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13734,6 +14087,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_PROCESS.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13745,6 +14099,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_FUNCTION.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13756,6 +14111,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_PROCEDURE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13767,6 +14123,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_COMPONENT.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13778,6 +14135,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_SIGNAL.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13789,6 +14147,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_CONSTANT.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13800,6 +14159,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VHDL_TYPE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13864,6 +14224,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return source.count("\n", 0, pos) + 1
 
     for m in _VERILOG_MODULE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13875,6 +14236,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_INTERFACE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13886,6 +14248,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_CLASS.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13897,6 +14260,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_FUNCTION.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13908,6 +14272,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_TASK.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13919,6 +14284,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_PACKAGE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13931,6 +14297,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     typedef_names: set[str] = set()
     for m in _VERILOG_TYPEDEF.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         typedef_names.add(name)
         ln = _line_of(m.start())
@@ -13944,6 +14311,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Fallback for simple typedefs: typedef logic [7:0] byte_t;
     for m in _VERILOG_TYPEDEF_SIMPLE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         if name not in typedef_names:
             typedef_names.add(name)
@@ -13957,6 +14325,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ))
 
     for m in _VERILOG_PARAM.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -13968,6 +14337,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         ))
 
     for m in _VERILOG_DEFINE.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -14008,6 +14378,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types) -> "Optional[Any]":
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -14042,6 +14413,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if node.type == "genericDot":
             out: list[str] = []
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type in ("identifier", "genericTpl", "genericDot"):
                     out.extend(_dotted(child))
             return out
@@ -14148,6 +14520,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 containers[qualified] = container
                 if cls:
                     for child in cls.children:
+                        parse_budget.checkpoint()
                         _walk(child, container)
                     return
         elif node.type == "declConst":
@@ -14168,6 +14541,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ))
         elif parent is not None and node.type == "declField":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "identifier":
                     _member(node, parent, child, "field")
             return
@@ -14188,6 +14562,7 @@ def _parse_pascal_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -14221,6 +14596,7 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -14231,6 +14607,7 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         names = set()
         if attrs is not None:
             for attr in attrs.children:
+                parse_budget.checkpoint()
                 if attr.type == "attribute":
                     ident = _first_child_of_type(attr, "identifier")
                     if ident is not None:
@@ -14279,6 +14656,7 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type == "properties" and parent is not None:
             kind = _property_kind(node)
             for prop in node.children:
+                parse_budget.checkpoint()
                 if prop.type != "property":
                     continue
                 ident = _first_child_of_type(prop, "identifier")
@@ -14318,10 +14696,12 @@ def _parse_matlab_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 )
                 symbols.append(container)
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child, container)
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -14355,6 +14735,7 @@ def _parse_ada_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -14409,10 +14790,12 @@ def _parse_ada_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             ))
             new_scope = qualified if kind == "class" else scope
             for child in node.children:
+                parse_budget.checkpoint()
                 _walk(child, new_scope)
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -14464,6 +14847,7 @@ def _parse_cobol_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Sections
     for m in _COBOL_SECTION.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         ln = _line_of(m.start())
         symbols.append(Symbol(
@@ -14482,6 +14866,7 @@ def _parse_cobol_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     })
     section_names = {m.group(1).upper() for m in _COBOL_SECTION.finditer(source)}
     for m in _COBOL_PARAGRAPH.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         upper = name.upper()
         if upper in _COBOL_RESERVED or upper.endswith("DIVISION") or upper.endswith("SECTION") or upper in section_names:
@@ -14497,6 +14882,7 @@ def _parse_cobol_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # 01-level data items
     for m in _COBOL_DATA_ITEM.finditer(source):
+        parse_budget.checkpoint()
         name = m.group(1)
         if name.upper() == "FILLER":
             continue
@@ -14546,12 +14932,14 @@ def _parse_commonlisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol
         if node.type == "defun":
             header = None
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "defun_header":
                     header = child
                     break
             if header:
                 name_node = None
                 for child in header.children:
+                    parse_budget.checkpoint()
                     if child.type == "sym_lit" and name_node is None:
                         name_node = child
                 if name_node:
@@ -14598,6 +14986,7 @@ def _parse_commonlisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol
                     return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -14631,6 +15020,7 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_identifier(node) -> "Optional[str]":
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type == "identifier":
                 return _text(child)
         return None
@@ -14681,8 +15071,10 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 )
                 symbols.append(container)
                 for child in node.children:
+                    parse_budget.checkpoint()
                     if child.type == "contract_body":
                         for member in child.children:
+                            parse_budget.checkpoint()
                             _walk(member, container)
                 return
 
@@ -14748,6 +15140,7 @@ def _parse_solidity_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -14782,6 +15175,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -14809,6 +15203,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if decl_type is None:
             return None
         for child in decl_type.children:
+            parse_budget.checkpoint()
             if child.type in ("struct", "enum", "union", "opaque"):
                 return child.type
         return None
@@ -14822,6 +15217,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if decl is None:
             return ""
         for child in decl.children:
+            parse_budget.checkpoint()
             if child.type in ("packed", "extern"):
                 return child.type
         return ""
@@ -14887,6 +15283,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # Check if it's a struct/enum/union definition
                     eq_found = False
                     for child in var_decl.children:
+                        parse_budget.checkpoint()
                         if child.type == "=":
                             eq_found = True
                         elif eq_found and child.type == "ErrorUnionExpr":
@@ -14911,6 +15308,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                                 symbols.append(container)
                                 # Walk inside the struct/enum for nested decls
                                 for sub in child.children:
+                                    parse_budget.checkpoint()
                                     _walk(sub, container)
                                 return
                             break
@@ -14949,6 +15347,7 @@ def _parse_zig_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -14981,6 +15380,7 @@ def _parse_powershell_symbols(source_bytes: bytes, filename: str) -> list[Symbol
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -15030,6 +15430,7 @@ def _parse_powershell_symbols(source_bytes: bytes, filename: str) -> list[Symbol
                 # PowerShell has no readonly class property. The `$` sigil is
                 # not part of the name.
                 for child in node.children:
+                    parse_budget.checkpoint()
                     if child.type == "class_method_definition":
                         mname_node = _first_child_of_type(child, "simple_name")
                         if mname_node:
@@ -15087,6 +15488,7 @@ def _parse_powershell_symbols(source_bytes: bytes, filename: str) -> list[Symbol
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -15119,6 +15521,7 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -15149,6 +15552,7 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 body = _first_child_of_type(node, "class_body", "interface_body", "enum_body")
                 if body:
                     for child in body.children:
+                        parse_budget.checkpoint()
                         _walk(child, container)
                 return
 
@@ -15179,6 +15583,7 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # declares two, and reading only the first would index half a line.
             kind = apex_member_kind(node) or "field"
             for declarator in node.children:
+                parse_budget.checkpoint()
                 if declarator.type != "variable_declarator":
                     continue
                 ident = _first_child_of_type(declarator, "identifier")
@@ -15221,6 +15626,7 @@ def _parse_apex_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -15254,6 +15660,7 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -15261,6 +15668,7 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _walk(node, scope: str = "") -> None:
         if node.type == "value_definition":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "let_binding":
                     name_node = _first_child_of_type(child, "value_name")
                     if name_node:
@@ -15285,6 +15693,7 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         elif node.type == "type_definition":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "type_binding":
                     tc = _first_child_of_type(child, "type_constructor")
                     if tc:
@@ -15307,6 +15716,7 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         elif node.type == "module_definition":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "module_binding":
                     mn = _first_child_of_type(child, "module_name")
                     if mn:
@@ -15326,13 +15736,16 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         ))
                         # Walk inside the module for nested definitions
                         for sub in child.children:
+                            parse_budget.checkpoint()
                             if sub.type == "structure":
                                 for inner in sub.children:
+                                    parse_budget.checkpoint()
                                     _walk(inner, qualified)
                         return
 
         elif node.type == "class_definition":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "class_binding":
                     cn = _first_child_of_type(child, "class_name")
                     if cn:
@@ -15353,6 +15766,7 @@ def _parse_ocaml_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -15431,6 +15845,7 @@ def _fs_spilled_and_offsets(root, source_bytes: bytes) -> list[int]:
     spilled: list[int] = []
     stack = [root]
     while stack:
+        parse_budget.checkpoint()
         node = stack.pop()
         if node.type in _FS_LET_DECLARATIONS or node.type in _FS_OTHER_DECLARATIONS:
             declarations.append((
@@ -15467,6 +15882,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     if spilled:
         rewritten = bytearray(source_bytes)
         for start in spilled:
+            parse_budget.checkpoint()
             rewritten[start:start + 3] = b"let"
         retry = parser.parse(bytes(rewritten))
         if _count_error_nodes(retry.root_node) <= _count_error_nodes(tree.root_node):
@@ -15478,11 +15894,13 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
 
     def _walk(node, scope: str = ""):
+        parse_budget.checkpoint()
         if node.type == "module_defn":
             # module MyModule = ...
             ident = _first_child_of_type(node, "identifier")
@@ -15502,6 +15920,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     content_hash=compute_content_hash(source_bytes[node.start_byte:node.end_byte]),
                 ))
                 for child in node.children:
+                    parse_budget.checkpoint()
                     _walk(child, qualified)
                 return
 
@@ -15518,6 +15937,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # defn: the rule (#826's shared multi-name spec), never a
             # synthesised range (#414).
             for left in _fs_binding_lefts(node):
+                parse_budget.checkpoint()
                 if left.type == "function_declaration_left":
                     ident = _first_child_of_type(left, "identifier")
                     if not ident:
@@ -15562,6 +15982,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # node addressing the name alone).
             defns = _fs_defn_nodes(node)
             for td in defns:
+                parse_budget.checkpoint()
                 ident = _first_child_of_type(td, "type_name", "identifier")
                 if not ident:
                     continue
@@ -15593,6 +16014,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     #: The definition node types a `type_definition` chains with `and`.
@@ -15661,6 +16083,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if start is None:
             return sig
         for i in range(start + 1, len(children)):
+            parse_budget.checkpoint()
             child = children[i]
             if child.type in ("function_declaration_left", "value_declaration_left"):
                 break
@@ -15734,6 +16157,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # (round 4), so the last pattern is read through it.
             pats = []
             for c in mpd.children:
+                parse_budget.checkpoint()
                 if c.type == "identifier_pattern":
                     pats.append(c)
                 elif c.type == "typed_pattern":
@@ -15764,12 +16188,14 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # #845: an `interface ... end` / `struct ... end` body puts its
             # `member_defn`s directly under the definition, with no
             # `type_extension_elements` around them.
+            parse_budget.checkpoint()
             if tee.type == "member_defn":
                 _member_defn(tee, owner)
                 continue
             if tee.type != "type_extension_elements":
                 continue
             for el in tee.children:
+                parse_budget.checkpoint()
                 if el.type == "member_defn":
                     # `static let [mutable] x = ...` sits under member_defn >
                     # value_declaration > function_or_value_defn (review of
@@ -15784,6 +16210,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # a single left keeps the line it always had.
                     lefts = _fs_binding_lefts(el)
                     for left in lefts:
+                        parse_budget.checkpoint()
                         sig = f"let {_text(left)}" if len(lefts) > 1 else None
                         if left.type == "function_declaration_left":
                             ident = _first_child_of_type(left, "identifier")
@@ -15806,6 +16233,7 @@ def _parse_fsharp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     _member_defn(el, owner)
                 elif el.type == "interface_implementation":
                     for impl in el.children:
+                        parse_budget.checkpoint()
                         if impl.type == "member_defn":
                             _member_defn(impl, owner)
 
@@ -15863,6 +16291,7 @@ def _parse_clojure_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     # Add parameter vector for functions
                     if kind == "function" and len(children) > 2:
                         for c in children[2:]:
+                            parse_budget.checkpoint()
                             if c.type == "vec_lit":
                                 sig_parts.append(f" {_text(c)}")
                                 break
@@ -15883,6 +16312,7 @@ def _parse_clojure_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -15904,6 +16334,7 @@ def _parse_elisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -15923,6 +16354,7 @@ def _parse_elisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 docstring = ""
                 found_params = False
                 for child in node.children:
+                    parse_budget.checkpoint()
                     if child.type == "list":
                         found_params = True
                     elif found_params and child.type == "string":
@@ -15970,6 +16402,7 @@ def _parse_elisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # (defvar NAME ...) or (defconst NAME ...) or (defcustom NAME ...)
             children = list(node.children)
             for child in children:
+                parse_budget.checkpoint()
                 if child.type in ("defvar", "defconst", "defcustom"):
                     sym = _first_child_of_type(node, "symbol")
                     if sym:
@@ -15979,6 +16412,7 @@ def _parse_elisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         # Check for docstring
                         docstring = ""
                         for c in children:
+                            parse_budget.checkpoint()
                             if c.type == "string":
                                 docstring = _text(c).strip('"')
                                 break
@@ -15997,6 +16431,7 @@ def _parse_elisp_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child)
 
     _walk(tree.root_node)
@@ -16018,6 +16453,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -16081,6 +16517,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             if n.type in ("field_declaration", "variant_discriminator_declaration"):
                 sdl = _first_child_of_type(n, "symbol_declaration_list")
                 for sd in (sdl.children if sdl is not None else ()):
+                    parse_budget.checkpoint()
                     if sd.type != "symbol_declaration":
                         continue
                     name = _declared_name(sd.child_by_field_name("name"))
@@ -16088,6 +16525,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                         _field(n, name)
                 return
             for c in n.children:
+                parse_budget.checkpoint()
                 _visit(c)
 
         _visit(obj)
@@ -16118,6 +16556,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     sig += _text(params)
                 # Check for return type
                 for i, child in enumerate(node.children):
+                    parse_budget.checkpoint()
                     if child.type == ":" and i + 1 < len(node.children):
                         rt = node.children[i + 1]
                         if rt.type == "type_expression":
@@ -16139,6 +16578,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         elif node.type == "type_section":
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "type_declaration":
                     tsd = _first_child_of_type(child, "type_symbol_declaration")
                     # #843: the node TEXT carried a generic's `[T]` and a
@@ -16166,6 +16606,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         elif node.type in ("var_section", "let_section", "const_section"):
             section_kind = node.type.split("_")[0]  # var/let/const
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "variable_declaration":
                     sdl = _first_child_of_type(child, "symbol_declaration_list")
                     ident = _first_child_of_type(child, "identifier")
@@ -16189,6 +16630,7 @@ def _parse_nim_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -16217,6 +16659,7 @@ def _parse_tcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             name_node = None
             args_node = None
             for child in children:
+                parse_budget.checkpoint()
                 if child.type == "simple_word" and name_node is None:
                     name_node = child
                 elif child.type == "arguments" and name_node is not None:
@@ -16242,8 +16685,10 @@ def _parse_tcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 ))
                 # Walk into body for nested procs
                 for child in node.children:
+                    parse_budget.checkpoint()
                     if child.type == "braced_word":
                         for inner in child.children:
+                            parse_budget.checkpoint()
                             _walk(inner, qualified)
                 return
 
@@ -16251,6 +16696,7 @@ def _parse_tcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             # namespace eval NAME { ... }
             wl = None
             for child in node.children:
+                parse_budget.checkpoint()
                 if child.type == "word_list":
                     wl = child
                     break
@@ -16273,12 +16719,15 @@ def _parse_tcl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     ))
                     # Walk inside the braced_word for nested procs
                     for child in wl.children:
+                        parse_budget.checkpoint()
                         if child.type == "braced_word":
                             for inner in child.children:
+                                parse_budget.checkpoint()
                                 _walk(inner, qualified)
                     return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope)
 
     _walk(tree.root_node)
@@ -16300,6 +16749,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     def _first_child_of_type(node, *types):
         for child in node.children:
+            parse_budget.checkpoint()
             if child.type in types:
                 return child
         return None
@@ -16308,6 +16758,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         if node.type == "module_def":
             # Walk children (module_declaration, then actual definitions)
             for child in node.children:
+                parse_budget.checkpoint()
                 _walk(child, parent)
             return
 
@@ -16369,6 +16820,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 body = _first_child_of_type(node, "aggregate_body")
                 if body:
                     for child in body.children:
+                        parse_budget.checkpoint()
                         _walk(child, container)
                 return
 
@@ -16408,6 +16860,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 return
             kind = dlang_variable_kind(node) or "field"
             for declarator in node.children:
+                parse_budget.checkpoint()
                 if declarator.type != "declarator":
                     continue
                 ident = _first_child_of_type(declarator, "identifier")
@@ -16451,6 +16904,7 @@ def _parse_dlang_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, parent)
 
     _walk(tree.root_node)
@@ -16726,6 +17180,7 @@ def _racket_head_name(node):
     """
     cur, depth = node, 0
     while cur is not None and cur.type == "list" and depth < 8:
+        parse_budget.checkpoint()
         named = _racket_named(cur)
         if not named:
             return None
@@ -16787,6 +17242,7 @@ def _racket_struct_derived(form: str, name: str, kids: list, text) -> list[tuple
 
     field_names: list[str] = []
     for f in _racket_named(field_list):
+        parse_budget.checkpoint()
         if f.type == "symbol":
             fname, fmut = text(f), struct_mutable
         elif f.type == "list":
@@ -16835,6 +17291,7 @@ def _racket_struct_derived(form: str, name: str, kids: list, text) -> list[tuple
         "#:type-name": ("type name", "type", False),
     }
     for i, c in enumerate(kids):
+        parse_budget.checkpoint()
         if c.type != "keyword":
             continue
         spec = _named_by_keyword.get(text(c))
@@ -16890,6 +17347,7 @@ def _racket_declared_forms(repo: Optional[str]) -> dict[str, str]:
     for head, kind in declared.items():
         # `isinstance` first: a dict or list value is unhashable and a bare
         # `in frozenset` on it raises rather than skipping the entry.
+        parse_budget.checkpoint()
         if isinstance(head, str) and isinstance(kind, str) and kind in _RACKET_DECLARED_KINDS:
             out[head] = kind
         else:
@@ -17016,6 +17474,7 @@ def _racket_lang_config(repo: Optional[str]) -> dict[str, tuple[str, str]]:
         return {}
     out: dict[str, tuple[str, str]] = {}
     for lang, value in declared.items():
+        parse_budget.checkpoint()
         tier, cc = value, _RACKET_DEFAULT_COMMAND_CHAR
         if isinstance(value, dict):
             tier = value.get("tier")
@@ -17047,6 +17506,7 @@ def _racket_command_char(written: str, repo: Optional[str]) -> bytes:
         return _RACKET_ATEXP_WRAPPER_CHARS[parts[0]].encode("utf-8")
     lang = parts[1] if parts[0] in _RACKET_TRANSPARENT_WRAPPERS and len(parts) > 1 else parts[0]
     for key, (_tier, cc) in _racket_lang_config(repo).items():
+        parse_budget.checkpoint()
         if _racket_lang_matches(lang, {key}):
             return cc.encode("utf-8")
     return _RACKET_DEFAULT_COMMAND_CHAR.encode()
@@ -17066,6 +17526,7 @@ def _racket_tier(source_bytes: bytes, repo: Optional[str] = None) -> tuple[str, 
 
     def _lookup(name: str) -> Optional[str]:
         for key, tier in configured.items():
+            parse_budget.checkpoint()
             if _racket_lang_matches(name, {key}):
                 return tier
         if _racket_lang_matches(name, _RACKET_SEXP_LANGS):
@@ -17173,6 +17634,7 @@ def _parse_racket_symbols(
         # non-comment sibling ends on is that sibling's trailing comment.
         expected_end = node.start_point[0] - 1
         while prev is not None and prev.type in ("comment", "block_comment"):
+            parse_budget.checkpoint()
             if prev.end_point[0] != expected_end:
                 break
             before = prev.prev_named_sibling
@@ -17258,8 +17720,10 @@ def _parse_racket_symbols(
     def _clause_values(clause_list) -> None:
         """`([x (helper 1)] ...)`: walk each clause's VALUES, never its head."""
         for clause in _racket_named(clause_list):
+            parse_budget.checkpoint()
             if clause.type == "list":
                 for value in _racket_named(clause)[1:]:
+                    parse_budget.checkpoint()
                     _collect_calls(value)
             # A bare symbol in clause position (`#:result acc`) is a reference
             # to a binding, not a call: nothing to collect.
@@ -17277,16 +17741,19 @@ def _parse_racket_symbols(
         lambdas, to whichever synthesised accessor was emitted last -- and
         fed `get_call_hierarchy`, blast radius and `get_untested_symbols`.
         """
+        parse_budget.checkpoint()
         if node.type in _RACKET_SKIP_WRAPPERS or node.type == "ERROR":
             return
         if node.type != "list":
             for child in node.children:
+                parse_budget.checkpoint()
                 _collect_calls(child)
             return
         named = _racket_named(node)
         if not named or named[0].type != "symbol":
             # `((f a) b)` or `(#:kw ...)`: no head to record, walk everything.
             for child in node.children:
+                parse_budget.checkpoint()
                 _collect_calls(child)
             return
         head = _text(named[0])
@@ -17296,14 +17763,17 @@ def _parse_racket_symbols(
             if len(named) >= 3 and named[2].type == "symbol":
                 calls.append((node.start_byte, _text(named[2])))
             for c in named[1:2] + named[3:]:
+                parse_budget.checkpoint()
                 _collect_calls(c)
             return
         if head in _RACKET_INSTANCE_FORMS:
             if len(named) >= 2 and named[1].type == "symbol":
                 calls.append((node.start_byte, _text(named[1])))
             for clause in named[2:]:
+                parse_budget.checkpoint()
                 if clause.type == "list":
                     for value in _racket_named(clause)[1:]:
+                        parse_budget.checkpoint()
                         _collect_calls(value)
             return
         if head not in _RACKET_NON_CALL_HEADS and not _is_for_head(head):
@@ -17320,6 +17790,7 @@ def _parse_racket_symbols(
                 i = 2   # named let: `(let loop ([i 0]) ...)`
             n_clause_lists = 2 if head in _RACKET_TWO_CLAUSE_FORMS else 1
             for _ in range(n_clause_lists):
+                parse_budget.checkpoint()
                 if i < len(named) and named[i].type == "list":
                     _clause_values(named[i])
                     i += 1
@@ -17329,17 +17800,21 @@ def _parse_racket_symbols(
             if head == "match*" and len(named) > 1 and named[1].type == "list":
                 # `(match* (a (f b)) ...)`: a LIST of scrutinees, not a call.
                 for sub in _racket_named(named[1]):
+                    parse_budget.checkpoint()
                     _collect_calls(sub)
             elif head in ("syntax-case", "syntax-case*", "syntax-parse") and len(named) > 1:
                 _collect_calls(named[1])   # the scrutinee; literals hold no calls
             elif head in ("match",) and len(named) > 1:
                 _collect_calls(named[1])
             for clause in named[first:]:
+                parse_budget.checkpoint()
                 if clause.type == "list":
                     for value in _racket_named(clause)[1:]:
+                        parse_budget.checkpoint()
                         _collect_calls(value)
             return
         for c in rest:
+            parse_budget.checkpoint()
             _collect_calls(c)
 
     def _walk(node, scope: str = "", in_class: bool = False) -> None:
@@ -17392,6 +17867,7 @@ def _parse_racket_symbols(
                     for c in kids[2:]:
                         # Submodule members are module-level definitions, not
                         # object members: they stay function/constant.
+                        parse_budget.checkpoint()
                         _walk(c, inner, False)
                     return
 
@@ -17404,6 +17880,7 @@ def _parse_racket_symbols(
                           f"(define {name} (class {superclass}))".replace(" )", ")"), scope)
                     inner = f"{scope}::{name}" if scope else name
                     for c in kids[2].children:
+                        parse_budget.checkpoint()
                         _walk(c, inner, True)
                     return
 
@@ -17468,6 +17945,7 @@ def _parse_racket_symbols(
                           parent_id=gen_id, docstring=f"contract combinator of (define-generics {name})")
                     skip = 0
                     for i, c in enumerate(kids[2:]):
+                        parse_budget.checkpoint()
                         if skip:
                             skip -= 1
                             continue
@@ -17515,6 +17993,7 @@ def _parse_racket_symbols(
                                 bits.append(_text(header[1]))  # supertype, old form
                         seen_list = False
                         for c in kids[2:]:
+                            parse_budget.checkpoint()
                             if c.type == "list" and not seen_list:
                                 bits.append(_text(c))
                                 seen_list = True
@@ -17539,6 +18018,7 @@ def _parse_racket_symbols(
                         for dname, dsig, role, dkind in _racket_struct_derived(
                             form, name, kids, _text
                         ):
+                            parse_budget.checkpoint()
                             _emit(node, dname, dkind, dsig, scope,
                                   parent_id=struct_id,
                                   docstring=f"{role} of ({form} {name})")
@@ -17554,6 +18034,7 @@ def _parse_racket_symbols(
                         # `function` here (same rule as `define-syntax` above).
                         kind = "function" if form == "define-syntaxes" else "constant"
                         for c in names:
+                            parse_budget.checkpoint()
                             _emit(node, _text(c), kind, sig, scope)
                     return
 
@@ -17570,6 +18051,7 @@ def _parse_racket_symbols(
                         filename, f"{scope}::{name}-logger" if scope else f"{name}-logger", "constant")
                     _emit(node, f"{name}-logger", "constant", f"(define-logger {name})", scope)
                     for level in _RACKET_LOGGER_LEVELS:
+                        parse_budget.checkpoint()
                         _emit(node, f"log-{name}-{level}", "function",
                               f"(log-{name}-{level} string-expr)", scope,
                               parent_id=logger_id,
@@ -17618,6 +18100,7 @@ def _parse_racket_symbols(
                 return
 
         for child in node.children:
+            parse_budget.checkpoint()
             _walk(child, scope, in_class)
 
     _walk(tree.root_node)

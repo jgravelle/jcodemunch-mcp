@@ -51,6 +51,8 @@ import re
 from bisect import bisect_right
 from typing import Optional
 
+from . import parse_budget
+
 __all__ = ["RacketNode", "RacketTree", "RacketReadError", "read_racket", "READER_GENERATION"]
 
 #: Bump when the reader changes what UNCHANGED `.rkt` bytes yield. Stamped on
@@ -155,9 +157,11 @@ class RacketTree:
     def _adopt(self, node: RacketNode) -> None:
         stack = [node]
         while stack:
+            parse_budget.checkpoint()
             n = stack.pop()
             n._tree = self
             for i, c in enumerate(n.children):
+                parse_budget.checkpoint()
                 c.parent = n
                 c._index = i
                 stack.append(c)
@@ -305,6 +309,7 @@ class _Reader:
         children: list[RacketNode] = []
         i = self._skip_ws(0)
         while i < self.n:
+            parse_budget.checkpoint()
             start = i
             try:
                 node, i = self._read_datum(i, top=True)
@@ -315,6 +320,7 @@ class _Reader:
                     # Fold indented top-level forms back into the error.
                     while children and children[-1].type != "ERROR" \
                             and self._column(children[-1].start_byte) > 0:
+                        parse_budget.checkpoint()
                         err_start = children.pop().start_byte
                 resume = self._resync(max(start + 1, err_start + 1))
                 children.append(RacketNode("ERROR", err_start, resume))
@@ -333,6 +339,7 @@ class _Reader:
         starters = b"([{#;" + (self.cmd[:1] if self.at_exp else b"")
         i = src.find(b"\n", frm)
         while i != -1 and i + 1 < self.n:
+            parse_budget.checkpoint()
             if src[i + 1] in starters:
                 return i + 1
             i = src.find(b"\n", i + 1)
@@ -394,6 +401,7 @@ class _Reader:
         between the prefix and the datum ride along as children."""
         kids: list[RacketNode] = []
         while True:
+            parse_budget.checkpoint()
             i = self._skip_ws(i)
             if i >= self.n:
                 raise self._err(start, "expected a datum after the prefix")
@@ -410,6 +418,7 @@ class _Reader:
         kids: list[RacketNode] = []
         i += 1
         while True:
+            parse_budget.checkpoint()
             i = self._skip_ws(i)
             if i >= self.n:
                 raise self._err(start, "missing closing paren")
@@ -432,6 +441,7 @@ class _Reader:
         if b == 0x7C:  # #| ... |#
             depth, k = 1, j + 1
             while depth:
+                parse_budget.checkpoint()
                 o = src.find(b"#|", k)
                 c = src.find(b"|#", k)
                 if c == -1:
@@ -490,6 +500,7 @@ class _Reader:
             term = b"\n" + m.group(1)
             k = m.end() - 1                          # the newline ending the header line
             while True:
+                parse_budget.checkpoint()
                 k = src.find(term, k)
                 if k == -1:
                     raise self._err(i, "unterminated here string")
@@ -506,6 +517,7 @@ class _Reader:
             if m:
                 radix = 10
                 for c in m.group(0).lower():
+                    parse_budget.checkpoint()
                     radix = {0x78: 16, 0x6F: 8, 0x62: 2}.get(c, radix)
                 body = _SYM.match(src, m.end())
                 end = body.end() if body else m.end()
@@ -555,6 +567,7 @@ class _Reader:
             path, k = self._read_wrapped("extension", i, j + 6)
             body, end = self._read_wrapped("extension", i, k)
             for c in path.children:
+                parse_budget.checkpoint()
                 if c.type not in _COMMENT_TYPES:
                     c.type = "lang_name"      # the module path is not a datum of the file
             return RacketNode("extension", i, end, path.children + body.children), end
@@ -596,6 +609,7 @@ class _Reader:
         # Punctuation prefixes wrap the WHOLE form.
         prefixes: list[str] = []
         while True:
+            parse_budget.checkpoint()
             m = _AT_PREFIX.match(src, i)
             if not m:
                 break
@@ -634,11 +648,13 @@ class _Reader:
         else:
             result = cmd
         for type_ in reversed(prefixes):
+            parse_budget.checkpoint()
             result = RacketNode(type_, start, i, [result])
         return [result], i
 
     def _read_command(self, i: int) -> tuple[RacketNode, int]:
         while True:
+            parse_budget.checkpoint()
             node, i = self._read_datum(i, cmd_mode=True)
             if node.type in _COMMENT_TYPES:
                 raise self._err(node.start_byte, "expecting a command expression, got a comment")
@@ -650,6 +666,7 @@ class _Reader:
         kids: list[RacketNode] = []
         i += 1
         while True:
+            parse_budget.checkpoint()
             i = self._skip_ws(i)
             if i >= self.n:
                 raise self._err(start, "expected a `]`")
@@ -664,6 +681,7 @@ class _Reader:
         kids: list[RacketNode] = []
         i += 1
         while True:
+            parse_budget.checkpoint()
             i = self._skip_ws(i)
             if i >= self.n:
                 raise self._err(start, "expected a closing `|`")
@@ -710,6 +728,7 @@ class _Reader:
             text_start = None
 
         while True:
+            parse_budget.checkpoint()
             m = special.search(src, i)
             if not m:
                 raise self._err(start - len(opener), f"missing closing `{closer.decode('latin-1')}`")
@@ -743,6 +762,7 @@ class _Reader:
         i = 0
         text_start: Optional[int] = None
         while i < self.n:
+            parse_budget.checkpoint()
             j = src.find(self.cmd, i)
             if j == -1:
                 j = self.n

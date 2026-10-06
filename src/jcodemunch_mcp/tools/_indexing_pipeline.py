@@ -1,14 +1,13 @@
 """Shared indexing pipeline used by index_folder, index_file, and index_repo."""
 
 import logging
-import threading
 from collections import defaultdict
 from typing import Optional
 
 from ..parser import cached_parse_file as parse_file, get_language_for_path
 from ..parser.context import ContextProvider, enrich_symbols, collect_extra_imports
 from ..parser.imports import extract_imports
-from ..parser.parse_budget import DEFAULT_PARSE_BUDGET_SECONDS, ParseBudgetExceeded, budget_seconds
+from ..parser.parse_budget import ParseBudgetExceeded  # noqa: F401  (re-exported: callers catch it by this path)
 from ..parser.symbols import Symbol
 from ..summarizer import summarize_symbols, generate_file_summaries
 
@@ -19,56 +18,24 @@ logger = logging.getLogger(__name__)
 # (a minified bundle, a generated blob, a deeply nested literal) stalls the run
 # with no output and no name to blame.
 #
-# ⚠⚠ The ceiling that stops a tree-sitter parse is NOT here (L-114): it is in
-# `parser/parse_budget.py`, inside `parse_file`, on every route. The thread wait
-# below cannot stop or outwait a parse, because the parse holds the GIL; it
-# bounds what is left, the Python-side walk of a large file's tree, on every
-# route but `index_folder`'s full-index loop. ⚠ It is WALL-CLOCK, so time
-# another thread held the GIL is charged to the file it waits on (L-116).
-_DEFAULT_PARSE_BUDGET_SECONDS = DEFAULT_PARSE_BUDGET_SECONDS
-
-# The watchdog costs a thread per file, so it is only armed for files large
-# enough to plausibly hit the ceiling. Below this, parsing runs inline exactly
-# as before — the common path is untouched, and a 2 KB file that somehow takes
-# 20s is a bug we want to see rather than paper over.
-_PARSE_WATCHDOG_MIN_BYTES = 131072
-
-_parse_budget_seconds = budget_seconds
+# ⚠⚠ The ceiling is NOT here. It is `parser/parse_budget.py`, inside
+# `parse_file`, in the parsing thread: tree-sitter's own timeout for the parse
+# (L-114) and a checkpoint in every loop of the parse path for the Python side
+# (L-116).
+# This module used to wrap `parse_file` in a thread and wait on it. That wait
+# could not stop a parse (the parse holds the GIL), charged a file for time
+# another thread held the GIL, and left its worker running after the caller had
+# been told the file was skipped. Do not bring a second thread back.
 
 
 def parse_file_budgeted(content: str, rel_path: str, language: str, repo=None) -> list:
-    """``parse_file`` with a wall-clock ceiling on large files.
+    """``parse_file``. The budget is enforced inside it, on this thread.
 
-    Raises ``ParseBudgetExceeded`` on overrun so the caller's existing
-    parse-error handling names the file in ``warnings`` and moves on. A slow
-    tree-sitter parse is stopped inside ``parse_file`` itself and raises the
-    same class from the worker. This wait covers the rest: an abandoned
-    Python-side walk keeps running, so it bounds the INDEX, not the CPU.
+    Kept as the name the three pipeline routes call. Raises
+    ``ParseBudgetExceeded`` on overrun, which their parse-error handling turns
+    into a warning naming the file.
     """
-    budget = _parse_budget_seconds()
-    if budget <= 0 or len(content) < _PARSE_WATCHDOG_MIN_BYTES:
-        return parse_file(content, rel_path, language, repo=repo)
-
-    box: dict = {}
-
-    def _target() -> None:
-        try:
-            box["symbols"] = parse_file(content, rel_path, language, repo=repo)
-        except BaseException as exc:  # noqa: BLE001 — re-raised to the caller
-            box["exc"] = exc
-
-    worker = threading.Thread(target=_target, daemon=True)
-    worker.start()
-    worker.join(budget)
-    if worker.is_alive():
-        raise ParseBudgetExceeded(
-            f"parse exceeded the {budget:g}s budget ({len(content):,} chars, "
-            f"{language}); file skipped and its symbols are absent from this "
-            f"index. Raise JCODEMUNCH_PARSE_BUDGET_SECONDS to allow more time."
-        )
-    if "exc" in box:
-        raise box["exc"]
-    return box.get("symbols") or []
+    return parse_file(content, rel_path, language, repo=repo)
 
 
 def file_languages_for_paths(
