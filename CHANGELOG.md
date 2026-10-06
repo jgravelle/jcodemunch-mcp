@@ -94,9 +94,9 @@
   nothing above it is treated as being on `sys.path`. Two cases build no edge, because a false edge
   gives a file an importer it does not have and `find_dead_code` then stops reporting it with no
   sign. A standard-library name is never the file beside the importer (`import types` next to a
-  `types.py`). A directory without an `__init__.py` whose parent is a package is read as a
+  `types.py`). A directory without an `__init__.py` under a package at any level is read as a
   namespace sub-package, where a bare name is absolute; a real script directory kept inside a
-  package (`pkg/tests/`) gets no edge either, as before this change. Still unresolved, as before:
+  package (`pkg/tests/`) gets no edge either, as before this change. These can still build no edge, as before:
   a dotted name through a directory with no `__init__.py` (`from helpers import util`), a nested
   test directory importing a module beside a `conftest.py` above it, and a sibling that exists
   only as `.pyi` (LEDGER L-120).

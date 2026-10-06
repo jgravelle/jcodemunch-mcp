@@ -2259,10 +2259,12 @@ def resolve_specifier(
     # nothing shows; a missed edge is the behaviour before this branch existed.
     # (1) A standard-library name is the standard library: `import types`
     # beside a `types.py` is not that file. (2) A directory with no
-    # `__init__.py` whose PARENT is a package is a namespace sub-package, not a
-    # script directory (`pkg/files/main.py` is imported as `pkg.files.main`), so
-    # a bare name there is absolute. That also refuses a real script directory
-    # kept inside a package (`pkg/tests/`, `pkg/demos/`).
+    # `__init__.py` that has a package ANYWHERE above it is a namespace
+    # sub-package, not a script directory (`pkg/files/main.py` is imported as
+    # `pkg.files.main`), so a bare name there is absolute. Any level, not the
+    # parent alone: `pkg/types/llms/` is the same shape one directory deeper.
+    # That also refuses a real script directory kept inside a package
+    # (`pkg/tests/`, `pkg/demos/`).
     if (
         importer_path.endswith((".py", ".pyi"))
         and "." not in specifier
@@ -2272,9 +2274,13 @@ def resolve_specifier(
         script_dir = posixpath.dirname(importer_path)
         while script_dir and f"{script_dir}/__init__.py" in source_files:
             script_dir = posixpath.dirname(script_dir)
-        parent = posixpath.dirname(script_dir)
-        parent_init = f"{parent}/__init__.py" if parent else "__init__.py"
-        if script_dir and parent_init not in source_files:
+        inside_a_package = False
+        above = script_dir
+        while above and not inside_a_package:
+            above = posixpath.dirname(above)
+            init = f"{above}/__init__.py" if above else "__init__.py"
+            inside_a_package = init in source_files
+        if script_dir and not inside_a_package:
             for c in (f"{script_dir}/{specifier}/__init__.py", f"{script_dir}/{specifier}.py"):
                 if c in source_files:
                     return c

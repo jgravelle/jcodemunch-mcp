@@ -9,7 +9,7 @@ first directory at or above the importer with no `__init__.py`, it beats the
 root, and nothing above it is treated as being on `sys.path`.
 
 Two shapes build NO edge (maintainer follow-up on #972): a standard-library
-name, and a directory with no `__init__.py` whose parent is a package. A false
+name, and a directory with no `__init__.py` under a package at any level. A false
 edge there gives a file an importer it does not have, and `find_dead_code`
 then stops reporting it.
 """
@@ -45,6 +45,8 @@ _FILES = {
     "app/files/types.py",
     "app/tests/test_x.py",
     "app/tests/util.py",
+    "app/types/llms/common.py",
+    "app/types/llms/openai.py",
 }
 
 
@@ -76,11 +78,18 @@ _FILES = {
     # sub-package: a bare name there is absolute
     ("helper", "app/files/main.py", None),
     ("util", "app/tests/test_x.py", None),
+    # the same shape one directory deeper: the package is two levels up
+    ("openai", "app/types/llms/common.py", None),
     # a path is not a module name
     ("a/b", "tools/run.py", None),
 ])
 def test_a_bare_name_resolves_where_python_finds_it(specifier, importer, expected):
     assert resolve_specifier(specifier, importer, _FILES | {importer}) == expected
+
+
+def test_a_repo_whose_root_is_a_package_has_no_script_directory():
+    files = {"__init__.py", "tools/run.py", "tools/checks.py"}
+    assert resolve_specifier("checks", "tools/run.py", files) is None
 
 
 def test_find_importers_sees_a_script_directory_import(tmp_path):
@@ -129,10 +138,13 @@ def test_a_namespace_sub_package_gets_no_false_importer(tmp_path):
         "from types import MappingProxyType\n\n\ndef run():\n    return MappingProxyType({})\n"
     )
     (src / "app" / "files" / "types.py").write_text("class Orphan:\n    pass\n")
+    (src / "app" / "types" / "llms").mkdir(parents=True)
+    (src / "app" / "types" / "llms" / "common.py").write_text("import openai\n")
+    (src / "app" / "types" / "llms" / "openai.py").write_text("def orphan2():\n    return 2\n")
     result = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
     assert result["success"] is True
 
-    orphans = ("app/llms/openai/openai.py", "app/files/types.py")
+    orphans = ("app/llms/openai/openai.py", "app/files/types.py", "app/types/llms/openai.py")
     for path in orphans:
         r = find_importers(repo=result["repo"], file_path=path, storage_path=str(store))
         assert [i["file"] for i in r["importers"]] == [], path
