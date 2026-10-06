@@ -93,6 +93,15 @@ def embedded(tmp_path, monkeypatch):
                 str(src), use_ai_summaries=False, storage_path=str(store_dir),
             )
 
+        @staticmethod
+        def full_reindex(n):
+            (src / f"extra{n}.py").write_text(f"def extra_{n}():\n    return {n}\n")
+            result = index_folder(
+                str(src), use_ai_summaries=False, storage_path=str(store_dir),
+                incremental=False,
+            )
+            assert result["success"] is True
+
     return Harness
 
 
@@ -225,3 +234,25 @@ class TestTheCountIsNoLongerThrownAway:
         assert (meta.get("verdict") or {}).get("channels", {}).get(
             "semantic"
         ) == "partial"
+
+
+class TestAFullReindexDoesNotHideTheModelChange:
+    """#522: a full save cleared the `meta` rows the gate reads, so the stored
+    model read as unknown. `embed_repo` then re-embedded everything for another
+    reason (the `task_type` row was gone too, #523) and reported no model change,
+    and a semantic `search_symbols` in between re-stamped the store with the new
+    model over the old vectors."""
+
+    def test_the_change_is_detected_and_named_after_a_full_reindex(self, embedded):
+        embedded.embed("model-a", 384)
+        embedded.full_reindex(1)
+
+        store = embedded.store()
+        assert (store.get_dimension(), store.get_model()) == (384, "model-a")
+
+        result = embedded.embed("model-b", 768)
+
+        assert result.get("rebuild_reason") == "embedding_model_changed", result
+        assert result.get("model_changed_from") == "model-a"
+        assert embedded.widths() == {768: 6}
+        assert embedded.store().get_model() == "model-b"

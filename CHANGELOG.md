@@ -7,15 +7,26 @@
 - **A full re-index keeps the embedding metadata beside the vectors it describes (#522,
   @lsg1103275794).** `save_index` cleared the whole `meta` table, and the embedding store keeps
   `embed_dimension`, `embed_model` and `embed_task_type` there. The same save leaves
-  `symbol_embeddings` in place, so after any full save (a `PARSER_GENERATION` bump, an unloadable
-  index, `incremental=False`) the store held vectors with no record of the model that produced
-  them. `embed_repo` reads a missing model as unknown and does not treat unknown as a change, so a
-  later model swap appended vectors of another width to the old ones, which is the failure #500
-  was shipped to stop. The save now deletes the index's own keys and leaves the embedding store's.
-  The embedding store declares the prefix its keys carry and the save reads it, so a key added
-  there later is kept without a second edit, and a test fails if a key lacks the prefix. An index
-  key the new index does not write is still removed. Not repaired: a store an earlier full save
-  already stripped has no model name to recover.
+  `symbol_embeddings` in place, so after any full save (a `PARSER_GENERATION` bump, an index
+  written by a newer version, `incremental=False`) the store held vectors with no record of the
+  model that produced them. Two things followed. A semantic `search_symbols` embeds the symbols
+  that have no vector yet, and with no stored dimension it stamped the store with the CURRENT
+  model: after a model change that left vectors of two widths under the new model's name, and
+  `embed_repo` then answered `cached` over them, which is the state #500 was shipped to stop.
+  And `embed_repo` itself, run first, re-embedded the whole corpus without naming a model
+  change, because the `task_type` row was gone too (#523). The save now deletes the index's own
+  keys and leaves the embedding store's, which carry a declared prefix the save reads. An index
+  key the new index does not write is still removed. With the model row kept, `embed_repo`
+  after a full re-index and a model change reports `rebuild_reason: embedding_model_changed`
+  and leaves one vector width. What changes for a user:
+  - `embed_repo` after a full re-index with the SAME model no longer re-embeds every symbol. It
+    embeds the symbols that have no vector, as it does after an incremental re-index. A caller
+    who used a full re-index to refresh every vector now passes `force=true`.
+  - So a vector for a symbol whose body changed, or whose symbol is gone, survives a full
+    re-index as it already survived an incremental one (LEDGER L-122).
+  - Not repaired: a store an earlier full save already stripped has no model name to recover.
+  - Not fixed here: the semantic top-up in `search_symbols` still checks no stored model before
+    it writes (LEDGER L-121).
 
 ## [1.108.330] - 2026-10-06 - the parse budget bounds a file's Python-side time
 

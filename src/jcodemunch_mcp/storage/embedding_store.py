@@ -45,8 +45,8 @@ _GET_MANY_CHUNK = 900
 # `save_index` clears the index's own keys on a full save and leaves these, because
 # it leaves `symbol_embeddings` too: metadata erased beside surviving vectors reads
 # as "model unknown", and `embed_repo` does not treat unknown as a change (#522).
-# A new key must carry the prefix; `tests/test_full_save_keeps_embedding_meta.py`
-# reads the `_EMBED_*_KEY` names off this module and fails if one does not.
+# A new key must carry the prefix, and be named `_EMBED_*_KEY` so that
+# `tests/test_full_save_keeps_embedding_meta.py` reads it off this module.
 META_KEY_PREFIX = "embed_"
 
 _EMBED_DIM_KEY = "embed_dimension"
