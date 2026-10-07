@@ -221,40 +221,6 @@ def _collect_calls(
         stack.extend(reversed(current.children))
 
 
-def _find_enclosing_symbol(
-    sorted_syms: list[tuple[int, int, int, Symbol]],
-    byte_offset: int,
-) -> Optional[Symbol]:
-    """Find the symbol that contains the given byte offset.
-
-    Does a linear scan backwards from the binary-search candidate
-    to find the innermost enclosing symbol.
-
-    Args:
-        sorted_syms: List of (byte_offset, byte_end, line, symbol) sorted by byte_offset
-        byte_offset: Byte offset to find enclosing symbol for
-
-    Returns:
-        The Symbol that contains this byte offset, or None
-    """
-    if not sorted_syms:
-        return None
-
-    # Binary search for the last symbol whose start <= byte_offset
-    starts = [s[0] for s in sorted_syms]
-    idx = bisect.bisect_right(starts, byte_offset) - 1
-
-    # Scan backwards to find the innermost enclosing symbol
-    while idx >= 0:
-        parse_budget.checkpoint()
-        start, end, line, sym = sorted_syms[idx]
-        if start <= byte_offset <= end:
-            return sym
-        idx -= 1
-
-    return None
-
-
 def _attribute_calls_to_symbols(
     symbols: list[Symbol],
     calls: list[tuple[int, str]],
@@ -262,8 +228,16 @@ def _attribute_calls_to_symbols(
     """Attribute pre-collected call sites to their enclosing symbols.
 
     This is the cheap second step after call sites have been collected
-    (either during ``_walk_tree`` or via ``_collect_calls``).
-    Only builds the sorted symbol list and does bisect lookups — no AST walk.
+    (either during ``_walk_tree`` or via ``_collect_calls``). A call belongs
+    to the innermost callable holding its offset: of those that hold it, the
+    one that starts last.
+
+    ⚠ One sweep over the calls in offset order, with the callables that have
+    started kept on a stack (L-117). The lookup this replaces rebuilt the list
+    of starts for every call and then walked back over every callable that did
+    not hold it, so a file of N functions followed by N module-level calls
+    cost N * N. A callable is pushed once and popped once here; one that ended
+    before a call cannot hold a later call, so popping it loses nothing.
     """
     if not calls:
         return
@@ -278,12 +252,35 @@ def _attribute_calls_to_symbols(
     if not callable_syms:
         return
 
-    for call_offset, called_name in calls:
+    enclosing_of: list[Optional[Symbol]] = [None] * len(calls)
+    started: list[tuple[int, Symbol]] = []  # (end, symbol), in start order
+    next_sym = 0
+    for call_idx in sorted(range(len(calls)), key=lambda i: calls[i][0]):
         parse_budget.checkpoint()
-        enclosing = _find_enclosing_symbol(callable_syms, call_offset)
-        if enclosing and enclosing.name != called_name:
-            if called_name not in enclosing.call_references:
-                enclosing.call_references.append(called_name)
+        call_offset = calls[call_idx][0]
+        while next_sym < len(callable_syms) and callable_syms[next_sym][0] <= call_offset:
+            parse_budget.checkpoint()
+            started.append((callable_syms[next_sym][1], callable_syms[next_sym][3]))
+            next_sym += 1
+        while started and started[-1][0] < call_offset:
+            parse_budget.checkpoint()
+            started.pop()
+        if started:
+            enclosing_of[call_idx] = started[-1][1]
+
+    # References are appended in the order the calls were collected, and a
+    # name already in a symbol's list is looked up in a set, not in the list.
+    recorded: dict[int, set[str]] = {}
+    for (_call_offset, called_name), enclosing in zip(calls, enclosing_of):
+        parse_budget.checkpoint()
+        if enclosing is None or enclosing.name == called_name:
+            continue
+        names = recorded.get(id(enclosing))
+        if names is None:
+            names = recorded[id(enclosing)] = set(enclosing.call_references)
+        if called_name not in names:
+            names.add(called_name)
+            enclosing.call_references.append(called_name)
 
 
 def _extract_call_references(
@@ -9208,8 +9205,12 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     )
     symbols.append(view_symbol)
 
+    # One table for the file (L-117): a count from the start per symbol is the
+    # whole file again for each one.
+    newline_offsets = [m.start() for m in re.finditer("\n", content)]
+
     def _line_for_offset(offset: int) -> int:
-        return content.count("\n", 0, offset) + 1
+        return bisect.bisect_left(newline_offsets, offset) + 1
 
     def _rewrap_symbol(
         sym: Symbol,
@@ -9350,9 +9351,10 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             content_hash=compute_content_hash(snippet),
         ))
 
+    brace_blocks = _RazorBraceBlocks(content)
     for code_match in _RAZOR_CODE_BLOCK_RE.finditer(content):
         parse_budget.checkpoint()
-        block = _extract_razor_brace_block(content, code_match.end() - 1)
+        block = brace_blocks.block(code_match.end() - 1)
         if block is None:
             continue
         body_start, body_end = block
@@ -9537,8 +9539,12 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return line_starts[line_no - 1]
         return len(content)
 
+    # One table for the file (L-117): a count from the start per symbol is the
+    # whole file again for each one.
+    newline_offsets = [m.start() for m in re.finditer("\n", content)]
+
     def _line_for_offset(offset: int) -> int:
-        return content.count("\n", 0, offset) + 1
+        return bisect.bisect_left(newline_offsets, offset) + 1
 
     def _rewrap_symbol(
         sym: Symbol,
@@ -9718,85 +9724,133 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     return deduped
 
 
-def _extract_razor_brace_block(content: str, brace_pos: int) -> Optional[tuple[int, int]]:
-    """Return the [start, end) slice inside a Razor @code/@functions block."""
-    if brace_pos < 0 or brace_pos >= len(content) or content[brace_pos] != "{":
-        return None
+_RAZOR_CODE_STOP_RE = re.compile(r"""[/@'"{}]""")
+_RAZOR_CODE, _RAZOR_LINE_COMMENT, _RAZOR_BLOCK_COMMENT, _RAZOR_SINGLE, _RAZOR_DOUBLE, _RAZOR_VERBATIM = range(6)
+_RAZOR_STRING_STOP_RE = {_RAZOR_SINGLE: re.compile(r"[\\']"), _RAZOR_DOUBLE: re.compile(r'[\\"]')}
 
-    depth = 0
-    i = brace_pos
-    in_string = False
-    string_quote = ""
-    verbatim_string = False
-    in_line_comment = False
-    in_block_comment = False
 
-    while i < len(content):
-        parse_budget.checkpoint()
-        ch = content[i]
-        nxt = content[i + 1] if i + 1 < len(content) else ""
+class _RazorBraceBlocks:
+    """The body of each Razor ``@code {`` / ``@functions {`` block in one file.
 
-        if in_line_comment:
-            if ch == "\n":
-                in_line_comment = False
-            i += 1
-            continue
+    ``block(brace_pos)`` returns the ``[start, end)`` slice inside the braces,
+    or None when the block never closes. A brace inside a string, a verbatim
+    string or a comment does not count, and each block is read as C# starting
+    in code AT its own brace, whatever an earlier block was in the middle of.
 
-        if in_block_comment:
-            if ch == "*" and nxt == "/":
-                in_block_comment = False
-                i += 2
-                continue
-            i += 1
-            continue
+    ⚠ The answers for every block of a file share one set of scans (L-117).
+    The function this replaces scanned from each brace to its closing brace,
+    or to the end of the file when there was none, so N unclosed blocks cost
+    N scans of the rest of the file. Here a scan stops at the first place an
+    earlier scan already reached IN THE SAME STATE (code, a comment, a string):
+    from there the two read the same characters the same way. So each place is
+    read once per state, and a brace's closing brace is found by stepping over
+    the already matched pairs that follow it.
+    """
 
-        if in_string:
-            if verbatim_string:
-                if ch == '"' and nxt == '"':
-                    i += 2
-                    continue
-                if ch == '"':
-                    in_string = False
-                    verbatim_string = False
+    def __init__(self, content: str) -> None:
+        self._content = content
+        # (stop position * 6 + state) -> the first brace at or after that stop
+        # on its scan, as an index into the lists below; -1 when there is none
+        self._first_brace: dict[int, int] = {}
+        self._pos: list[int] = []
+        self._opens: list[bool] = []
+        self._next: list[int] = []   # the brace after this one on its scan
+        self._match: list[int] = []  # for an opening brace, the brace that closes it
+
+    def block(self, brace_pos: int) -> Optional[tuple[int, int]]:
+        content = self._content
+        if brace_pos < 0 or brace_pos >= len(content) or content[brace_pos] != "{":
+            return None
+        key = brace_pos * 6 + _RAZOR_CODE
+        if key not in self._first_brace:
+            self._scan(brace_pos)
+        closer = self._match[self._first_brace[key]]
+        if closer < 0:
+            return None
+        return brace_pos + 1, self._pos[closer]
+
+    def _scan(self, start: int) -> None:
+        content = self._content
+        first_brace = self._first_brace
+        state = _RAZOR_CODE
+        i = start
+        trail: list[tuple[int, int]] = []  # (key, brace index or -1) per stop
+        tail = -1
+        while True:
+            parse_budget.checkpoint()
+            if state == _RAZOR_CODE:
+                found = _RAZOR_CODE_STOP_RE.search(content, i)
+                stop = found.start() if found else -1
+            elif state == _RAZOR_LINE_COMMENT:
+                stop = content.find("\n", i)
+            elif state == _RAZOR_BLOCK_COMMENT:
+                stop = content.find("*/", i)
+            elif state == _RAZOR_VERBATIM:
+                stop = content.find('"', i)
             else:
-                if ch == "\\":
-                    i += 2
-                    continue
-                if ch == string_quote:
-                    in_string = False
-            i += 1
-            continue
+                found = _RAZOR_STRING_STOP_RE[state].search(content, i)
+                stop = found.start() if found else -1
+            if stop < 0:
+                break
+            key = stop * 6 + state
+            known = first_brace.get(key)
+            if known is not None:
+                tail = known
+                break
 
-        if ch == "/" and nxt == "/":
-            in_line_comment = True
-            i += 2
-            continue
-        if ch == "/" and nxt == "*":
-            in_block_comment = True
-            i += 2
-            continue
-        if ch == "@" and nxt == '"':
-            in_string = True
-            string_quote = '"'
-            verbatim_string = True
-            i += 2
-            continue
-        if ch in ("'", '"'):
-            in_string = True
-            string_quote = ch
-            verbatim_string = False
-            i += 1
-            continue
+            brace = -1
+            ch = content[stop]
+            following = content[stop + 1:stop + 2]
+            i = stop + 1
+            if state == _RAZOR_CODE:
+                if ch == "/":
+                    if following == "/":
+                        state, i = _RAZOR_LINE_COMMENT, stop + 2
+                    elif following == "*":
+                        state, i = _RAZOR_BLOCK_COMMENT, stop + 2
+                elif ch == "@":
+                    if following == '"':
+                        state, i = _RAZOR_VERBATIM, stop + 2
+                elif ch == "'":
+                    state = _RAZOR_SINGLE
+                elif ch == '"':
+                    state = _RAZOR_DOUBLE
+                else:
+                    brace = len(self._pos)
+                    self._pos.append(stop)
+                    self._opens.append(ch == "{")
+                    self._next.append(-1)
+                    self._match.append(-1)
+            elif state == _RAZOR_LINE_COMMENT:
+                state = _RAZOR_CODE
+            elif state == _RAZOR_BLOCK_COMMENT:
+                state, i = _RAZOR_CODE, stop + 2
+            elif state == _RAZOR_VERBATIM:
+                if following == '"':
+                    i = stop + 2  # a doubled quote stays in the string
+                else:
+                    state = _RAZOR_CODE
+            elif ch == "\\":
+                i = stop + 2  # the escaped character is not read
+            else:
+                state = _RAZOR_CODE
+            trail.append((key, brace))
 
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return brace_pos + 1, i
-        i += 1
-
-    return None
+        # Backwards, so every brace after this one already has its answer.
+        upcoming = tail
+        for key, brace in reversed(trail):
+            parse_budget.checkpoint()
+            if brace >= 0:
+                self._next[brace] = upcoming
+                if self._opens[brace]:
+                    closer = upcoming
+                    while closer >= 0 and self._opens[closer]:
+                        parse_budget.checkpoint()
+                        inner_closer = self._match[closer]
+                        closer = self._next[inner_closer] if inner_closer >= 0 else -1
+                    self._match[brace] = closer
+                upcoming = brace
+            first_brace[key] = upcoming
 
 
 def _parse_lua_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:

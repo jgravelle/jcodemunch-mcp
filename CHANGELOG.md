@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three loops on the parse path take time proportional to the file (LEDGER L-117).** Each
+  redid whole-file work per item, in Python, after the parse. Attributing calls to their
+  enclosing function rebuilt the list of function starts for every call and then walked back
+  over every function that did not hold it; it is one sweep now. The Razor `@code {` scan
+  started again for every block and ran to the end of the file when a block never closed; the
+  blocks of a file share their scans now. The dbt and Jinja directive loop copied the file up
+  to each macro, counted its newlines, searched it for a comment and split it into lines; it
+  reads tables built once per file. Measured through `parse_file` with the parse budget off,
+  on `main` and then on the fix (`evidence/l117_before_after.txt`): a 418,340-byte Python file
+  of 6250 functions and 20000 module-level calls took 63.210 s and takes 0.588 s; a
+  50,000-byte Razor file of 6250 unclosed `@code {` took 111.523 s and takes 0.030 s; a
+  26,890-byte `.sql` of 1000 open comments and macros took 39.171 s and takes 0.092 s. With
+  the default budget such a file was skipped and named after 20 s; it is indexed now. Every
+  field of every symbol is the same before and after over 9830 files (5137 of them Razor, 285
+  SQL), so no re-index is owed. Not changed: a macro under a second `{# comment #}` still gets
+  the file's first one as its docstring (LEDGER L-126); three shapes stay superlinear and are
+  listed in LEDGER L-127. Not run: a Jinja or Twig corpus; any Python but 3.12.4 on Windows.
+
 ## [1.108.331] - 2026-10-06 - a full re-index keeps the embedding metadata beside its vectors
 
 ### Fixed
