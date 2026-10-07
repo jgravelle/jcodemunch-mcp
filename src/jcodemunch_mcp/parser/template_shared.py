@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import parse_budget
-from .sql_preprocessor import extract_dbt_directives
+from .sql_preprocessor import JINJA_WHITESPACE_MARKS, TWIG_WHITESPACE_MARKS, extract_dbt_directives
 from .symbols import Symbol, compute_content_hash, make_symbol_id
 
 
@@ -53,6 +53,10 @@ _TEMPLATE_DIRECTIVES = ("macro", "block")
 # named, overridable region (constant-like named anchor).
 _DIRECTIVE_KIND = {"macro": "function", "block": "constant"}
 
+# Engine -> the whitespace-control marks of its comment delimiters (L-131);
+# an engine not named here reads as Jinja.
+_WHITESPACE_MARKS = {"twig": TWIG_WHITESPACE_MARKS}
+
 
 def extract_jinja_directives(
     text: str, filename: str, language: str = "jinja"
@@ -68,7 +72,9 @@ def extract_jinja_directives(
     """
     symbols: list[Symbol] = []
     for d in extract_dbt_directives(
-        text.encode("utf-8"), directive_keywords=_TEMPLATE_DIRECTIVES
+        text.encode("utf-8"),
+        directive_keywords=_TEMPLATE_DIRECTIVES,
+        whitespace_marks=_WHITESPACE_MARKS.get(language, JINJA_WHITESPACE_MARKS),
     ):
         parse_budget.checkpoint()
         kind = _DIRECTIVE_KIND[d.directive]

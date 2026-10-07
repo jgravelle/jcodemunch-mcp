@@ -72,8 +72,14 @@ _LINE_BREAK_RE = re.compile(
     + "]"
 )
 _NON_SPACE_RE = re.compile(r"\S")
-# what may stand between a comment delimiter and its body: `{#-`, `{#+`, `{#~`
-_WHITESPACE_CONTROL_MARKS = ("-", "+", "~")
+# What may stand between a comment delimiter and its body, per dialect (L-131):
+# `{#-` everywhere, `{#+` in Jinja and dbt, `{#~` in Twig. The other dialect's
+# mark is the comment's own text.
+JINJA_WHITESPACE_MARKS = ("-", "+")
+TWIG_WHITESPACE_MARKS = ("-", "~")
+# `{{`, `{%` and `{#`, and what closes each
+_JINJA_OPENER_RE = re.compile(r"\{[{%#]")
+_JINJA_CLOSER = {"{": "}}", "%": "%}", "#": "#}"}
 
 
 class _PrecedingComments:
@@ -95,25 +101,60 @@ class _PrecedingComments:
     of the file and checked only that the text before the directive ended in
     ``#}``, so every documented macro after the first carried the FIRST
     comment of the file. A ``#}`` that closes no comment is not one.
+
+    ⚠⚠ Three more rules, each a wrong docstring before it (L-129, L-130,
+    L-131). The comment is FIRST ON ITS LINE, with only other comments before
+    it there: one that trails code (``{% endmacro %} {# end of a #}``) belongs
+    to that code, not to the directive on the next line. The file is read as
+    Jinja reads it, ``{{ ... }}``, ``{% ... %}`` and ``{# ... #}`` left to
+    right, so a ``{#`` inside an expression or a tag opens no comment. And a
+    whitespace-control mark is dropped only if it is this dialect's.
     """
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, whitespace_marks: tuple[str, ...] = JINJA_WHITESPACE_MARKS) -> None:
         self._text = text
+        self._marks = whitespace_marks
         self._line_starts = [0] + [m.end() for m in _LINE_BREAK_RE.finditer(text)]
         self._line_ends = [m.start() for m in _LINE_BREAK_RE.finditer(text)] + [len(text)]
         self._first_text: dict[int, int] = {}  # line index -> its first non-space character
         # where a comment ends -> where its body starts. Read left to right,
-        # a comment running to the first `#}` after its `{#`; when a `{#` has
-        # no `#}`, no later one has either.
+        # each `{{`, `{%` or `{#` running to the first closer of its kind.
+        # When one has no closer, no later one of that kind has either, so
+        # that kind is text from there on (one failed search per kind).
         self._comment_body_start: dict[int, int] = {}
-        opened = text.find("{#")
-        while opened >= 0:
+        unclosed: set[str] = set()
+        pos = 0
+        while True:
             parse_budget.checkpoint()
-            closed = text.find("#}", opened + 2)
-            if closed < 0:
+            found = _JINJA_OPENER_RE.search(text, pos)
+            if found is None:
                 break
-            self._comment_body_start[closed + 2] = opened + 2
-            opened = text.find("{#", closed + 2)
+            opened = found.start()
+            kind = text[opened + 1]
+            closed = -1 if kind in unclosed else text.find(_JINJA_CLOSER[kind], opened + 2)
+            if closed < 0:
+                unclosed.add(kind)
+                pos = opened + 1
+                continue
+            if kind == "#":
+                self._comment_body_start[closed + 2] = opened + 2
+            pos = closed + 2
+
+    def _is_first_on_its_line(self, opened: int) -> bool:
+        """Whether only space, and other comments, stand between a line start and ``opened``."""
+        text = self._text
+        pos = opened
+        while True:
+            parse_budget.checkpoint()
+            if self._line_starts[bisect.bisect_right(self._line_starts, pos) - 1] == pos:
+                return True
+            if text[pos - 1].isspace():
+                pos -= 1
+                continue
+            body_start = self._comment_body_start.get(pos)  # a comment ends here
+            if body_start is None:
+                return False
+            pos = body_start - 2
 
     @staticmethod
     def _clean(comment_body: str) -> str:
@@ -144,14 +185,14 @@ class _PrecedingComments:
 
         # Check for {# comment #} immediately before
         body_start = self._comment_body_start.get(end)
-        if body_start is not None:
+        if body_start is not None and self._is_first_on_its_line(body_start - 2):
             body = text[body_start:end - 2]
             # `{#- ... -#}` trims the whitespace around the comment; the
-            # dashes are the delimiter's, not the comment's. So are Jinja's
-            # `+` and Twig's `~`. One mark per side, read before any space.
-            if body[:1] in _WHITESPACE_CONTROL_MARKS:
+            # mark is the delimiter's, not the comment's. One mark per side,
+            # read before any space, and only this dialect's.
+            if body[:1] in self._marks:
                 body = body[1:]
-            if body[-1:] in _WHITESPACE_CONTROL_MARKS:
+            if body[-1:] in self._marks:
                 body = body[:-1]
             return self._clean(body)
 
@@ -183,6 +224,7 @@ class _PrecedingComments:
 def extract_dbt_directives(
     sql_bytes: bytes,
     directive_keywords: tuple[str, ...] = _DEFAULT_DBT_DIRECTIVES,
+    whitespace_marks: tuple[str, ...] = JINJA_WHITESPACE_MARKS,
 ) -> list[DbtDirective]:
     """Extract Jinja ``{% <kw> name(params) %}`` directive blocks as metadata.
 
@@ -202,7 +244,7 @@ def extract_dbt_directives(
     sql_str = sql_bytes.decode("utf-8", errors="replace")
     directives: list[DbtDirective] = []
     newline_offsets = [m.start() for m in re.finditer("\n", sql_str)]
-    comments = _PrecedingComments(sql_str)
+    comments = _PrecedingComments(sql_str, tuple(whitespace_marks))
     # directive keyword -> (starts, ends) of every end tag of that keyword
     end_tags: dict[str, tuple[list[int], list[int]]] = {}
 

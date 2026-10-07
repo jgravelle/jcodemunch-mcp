@@ -6,6 +6,11 @@ checked only how the text before the directive ended. So in a file of
 documented macros every macro after the first carried the first one's
 description, and a search by what a macro does found the wrong macro.
 
+Three rules came after (L-129, L-130, L-131): the comment is first on its line
+(only other comments may stand before it there), a `{#` inside `{{ ... }}` or
+`{% ... %}` opens no comment, and a whitespace-control mark is its own
+dialect's (`+` in Jinja and dbt, `~` in Twig, `-` in both).
+
 The cases go through `parse_file`, the entry point an index uses, for dbt SQL
 and for a Jinja template (the template parsers share the directive loop).
 """
@@ -87,7 +92,20 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
     [
         ("{# a #}{# b #}", "b"),                      # two comments on one line: the nearer one
         ("{# a #}\n\n\n{# b #}\n\n", "b"),             # blank lines before and after
-        ("{# a #} x {# b #}", "b"),
+        ("{# a #} x {# b #}", ""),                     # L-129: `b` trails code on its line
+        ("x {# b #}", ""),
+        ("{% macro z() %}x{% endmacro %} {# end of z #}", ""),
+        ("{% macro z() %}x{% endmacro %} {# end of z #}\n\n", ""),
+        ("x {# a #}{# b #}", ""),                       # a comment before it does not make it start the line
+        ("  \t{# b #}", "b"),                           # indented is still first on its line
+        ("{# a\nstill a #} {# b #}", "b"),               # only comments before it, back to a line start
+        ("x {# a\nstill a #} {# b #}", ""),
+        ("{{ x }}{# b #}", ""),
+        ("{{ '{#' }}\n{# b #}", "b"),                  # L-130: a `{#` in an expression opens no comment
+        ("{% set x = '{#' %}\n{# b #}", "b"),
+        ("{{ '{#' }} {{ '#}' }}", ""),
+        ("{# b {{ x }} {% y %} #}", "b {{ x }} {% y %}"),  # and an expression in a comment is the comment's
+        ("{# a #}\n{#~approx 5 rows#}", "~approx 5 rows"),  # L-131: `~` is not a Jinja mark
         ("{#/**\n * builds the key\n * from two columns\n */#}", "builds the key\nfrom two columns"),
         ("{# a #}\n#}", ""),                           # a stray `#}` closes no comment
         ("{# a #}\nselect 1 #}", ""),                  # text that only ends like a comment
@@ -96,7 +114,7 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
         ("{# a #}\n{#--#}", ""),
         ("{# a #}\n{#-- b --#}", "- b -"),              # one mark per side, no more
         ("{# a #}\n{#+ b +#}", "b"),                    # Jinja's `+`
-        ("{# a #}\n{#~ b ~#}", "b"),                    # Twig's `~`
+        ("{# a #}\n{#~ b ~#}", "~ b ~"),                # L-131: Twig's `~` is text in dbt and Jinja
         ("{# a #}\n{#- b +#}", "b"),
         ("{# a #}\n{# + b ~ #}", "+ b ~"),
         ("{# a #}\n{# - b - #}", "- b -"),              # a dash that is not at the delimiter stays
@@ -113,6 +131,32 @@ def test_the_docstring_is_the_comment_that_ends_just_above(above, expected):
     assert found["m"] == expected
 
 
+def test_an_expression_that_never_closes_is_text():
+    # nothing closes this `{{` anywhere in the file, so it opens nothing
+    found = _docstrings("{{ never closed\n{# about m #}\n{% macro m() %}{% endmacro %}\n")
+    assert found == {"m": "about m"}
+
+
+@pytest.mark.parametrize(
+    "filename, language, above, expected",
+    [
+        ("t.twig", "twig", "{#~ b ~#}", "b"),                  # Twig's mark
+        ("t.twig", "twig", "{#- b -#}", "b"),
+        ("t.twig", "twig", "{#+1 to the offset #}", "+1 to the offset"),  # `+` is not a Twig mark
+        ("t.j2", "jinja", "{#+ b +#}", "b"),                   # Jinja's mark
+        ("t.j2", "jinja", "{#- b -#}", "b"),
+        ("t.j2", "jinja", "{#~approx#}", "~approx"),            # `~` is not a Jinja mark
+        ("t.sql", "sql", "{#~approx#}", "~approx"),
+        ("t.sql", "sql", "{#+ b +#}", "b"),
+    ],
+)
+def test_a_whitespace_mark_is_its_own_dialects(filename, language, above, expected):
+    text = "{# header #}\n{% macro head() %}x{% endmacro %}\n" + above + "\n{% macro m() %}x{% endmacro %}\n"
+    symbols = {s.name: s for s in parse_file(text, filename, language)}
+    assert symbols["head"].docstring == "header"
+    assert symbols["m"].docstring == expected
+
+
 def test_many_documented_macros_each_keep_their_own():
     count = 300
     text = "".join(f"{{# about m{i} #}}\n{{% macro m{i}() %}}{{% endmacro %}}\n" for i in range(count))
@@ -122,4 +166,4 @@ def test_many_documented_macros_each_keep_their_own():
 def test_the_parser_generation_moved_so_an_existing_index_is_re_read():
     """The docstring changes on UNCHANGED content, and the incremental path
     never re-reads unchanged content (Standing lesson 08-05)."""
-    assert PARSER_GENERATION >= 10
+    assert PARSER_GENERATION >= 11

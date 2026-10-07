@@ -586,7 +586,13 @@ INDEX_VERSION = 17
 #   it as its docstring. Every such directive after the first documented one
 #   carried the FIRST comment of the file. ⚠⚠ No symbol id moves; only
 #   `docstring` (and a summary built from it) changes, on UNCHANGED content.
-PARSER_GENERATION = 10
+#
+# 11 (L-129, L-130, L-131): three more rules for that docstring. A comment
+#   that trails code on its line is not the next directive's; a `{#` inside
+#   `{{ ... }}` or `{% ... %}` opens no comment; and a whitespace-control
+#   mark is dropped only for its own dialect (`+` Jinja and dbt, `~` Twig).
+#   ⚠⚠ No symbol id moves; only `docstring` changes, on UNCHANGED content.
+PARSER_GENERATION = 11
 
 
 @dataclass(frozen=True)

@@ -512,19 +512,38 @@ def _old_extract_dbt_directives(sql_bytes, directive_keywords=("macro", "test", 
     return directives
 
 
-def _docstring_of_the_comment_just_above(sql_str, offset):
-    """L-126's rule, the slow way: the Jinja comment that ENDS where the text
-    before the directive ends, else the `--` lines directly above."""
+# Jinja's three delimiters, read left to right, each to its first closer (L-130)
+_SLOW_JINJA_TOKEN_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{#(.*?)#\}", re.DOTALL)
+
+
+def _docstring_of_the_comment_just_above(sql_str, offset, marks=("-", "+")):
+    """The rule, the slow way (L-126, L-129, L-130, L-131): the Jinja comment
+    that ENDS where the text before the directive ends, if it is first on its
+    line; else the `--` lines directly above."""
     preceding = sql_str[:offset].rstrip()
-    for comment in _OLD_JINJA_COMMENT_RE.finditer(preceding):
-        if comment.end() == len(preceding):
-            body = comment.group(1)
-            # `{#- ... -#}`: the dash is the delimiter's, as are Jinja's `+` and Twig's `~`
-            body = body[1:] if body.startswith(("-", "+", "~")) else body
-            body = body[:-1] if body.endswith(("-", "+", "~")) else body
-            # the old lookup, given this comment alone, is its cleaning step
-            alone = "{#" + body + "#}"
-            return _old_extract_preceding_docstring(alone, len(alone))
+    comments = {m.end(): m for m in _SLOW_JINJA_TOKEN_RE.finditer(sql_str) if m.group(0).startswith("{#")}
+
+    def first_on_its_line(pos):
+        while True:
+            before = sql_str[:pos]
+            lines = before.splitlines(keepends=True)
+            current = lines[-1] if lines and lines[-1].splitlines()[0] == lines[-1] else ""
+            if not current.strip():
+                return True
+            earlier = comments.get(len(before.rstrip()))  # a comment ends where the line's text ends
+            if earlier is None:
+                return False
+            pos = earlier.start()
+
+    comment = comments.get(len(preceding))
+    if comment is not None and first_on_its_line(comment.start()):
+        body = comment.group(1)
+        # `{#- ... -#}`: the mark is the delimiter's, one per side, this dialect's only
+        body = body[1:] if body.startswith(marks) else body
+        body = body[:-1] if body.endswith(marks) else body
+        # the old lookup, given this comment alone, is its cleaning step
+        alone = "{#" + body + "#}"
+        return _old_extract_preceding_docstring(alone, len(alone))
     lines = []
     for line in reversed(preceding.splitlines()):
         stripped = line.strip()
@@ -542,7 +561,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset):
 _LINE_BREAKS = ["\n", "\n", "\r\n", "\r", chr(0x0B), chr(0x0C), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85),
                 chr(0x2028), chr(0x2029)]
 _DBT_PIECES = _LINE_BREAKS + [
-    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#+", "~#}", "+", "~", "{#/** d", "* e", "*/#}",
+    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#+", "~#}", "+", "~", "{{", "}}", "{{ '{#' }}", "{{ y }}", "{#/** d", "* e", "*/#}",
     "{% macro m(a, b) %}", "{%- macro n -%}", "{% endmacro %}", "{%- endmacro -%}", "{% test t(x) %}",
     "{% endtest %}", "{% snapshot s %}", "{% endsnapshot %}", "{% block b %}", "{% endblock %}", "{%", "%}",
 ]
@@ -690,6 +709,7 @@ def _characters_read_by_the_directive_loop(monkeypatch, sql_bytes: bytes) -> int
     monkeypatch.setattr(sql_preprocessor, "_directive_pattern", lambda kw: CountedPattern(real_directive_pattern(kw)))
     monkeypatch.setattr(sql_preprocessor, "_LINE_BREAK_RE", CountedPattern(sql_preprocessor._LINE_BREAK_RE))
     monkeypatch.setattr(sql_preprocessor, "_NON_SPACE_RE", CountedPattern(sql_preprocessor._NON_SPACE_RE))
+    monkeypatch.setattr(sql_preprocessor, "_JINJA_OPENER_RE", CountedPattern(sql_preprocessor._JINJA_OPENER_RE))
     try:
         found = sql_preprocessor.extract_dbt_directives(Source(sql_bytes))
     finally:
@@ -702,9 +722,55 @@ def _commented_macros(n: int) -> bytes:
     return "".join(f"{{# about m{i} #}}\n{{% macro m{i}() %}}\n{{% endmacro %}}\n" for i in range(n)).encode("utf-8")
 
 
-@pytest.mark.parametrize(
-    "build", [_open_comments_and_macros, _macros_that_never_end, _macros_on_one_line, _commented_macros]
-)
+def _comment_chains_above_macros(n: int) -> bytes:
+    # the walk back to the line start steps over every comment before the last one
+    return "".join("{# a #}  " * 6 + f"{{# about m{i} #}}\n{{% macro m{i}() %}}{{% endmacro %}}\n" for i in range(n)).encode("utf-8")
+
+
+def _one_chain_of_comments(n: int) -> bytes:
+    return ("{# a #} " * (8 * n) + "\n{% macro m() %}{% endmacro %}\n").encode("utf-8")
+
+
+def _expressions_that_never_close(n: int) -> bytes:
+    # no `}}` anywhere: one failed search, then `{{` is text
+    return "".join(f"{{{{ open\n{{# about m{i} #}}\n{{% macro m{i}() %}}{{% endmacro %}}\n" for i in range(n)).encode("utf-8")
+
+
+def _trailing_comments(n: int) -> bytes:
+    return "".join(f"{{% macro m{i}() %}}{{{{ x }}}}{{% endmacro %}} {{# end of m{i} #}}\n" for i in range(n)).encode("utf-8")
+
+
+_DIRECTIVE_SHAPES = [
+    _open_comments_and_macros, _macros_that_never_end, _macros_on_one_line, _commented_macros,
+    _comment_chains_above_macros, _one_chain_of_comments, _expressions_that_never_close, _trailing_comments,
+]
+
+
+@pytest.mark.parametrize("build", _DIRECTIVE_SHAPES)
+def test_twice_the_directives_is_about_twice_the_loop_iterations(monkeypatch, build):
+    counts = []
+    for n in (200, 400):
+        count = 0
+        real = parse_budget.checkpoint
+
+        def counting():
+            nonlocal count
+            count += 1
+            real()
+
+        monkeypatch.setattr(parse_budget, "checkpoint", counting)
+        try:
+            found = sql_preprocessor.extract_dbt_directives(build(n))
+        finally:
+            monkeypatch.setattr(parse_budget, "checkpoint", real)
+        assert found, "the shape holds no directive"
+        counts.append(count)
+    small, big = counts
+    assert small > 0
+    assert big / small < 2.6, f"{build.__name__}: {small} loop iterations at 200, {big} at 400"
+
+
+@pytest.mark.parametrize("build", _DIRECTIVE_SHAPES)
 def test_twice_the_directives_is_about_twice_the_characters_read(monkeypatch, build):
     small_n, big_n = 200, 400
     small_text, big_text = build(small_n), build(big_n)
