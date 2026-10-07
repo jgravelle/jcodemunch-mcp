@@ -28,6 +28,7 @@ import bisect
 import pathlib
 import random
 import re
+import sys
 import time
 
 import pytest
@@ -393,7 +394,53 @@ def test_twice_the_unclosed_blocks_is_about_twice_the_characters_searched(monkey
     assert big / small < 2.6, f"{small} characters searched at {small_n} blocks, {big} at {big_n} (x{big / small:.2f})"
 
 
-@pytest.mark.parametrize("build", [_unclosed_blocks, _unclosed_blocks_in_one_string, _closed_blocks])
+def _commented_out_blocks_then_pairs(n: int) -> str:
+    # each block is unclosed and is followed, on its own scan, by every `{}` pair of the file
+    return "// @code {\n" * n + "{}" * n
+
+
+def _line_events(fn, module) -> int:
+    """How many line events `fn` raises inside `module`: one per line run and
+    one per turn of a loop, a comprehension's included.
+
+    A list built per item (a comprehension, a copy loop) passes no checkpoint
+    and is too cheap to lose the race, and it is a line event per element all
+    the same. Line events, not opcode events: 3.12 reports no opcode for the
+    first traced call of a function.
+    """
+    filename = module.__file__
+    count = 0
+
+    def trace(frame, event, arg):
+        nonlocal count
+        if frame.f_code.co_filename != filename:
+            return None
+        if event == "line":
+            count += 1
+        return trace
+
+    previous = sys.gettrace()  # coverage's tracer, when it is on
+    sys.settrace(trace)
+    try:
+        fn()
+    finally:
+        sys.settrace(previous)
+    return count
+
+
+@pytest.mark.parametrize("build", [_flat_symbols_then_calls, _one_symbol_many_calls])
+def test_twice_the_calls_is_about_twice_the_line_events(build):
+    small_n, big_n = 150, 300
+    small_args, big_args = build(small_n), build(big_n)
+    small = _line_events(lambda: extractor._attribute_calls_to_symbols(*small_args), extractor)
+    big = _line_events(lambda: extractor._attribute_calls_to_symbols(*big_args), extractor)
+    assert small > 5 * small_n, f"{small} line events counted: the tracer did not see the sweep"
+    assert big / small < 2.6, f"{build.__name__}: {small} line events at {small_n}, {big} at {big_n} (x{big / small:.2f})"
+
+
+@pytest.mark.parametrize(
+    "build", [_unclosed_blocks, _unclosed_blocks_in_one_string, _closed_blocks, _commented_out_blocks_then_pairs]
+)
 def test_twice_the_razor_file_is_about_twice_the_loop_iterations(monkeypatch, build):
     small_n, big_n = 100, 200
     small, _ = _checkpoints(monkeypatch, build(small_n), "page.razor", "razor")
@@ -507,6 +554,118 @@ def test_the_directive_loop_outruns_the_old_loop(build, n):
         lambda: sql_preprocessor.extract_dbt_directives(big),
         build.__name__,
     )
+
+
+def _characters_read_by_the_directive_loop(monkeypatch, sql_bytes: bytes) -> int:
+    """How many characters the directive loop copies or searches for one file.
+
+    A slice, a `find` and a regex search are each one C call: no checkpoint is
+    passed, and a copy of the file per directive is still far cheaper than the
+    old loop, so it wins the race. This counts the length of every slice of
+    the file and the span of every search over it.
+    """
+    read = 0
+
+    def spanned(length: int) -> None:
+        nonlocal read
+        read += max(length, 0)
+
+    class Counted(str):
+        def __getitem__(self, key):
+            got = super().__getitem__(key)
+            spanned(len(got))
+            return got
+
+        def _bounded(self, bounds, stop=-1) -> None:
+            start = bounds[0] if bounds else 0
+            limit = bounds[1] if len(bounds) > 1 else len(self)
+            spanned((stop if stop >= 0 else limit) - start)
+
+        def find(self, sub, *bounds):  # type: ignore[override]
+            stop = super().find(sub, *bounds)
+            self._bounded(bounds, stop)
+            return stop
+
+        def count(self, sub, *bounds):  # type: ignore[override]
+            self._bounded(bounds)
+            return super().count(sub, *bounds)
+
+        def splitlines(self, *args):  # type: ignore[override]
+            spanned(len(self))
+            return super().splitlines(*args)
+
+        def rstrip(self, *args):  # type: ignore[override]
+            spanned(len(self))
+            return super().rstrip(*args)
+
+    class CountedPattern:
+        def __init__(self, pattern):
+            self._pattern = pattern
+
+        def search(self, text, *bounds):
+            found = self._pattern.search(text, *bounds)
+            start = bounds[0] if bounds else 0
+            limit = bounds[1] if len(bounds) > 1 else len(text)
+            spanned((found.start() if found else limit) - start)
+            return found
+
+        def finditer(self, text, *bounds):
+            spanned(len(text) - (bounds[0] if bounds else 0))
+            return self._pattern.finditer(text, *bounds)
+
+        def findall(self, text, *bounds):
+            spanned(len(text) - (bounds[0] if bounds else 0))
+            return self._pattern.findall(text, *bounds)
+
+    class CountedRe:
+        """`re`, with every pattern it compiles and every search it runs counted."""
+
+        def __getattr__(self, name):
+            return getattr(re, name)
+
+        def compile(self, pattern, flags=0):
+            return CountedPattern(re.compile(pattern, flags))
+
+        def search(self, pattern, text, flags=0):
+            return CountedPattern(re.compile(pattern, flags)).search(text)
+
+        def finditer(self, pattern, text, flags=0):
+            return CountedPattern(re.compile(pattern, flags)).finditer(text)
+
+        def findall(self, pattern, text, flags=0):
+            return CountedPattern(re.compile(pattern, flags)).findall(text)
+
+    class Source(bytes):
+        def decode(self, *args, **kwargs):  # the loop's only way to the text
+            return Counted(super().decode(*args, **kwargs))
+
+    real_directive_pattern = sql_preprocessor._directive_pattern
+    monkeypatch.setattr(sql_preprocessor, "re", CountedRe())
+    monkeypatch.setattr(sql_preprocessor, "_directive_pattern", lambda kw: CountedPattern(real_directive_pattern(kw)))
+    monkeypatch.setattr(sql_preprocessor, "_LINE_BREAK_RE", CountedPattern(sql_preprocessor._LINE_BREAK_RE))
+    monkeypatch.setattr(sql_preprocessor, "_NON_SPACE_RE", CountedPattern(sql_preprocessor._NON_SPACE_RE))
+    try:
+        found = sql_preprocessor.extract_dbt_directives(Source(sql_bytes))
+    finally:
+        monkeypatch.undo()
+    assert found == sql_preprocessor.extract_dbt_directives(sql_bytes), "counting changed what the loop read"
+    return read
+
+
+def _commented_macros(n: int) -> bytes:
+    return "".join(f"{{# about m{i} #}}\n{{% macro m{i}() %}}\n{{% endmacro %}}\n" for i in range(n)).encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "build", [_open_comments_and_macros, _macros_that_never_end, _macros_on_one_line, _commented_macros]
+)
+def test_twice_the_directives_is_about_twice_the_characters_read(monkeypatch, build):
+    small_n, big_n = 200, 400
+    small_text, big_text = build(small_n), build(big_n)
+    small = _characters_read_by_the_directive_loop(monkeypatch, small_text)
+    big = _characters_read_by_the_directive_loop(monkeypatch, big_text)
+    assert small >= len(small_text), f"{small} characters counted in a file of {len(small_text)}: the count saw nothing"
+    assert big / small < 2.6, f"{build.__name__}: {small} characters read at {small_n} directives, {big} at {big_n}"
 
 
 # ---------------------------------------------------------------------------

@@ -9748,9 +9748,12 @@ class _RazorBraceBlocks:
     or to the end of the file when there was none, so N unclosed blocks cost
     N scans of the rest of the file. Here a scan stops at the first place an
     earlier scan already reached IN THE SAME STATE (code, a comment, a string):
-    from there the two read the same characters the same way. A brace's
-    closing brace is found by stepping over the already matched pairs that
-    follow it.
+    from there the two read the same characters the same way.
+
+    ⚠ A brace's closing brace is read from the brace after it, never walked
+    to: `_closer_from` holds, per brace, the closing brace an opening brace
+    just before it would get. Stepping over the matched pairs that follow
+    was the pairs again for every unclosed block in front of them.
 
     ⚠ Two scans that have not met yet can still look for the same thing: N
     blocks that each open a comment nothing closes each search to the end of
@@ -9767,6 +9770,9 @@ class _RazorBraceBlocks:
         self._opens: list[bool] = []
         self._next: list[int] = []   # the brace after this one on its scan
         self._match: list[int] = []  # for an opening brace, the brace that closes it
+        # the first brace at or after this one, on its scan, that is not part
+        # of a matched pair: a closing brace, or -1 when there is none
+        self._closer_from: list[int] = []
         # per state: (where the last search started, the stop it found or -1)
         self._searched: list[tuple[int, int]] = [(len(content) + 1, -1)] * 6
 
@@ -9844,6 +9850,7 @@ class _RazorBraceBlocks:
                     self._opens.append(ch == "{")
                     self._next.append(-1)
                     self._match.append(-1)
+                    self._closer_from.append(-1)
             elif state == _RAZOR_LINE_COMMENT:
                 state = _RAZOR_CODE
             elif state == _RAZOR_BLOCK_COMMENT:
@@ -9866,12 +9873,12 @@ class _RazorBraceBlocks:
             if brace >= 0:
                 self._next[brace] = upcoming
                 if self._opens[brace]:
-                    closer = upcoming
-                    while closer >= 0 and self._opens[closer]:
-                        parse_budget.checkpoint()
-                        inner_closer = self._match[closer]
-                        closer = self._next[inner_closer] if inner_closer >= 0 else -1
+                    closer = self._closer_from[upcoming] if upcoming >= 0 else -1
                     self._match[brace] = closer
+                    after = self._next[closer] if closer >= 0 else -1
+                    self._closer_from[brace] = self._closer_from[after] if after >= 0 else -1
+                else:
+                    self._closer_from[brace] = brace
                 upcoming = brace
             first_brace[key] = upcoming
 
