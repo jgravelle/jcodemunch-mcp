@@ -15,7 +15,7 @@ Two instruments, because one cannot see everything. Loop iterations are counted
 through `parse_budget.checkpoint()` (L-116's rule puts one at the top of every
 loop), and that is blind to work done inside one C call: a slice, a `count`, a
 regex search. So each fix is also raced against the code it replaced, which is
-kept below as the oracle: the fix on a file eight times bigger must finish
+kept below as the oracle: the fix on a file twice as big must finish
 before the old code finishes the small one. Both run on the same machine in the
 same test, so no figure is typed here.
 
@@ -23,7 +23,9 @@ The oracles are also the equality check: the fix returns what the old code
 returned on every generated input.
 """
 
+import ast
 import bisect
+import pathlib
 import random
 import re
 import time
@@ -67,15 +69,19 @@ def _seconds(fn) -> float:
 
 
 def _assert_the_fix_outruns_the_old_code(old_small, new_big, what: str) -> None:
+    """The fix on the file twice as big against the old code on the small one.
+
+    The old code on the doubled file takes about four times its own small-file
+    time, so a fix that is the old code again loses by about x4. The sizes are
+    chosen so the real fix wins by a wide margin with coverage's C tracer on:
+    the tracer slows the fix (under `src/`) and not the oracle (in this file),
+    and that is what the 3.10 and 3.11 jobs run.
+    """
     old = _seconds(old_small)
-    new = _seconds(new_big)
-    for _ in range(2):  # a loaded machine can slow one run; it does not slow the best of three
-        if new < old or new > 4 * old:
-            break
-        new = min(new, _seconds(new_big))
+    new = min(_seconds(new_big) for _ in range(3))  # one stalled run does not decide it
     assert new < old, (
-        f"{what}: the fix took {new:.4f} s on the file eight times bigger and the code it "
-        f"replaced took {old:.4f} s on the small one; work that grows with the square reads about x64"
+        f"{what}: the fix took {new:.4f} s on the file twice as big and the code it "
+        f"replaced took {old:.4f} s on the small one; the old code on the doubled file reads about x4"
     )
 
 
@@ -163,11 +169,11 @@ def _one_symbol_many_calls(n: int) -> tuple[list[Symbol], list[tuple[int, str]]]
     return [_sym(0, "function", 0, 10 * n)], [(i, f"g{i}") for i in range(4 * n)]
 
 
-@pytest.mark.parametrize("build, n", [(_flat_symbols_then_calls, 1000), (_one_symbol_many_calls, 1500)])
+@pytest.mark.parametrize("build, n", [(_flat_symbols_then_calls, 1000), (_one_symbol_many_calls, 4500)])
 def test_attributing_calls_outruns_the_old_scan(build, n):
     _assert_the_fix_outruns_the_old_code(
         lambda: _old_attribute_calls_to_symbols(*build(n)),
-        lambda: extractor._attribute_calls_to_symbols(*build(8 * n)),
+        lambda: extractor._attribute_calls_to_symbols(*build(2 * n)),
         build.__name__,
     )
 
@@ -299,6 +305,15 @@ def _unclosed_blocks_in_one_string(n: int) -> str:
     return '"' + ("@code { " + _BACKSLASH + '" ') * n + "x" * (8 * n)
 
 
+def _unclosed_blocks_each_in_a_block_comment(n: int) -> str:
+    # no scan meets another: each block is in code at its own brace, then in its own comment
+    return "@code {/*\n" * n
+
+
+def _unclosed_blocks_each_in_a_line_comment(n: int) -> str:
+    return "@code {// " * n
+
+
 def _closed_blocks(n: int) -> str:
     return "@code { int a; }\n" * n
 
@@ -307,14 +322,75 @@ def _open_positions(content: str) -> list[int]:
     return [m.end() - 1 for m in re.finditer(r"@code \{", content)]
 
 
-@pytest.mark.parametrize("build, n", [(_unclosed_blocks, 500), (_unclosed_blocks_in_one_string, 250)])
+@pytest.mark.parametrize(
+    "build, n",
+    [
+        (_unclosed_blocks, 500),
+        (_unclosed_blocks_in_one_string, 250),
+        (_unclosed_blocks_each_in_a_block_comment, 400),
+        (_unclosed_blocks_each_in_a_line_comment, 400),
+    ],
+)
 def test_the_brace_scan_outruns_the_old_scan(build, n):
-    small, big = build(n), build(8 * n)
+    small, big = build(n), build(2 * n)
     _assert_the_fix_outruns_the_old_code(
         lambda: [_old_extract_razor_brace_block(small, p) for p in _open_positions(small)],
         lambda: _new_blocks(big, _open_positions(big)),
         build.__name__,
     )
+
+
+def _characters_searched(monkeypatch, content: str) -> int:
+    """How many characters the brace scan's searches pass over, for every block of `content`.
+
+    A search is one C call, so neither a checkpoint count nor a race against
+    the slow old scan sees one that runs to the end of the file per block.
+    This counts the span of each `find` and each regex search directly.
+    """
+    searched = 0
+
+    def spanned(start: int, stop: int) -> None:
+        nonlocal searched
+        searched += (stop if stop >= 0 else len(content)) - start
+
+    class Counted(str):
+        def find(self, sub, start=0):  # type: ignore[override]
+            stop = super().find(sub, start)
+            spanned(start, stop)
+            return stop
+
+    class CountedPattern:
+        def __init__(self, pattern):
+            self._pattern = pattern
+
+        def search(self, text, start=0):
+            found = self._pattern.search(text, start)
+            spanned(start, found.start() if found else -1)
+            return found
+
+    monkeypatch.setattr(extractor, "_RAZOR_CODE_STOP_RE", CountedPattern(extractor._RAZOR_CODE_STOP_RE))
+    monkeypatch.setattr(
+        extractor, "_RAZOR_STRING_STOP_RE",
+        {state: CountedPattern(pattern) for state, pattern in extractor._RAZOR_STRING_STOP_RE.items()},
+    )
+    blocks = extractor._RazorBraceBlocks(Counted(content))
+    for position in _open_positions(content):
+        blocks.block(position)
+    monkeypatch.undo()
+    return searched
+
+
+@pytest.mark.parametrize("opener", ["/*\n", "// "], ids=["block-comment", "line-comment"])
+def test_twice_the_unclosed_blocks_is_about_twice_the_characters_searched(monkeypatch, opener):
+    """Each block opens a comment that nothing closes, so no scan meets an
+    earlier one before its search for the end; without the kept search every
+    block searches to the end of the file. (A string is no such shape: the
+    next block's own quote closes it.)"""
+    small_n, big_n = 200, 400
+    small = _characters_searched(monkeypatch, ("@code {" + opener) * small_n)
+    big = _characters_searched(monkeypatch, ("@code {" + opener) * big_n)
+    assert small > 0
+    assert big / small < 2.6, f"{small} characters searched at {small_n} blocks, {big} at {big_n} (x{big / small:.2f})"
 
 
 @pytest.mark.parametrize("build", [_unclosed_blocks, _unclosed_blocks_in_one_string, _closed_blocks])
@@ -422,15 +498,82 @@ def _macros_on_one_line(n: int) -> bytes:
 
 
 @pytest.mark.parametrize(
-    "build, n", [(_open_comments_and_macros, 150),(_macros_that_never_end, 1500), (_macros_on_one_line, 2500)]
+    "build, n", [(_open_comments_and_macros, 150), (_macros_that_never_end, 3000), (_macros_on_one_line, 6000)]
 )
 def test_the_directive_loop_outruns_the_old_loop(build, n):
-    small, big = build(n), build(8 * n)
+    small, big = build(n), build(2 * n)
     _assert_the_fix_outruns_the_old_code(
         lambda: _old_extract_dbt_directives(small),
         lambda: sql_preprocessor.extract_dbt_directives(big),
         build.__name__,
     )
+
+
+# ---------------------------------------------------------------------------
+# 4. The line of an offset
+# ---------------------------------------------------------------------------
+
+_PARSER_DIR = pathlib.Path(extractor.__file__).parent
+
+
+def _newline_counts_up_to_an_offset(source: str) -> list[int]:
+    """Lines of `x.count("\\n", a, b)` and `x[a:b].count("\\n")`: a count bounded by an offset."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "count"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value in ("\n", b"\n")):
+            continue
+        if len(node.args) > 1 or isinstance(node.func.value, ast.Subscript):
+            found.append(node.lineno)
+    return found
+
+
+def test_no_parser_counts_newlines_up_to_an_offset():
+    """Five parsers numbered each symbol by counting newlines from the start of
+    the file (Razor, Astro, VHDL, Verilog, COBOL): the whole file again per
+    symbol. `_line_numbers` builds one table. A count of the whole text, with
+    no bound, is one pass and is not what this looks for."""
+    offenders = {
+        path.name: lines
+        for path in sorted(_PARSER_DIR.glob("*.py"))
+        if (lines := _newline_counts_up_to_an_offset(path.read_text(encoding="utf-8")))
+    }
+    assert offenders == {}, "use extractor._line_numbers(text), built once per file"
+
+
+def test_the_scan_for_a_bounded_newline_count_sees_both_spellings():
+    source = (
+        "def a(text, pos):\n    return text.count('\\n', 0, pos) + 1\n"
+        "def b(text, pos):\n    return text[:pos].count('\\n') + 1\n"
+        "def c(text):\n    return text.count('\\n') + 1\n"
+        "def d(text, pos):\n    return text.count('x', 0, pos)\n"
+    )
+    assert _newline_counts_up_to_an_offset(source) == [2, 4]
+
+
+def test_a_line_number_is_the_count_of_newlines_before_the_offset():
+    rng = random.Random(117)
+    for _ in range(300):
+        text = "".join(rng.choice(["\n", "\n", "\r\n", "x", " ", "é"]) for _ in range(rng.randint(0, 60)))
+        line_of = extractor._line_numbers(text)
+        for offset in range(len(text) + 3):
+            assert line_of(offset) == text.count("\n", 0, offset) + 1, (text, offset)
+
+
+@pytest.mark.parametrize(
+    "language, filename, build",
+    [
+        ("razor", "page.razor", lambda n: "<script>var a = 1;</script>\n" * n),
+        ("vhdl", "top.vhd", lambda n: "".join(f"entity e{i} is\nend e{i};\n" for i in range(n))),
+        ("verilog", "top.v", lambda n: "".join(f"module m{i}();\nendmodule\n" for i in range(n))),
+    ],
+)
+def test_the_last_symbol_of_a_long_file_is_on_its_own_line(language, filename, build):
+    n = 400
+    symbols = parse_file(build(n), filename, language)
+    lines = sorted(s.line for s in symbols if s.line > 1)
+    assert len(lines) >= n - 1 and lines[-1] >= n, (len(symbols), lines[-3:])
 
 
 def test_a_macro_keeps_its_line_its_end_and_its_comment():

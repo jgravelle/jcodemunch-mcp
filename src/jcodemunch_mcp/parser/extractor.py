@@ -221,6 +221,22 @@ def _collect_calls(
         stack.extend(reversed(current.children))
 
 
+def _line_numbers(text: str) -> Callable[[int], int]:
+    """Return the function that gives the 1-based line of an offset in ``text``.
+
+    ⚠ One table per file (L-117). A parser that numbers its symbols with
+    ``text.count("\n", 0, offset)`` reads the file from the start for each one;
+    ``tests/test_parse_path_loops_are_linear.py`` fails on that spelling
+    anywhere in this package.
+    """
+    newline_offsets = [m.start() for m in re.finditer("\n", text)]
+
+    def line_of(offset: int) -> int:
+        return bisect.bisect_left(newline_offsets, offset) + 1
+
+    return line_of
+
+
 def _attribute_calls_to_symbols(
     symbols: list[Symbol],
     calls: list[tuple[int, str]],
@@ -9205,12 +9221,7 @@ def _parse_razor_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     )
     symbols.append(view_symbol)
 
-    # One table for the file (L-117): a count from the start per symbol is the
-    # whole file again for each one.
-    newline_offsets = [m.start() for m in re.finditer("\n", content)]
-
-    def _line_for_offset(offset: int) -> int:
-        return bisect.bisect_left(newline_offsets, offset) + 1
+    _line_for_offset = _line_numbers(content)
 
     def _rewrap_symbol(
         sym: Symbol,
@@ -9539,12 +9550,7 @@ def _parse_astro_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             return line_starts[line_no - 1]
         return len(content)
 
-    # One table for the file (L-117): a count from the start per symbol is the
-    # whole file again for each one.
-    newline_offsets = [m.start() for m in re.finditer("\n", content)]
-
-    def _line_for_offset(offset: int) -> int:
-        return bisect.bisect_left(newline_offsets, offset) + 1
+    _line_for_offset = _line_numbers(content)
 
     def _rewrap_symbol(
         sym: Symbol,
@@ -9742,9 +9748,14 @@ class _RazorBraceBlocks:
     or to the end of the file when there was none, so N unclosed blocks cost
     N scans of the rest of the file. Here a scan stops at the first place an
     earlier scan already reached IN THE SAME STATE (code, a comment, a string):
-    from there the two read the same characters the same way. So each place is
-    read once per state, and a brace's closing brace is found by stepping over
-    the already matched pairs that follow it.
+    from there the two read the same characters the same way. A brace's
+    closing brace is found by stepping over the already matched pairs that
+    follow it.
+
+    ⚠ Two scans that have not met yet can still look for the same thing: N
+    blocks that each open a comment nothing closes each search to the end of
+    the file for its end. So the last search per state is kept, and a search
+    that starts inside its span takes its answer (`_next_stop`).
     """
 
     def __init__(self, content: str) -> None:
@@ -9756,6 +9767,29 @@ class _RazorBraceBlocks:
         self._opens: list[bool] = []
         self._next: list[int] = []   # the brace after this one on its scan
         self._match: list[int] = []  # for an opening brace, the brace that closes it
+        # per state: (where the last search started, the stop it found or -1)
+        self._searched: list[tuple[int, int]] = [(len(content) + 1, -1)] * 6
+
+    def _next_stop(self, state: int, i: int) -> int:
+        """The first character at or after ``i`` that ``state`` has to read."""
+        searched_from, stop = self._searched[state]
+        if searched_from <= i and (stop < 0 or stop >= i):
+            return stop
+        content = self._content
+        if state == _RAZOR_CODE:
+            found = _RAZOR_CODE_STOP_RE.search(content, i)
+            stop = found.start() if found else -1
+        elif state == _RAZOR_LINE_COMMENT:
+            stop = content.find("\n", i)
+        elif state == _RAZOR_BLOCK_COMMENT:
+            stop = content.find("*/", i)
+        elif state == _RAZOR_VERBATIM:
+            stop = content.find('"', i)
+        else:
+            found = _RAZOR_STRING_STOP_RE[state].search(content, i)
+            stop = found.start() if found else -1
+        self._searched[state] = (i, stop)
+        return stop
 
     def block(self, brace_pos: int) -> Optional[tuple[int, int]]:
         content = self._content
@@ -9778,18 +9812,7 @@ class _RazorBraceBlocks:
         tail = -1
         while True:
             parse_budget.checkpoint()
-            if state == _RAZOR_CODE:
-                found = _RAZOR_CODE_STOP_RE.search(content, i)
-                stop = found.start() if found else -1
-            elif state == _RAZOR_LINE_COMMENT:
-                stop = content.find("\n", i)
-            elif state == _RAZOR_BLOCK_COMMENT:
-                stop = content.find("*/", i)
-            elif state == _RAZOR_VERBATIM:
-                stop = content.find('"', i)
-            else:
-                found = _RAZOR_STRING_STOP_RE[state].search(content, i)
-                stop = found.start() if found else -1
+            stop = self._next_stop(state, i)
             if stop < 0:
                 break
             key = stop * 6 + state
@@ -14126,8 +14149,7 @@ def _parse_vhdl_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     source = source_bytes.decode("utf-8", errors="replace")
     symbols: list[Symbol] = []
 
-    def _line_of(pos: int) -> int:
-        return source.count("\n", 0, pos) + 1
+    _line_of = _line_numbers(source)
 
     for m in _VHDL_ENTITY.finditer(source):
         parse_budget.checkpoint()
@@ -14300,8 +14322,7 @@ def _parse_verilog_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     source = source_bytes.decode("utf-8", errors="replace")
     symbols: list[Symbol] = []
 
-    def _line_of(pos: int) -> int:
-        return source.count("\n", 0, pos) + 1
+    _line_of = _line_numbers(source)
 
     for m in _VERILOG_MODULE.finditer(source):
         parse_budget.checkpoint()
@@ -14909,8 +14930,7 @@ def _parse_cobol_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     source = source_bytes.decode("utf-8", errors="replace")
     symbols: list[Symbol] = []
 
-    def _line_of(pos: int) -> int:
-        return source[:pos].count("\n") + 1
+    _line_of = _line_numbers(source)
 
     # Program ID
     m = _COBOL_PROGRAM_ID.search(source)

@@ -51,9 +51,6 @@ def _directive_pattern(directives: tuple[str, ...]) -> "re.Pattern[str]":
 # dbt directive matcher — matches {% macro name(args) %}, {%- macro -%}, etc.
 _DBT_DIRECTIVE_RE = _directive_pattern(_DEFAULT_DBT_DIRECTIVES)
 
-# Jinja block comment: {# ... #}
-_JINJA_COMMENT_RE = re.compile(r'\{#(.*?)#\}', re.DOTALL)
-
 
 @dataclass
 class DbtDirective:
