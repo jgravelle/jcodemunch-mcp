@@ -1,6 +1,12 @@
 {
-  "current": "1.108.332",
+  "current": "1.108.333",
   "entries": [
+    {
+      "version": "1.108.333",
+      "date": "2026-10-07",
+      "title": "the parse budget stops a slow parse again on a fresh install",
+      "summary": "A fresh install could resolve tree-sitter 0.26.0, which removed the attribute the per-file parse budget uses to stop a slow parse; indexing then printed 'the installed tree-sitter has no Parser.timeout_micros' and a slow file ran to its end. The dependency is now tree-sitter>=0.25,<0.26, so upgrading jcodemunch-mcp restores the stop. Also: after indexing, init printed '? files, ? symbols'; it now prints the real counts, and says 'indexing failed' with the reason when the indexer refused. And three more inputs gave a dbt or Jinja/Twig macro the wrong docstring; an existing index re-parses once at its next index run. Thanks to Dave for the report."
+    },
     {
       "version": "1.108.332",
       "date": "2026-10-07",
@@ -18,12 +24,6 @@
       "date": "2026-10-06",
       "title": "the parse budget bounds a file's Python-side time",
       "summary": "1.108.329 put the tree-sitter half of JCODEMUNCH_PARSE_BUDGET_SECONDS inside the parser and left the Python-side half to a thread wait that the first index of a folder never asked, that charged a file for another thread's time, and whose worker kept running after the file was reported skipped. The wait is gone. The parsing thread checks its own deadline at checkpoints, so a file whose Python-side work runs past the budget (default 20 s) is skipped and named in the index result's warnings on every indexing route and at any size, and no thread is left behind. One slow call (a regex over the whole file, PyYAML's loader) is not cut short; the file is named when the call returns. Also: a bare Python module name resolves to the script directory beside the importer (#972, @whakomatic)."
-    },
-    {
-      "version": "1.108.329",
-      "date": "2026-10-05",
-      "title": "the parse budget stops a slow parse",
-      "summary": "JCODEMUNCH_PARSE_BUDGET_SECONDS was a thread wait around the parser, and tree-sitter's parse holds the interpreter lock until it finishes, so the wait could not end before the parse did: an over-budget file came back with its symbols and no warning, after the full parse time, and the first index of a folder never asked the budget at all. The limit is inside the parser now. A file whose tree-sitter parse runs past the budget (default 20 s) is stopped, skipped and named in the index result's warnings, on every indexing route and at any file size. Python-side time after the parse is not covered by this release."
     }
   ]
 }

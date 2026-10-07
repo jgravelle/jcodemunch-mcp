@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.333] - 2026-10-07 - the parse budget stops a slow parse again on a fresh install
+
 ### Fixed
 
 - **`init`'s index line reports what the indexer did (reported by Dave).** After indexing,

@@ -2228,3 +2228,17 @@ The 1.108.331 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.329 count, verbatim:
 
 - ⚠ Prior (1.108.329): 14726 passed, 25 skipped, **0 failed** (14751 total).
+
+## Current State rotation (2026-10-07, release 1.108.333)
+
+The 1.108.330 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.330):** **The parse budget bounds a file's Python-side time** (L-116): `parse_budget.checkpoint()` raises inside `parse_file` once the file's deadline has passed, and every loop on the parse path starts with one (rules: the Env Vars row; residue L-117, L-118). Also a bare Python module name resolves to the script directory beside the importer (#972, @whakomatic; L-120). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-06, release 1.108.331).
+
+The 1.108.332 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.332 — **A macro's docstring is the comment directly above it** (L-126): `_PrecedingComments` (`parser/sql_preprocessor.py`) gives a dbt or Jinja/Twig directive the `{# #}` that ENDS where the text before it ends, less one whitespace-control mark per side. ⚠ `PARSER_GENERATION` is 10: a stored docstring moved on unchanged content. ⚠ Residue, each owing its own generation: L-129, L-130, L-131. Also three loops on the parse path are linear in the file (L-117; residue L-127, L-128). Forensics: `CHANGELOG.md`, `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.330 count, verbatim:
+
+- ⚠ Prior (1.108.330): 14783 passed, 25 skipped, **0 failed** (14808 total).

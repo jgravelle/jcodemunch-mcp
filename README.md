@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.333](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.333)** (2026-10-07) — the parse budget stops a slow parse again on a fresh install
 - **[v1.108.332](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.332)** (2026-10-07) — a macro's docstring is the comment directly above it
 - **[v1.108.331](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.331)** (2026-10-06) — a full re-index keeps the embedding metadata beside its vectors
 - **[v1.108.330](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.330)** (2026-10-06) — the parse budget bounds a file's Python-side time
-- **[v1.108.329](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.329)** (2026-10-05) — the parse budget stops a slow parse
 <!-- WHATSNEW:END -->
 
 ---
