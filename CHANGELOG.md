@@ -26,7 +26,9 @@
   a stray `{{` or `{%` outside a raw block that has a later closer is one expression up to that
   closer, so `-- wrap in {{ to call` above a documented macro, with a `{{ x }}` further down,
   costs that macro its docstring (`doc` before, nothing now); Jinja itself refuses such a file.
-  A closer inside a string in an expression (`{{ '}}' }}`) still ends the expression there.
+  A closer inside a string in an expression (`{{ '}}' }}`) still ends the expression there, and
+  when the leftover holds an opener (`{{ '}} {%' }}`) the documented macro below it loses its
+  docstring too.
   Not run: a dbt, Jinja or Twig corpus.
 
 ## [1.108.332] - 2026-10-07 - a macro's docstring is the comment directly above it
