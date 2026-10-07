@@ -94,6 +94,11 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
         ("{# a #}\n{#- b -#}", "b"),                    # the dashes trim whitespace; they are not the comment's
         ("{# a #}\n{#-b-#}", "b"),
         ("{# a #}\n{#--#}", ""),
+        ("{# a #}\n{#-- b --#}", "- b -"),              # one mark per side, no more
+        ("{# a #}\n{#+ b +#}", "b"),                    # Jinja's `+`
+        ("{# a #}\n{#~ b ~#}", "b"),                    # Twig's `~`
+        ("{# a #}\n{#- b +#}", "b"),
+        ("{# a #}\n{# + b ~ #}", "+ b ~"),
         ("{# a #}\n{# - b - #}", "- b -"),              # a dash that is not at the delimiter stays
         ("{# a #}\n{# open", ""),                      # the comment above never closes
         ("{# a\n{# b #}", "a\n{# b"),                  # a comment runs to its first `#}`

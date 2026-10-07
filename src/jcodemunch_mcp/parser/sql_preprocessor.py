@@ -72,6 +72,8 @@ _LINE_BREAK_RE = re.compile(
     + "]"
 )
 _NON_SPACE_RE = re.compile(r"\S")
+# what may stand between a comment delimiter and its body: `{#-`, `{#+`, `{#~`
+_WHITESPACE_CONTROL_MARKS = ("-", "+", "~")
 
 
 class _PrecedingComments:
@@ -145,10 +147,11 @@ class _PrecedingComments:
         if body_start is not None:
             body = text[body_start:end - 2]
             # `{#- ... -#}` trims the whitespace around the comment; the
-            # dashes are the delimiter's, not the comment's.
-            if body.startswith("-"):
+            # dashes are the delimiter's, not the comment's. So are Jinja's
+            # `+` and Twig's `~`. One mark per side, read before any space.
+            if body[:1] in _WHITESPACE_CONTROL_MARKS:
                 body = body[1:]
-            if body.endswith("-"):
+            if body[-1:] in _WHITESPACE_CONTROL_MARKS:
                 body = body[:-1]
             return self._clean(body)
 

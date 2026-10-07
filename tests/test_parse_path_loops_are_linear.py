@@ -519,9 +519,9 @@ def _docstring_of_the_comment_just_above(sql_str, offset):
     for comment in _OLD_JINJA_COMMENT_RE.finditer(preceding):
         if comment.end() == len(preceding):
             body = comment.group(1)
-            # `{#- ... -#}`: the dashes are the delimiter's
-            body = body[1:] if body.startswith("-") else body
-            body = body[:-1] if body.endswith("-") else body
+            # `{#- ... -#}`: the dash is the delimiter's, as are Jinja's `+` and Twig's `~`
+            body = body[1:] if body.startswith(("-", "+", "~")) else body
+            body = body[:-1] if body.endswith(("-", "+", "~")) else body
             # the old lookup, given this comment alone, is its cleaning step
             alone = "{#" + body + "#}"
             return _old_extract_preceding_docstring(alone, len(alone))
@@ -542,7 +542,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset):
 _LINE_BREAKS = ["\n", "\n", "\r\n", "\r", chr(0x0B), chr(0x0C), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85),
                 chr(0x2028), chr(0x2029)]
 _DBT_PIECES = _LINE_BREAKS + [
-    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#/** d", "* e", "*/#}",
+    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#+", "~#}", "+", "~", "{#/** d", "* e", "*/#}",
     "{% macro m(a, b) %}", "{%- macro n -%}", "{% endmacro %}", "{%- endmacro -%}", "{% test t(x) %}",
     "{% endtest %}", "{% snapshot s %}", "{% endsnapshot %}", "{% block b %}", "{% endblock %}", "{%", "%}",
 ]
