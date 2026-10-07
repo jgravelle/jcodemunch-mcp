@@ -64,7 +64,13 @@ dependencies = [
     # The F# wheel's grammar is ABI 15, which a tree-sitter runtime older than
     # 0.25 cannot load: `Language()` raises and F# indexes as empty. The pack
     # carried that floor only transitively, and its own spec does not promise it.
-    "tree-sitter>=0.25",
+    # CAPPED at the locked minor: the per-file parse budget stops a slow parse
+    # through `Parser.timeout_micros`, and tree-sitter 0.26.0 removed it. With
+    # no cap an install resolved 0.26.0 and lost the stop, while CI, locked to
+    # 0.25.2, saw nothing. Raise the cap only together with `uv.lock`, so
+    # `tests/test_parse_budget_cancels.py` runs on the new version first
+    # (`tests/test_tree_sitter_range_is_the_tested_range.py`).
+    "tree-sitter>=0.25,<0.26",
     "pathspec>=0.12.0",
     "pyyaml>=6.0",
 ]
