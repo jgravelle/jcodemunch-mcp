@@ -7,7 +7,7 @@
 - **`init`'s index line reports what the indexer did (reported by Dave).** After indexing,
   `jcodemunch-mcp init` printed `indexed <folder> (? files, ? symbols)`. The line read
   `files_indexed` and `symbols_indexed` from the indexer's result. No run returns the second,
-  and only a run cut short by the file cap returns the first: a full index answers `file_count` and `symbol_count`, a run that
+  and only a run cut short by the file cap returns the first. A full index answers `file_count` and `symbol_count`, a run that
   re-indexes some files answers `changed`, `new`, `deleted` and `symbol_count`. So the line has
   read `? symbols` for every index `init` ran since the command arrived (2026-04-03), and
   `? files` for all but a capped one. It also
@@ -16,11 +16,14 @@
   scratch project): `indexed <folder> (2 files, 3 symbols)`,
   `indexed <folder> (1 changed, 1 new, 1 deleted, 3 symbols)`,
   `<folder> is up to date (nothing changed since the last index)`, and
-  `indexing failed: No source files found`. A count the result does not carry is left out.
+  `indexing failed: No source files found`. A count the result does not carry is left out, and
+  a run the file cap cut short adds `the file cap was reached, 2 of 4 files are in the index` to
+  whichever form it has.
   Nothing had tested the line: the `init` tests replace the function that writes it. The new
   tests run the real indexer on a project they own
-  (`tests/test_init_index_summary_reads_the_indexers_result.py`). The index itself was never
-  wrong; only the line was.
+  (`tests/test_init_index_summary_reads_the_indexers_result.py`). The index itself was correct.
+  Not changed: the indexer's `warnings` (a file skipped by the parse budget, a provider skipped)
+  are still not printed by `init`. A test that reads the same absent key is LEDGER L-134.
 
 - **Three more ways a macro got the wrong docstring (LEDGER L-129, L-130, L-131).** 1.108.332
   gave a dbt or Jinja/Twig directive the `{# comment #}` that ends directly above it; its

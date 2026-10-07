@@ -1144,21 +1144,32 @@ def _index_summary(cwd: str, result: dict) -> str:
     a refusal (`success` false, `error`), a full index (`file_count`), a run
     that re-indexed some files (`changed`/`new`/`deleted`, `symbol_count`) and
     a run that found nothing changed (the three counts at 0, no symbol count).
-    A count the result does not carry is left out, never printed as `?`."""
+    A count the result does not carry is left out, never printed as `?`.
+    Any successful shape can also say the file cap cut the walk short
+    (`truncated`); the line then says how many files the index holds."""
     if not result.get("success"):
         return f"  indexing failed: {result.get('error') or 'the indexer gave no reason'}"
-    symbols = result.get("symbol_count")
-    tail = "" if symbols is None else f"{symbols} symbols"
+    parts = []
+    unchanged = False
     if "file_count" in result:
-        counts = f"{result['file_count']} files"
+        parts.append(f"{result['file_count']} files")
     elif "changed" in result:
         touched = [result.get(key, 0) for key in ("changed", "new", "deleted")]
-        if not any(touched):
-            return f"  {cwd} is up to date (nothing changed since the last index)"
-        counts = "{} changed, {} new, {} deleted".format(*touched)
-    else:
-        counts = ""
-    detail = ", ".join(part for part in (counts, tail) if part)
+        unchanged = not any(touched)
+        parts.append(
+            "nothing changed since the last index" if unchanged
+            else "{} changed, {} new, {} deleted".format(*touched)
+        )
+    if result.get("symbol_count") is not None:
+        parts.append(f"{result['symbol_count']} symbols")
+    detail = ", ".join(parts)
+    if result.get("truncated"):
+        capped = "the file cap was reached, {} of {} files are in the index".format(
+            result.get("files_indexed", "some"), result.get("files_discovered", "the")
+        )
+        detail = f"{detail}; {capped}" if detail else capped
+    if unchanged:
+        return f"  {cwd} is up to date ({detail})"
     return f"  indexed {cwd} ({detail})" if detail else f"  indexed {cwd}"
 
 
