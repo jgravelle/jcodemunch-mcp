@@ -59,6 +59,19 @@ def test_each_macro_of_a_jinja_template_gets_its_own_comment():
     assert symbols["button"].docstring == "renders a button"
 
 
+def test_each_macro_and_block_of_a_twig_template_gets_its_own_comment():
+    text = (
+        "{# renders a field #}\n{% macro field(name) %}<input name='{{ name }}'>{% endmacro %}\n"
+        "{# renders a button #}\n{% macro button(label) %}<button>{{ label }}</button>{% endmacro %}\n"
+        "{# the body #}\n{% block body %}<p>hi</p>{% endblock %}\n"
+    )
+    symbols = {s.name: s for s in parse_file(text, "templates/forms.twig", "twig")}
+    assert {"field", "button", "body"} <= set(symbols), sorted(symbols)
+    assert symbols["field"].docstring == "renders a field"
+    assert symbols["button"].docstring == "renders a button"
+    assert symbols["body"].docstring == "the body"
+
+
 def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
     found = _docstrings(
         "{# licence header #}\n"
@@ -77,7 +90,11 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
         ("{# a #} x {# b #}", "b"),
         ("{#/**\n * builds the key\n * from two columns\n */#}", "builds the key\nfrom two columns"),
         ("{# a #}\n#}", ""),                           # a stray `#}` closes no comment
-        ("{# a #}\nselect '#}'", ""),                  # text that only ends like a comment
+        ("{# a #}\nselect 1 #}", ""),                  # text that only ends like a comment
+        ("{# a #}\n{#- b -#}", "b"),                    # the dashes trim whitespace; they are not the comment's
+        ("{# a #}\n{#-b-#}", "b"),
+        ("{# a #}\n{#--#}", ""),
+        ("{# a #}\n{# - b - #}", "- b -"),              # a dash that is not at the delimiter stays
         ("{# a #}\n{# open", ""),                      # the comment above never closes
         ("{# a\n{# b #}", "a\n{# b"),                  # a comment runs to its first `#}`
         ("{# a #}\n-- b", "b"),                        # a `--` comment is nearer than the Jinja one

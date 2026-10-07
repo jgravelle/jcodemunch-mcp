@@ -143,7 +143,14 @@ class _PrecedingComments:
         # Check for {# comment #} immediately before
         body_start = self._comment_body_start.get(end)
         if body_start is not None:
-            return self._clean(text[body_start:end - 2])
+            body = text[body_start:end - 2]
+            # `{#- ... -#}` trims the whitespace around the comment; the
+            # dashes are the delimiter's, not the comment's.
+            if body.startswith("-"):
+                body = body[1:]
+            if body.endswith("-"):
+                body = body[:-1]
+            return self._clean(body)
 
         # Check for -- comment lines immediately before
         lines: list[str] = []

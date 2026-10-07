@@ -16,7 +16,9 @@
   read `renders a field` and reads `renders a button`. The comment used now is the one that ENDS
   where the text before the directive ends, read from a table of the file's comments built once,
   so a `#}` that closes no comment, and a comment elsewhere in the file, are nobody's docstring.
-  A `--` comment above a directive was already its own and is unchanged. ⚠ The docstring changes
+  A `--` comment above a directive was already its own and is unchanged. The dashes of a
+  whitespace-control comment, `{#- about m -#}`, were served as part of the docstring
+  (`- about m -`); they are the delimiter's and are dropped. ⚠ The docstring changes
   on unchanged content, so `PARSER_GENERATION` is 10 and an existing index re-parses once at its
   next index run; no symbol id moves. Not run: a dbt or Jinja corpus, so how many stored
   docstrings move is not measured.

@@ -518,8 +518,13 @@ def _docstring_of_the_comment_just_above(sql_str, offset):
     preceding = sql_str[:offset].rstrip()
     for comment in _OLD_JINJA_COMMENT_RE.finditer(preceding):
         if comment.end() == len(preceding):
+            body = comment.group(1)
+            # `{#- ... -#}`: the dashes are the delimiter's
+            body = body[1:] if body.startswith("-") else body
+            body = body[:-1] if body.endswith("-") else body
             # the old lookup, given this comment alone, is its cleaning step
-            return _old_extract_preceding_docstring(comment.group(0), len(comment.group(0)))
+            alone = "{#" + body + "#}"
+            return _old_extract_preceding_docstring(alone, len(alone))
     lines = []
     for line in reversed(preceding.splitlines()):
         stripped = line.strip()
@@ -537,7 +542,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset):
 _LINE_BREAKS = ["\n", "\n", "\r\n", "\r", chr(0x0B), chr(0x0C), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85),
                 chr(0x2028), chr(0x2029)]
 _DBT_PIECES = _LINE_BREAKS + [
-    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#/** d", "* e", "*/#}",
+    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#/** d", "* e", "*/#}",
     "{% macro m(a, b) %}", "{%- macro n -%}", "{% endmacro %}", "{%- endmacro -%}", "{% test t(x) %}",
     "{% endtest %}", "{% snapshot s %}", "{% endsnapshot %}", "{% block b %}", "{% endblock %}", "{%", "%}",
 ]
@@ -546,7 +551,7 @@ _DBT_PIECES = _LINE_BREAKS + [
 @pytest.mark.parametrize("keywords", [("macro", "test", "snapshot", "materialization"), ("macro", "block")])
 def test_every_directive_reads_as_the_old_loop_read_it(keywords):
     rng = random.Random(117)
-    seen = moved = 0
+    seen = moved = held = 0
     for _ in range(4000):
         text = "".join(rng.choice(_DBT_PIECES) for _ in range(rng.randint(0, 30))).encode("utf-8")
         expected = _old_extract_dbt_directives(text, keywords)
@@ -561,10 +566,16 @@ def test_every_directive_reads_as_the_old_loop_read_it(keywords):
         assert [d.docstring for d in actual] == [
             _docstring_of_the_comment_just_above(sql_str, d.byte_offset) for d in expected
         ], repr(text)
+        # Outside the defect's domain the old loop itself is still the oracle.
+        for a, e in zip(actual, expected):
+            if not sql_str[:e.byte_offset].rstrip().endswith("#}"):
+                assert a.docstring == e.docstring, repr(text)
+                held += 1
         seen += len(expected)
         moved += sum(1 for a, e in zip(actual, expected) if a.docstring != e.docstring)
     assert seen > 2000, "the generator produced too few directives to compare"
     assert moved > 50, "the generator produced too few directives under a second comment"
+    assert held > 1000, "the generator produced too few directives with no comment end above them"
 
 
 def _open_comments_and_macros(n: int) -> bytes:
