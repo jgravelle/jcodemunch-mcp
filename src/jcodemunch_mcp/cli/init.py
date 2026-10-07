@@ -1134,12 +1134,32 @@ def run_index(*, dry_run: bool = False) -> str:
 
     try:
         from ..tools.index_folder import index_folder
-        result = index_folder(path=cwd)
-        files = result.get("files_indexed", "?")
-        symbols = result.get("symbols_indexed", "?")
-        return f"  indexed {cwd} ({files} files, {symbols} symbols)"
+        return _index_summary(cwd, index_folder(path=cwd))
     except Exception as e:
         return f"  indexing failed: {e}"
+
+
+def _index_summary(cwd: str, result: dict) -> str:
+    """One line for what `index_folder` answered. It answers in four shapes:
+    a refusal (`success` false, `error`), a full index (`file_count`), a run
+    that re-indexed some files (`changed`/`new`/`deleted`, `symbol_count`) and
+    a run that found nothing changed (the three counts at 0, no symbol count).
+    A count the result does not carry is left out, never printed as `?`."""
+    if not result.get("success"):
+        return f"  indexing failed: {result.get('error') or 'the indexer gave no reason'}"
+    symbols = result.get("symbol_count")
+    tail = "" if symbols is None else f"{symbols} symbols"
+    if "file_count" in result:
+        counts = f"{result['file_count']} files"
+    elif "changed" in result:
+        touched = [result.get(key, 0) for key in ("changed", "new", "deleted")]
+        if not any(touched):
+            return f"  {cwd} is up to date (nothing changed since the last index)"
+        counts = "{} changed, {} new, {} deleted".format(*touched)
+    else:
+        counts = ""
+    detail = ", ".join(part for part in (counts, tail) if part)
+    return f"  indexed {cwd} ({detail})" if detail else f"  indexed {cwd}"
 
 
 # ---------------------------------------------------------------------------
