@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **A macro's docstring is the comment directly above it (LEDGER L-126).** A dbt macro, test,
+  snapshot or materialization, and a Jinja or Twig `macro` or `block`, takes the `{# comment #}`
+  above it as its docstring. The lookup searched for a comment from the start of the file and
+  then checked only that the text before the directive ended in `#}`, so it returned the FIRST
+  comment of the file for every directive that had one above it. In a file of documented macros
+  each macro after the first carried the first one's description, and a search by what a macro
+  does found the wrong one. Through `parse_file` on `main` and then on the fix
+  (`evidence/l126_before_after.txt`): in a `.sql` of three macros, `second` under
+  `{# about second #}` read `about first` and reads `about second`; in a `.j2` of two, `button`
+  read `renders a field` and reads `renders a button`. The comment used now is the one that ENDS
+  where the text before the directive ends, read from a table of the file's comments built once,
+  so a `#}` that closes no comment, and a comment elsewhere in the file, are nobody's docstring.
+  A `--` comment above a directive was already its own and is unchanged. ⚠ The docstring changes
+  on unchanged content, so `PARSER_GENERATION` is 10 and an existing index re-parses once at its
+  next index run; no symbol id moves. Not run: a dbt or Jinja corpus, so how many stored
+  docstrings move is not measured.
+
 - **Three loops on the parse path take time proportional to the file (LEDGER L-117).** Each
   redid whole-file work per item, in Python, after the parse. Attributing calls to their
   enclosing function rebuilt the list of function starts for every call and then walked back
@@ -20,9 +37,9 @@
   comments and macros took 38.390 s and takes 0.089 s. Each of those three times is past the
   default parse budget of 20 s, at which a file is skipped and named. Every field of every
   symbol is the same before and after over 9830 files (5137 of them Razor, 285 SQL), so no
-  re-index is owed. Not changed: a macro under a second `{# comment #}` still gets the file's
-  first one as its docstring (LEDGER L-126); three shapes stay superlinear and are listed in
-  LEDGER L-127. Not run: a Jinja or Twig corpus; any Python but 3.12.4 on Windows; the files
+  re-index is owed by this entry. Not changed by it: the docstring of a macro under a second
+  `{# comment #}` (LEDGER L-126, the entry above); three shapes stay superlinear and are listed
+  in LEDGER L-127. Not run: a Jinja or Twig corpus; any Python but 3.12.4 on Windows; the files
   above at the default budget.
 
 ## [1.108.331] - 2026-10-06 - a full re-index keeps the embedding metadata beside its vectors

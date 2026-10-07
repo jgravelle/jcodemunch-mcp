@@ -20,11 +20,13 @@ before the old code finishes the small one. Both run on the same machine in the
 same test, so no figure is typed here.
 
 The oracles are also the equality check: the fix returns what the old code
-returned on every generated input.
+returned on every generated input. One field is excepted: the old directive
+loop's docstring was the defect of L-126, so that field is held to the rule.
 """
 
 import ast
 import bisect
+import dataclasses
 import pathlib
 import random
 import re
@@ -510,6 +512,27 @@ def _old_extract_dbt_directives(sql_bytes, directive_keywords=("macro", "test", 
     return directives
 
 
+def _docstring_of_the_comment_just_above(sql_str, offset):
+    """L-126's rule, the slow way: the Jinja comment that ENDS where the text
+    before the directive ends, else the `--` lines directly above."""
+    preceding = sql_str[:offset].rstrip()
+    for comment in _OLD_JINJA_COMMENT_RE.finditer(preceding):
+        if comment.end() == len(preceding):
+            # the old lookup, given this comment alone, is its cleaning step
+            return _old_extract_preceding_docstring(comment.group(0), len(comment.group(0)))
+    lines = []
+    for line in reversed(preceding.splitlines()):
+        stripped = line.strip()
+        if stripped.startswith("--"):
+            lines.insert(0, stripped[2:].strip())
+        elif not stripped:
+            if lines:
+                lines.insert(0, "")
+        else:
+            break
+    return "\n".join(lines).strip()
+
+
 # every character `str.splitlines` breaks a line on, and every one `str.strip` removes
 _LINE_BREAKS = ["\n", "\n", "\r\n", "\r", chr(0x0B), chr(0x0C), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85),
                 chr(0x2028), chr(0x2029)]
@@ -523,13 +546,25 @@ _DBT_PIECES = _LINE_BREAKS + [
 @pytest.mark.parametrize("keywords", [("macro", "test", "snapshot", "materialization"), ("macro", "block")])
 def test_every_directive_reads_as_the_old_loop_read_it(keywords):
     rng = random.Random(117)
-    seen = 0
+    seen = moved = 0
     for _ in range(4000):
         text = "".join(rng.choice(_DBT_PIECES) for _ in range(rng.randint(0, 30))).encode("utf-8")
         expected = _old_extract_dbt_directives(text, keywords)
-        assert sql_preprocessor.extract_dbt_directives(text, keywords) == expected, repr(text)
+        actual = sql_preprocessor.extract_dbt_directives(text, keywords)
+        # Every field but the docstring is the old loop's. The old docstring
+        # was the defect of L-126 (the first comment of the file for any
+        # directive under a `#}`), so that field is held to the rule instead.
+        assert [dataclasses.replace(d, docstring="") for d in actual] == [
+            dataclasses.replace(d, docstring="") for d in expected
+        ], repr(text)
+        sql_str = text.decode("utf-8", errors="replace")
+        assert [d.docstring for d in actual] == [
+            _docstring_of_the_comment_just_above(sql_str, d.byte_offset) for d in expected
+        ], repr(text)
         seen += len(expected)
+        moved += sum(1 for a, e in zip(actual, expected) if a.docstring != e.docstring)
     assert seen > 2000, "the generator produced too few directives to compare"
+    assert moved > 50, "the generator produced too few directives under a second comment"
 
 
 def _open_comments_and_macros(n: int) -> bytes:

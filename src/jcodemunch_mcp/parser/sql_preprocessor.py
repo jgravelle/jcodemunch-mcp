@@ -88,9 +88,11 @@ class _PrecedingComments:
     far more. Per directive this now reads only the comment lines above it and
     the one line that ends them.
 
-    ⚠ The Jinja comment used is the FIRST ``{# ... #}`` of the file, whichever
-    comment the directive follows (LEDGER L-126). That is the old behaviour,
-    kept as it was: this change moves no docstring.
+    ⚠⚠ The Jinja comment used is the one that ENDS where the text before the
+    directive ends (L-126). The lookup this replaces searched from the start
+    of the file and checked only that the text before the directive ended in
+    ``#}``, so every documented macro after the first carried the FIRST
+    comment of the file. A ``#}`` that closes no comment is not one.
     """
 
     def __init__(self, text: str) -> None:
@@ -98,12 +100,18 @@ class _PrecedingComments:
         self._line_starts = [0] + [m.end() for m in _LINE_BREAK_RE.finditer(text)]
         self._line_ends = [m.start() for m in _LINE_BREAK_RE.finditer(text)] + [len(text)]
         self._first_text: dict[int, int] = {}  # line index -> its first non-space character
-        # A lazy `{#(.*?)#}` search finds the first `{#` and the first `#}`
-        # after it; when that `{#` has no `#}`, no later one has either.
+        # where a comment ends -> where its body starts. Read left to right,
+        # a comment running to the first `#}` after its `{#`; when a `{#` has
+        # no `#}`, no later one has either.
+        self._comment_body_start: dict[int, int] = {}
         opened = text.find("{#")
-        closed = text.find("#}", opened + 2) if opened >= 0 else -1
-        self._comment_end = closed + 2 if closed >= 0 else -1
-        self._comment_text = self._clean(text[opened + 2:closed]) if closed >= 0 else ""
+        while opened >= 0:
+            parse_budget.checkpoint()
+            closed = text.find("#}", opened + 2)
+            if closed < 0:
+                break
+            self._comment_body_start[closed + 2] = opened + 2
+            opened = text.find("{#", closed + 2)
 
     @staticmethod
     def _clean(comment_body: str) -> str:
@@ -133,8 +141,9 @@ class _PrecedingComments:
             return ""
 
         # Check for {# comment #} immediately before
-        if 0 <= self._comment_end <= end and text.endswith("#}", 0, end):
-            return self._comment_text
+        body_start = self._comment_body_start.get(end)
+        if body_start is not None:
+            return self._clean(text[body_start:end - 2])
 
         # Check for -- comment lines immediately before
         lines: list[str] = []
