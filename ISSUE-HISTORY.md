@@ -2214,3 +2214,17 @@ The 1.108.330 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.328 count, verbatim:
 
 - ⚠ Prior (1.108.328): 14684 passed, 25 skipped, **0 failed** (14709 total).
+
+## Current State rotation (2026-10-07, release 1.108.332)
+
+The 1.108.329 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.329):** **The parse budget stops a slow tree-sitter parse** (L-114): the deadline lives inside `parse_file` (`parser/parse_budget.py`), bound to every parser by `grammar_pack.get_parser` and ended by tree-sitter's own timeout (rules: the Env Vars row). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-06, release 1.108.330).
+
+The 1.108.331 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.331 — **A full re-index keeps the embedding metadata beside its vectors** (#522, @lsg1103275794). `save_index` deletes the index's own `meta` keys and leaves those starting with `embedding_store.META_KEY_PREFIX`. ⚠ `embed_repo` after a full re-index no longer re-embeds everything; `force=true` does. ⚠ The semantic top-up in `search_symbols` still checks no stored model (L-121), and stale or orphan vectors survive (L-122). Also `embed_repo`'s task-type gate has THREE states (#523): `None` is never recorded and is not a change, `""` is a recorded value, and vectors with no embedding metadata at all are still rebuilt (jjg, 2026-10-06), named by `rebuild_reason`. Also a Vue or Svelte `<script>`'s comment lookup is one table per parent node, linear where it was quadratic (L-115). Forensics: `CHANGELOG.md`, `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.329 count, verbatim:
+
+- ⚠ Prior (1.108.329): 14726 passed, 25 skipped, **0 failed** (14751 total).

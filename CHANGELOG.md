@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.332] - 2026-10-07 - a macro's docstring is the comment directly above it
+
 ### Fixed
 
 - **A macro's docstring is the comment directly above it (LEDGER L-126).** A dbt macro, test,

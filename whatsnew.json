@@ -1,6 +1,12 @@
 {
-  "current": "1.108.331",
+  "current": "1.108.332",
   "entries": [
+    {
+      "version": "1.108.332",
+      "date": "2026-10-07",
+      "title": "a macro's docstring is the comment directly above it",
+      "summary": "A dbt macro, test, snapshot or materialization, and a Jinja or Twig macro or block, takes the {# comment #} above it as its docstring. In a file of documented macros every one after the first carried the FIRST comment of the file, so a search by what a macro does found the wrong macro. Each now takes the comment that ends directly above it, and the marks of a whitespace-control comment ({#- ... -#}) are no longer part of the text. An existing index re-parses once at its next index run to pick this up. Also: three loops on the parse path take time proportional to the file; a Python file of 6250 functions and 20000 module-level calls that took 63.877 s to index takes 0.593 s, with the same symbols."
+    },
     {
       "version": "1.108.331",
       "date": "2026-10-06",
@@ -18,12 +24,6 @@
       "date": "2026-10-05",
       "title": "the parse budget stops a slow parse",
       "summary": "JCODEMUNCH_PARSE_BUDGET_SECONDS was a thread wait around the parser, and tree-sitter's parse holds the interpreter lock until it finishes, so the wait could not end before the parse did: an over-budget file came back with its symbols and no warning, after the full parse time, and the first index of a folder never asked the budget at all. The limit is inside the parser now. A file whose tree-sitter parse runs past the budget (default 20 s) is stopped, skipped and named in the index result's warnings, on every indexing route and at any file size. Python-side time after the parse is not covered by this release."
-    },
-    {
-      "version": "1.108.328",
-      "date": "2026-10-04",
-      "title": "a file a package.json script runs is an entry point",
-      "summary": "find_dead_code and get_dead_code_v2 read a package.json's main, exports and bin but not its scripts, so a server started by \"start\": \"node server.js\" was reported dead at confidence 1.0 along with everything only it imports. scripts is read now, as an allowlist: a runner from a list of twelve, flags that runner is known to take, and a path that resolves to one indexed file the way that runner resolves it. Anything else roots nothing, so a wrong guess cannot hide a dead file. Also, a repeat index of a subdirectory inside a git root is incremental (#961, thanks @ebataeva)."
     }
   ]
 }
