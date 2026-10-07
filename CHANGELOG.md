@@ -17,10 +17,17 @@
   closer. And a whitespace-control mark was dropped whatever the dialect: `{#~approx 5 rows#}`
   in a `.sql` read `approx 5 rows` and reads `~approx 5 rows`; `{#+1 to the offset #}` in a
   `.twig` read `1 to the offset` and reads `+1 to the offset`. `-` is a mark everywhere, `+` in
-  Jinja and dbt, `~` in Twig. ⚠ The docstring changes on unchanged content, so
+  Jinja and dbt, `~` in Twig. Nothing inside `{% raw %}` or `{% verbatim %}` is a delimiter, and
+  a byte-order mark or a zero-width space before a comment is not text, so a file that starts
+  with a BOM keeps its first docstring. ⚠ The docstring changes on unchanged content, so
   `PARSER_GENERATION` is 11 and an existing index re-parses once at its next index run; no
-  symbol id moves. Not changed: a closer inside a string in an expression (`{{ '}}' }}`) still
-  ends the expression there. Not run: a dbt, Jinja or Twig corpus.
+  symbol id moves. ⚠ What reads WORSE than on 1.108.332 (LEDGER L-132, same evidence file):
+  a stray `{{` or `{%` outside a raw block that has a later closer is one expression up to that
+  closer, so `-- wrap in {{ to call` above a documented macro, with a `{{ x }}` further down,
+  costs that macro its docstring (`doc` before, nothing now); Jinja itself refuses such a file.
+  A closer inside a string in an expression (`{{ '}}' }}`) still ends the expression there.
+  And a comment trailing a `--` line, `-- note {# doc #}`, read `doc` and reads
+  `note {# doc #}`. Not run: a dbt, Jinja or Twig corpus.
 
 ## [1.108.332] - 2026-10-07 - a macro's docstring is the comment directly above it
 

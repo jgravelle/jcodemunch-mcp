@@ -103,7 +103,13 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
         ("{{ x }}{# b #}", ""),
         ("{{ '{#' }}\n{# b #}", "b"),                  # L-130: a `{#` in an expression opens no comment
         ("{% set x = '{#' %}\n{# b #}", "b"),
-        ("{{ '{#' }} {{ '#}' }}", ""),
+        ("{% if '{#' %}\n{# b #}", "b"),
+        ("{% raw %}{{ {% endraw %}\n{# b #}", "b"),       # a raw block: nothing in it is a delimiter
+        ("{%- raw -%}{# no {% x {{ y {%- endraw -%}\n{# b #}", "b"),
+        ("{% raw %}{{ {% endraw %} {# b #}", ""),          # and it is still code before a trailing comment
+        ("{% raw %}\n{# b #}", "b"),                      # no end tag anywhere: `raw` is an ordinary tag
+        (chr(0x200B) + "{# b #}", "b"),                  # a zero-width space is not text
+        (chr(0xFEFF) + "-- b", "b"),
         ("{# b {{ x }} {% y %} #}", "b {{ x }} {% y %}"),  # and an expression in a comment is the comment's
         ("{# a #}\n{#~approx 5 rows#}", "~approx 5 rows"),  # L-131: `~` is not a Jinja mark
         ("{#/**\n * builds the key\n * from two columns\n */#}", "builds the key\nfrom two columns"),
@@ -131,10 +137,33 @@ def test_the_docstring_is_the_comment_that_ends_just_above(above, expected):
     assert found["m"] == expected
 
 
-def test_an_expression_that_never_closes_is_text():
-    # nothing closes this `{{` anywhere in the file, so it opens nothing
+def test_an_opener_with_no_closer_anywhere_in_the_file_is_text():
     found = _docstrings("{{ never closed\n{# about m #}\n{% macro m() %}{% endmacro %}\n")
     assert found == {"m": "about m"}
+
+
+def test_a_stray_opener_with_a_later_closer_is_one_expression_to_that_closer():
+    """LEDGER L-132, pinned as it reads today. Jinja refuses this file (the
+    `{{` runs into the comment), so there is no right docstring to serve; the
+    lexer reads one expression up to the first `}}`, and the comment inside it
+    is not a comment. 1.108.332 served `about m` here."""
+    found = _docstrings("{{ never closed\n{# about m #}\n{% macro m() %}{% endmacro %}\nselect {{ x }}\n")
+    assert found == {"m": ""}
+
+
+@pytest.mark.parametrize(
+    "filename, language", [("m.sql", "sql"), ("t.j2", "jinja"), ("t.twig", "twig")]
+)
+def test_a_file_that_starts_with_a_byte_order_mark_keeps_its_first_docstring(filename, language):
+    text = chr(0xFEFF) + "{# doc #}\n{% macro m() %}{{ x }}{% endmacro %}\n"
+    symbols = {s.name: s for s in parse_file(text, filename, language)}
+    assert symbols["m"].docstring == "doc"
+
+
+def test_a_twig_verbatim_block_opens_nothing():
+    text = "{% verbatim %}write {{ to open{% endverbatim %}\n{# doc #}\n{% macro m() %}{{ x }}{% endmacro %}\n"
+    symbols = {s.name: s for s in parse_file(text, "t.twig", "twig")}
+    assert symbols["m"].docstring == "doc"
 
 
 @pytest.mark.parametrize(

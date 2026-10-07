@@ -71,7 +71,10 @@ _LINE_BREAK_RE = re.compile(
     + "".join(chr(c) for c in (0x0A, 0x0D, 0x0B, 0x0C, 0x1C, 0x1D, 0x1E, 0x85, 0x2028, 0x2029))
     + "]"
 )
-_NON_SPACE_RE = re.compile(r"\S")
+# A byte-order mark and a zero-width space print nothing and are not text: a
+# file that starts with a BOM still starts with its first comment.
+_INVISIBLE = chr(0xFEFF) + chr(0x200B)
+_NON_SPACE_RE = re.compile(r"[^\s" + _INVISIBLE + "]")
 # What may stand between a comment delimiter and its body, per dialect (L-131):
 # `{#-` everywhere, `{#+` in Jinja and dbt, `{#~` in Twig. The other dialect's
 # mark is the comment's own text.
@@ -80,6 +83,13 @@ TWIG_WHITESPACE_MARKS = ("-", "~")
 # `{{`, `{%` and `{#`, and what closes each
 _JINJA_OPENER_RE = re.compile(r"\{[{%#]")
 _JINJA_CLOSER = {"{": "}}", "%": "%}", "#": "#}"}
+# `{% raw %}` (Jinja) and `{% verbatim %}` (Twig): nothing up to the end tag is
+# a delimiter, so a `{{` written there opens no expression.
+_RAW_OPEN_RE = re.compile(r"\{%[-+~]?\s*(raw|verbatim)\s*[-+~]?%\}")
+_RAW_END_RE = {
+    word: re.compile(r"\{%[-+~]?\s*end" + word + r"\s*[-+~]?%\}")
+    for word in ("raw", "verbatim")
+}
 
 
 class _PrecedingComments:
@@ -107,7 +117,8 @@ class _PrecedingComments:
     it there: one that trails code (``{% endmacro %} {# end of a #}``) belongs
     to that code, not to the directive on the next line. The file is read as
     Jinja reads it, ``{{ ... }}``, ``{% ... %}`` and ``{# ... #}`` left to
-    right, so a ``{#`` inside an expression or a tag opens no comment. And a
+    right, so a ``{#`` inside an expression or a tag opens no comment, and
+    nothing inside ``{% raw %}`` or ``{% verbatim %}`` opens anything. And a
     whitespace-control mark is dropped only if it is this dialect's.
     """
 
@@ -122,7 +133,7 @@ class _PrecedingComments:
         # When one has no closer, no later one of that kind has either, so
         # that kind is text from there on (one failed search per kind).
         self._comment_body_start: dict[int, int] = {}
-        unclosed: set[str] = set()
+        unclosed: set[str] = set()  # also a raw word whose end tag is nowhere ahead
         pos = 0
         while True:
             parse_budget.checkpoint()
@@ -131,6 +142,14 @@ class _PrecedingComments:
                 break
             opened = found.start()
             kind = text[opened + 1]
+            if kind == "%":
+                raw_tag = _RAW_OPEN_RE.match(text, opened)
+                if raw_tag is not None and raw_tag.group(1) not in unclosed:
+                    ended = _RAW_END_RE[raw_tag.group(1)].search(text, raw_tag.end())
+                    if ended is not None:
+                        pos = ended.end()
+                        continue
+                    unclosed.add(raw_tag.group(1))
             closed = -1 if kind in unclosed else text.find(_JINJA_CLOSER[kind], opened + 2)
             if closed < 0:
                 unclosed.add(kind)
@@ -140,17 +159,26 @@ class _PrecedingComments:
                 self._comment_body_start[closed + 2] = opened + 2
             pos = closed + 2
 
+    def _first_text_of(self, idx: int) -> int:
+        """Where line ``idx``'s first visible character is; its end when it has none."""
+        first_text = self._first_text.get(idx)
+        if first_text is None:
+            found = _NON_SPACE_RE.search(self._text, self._line_starts[idx], self._line_ends[idx])
+            first_text = self._first_text[idx] = found.start() if found else self._line_ends[idx]
+        return first_text
+
     def _is_first_on_its_line(self, opened: int) -> bool:
         """Whether only space, and other comments, stand between a line start and ``opened``."""
         text = self._text
         pos = opened
         while True:
             parse_budget.checkpoint()
-            if self._line_starts[bisect.bisect_right(self._line_starts, pos) - 1] == pos:
+            if self._first_text_of(bisect.bisect_right(self._line_starts, pos) - 1) >= pos:
                 return True
-            if text[pos - 1].isspace():
+            # text stands before `pos` on this line, so this stops at it
+            while text[pos - 1].isspace() or text[pos - 1] in _INVISIBLE:
+                parse_budget.checkpoint()
                 pos -= 1
-                continue
             body_start = self._comment_body_start.get(pos)  # a comment ends here
             if body_start is None:
                 return False
@@ -202,10 +230,7 @@ class _PrecedingComments:
         line_end = end
         while idx >= 0:
             parse_budget.checkpoint()
-            first_text = self._first_text.get(idx)
-            if first_text is None:
-                found = _NON_SPACE_RE.search(text, self._line_starts[idx], self._line_ends[idx])
-                first_text = self._first_text[idx] = found.start() if found else self._line_ends[idx]
+            first_text = self._first_text_of(idx)
             if text.startswith("--", first_text, line_end):
                 lines.append(text[first_text + 2:line_end].strip())
             elif first_text >= line_end:

@@ -513,7 +513,13 @@ def _old_extract_dbt_directives(sql_bytes, directive_keywords=("macro", "test", 
 
 
 # Jinja's three delimiters, read left to right, each to its first closer (L-130)
-_SLOW_JINJA_TOKEN_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{#(.*?)#\}", re.DOTALL)
+# A raw or verbatim block is one token: nothing inside it is a delimiter.
+_SLOW_JINJA_TOKEN_RE = re.compile(
+    r"\{%[-+~]?\s*raw\s*[-+~]?%\}.*?\{%[-+~]?\s*endraw\s*[-+~]?%\}"
+    r"|\{%[-+~]?\s*verbatim\s*[-+~]?%\}.*?\{%[-+~]?\s*endverbatim\s*[-+~]?%\}"
+    r"|\{\{.*?\}\}|\{%.*?%\}|\{#(?P<body>.*?)#\}",
+    re.DOTALL,
+)
 
 
 def _docstring_of_the_comment_just_above(sql_str, offset, marks=("-", "+")):
@@ -537,7 +543,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset, marks=("-", "+")):
 
     comment = comments.get(len(preceding))
     if comment is not None and first_on_its_line(comment.start()):
-        body = comment.group(1)
+        body = comment.group("body")
         # `{#- ... -#}`: the mark is the delimiter's, one per side, this dialect's only
         body = body[1:] if body.startswith(marks) else body
         body = body[:-1] if body.endswith(marks) else body
@@ -561,7 +567,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset, marks=("-", "+")):
 _LINE_BREAKS = ["\n", "\n", "\r\n", "\r", chr(0x0B), chr(0x0C), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85),
                 chr(0x2028), chr(0x2029)]
 _DBT_PIECES = _LINE_BREAKS + [
-    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#+", "~#}", "+", "~", "{{", "}}", "{{ '{#' }}", "{{ y }}", "{#/** d", "* e", "*/#}",
+    " ", "\t", chr(0xA0), chr(0x1F), "x", "-- c", "--", "-", "{#", "#}", "{# d #}", "{#- f -#}", "{#-", "-#}", "{#+", "~#}", "+", "~", "{{", "}}", "{{ '{#' }}", "{{ y }}", "{% raw %}", "{%- endraw -%}", "{% raw %}{{ {# {% endraw %}", "{#/** d", "* e", "*/#}",
     "{% macro m(a, b) %}", "{%- macro n -%}", "{% endmacro %}", "{%- endmacro -%}", "{% test t(x) %}",
     "{% endtest %}", "{% snapshot s %}", "{% endsnapshot %}", "{% block b %}", "{% endblock %}", "{%", "%}",
 ]
@@ -674,6 +680,11 @@ def _characters_read_by_the_directive_loop(monkeypatch, sql_bytes: bytes) -> int
             spanned((found.start() if found else limit) - start)
             return found
 
+        def match(self, text, *bounds):
+            found = self._pattern.match(text, *bounds)
+            spanned(found.end() - found.start() if found else 1)
+            return found
+
         def finditer(self, text, *bounds):
             spanned(len(text) - (bounds[0] if bounds else 0))
             return self._pattern.finditer(text, *bounds)
@@ -710,6 +721,11 @@ def _characters_read_by_the_directive_loop(monkeypatch, sql_bytes: bytes) -> int
     monkeypatch.setattr(sql_preprocessor, "_LINE_BREAK_RE", CountedPattern(sql_preprocessor._LINE_BREAK_RE))
     monkeypatch.setattr(sql_preprocessor, "_NON_SPACE_RE", CountedPattern(sql_preprocessor._NON_SPACE_RE))
     monkeypatch.setattr(sql_preprocessor, "_JINJA_OPENER_RE", CountedPattern(sql_preprocessor._JINJA_OPENER_RE))
+    monkeypatch.setattr(sql_preprocessor, "_RAW_OPEN_RE", CountedPattern(sql_preprocessor._RAW_OPEN_RE))
+    monkeypatch.setattr(
+        sql_preprocessor, "_RAW_END_RE",
+        {word: CountedPattern(pattern) for word, pattern in sql_preprocessor._RAW_END_RE.items()},
+    )
     try:
         found = sql_preprocessor.extract_dbt_directives(Source(sql_bytes))
     finally:
@@ -740,7 +756,19 @@ def _trailing_comments(n: int) -> bytes:
     return "".join(f"{{% macro m{i}() %}}{{{{ x }}}}{{% endmacro %}} {{# end of m{i} #}}\n" for i in range(n)).encode("utf-8")
 
 
+def _raw_blocks_that_never_end(n: int) -> bytes:
+    # no `{% endraw %}` anywhere: one failed search, then `raw` is an ordinary tag
+    return "".join(f"{{% raw %}}\n{{# about m{i} #}}\n{{% macro m{i}() %}}{{% endmacro %}}\n" for i in range(n)).encode("utf-8")
+
+
+def _raw_blocks(n: int) -> bytes:
+    return "".join(
+        f"{{% raw %}}{{{{ {{# {{% endraw %}}\n{{# about m{i} #}}\n{{% macro m{i}() %}}{{% endmacro %}}\n" for i in range(n)
+    ).encode("utf-8")
+
+
 _DIRECTIVE_SHAPES = [
+    _raw_blocks_that_never_end, _raw_blocks,
     _open_comments_and_macros, _macros_that_never_end, _macros_on_one_line, _commented_macros,
     _comment_chains_above_macros, _one_chain_of_comments, _expressions_that_never_close, _trailing_comments,
 ]
