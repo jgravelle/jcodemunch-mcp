@@ -16,9 +16,13 @@ is left of the deadline as its own timeout, and the C parser stops itself.
 in favour of `parse(progress_callback=)`. The callback is not usable: it is
 ignored for a bytestring, and with a read callback it killed the interpreter
 with an access violation on all eight variants probed (tree-sitter 0.25.2,
-Python 3.12.4, Windows). A binding without the attribute leaves only the thread
-wait; `bind()` says so once in the log and
-`tests/test_parse_budget_cancels.py` fails on it.
+Python 3.12.4, Windows). A binding without the attribute cannot stop the C
+parse: the file is named only when the parse returns and the next checkpoint
+fires. `bind()` says so once in the log and
+`tests/test_parse_budget_cancels.py` fails on it. ⚠⚠ tree-sitter 0.26.0 IS
+such a binding, and that test runs on the LOCKED version only, so the
+dependency range is capped at the locked minor (`pyproject.toml`,
+`tests/test_tree_sitter_range_is_the_tested_range.py`).
 
 ⚠ Many dedicated parsers catch `Exception` around their parse and return `[]`
 (a grammar that failed to load is "indexed for text search only"). A cancel
@@ -298,7 +302,8 @@ def bind(parser):
             _warned_no_timeout = True
             logger.warning(
                 "the installed tree-sitter has no Parser.timeout_micros; "
-                "JCODEMUNCH_PARSE_BUDGET_SECONDS cannot stop a slow parse on it"
+                "JCODEMUNCH_PARSE_BUDGET_SECONDS cannot stop a slow parse on it. "
+                'tree-sitter 0.26 removed it: upgrade jcodemunch-mcp, or install "tree-sitter>=0.25,<0.26"'
             )
         return parser
     return _BudgetedParser(parser, scope)

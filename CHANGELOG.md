@@ -52,6 +52,25 @@
   docstring too.
   Not run: a dbt, Jinja or Twig corpus.
 
+- **The parse budget stops a slow parse again on a fresh install (reported by Dave).** The
+  per-file budget (`JCODEMUNCH_PARSE_BUDGET_SECONDS`, 1.108.329) stops tree-sitter's C parse
+  through `Parser.timeout_micros`. tree-sitter 0.26.0 removed that attribute, and the
+  dependency read `tree-sitter>=0.25` with no upper bound, so an install that resolved 0.26.0
+  could no longer stop a parse. Its only sign was one line at index time: `the installed
+  tree-sitter has no Parser.timeout_micros`. Measured with this tree's source and a 0.5 s budget
+  on a 405,035-byte Python file (`evidence/tree_sitter_026.txt`): on tree-sitter 0.25.2 the file
+  is stopped after 0.54 s; on 0.26.0 after 7.06 s, when the parse had run to its end. Through
+  `index_folder` the file is named as skipped on both (`parse exceeded the 0.5s budget`), so no
+  wrong symbol was served; the time was spent. CI never saw
+  it: it installs from `uv.lock`, which pins 0.25.2, and the guard that fails on a binding
+  without the attribute runs there. The range is now `>=0.25,<0.26`, so an upgrade moves such an
+  install back to a version that can stop a parse, and
+  `tests/test_tree_sitter_range_is_the_tested_range.py` fails when the declared range admits any
+  release past the locked minor, an exclusion such as `!=0.26.0` included. The warning now names
+  the remedy. Not changed: tree-sitter
+  0.26 is not supported; its replacement for the timeout, a progress callback, crashed the
+  interpreter when it was tried on 0.25.2 (LEDGER L-133).
+
 ## [1.108.332] - 2026-10-07 - a macro's docstring is the comment directly above it
 
 ### Fixed
