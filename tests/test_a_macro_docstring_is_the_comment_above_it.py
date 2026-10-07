@@ -98,6 +98,9 @@ def test_a_comment_elsewhere_in_the_file_is_nobodys_docstring():
         ("{% macro z() %}x{% endmacro %} {# end of z #}\n\n", ""),
         ("x {# a #}{# b #}", ""),                       # a comment before it does not make it start the line
         ("  \t{# b #}", "b"),                           # indented is still first on its line
+        ("-- note {# b #}", "b"),                        # a `--` lead is a comment, not code
+        ("  -- note {# a #} {# b #}", "b"),
+        ("select 1 -- note {# b #}", ""),                # but code before the `--` is code
         ("{# a\nstill a #} {# b #}", "b"),               # only comments before it, back to a line start
         ("x {# a\nstill a #} {# b #}", ""),
         ("{{ x }}{# b #}", ""),

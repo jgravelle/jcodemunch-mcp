@@ -10,7 +10,8 @@
   1.108.332 and then on the fix (`evidence/l129_l131_before_after.txt`). A comment that TRAILS
   code on its line was taken by the directive on the next line: after
   `{% macro a() %}select 1{% endmacro %} {# end of a #}`, `b` read `end of a` and reads nothing.
-  The comment must now be first on its line, with only other comments before it there. A `{#`
+  The comment must now be first on its line, with only other comments (or a `--` lead) before it
+  there. A `{#`
   inside an expression opened a comment: with `{{ '{#' }}` in the macro above, `second` read
   `' }}{% endmacro %}` and the line after it, and reads `about second`. The file is read as
   Jinja reads it, `{{ ... }}`, `{% ... %}` and `{# ... #}` left to right, each to its first
@@ -26,8 +27,7 @@
   closer, so `-- wrap in {{ to call` above a documented macro, with a `{{ x }}` further down,
   costs that macro its docstring (`doc` before, nothing now); Jinja itself refuses such a file.
   A closer inside a string in an expression (`{{ '}}' }}`) still ends the expression there.
-  And a comment trailing a `--` line, `-- note {# doc #}`, read `doc` and reads
-  `note {# doc #}`. Not run: a dbt, Jinja or Twig corpus.
+  Not run: a dbt, Jinja or Twig corpus.
 
 ## [1.108.332] - 2026-10-07 - a macro's docstring is the comment directly above it
 

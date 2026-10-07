@@ -114,7 +114,7 @@ class _PrecedingComments:
 
     ⚠⚠ Three more rules, each a wrong docstring before it (L-129, L-130,
     L-131). The comment is FIRST ON ITS LINE, with only other comments before
-    it there: one that trails code (``{% endmacro %} {# end of a #}``) belongs
+    it there (or a ``--`` lead): one that trails code (``{% endmacro %} {# end of a #}``) belongs
     to that code, not to the directive on the next line. The file is read as
     Jinja reads it, ``{{ ... }}``, ``{% ... %}`` and ``{# ... #}`` left to
     right, so a ``{#`` inside an expression or a tag opens no comment, and
@@ -173,7 +173,10 @@ class _PrecedingComments:
         pos = opened
         while True:
             parse_budget.checkpoint()
-            if self._first_text_of(bisect.bisect_right(self._line_starts, pos) - 1) >= pos:
+            first_text = self._first_text_of(bisect.bisect_right(self._line_starts, pos) - 1)
+            # A line that starts with `--` is a comment up to here, not code:
+            # `-- note {# doc #}` leaves the Jinja comment first of its kind.
+            if first_text >= pos or text.startswith("--", first_text, pos):
                 return True
             # text stands before `pos` on this line, so this stops at it
             while text[pos - 1].isspace() or text[pos - 1] in _INVISIBLE:

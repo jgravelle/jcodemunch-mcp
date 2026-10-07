@@ -534,7 +534,7 @@ def _docstring_of_the_comment_just_above(sql_str, offset, marks=("-", "+")):
             before = sql_str[:pos]
             lines = before.splitlines(keepends=True)
             current = lines[-1] if lines and lines[-1].splitlines()[0] == lines[-1] else ""
-            if not current.strip():
+            if not current.strip() or current.lstrip().startswith("--"):
                 return True
             earlier = comments.get(len(before.rstrip()))  # a comment ends where the line's text ends
             if earlier is None:
