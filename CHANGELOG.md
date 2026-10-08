@@ -19,10 +19,11 @@
   before opens as it did; on the branch all four directories in that file read 3 vectors, list
   their source root and refuse a write. The new tests build real databases under nine
   directory names (eleven off Windows, where `?` is allowed in a name), with and without WAL
-  sidecars, and assert that nothing is created beside them
+  sidecars, and assert that nothing is created beside them; on Windows the `?` case is the
+  extended-length prefix, under which the open used to fail
   (`tests/test_readonly_uri_quotes_the_path.py`). The existing contract test could not see
   this: its databases sit in a temp directory whose name holds none of those characters.
-  Not run: a UNC path as the storage path.
+  A UNC path opens as it did before (the review's probe, not an evidence file).
 
 ## [1.108.334] - 2026-10-08 - a semantic search writes no vector of a second model
 

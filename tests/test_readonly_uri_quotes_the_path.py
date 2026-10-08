@@ -124,6 +124,25 @@ def test_the_immutable_fallback_names_the_same_file(tmp_path, name, monkeypatch)
         writer.close()
 
 
+def test_a_question_mark_in_the_path_is_part_of_the_path(tmp_path):
+    """`?` on every platform. A Windows file name cannot hold one, but the
+    extended-length prefix does, and a path under it failed to open at all."""
+    if sys.platform == "win32":
+        db, _ = _make_db(tmp_path / "c#proj", False)
+        target = chr(92) * 2 + "?" + chr(92) + str(db.resolve())
+    else:
+        db, _ = _make_db(tmp_path / "what?now", False)
+        target = str(db)
+    assert "?" in target
+    conn = gen.connect_readonly(target)
+    try:
+        assert conn.execute("SELECT k FROM t").fetchall() == [("live",)]
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("INSERT INTO t VALUES ('written')")
+    finally:
+        conn.close()
+
+
 def test_a_relative_path_still_opens(tmp_path, monkeypatch):
     _make_db(tmp_path / "c#proj", False)
     monkeypatch.chdir(tmp_path)
