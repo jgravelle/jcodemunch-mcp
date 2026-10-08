@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A storage path holding `#` or `%` no longer hides what is stored (LEDGER L-137).** Every
+  read-only reader opens its database through one function, which built the SQLite URI as
+  `file:{path}?mode=ro` from the raw path. SQLite reads that string as a URI: `#` starts a
+  fragment, `?` starts the query, and `%HH` is an escape. So where the storage directory's
+  name held one of them the open named another file. Measured at the tools on a store holding
+  three vectors (`evidence/l137_before_after.txt`): under a directory named `c#proj` the
+  "read-only" connection opened an empty file `c` beside it, WRITABLE, and
+  `EmbeddingStore.has_any()` answered False; under `a%20b` and `pct%41` the open raised and
+  `has_any()` answered None. In all three `iter_raw` returned no row and the store listed no
+  source root. A lexical `search_symbols` and `get_symbol_source` still answered, through the
+  full load.
+  The path is now escaped where the URI is built, `%`, `#` and `?` only, so a path that opened
+  before opens as it did; on the branch all four directories in that file read 3 vectors, list
+  their source root and refuse a write. The new tests build real databases under nine
+  directory names (eleven off Windows, where `?` is allowed in a name), with and without WAL
+  sidecars, and assert that nothing is created beside them; on Windows the `?` case is the
+  extended-length prefix, under which the open used to fail
+  (`tests/test_readonly_uri_quotes_the_path.py`). The existing contract test could not see
+  this: its databases sit in a temp directory whose name holds none of those characters.
+  A UNC path opens as it did before (the review's probe, not an evidence file).
+
 ## [1.108.334] - 2026-10-08 - a semantic search writes no vector of a second model
 
 ### Fixed

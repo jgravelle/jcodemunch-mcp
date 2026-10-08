@@ -99,8 +99,8 @@ def _harness(tmp_path, monkeypatch, store_name):
 
         @staticmethod
         def true_widths():
-            """Over the read-write connection: `iter_raw` reads nothing under
-            a storage path that holds `#` (LEDGER L-137)."""
+            """Over the read-write connection, so it holds when a test has
+            blinded the read-only readers."""
             conn = EmbeddingStore(db_path)._connect()
             try:
                 rows = conn.execute(
@@ -400,15 +400,15 @@ class TestAnEmptyStoreHasNoStamp:
 
 class TestAWriterIsNotBlindWhereItCanRead:
     """Review rounds 4 and 5: unknown is not a change, so a writer whose
-    reading of the store fails skips the rebuild. Under a storage path holding
-    `#` the read-only open opens another, empty file and the read fails
-    (LEDGER L-137); `embed_repo` reads over the connection it writes with."""
+    reading of the store fails skips the rebuild, so `embed_repo` reads over
+    the connection it writes with. Found under a storage path holding `#`,
+    where the read-only reading failed until LEDGER L-137 was fixed; the two
+    cases on such a path stay as its regression, and the failure itself is
+    now made by patching the read-only open."""
 
     def test_a_model_change_under_a_hash_path_rebuilds(self, hash_repo):
-        """No mock: the real read-only failure, whatever its shape."""
         hash_repo.provider("model-a", 8)
         hash_repo.embed()
-        assert hash_repo.store().read_meta() is None
         hash_repo.add_symbol(1)
 
         hash_repo.provider("model-b", 4)
@@ -508,8 +508,9 @@ class TestTheWriteIsDecidedAtTheWrite:
         assert mismatch["stored_model"] == "model-c"
 
     def test_a_search_under_a_hash_path_does_not_overwrite_another_models_vectors(self, hash_repo):
-        """The read-only reading sees nothing there (LEDGER L-137), so only the
-        reading at the write can refuse. Same width: no width check helps."""
+        """A regression on the path that found this. Until LEDGER L-137 the
+        read-only reading saw nothing there and only the reading at the write
+        refused; the case below keeps that shape without the path."""
         hash_repo.provider("model-a", 8)
         hash_repo.embed()
         assert hash_repo.true_widths() == {8: 5}
@@ -519,6 +520,28 @@ class TestTheWriteIsDecidedAtTheWrite:
 
         assert hash_repo.true_widths() == {8: 5}
         assert hash_repo.stamp() == (8, "model-a", "")
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
+
+    def test_a_search_whose_read_only_reading_sees_nothing_does_not_overwrite(self, repo, monkeypatch):
+        """Only the reading at the write can refuse then. Same width: no width
+        check helps. (A storage path holding `#` did this before LEDGER L-137.)"""
+        repo.provider("model-a", 8)
+        repo.embed()
+        assert repo.true_widths() == {8: 5}
+
+        real_read_meta = EmbeddingStore.read_meta
+        monkeypatch.setattr(
+            EmbeddingStore, "read_meta",
+            lambda self, for_writer=False: real_read_meta(self, for_writer=True) if for_writer else None,
+        )
+        monkeypatch.setattr(EmbeddingStore, "iter_raw", lambda self: [])
+
+        repo.provider("model-b", 8)
+        response = repo.search()
+
+        assert [n for n, _model, _task in repo.calls] == [1, 5]
+        assert repo.true_widths() == {8: 5}
+        assert repo.stamp() == (8, "model-a", "")
         assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
 
     def test_dropping_an_orphan_stamp_cannot_delete_a_vector(self, repo):
