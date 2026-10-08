@@ -54,6 +54,48 @@ _EMBED_MODEL_KEY = "embed_model"
 _EMBED_TASK_TYPE_KEY = "embed_task_type"
 
 
+#: Why stored vectors may not be extended or scored under the active model.
+#: `embed_repo` reports the same strings as `rebuild_reason`.
+STALE_MODEL_CHANGED = "embedding_model_changed"
+STALE_TASK_TYPE_CHANGED = "embedding_task_type_changed"
+STALE_METADATA_MISSING = "embedding_metadata_missing"
+
+
+def stale_reason(stored: Optional[dict], model: str, task_type: str) -> Optional[str]:
+    """Why vectors described by ``stored`` do not belong with ``model``, or None.
+
+    ``stored`` is `EmbeddingStore.read_meta()`. THE one rule for both vector
+    writers: `embed_repo` rebuilds on a reason, and the semantic top-up in
+    `search_symbols` writes nothing (LEDGER L-121: the rule lived inline in
+    `embed_repo` only, so the top-up wrote a second model's vectors beside the
+    first's). A function that calls `set_many` and not this fails
+    `tests/test_semantic_topup_checks_the_stored_model.py`.
+
+    ⚠ Unknown is NOT a change (#500). An unreadable store (``None``), a store
+    with no model name, and an empty ``model`` all answer None: forcing a
+    rebuild on those bills a full re-embed for a model that may be identical.
+
+    ⚠⚠ The task type has three states (#523). An absent row is never recorded
+    and is not a change; ``""`` IS a recorded value, written by every provider
+    but task-aware Gemini, so a truthiness test misses a real toggle from it.
+
+    ⚠ Vectors with no metadata at all (no dimension either) are stale: nothing
+    says what produced them, and the next write would stamp the store with the
+    active model over them. A full re-index left stores so before #522.
+    """
+    if not stored or not stored.get("has_vectors"):
+        return None
+    stored_model = stored.get("model")
+    if stored_model and model and stored_model != model:
+        return STALE_MODEL_CHANGED
+    stored_task_type = stored.get("task_type")
+    if stored_task_type is None:
+        return STALE_METADATA_MISSING if stored.get("dimension") is None else None
+    if stored_task_type != task_type:
+        return STALE_TASK_TYPE_CHANGED
+    return None
+
+
 def _encode_embedding(vec: list[float]) -> bytes:
     """Serialise a float list to bytes (float32, native byte order)."""
     return array.array("f", vec).tobytes()
@@ -147,6 +189,52 @@ class EmbeddingStore:
         except Exception:
             logger.debug("EmbeddingStore.get_model failed", exc_info=True)
             return None
+
+    def read_meta(self) -> Optional[dict]:
+        """What built the stored vectors, read WITHOUT touching the file.
+
+        ``{"has_vectors", "dimension", "model", "task_type"}``; an absent row is
+        ``None``, and ``task_type`` keeps ``""`` apart from absent (#523).
+        Returns ``None`` when the store could not be read, which is unknown and
+        never "nothing stored".
+
+        ⚠ `get_dimension`/`get_model`/`get_task_type` open a read-WRITE
+        connection, and `_connect` runs a PRAGMA and a CREATE TABLE on each, so
+        they move the .db mtime. A search calls this on every semantic query,
+        before its scan; a getter there makes the search's own movement check
+        report a rebuild the search caused (see `get_all_readonly`).
+        """
+        try:
+            conn = _generation.connect_readonly(self._db_path)
+        except Exception:
+            logger.debug("EmbeddingStore.read_meta could not open %s",
+                         self._db_path, exc_info=True)
+            return None
+        try:
+            try:
+                has_vectors = conn.execute(
+                    "SELECT 1 FROM symbol_embeddings LIMIT 1"
+                ).fetchone() is not None
+            except sqlite3.OperationalError as exc:
+                if "no such table" not in str(exc).lower():
+                    raise
+                has_vectors = False
+            rows = dict(conn.execute(
+                "SELECT key, value FROM meta WHERE key IN (?, ?, ?)",
+                (_EMBED_DIM_KEY, _EMBED_MODEL_KEY, _EMBED_TASK_TYPE_KEY),
+            ).fetchall())
+            dim = rows.get(_EMBED_DIM_KEY)
+            return {
+                "has_vectors": has_vectors,
+                "dimension": int(dim) if dim is not None else None,
+                "model": str(rows[_EMBED_MODEL_KEY]) if rows.get(_EMBED_MODEL_KEY) else None,
+                "task_type": rows.get(_EMBED_TASK_TYPE_KEY),
+            }
+        except Exception:
+            logger.debug("EmbeddingStore.read_meta failed", exc_info=True)
+            return None
+        finally:
+            conn.close()
 
     def get_task_type(self) -> Optional[str]:
         """Return stored embedding task type, or None if not set."""

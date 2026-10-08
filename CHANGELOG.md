@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A semantic search no longer writes a second model's vectors into the store (LEDGER
+  L-121).** `search_symbols` with `semantic=true` embeds every symbol that has no vector and
+  writes it. `embed_repo` has compared the stored model with the active one since #500; the
+  search, the other of the two vector writers, compared nothing. So after a change of embedding
+  model, one semantic search on a repo with a new symbol wrote that symbol at the new width
+  beside the old vectors (`evidence/l121_before_after.txt`, a mocked provider: five vectors at
+  width 8, then `{4: 1, 8: 5}`). The matrix keeps the first width and drops the rest, so the
+  new symbol read as missing on every later search and each one called the provider for it
+  again (two calls per search in that file, the query and the symbol).
+  The rule now has one home, `stale_reason` in `storage/embedding_store.py`, and both writers
+  ask it. It covers a changed model, a changed task type, and vectors with no metadata; an
+  unknown stored model is still not a change, and there the width of the vectors about to be
+  written decides. On a reason the search does not rebuild: a search is a read, and two
+  clients on one store with different providers would re-embed the whole repo on every search
+  from the other. It writes nothing, calls the provider for nothing, ranks without the
+  semantic channel, and says so in the response body as `semantic_store_mismatch` (`reason`,
+  `stored_model`, `active_model`, `remedy`), with `channels.semantic: "unavailable"` in the
+  verdict. `semantic_only` returns no row there. `embed_repo` rebuilds, as before, and the
+  next search scores again. A test scans `src/` and fails on a function that calls `set_many`
+  without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
+  Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
+  against a stored model's vectors (LEDGER L-135), and `embed_repo`
+  without `force` on a store whose model is unknown still writes a new width beside the old
+  one (LEDGER L-136).
+
 ## [1.108.333] - 2026-10-07 - the parse budget stops a slow parse again on a fresh install
 
 ### Fixed

@@ -1,0 +1,366 @@
+"""LEDGER L-121: the semantic top-up asks what built the store before it writes.
+
+`search_symbols(semantic=True)` embeds every symbol that has no vector and
+writes it. `embed_repo` has compared the stored model with the active one since
+#500; the top-up, the other of the two vector writers, compared nothing. After a
+model change one semantic search on a repo with a new symbol left vectors of
+two widths in the store, and `EmbeddingMatrix` keeps the first width and drops
+the rest, so no symbol got a similarity score and each later search called the
+provider for the dropped symbol again.
+
+The rule lives in `storage/embedding_store.py` now (`read_meta`,
+`stale_reason`) and both writers ask it. On a mismatch the search does NOT
+rebuild: it writes nothing, calls the provider for nothing, scores no
+similarity, and names the reason and the remedy in the response body.
+`embed_repo` is the tool that rebuilds.
+"""
+
+import ast
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp.storage import IndexStore
+from jcodemunch_mcp.storage import embedding_store as es
+from jcodemunch_mcp.storage.embedding_store import EmbeddingStore
+from jcodemunch_mcp.tools import embed_repo as er
+from jcodemunch_mcp.tools.index_folder import index_folder
+from jcodemunch_mcp.tools.search_symbols import search_symbols
+
+SRC = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp"
+NL = chr(10)
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    """Five indexed symbols, and a fake provider whose calls are counted."""
+    src = tmp_path / "src"
+    store_dir = tmp_path / "store"
+    src.mkdir()
+    store_dir.mkdir()
+    for i in range(5):
+        (src / f"m{i}.py").write_text(f"def handler_{i}():{NL}    return {i}{NL}")
+    indexed = index_folder(str(src), use_ai_summaries=False, storage_path=str(store_dir))
+    assert indexed["success"] is True, indexed
+    owner, name = indexed["repo"].split("/", 1)
+    db_path = IndexStore(base_path=str(store_dir))._sqlite._db_path(owner, name)
+
+    class Harness:
+        calls: list = []
+
+        @staticmethod
+        def provider(model, width, provider_name="fake_provider", task_aware=False):
+            def _embed(texts, provider, model_name, task_type=None):
+                Harness.calls.append((len(texts), model_name, task_type))
+                return [[0.1] * width for _ in texts]
+
+            monkeypatch.setattr(
+                er, "_detect_provider_detailed",
+                lambda: ((provider_name, model), "test_fixture", []),
+            )
+            monkeypatch.setattr(er, "_detect_provider", lambda: (provider_name, model))
+            monkeypatch.setattr(er, "_gemini_task_aware", lambda: task_aware)
+            monkeypatch.setattr(er, "embed_texts", _embed)
+            Harness.calls = []
+
+        @staticmethod
+        def embed(**kwargs):
+            return er.embed_repo(
+                repo=indexed["repo"], storage_path=str(store_dir), **kwargs
+            )
+
+        @staticmethod
+        def search(**kwargs):
+            return search_symbols(
+                repo=indexed["repo"], query="handler", semantic=True,
+                storage_path=str(store_dir), max_results=10, **kwargs
+            )
+
+        @staticmethod
+        def store():
+            return EmbeddingStore(db_path)
+
+        @staticmethod
+        def widths():
+            counts: dict = {}
+            for _sid, blob in EmbeddingStore(db_path).iter_raw():
+                counts[len(blob) // 4] = counts.get(len(blob) // 4, 0) + 1
+            return counts
+
+        @staticmethod
+        def add_symbol(n, full=False):
+            (src / f"extra{n}.py").write_text(f"def extra_{n}():{NL}    return {n}{NL}")
+            result = index_folder(
+                str(src), use_ai_summaries=False, storage_path=str(store_dir),
+                incremental=not full,
+            )
+            assert result["success"] is True, result
+
+        @staticmethod
+        def drop_meta(*keys):
+            conn = EmbeddingStore(db_path)._connect()
+            try:
+                for key in keys:
+                    conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+                conn.commit()
+            finally:
+                conn.close()
+
+    return Harness
+
+
+def _semantic_channel(response):
+    return ((response.get("_meta") or {}).get("verdict") or {}).get("channels", {}).get("semantic")
+
+
+class TestTheReportedCase:
+    """Model A at width 8, a new symbol, a semantic search under model B at width 4."""
+
+    @pytest.mark.parametrize("full_reindex", [False, True], ids=["incremental", "full"])
+    def test_the_search_writes_no_vector_of_the_other_model(self, repo, full_reindex):
+        repo.provider("model-a", 8)
+        repo.embed()
+        assert repo.widths() == {8: 5}
+        repo.add_symbol(1, full=full_reindex)
+
+        repo.provider("model-b", 4)
+        response = repo.search()
+
+        assert repo.widths() == {8: 5}, repo.widths()
+        store = repo.store()
+        assert (store.get_dimension(), store.get_model()) == (8, "model-a")
+        assert "error" not in response, response
+
+    def test_the_response_names_the_reason_and_the_remedy(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        response = repo.search()
+
+        mismatch = response.get("semantic_store_mismatch")
+        assert mismatch, sorted(response)
+        assert mismatch["reason"] == "embedding_model_changed"
+        assert mismatch["stored_model"] == "model-a"
+        assert mismatch["active_model"] == "model-b"
+        assert "embed_repo" in mismatch["remedy"]
+        assert _semantic_channel(response) == "unavailable"
+
+    def test_the_provider_is_called_for_nothing(self, repo):
+        """Before the fix each search embedded the dropped symbol again."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        repo.search()
+        repo.search()
+        assert repo.calls == []
+
+    def test_a_hybrid_search_still_answers_from_the_lexical_channel(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        response = repo.search()
+        names = {row["name"] for row in response["results"]}
+        assert {f"handler_{i}" for i in range(5)} <= names, names
+
+    def test_a_semantic_only_search_returns_no_row_and_says_why(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        response = repo.search(semantic_only=True)
+        assert response["result_count"] == 0
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
+
+    def test_embed_repo_then_rebuilds_and_the_search_scores_again(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        repo.search()
+
+        rebuilt = repo.embed()
+        assert rebuilt.get("rebuild_reason") == "embedding_model_changed", rebuilt
+        assert repo.widths() == {4: 6}
+
+        response = repo.search()
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "ok"
+
+
+class TestTheOtherSpellings:
+    """The same write reached by a different difference."""
+
+    def test_a_task_type_change_writes_nothing(self, repo):
+        repo.provider("gemini-model", 8, provider_name="gemini", task_aware=False)
+        repo.embed()
+        assert repo.store().get_task_type() == ""
+        repo.add_symbol(1)
+
+        repo.provider("gemini-model", 8, provider_name="gemini", task_aware=True)
+        response = repo.search()
+
+        assert repo.widths() == {8: 5}
+        assert repo.store().get_task_type() == ""
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_task_type_changed"
+        assert repo.calls == []
+
+    def test_vectors_with_no_metadata_are_not_stamped_with_the_active_model(self, repo):
+        """The state a full re-index left before #522."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_dimension", "embed_model", "embed_task_type")
+        repo.add_symbol(1)
+
+        repo.provider("model-b", 4)
+        response = repo.search()
+
+        store = repo.store()
+        assert repo.widths() == {8: 5}
+        assert (store.get_dimension(), store.get_model()) == (None, None)
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_metadata_missing"
+
+    def test_an_unknown_model_at_another_width_writes_nothing(self, repo):
+        """No name to compare, so the width of what would be written decides."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_model")
+        repo.add_symbol(1)
+
+        repo.provider("model-b", 4)
+        response = repo.search()
+
+        assert repo.widths() == {8: 5}
+        mismatch = response["semantic_store_mismatch"]
+        assert mismatch["reason"] == "embedding_dimension_mismatch"
+        assert (mismatch["stored_dimension"], mismatch["active_dimension"]) == (8, 4)
+        assert _semantic_channel(response) == "unavailable"
+
+
+class TestWhatMustNotChange:
+
+    def test_the_same_model_still_tops_up(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        response = repo.search()
+
+        assert repo.widths() == {8: 6}
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "ok"
+
+    def test_a_first_semantic_search_embeds_and_records_what_built_it(self, repo):
+        repo.provider("model-a", 8)
+        response = repo.search()
+
+        store = repo.store()
+        assert repo.widths() == {8: 5}
+        assert (store.get_dimension(), store.get_model(), store.get_task_type()) == (8, "model-a", "")
+        assert "semantic_store_mismatch" not in response
+
+    def test_an_unknown_stored_model_at_the_same_width_is_not_a_change(self, repo):
+        """Unknown is not a change (#500): the top-up proceeds."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_model")
+        repo.add_symbol(1)
+
+        repo.provider("model-b", 8)
+        response = repo.search()
+
+        assert repo.widths() == {8: 6}
+        assert "semantic_store_mismatch" not in response
+
+    def test_reading_the_stored_metadata_does_not_touch_the_file(self, repo):
+        """A read-write connection moves the .db mtime, and the search's own
+        movement check then reports a rebuild it caused (Standing lesson 08-24)."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        db = Path(repo.store()._db_path)
+
+        def stamp():
+            out = []
+            for suffix in ("", "-wal", "-shm"):
+                side = db.with_name(db.name + suffix)
+                out.append((side.stat().st_size, side.stat().st_mtime_ns) if side.exists() else None)
+            return out
+
+        before = stamp()
+        meta = repo.store().read_meta()
+        assert stamp() == before
+        assert meta == {"has_vectors": True, "dimension": 8, "model": "model-a", "task_type": ""}
+
+
+META = {"has_vectors": True, "dimension": 8, "model": "model-a", "task_type": ""}
+
+
+@pytest.mark.parametrize(
+    "stored, model, task_type, expected",
+    [
+        (META, "model-a", "", None),
+        (META, "model-b", "", "embedding_model_changed"),
+        (META, "", "", None),
+        ({**META, "model": None}, "model-b", "", None),
+        (META, "model-a", "RETRIEVAL_DOCUMENT", "embedding_task_type_changed"),
+        ({**META, "task_type": "RETRIEVAL_DOCUMENT"}, "model-a", "", "embedding_task_type_changed"),
+        ({**META, "task_type": None}, "model-a", "", None),
+        ({**META, "task_type": None}, "model-a", "RETRIEVAL_DOCUMENT", None),
+        ({**META, "task_type": None, "dimension": None, "model": None}, "model-a", "",
+         "embedding_metadata_missing"),
+        ({**META, "model": "model-b", "task_type": "X"}, "model-a", "", "embedding_model_changed"),
+        ({**META, "has_vectors": False}, "model-b", "X", None),
+        ({"has_vectors": False, "dimension": None, "model": None, "task_type": None}, "m", "", None),
+        (None, "model-b", "", None),
+    ],
+)
+def test_stale_reason_over_every_stored_state(stored, model, task_type, expected):
+    """`None` (unreadable) and an absent row are UNKNOWN, and unknown is not a change."""
+    assert es.stale_reason(stored, model, task_type) == expected
+
+
+def _functions_calling(tree, attr):
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names = set()
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call):
+                    func = call.func
+                    names.add(func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", ""))
+            if attr in names:
+                yield node.name, names
+
+
+def test_every_function_that_writes_vectors_asks_what_built_the_store():
+    """The #500 guard covered one of two writers. A third inherits the rule here."""
+    writers = []
+    for path in sorted(SRC.rglob("*.py")):
+        if path.name == "embedding_store.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for name, names in _functions_calling(tree, "set_many"):
+            writers.append((path.name, name, "stale_reason" in names))
+    assert {(f, n) for f, n, _ in writers} >= {
+        ("embed_repo.py", "embed_repo"),
+        ("search_symbols.py", "_search_symbols_semantic"),
+    }, writers
+    assert [w for w in writers if not w[2]] == [], writers
+
+
+def test_the_compact_encoder_keeps_the_mismatch():
+    from jcodemunch_mcp.encoding.schemas import search_symbols as schema
+
+    response = {
+        "result_count": 0,
+        "results": [],
+        "semantic_store_mismatch": {
+            "reason": "embedding_model_changed",
+            "stored_model": "model-a",
+            "active_model": "model-b",
+            "remedy": "run embed_repo",
+        },
+        "_meta": {"timing_ms": 1.0},
+    }
+    payload, _ = schema.encode("search_symbols", response)
+    assert schema.decode(payload)["semantic_store_mismatch"] == response["semantic_store_mismatch"]

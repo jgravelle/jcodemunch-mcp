@@ -28,7 +28,9 @@ _META_JSON = ("verdict", "exact_match")
 # on the shipped default), and an undeclared dict is dropped by the encoder.
 # semantic_channel_error (L-108): why the fusion exit's similarity channel did not
 # run, e.g. a refused local model. A BODY dict for the same reason.
-_JSON_BLOBS = ("semantic_topup", "semantic_channel_error")
+# semantic_store_mismatch (L-121): the stored vectors were built by another
+# model, so the semantic exit wrote and scored nothing. A BODY dict likewise.
+_JSON_BLOBS = ("semantic_topup", "semantic_channel_error", "semantic_store_mismatch")
 
 
 def encode(tool: str, response: dict) -> tuple[str, str]:

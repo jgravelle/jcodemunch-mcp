@@ -1376,7 +1376,7 @@ def _search_symbols_semantic(
     """
     from .embed_repo import embed_texts, _sym_text, EMBED_BATCH_SIZE, _gemini_task_aware
     from ..retrieval import subject_state as _subject_state
-    from ..storage.embedding_store import EmbeddingStore
+    from ..storage.embedding_store import EmbeddingStore, stale_reason
     import logging as _logging
 
     _logger = _logging.getLogger(__name__)
@@ -1396,11 +1396,38 @@ def _search_symbols_semantic(
         query_task_type = "CODE_RETRIEVAL_QUERY"
         doc_task_type = "RETRIEVAL_DOCUMENT"
 
+    # ── What built the stored vectors ──────────────────────────────────────
+    # LEDGER L-121: this exit embedded every symbol with no vector under the
+    # ACTIVE model and wrote it, comparing nothing; `embed_repo`, the other
+    # vector writer, has compared since #500. One semantic search after a model
+    # change left two widths in the store. Both writers ask `stale_reason` now.
+    #
+    # ⚠ On a reason this exit does NOT rebuild. A search is a read, and two
+    # clients on one store with different providers would re-embed the whole
+    # repo on every search from the other. It writes nothing, calls the
+    # provider for nothing and scores no similarity (a query vector from one
+    # model against another model's vectors ranks by noise when the widths
+    # happen to agree), and says so in the body. `embed_repo` rebuilds.
+    db_path = store._sqlite._db_path(owner, name)
+    emb_store = EmbeddingStore(db_path)
+    stored_meta = emb_store.read_meta()
+    store_mismatch: Optional[dict] = None
+    _stale = stale_reason(stored_meta, model, doc_task_type or "")
+    if _stale:
+        store_mismatch = {"reason": _stale, "active_model": model}
+        if (stored_meta or {}).get("model"):
+            store_mismatch["stored_model"] = stored_meta["model"]
+        store_mismatch["remedy"] = (
+            "embed_repo rebuilds the stored vectors with the active model"
+        )
+
     # ── Get query embedding ────────────────────────────────────────────────
-    try:
-        query_vec = embed_texts([query], provider, model, task_type=query_task_type)[0]
-    except Exception as exc:
-        return {"error": f"Failed to embed query: {exc}"}
+    query_vec: list = []
+    if store_mismatch is None:
+        try:
+            query_vec = embed_texts([query], provider, model, task_type=query_task_type)[0]
+        except Exception as exc:
+            return {"error": f"Failed to embed query: {exc}"}
 
     # ── Load / lazily compute symbol embeddings ────────────────────────────
     # v1.108.223 (#399, @vondecron): the matrix is decoded and L2-normalised
@@ -1408,20 +1435,21 @@ def _search_symbols_semantic(
     # and re-parsing every stored vector on every semantic query. It also
     # replaces `get_all()` with a read-only load, so this path no longer bumps
     # the .db mtime as a side effect of reading it (same defect class as .185).
-    db_path = store._sqlite._db_path(owner, name)
-    emb_store = EmbeddingStore(db_path)
     from ..storage import embedding_matrix as _embed_matrix
-    matrix = _embed_matrix.get_matrix(db_path)
+    matrix = _embed_matrix.get_matrix(db_path) if store_mismatch is None else None
     embedded_ids = matrix.id_set if matrix is not None else set()
 
-    missing = [s for s in index.symbols if s["id"] not in embedded_ids]
+    missing = (
+        [s for s in index.symbols if s["id"] not in embedded_ids]
+        if store_mismatch is None else []
+    )
+    new_emb: dict[str, list[float]] = {}
     # CF-66: a failed top-up batch left its symbols scored lexically only, with
     # the cause in the log and nothing in the response. Same loop as
     # embed_repo's, same ledger; disclosed as the body field `semantic_topup`.
     from ..embeddings.failures import FailureLedger
     topup_failures = FailureLedger()
     if missing:
-        new_emb: dict[str, list[float]] = {}
         for bi in range(0, len(missing), EMBED_BATCH_SIZE):
             batch = missing[bi : bi + EMBED_BATCH_SIZE]
             try:
@@ -1435,16 +1463,35 @@ def _search_symbols_semantic(
                 _logger.warning("semantic: embedding batch %d failed: %s", bi // EMBED_BATCH_SIZE, exc)
                 topup_failures.record(exc, items=len(batch))
         if new_emb:
-            if emb_store.get_dimension() is None:
-                dim = len(next(iter(new_emb.values())))
-                emb_store.set_dimension(dim, model)
-                emb_store.set_task_type(doc_task_type or "")
-            emb_store.set_many(new_emb)
+            dim = len(next(iter(new_emb.values())))
+            stored_dim = (
+                stored_meta["dimension"] if stored_meta is not None
+                else emb_store.get_dimension()
+            )
+            if stored_dim is not None and stored_dim != dim:
+                # No stored model name to compare (a store from before #500),
+                # so the width of what would be written decides.
+                store_mismatch = {
+                    "reason": "embedding_dimension_mismatch",
+                    "active_model": model,
+                    "stored_dimension": stored_dim,
+                    "active_dimension": dim,
+                    "remedy": "embed_repo(force=True) rebuilds the store at one width",
+                }
+                new_emb = {}
+            else:
+                if stored_dim is None:
+                    emb_store.set_dimension(dim, model)
+                    emb_store.set_task_type(doc_task_type or "")
+                emb_store.set_many(new_emb)
 
     # Cosine for every embedded symbol, in one vectorised pass. `matrix` was
     # loaded before the top-up above, so vectors embedded just now are scored
     # individually rather than forcing a full re-decode for a handful of rows.
-    cos_by_id: dict[str, float] = matrix.score_all(query_vec) if matrix is not None else {}
+    cos_by_id: dict[str, float] = (
+        matrix.score_all(query_vec)
+        if matrix is not None and store_mismatch is None else {}
+    )
     if missing and new_emb:
         for _sid, _vec in new_emb.items():
             cos_by_id[_sid] = _cosine_similarity(query_vec, _vec)
@@ -1639,6 +1686,10 @@ def _search_symbols_semantic(
         }
         topup_failures.disclose(topup)
         result["semantic_topup"] = topup
+    if store_mismatch:
+        # In the BODY for the same reason (L-121): every row here was ranked
+        # without the semantic channel, and `semantic_only` has no row at all.
+        result["semantic_store_mismatch"] = store_mismatch
     from ..retrieval.confidence import attach_confidence as _attach_confidence
     from ..retrieval.confidence import extract_ledger_features as _ledger_feats
     from ..retrieval.freshness import FreshnessProbe as _FreshnessProbe
@@ -1684,7 +1735,7 @@ def _search_symbols_semantic(
         query=query,
         returned_ids=[r.get("id", "") for r in scored_results],
         confidence=result["_meta"].get("confidence"),
-        semantic_used=True,
+        semantic_used=store_mismatch is None,
         repo_is_stale=_probe.repo_is_stale,
         **_feat,
     )
@@ -1767,6 +1818,8 @@ def _search_symbols_semantic(
             "remedy": "embed_repo(force=True) rebuilds the store at one width",
         }
         meta["verdict"]["channels"]["semantic"] = "partial"
+    if store_mismatch:
+        meta["verdict"]["channels"]["semantic"] = "unavailable"
     negative_evidence = _vres["negative_evidence"]
     if negative_evidence is not None:
         result["negative_evidence"] = negative_evidence
