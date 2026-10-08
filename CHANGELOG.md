@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.335] - 2026-10-08 - a read-only open reads the file the path names
+
 ### Fixed
 
 - **A storage path holding `#` or `%` no longer hides what is stored (LEDGER L-137).** Every
