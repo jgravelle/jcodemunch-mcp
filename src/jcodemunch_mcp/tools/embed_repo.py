@@ -490,19 +490,29 @@ def embed_repo(
     # still named the first. `EmbeddingMatrix` then infers its dimension from
     # the FIRST row and drops every row that disagrees, so the symbols embedded
     # after the change stopped being searchable — silently, and cumulatively.
-    stored_dim = emb_store.get_dimension()
-    stored_model = emb_store.get_model()
-    # ⚠ Unknown is NOT a change. A store written before `embed_model` was
-    # persisted has no name, and forcing a re-embed on that would bill every
-    # existing user a full rebuild for a model that may well be identical.
-    stored_meta = emb_store.read_meta()
-    if stored_meta is not None and not stored_meta["has_vectors"]:
+    #
+    # ⚠ ONE reading of the store decides the rebuild AND what is disclosed
+    # (LEDGER L-121, review round 4): with the model read by one call and the
+    # rule fed by another, an unreadable second reading skipped the rebuild
+    # while the first still reported `embedding_model_changed`. `for_writer`
+    # reads over the read-write connection when the read-only open fails.
+    stored_meta = emb_store.read_meta(for_writer=True)
+    if stored_meta is None:
+        stored_dim = emb_store.get_dimension()
+        stored_model = emb_store.get_model()
+    elif stored_meta["has_vectors"]:
+        stored_dim = stored_meta["dimension"]
+        stored_model = stored_meta["model"]
+    else:
         # An empty store has no stamp to honour. `clear()` removes the rows
         # with the vectors now; a store emptied before that still carries
         # them, and seeding `dim` from one skipped the re-stamp below, so new
-        # vectors were written under the old model's name (LEDGER L-121).
+        # vectors were written under the old model's name.
         stored_dim = None
         stored_model = None
+    # ⚠ Unknown is NOT a change. A store written before `embed_model` was
+    # persisted has no name, and forcing a re-embed on that would bill every
+    # existing user a full rebuild for a model that may well be identical.
     model_changed = bool(stored_model) and bool(model) and stored_model != model
 
     # A changed model, a changed task type (e.g. Gemini task-awareness toggled)

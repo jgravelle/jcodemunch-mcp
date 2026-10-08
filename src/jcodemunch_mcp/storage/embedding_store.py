@@ -155,6 +155,10 @@ class EmbeddingStore:
                     "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                     (_EMBED_MODEL_KEY, model),
                 )
+            else:
+                # A new stamp replaces the old one whole: a name left from an
+                # earlier stamp would describe vectors it did not build.
+                conn.execute("DELETE FROM meta WHERE key = ?", (_EMBED_MODEL_KEY,))
             conn.execute("COMMIT")
         except Exception:
             try:
@@ -190,7 +194,7 @@ class EmbeddingStore:
             logger.debug("EmbeddingStore.get_model failed", exc_info=True)
             return None
 
-    def read_meta(self) -> Optional[dict]:
+    def read_meta(self, for_writer: bool = False) -> Optional[dict]:
         """What built the stored vectors, read WITHOUT touching the file.
 
         ``{"has_vectors", "dimension", "model", "task_type"}``; an absent row is
@@ -203,13 +207,26 @@ class EmbeddingStore:
         they move the .db mtime. A search calls this on every semantic query,
         before its scan; a getter there makes the search's own movement check
         report a rebuild the search caused (see `get_all_readonly`).
+
+        ⚠ ``for_writer=True`` is for a caller about to write anyway
+        (`embed_repo`): when the read-only open fails it reads over the
+        read-write connection that caller will use. Unknown is not a change, so
+        a writer left with ``None`` skips the model-change rebuild and writes a
+        second width beside the first; it must not be blind where it can read.
         """
         try:
             conn = _generation.connect_readonly(self._db_path)
         except Exception:
             logger.debug("EmbeddingStore.read_meta could not open %s",
                          self._db_path, exc_info=True)
-            return None
+            if not for_writer:
+                return None
+            try:
+                conn = self._connect()
+            except Exception:
+                logger.debug("EmbeddingStore.read_meta could not open %s read-write",
+                             self._db_path, exc_info=True)
+                return None
         try:
             try:
                 has_vectors = conn.execute(

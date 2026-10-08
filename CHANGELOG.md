@@ -15,8 +15,7 @@
   again (two calls per search in that file, the query and the symbol).
   The rule now has one home, `stale_reason` in `storage/embedding_store.py`, and both writers
   ask it. It covers a changed model, a changed task type, and vectors with no metadata; an
-  unknown stored model is still not a change, and there the width of the vectors about to be
-  written decides. On a reason the search does not rebuild: a search is a read, and two
+  unknown stored model is still not a change, and there the width decides. On a reason the search does not rebuild: a search is a read, and two
   clients on one store with different providers would re-embed the whole repo on every search
   from the other. It writes nothing, calls the provider for nothing, ranks without the
   semantic channel, and says so in the response body as `semantic_store_mismatch` (`reason`,
@@ -30,7 +29,10 @@
   `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and
   both writers treat a record beside no vectors as absent. Before, a rebuild whose every batch
   failed left an empty store named for the old model, and the retry wrote the new model's
-  vectors under that name and reported `embedding_dimension` from the old one. A test scans `src/` and fails on a function that calls `set_many`
+  vectors under that name and reported `embedding_dimension` from the old one.
+  `embed_repo` takes the stored model from one reading for both the rebuild and what it
+  reports, over its read-write connection when the read-only open fails (LEDGER L-137 is why
+  that open can fail). A test scans `src/` and fails on a function that calls `set_many`
   without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
   against a stored model's vectors (LEDGER L-135), and `embed_repo`

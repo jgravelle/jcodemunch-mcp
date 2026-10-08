@@ -239,7 +239,7 @@ class TestTheOtherSpellings:
         assert response["semantic_store_mismatch"]["reason"] == "embedding_metadata_missing"
 
     def test_an_unknown_model_at_another_width_writes_nothing(self, repo):
-        """No name to compare, so the width of what would be written decides."""
+        """No name to compare, so the width of the stored vectors decides."""
         repo.provider("model-a", 8)
         repo.embed()
         repo.drop_meta("embed_model")
@@ -373,6 +373,58 @@ class TestAnEmptyStoreHasNoStamp:
         assert (mismatch["stored_dimension"], mismatch["active_dimension"]) == (8, 4)
         assert _semantic_channel(response) == "unavailable"
         assert repo.widths() == {8: 5}
+
+
+class TestAWriterIsNotBlindWhereItCanRead:
+    """Review round 4: unknown is not a change, so a writer whose reading of
+    the store fails skips the rebuild. `embed_repo` writes over a read-write
+    connection and reads over it when the read-only open fails (a storage path
+    holding `#` fails that open with no mock)."""
+
+    def _embed_without_readonly(self, repo, monkeypatch):
+        def refuse(_path):
+            raise OSError("read-only open refused")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(es._generation, "connect_readonly", refuse)
+            assert repo.store().read_meta() is None
+            return repo.embed()
+
+    def test_embed_repo_still_rebuilds_on_a_model_change(self, repo, monkeypatch):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+
+        repo.provider("model-b", 4)
+        result = self._embed_without_readonly(repo, monkeypatch)
+
+        assert repo.widths() == {4: 6}, repo.widths()
+        assert repo.stamp() == (4, "model-b", "")
+        assert result.get("rebuild_reason") == "embedding_model_changed"
+        assert result.get("symbols_embedded") == 6
+
+    def test_what_embed_repo_reports_is_what_it_did(self, repo, monkeypatch):
+        """Same model: no rebuild, and none reported."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+
+        result = self._embed_without_readonly(repo, monkeypatch)
+
+        assert repo.widths() == {8: 6}
+        assert result.get("symbols_embedded") == 1
+        assert "rebuild_reason" not in result and "model_changed_from" not in result
+
+    def test_a_new_stamp_with_no_model_name_drops_the_old_name(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_vectors()
+
+        repo.provider("", 4)
+        repo.embed()
+
+        assert repo.widths() == {4: 5}
+        assert repo.stamp() == (4, None, "")
 
 
 class TestWhatMustNotChange:
