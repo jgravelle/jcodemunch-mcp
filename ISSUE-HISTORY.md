@@ -2242,3 +2242,17 @@ The 1.108.332 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.330 count, verbatim:
 
 - ⚠ Prior (1.108.330): 14783 passed, 25 skipped, **0 failed** (14808 total).
+
+## Current State rotation (2026-10-08, release 1.108.334)
+
+The 1.108.331 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.331):** **A full re-index keeps the embedding metadata beside its vectors** (#522, @lsg1103275794): `save_index` leaves the `meta` keys under `embedding_store.META_KEY_PREFIX`. ⚠ `embed_repo` after a full re-index re-embeds everything only on `force=true` (residue L-121, L-122). Also its task-type gate has THREE states (#523): `None` is never recorded and is not a change, `""` is a recorded value, and vectors with no embedding metadata are still rebuilt, named by `rebuild_reason`. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-07, release 1.108.332).
+
+The 1.108.333 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.333 — **The parse budget stops a slow parse again on a fresh install** (reported by Dave): `pyproject.toml` declares `tree-sitter>=0.25,<0.26`. ⚠⚠ **The range stops at the minor `uv.lock` pins, and `tests/test_tree_sitter_range_is_the_tested_range.py` fails when it admits a later one**: tree-sitter 0.26.0 removed `Parser.timeout_micros`, CI installs from the lock, and a user installs from the range, so the cancel guard never ran on what users got. Moving to a later tree-sitter means moving the lock first (0.26 is unsupported, L-133); the lock's `requires-dist` line is edited by hand with it. Also `init`'s index line reads the keys `index_folder` returns (`cli/init.py` `_index_summary`; it printed `? files, ? symbols`; residue L-134), and three more inputs gave a macro the wrong docstring (L-129, L-130, L-131; residue L-132). ⚠ `PARSER_GENERATION` is 11. Forensics: `CHANGELOG.md`, `docs/workflows/LEDGER.md`.
+
+The `Tests:` line's 1.108.331 count, verbatim:
+
+- ⚠ Prior (1.108.331): 14800 passed, 25 skipped, **0 failed** (14825 total).
