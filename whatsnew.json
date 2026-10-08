@@ -1,6 +1,12 @@
 {
-  "current": "1.108.333",
+  "current": "1.108.334",
   "entries": [
+    {
+      "version": "1.108.334",
+      "date": "2026-10-08",
+      "title": "a semantic search writes no vector of a second model",
+      "summary": "After a change of embedding model, one semantic search_symbols on a repo with a new symbol wrote that symbol's vector at the new width beside the old ones; the mixed store then scored nothing semantically and called the provider again on every search. The search now compares what built the stored vectors before it writes. On a mismatch it writes nothing, ranks without the semantic channel and returns semantic_store_mismatch with the reason; run embed_repo to rebuild. One store changes on upgrade: vectors with no metadata (left by a full re-index before 1.108.331) are no longer scored until embed_repo runs."
+    },
     {
       "version": "1.108.333",
       "date": "2026-10-07",
@@ -18,12 +24,6 @@
       "date": "2026-10-06",
       "title": "a full re-index keeps the embedding metadata beside its vectors",
       "summary": "A full re-index cleared the table where the embedding store records which model, dimension and task type produced its vectors, and kept the vectors. A semantic search after a model change could then leave vectors of two widths under the new model's name, and embed_repo re-embedded the whole corpus after every full re-index. The save now keeps the embedding store's rows, so a model change after a full re-index is detected and named, and embed_repo embeds only the symbols that have no vector. Pass force=true to refresh every vector (#522, @lsg1103275794). Also: a large Vue or Svelte <script> is indexed in time proportional to its size; a 6000-function script that took over 20 seconds to parse now takes a fraction of a second, with the same symbols. Also: embed_repo no longer re-embeds a corpus for a task-type row that was never written, and names the reason when it does rebuild (#523, @lsg1103275794)."
-    },
-    {
-      "version": "1.108.330",
-      "date": "2026-10-06",
-      "title": "the parse budget bounds a file's Python-side time",
-      "summary": "1.108.329 put the tree-sitter half of JCODEMUNCH_PARSE_BUDGET_SECONDS inside the parser and left the Python-side half to a thread wait that the first index of a folder never asked, that charged a file for another thread's time, and whose worker kept running after the file was reported skipped. The wait is gone. The parsing thread checks its own deadline at checkpoints, so a file whose Python-side work runs past the budget (default 20 s) is skipped and named in the index result's warnings on every indexing route and at any size, and no thread is left behind. One slow call (a regex over the whole file, PyYAML's loader) is not cut short; the file is named when the call returns. Also: a bare Python module name resolves to the script directory beside the importer (#972, @whakomatic)."
     }
   ]
 }

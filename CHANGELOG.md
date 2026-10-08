@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.334] - 2026-10-08 - a semantic search writes no vector of a second model
+
 ### Fixed
 
 - **A semantic search no longer writes a second model's vectors into the store (LEDGER
