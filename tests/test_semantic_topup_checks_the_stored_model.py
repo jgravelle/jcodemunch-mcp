@@ -507,6 +507,21 @@ class TestTheWriteIsDecidedAtTheWrite:
         assert mismatch["reason"] == "embedding_model_changed"
         assert mismatch["stored_model"] == "model-c"
 
+    def test_a_search_under_a_hash_path_does_not_overwrite_another_models_vectors(self, hash_repo):
+        """A regression on the path that found this. Until LEDGER L-137 the
+        read-only reading saw nothing there and only the reading at the write
+        refused; the case below keeps that shape without the path."""
+        hash_repo.provider("model-a", 8)
+        hash_repo.embed()
+        assert hash_repo.true_widths() == {8: 5}
+
+        hash_repo.provider("model-b", 8)
+        response = hash_repo.search()
+
+        assert hash_repo.true_widths() == {8: 5}
+        assert hash_repo.stamp() == (8, "model-a", "")
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
+
     def test_a_search_whose_read_only_reading_sees_nothing_does_not_overwrite(self, repo, monkeypatch):
         """Only the reading at the write can refuse then. Same width: no width
         check helps. (A storage path holding `#` did this before LEDGER L-137.)"""
