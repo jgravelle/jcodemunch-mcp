@@ -495,6 +495,14 @@ def embed_repo(
     # ⚠ Unknown is NOT a change. A store written before `embed_model` was
     # persisted has no name, and forcing a re-embed on that would bill every
     # existing user a full rebuild for a model that may well be identical.
+    stored_meta = emb_store.read_meta()
+    if stored_meta is not None and not stored_meta["has_vectors"]:
+        # An empty store has no stamp to honour. `clear()` removes the rows
+        # with the vectors now; a store emptied before that still carries
+        # them, and seeding `dim` from one skipped the re-stamp below, so new
+        # vectors were written under the old model's name (LEDGER L-121).
+        stored_dim = None
+        stored_model = None
     model_changed = bool(stored_model) and bool(model) and stored_model != model
 
     # A changed model, a changed task type (e.g. Gemini task-awareness toggled)
@@ -503,7 +511,7 @@ def embed_repo(
     # top-up in `search_symbols` asks too (LEDGER L-121); do not restate it here.
     rebuild_reason: Optional[str] = None
     if not force:
-        stale = stale_reason(emb_store.read_meta(), model, doc_task_type or "")
+        stale = stale_reason(stored_meta, model, doc_task_type or "")
         if stale:
             logger.info(
                 "embed_repo: %s (stored model %r, active %r, task type %r); forcing re-embed",

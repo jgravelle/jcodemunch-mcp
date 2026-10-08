@@ -49,9 +49,11 @@ def repo(tmp_path, monkeypatch):
         calls: list = []
 
         @staticmethod
-        def provider(model, width, provider_name="fake_provider", task_aware=False):
+        def provider(model, width, provider_name="fake_provider", task_aware=False, down=False):
             def _embed(texts, provider, model_name, task_type=None):
                 Harness.calls.append((len(texts), model_name, task_type))
+                if down:
+                    raise RuntimeError("provider is down")
                 return [[0.1] * width for _ in texts]
 
             monkeypatch.setattr(
@@ -95,6 +97,20 @@ def repo(tmp_path, monkeypatch):
                 incremental=not full,
             )
             assert result["success"] is True, result
+
+        @staticmethod
+        def drop_vectors():
+            conn = EmbeddingStore(db_path)._connect()
+            try:
+                conn.execute("DELETE FROM symbol_embeddings")
+                conn.commit()
+            finally:
+                conn.close()
+
+        @staticmethod
+        def stamp():
+            store = EmbeddingStore(db_path)
+            return (store.get_dimension(), store.get_model(), store.get_task_type())
 
         @staticmethod
         def drop_meta(*keys):
@@ -266,6 +282,97 @@ class TestTheOtherSpellings:
         verdict = repr(response["_meta"]["verdict"])
         assert "the semantic channel did not run" in verdict, verdict
         assert "against this query vector" not in verdict
+
+
+class TestAnEmptyStoreHasNoStamp:
+    """Review round 3: the rule reads the stamp, so the stamp must not outlive
+    its vectors. `clear()` kept the three rows, and a rebuild whose batches all
+    failed left an empty store named for the OLD model; the next writer wrote
+    the new model's vectors under it, and the search refused them."""
+
+    def test_a_failed_rebuild_leaves_no_stamp(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4, down=True)
+        failed = repo.embed()
+
+        assert failed.get("all_batches_failed") is True, failed
+        assert repo.widths() == {}
+        assert repo.stamp() == (None, None, None)
+
+    def test_a_retry_after_a_failed_rebuild_stamps_what_it_wrote(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4, down=True)
+        repo.embed()
+
+        repo.provider("model-b", 4)
+        retried = repo.embed()
+
+        assert repo.widths() == {4: 5}
+        assert repo.stamp() == (4, "model-b", "")
+        assert retried.get("embedding_dimension") == 4
+        assert "rebuild_reason" not in retried, retried
+
+        response = repo.search()
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "ok"
+
+    def test_a_search_after_a_failed_rebuild_embeds_and_stamps(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4, down=True)
+        repo.embed()
+
+        repo.provider("model-b", 4)
+        first = repo.search()
+        assert repo.widths() == {4: 5}
+        assert repo.stamp() == (4, "model-b", "")
+        assert "semantic_store_mismatch" not in first
+
+        repo.calls.clear()
+        second = repo.search()
+        assert [n for n, _model, _task in repo.calls] == [1]
+        assert "semantic_store_mismatch" not in second
+        assert _semantic_channel(second) == "ok"
+
+    @pytest.mark.parametrize("writer", ["search", "embed_repo"])
+    def test_a_stamp_left_beside_no_vectors_is_replaced_by_the_next_writer(self, repo, writer):
+        """The state a store emptied before this fix is still in."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_vectors()
+        assert repo.stamp() == (8, "model-a", "")
+
+        repo.provider("model-b", 4)
+        result = repo.search() if writer == "search" else repo.embed()
+
+        assert repo.widths() == {4: 5}
+        assert repo.stamp() == (4, "model-b", "")
+        assert "semantic_store_mismatch" not in result
+        assert "rebuild_reason" not in result, result
+        assert "model_changed_from" not in result, result
+
+        repo.calls.clear()
+        again = repo.search()
+        assert [n for n, _model, _task in repo.calls] == [1]
+        assert _semantic_channel(again) == "ok"
+
+    def test_the_width_is_read_off_the_vectors_when_the_metadata_cannot_be_read(
+        self, repo, monkeypatch
+    ):
+        repo.provider("model-a", 8)
+        repo.embed()
+        monkeypatch.setattr(EmbeddingStore, "read_meta", lambda self: None)
+
+        repo.provider("model-b", 4)
+        response = repo.search()
+
+        mismatch = response["semantic_store_mismatch"]
+        assert mismatch["reason"] == "embedding_dimension_mismatch"
+        assert (mismatch["stored_dimension"], mismatch["active_dimension"]) == (8, 4)
+        assert _semantic_channel(response) == "unavailable"
+        assert repo.widths() == {8: 5}
 
 
 class TestWhatMustNotChange:

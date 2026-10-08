@@ -23,9 +23,14 @@
   `stored_model`, `active_model`, `remedy`), with `channels.semantic: "unavailable"` in the
   verdict. `semantic_only` returns no row there. Where the stored model is unknown and only
   the width differs, the reason is `embedding_dimension_mismatch` with `stored_dimension` and
-  `active_dimension`; the provider is called once there, for the query, whose width is the
-  first thing known about the active model.
-  `embed_repo` rebuilds, as before, and the next search scores again. A test scans `src/` and fails on a function that calls `set_many`
+  `active_dimension`; the provider is called once there, for the query, and its width is
+  compared with the width of the stored vectors themselves.
+  `embed_repo` rebuilds, as before, and the next search scores again.
+  The rule reads what is recorded about the vectors, so the record no longer outlives them:
+  `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and
+  both writers treat a record beside no vectors as absent. Before, a rebuild whose every batch
+  failed left an empty store named for the old model, and the retry wrote the new model's
+  vectors under that name and reported `embedding_dimension` from the old one. A test scans `src/` and fails on a function that calls `set_many`
   without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
   against a stored model's vectors (LEDGER L-135), and `embed_repo`

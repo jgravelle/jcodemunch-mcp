@@ -614,11 +614,28 @@ class EmbeddingStore:
             conn.close()
 
     def clear(self) -> None:
-        """Delete all stored embeddings (used by embed_repo with force=True)."""
+        """Delete all stored embeddings and what is recorded about them.
+
+        Used by embed_repo with force=True. ⚠ The dimension, model and task
+        type go with the vectors: a rebuild whose every batch then failed left
+        an empty store stamped with the OLD model, the next writer wrote the
+        new model's vectors under that stamp, and a reader of the stamp
+        (`stale_reason`) then refused vectors the active model had built
+        (LEDGER L-121, review round 3). An empty store has no stamp.
+        """
         conn = self._connect()
         try:
             conn.execute("BEGIN")
             conn.execute("DELETE FROM symbol_embeddings")
+            try:
+                conn.execute(
+                    "DELETE FROM meta WHERE key IN (?, ?, ?)",
+                    (_EMBED_DIM_KEY, _EMBED_MODEL_KEY, _EMBED_TASK_TYPE_KEY),
+                )
+            except sqlite3.OperationalError as exc:
+                # A database with no `meta` table has nothing recorded.
+                if "no such table" not in str(exc).lower():
+                    raise
             conn.execute("COMMIT")
             self._invalidate_matrix()
         except Exception:
