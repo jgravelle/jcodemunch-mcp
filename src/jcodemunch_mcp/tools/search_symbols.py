@@ -1429,6 +1429,23 @@ def _search_symbols_semantic(
             query_vec = embed_texts([query], provider, model, task_type=query_task_type)[0]
         except Exception as exc:
             return {"error": f"Failed to embed query: {exc}"}
+        # No stored model name to compare (a store from before #500): the
+        # width decides, and the query is the first vector of the active model
+        # this call sees. Checked here, not at the top-up, so a store with no
+        # missing symbol is covered and no batch is paid for first.
+        _stored_dim = (stored_meta or {}).get("dimension")
+        if (
+            _stored_dim is not None
+            and (stored_meta or {}).get("has_vectors")
+            and len(query_vec) != _stored_dim
+        ):
+            store_mismatch = {
+                "reason": "embedding_dimension_mismatch",
+                "active_model": model,
+                "stored_dimension": _stored_dim,
+                "active_dimension": len(query_vec),
+                "remedy": "embed_repo(force=True) rebuilds the store at one width",
+            }
 
     # ── Load / lazily compute symbol embeddings ────────────────────────────
     # v1.108.223 (#399, @vondecron): the matrix is decoded and L2-normalised
@@ -1470,8 +1487,8 @@ def _search_symbols_semantic(
                 else emb_store.get_dimension()
             )
             if stored_dim is not None and stored_dim != dim:
-                # No stored model name to compare (a store from before #500),
-                # so the width of what would be written decides.
+                # Reached only when the metadata could not be read before the
+                # query was embedded; the width of what would be written decides.
                 store_mismatch = {
                     "reason": "embedding_dimension_mismatch",
                     "active_model": model,

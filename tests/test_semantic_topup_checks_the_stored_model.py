@@ -237,6 +237,35 @@ class TestTheOtherSpellings:
         assert mismatch["reason"] == "embedding_dimension_mismatch"
         assert (mismatch["stored_dimension"], mismatch["active_dimension"]) == (8, 4)
         assert _semantic_channel(response) == "unavailable"
+        # The query only: the width is known before any top-up batch is paid for.
+        assert [n for n, _model, _task in repo.calls] == [1]
+
+    @pytest.mark.parametrize("semantic_only", [False, True], ids=["hybrid", "semantic_only"])
+    def test_an_unknown_model_at_another_width_is_named_with_no_symbol_missing(
+        self, repo, semantic_only
+    ):
+        """Nothing to top up, so a check at the write would never run."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_model")
+
+        repo.provider("model-b", 4)
+        response = repo.search(semantic_only=semantic_only)
+
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_dimension_mismatch"
+        assert _semantic_channel(response) == "unavailable"
+        assert repo.widths() == {8: 5}
+
+    def test_a_zero_row_answer_says_the_channel_did_not_run(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4)
+        response = repo.search(semantic_only=True)
+
+        assert response["result_count"] == 0
+        verdict = repr(response["_meta"]["verdict"])
+        assert "the semantic channel did not run" in verdict, verdict
+        assert "against this query vector" not in verdict
 
 
 class TestWhatMustNotChange:

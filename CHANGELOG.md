@@ -23,7 +23,8 @@
   `stored_model`, `active_model`, `remedy`), with `channels.semantic: "unavailable"` in the
   verdict. `semantic_only` returns no row there. Where the stored model is unknown and only
   the width differs, the reason is `embedding_dimension_mismatch` with `stored_dimension` and
-  `active_dimension`, and the provider is still called before the difference is known.
+  `active_dimension`; the provider is called once there, for the query, whose width is the
+  first thing known about the active model.
   `embed_repo` rebuilds, as before, and the next search scores again. A test scans `src/` and fails on a function that calls `set_many`
   without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
