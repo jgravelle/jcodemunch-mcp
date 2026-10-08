@@ -31,11 +31,10 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp"
 NL = chr(10)
 
 
-@pytest.fixture
-def repo(tmp_path, monkeypatch):
+def _harness(tmp_path, monkeypatch, store_name):
     """Five indexed symbols, and a fake provider whose calls are counted."""
     src = tmp_path / "src"
-    store_dir = tmp_path / "store"
+    store_dir = tmp_path / store_name
     src.mkdir()
     store_dir.mkdir()
     for i in range(5):
@@ -99,6 +98,19 @@ def repo(tmp_path, monkeypatch):
             assert result["success"] is True, result
 
         @staticmethod
+        def true_widths():
+            """Over the read-write connection: `iter_raw` reads nothing under
+            a storage path that holds `#` (LEDGER L-137)."""
+            conn = EmbeddingStore(db_path)._connect()
+            try:
+                rows = conn.execute(
+                    "SELECT length(embedding) / 4, COUNT(*) FROM symbol_embeddings GROUP BY 1"
+                ).fetchall()
+            finally:
+                conn.close()
+            return dict(rows)
+
+        @staticmethod
         def drop_vectors():
             conn = EmbeddingStore(db_path)._connect()
             try:
@@ -123,6 +135,17 @@ def repo(tmp_path, monkeypatch):
                 conn.close()
 
     return Harness
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    return _harness(tmp_path, monkeypatch, "store")
+
+
+@pytest.fixture
+def hash_repo(tmp_path, monkeypatch):
+    """The same, stored under a directory whose name holds `#`."""
+    return _harness(tmp_path, monkeypatch, "c#proj")
 
 
 def _semantic_channel(response):
@@ -363,7 +386,7 @@ class TestAnEmptyStoreHasNoStamp:
     ):
         repo.provider("model-a", 8)
         repo.embed()
-        monkeypatch.setattr(EmbeddingStore, "read_meta", lambda self: None)
+        monkeypatch.setattr(EmbeddingStore, "read_meta", lambda self, for_writer=False: None)
 
         repo.provider("model-b", 4)
         response = repo.search()
@@ -376,46 +399,68 @@ class TestAnEmptyStoreHasNoStamp:
 
 
 class TestAWriterIsNotBlindWhereItCanRead:
-    """Review round 4: unknown is not a change, so a writer whose reading of
-    the store fails skips the rebuild. `embed_repo` writes over a read-write
-    connection and reads over it when the read-only open fails (a storage path
-    holding `#` fails that open with no mock)."""
+    """Review rounds 4 and 5: unknown is not a change, so a writer whose
+    reading of the store fails skips the rebuild. Under a storage path holding
+    `#` the read-only open opens another, empty file and the read fails
+    (LEDGER L-137); `embed_repo` reads over the connection it writes with."""
 
-    def _embed_without_readonly(self, repo, monkeypatch):
-        def refuse(_path):
-            raise OSError("read-only open refused")
+    def test_a_model_change_under_a_hash_path_rebuilds(self, hash_repo):
+        """No mock: the real read-only failure, whatever its shape."""
+        hash_repo.provider("model-a", 8)
+        hash_repo.embed()
+        assert hash_repo.store().read_meta() is None
+        hash_repo.add_symbol(1)
 
-        with monkeypatch.context() as patch:
-            patch.setattr(es._generation, "connect_readonly", refuse)
-            assert repo.store().read_meta() is None
-            return repo.embed()
+        hash_repo.provider("model-b", 4)
+        result = hash_repo.embed()
 
-    def test_embed_repo_still_rebuilds_on_a_model_change(self, repo, monkeypatch):
-        repo.provider("model-a", 8)
-        repo.embed()
-        repo.add_symbol(1)
-
-        repo.provider("model-b", 4)
-        result = self._embed_without_readonly(repo, monkeypatch)
-
-        assert repo.widths() == {4: 6}, repo.widths()
-        assert repo.stamp() == (4, "model-b", "")
+        assert hash_repo.true_widths() == {4: 6}, hash_repo.true_widths()
+        assert hash_repo.stamp() == (4, "model-b", "")
         assert result.get("rebuild_reason") == "embedding_model_changed"
         assert result.get("symbols_embedded") == 6
 
-    def test_what_embed_repo_reports_is_what_it_did(self, repo, monkeypatch):
-        """Same model: no rebuild, and none reported."""
-        repo.provider("model-a", 8)
-        repo.embed()
-        repo.add_symbol(1)
+    def test_the_same_model_under_a_hash_path_reports_no_rebuild(self, hash_repo):
+        hash_repo.provider("model-a", 8)
+        hash_repo.embed()
+        hash_repo.add_symbol(1)
 
-        result = self._embed_without_readonly(repo, monkeypatch)
+        result = hash_repo.embed()
 
-        assert repo.widths() == {8: 6}
+        assert hash_repo.true_widths() == {8: 6}
         assert result.get("symbols_embedded") == 1
         assert "rebuild_reason" not in result and "model_changed_from" not in result
 
-    def test_a_new_stamp_with_no_model_name_drops_the_old_name(self, repo):
+    def test_embed_repo_does_not_depend_on_the_read_only_open(self, repo, monkeypatch):
+        def refuse(_path):
+            raise OSError("read-only open refused")
+
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        with monkeypatch.context() as patch:
+            patch.setattr(es._generation, "connect_readonly", refuse)
+            assert repo.store().read_meta() is None
+            result = repo.embed()
+
+        assert repo.widths() == {4: 6}, repo.widths()
+        assert result.get("rebuild_reason") == "embedding_model_changed"
+
+    def test_an_unreadable_store_reports_no_rebuild_it_did_not_do(self, repo, monkeypatch):
+        """One reading: with nothing read, nothing is claimed about a change."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        monkeypatch.setattr(EmbeddingStore, "read_meta", lambda self, for_writer=False: None)
+
+        result = repo.embed()
+
+        assert result.get("symbols_embedded") == 1
+        assert "rebuild_reason" not in result and "model_changed_from" not in result
+
+    def test_a_stamp_beside_no_vectors_is_removed_whole(self, repo):
+        """With no model name to write, the old name must still go."""
         repo.provider("model-a", 8)
         repo.embed()
         repo.drop_vectors()

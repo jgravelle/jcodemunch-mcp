@@ -27,12 +27,13 @@
   `embed_repo` rebuilds, as before, and the next search scores again.
   The rule reads what is recorded about the vectors, so the record no longer outlives them:
   `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and
-  both writers treat a record beside no vectors as absent. Before, a rebuild whose every batch
+  both writers remove a record they find beside no vectors. Before, a rebuild whose every batch
   failed left an empty store named for the old model, and the retry wrote the new model's
   vectors under that name and reported `embedding_dimension` from the old one.
-  `embed_repo` takes the stored model from one reading for both the rebuild and what it
-  reports, over its read-write connection when the read-only open fails (LEDGER L-137 is why
-  that open can fail). A test scans `src/` and fails on a function that calls `set_many`
+  `embed_repo` reads what is recorded once, over the connection it writes with, and that one
+  reading decides both the rebuild and what it reports. The read-only reading the search uses
+  fails under a storage path that holds `#` (LEDGER L-137), and a writer that cannot read
+  takes a changed model for an unknown one. A test scans `src/` and fails on a function that calls `set_many`
   without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
   against a stored model's vectors (LEDGER L-135), and `embed_repo`

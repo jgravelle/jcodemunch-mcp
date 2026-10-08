@@ -492,24 +492,24 @@ def embed_repo(
     # after the change stopped being searchable — silently, and cumulatively.
     #
     # ⚠ ONE reading of the store decides the rebuild AND what is disclosed
-    # (LEDGER L-121, review round 4): with the model read by one call and the
-    # rule fed by another, an unreadable second reading skipped the rebuild
+    # (LEDGER L-121, review rounds 4 and 5): with the model read by one call
+    # and the rule fed by another, a failed second reading skipped the rebuild
     # while the first still reported `embedding_model_changed`. `for_writer`
-    # reads over the read-write connection when the read-only open fails.
+    # reads over the read-write connection this function writes with.
     stored_meta = emb_store.read_meta(for_writer=True)
-    if stored_meta is None:
-        stored_dim = emb_store.get_dimension()
-        stored_model = emb_store.get_model()
-    elif stored_meta["has_vectors"]:
+    stored_dim: Optional[int] = None
+    stored_model: Optional[str] = None
+    if stored_meta is not None and stored_meta["has_vectors"]:
         stored_dim = stored_meta["dimension"]
         stored_model = stored_meta["model"]
-    else:
+    elif stored_meta is not None and any(
+        stored_meta[key] is not None for key in ("dimension", "model", "task_type")
+    ):
         # An empty store has no stamp to honour. `clear()` removes the rows
         # with the vectors now; a store emptied before that still carries
         # them, and seeding `dim` from one skipped the re-stamp below, so new
         # vectors were written under the old model's name.
-        stored_dim = None
-        stored_model = None
+        emb_store.clear()
     # ⚠ Unknown is NOT a change. A store written before `embed_model` was
     # persisted has no name, and forcing a re-embed on that would bill every
     # existing user a full rebuild for a model that may well be identical.

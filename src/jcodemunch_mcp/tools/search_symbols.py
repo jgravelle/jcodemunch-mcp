@@ -1484,9 +1484,11 @@ def _search_symbols_semantic(
             elif stored_meta["has_vectors"]:
                 stored_dim = stored_meta["dimension"]
             else:
-                # An empty store has no stamp to honour: a dimension row left
-                # by a store emptied before `clear()` removed it is re-stamped.
+                # An empty store has no stamp to honour: rows left by a store
+                # emptied before `clear()` removed them go before the re-stamp.
                 stored_dim = None
+                if any(stored_meta[key] is not None for key in ("dimension", "model", "task_type")):
+                    emb_store.clear()
             if stored_dim is not None and stored_dim != dim:
                 # A last check at the write. The matrix check above answers
                 # first whenever the stored vectors could be loaded.
