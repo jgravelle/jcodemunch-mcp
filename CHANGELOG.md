@@ -21,8 +21,10 @@
   from the other. It writes nothing, calls the provider for nothing, ranks without the
   semantic channel, and says so in the response body as `semantic_store_mismatch` (`reason`,
   `stored_model`, `active_model`, `remedy`), with `channels.semantic: "unavailable"` in the
-  verdict. `semantic_only` returns no row there. `embed_repo` rebuilds, as before, and the
-  next search scores again. A test scans `src/` and fails on a function that calls `set_many`
+  verdict. `semantic_only` returns no row there. Where the stored model is unknown and only
+  the width differs, the reason is `embedding_dimension_mismatch` with `stored_dimension` and
+  `active_dimension`, and the provider is still called before the difference is known.
+  `embed_repo` rebuilds, as before, and the next search scores again. A test scans `src/` and fails on a function that calls `set_many`
   without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
   against a stored model's vectors (LEDGER L-135), and `embed_repo`

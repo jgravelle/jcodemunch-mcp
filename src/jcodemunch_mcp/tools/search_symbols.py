@@ -1800,6 +1800,9 @@ def _search_symbols_semantic(
             "a semantic ranking scores similarity rather than looking a name up, "
             "so a symbol can be present in the index and still fall at or below "
             "zero against this query vector."
+            if store_mismatch is None else
+            "the semantic channel did not run (see semantic_store_mismatch), so "
+            "no stored vector was compared with this query."
         ),
     )
     meta["verdict"] = _vres["verdict"]

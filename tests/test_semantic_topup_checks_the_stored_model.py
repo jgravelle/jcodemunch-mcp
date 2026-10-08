@@ -276,8 +276,6 @@ class TestWhatMustNotChange:
     def test_reading_the_stored_metadata_does_not_touch_the_file(self, repo):
         """A read-write connection moves the .db mtime, and the search's own
         movement check then reports a rebuild it caused (Standing lesson 08-24)."""
-        repo.provider("model-a", 8)
-        repo.embed()
         db = Path(repo.store()._db_path)
 
         def stamp():
@@ -287,10 +285,52 @@ class TestWhatMustNotChange:
                 out.append((side.stat().st_size, side.stat().st_mtime_ns) if side.exists() else None)
             return out
 
+        # A never-embedded index, the state of a first semantic search: the
+        # embeddings table does not exist yet, so a read-write open creates it.
+        # (After an embed the table and the WAL are there and a read-write
+        # open moves nothing, so that state alone cannot see the defect.)
+        before = stamp()
+        meta = repo.store().read_meta()
+        assert stamp() == before
+        assert meta == {"has_vectors": False, "dimension": None, "model": None, "task_type": None}
+
+        repo.provider("model-a", 8)
+        repo.embed()
         before = stamp()
         meta = repo.store().read_meta()
         assert stamp() == before
         assert meta == {"has_vectors": True, "dimension": 8, "model": "model-a", "task_type": ""}
+
+    def test_an_unreadable_dimension_leaves_the_other_rows_readable(self, repo):
+        """One bad row is one unknown, and the model comparison still runs."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        conn = repo.store()._connect()
+        try:
+            conn.execute("UPDATE meta SET value = 'x' WHERE key = 'embed_dimension'")
+            conn.commit()
+        finally:
+            conn.close()
+        meta = repo.store().read_meta()
+        assert meta == {"has_vectors": True, "dimension": None, "model": "model-a", "task_type": ""}
+        assert es.stale_reason(meta, "model-b", "") == "embedding_model_changed"
+
+    def test_the_ranking_ledger_records_whether_the_semantic_channel_ran(self, repo, monkeypatch):
+        """`semantic_used` labels the row for `tuning` and `regret`."""
+        from jcodemunch_mcp.storage import token_tracker
+
+        seen = []
+        monkeypatch.setattr(
+            token_tracker, "record_ranking_event",
+            lambda **kwargs: seen.append(kwargs["semantic_used"]),
+        )
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.search()
+        repo.add_symbol(1)
+        repo.provider("model-b", 4)
+        repo.search()
+        assert seen == [True, False]
 
 
 META = {"has_vectors": True, "dimension": 8, "model": "model-a", "task_type": ""}

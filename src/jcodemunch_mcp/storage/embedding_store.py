@@ -223,10 +223,15 @@ class EmbeddingStore:
                 "SELECT key, value FROM meta WHERE key IN (?, ?, ?)",
                 (_EMBED_DIM_KEY, _EMBED_MODEL_KEY, _EMBED_TASK_TYPE_KEY),
             ).fetchall())
-            dim = rows.get(_EMBED_DIM_KEY)
+            try:
+                dim = int(rows[_EMBED_DIM_KEY])
+            except (KeyError, TypeError, ValueError):
+                # One unreadable row is one unknown; the model and task type
+                # beside it still decide.
+                dim = None
             return {
                 "has_vectors": has_vectors,
-                "dimension": int(dim) if dim is not None else None,
+                "dimension": dim,
                 "model": str(rows[_EMBED_MODEL_KEY]) if rows.get(_EMBED_MODEL_KEY) else None,
                 "task_type": rows.get(_EMBED_TASK_TYPE_KEY),
             }
