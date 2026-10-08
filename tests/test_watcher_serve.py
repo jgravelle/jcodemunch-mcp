@@ -162,10 +162,16 @@ class TestServeWatcherCliArgs:
 class TestRunServerWithWatcher:
     """Integration: server + watcher lifecycle."""
 
-    def test_watcher_stops_when_server_exits(self):
+    def test_watcher_stops_when_server_exits(self, tmp_path):
         """When the server coroutine completes, the watcher should be stopped."""
         from jcodemunch_mcp.server import _run_server_with_watcher
         from jcodemunch_mcp.watcher import WatcherManager
+
+        # A folder this test owns (LEDGER L-138): "." is the checkout, and the
+        # real manager below indexes what it is given before it watches it.
+        folder = tmp_path / "proj"
+        folder.mkdir()
+        (folder / "mod.py").write_text("def f():" + chr(10) + "    return 1" + chr(10), encoding="utf-8")
 
         watcher_stopped = False
 
@@ -187,7 +193,7 @@ class TestRunServerWithWatcher:
             with patch("jcodemunch_mcp.server.WatcherManager", side_effect=FakeWatcherManager):
                 await _run_server_with_watcher(
                     fake_server, (),
-                    dict(paths=["."], debounce_ms=2000, use_ai_summaries=False,
+                    dict(paths=[str(folder)], debounce_ms=2000, use_ai_summaries=False,
                          storage_path=None, extra_ignore_patterns=None,
                          follow_symlinks=False, idle_timeout_minutes=None),
                 )
@@ -721,7 +727,7 @@ def test_watcher_log_permission_error_is_warning_not_crash(tmp_path):
         with patch("jcodemunch_mcp.server.WatcherManager", side_effect=FakeWatcherManager):
             await _run_server_with_watcher(
                 fake_server, (),
-                dict(paths=["."], debounce_ms=2000, use_ai_summaries=False,
+                dict(paths=[str(tmp_path)], debounce_ms=2000, use_ai_summaries=False,
                      storage_path=None, extra_ignore_patterns=None,
                      follow_symlinks=False, idle_timeout_minutes=None),
                 log_path=protected_path,
@@ -1111,3 +1117,59 @@ class TestWatcherStandbyFailover:
         manager2.stop()
         for task in list(manager1._active.values()) + list(manager2._active.values()):
             task.cancel()
+
+
+# ---------------------------------------------------------------------------
+# LEDGER L-138: a watcher test watches a folder it owns
+# ---------------------------------------------------------------------------
+
+_WATCHER_STARTERS = ("_run_server_with_watcher", "watch_folders", "WatcherManager")
+
+
+def _relative_watch_paths(source: str) -> list[tuple[int, str]]:
+    """Every `paths=[...]` keyword holding a relative string literal.
+
+    A relative path resolves against the working directory, and pytest's
+    working directory is the checkout.
+    """
+    import ast
+
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg != "paths" or not isinstance(kw.value, (ast.List, ast.Tuple)):
+                continue
+            for elt in kw.value.elts:
+                if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+                    continue
+                if not Path(elt.value).is_absolute() and not elt.value.startswith("/"):
+                    found.append((elt.lineno, elt.value))
+    return sorted(found)
+
+
+def test_no_watcher_test_watches_a_relative_path():
+    """A test that starts a watcher names a folder the test owns.
+
+    `test_watcher_stops_when_server_exits` passed `paths=["."]`, so it indexed
+    the whole checkout to assert that `stop()` was called: 17.96 s against
+    0.17 s on an empty folder, and the slowest test in the fast tier.
+    """
+    offenders = []
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        source = path.read_text(encoding="utf-8")
+        if not any(name in source for name in _WATCHER_STARTERS):
+            continue
+        offenders += [f"{path.name}:{line} paths has {value!r}" for line, value in _relative_watch_paths(source)]
+    assert offenders == []
+
+
+def test_the_relative_path_scan_sees_a_dot():
+    """Non-vacuity: the scan reports the spelling it exists for, and no absolute path."""
+    source = (
+        'f(dict(paths=["."], debounce_ms=1))\n'
+        'g(paths=["sub/dir", "/abs"])\n'
+        'h(paths=[str(tmp_path)])\n'
+    )
+    assert _relative_watch_paths(source) == [(1, "."), (2, "sub/dir")]
