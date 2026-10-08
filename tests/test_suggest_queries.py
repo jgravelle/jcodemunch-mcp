@@ -16,18 +16,25 @@ class TestSuggestQueriesErrors:
         assert "error" in r
 
     def test_empty_index_returns_error(self, tmp_path):
-        """An indexed folder with no parseable symbols → empty index error."""
+        """An indexed folder with no parseable symbols → empty index error.
+
+        The fixture is a source file with no symbol in it. A folder holding
+        only a `README.md` is refused by the indexer (`No source files found`),
+        so nothing was indexed and the assertion under the old `if` never ran;
+        that `if` also read `symbols_indexed`, a key the indexer does not
+        return (LEDGER L-134).
+        """
         src = tmp_path / "src"
         store = tmp_path / "store"
         src.mkdir()
         store.mkdir()
-        # Write a file type the parser ignores (no symbols extracted)
-        (src / "README.md").write_text("# Hello\n")
+        (src / "empty.py").write_text("# nothing here\n")
         r_idx = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
-        # If no symbols were extracted the tool returns an empty-index error
-        if r_idx["success"] and r_idx.get("symbols_indexed", 0) == 0:
-            r = suggest_queries(repo=r_idx["repo"], storage_path=str(store))
-            assert "error" in r
+        assert r_idx["success"] is True, r_idx
+        assert r_idx["file_count"] == 1 and r_idx["symbol_count"] == 0, r_idx
+        r = suggest_queries(repo=r_idx["repo"], storage_path=str(store))
+        assert "empty" in r.get("error", "").lower(), r
+        assert "symbol_count" not in r, r
 
 
 # ---------------------------------------------------------------------------
