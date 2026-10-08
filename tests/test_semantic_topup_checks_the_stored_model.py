@@ -472,6 +472,85 @@ class TestAWriterIsNotBlindWhereItCanRead:
         assert repo.stamp() == (4, None, "")
 
 
+class TestTheWriteIsDecidedAtTheWrite:
+    """Review round 6: the search read the store once, read-only, before its
+    provider calls, and decided its write (and a `clear()`) from that reading.
+    A store another client rebuilt meanwhile, and a store the read-only reading
+    could not see, lost vectors. The write reads again over the connection it
+    writes with, and a stamp is removed only by a statement that cannot delete
+    a vector."""
+
+    def test_a_store_rebuilt_during_the_top_up_is_left_alone(self, repo, monkeypatch):
+        repo.provider("model-a", 8)
+        repo.embed()
+        ids = [sid for sid, _blob in repo.store().iter_raw()]
+        repo.drop_vectors()  # a stamp beside no vectors, as a failed rebuild left it
+
+        repo.provider("model-b", 4)
+        inner = er.embed_texts
+
+        def other_client_rebuilds_first(texts, provider, model_name, task_type=None):
+            if len(texts) > 1:  # the top-up batch, not the query
+                store = repo.store()
+                store.clear()
+                store.set_dimension(16, "model-c")
+                store.set_task_type("")
+                store.set_many({sid: [0.2] * 16 for sid in ids})
+            return inner(texts, provider, model_name, task_type=task_type)
+
+        monkeypatch.setattr(er, "embed_texts", other_client_rebuilds_first)
+        response = repo.search()
+
+        assert repo.widths() == {16: 5}, repo.widths()
+        assert repo.stamp() == (16, "model-c", "")
+        mismatch = response["semantic_store_mismatch"]
+        assert mismatch["reason"] == "embedding_model_changed"
+        assert mismatch["stored_model"] == "model-c"
+
+    def test_a_search_under_a_hash_path_does_not_overwrite_another_models_vectors(self, hash_repo):
+        """The read-only reading sees nothing there (LEDGER L-137), so only the
+        reading at the write can refuse. Same width: no width check helps."""
+        hash_repo.provider("model-a", 8)
+        hash_repo.embed()
+        assert hash_repo.true_widths() == {8: 5}
+
+        hash_repo.provider("model-b", 8)
+        response = hash_repo.search()
+
+        assert hash_repo.true_widths() == {8: 5}
+        assert hash_repo.stamp() == (8, "model-a", "")
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
+
+    def test_dropping_an_orphan_stamp_cannot_delete_a_vector(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.store().drop_orphan_stamp()
+        assert repo.widths() == {8: 5}
+        assert repo.stamp() == (8, "model-a", "")
+
+        repo.drop_vectors()
+        repo.store().drop_orphan_stamp()
+        assert repo.stamp() == (None, None, None)
+
+    def test_no_writer_clears_the_store_on_a_stamp_beside_no_vectors(self):
+        """`clear()` deletes vectors; only `embed_repo`'s rebuild may call it."""
+        callers = []
+        for path in sorted(SRC.rglob("*.py")):
+            if path.name == "embedding_store.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "clear"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "emb_store"
+                ):
+                    callers.append((path.name, node.lineno))
+        assert [name for name, _line in callers] == ["embed_repo.py"], callers
+
+
 class TestWhatMustNotChange:
 
     def test_the_same_model_still_tops_up(self, repo):

@@ -15,30 +15,33 @@
   again (two calls per search in that file, the query and the symbol).
   The rule now has one home, `stale_reason` in `storage/embedding_store.py`, and both writers
   ask it. It covers a changed model, a changed task type, and vectors with no metadata; an
-  unknown stored model is still not a change, and there the width decides. On a reason the search does not rebuild: a search is a read, and two
-  clients on one store with different providers would re-embed the whole repo on every search
-  from the other. It writes nothing, calls the provider for nothing, ranks without the
-  semantic channel, and says so in the response body as `semantic_store_mismatch` (`reason`,
-  `stored_model`, `active_model`, `remedy`), with `channels.semantic: "unavailable"` in the
-  verdict. `semantic_only` returns no row there. Where the stored model is unknown and only
-  the width differs, the reason is `embedding_dimension_mismatch` with `stored_dimension` and
-  `active_dimension`; the provider is called once there, for the query, and its width is
-  compared with the width of the stored vectors themselves.
-  `embed_repo` rebuilds, as before, and the next search scores again.
+  unknown stored model is still not a change, and there the width decides. On a reason the
+  search does not rebuild: a search is a read, and two clients on one store with different
+  providers would re-embed the whole repo on every search from the other. It writes nothing,
+  calls the provider for nothing, ranks without the semantic channel, and says so in the
+  response body as `semantic_store_mismatch` (`reason`, `stored_model`, `active_model`,
+  `remedy`), with `channels.semantic: "unavailable"` in the verdict. `semantic_only` returns
+  no row there. Where the stored model is unknown and only the width differs, the reason is
+  `embedding_dimension_mismatch` with `stored_dimension` and `active_dimension`; the provider
+  is called once there, for the query, and its width is compared with the width of the stored
+  vectors themselves. `embed_repo` rebuilds, as before, and the next search scores again.
   The rule reads what is recorded about the vectors, so the record no longer outlives them:
-  `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and
-  both writers remove a record they find beside no vectors. Before, a rebuild whose every batch
-  failed left an empty store named for the old model, and the retry wrote the new model's
-  vectors under that name and reported `embedding_dimension` from the old one.
-  `embed_repo` reads what is recorded once, over the connection it writes with, and that one
-  reading decides both the rebuild and what it reports. The read-only reading the search uses
-  fails under a storage path that holds `#` (LEDGER L-137), and a writer that cannot read
-  takes a changed model for an unknown one. A test scans `src/` and fails on a function that calls `set_many`
-  without asking (`tests/test_semantic_topup_checks_the_stored_model.py`).
+  `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and a
+  writer that finds a record beside no vectors removes it with a statement that cannot delete
+  a vector. Before, a rebuild whose every batch failed left an empty store named for the old
+  model, and the retry wrote the new model's vectors under that name and reported
+  `embedding_dimension` from the old one.
+  Each writer decides its write from a reading taken over the connection it writes with.
+  `embed_repo` reads once, and that reading decides both the rebuild and what it reports. The
+  search reads again at its write, after its provider calls, so a store another client rebuilt
+  in between is left alone. The read-only reading the search starts from sees nothing under a
+  storage path that holds `#` (LEDGER L-137); there the search learns of a changed model only
+  at the write, after it has called the provider, and still writes nothing.
+  A test scans `src/` and fails on a function that calls `set_many` without asking
+  (`tests/test_semantic_topup_checks_the_stored_model.py`).
   Not changed: the fusion exit (`fusion=true`) still scores a query from the active model
-  against a stored model's vectors (LEDGER L-135), and `embed_repo`
-  without `force` on a store whose model is unknown still writes a new width beside the old
-  one (LEDGER L-136).
+  against a stored model's vectors (LEDGER L-135), and `embed_repo` without `force` on a store
+  whose model is unknown still writes a new width beside the old one (LEDGER L-136).
 
 ## [1.108.333] - 2026-10-07 - the parse budget stops a slow parse again on a fresh install
 

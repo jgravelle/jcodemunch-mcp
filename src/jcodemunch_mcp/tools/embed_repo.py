@@ -499,17 +499,20 @@ def embed_repo(
     stored_meta = emb_store.read_meta(for_writer=True)
     stored_dim: Optional[int] = None
     stored_model: Optional[str] = None
-    if stored_meta is not None and stored_meta["has_vectors"]:
+    if stored_meta is None:
+        # Nothing could be read, so nothing is claimed about the model; a
+        # dimension row that can be read still stops a re-stamp over vectors
+        # this call did not write.
+        stored_dim = emb_store.get_dimension()
+    elif stored_meta["has_vectors"]:
         stored_dim = stored_meta["dimension"]
         stored_model = stored_meta["model"]
-    elif stored_meta is not None and any(
-        stored_meta[key] is not None for key in ("dimension", "model", "task_type")
-    ):
+    else:
         # An empty store has no stamp to honour. `clear()` removes the rows
         # with the vectors now; a store emptied before that still carries
         # them, and seeding `dim` from one skipped the re-stamp below, so new
         # vectors were written under the old model's name.
-        emb_store.clear()
+        emb_store.drop_orphan_stamp()
     # ⚠ Unknown is NOT a change. A store written before `embed_model` was
     # persisted has no name, and forcing a re-embed on that would bill every
     # existing user a full rebuild for a model that may well be identical.

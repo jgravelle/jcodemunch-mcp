@@ -621,6 +621,31 @@ class EmbeddingStore:
         finally:
             conn.close()
 
+    def drop_orphan_stamp(self) -> None:
+        """Remove the dimension, model and task type rows IF no vector is stored.
+
+        For a writer that found a stamp beside no vectors (a store emptied
+        before `clear()` removed the rows). ⚠ One statement, conditioned in
+        SQL on the vectors table being empty, on the read-write connection:
+        a writer deciding from an earlier reading and then calling `clear()`
+        deleted vectors another client had written in between, and vectors a
+        read-only reading of the wrong file had not seen (LEDGER L-121,
+        review round 6; L-137). This cannot delete a vector.
+        """
+        conn = self._connect()
+        try:
+            conn.execute(
+                "DELETE FROM meta WHERE key IN (?, ?, ?) "
+                "AND NOT EXISTS (SELECT 1 FROM symbol_embeddings)",
+                (_EMBED_DIM_KEY, _EMBED_MODEL_KEY, _EMBED_TASK_TYPE_KEY),
+            )
+        except sqlite3.OperationalError as exc:
+            # A database with no `meta` table has nothing recorded.
+            if "no such table" not in str(exc).lower():
+                raise
+        finally:
+            conn.close()
+
     def clear(self) -> None:
         """Delete all stored embeddings and what is recorded about them.
 

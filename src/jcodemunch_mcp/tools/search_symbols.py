@@ -1413,14 +1413,16 @@ def _search_symbols_semantic(
     stored_meta = emb_store.read_meta()
     store_mismatch: Optional[dict] = None
     _stale = stale_reason(stored_meta, model, doc_task_type or "")
+
+    def _stale_mismatch(reason: str, meta: Optional[dict]) -> dict:
+        out: dict = {"reason": reason, "active_model": model}
+        if (meta or {}).get("model"):
+            out["stored_model"] = (meta or {})["model"]
+        out["remedy"] = "embed_repo rebuilds the stored vectors with the active model"
+        return out
+
     if _stale:
-        store_mismatch = {"reason": _stale, "active_model": model}
-        _stored_model = (stored_meta or {}).get("model")
-        if _stored_model:
-            store_mismatch["stored_model"] = _stored_model
-        store_mismatch["remedy"] = (
-            "embed_repo rebuilds the stored vectors with the active model"
-        )
+        store_mismatch = _stale_mismatch(_stale, stored_meta)
 
     # ── Get query embedding ────────────────────────────────────────────────
     query_vec: list = []
@@ -1479,17 +1481,27 @@ def _search_symbols_semantic(
                 topup_failures.record(exc, items=len(batch))
         if new_emb:
             dim = len(next(iter(new_emb.values())))
-            if stored_meta is None:
+            # Read AGAIN at the write, over the connection that writes. The
+            # reading at the top is read-only and older than the provider
+            # calls above: another client may have rebuilt the store since,
+            # and under some storage paths the read-only reading sees nothing
+            # at all (LEDGER L-137). Deciding the write from it deleted and
+            # overwrote vectors this call had not seen (review round 6).
+            at_write = emb_store.read_meta(for_writer=True)
+            _stale_now = stale_reason(at_write, model, doc_task_type or "")
+            if at_write is None:
                 stored_dim = emb_store.get_dimension()
-            elif stored_meta["has_vectors"]:
-                stored_dim = stored_meta["dimension"]
+            elif at_write["has_vectors"]:
+                stored_dim = at_write["dimension"]
             else:
                 # An empty store has no stamp to honour: rows left by a store
                 # emptied before `clear()` removed them go before the re-stamp.
+                emb_store.drop_orphan_stamp()
                 stored_dim = None
-                if any(stored_meta[key] is not None for key in ("dimension", "model", "task_type")):
-                    emb_store.clear()
-            if stored_dim is not None and stored_dim != dim:
+            if _stale_now:
+                store_mismatch = _stale_mismatch(_stale_now, at_write)
+                new_emb = {}
+            elif stored_dim is not None and stored_dim != dim:
                 # A last check at the write. The matrix check above answers
                 # first whenever the stored vectors could be loaded.
                 store_mismatch = {
