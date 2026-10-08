@@ -25,6 +25,10 @@
   `embedding_dimension_mismatch` with `stored_dimension` and `active_dimension`; the provider
   is called once there, for the query, and its width is compared with the width of the stored
   vectors themselves. `embed_repo` rebuilds, as before, and the next search scores again.
+  One store changes behaviour on upgrade: vectors with no metadata, which every full re-index
+  left before 1.108.331 (#522). A semantic search scored and topped those up; it now answers
+  `embedding_metadata_missing` and ranks without the semantic channel until `embed_repo` runs,
+  which re-embeds the repo.
   The rule reads what is recorded about the vectors, so the record no longer outlives them:
   `EmbeddingStore.clear()` removes the dimension, model and task type with the vectors, and a
   writer that finds a record beside no vectors removes it with a statement that cannot delete
