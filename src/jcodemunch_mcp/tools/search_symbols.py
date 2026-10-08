@@ -1415,8 +1415,9 @@ def _search_symbols_semantic(
     _stale = stale_reason(stored_meta, model, doc_task_type or "")
     if _stale:
         store_mismatch = {"reason": _stale, "active_model": model}
-        if (stored_meta or {}).get("model"):
-            store_mismatch["stored_model"] = stored_meta["model"]
+        _stored_model = (stored_meta or {}).get("model")
+        if _stored_model:
+            store_mismatch["stored_model"] = _stored_model
         store_mismatch["remedy"] = (
             "embed_repo rebuilds the stored vectors with the active model"
         )
