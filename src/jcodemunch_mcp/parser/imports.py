@@ -425,10 +425,10 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     # the tree again, and `parent_of` is what a per-name question needs. The
     # scan used to walk the whole tree once per pass, plus twice per literal
     # table and once per loop variable: a file's cost grew with the number of
-    # names in it, a quarter of a cold index on this repository's own source.
+    # names in it.
     all_nodes: list = []
     parent_of: dict[int, ast.AST] = {}
-    todo = deque([tree])
+    todo: deque[ast.AST] = deque([tree])
     while todo:
         node = todo.popleft()
         all_nodes.append(node)
@@ -437,6 +437,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             todo.append(child)
 
     whole: dict = {}
+    bound_under: dict[int, dict[str, int]] = {}
 
     def _whole_file() -> dict:
         """How often each name is bound in the file, and which names have a
@@ -466,15 +467,23 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
         """Bindings of ``name`` under ``root``: assignment targets and parameters."""
         if root is tree:
             return _whole_file()["bound"].get(name, 0)
-        n = 0
-        for node in ast.walk(root):
-            if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del)):
-                n += 1
-            elif isinstance(node, ast.arg) and node.arg == name:
-                n += 1
-            elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                n += sum(1 for a in node.names if (a.asname or a.name.split(".")[0]) == name)
-        return n
+        # One walk per subtree asked about, whatever the number of names:
+        # a function holding sixty dynamic imports is walked once, not sixty
+        # times (review of L-147).
+        bound = bound_under.get(id(root))
+        if bound is None:
+            bound = bound_under[id(root)] = {}
+            for node in ast.walk(root):
+                if isinstance(node, ast.Name):
+                    if isinstance(node.ctx, (ast.Store, ast.Del)):
+                        bound[node.id] = bound.get(node.id, 0) + 1
+                elif isinstance(node, ast.arg):
+                    bound[node.arg] = bound.get(node.arg, 0) + 1
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for a in node.names:
+                        key = a.asname or a.name.split(".")[0]
+                        bound[key] = bound.get(key, 0) + 1
+        return bound.get(name, 0)
 
     def _frozen(node) -> bool:
         return isinstance(node, ast.Constant) or (
@@ -699,24 +708,26 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     feeder_node: dict[str, int] = {}
     feeder_calls: dict[str, set[int]] = {}
     duplicate: set[str] = set()
-    # Only a function that holds a dynamic import can feed one, so only
-    # those are walked: the enclosing functions of each such call.
-    holds_dynamic: set[int] = set()
+    # Only a function that holds a dynamic import can feed one. Each such
+    # call is filed under every function enclosing it, in `all_nodes` order,
+    # which is the order a walk of that function meets them: no function is
+    # walked to find its calls.
+    calls_under: dict[int, list] = {}
     for node in all_nodes:
         if isinstance(node, ast.Call) and _is_dynamic_import_call(node):
             up = parent_of.get(id(node))
             while up is not None:
                 if isinstance(up, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    holds_dynamic.add(id(up))
+                    calls_under.setdefault(id(up), []).append(node)
                 up = parent_of.get(id(up))
     for fn in all_nodes:
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or id(fn) not in holds_dynamic:
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or id(fn) not in calls_under:
             continue
         params = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
         if params and params[0] in ("self", "cls"):
             params = params[1:]  # a bound call passes them implicitly (review of #876)
-        for call in ast.walk(fn):
-            if isinstance(call, ast.Call) and _is_dynamic_import_call(call) and call.args:
+        for call in calls_under[id(fn)]:
+            if call.args:
                 arg = call.args[0]
                 if not (isinstance(arg, ast.Name) and arg.id in params):
                     continue

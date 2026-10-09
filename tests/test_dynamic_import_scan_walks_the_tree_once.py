@@ -2,14 +2,22 @@
 
 `_python_dynamic_imports` (#876) asked two questions per name by walking the
 file's whole syntax tree each time: is this module-level literal table only
-ever read, and is this loop variable bound only by its loops. A file with forty
-literal tables was walked more than eighty times, for an answer about one
-`import_module` call. On this repository's own `src/` that was a quarter of a
-cold index, and the nightly's cold-index Floor caught it (#1005).
+ever read, and is this loop variable bound only by its loops. It then walked
+the tree again for each of its passes, and each function once per dynamic
+import in it. The nightly's cold-index Floor caught the cost (#1005).
+
+Two properties, and the second is the one a fixed number of extra walks cannot
+pass: the cost does not grow with the names in the file, and the file is
+walked a bounded number of times. The scan walks it once; a subtree a
+question is asked about (a function whose parameter feeds an import, a
+comprehension) is walked once more. `WHOLE_FILE_ONLY` shapes ask no such
+question, so one walk put back anywhere fails them.
 
 The cost is counted, never timed: every node `ast.walk` visits goes through
-`ast.iter_child_nodes`, so the number of calls is the number of node visits.
-Divided by the size of the tree, it says how many times the file was walked.
+`ast.iter_child_nodes`, and every node an `ast.NodeVisitor` visits goes
+through `ast.iter_fields`. Whether the first calls the second depends on the
+Python version, so the larger count is the number of node visits. Divided by
+the size of the tree, it says how many times the file was walked.
 """
 
 import ast
@@ -35,31 +43,107 @@ def _loops_file(count: int) -> str:
     return NL.join(lines) + NL
 
 
+def _calls_in_one_function_file(count: int) -> str:
+    lines = ["import importlib", "def _load(name):"]
+    lines += ["    importlib.import_module(name)"] * count
+    return NL.join(lines + ['_load("pkg.a")']) + NL
+
+
+def _comprehensions_file(count: int) -> str:
+    lines = ["import importlib"]
+    lines += ['x%d = [importlib.import_module(m) for m in ("pkg.c%d",)]' % (k, k) for k in range(count)]
+    return NL.join(lines) + NL
+
+
+def _one_call_functions_file(count: int) -> str:
+    lines = ["import importlib"]
+    for k in range(count):
+        lines += ["def _f%d(name):" % k, "    return importlib.import_module(name)"]
+    return NL.join(lines) + NL
+
+
+def _nested_functions_file(count: int) -> str:
+    depth = min(count, 16)
+    lines = ["import importlib"]
+    lines += ["    " * k + "def _f%d(name%d):" % (k, k) for k in range(depth)]
+    return NL.join(lines + ["    " * depth + "importlib.import_module(name0)"]) + NL
+
+
+BUILDERS = {
+    "literal_tables": _tables_file,
+    "loop_variables": _loops_file,
+    "calls_in_one_function": _calls_in_one_function_file,
+    "comprehensions": _comprehensions_file,
+    "one_call_functions": _one_call_functions_file,
+    "nested_functions": _nested_functions_file,
+}
+# Shapes with no function parameter and no comprehension: one walk, and no
+# room for a second. The others get one more, of the subtrees asked about.
+WHOLE_FILE_ONLY = {"literal_tables": 1.5, "loop_variables": 1.5}
+WITH_SUBTREES = 2.5
+
+
 def _walks_per_node(content: str, monkeypatch) -> float:
     """Node visits the scan makes, per node of the file's tree."""
     size = sum(1 for _ in ast.walk(ast.parse(content)))
-    real = ast.iter_child_nodes
-    visits = {"n": 0}
+    real_children, real_fields = ast.iter_child_nodes, ast.iter_fields
+    visits = {"children": 0, "fields": 0}
 
-    def counting(node):
-        visits["n"] += 1
-        return real(node)
+    def counting_children(node):
+        visits["children"] += 1
+        return real_children(node)
 
-    monkeypatch.setattr(ast, "iter_child_nodes", counting)
+    def counting_fields(node):
+        visits["fields"] += 1
+        return real_fields(node)
+
+    monkeypatch.setattr(ast, "iter_child_nodes", counting_children)
+    monkeypatch.setattr(ast, "iter_fields", counting_fields)
     try:
         imports_mod._python_dynamic_imports(content, set())
     finally:
-        monkeypatch.setattr(ast, "iter_child_nodes", real)
-    assert visits["n"] > 0
-    return visits["n"] / size
+        monkeypatch.setattr(ast, "iter_child_nodes", real_children)
+        monkeypatch.setattr(ast, "iter_fields", real_fields)
+    assert visits["children"] > 0
+    return max(visits.values()) / size
 
 
-@pytest.mark.parametrize("build", [_tables_file, _loops_file], ids=["literal_tables", "loop_variables"])
-def test_the_scan_walks_a_file_no_more_times_when_it_holds_more_names(build, monkeypatch):
-    few = _walks_per_node(build(4), monkeypatch)
-    many = _walks_per_node(build(64), monkeypatch)
+@pytest.mark.parametrize("shape", sorted(BUILDERS))
+def test_the_scan_walks_a_file_no_more_times_when_it_holds_more_names(shape, monkeypatch):
+    few = _walks_per_node(BUILDERS[shape](4), monkeypatch)
+    many = _walks_per_node(BUILDERS[shape](64), monkeypatch)
     # Sixteen times the names; the same number of passes, give or take one.
     assert many <= few + 1, (few, many)
+
+
+@pytest.mark.parametrize("shape", sorted(BUILDERS))
+@pytest.mark.parametrize("count", [4, 64])
+def test_the_scan_walks_a_file_a_bounded_number_of_times(shape, count, monkeypatch):
+    """A walk per PASS is a fixed number of extra walks, which the test above
+    cannot see: eight of them passed it (review of L-147)."""
+    walks = _walks_per_node(BUILDERS[shape](count), monkeypatch)
+    assert walks <= WHOLE_FILE_ONLY.get(shape, WITH_SUBTREES), (shape, count, walks)
+
+
+@pytest.mark.parametrize("route", ["ast_walk", "node_visitor"])
+def test_the_counter_sees_one_extra_walk_of_the_file(route, monkeypatch):
+    """Non-vacuity for the bound: one walk put back, by either route, breaks it."""
+    content = _tables_file(64)
+    baseline = _walks_per_node(content, monkeypatch)
+    tree = ast.parse(content)
+    real_scan = imports_mod._python_dynamic_imports
+
+    def one_walk_more(text, seen):
+        if route == "ast_walk":
+            for _node in ast.walk(tree):
+                pass
+        else:
+            ast.NodeVisitor().visit(tree)
+        return real_scan(text, seen)
+
+    monkeypatch.setattr(imports_mod, "_python_dynamic_imports", one_walk_more)
+    walks = _walks_per_node(content, monkeypatch)
+    assert walks >= baseline + 0.9 and walks > WHOLE_FILE_ONLY["literal_tables"], (baseline, walks)
 
 
 def test_the_counter_sees_a_scan_that_walks_once_per_name(monkeypatch):
