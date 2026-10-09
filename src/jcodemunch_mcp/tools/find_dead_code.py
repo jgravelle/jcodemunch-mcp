@@ -12,7 +12,12 @@ from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
-from ._entry_points import entry_point_spec, package_json_entries as _package_json_entries
+from ._entry_points import (
+    entry_point_spec,
+    is_host_invoked,
+    package_json_entries as _package_json_entries,
+    unseen_consumer,
+)
 from ._runtime_discovery import discover_dynamic_packages
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
@@ -206,9 +211,13 @@ def find_dead_code(
     # in the tree. Ask the authority.
     fw_spec = entry_point_spec(index)
     live_roots: set[str] = set()
+    host_invoked_count = 0
     for f in index.source_files:
         if _is_entry_point_filename(f):
             live_roots.add(f)
+        elif is_host_invoked(f):
+            live_roots.add(f)
+            host_invoked_count += 1
         elif _is_init_file(f):
             live_roots.add(f)
         elif include_tests and _is_test_file(f):
@@ -318,6 +327,7 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
+    unseen_withheld = {"build_consumed": 0, "runtime_loadable": 0}
 
     dead_files: list[dict] = []
 
@@ -346,13 +356,20 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        file_ceiling = min(ceiling, UNPROVEN_CEILING) if reaching else ceiling
+        unseen = unseen_consumer(f)
+        if unseen is None and reason == "all_importers_dead":
+            # A codebehind whose only importer is itself unproven inherits the cap.
+            unseen = next(filter(None, map(unseen_consumer, importers)), None)
+        file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or unseen) else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
             # Only the files the boundary itself withheld: one the corpus
             # ceiling alone already put under the threshold is not its doing.
-            if reaching and min(confidence, ceiling) >= min_confidence:
-                boundary_withheld += 1
+            if min(confidence, ceiling) >= min_confidence:
+                if reaching:
+                    boundary_withheld += 1
+                elif unseen:
+                    unseen_withheld[unseen] += 1
             continue
 
         entry = {
@@ -366,8 +383,10 @@ def find_dead_code(
             # verdict needs to see that the graph said one thing and the corpus
             # could not back it, which a single clamped figure hides.
             entry["uncapped_confidence"] = confidence
-            entry["confidence_capped_by"] = list(adequacy.blockers) + (
-                ["dynamic_import_boundary"] if reaching else []
+            entry["confidence_capped_by"] = (
+                list(adequacy.blockers)
+                + (["dynamic_import_boundary"] if reaching else [])
+                + ([unseen] if unseen else [])
             )
         if reaching:
             entry["dynamic_import_sites"] = reaching[:DYNAMIC_FILES_CAP]
@@ -441,6 +460,10 @@ def find_dead_code(
     # "42 entry points" and "42 entry points, because we recognised Next.js"
     # are different claims, and only the second lets a reader see that the
     # answer would change on a framework we do not profile.
+    if host_invoked_count:
+        analysis_notes.append(
+            f".NET files invoked by IIS or MSBuild (not imports): {host_invoked_count}"
+        )
     if fw_spec.profile_name:
         fw_roots = sum(1 for f in live_roots if fw_spec.matches(f))
         analysis_notes.append(
@@ -482,6 +505,19 @@ def find_dead_code(
             "dynamic import scoped to their package can load them "
             "(pass min_confidence=0 to see them with the sites named)"
         )
+    _unseen_why = {
+        "build_consumed": "the project file may consume them (EmbeddedResource, Page, Import)",
+        "runtime_loadable": "user controls and master pages can be loaded by path at "
+        "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
+    }
+    for kind, n in unseen_withheld.items():
+        if n:
+            result[f"{kind}_withheld"] = n
+            analysis_notes.append(
+                f"{n} .NET file(s) with no static importer were withheld: "
+                f"{_unseen_why[kind]}, an edge the index does not carry "
+                "(pass min_confidence=0 to see them)"
+            )
     # ⚠⚠ A capped run returns FEWER findings, and an empty list read alone is
     # the `dead_code_pct: 0.0` shape (#559) seen from the other side — an
     # admission that nothing was established, rendered as a clean bill of

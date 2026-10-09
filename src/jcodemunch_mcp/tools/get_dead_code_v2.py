@@ -24,7 +24,12 @@ from ._utils import resolve_repo as _resolve_repo
 from ._call_graph import _word_match, build_symbols_by_file
 # One matcher, not two: entry_point_patterns must mean the same thing in
 # both dead-code tools or #436 gets replaced by a subtler version of itself.
-from ._entry_points import entry_point_spec, package_json_entries as _package_json_entries
+from ._entry_points import (
+    entry_point_spec,
+    is_host_invoked,
+    package_json_entries as _package_json_entries,
+    unseen_consumer,
+)
 from .find_dead_code import _matches_any_pattern, unmatched_patterns
 from ._runtime_discovery import discover_dynamic_packages
 from ._dynamic_boundary import FILES_CAP, DynamicBoundary
@@ -583,6 +588,7 @@ def get_dead_code_v2(
     fw_spec = entry_point_spec(index)
     fw_entries = {f for f in index.source_files if fw_spec.matches(f)}
     declared_entries |= fw_entries
+    declared_entries |= {f for f in index.source_files if is_host_invoked(f)}
 
     # (e) runtime-discovered packages (#569). Fixed at BOTH call sites rather
     # than only the reported one: signal 1 here is `unreachable_file`, computed
@@ -618,6 +624,8 @@ def get_dead_code_v2(
     boundary_roots = {f for f in source_files if boundary.reaching(f)} if boundary else set()
     # Forward only: what a maybe-loaded file imports may load with it; what
     # imports it is a separate question the graph already answers.
+    # .NET controls and build items load through edges the index does not carry.
+    boundary_roots |= {f for f in source_files if unseen_consumer(f)}
     maybe_loaded = set(boundary_roots)
     queue = deque(boundary_roots)
     while queue:

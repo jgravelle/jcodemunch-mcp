@@ -2,6 +2,84 @@
 
 ## [Unreleased]
 
+### Fixed - a Web Forms handler wired in markup is referenced, and markup reaches the file graph
+
+Web Forms binds codebehind methods in ways the AST call graph cannot see, so
+every such method read as uncalled. `On*=` on a `runat="server"` control
+(matched case-insensitively -- real markup mixes `OnClick` and `onclick`,
+and ASP.NET honours both, including after an inline `<%# ... %>` attribute
+value) now emits an import edge naming the handler; `OnClient*` is excluded because it is
+JavaScript, and a tag without `runat="server"` names no server method,
+since a fabricated reference makes dead code look live. The codebehind class is
+`partial` across `X.aspx.cs` and `X.aspx.designer.cs` while the directive
+names only the first, so a `designer_partial` edge covers the generated half,
+whose control fields had no incoming edge. None of it reached the file
+graph before, because `resolve_specifier` had no branch for markup
+importers: `CodeBehind="X.aspx.cs"` names a SIBLING and `~/Site.Master` a
+path from the APPLICATION root, so every codebehind and master-page edge
+resolved to None and `find_importers`, `get_blast_radius` and
+`get_dependency_graph` were blind to markup. Resolution now tries the
+sibling, then each ancestor, case-insensitively as ASP.NET does
+(`codebehind="Site.master.cs"` names `Site.Master.cs`), gated on the
+IMPORTER's extension like the Python-relative (#423) and Gleam branches. ⚠
+`AutoEventWireup` lifecycle names (`Page_*`) are deliberately NOT
+synthesized: most such names have no definition in a typical solution, and
+each would have gained one phantom reference per page, inherited by any unrelated
+symbol sharing the name -- a false-alive, the worse direction for a deletion
+preflight. Every name emitted comes from text in the file being parsed.
+`aspx_binding` on each edge is provenance only; no consumer reads it.
+
+`find_dead_code` and `get_dead_code_v2` treat the files IIS or MSBuild invoke
+themselves (`.aspx`, `.ashx`, `.asmx`, `Global.asax`, project files, `.nuspec`,
+`Directory.Build.*`) as roots: nothing imports them by design, so they were
+reported `zero_importers` at 1.0 and their codebehind `all_importers_dead`.
+Files reached through edges the index does not carry are capped at
+`UNPROVEN_CEILING` rather than proven dead, named in `confidence_capped_by`
+and counted in `<reason>_withheld`: `build_consumed` for project-file items
+(`.resx`, `.xaml`, `.xsd`, `.wsdl`, other `.props`/`.targets`), and
+`runtime_loadable` for an unreferenced `.ascx`/`.master`, which
+`LoadControl`, a CMS's stored control path or `MasterPageFile` set in code can
+load by path. A codebehind whose only importer is capped inherits the cap, and
+`get_dead_code_v2` leaves signal 1 undecided for both. `check_delete_safe`
+answers `dynamic_import_boundary` for a symbol in a capped file instead of
+`safe_to_delete`. A `<%@ Register %>`ed control is an ordinary edge and stays
+live. A `%` in a directive value (`Title="50% off"`) no longer drops the
+directive. ⚠ `get_repo_health`'s coupling count is unchanged: it excludes only
+a detected framework profile's roots, and widening that needs its own
+measurement, so pages and project files count as unstable modules on a .NET
+repo until then. ⚠ Known limitation: a page's edge to its codebehind is
+file-level, so `check_delete_safe` blocks deleting a genuinely unused method in
+a live codebehind (it errs toward keeping code).
+
+### Added - ASP.NET Web Forms is indexed as its own language, and XML-shaped .NET files as `xml`
+
+`.aspx`/`.ascx`/`.master`/`.asax`/`.ashx`/`.asmx` were absent from
+`LANGUAGE_EXTENSIONS`, so Web Forms markup never entered the corpus while its
+codebehind indexed fine -- which made the failure selective and confident
+rather than obviously missing. Live event handlers wired only in markup
+(`OnClick="btnSave_Click"`) reported `is_referenced=false`, and
+`find_dead_code` offered every one for deletion; indexing the markup makes
+those handler names resolve, because `check_references` searches content. Handler
+names are deliberately NOT emitted as symbols: the attribute REFERENCES a
+definition that lives in the codebehind. `aspx` is a separate language
+rather than a `razor` alias, because `language=` is a user-facing filter a
+Web-Forms-to-Blazor migration needs to split, and folding in would register
+import extraction under the `razor` key and move output for every existing
+`.cshtml`/`.razor` user. `<%@ %>` directives (`CodeBehind`, `CodeFile`, `Src`,
+`MasterPageFile`, `Register`, `Import`) become import edges, and
+`plan_refactoring` gets its own Web Forms import-synthesis arm, since the
+razor arm's `@import '...'` is not Web Forms syntax. Ten XML-shaped .NET
+extensions (`.xaml`, `.csproj`, `.vbproj`, `.fsproj`, `.props`, `.targets`,
+`.resx`, `.nuspec`, `.xsd`, `.wsdl`) map onto the existing `xml` language,
+adding no new language. ⚠ `.config` and `.settings` are deliberately NOT
+mapped: `web.config` and a `Settings.settings` holding a connection-string
+setting both carry plaintext credentials, `is_secret_file()` is False for
+them and `redact_dict` makes zero substitutions on an ADO.NET connection
+string; they land with connection-string redaction, not before, and a test
+pins that for both. Fixtures are real MIT-licensed Microsoft code pinned by commit SHA
+(`tests/fixtures/dotnet/SOURCES.md`); the declarative-handler fixture is
+hand-written and says so.
+
 ## [1.108.338] - 2026-10-09 - a .NET build tree and a NuGet restore tree stay out of the index
 
 Both entries below are @outoftheblue9's work (#1001). An index built before this release keeps the files these rules now prune

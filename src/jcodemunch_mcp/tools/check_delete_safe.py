@@ -24,7 +24,9 @@ Verdict tiers (most-permissive first):
   - dynamic_import_boundary — nothing references it statically, and a Python
                              dynamic import scoped to its package can load it
                              (`import_module(f"adapters.{name}")`). The sites
-                             are named. LEDGER L-70
+                             are named. LEDGER L-70. Also a .NET control,
+                             master page or build item, loaded by a path the
+                             index does not carry (`unseen_consumer`).
 
 ⚠⚠ **`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary`
 each replace an absence verdict, never a blocking one.**
@@ -46,6 +48,7 @@ from ..runtime.confidence import symbol_hit_count
 from . import _name_reachability
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
+from ._entry_points import unseen_consumer
 from ._stop_rule import build_stop_rule
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -478,6 +481,32 @@ def check_delete_safe(
             blocker["files_total"] = len(reaching)
         blockers.append(blocker)
 
+    # A .NET control, master page or build item is loaded by a path the index
+    # does not carry (LoadControl, a stored control path, the project file):
+    # the same unproven absence as a dynamic import, under the same verdict.
+    unseen = unseen_consumer(target.get("file", ""))
+    unseen_gap = False
+    if unseen and dynamic_gap is None and verdict in (
+        "safe_to_delete", "internal_only", "test_coverage_only", "name_not_searchable",
+    ):
+        if verdict != "name_not_searchable":
+            verdict = "dynamic_import_boundary"
+        unseen_gap = True
+        dynamic_gap = {
+            "action": "check how the host loads this file (LoadControl, a stored "
+            "control path, the project file)",
+            "why": (
+                f"{target.get('file', '')} is {unseen}: it can be loaded by a path "
+                "the index does not carry, so finding no importer is not evidence "
+                "that nothing loads it"
+            ),
+        }
+        blockers.append({
+            "kind": unseen,
+            "blockers": [dynamic_gap["why"]],
+            "severity": _SEVERITY_INTERNAL_REF,
+        })
+
     corpus_gap = None
     # ⚠ Evaluated after the dynamic gate too: when that gate has already
     # replaced the absence verdict, a thin corpus is still a blocker and a
@@ -562,7 +591,10 @@ def check_delete_safe(
             "runtime evidence, before deleting."
         ),
         "dynamic_import_boundary": (
-            "No static importer or reference found, but a dynamic import scoped to "
+            f"No static importer or reference found, but {dynamic_gap['why']}. "
+            f"Before deleting, {dynamic_gap['action']}."
+            if unseen_gap
+            else "No static importer or reference found, but a dynamic import scoped to "
             "this package can load the file. Read the named loaders before deleting."
         ),
         "corpus_inadequate": (
