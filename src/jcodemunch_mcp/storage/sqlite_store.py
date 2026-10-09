@@ -946,8 +946,10 @@ class SQLiteIndexStore:
         migration ran against it), and it created the index tables inside any
         other SQLite file there (`telemetry.db`). A checkpoint needs neither.
 
-        ⚠ Never raises. This runs from `finally` blocks at shutdown, where an
-        exception replaces the one being handled and nobody can act on it.
+        ⚠ Never raises. Two of its four callers are `finally` blocks at server
+        shutdown, where an exception replaces the one being handled and nobody
+        can act on it; the others are server start and the end of a one-shot
+        sync.
         """
         if not db_path.exists():
             return

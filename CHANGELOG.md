@@ -15,12 +15,17 @@
   (`telemetry.db` lives there when `JCODEMUNCH_PERF_TELEMETRY` is on). A file that is not a
   database raised too, and stopped the loop before the databases after it were compacted.
   The first was seen once on CI, on Windows, in the `--watcher` shutdown: the cancelled initial
-  index was still running in its thread when the store was closed.
+  index was still running in its thread when the store was closed. With that interleaving
+  pinned, `main` raises `no such table: files` from the shutdown's last line and this change
+  does not (`evidence/l143_race.txt`).
   The checkpoint now opens a plain connection, compacts, and logs what it could not do at
   debug level. It never raises: it runs from `finally` blocks, where an exception replaces the
   one being handled. An index's WAL is compacted as before.
-  Not changed: index tables already created inside another database by an earlier shutdown stay
-  there (they are empty, and nothing reads them).
+  Not changed: index tables an earlier shutdown created inside another database stay there.
+  On the one store read for this change they hold no rows, except `meta`, which holds the two
+  rows the migration path wrote (`index_version`, `call_refs_missing`); nothing reads them.
+  Listing the indexed repos still opens every database in the directory through the indexer's
+  connection (LEDGER L-144).
 
 ## [1.108.336] - 2026-10-08 - a fusion search scores no query against another model's vectors
 

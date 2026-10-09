@@ -9,7 +9,8 @@ schema or runs the version migrations. So a shutdown:
   still creating (the `meta` table exists, the version row and `files` do not,
   so every migration since v4 ran against it). Seen once on CI, in the watcher
   shutdown path, where the cancelled initial index is still running in its
-  thread when the store is closed;
+  thread when the store is closed (the interleaving is pinned in
+  `evidence/l143_race.txt`);
 * created the index tables inside any other SQLite file in the directory
   (`telemetry.db` lives there).
 
@@ -36,23 +37,30 @@ def _tables(db_path: Path) -> set:
         conn.close()
 
 
-def _half_created(db_path: Path) -> None:
-    """The state between the first statement of the schema script and the rest."""
+def _half_created(db_path: Path, tables=("meta",)) -> None:
+    """A database part of the way through the schema script.
+
+    The script is not one transaction, so a second connection can see any
+    prefix of it. With `meta` alone the first migration misses `symbols`; with
+    `meta` and `symbols` it misses `files`, which is the table CI named.
+    """
     conn = sqlite3.connect(str(db_path))
     try:
-        conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+        for table in tables:
+            conn.execute(f"CREATE TABLE {table} (key TEXT PRIMARY KEY, value TEXT)")
         conn.commit()
     finally:
         conn.close()
 
 
-def test_close_does_not_raise_on_a_database_still_being_created(tmp_path):
+@pytest.mark.parametrize("tables", [("meta",), ("meta", "symbols")], ids=["meta", "meta_and_symbols"])
+def test_close_does_not_raise_on_a_database_still_being_created(tmp_path, tables):
     db = tmp_path / "local-half-00000000.db"
-    _half_created(db)
+    _half_created(db, tables)
 
     IndexStore(base_path=str(tmp_path)).close()
 
-    assert _tables(db) == {"meta"}
+    assert _tables(db) == set(tables)
 
 
 def test_close_does_not_create_the_index_schema_in_another_database(tmp_path):
@@ -104,7 +112,11 @@ def test_close_goes_on_to_the_next_database_after_one_it_cannot_open(tmp_path):
 
 
 def test_close_still_compacts_the_wal_of_an_index(tmp_path):
-    """What the hook is for, unchanged."""
+    """What the hook is for, unchanged: the WAL is truncated and the index loads.
+
+    A second connection stays open across the close, or SQLite removes the WAL
+    with the last connection and its size says nothing about the checkpoint.
+    """
     src = tmp_path / "src"
     store_dir = tmp_path / "store"
     src.mkdir()
@@ -115,16 +127,28 @@ def test_close_still_compacts_the_wal_of_an_index(tmp_path):
     store = IndexStore(base_path=str(store_dir))
     db = store._sqlite._db_path(owner, name)
     before = _tables(db)
+    holder = sqlite3.connect(str(db))
+    try:
+        holder.execute("PRAGMA journal_mode=WAL")
+        holder.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('l143_probe', 'x')")
+        holder.commit()
+        wal = Path(str(db) + "-wal")
+        assert wal.exists() and wal.stat().st_size > 0
 
-    store.close()
+        store.close()
 
+        assert wal.stat().st_size == 0
+    finally:
+        holder.close()
     assert _tables(db) == before
     assert store.load_index(owner, name) is not None
 
 
 def test_the_watcher_shutdown_does_not_raise_when_the_store_cannot_be_closed(tmp_path, monkeypatch):
-    """The path the CI failure took: the last line of `_run_server_with_watcher`."""
-    pytest.importorskip("watchfiles")
+    """The path the CI failure took: the last line of `_run_server_with_watcher`.
+
+    Both watcher names are patched, so this runs with or without watchfiles.
+    """
     import asyncio
 
     from jcodemunch_mcp import server
@@ -148,6 +172,7 @@ def test_the_watcher_shutdown_does_not_raise_when_the_store_cannot_be_closed(tmp
             self._stop_event.set()
 
     monkeypatch.setattr(server, "WatcherManager", Manager)
+    monkeypatch.setattr(server, "watch_folders", object())
 
     async def fake_server():
         await asyncio.sleep(0)
