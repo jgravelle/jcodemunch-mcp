@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.338](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.338)** (2026-10-09) — a .NET build tree and a NuGet restore tree stay out of the index
 - **[v1.108.337](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.337)** (2026-10-09) — a shutdown checkpoints a database without migrating it
 - **[v1.108.336](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.336)** (2026-10-08) — a fusion search scores no query against another model's vectors
 - **[v1.108.335](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.335)** (2026-10-08) — a read-only open reads the file the path names
-- **[v1.108.334](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.334)** (2026-10-08) — a semantic search writes no vector of a second model
 <!-- WHATSNEW:END -->
 
 ---

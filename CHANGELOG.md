@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [1.108.338] - 2026-10-09 - a .NET build tree and a NuGet restore tree stay out of the index
+
+Both entries below are @outoftheblue9's work (#1001). An index built before this release keeps the files these rules now prune
+until its next full `index_folder` run.
+
 ### Added - MSBuild `obj/`/`bin/` and Visual Studio's `.vs/` are pruned from the walk
 
 A .NET project without a `.gitignore` indexed its build output as source.
