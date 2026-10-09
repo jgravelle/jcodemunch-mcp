@@ -936,14 +936,31 @@ class SQLiteIndexStore:
 
         Unlike checkpoint_and_close(), this does not require owner/name
         parsing — useful when iterating *.db files directly.
+
+        ⚠⚠ A PLAIN connection, never `_connect` (LEDGER L-143). `_connect` is
+        the indexer's connection: on a first visit it creates the index schema
+        or runs the version migrations. The shutdown hook globs every `*.db`
+        in the storage directory, so through `_connect` it raised
+        `no such table` on a database another thread or process was still
+        creating (the `meta` table exists, the version row does not, so every
+        migration ran against it), and it created the index tables inside any
+        other SQLite file there (`telemetry.db`). A checkpoint needs neither.
+
+        ⚠ Never raises. Two of its four callers are `finally` blocks at server
+        shutdown, where an exception replaces the one being handled and nobody
+        can act on it; the others are server start and the end of a one-shot
+        sync.
         """
         if not db_path.exists():
             return
-        conn = self._connect(db_path)
         try:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        finally:
-            conn.close()
+            conn = sqlite3.connect(str(db_path), isolation_level=None)
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            logger.debug("WAL checkpoint skipped for %s", db_path, exc_info=True)
 
     def get_file_languages(self, owner: str, name: str) -> dict[str, str]:
         """Query only the files table for path→language mapping.

@@ -52,6 +52,31 @@ never reached `_should_index_file`, so the watcher's fast path returned
 publish output by the back door. Both rules now run on the full walk and the
 fast path; `resolve_explicit_paths` still bypasses them on purpose.
 
+### Fixed
+
+- **Shutting the server down no longer migrates or re-schemas the databases it only meant to
+  checkpoint (LEDGER L-143).** At shutdown the server compacts the WAL of every `*.db` in the
+  storage directory. It opened each one through the indexer's own connection, which on a first
+  visit creates the index schema or runs the version migrations. Two things followed, both
+  reproduced in `tests/test_store_close_only_checkpoints.py` (`evidence/red.txt`): a database
+  another thread or process was still creating raised `no such table` out of the shutdown path,
+  because its `meta` table existed and its version row did not, so every migration ran against
+  it; and any other SQLite file in the directory had the index tables created inside it
+  (`telemetry.db` lives there when `JCODEMUNCH_PERF_TELEMETRY` is on). A file that is not a
+  database raised too, and stopped the loop before the databases after it were compacted.
+  The first was seen once on CI, on Windows, in the `--watcher` shutdown: the cancelled initial
+  index was still running in its thread when the store was closed. With that interleaving
+  pinned, `main` raises `no such table: files` from the shutdown's last line and this change
+  does not (`evidence/l143_race.txt`).
+  The checkpoint now opens a plain connection, compacts, and logs what it could not do at
+  debug level. It never raises: it runs from `finally` blocks, where an exception replaces the
+  one being handled. An index's WAL is compacted as before.
+  Not changed: index tables an earlier shutdown created inside another database stay there.
+  On the one store read for this change they hold no rows, except `meta`, which holds the two
+  rows the migration path wrote (`index_version`, `call_refs_missing`); nothing reads them.
+  Listing the indexed repos still opens every database in the directory through the indexer's
+  connection (LEDGER L-144).
+
 ## [1.108.336] - 2026-10-08 - a fusion search scores no query against another model's vectors
 
 ### Fixed
