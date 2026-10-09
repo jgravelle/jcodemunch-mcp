@@ -28,13 +28,18 @@ from jcodemunch_mcp.tools.index_folder import discover_local_files
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "marker",
-    ["App.csproj", "Legacy.vbproj", "Tool.fsproj", "Solution.sln", "Solution.slnx"],
-)
+@pytest.mark.parametrize("marker", ["App.csproj", "Legacy.vbproj", "Tool.fsproj"])
 @pytest.mark.parametrize("dir_name", ["obj", "bin", "OBJ", "Bin"])
 def test_output_dir_beside_any_dotnet_project_marker(dir_name, marker):
     assert is_msbuild_output_directory(dir_name, [marker, "Program.cs"]) is True
+
+
+@pytest.mark.parametrize("solution", ["Solution.sln", "Solution.slnx"])
+@pytest.mark.parametrize("dir_name", ["obj", "bin"])
+def test_a_solution_file_alone_is_not_a_marker(dir_name, solution):
+    """MSBuild writes bin/ and obj/ beside the PROJECT, not the solution. A solution
+    file only says the directory is a solution root."""
+    assert is_msbuild_output_directory(dir_name, [solution, "deploy.py"]) is False
 
 
 @pytest.mark.parametrize("dir_name", ["obj", "bin"])
@@ -157,16 +162,41 @@ def test_nested_project_output_is_pruned_per_project(tmp_path):
     assert skip_counts["msbuild_output"] == 2
 
 
+def test_bin_beside_a_solution_file_is_indexed_in_a_mixed_layout(tmp_path):
+    """A solution root is not a project root. `bin/` beside `Mixed.sln` holds a
+    hand-written script; the project's own output lives under `src/App/`. Pruning
+    the root `bin/` here would delete real source and let an absence claim stand
+    over it, so only the project directory's output goes."""
+    (tmp_path / "Mixed.sln").write_text(
+        "Microsoft Visual Studio Solution File", encoding="utf-8"
+    )
+    scripts = tmp_path / "bin"
+    scripts.mkdir()
+    (scripts / "deploy.py").write_text("def deploy():\n    pass\n", encoding="utf-8")
+
+    app = tmp_path / "src" / "App"
+    app.mkdir(parents=True)
+    (app / "App.csproj").write_text("<Project />", encoding="utf-8")
+    (app / "Program.cs").write_text("class Program {}", encoding="utf-8")
+    (app / "obj").mkdir()
+    (app / "obj" / "Program.copy.cs").write_text("class Program {}", encoding="utf-8")
+
+    files, _, skip_counts = discover_local_files(tmp_path)
+
+    names = {Path(f).name for f in files}
+    assert "deploy.py" in names, "a hand-written bin/ beside a .sln was pruned"
+    assert "Program.cs" in names
+    assert "Program.copy.cs" not in names
+    assert skip_counts["msbuild_output"] == 1
+
+
 def test_skip_is_an_ordinary_exclusion_not_a_withheld_reason(tmp_path):
     """Build output is derived data, so it defines the corpus rather than being a
     file we refused -- same class as `cache_dir` and `gitignore`. If this ever
     becomes withheld, absence claims break on every .NET project."""
-    from jcodemunch_mcp.tools import index_folder as mod
+    from jcodemunch_mcp.tools.index_folder import WITHHELD_SKIP_REASONS
 
-    withheld = getattr(mod, "WITHHELD_SKIP_REASONS", None)
-    if withheld is None:
-        pytest.skip("no withheld-reason registry in this build")
-    assert "msbuild_output" not in withheld
+    assert "msbuild_output" not in WITHHELD_SKIP_REASONS
 
 
 def test_explicit_false_disables_and_garbage_does_not(tmp_path, monkeypatch):

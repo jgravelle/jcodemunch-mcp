@@ -2191,9 +2191,10 @@ def generate_template() -> str:
   //   you nonetheless want indexed; only an explicit false disables it.
 
   // "skip_msbuild_output": true,
-  //   Prune `obj/` and `bin/` when a .NET project file (.csproj/.vbproj/.fsproj/
-  //   .sln/.slnx) sits beside them. Both routinely hold COPIES of real source --
-  //   a web publish writes obj/Release/Package/PackageTmp/ and
+  //   Prune `obj/` and `bin/` when a .NET project file (.csproj/.vbproj/.fsproj)
+  //   sits beside them; a solution file alone (.sln/.slnx) is not enough, since
+  //   MSBuild writes output beside the project. Both routinely hold COPIES of
+  //   real source -- a web publish writes obj/Release/Package/PackageTmp/ and
   //   obj/Release/AspnetCompileMerge/Source/ -- so the same symbols index twice
   //   and the copies compete with the originals in ranking.
   //   The project-file marker is required BY DESIGN and exists for `bin/`, which
@@ -2211,12 +2212,10 @@ def generate_template() -> str:
   //   arrive as real .js), which competes with your own code in ranking and eats
   //   the `max_folder_files` cap.
   //   ⚠ A `.gitignore` listing `packages` already excludes those files, so on
-  //   such a repo this changes WHICH rule excluded them and not WHAT is indexed
-  //   -- measured at zero file difference. Where it moves the corpus is a solution
-  //   with no `.gitignore` entry: two measured at 9286 -> 7091 files (24%) and
-  //   1322 -> 750 (43%). Pruning at the directory is still cheaper either way,
-  //   because the alternative is gitignore-matching every file underneath one by
-  //   one (measured ~1500 on one repo for no change in outcome).
+  //   such a repo this changes WHICH rule excluded them and not WHAT is indexed.
+  //   It moves the corpus only where no such `.gitignore` entry exists. Pruning
+  //   at the directory is still cheaper either way, because the alternative is
+  //   gitignore-matching every file underneath one by one.
   //   The artifact marker is required BY DESIGN: `packages/` is a hand-written
   //   source directory in other ecosystems (Flutter's monorepo is
   //   packages/flutter, packages/flutter_test), so a name-only rule would delete
