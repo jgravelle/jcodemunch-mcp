@@ -634,6 +634,8 @@ Each names a date to grep for in `ISSUE-HISTORY.md`.
 
 - **A test of environment-dependent code passes wherever its environment matches the one it was written in.** 10-01: the cadence gate's tests read `GITHUB_ACTIONS` through `measure()`'s default `env`, so every PR run (event `pull_request`) and every local run passed, and `main.yml`'s push run answered "not evaluated" for every case -- `main` red for three merges, found only by `/release`'s pre-flight. The docstring claimed each case passed `env`; none did. ⚠ **Run such a file under each event that executes it**, and strip the variables in an autouse fixture rather than per call. [[a-default-argument-bound-at-import-pins-the-wrong-repo]]
 
+- **Before calling a timing failure runner noise, divide it by another timing of the SAME job.** 10-09 (#1005, L-146/L-147): readings compared between CI jobs hid a 1.3x cold-index slowdown behind a 2x spread in runner speed, and a Floor loosening was drafted over it. Cold index over one-file reindex stepped with no overlap. ⚠ A local timing on a fixed older corpus missed it too: the cost was the new code on the new files.
+
 ## Issue + release policy (2026-07-28)
 
 ⚠⚠ **The forensics behind every rule here are in `ISSUE-HISTORY.md` §

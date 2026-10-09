@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Indexing a Python file that holds a dynamic import no longer walks the file once per table
+  (LEDGER L-147).** The dynamic-import scan added in 1.108.320 (#876) has to know two things about
+  names in the file: whether a module-level literal table is only ever read, and whether a loop
+  variable is bound only by its loops. It answered each by walking the file's whole syntax tree,
+  once or twice per name. It then walked the tree again for each of its passes, and walked a
+  function once per dynamic import inside it. In a file with 64 literal tables each node was
+  visited 199 times, and with 4 tables 19 times (`evidence/l147_walks.txt`). On this repository's
+  own source the walks cost about an eighth of a cold index: on Linux, 2.337 s and 2.329 s before
+  this fix against 2.072 s and 2.038 s after it (`evidence/l147_linux_timing.txt`). The nightly's
+  cold-index Floor caught it ten days later on a slow runner (#1005); our first reading of that
+  failure called it runner variance, which was wrong, and the issue carries the correction.
+  The file is now walked once, into a list with parent links, and every pass reads the list. A
+  function whose parameter feeds an import, and a comprehension that holds one, is walked once
+  more, however many imports it holds; a comprehension with several literal generators is still
+  walked once per generator. In the seven shapes the test builds each node is visited between 1.00
+  and 2.23 times at 64 names, and the test fails when any one of the removed walks is put back, or
+  when the whole-file table is rebuilt per question (`evidence/l147_mutants.txt`). It does not see
+  a per-name loop over the node list that calls no function per node. What the scan returns is
+  unchanged: identical output on 892 real Python files (this repository, its environment and a
+  Python installation's library), on 53 hand-written cases and on 20,000 generated ones
+  (`evidence/l147_equivalence.txt`), so no index needs rebuilding.
+  Not recovered, and not attributed: the same cold index is still about a tenth slower than the
+  code before #876, which reads 1.875 s and 1.851 s on the same files. 34 commits touch `src/`
+  between the two. The scan still parses each such file a second time, with Python's own parser;
+  what that costs on Linux was not measured.
+
 ## [1.108.338] - 2026-10-09 - a .NET build tree and a NuGet restore tree stay out of the index
 
 Both entries below are @outoftheblue9's work (#1001). An index built before this release keeps the files these rules now prune
