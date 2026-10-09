@@ -18,9 +18,10 @@
   correction.
   The file is now walked once, into a list with parent links, and every pass reads the list. A
   function whose parameter feeds an import, and a comprehension that holds one, is walked once
-  more, however many imports it holds. The six shapes the test builds are walked between 1.00
-  and 2.23 times at 64 names, and the test fails when any one of the removed walks is put back
-  (`evidence/l147_mutants.txt`). What the scan returns is unchanged: identical output on 892
+  more, however many imports it holds; a comprehension with several literal generators is
+  still walked once per generator. The seven shapes the test builds are walked between 1.00
+  and 2.23 times at 64 names, and the test fails when any one of the removed walks is put back,
+  or when a pass over the node list per name replaces one (`evidence/l147_mutants.txt`). What the scan returns is unchanged: identical output on 892
   real Python files (this repository, its environment and a Python installation's library), on
   53 hand-written cases and on 20,000 generated ones (`evidence/l147_equivalence.txt`), so no
   index needs rebuilding.

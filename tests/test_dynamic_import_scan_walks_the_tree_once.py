@@ -13,14 +13,20 @@ question is asked about (a function whose parameter feeds an import, a
 comprehension) is walked once more. `WHOLE_FILE_ONLY` shapes ask no such
 question, so one walk put back anywhere fails them.
 
-The cost is counted, never timed: every node `ast.walk` visits goes through
-`ast.iter_child_nodes`, and every node an `ast.NodeVisitor` visits goes
-through `ast.iter_fields`. Whether the first calls the second depends on the
-Python version, so the larger count is the number of node visits. Divided by
-the size of the tree, it says how many times the file was walked.
+The cost is counted, never timed, and counted twice. Walks: every node
+`ast.walk` visits goes through `ast.iter_child_nodes`, and every node an
+`ast.NodeVisitor` visits goes through `ast.iter_fields`. The first calls the
+second on Python 3.10 to 3.14, so the larger count is the number of node
+visits; divided by the size of the tree, it says how many times the file was
+walked. Work: the fix reads a LIST of the nodes, and a pass over that list
+per name is the same defect with no tree walk in it, so the third property is
+that the function calls the scan makes, per node, do not grow with the names
+(`sys.setprofile`; a second review rebuilt the whole-file table per name and
+every walk test stayed green).
 """
 
 import ast
+import sys
 
 import pytest
 
@@ -69,6 +75,14 @@ def _nested_functions_file(count: int) -> str:
     return NL.join(lines + ["    " * depth + "importlib.import_module(name0)"]) + NL
 
 
+def _plain_functions_file(count: int) -> str:
+    """Functions that hold no dynamic import: none of them is walked."""
+    lines = ["import importlib", 'importlib.import_module("pkg.a")']
+    for k in range(count):
+        lines += ["def _g%d(name):" % k, "    return name"]
+    return NL.join(lines) + NL
+
+
 BUILDERS = {
     "literal_tables": _tables_file,
     "loop_variables": _loops_file,
@@ -76,10 +90,11 @@ BUILDERS = {
     "comprehensions": _comprehensions_file,
     "one_call_functions": _one_call_functions_file,
     "nested_functions": _nested_functions_file,
+    "plain_functions": _plain_functions_file,
 }
-# Shapes with no function parameter and no comprehension: one walk, and no
+# Shapes with no feeding parameter and no comprehension: one walk, and no
 # room for a second. The others get one more, of the subtrees asked about.
-WHOLE_FILE_ONLY = {"literal_tables": 1.5, "loop_variables": 1.5}
+WHOLE_FILE_ONLY = {"literal_tables": 1.5, "loop_variables": 1.5, "plain_functions": 1.5}
 WITH_SUBTREES = 2.5
 
 
@@ -120,9 +135,53 @@ def test_the_scan_walks_a_file_no_more_times_when_it_holds_more_names(shape, mon
 @pytest.mark.parametrize("count", [4, 64])
 def test_the_scan_walks_a_file_a_bounded_number_of_times(shape, count, monkeypatch):
     """A walk per PASS is a fixed number of extra walks, which the test above
-    cannot see: eight of them passed it (review of L-147)."""
+    cannot see: with every per-pass walk put back it passed (review of L-147)."""
     walks = _walks_per_node(BUILDERS[shape](count), monkeypatch)
     assert walks <= WHOLE_FILE_ONLY.get(shape, WITH_SUBTREES), (shape, count, walks)
+
+
+def _calls_per_node(content: str) -> float:
+    """Function calls the scan makes, Python and C, per node of the file's tree."""
+    size = sum(1 for _ in ast.walk(ast.parse(content)))
+    calls = {"n": 0}
+
+    def profiler(frame, event, arg):
+        if event in ("call", "c_call"):
+            calls["n"] += 1
+
+    previous = sys.getprofile()
+    sys.setprofile(profiler)
+    try:
+        imports_mod._python_dynamic_imports(content, set())
+    finally:
+        sys.setprofile(previous)
+    assert calls["n"] > 0
+    return calls["n"] / size
+
+
+@pytest.mark.parametrize("shape", sorted(BUILDERS))
+def test_the_scan_does_no_more_work_per_node_when_the_file_holds_more_names(shape):
+    """A pass over the node list per name walks no tree, so only this sees it."""
+    few = _calls_per_node(BUILDERS[shape](4))
+    many = _calls_per_node(BUILDERS[shape](64))
+    assert many <= few * 1.5, (few, many)
+
+
+def test_the_work_counter_sees_a_pass_over_the_nodes_per_name(monkeypatch):
+    """Non-vacuity: one `isinstance` per node per table, and the measure doubles."""
+    content = _tables_file(64)
+    baseline = _calls_per_node(content)
+    nodes = list(ast.walk(ast.parse(content)))
+    real_scan = imports_mod._python_dynamic_imports
+
+    def per_name(text, seen):
+        for _name in range(64):
+            for node in nodes:
+                isinstance(node, ast.Name)
+        return real_scan(text, seen)
+
+    monkeypatch.setattr(imports_mod, "_python_dynamic_imports", per_name)
+    assert _calls_per_node(content) > baseline * 1.5
 
 
 @pytest.mark.parametrize("route", ["ast_walk", "node_visitor"])
