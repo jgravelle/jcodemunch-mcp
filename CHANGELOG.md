@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Added - MSBuild `obj/`/`bin/` and Visual Studio's `.vs/` are pruned from the walk
+
+A .NET project without a `.gitignore` indexed its build output as source.
+Both `obj/` and `bin/` routinely hold COPIES of real code -- a web publish
+writes `obj/Release/Package/PackageTmp/` and
+`obj/Release/AspnetCompileMerge/Source/` -- so the same symbols indexed twice
+and the copies competed with the originals in ranking. `obj/`/`bin/` are
+pruned only when a `.csproj`/`.vbproj`/`.fsproj` sits BESIDE them, because
+`bin/` holds committed hand-written entrypoints in Node, Ruby and Go and a
+name-only rule would delete real source; the marker check reuses the
+`filenames` `os.walk` already holds, so it costs no IO. ⚠ A solution file
+(`.sln`/`.slnx`) is NOT a marker: MSBuild writes output beside the PROJECT,
+and a solution root's `bin/` can hold a hand-written script. Counting it
+would prune that script with no warning and let `search_text` certify an
+absence over it; a missed prune only indexes duplicates, so the marker errs
+toward indexing. `.vs/` (binary design-time caches
+and `*.dtbcache.json`) joins `_SKIP_DIRECTORY_NAMES` unconditionally, since
+nothing in it is hand-written; `.idea/` and `.vscode/` deliberately do not.
+⚠ This adds a DEFAULT, not a capability: `.gitignore` and
+`extra_ignore_patterns` could already exclude these for anyone who knew to
+ask. Counted as `msbuild_output` in `discovery_skip_counts` and NOT a
+withheld reason (build output is derived data, so absence stays citable).
+Config key `skip_msbuild_output` / `JCODEMUNCH_SKIP_MSBUILD_OUTPUT`, default
+on; only an explicit `false` disables it, and `exclude_skip_directories`
+does not re-admit it because the rule is a predicate, not a listed name.
+
+### Added - a NuGet `packages/` restore tree is pruned, and the watcher applies both .NET rules
+
+Classic NuGet (v2 / `packages.config`) restores every package to
+`packages/<Id>.<Version>/`, and restored packages ship vendored source --
+jQuery and bootstrap arrive as real `.js` -- which competed with a project's
+own code in ranking and ate the `max_folder_files` cap. A `packages/`
+directory is now pruned when a child directory holds the artifact NuGet
+itself wrote under the same name (`packages/Newtonsoft.Json.6.0.3/
+Newtonsoft.Json.6.0.3.nupkg`). ⚠ The artifact marker is the design:
+`packages/` is hand-written source in Flutter, Dart and JS monorepos, so a
+name-only rule would delete real code, and "child looks like
+`<Id>.<SemVer>`" would key on a naming convention rather than on evidence the
+writer left. ⚠ Where a `.gitignore` already lists `packages` this changes
+WHICH rule excluded the files, not WHAT is indexed; it moves the corpus only
+where no such entry exists. Two known false
+negatives, both erring toward indexing and both test-pinned: a v2 tree whose
+`.nupkg` files were stripped, and the v3 global cache, which nests the
+artifact one level deeper. Config key `skip_nuget_packages` /
+`JCODEMUNCH_SKIP_NUGET_PACKAGES`, default on, counted as `nuget_packages`,
+NOT a withheld reason. Also closes a gap in `skip_msbuild_output` above: it
+never reached `_should_index_file`, so the watcher's fast path returned
+`(True, "")` for `obj/Release/Package/PackageTmp/Program.cs` and re-admitted
+publish output by the back door. Both rules now run on the full walk, the
+watcher fast path and `refresh`; `resolve_explicit_paths` still bypasses them
+on purpose. ⚠ Routes that do NOT apply them: `index_file` (a gap that
+predates this change and covers every skip rule; the next full walk removes
+what it added), and `index_repo`, which gets `.vs/` through the shared skip
+list but neither marker rule.
+
 ## [1.108.337] - 2026-10-09 - a shutdown checkpoints a database without migrating it
 
 ### Fixed

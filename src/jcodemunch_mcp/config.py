@@ -48,6 +48,8 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE": "trusted_folders_whitelist_mode",
     "JCODEMUNCH_MAX_FILE_SIZE": "max_file_size",
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
+    "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
+    "JCODEMUNCH_SKIP_NUGET_PACKAGES": "skip_nuget_packages",
     "JCODEMUNCH_RESPONSE_MAX_BYTES": "response_max_bytes",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
@@ -354,6 +356,8 @@ DEFAULTS = {
     "trusted_folders_whitelist_mode": True,
     "max_file_size": 512000,
     "respect_cachedir_tag": True,
+    "skip_msbuild_output": True,
+    "skip_nuget_packages": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
     "max_index_files": 10000,
@@ -544,6 +548,8 @@ CONFIG_TYPES = {
     "trusted_folders_whitelist_mode": bool,
     "max_file_size": int,
     "respect_cachedir_tag": bool,
+    "skip_msbuild_output": bool,
+    "skip_nuget_packages": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
     "max_index_files": int,
@@ -2183,6 +2189,38 @@ def generate_template() -> str:
   //   for caches that are not dotted. Pruned directories are counted as
   //   `cache_dir` in `discovery_skip_counts`. Set false if you tag a directory
   //   you nonetheless want indexed; only an explicit false disables it.
+
+  // "skip_msbuild_output": true,
+  //   Prune `obj/` and `bin/` when a .NET project file (.csproj/.vbproj/.fsproj)
+  //   sits beside them; a solution file alone (.sln/.slnx) is not enough, since
+  //   MSBuild writes output beside the project. Both routinely hold COPIES of
+  //   real source -- a web publish writes obj/Release/Package/PackageTmp/ and
+  //   obj/Release/AspnetCompileMerge/Source/ -- so the same symbols index twice
+  //   and the copies compete with the originals in ranking.
+  //   The project-file marker is required BY DESIGN and exists for `bin/`, which
+  //   holds committed hand-written entrypoints in Node, Ruby and Go projects; a
+  //   name-only rule would delete real source from those. Pruned directories are
+  //   counted as `msbuild_output` in `discovery_skip_counts`. A standard .NET
+  //   .gitignore already covers both, so this mainly affects projects lacking
+  //   one. Only an explicit false disables it.
+
+  // "skip_nuget_packages": true,
+  //   Prune a `packages/` directory when it is a NuGet restore tree -- proven by
+  //   a child directory holding an artifact NuGet itself wrote under the same
+  //   name, e.g. packages/Newtonsoft.Json.6.0.3/Newtonsoft.Json.6.0.3.nupkg.
+  //   Restored packages ship vendored source (jQuery, bootstrap and friends
+  //   arrive as real .js), which competes with your own code in ranking and eats
+  //   the `max_folder_files` cap.
+  //   ⚠ A `.gitignore` listing `packages` already excludes those files, so on
+  //   such a repo this changes WHICH rule excluded them and not WHAT is indexed.
+  //   It moves the corpus only where no such `.gitignore` entry exists. Pruning
+  //   at the directory is still cheaper either way, because the alternative is
+  //   gitignore-matching every file underneath one by one.
+  //   The artifact marker is required BY DESIGN: `packages/` is a hand-written
+  //   source directory in other ecosystems (Flutter's monorepo is
+  //   packages/flutter, packages/flutter_test), so a name-only rule would delete
+  //   real source from those. Pruned directories are counted as `nuget_packages`
+  //   in `discovery_skip_counts`. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the
