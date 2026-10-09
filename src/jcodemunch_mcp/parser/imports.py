@@ -420,8 +420,43 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     def literal(node) -> Optional[str]:
         return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
+    whole: dict = {}
+
+    def _whole_file() -> dict:
+        """One pass over the file: how often each name is bound, and which
+        names have a use that is not a read.
+
+        Both were asked per NAME with a walk of the whole tree each time, so a
+        file's cost grew with the number of literal tables and loop variables
+        in it; on this repository's own source that was a quarter of a cold
+        index (LEDGER L-147). The answers are the same ones `stores(tree, x)`
+        and the old `_only_read` loop gave.
+        """
+        if not whole:
+            bound: dict[str, int] = {}
+            not_read: set[str] = set()
+            for parent in ast.walk(tree):
+                if isinstance(parent, ast.Name) and isinstance(parent.ctx, (ast.Store, ast.Del)):
+                    bound[parent.id] = bound.get(parent.id, 0) + 1
+                elif isinstance(parent, ast.arg):
+                    bound[parent.arg] = bound.get(parent.arg, 0) + 1
+                elif isinstance(parent, (ast.Import, ast.ImportFrom)):
+                    for a in parent.names:
+                        key = a.asname or a.name.split(".")[0]
+                        bound[key] = bound.get(key, 0) + 1
+                for child in ast.iter_child_nodes(parent):
+                    if (
+                        isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
+                        and not _use_is_a_read(parent, child)
+                    ):
+                        not_read.add(child.id)
+            whole["bound"], whole["not_read"] = bound, not_read
+        return whole
+
     def stores(root, name: str) -> int:
         """Bindings of ``name`` under ``root``: assignment targets and parameters."""
+        if root is tree:
+            return _whole_file()["bound"].get(name, 0)
         n = 0
         for node in ast.walk(root):
             if isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del)):
@@ -486,16 +521,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
         return isinstance(parent, (ast.Compare, ast.FormattedValue, ast.BoolOp, ast.UnaryOp, ast.If, ast.While))
 
     def _only_read(name: str) -> bool:
-        if stores(tree, name) != 1:
-            return False
-        for parent in ast.walk(tree):
-            for child in ast.iter_child_nodes(parent):
-                if (
-                    isinstance(child, ast.Name) and child.id == name
-                    and isinstance(child.ctx, ast.Load) and not _use_is_a_read(parent, child)
-                ):
-                    return False
-        return True
+        return stores(tree, name) == 1 and name not in _whole_file()["not_read"]
 
     tables = {k: v for k, v in tables.items() if _only_read(k)}
 
