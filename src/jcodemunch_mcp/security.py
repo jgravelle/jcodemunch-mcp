@@ -426,14 +426,6 @@ _MSBUILD_OUTPUT_DIR_NAMES: frozenset[str] = frozenset({"obj", "bin"})
 
 # Presence of one of these beside the candidate directory is what makes `obj`/`bin`
 # mean "MSBuild output" rather than an ordinary folder.
-#
-# ⚠ PROJECT files only, never `.sln`/`.slnx`. MSBuild writes `bin/` and `obj/`
-# beside the PROJECT it builds; a solution file says the directory is a solution
-# root and nothing about a `bin/` next to it. A repo with `Mixed.sln` at its root,
-# a hand-written `bin/deploy.py` beside it and the project under `src/App/` would
-# lose `bin/` with no warning, and `search_text` would then certify an absence
-# over the deleted source. A missed prune indexes duplicates (the behaviour before
-# this rule); a wrong prune removes real code, so the marker errs toward indexing.
 _DOTNET_PROJECT_SUFFIXES: tuple[str, ...] = (".csproj", ".vbproj", ".fsproj")
 
 
