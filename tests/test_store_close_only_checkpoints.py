@@ -37,30 +37,53 @@ def _tables(db_path: Path) -> set:
         conn.close()
 
 
-def _half_created(db_path: Path, tables=("meta",)) -> None:
-    """A database part of the way through the schema script.
+def _schema_statements() -> list:
+    """The index schema script, one statement at a time."""
+    from jcodemunch_mcp.storage.sqlite_store import _SCHEMA_SQL
+
+    statements, pending = [], ""
+    for line in _SCHEMA_SQL.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            if pending.strip():
+                statements.append(pending)
+            pending = ""
+    assert not pending.strip(), pending
+    return statements
+
+
+def _half_created(db_path: Path, statements: int = 1) -> None:
+    """A database the first ``statements`` statements into the REAL schema script.
 
     The script is not one transaction, so a second connection can see any
-    prefix of it. With `meta` alone the first migration misses `symbols`; with
-    `meta` and `symbols` it misses `files`, which is the table CI named.
+    prefix of it. Which table a migration then misses depends on the prefix:
+    after one statement there is `meta` and no `symbols`; after two there is
+    `symbols` and no `files`, the table the CI failure named.
     """
     conn = sqlite3.connect(str(db_path))
     try:
-        for table in tables:
-            conn.execute(f"CREATE TABLE {table} (key TEXT PRIMARY KEY, value TEXT)")
+        for statement in _schema_statements()[:statements]:
+            conn.execute(statement)
         conn.commit()
     finally:
         conn.close()
 
 
-@pytest.mark.parametrize("tables", [("meta",), ("meta", "symbols")], ids=["meta", "meta_and_symbols"])
-def test_close_does_not_raise_on_a_database_still_being_created(tmp_path, tables):
+@pytest.mark.parametrize(
+    "statements, present, absent",
+    [(1, "meta", "symbols"), (2, "symbols", "files")],
+    ids=["meta_only", "symbols_without_files"],
+)
+def test_close_does_not_raise_on_a_database_still_being_created(tmp_path, statements, present, absent):
     db = tmp_path / "local-half-00000000.db"
-    _half_created(db, tables)
+    _half_created(db, statements)
+    before = _tables(db)
+    # The fixture is the state it claims to be, whatever order the script takes.
+    assert present in before and absent not in before, before
 
     IndexStore(base_path=str(tmp_path)).close()
 
-    assert _tables(db) == set(tables)
+    assert _tables(db) == before
 
 
 def test_close_does_not_create_the_index_schema_in_another_database(tmp_path):
