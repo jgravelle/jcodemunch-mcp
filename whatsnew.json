@@ -1,6 +1,12 @@
 {
-  "current": "1.108.337",
+  "current": "1.108.338",
   "entries": [
+    {
+      "version": "1.108.338",
+      "date": "2026-10-09",
+      "title": "a .NET build tree and a NuGet restore tree stay out of the index",
+      "summary": "A .NET project with no .gitignore indexed its build output as source. obj/ and bin/ are now pruned when a .csproj, .vbproj or .fsproj sits beside them (a solution file alone is not enough), .vs/ is always skipped, and a packages/ directory is pruned when a child holds the .nupkg NuGet wrote. Config keys skip_msbuild_output and skip_nuget_packages turn the two marker rules off. index_file applies neither rule and index_repo applies only the .vs/ skip. Contributed by @outoftheblue9 (#1001)."
+    },
     {
       "version": "1.108.337",
       "date": "2026-10-09",
@@ -18,12 +24,6 @@
       "date": "2026-10-08",
       "title": "a read-only open reads the file the path names",
       "summary": "Where the storage directory's name held #, a percent escape or ?, every read-only reader opened another file: under a directory named c#proj the open was writable on a stray empty file c, and the embedding store reported no vectors over a store that held them. The path is now escaped where the SQLite URI is built, so those readers see what is stored. A path without those characters opens as before."
-    },
-    {
-      "version": "1.108.334",
-      "date": "2026-10-08",
-      "title": "a semantic search writes no vector of a second model",
-      "summary": "After a change of embedding model, one semantic search_symbols on a repo with a new symbol wrote that symbol's vector at the new width beside the old ones; the mixed store then scored nothing semantically and called the provider again on every search. The search now compares what built the stored vectors before it writes. On a mismatch it writes nothing, ranks without the semantic channel and returns semantic_store_mismatch with the reason; run embed_repo to rebuild. One store changes on upgrade: vectors with no metadata (left by a full re-index before 1.108.331) are no longer scored until embed_repo runs."
     }
   ]
 }

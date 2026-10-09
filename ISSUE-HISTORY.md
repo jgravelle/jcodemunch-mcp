@@ -2298,3 +2298,17 @@ The 1.108.336 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.334 count, verbatim:
 
 - ⚠ Prior (1.108.334): 14997 passed, 25 skipped, **0 failed** (15022 total).
+
+## Current State rotation (2026-10-09, release 1.108.338)
+
+The 1.108.335 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.335):** **A read-only open reads the file the path names** (L-137): `_uri` (`storage/generation.py`) escapes `%`, `#` and `?`, `%` first, and every read-only open builds through it. ⚠⚠ **SQLite reads the string as a URI**: under `c#proj` the open was WRITABLE on a stray file `c`. A test database in `tmp_path` cannot express this (`tests/test_readonly_uri_quotes_the_path.py`). Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-08, release 1.108.336).
+
+The 1.108.337 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.337 — **A shutdown checkpoints a database without migrating it** (L-143): `checkpoint_db` (`storage/sqlite_store.py`) opens a PLAIN connection, checkpoints, and logs a `sqlite3.Error` at debug. ⚠⚠ **Never route it through `_connect`**: that connection creates the index schema or migrates, so a shutdown raised `no such table` on a database still being created and put index tables in `telemetry.db`. ⚠ It never raises; it runs from `finally` blocks (`tests/test_store_close_only_checkpoints.py`). Residue L-144. Forensics: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.335 count, verbatim:
+
+- ⚠ Prior (1.108.335): 15038 passed, 25 skipped, **0 failed** (15063 total).
