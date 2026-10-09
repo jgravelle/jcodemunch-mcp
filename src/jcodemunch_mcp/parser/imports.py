@@ -420,36 +420,45 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     def literal(node) -> Optional[str]:
         return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
+    # THE one walk of the file (LEDGER L-147). `all_nodes` is every node in
+    # `ast.walk` order, so each pass below reads the list instead of walking
+    # the tree again, and `parent_of` is what a per-name question needs. The
+    # scan used to walk the whole tree once per pass, plus twice per literal
+    # table and once per loop variable: a file's cost grew with the number of
+    # names in it, a quarter of a cold index on this repository's own source.
+    all_nodes: list = []
+    parent_of: dict[int, ast.AST] = {}
+    todo = deque([tree])
+    while todo:
+        node = todo.popleft()
+        all_nodes.append(node)
+        for child in ast.iter_child_nodes(node):
+            parent_of[id(child)] = node
+            todo.append(child)
+
     whole: dict = {}
 
     def _whole_file() -> dict:
-        """One pass over the file: how often each name is bound, and which
-        names have a use that is not a read.
-
-        Both were asked per NAME with a walk of the whole tree each time, so a
-        file's cost grew with the number of literal tables and loop variables
-        in it; on this repository's own source that was a quarter of a cold
-        index (LEDGER L-147). The answers are the same ones `stores(tree, x)`
-        and the old `_only_read` loop gave.
-        """
+        """How often each name is bound in the file, and which names have a
+        use that is not a read: the answers `stores(tree, x)` and the old
+        per-name `_only_read` walk gave, for every name at once."""
         if not whole:
             bound: dict[str, int] = {}
             not_read: set[str] = set()
-            for parent in ast.walk(tree):
-                if isinstance(parent, ast.Name) and isinstance(parent.ctx, (ast.Store, ast.Del)):
-                    bound[parent.id] = bound.get(parent.id, 0) + 1
-                elif isinstance(parent, ast.arg):
-                    bound[parent.arg] = bound.get(parent.arg, 0) + 1
-                elif isinstance(parent, (ast.Import, ast.ImportFrom)):
-                    for a in parent.names:
+            for node in all_nodes:
+                if isinstance(node, ast.Name):
+                    if isinstance(node.ctx, (ast.Store, ast.Del)):
+                        bound[node.id] = bound.get(node.id, 0) + 1
+                    elif isinstance(node.ctx, ast.Load):
+                        parent = parent_of.get(id(node))
+                        if parent is not None and not _use_is_a_read(parent, node):
+                            not_read.add(node.id)
+                elif isinstance(node, ast.arg):
+                    bound[node.arg] = bound.get(node.arg, 0) + 1
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for a in node.names:
                         key = a.asname or a.name.split(".")[0]
                         bound[key] = bound.get(key, 0) + 1
-                for child in ast.iter_child_nodes(parent):
-                    if (
-                        isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)
-                        and not _use_is_a_read(parent, child)
-                    ):
-                        not_read.add(child.id)
             whole["bound"], whole["not_read"] = bound, not_read
         return whole
 
@@ -566,7 +575,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     # also bound any other way (`m = cfg`) is not bounded by its loops.
     loop_values: dict[str, list[str]] = {}
     loop_bindings: dict[str, int] = {}
-    for node in ast.walk(tree):
+    for node in all_nodes:
         gens = []
         if isinstance(node, (ast.For, ast.AsyncFor)):
             gens = [(node.target, node.iter)]
@@ -583,7 +592,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     # reading that target is bounded exactly, however else the name is used
     # outside it -- unless the comprehension itself binds the name again.
     comp_values: dict[int, list[str]] = {}
-    for node in ast.walk(tree):
+    for node in all_nodes:
         if not isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
             continue
         for g in node.generators:
@@ -606,7 +615,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     # Names bound to a package or module name.
     own_pkg = {"__name__", "__package__"}
     module_alias: dict[str, str] = {}  # alias -> absolute dotted module
-    for node in ast.walk(tree):
+    for node in all_nodes:
         if isinstance(node, ast.Import):
             for a in node.names:
                 if a.asname:
@@ -690,8 +699,18 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     feeder_node: dict[str, int] = {}
     feeder_calls: dict[str, set[int]] = {}
     duplicate: set[str] = set()
-    for fn in ast.walk(tree):
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+    # Only a function that holds a dynamic import can feed one, so only
+    # those are walked: the enclosing functions of each such call.
+    holds_dynamic: set[int] = set()
+    for node in all_nodes:
+        if isinstance(node, ast.Call) and _is_dynamic_import_call(node):
+            up = parent_of.get(id(node))
+            while up is not None:
+                if isinstance(up, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    holds_dynamic.add(id(up))
+                up = parent_of.get(id(up))
+    for fn in all_nodes:
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or id(fn) not in holds_dynamic:
             continue
         params = [a.arg for a in (*fn.args.posonlyargs, *fn.args.args)]
         if params and params[0] in ("self", "cls"):
@@ -728,13 +747,13 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
     # this file is a direct call; `map(_load, cfg)`, `registry.add(_load)` or
     # `obj._load(x)` can hand it anything (review of #876).
     direct_uses: dict[str, int] = {}
-    for node in ast.walk(tree):
+    for node in all_nodes:
         if isinstance(node, ast.Call):
             callee = _direct_callee(node)
             if callee in feeders:
                 direct_uses[callee] = direct_uses.get(callee, 0) + 1
     all_uses: dict[str, int] = {}
-    for node in ast.walk(tree):
+    for node in all_nodes:
         if isinstance(node, ast.Name) and node.id in feeders and isinstance(node.ctx, ast.Load):
             all_uses[node.id] = all_uses.get(node.id, 0) + 1
         elif isinstance(node, ast.Attribute) and node.attr in feeders:
@@ -745,7 +764,7 @@ def _python_dynamic_imports(content: str, seen: set) -> list[dict]:
             feeders.pop(name)
     fed_calls: set[int] = set().union(*(feeder_calls[n] for n in feeders)) if feeders else set()
 
-    for call in ast.walk(tree):
+    for call in all_nodes:
         if not isinstance(call, ast.Call):
             continue
         if _is_dynamic_import_call(call):
