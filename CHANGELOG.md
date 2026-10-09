@@ -52,6 +52,8 @@ never reached `_should_index_file`, so the watcher's fast path returned
 publish output by the back door. Both rules now run on the full walk and the
 fast path; `resolve_explicit_paths` still bypasses them on purpose.
 
+## [1.108.337] - 2026-10-09 - a shutdown checkpoints a database without migrating it
+
 ### Fixed
 
 - **Shutting the server down no longer migrates or re-schemas the databases it only meant to
