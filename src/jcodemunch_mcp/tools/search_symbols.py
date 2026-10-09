@@ -1335,15 +1335,6 @@ def search_symbols(
     return result
 
 
-def _embed_task_types(provider: str) -> tuple[Optional[str], Optional[str]]:
-    """(query task type, document task type) for ``provider``; Gemini only."""
-    from .embed_repo import _gemini_task_aware
-
-    if provider == "gemini" and _gemini_task_aware():
-        return "CODE_RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"
-    return None, None
-
-
 def _stale_store_mismatch(reason: str, meta: Optional[dict], model: str) -> dict:
     """The `semantic_store_mismatch` body for a `stale_reason` answer.
 
@@ -1411,7 +1402,7 @@ def _search_symbols_semantic(
     When ``semantic_only=True`` the BM25 component is skipped entirely (w=1).
     When ``semantic_weight=0.0`` the result is identical to pure BM25.
     """
-    from .embed_repo import embed_texts, _sym_text, EMBED_BATCH_SIZE
+    from .embed_repo import embed_texts, _sym_text, EMBED_BATCH_SIZE, _embed_task_types
     from ..retrieval import subject_state as _subject_state
     from ..storage.embedding_store import EmbeddingStore, stale_reason
     import logging as _logging
@@ -2030,7 +2021,7 @@ def _search_symbols_fusion(
         _emb_db_path = store._sqlite._db_path(owner, name)
         matrix = _embed_matrix.get_matrix(_emb_db_path)
         if matrix is not None:
-            from .embed_repo import _detect_provider, embed_texts
+            from .embed_repo import _detect_provider, _embed_task_types, embed_texts
             provider = _detect_provider()
             if provider:
                 # LEDGER L-135: what built the stored vectors, asked before the

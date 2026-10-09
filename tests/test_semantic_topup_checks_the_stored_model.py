@@ -733,6 +733,7 @@ class TestTheFusionExitAsksToo:
 
         assert response["semantic_store_mismatch"]["reason"] == "embedding_metadata_missing"
         assert _semantic_channel(response) == "unavailable"
+        assert repo.calls == []
 
     def test_an_unknown_model_at_another_width_is_named(self, repo):
         """No name to compare, so the width of the stored vectors decides. The
@@ -787,6 +788,45 @@ class TestTheFusionExitAsksToo:
         assert "semantic_store_mismatch" not in response
         assert _semantic_channel(response) == "ok"
         assert [n for n, _model, _task in repo.calls] == [1]
+
+    def test_a_task_aware_store_in_order_still_scores(self, repo):
+        """The stamp holds the DOCUMENT task type; comparing the query's would
+        refuse every fusion search over a task-aware Gemini store."""
+        repo.provider("gemini-model", 8, provider_name="gemini", task_aware=True)
+        repo.embed()
+        assert repo.store().get_task_type() == "RETRIEVAL_DOCUMENT"
+        repo.calls.clear()
+        response = repo.fusion()
+
+        assert "semantic_store_mismatch" not in response, response
+        assert _semantic_channel(response) == "ok"
+        assert [n for n, _model, _task in repo.calls] == [1]
+
+    @pytest.mark.parametrize("active", ["model-a", "model-b"], ids=["same_model", "changed_model"])
+    def test_asking_does_not_touch_an_embedded_store(self, repo, active):
+        """The exit's own movement check reads the .db mtime (v1.108.185), and
+        that guard's tests hold no vectors, so they never reach this read.
+
+        ⚠ This pins the outcome on an embedded store. It does not tell a
+        read-only read from a read-write one: with the table and the WAL in
+        place a read-write open moved nothing here either (measured by putting
+        `for_writer=True` in; all cases passed)."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        db = Path(repo.store()._db_path)
+
+        def stamp():
+            out = []
+            for suffix in ("", "-wal", "-shm"):
+                side = db.with_name(db.name + suffix)
+                out.append((side.stat().st_size, side.stat().st_mtime_ns) if side.exists() else None)
+            return out
+
+        before = stamp()
+        repo.provider(active, 8)
+        response = repo.fusion()
+        assert stamp() == before
+        assert ("semantic_store_mismatch" in response) == (active == "model-b")
 
     def test_an_unknown_stored_model_at_the_same_width_still_scores(self, repo):
         """Unknown is not a change (#500)."""
