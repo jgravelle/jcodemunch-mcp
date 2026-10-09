@@ -23,6 +23,11 @@ per name is the same defect with no tree walk in it, so the third property is
 that the function calls the scan makes, per node, do not grow with the names
 (`sys.setprofile`; a second review rebuilt the whole-file table per name and
 every walk test stayed green).
+
+NOT seen (third review): a per-name loop over the node list that makes no
+call per node, such as one written with `node.__class__ is ast.Name`. The
+profiler counts calls, and counting lines would take the trace hook that
+coverage holds in the full tier.
 """
 
 import ast
@@ -161,7 +166,8 @@ def _calls_per_node(content: str) -> float:
 
 @pytest.mark.parametrize("shape", sorted(BUILDERS))
 def test_the_scan_does_no_more_work_per_node_when_the_file_holds_more_names(shape):
-    """A pass over the node list per name walks no tree, so only this sees it."""
+    """A pass over the node list per name walks no tree; this sees one that
+    makes a call per node, and no test here sees one that makes none."""
     few = _calls_per_node(BUILDERS[shape](4))
     many = _calls_per_node(BUILDERS[shape](64))
     assert many <= few * 1.5, (few, many)
