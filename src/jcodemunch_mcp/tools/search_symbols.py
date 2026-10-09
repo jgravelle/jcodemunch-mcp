@@ -1335,6 +1335,34 @@ def search_symbols(
     return result
 
 
+def _stale_store_mismatch(reason: str, meta: Optional[dict], model: str) -> dict:
+    """The `semantic_store_mismatch` body for a `stale_reason` answer.
+
+    One builder for every exit that scores a query vector against the stored
+    vectors (LEDGER L-135: the fusion exit scored them and asked nothing).
+    """
+    out: dict = {"reason": reason, "active_model": model}
+    if (meta or {}).get("model"):
+        out["stored_model"] = (meta or {})["model"]
+    out["remedy"] = "embed_repo rebuilds the stored vectors with the active model"
+    return out
+
+
+def _width_store_mismatch(model: str, stored_dim: int, active_dim: int) -> dict:
+    """The body where no model name can be compared and the widths differ.
+
+    ``stored_dim`` is the width of the stored VECTORS (`EmbeddingMatrix.dim`),
+    not of the dimension row, which can outlive them.
+    """
+    return {
+        "reason": "embedding_dimension_mismatch",
+        "active_model": model,
+        "stored_dimension": stored_dim,
+        "active_dimension": active_dim,
+        "remedy": "embed_repo(force=True) rebuilds the store at one width",
+    }
+
+
 def _search_symbols_semantic(
     *,
     index,
@@ -1374,7 +1402,7 @@ def _search_symbols_semantic(
     When ``semantic_only=True`` the BM25 component is skipped entirely (w=1).
     When ``semantic_weight=0.0`` the result is identical to pure BM25.
     """
-    from .embed_repo import embed_texts, _sym_text, EMBED_BATCH_SIZE, _gemini_task_aware
+    from .embed_repo import embed_texts, _sym_text, EMBED_BATCH_SIZE, _embed_task_types
     from ..retrieval import subject_state as _subject_state
     from ..storage.embedding_store import EmbeddingStore, stale_reason
     import logging as _logging
@@ -1390,11 +1418,7 @@ def _search_symbols_semantic(
         pass
 
     # Determine task types (Gemini only; no-op for other providers).
-    query_task_type: Optional[str] = None
-    doc_task_type: Optional[str] = None
-    if provider == "gemini" and _gemini_task_aware():
-        query_task_type = "CODE_RETRIEVAL_QUERY"
-        doc_task_type = "RETRIEVAL_DOCUMENT"
+    query_task_type, doc_task_type = _embed_task_types(provider)
 
     # ── What built the stored vectors ──────────────────────────────────────
     # LEDGER L-121: this exit embedded every symbol with no vector under the
@@ -1414,15 +1438,8 @@ def _search_symbols_semantic(
     store_mismatch: Optional[dict] = None
     _stale = stale_reason(stored_meta, model, doc_task_type or "")
 
-    def _stale_mismatch(reason: str, meta: Optional[dict]) -> dict:
-        out: dict = {"reason": reason, "active_model": model}
-        if (meta or {}).get("model"):
-            out["stored_model"] = (meta or {})["model"]
-        out["remedy"] = "embed_repo rebuilds the stored vectors with the active model"
-        return out
-
     if _stale:
-        store_mismatch = _stale_mismatch(_stale, stored_meta)
+        store_mismatch = _stale_store_mismatch(_stale, stored_meta, model)
 
     # ── Get query embedding ────────────────────────────────────────────────
     query_vec: list = []
@@ -1446,13 +1463,7 @@ def _search_symbols_semantic(
         # VECTORS, not of the dimension row, which can outlive them; and it is
         # checked here, before the top-up, so a store with no missing symbol
         # is covered and no batch is paid for first.
-        store_mismatch = {
-            "reason": "embedding_dimension_mismatch",
-            "active_model": model,
-            "stored_dimension": matrix.dim,
-            "active_dimension": len(query_vec),
-            "remedy": "embed_repo(force=True) rebuilds the store at one width",
-        }
+        store_mismatch = _width_store_mismatch(model, matrix.dim, len(query_vec))
         matrix = None
     embedded_ids = matrix.id_set if matrix is not None else set()
 
@@ -1499,7 +1510,7 @@ def _search_symbols_semantic(
                 emb_store.drop_orphan_stamp()
                 stored_dim = None
             if _stale_now:
-                store_mismatch = _stale_mismatch(_stale_now, at_write)
+                store_mismatch = _stale_store_mismatch(_stale_now, at_write, model)
                 new_emb = {}
             elif stored_dim is not None and stored_dim != dim:
                 # A last check at the write. The matrix check above answers
@@ -1996,6 +2007,7 @@ def _search_symbols_fusion(
     #  _embed_texts forms all raised and were swallowed, so this channel never ran.)
     similarity_used = False
     similarity_error: Optional[dict] = None
+    store_mismatch: Optional[dict] = None
     try:
         # v1.108.185: read-only, because the plain read wrote. `_connect` runs a
         # WAL pragma and a CREATE-TABLE script on every connection, so probing for
@@ -2006,21 +2018,41 @@ def _search_symbols_fusion(
         # v1.108.223 (#399): still read-only, and now decoded once per store
         # stamp rather than once per query.
         from ..storage import embedding_matrix as _embed_matrix
-        matrix = _embed_matrix.get_matrix(store._sqlite._db_path(owner, name))
+        _emb_db_path = store._sqlite._db_path(owner, name)
+        matrix = _embed_matrix.get_matrix(_emb_db_path)
         if matrix is not None:
-            from .embed_repo import _detect_provider, embed_texts
+            from .embed_repo import _detect_provider, _embed_task_types, embed_texts
             provider = _detect_provider()
             if provider:
-                q_emb = embed_texts([query], provider[0], provider[1])
-                if q_emb and q_emb[0]:
-                    from ..retrieval.signal_fusion import (
-                        build_similarity_channel_from_scores,
-                    )
-                    sim_ch = build_similarity_channel_from_scores(
-                        matrix.score_all(q_emb[0])
-                    )
-                    channels.append(sim_ch)
-                    similarity_used = True
+                # LEDGER L-135: what built the stored vectors, asked before the
+                # provider is called. This exit embedded the query with the
+                # ACTIVE model and scored it against whatever was stored: an
+                # empty channel reported as `ok` where the widths differed, and
+                # a ranking by two models' vectors where they agreed. Same rule
+                # and same body as the semantic exit (L-121). Read-only, so the
+                # .185 mtime guard above still holds.
+                from ..storage.embedding_store import EmbeddingStore, stale_reason
+                _doc_task_type = _embed_task_types(provider[0])[1]
+                _stored_meta = EmbeddingStore(_emb_db_path).read_meta()
+                _stale = stale_reason(_stored_meta, provider[1], _doc_task_type or "")
+                if _stale:
+                    store_mismatch = _stale_store_mismatch(_stale, _stored_meta, provider[1])
+                else:
+                    q_emb = embed_texts([query], provider[0], provider[1])
+                    if q_emb and q_emb[0] and matrix.dim != len(q_emb[0]):
+                        # No stored model name to compare: the width decides.
+                        store_mismatch = _width_store_mismatch(
+                            provider[1], matrix.dim, len(q_emb[0])
+                        )
+                    elif q_emb and q_emb[0]:
+                        from ..retrieval.signal_fusion import (
+                            build_similarity_channel_from_scores,
+                        )
+                        sim_ch = build_similarity_channel_from_scores(
+                            matrix.score_all(q_emb[0])
+                        )
+                        channels.append(sim_ch)
+                        similarity_used = True
     except Exception as exc:
         import logging as _logging
         _logging.getLogger(__name__).debug(
@@ -2250,10 +2282,14 @@ def _search_symbols_fusion(
         scope=file_pattern,
         state_before=state_before,
         semantic_channel=(
-            "ok" if similarity_used else "unavailable" if similarity_error else "off"
+            "ok" if similarity_used
+            else "unavailable" if similarity_error or store_mismatch else "off"
         ),
     )
     meta["verdict"] = _vres["verdict"]
+    if store_mismatch:
+        # In the result, not `_meta`, for the reason given below.
+        result["semantic_store_mismatch"] = store_mismatch
     if similarity_error:
         # In the result, not `_meta`: `meta_fields: []` is the default and strips `_meta`.
         result["semantic_channel_error"] = {
@@ -2279,7 +2315,9 @@ def _search_symbols_fusion(
     # A failed channel is not cached: the key holds neither provider nor library
     # version, so a replay would assert the failure for a call that never had it,
     # including after the upgrade the refusal tells the user to run.
-    if cacheable and cache_key is not None and not similarity_error:
+    # Nor is a store mismatch: `embed_repo` is the remedy it names, and a replay
+    # after the rebuild would keep refusing a store that is now in order.
+    if cacheable and cache_key is not None and not similarity_error and not store_mismatch:
         from ..retrieval import subject_state as _subject
         _result_cache_put(
             cache_key,
