@@ -305,6 +305,18 @@ def _gemini_task_aware() -> bool:
     )
 
 
+def _embed_task_types(provider: str) -> tuple[Optional[str], Optional[str]]:
+    """(query task type, document task type) for ``provider``; Gemini only.
+
+    One rule for the writer that stamps the document task type (`embed_repo`)
+    and the two `search_symbols` exits that compare against the stamp: a copy
+    that drifted would refuse every search as `embedding_task_type_changed`.
+    """
+    if provider == "gemini" and _gemini_task_aware():
+        return "CODE_RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"
+    return None, None
+
+
 # CODE_RETRIEVAL_QUERY was added in the newer google-genai SDK; the legacy
 # google-generativeai SDK only exposes RETRIEVAL_QUERY.
 _GEMINI_TASK_TYPE_FALLBACKS: dict[str, str] = {
@@ -459,9 +471,7 @@ def embed_repo(
     provider, model = provider_info
 
     # Determine document-side task type (Gemini only).
-    doc_task_type: Optional[str] = None
-    if provider == "gemini" and _gemini_task_aware():
-        doc_task_type = "RETRIEVAL_DOCUMENT"
+    doc_task_type = _embed_task_types(provider)[1]
 
     try:
         owner, name = resolve_repo(repo, storage_path)

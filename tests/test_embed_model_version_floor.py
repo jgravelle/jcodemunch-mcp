@@ -206,6 +206,18 @@ def test_a_path_through_an_environment_variable_is_refused(monkeypatch, tmp_path
     assert built == []
 
 
+def _seed_vectors(embedding_store, vectors):
+    """Vectors stamped as `embed_repo` leaves them (width and task type).
+
+    Vectors with no stamp at all are refused before the provider is called
+    (LEDGER L-135, `embedding_metadata_missing`), and these cases are about what
+    happens when the provider IS called and fails.
+    """
+    embedding_store.set_many(vectors)
+    embedding_store.set_dimension(2)
+    embedding_store.set_task_type("")
+
+
 def test_fusion_search_names_the_refusal_instead_of_reading_off(monkeypatch, tmp_path, model_dir):
     """`fusion=True` caught the refusal and answered `semantic: off`, the same as a repo never embedded."""
     from unittest.mock import patch
@@ -225,7 +237,7 @@ def test_fusion_search_names_the_refusal_instead_of_reading_off(monkeypatch, tmp
         owner="test", name="fusion", source_files=["src/a.py"], symbols=[symbol],
         raw_files={"src/a.py": "def foo(): pass"}, languages={"python": 1}, file_languages={"src/a.py": "python"},
     )
-    EmbeddingStore(store._sqlite._db_path("test", "fusion")).set_many({"s1": [0.0, 1.0]})
+    _seed_vectors(EmbeddingStore(store._sqlite._db_path("test", "fusion")), {"s1": [0.0, 1.0]})
     monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", str(model_dir))
     off = patch("jcodemunch_mcp.embeddings.local_encoder.is_model_available", return_value=False)
     off2 = patch("jcodemunch_mcp.embeddings.local_encoder.is_onnxruntime_available", return_value=False)
@@ -279,7 +291,7 @@ def _embedded_repo(tmp_path, monkeypatch, name):
         owner="test", name=name, source_files=["src/a.py"], symbols=[symbol],
         raw_files={"src/a.py": "def foo(): pass"}, languages={"python": 1}, file_languages={"src/a.py": "python"},
     )
-    EmbeddingStore(store._sqlite._db_path("test", name)).set_many({"s1": [0.0, 1.0]})
+    _seed_vectors(EmbeddingStore(store._sqlite._db_path("test", name)), {"s1": [0.0, 1.0]})
     monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
     monkeypatch.setattr(local_encoder, "is_model_available", lambda: False)
     monkeypatch.setattr(local_encoder, "is_onnxruntime_available", lambda: False)
@@ -333,7 +345,7 @@ def test_a_zero_row_fusion_answer_with_a_failed_channel_is_absent_and_says_the_c
     owner, name = repo.split("/", 1)
     store = IndexStore(base_path=str(storage))
     ids = [s["id"] for s in store.load_index(owner, name).symbols]
-    EmbeddingStore(store._sqlite._db_path(owner, name)).set_many({i: [0.0, 1.0] for i in ids})
+    _seed_vectors(EmbeddingStore(store._sqlite._db_path(owner, name)), {i: [0.0, 1.0] for i in ids})
     monkeypatch.setenv("JCODEMUNCH_EMBED_MODEL", "BAAI/bge-base-en-v1.5")
     monkeypatch.setattr(local_encoder, "is_model_available", lambda: False)
     monkeypatch.setattr(local_encoder, "is_onnxruntime_available", lambda: False)

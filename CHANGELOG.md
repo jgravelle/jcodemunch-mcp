@@ -52,6 +52,33 @@ never reached `_should_index_file`, so the watcher's fast path returned
 publish output by the back door. Both rules now run on the full walk and the
 fast path; `resolve_explicit_paths` still bypasses them on purpose.
 
+## [1.108.336] - 2026-10-08 - a fusion search scores no query against another model's vectors
+
+### Fixed
+
+- **A fusion search no longer scores a query against another model's vectors (LEDGER
+  L-135).** `search_symbols` with `fusion=true` embeds the query with the active model and
+  scores it against the stored vectors as its similarity channel. The semantic exit has asked
+  what built those vectors since 1.108.334; this exit asked nothing. Measured at the tool with
+  a mocked provider (`evidence/l135_before_after.txt`), over a store built by another model:
+  the provider was called for the query and the verdict read `channels.semantic: "ok"` in
+  every case, at another width (where the channel scored nothing) and at the same width
+  (where it ranked by vectors of two models).
+  The exit now asks `stale_reason`, the rule `embed_repo` and the semantic exit share, before
+  it calls the provider. On a changed model, a changed task type, or vectors with no metadata
+  it calls the provider for nothing, fuses the other channels, and returns
+  `semantic_store_mismatch` in the body with `channels.semantic: "unavailable"`, the field and
+  the wording the semantic exit returns. Where the stored model is unknown and the width
+  differs, the provider is called once and the reason is `embedding_dimension_mismatch`. That
+  answer is not cached, so a search after `embed_repo` sees the rebuilt store. The exit still
+  writes nothing, and an unknown stored model at the same width is still scored.
+  One store changes behaviour on upgrade, the same one as in 1.108.334: vectors with no
+  metadata, which a full re-index left before 1.108.331 (#522). A fusion search scored those;
+  it now answers `embedding_metadata_missing` and fuses without the similarity channel until
+  `embed_repo` runs.
+  Not changed: under task-aware Gemini this exit embeds the query without the query task type
+  the semantic exit passes (LEDGER L-139).
+
 ## [1.108.335] - 2026-10-08 - a read-only open reads the file the path names
 
 ### Fixed

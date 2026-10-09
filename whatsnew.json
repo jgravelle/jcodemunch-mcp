@@ -1,6 +1,12 @@
 {
-  "current": "1.108.335",
+  "current": "1.108.336",
   "entries": [
+    {
+      "version": "1.108.336",
+      "date": "2026-10-08",
+      "title": "a fusion search scores no query against another model's vectors",
+      "summary": "After a change of embedding model, search_symbols with fusion=true embedded the query with the new model and scored it against the old model's stored vectors, reporting the semantic channel as ok. It now compares what built the stored vectors before it calls the provider. On a mismatch it scores no similarity, fuses the other channels and returns semantic_store_mismatch with the reason; run embed_repo to rebuild. One store changes on upgrade: vectors with no metadata are not scored by a fusion search until embed_repo runs."
+    },
     {
       "version": "1.108.335",
       "date": "2026-10-08",
@@ -18,12 +24,6 @@
       "date": "2026-10-07",
       "title": "the parse budget stops a slow parse again on a fresh install",
       "summary": "A fresh install could resolve tree-sitter 0.26.0, which removed the attribute the per-file parse budget uses to stop a slow parse; indexing then printed 'the installed tree-sitter has no Parser.timeout_micros' and a slow file ran to its end. The dependency is now tree-sitter>=0.25,<0.26, so upgrading jcodemunch-mcp restores the stop. Also: after indexing, init printed '? files, ? symbols'; it now prints the real counts, and says 'indexing failed' with the reason when the indexer refused. And three more inputs gave a dbt or Jinja/Twig macro the wrong docstring; an existing index re-parses once at its next index run. Thanks to Dave for the report."
-    },
-    {
-      "version": "1.108.332",
-      "date": "2026-10-07",
-      "title": "a macro's docstring is the comment directly above it",
-      "summary": "A dbt macro, test, snapshot or materialization, and a Jinja or Twig macro or block, takes the {# comment #} above it as its docstring. In a file of documented macros every one after the first carried the FIRST comment of the file, so a search by what a macro does found the wrong macro. Each now takes the comment that ends directly above it, and the marks of a whitespace-control comment ({#- ... -#}) are no longer part of the text. An existing index re-parses once at its next index run to pick this up. Also: three loops on the parse path take time proportional to the file; a Python file of 6250 functions and 20000 module-level calls that took 63.877 s to index takes 0.593 s, with the same symbols."
     }
   ]
 }

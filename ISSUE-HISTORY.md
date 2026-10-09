@@ -2270,3 +2270,17 @@ The 1.108.334 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.332 count, verbatim:
 
 - ⚠ Prior (1.108.332): 14861 passed, 25 skipped, **0 failed** (14886 total).
+
+## Current State rotation (2026-10-08, release 1.108.336)
+
+The 1.108.333 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.333):** **The parse budget stops a slow parse again on a fresh install** (reported by Dave): `pyproject.toml` declares `tree-sitter>=0.25,<0.26`. ⚠⚠ **The range stops at the minor `uv.lock` pins** (`tests/test_tree_sitter_range_is_the_tested_range.py`): 0.26.0 removed `Parser.timeout_micros` and is unsupported (L-133); move the lock first, and edit its `requires-dist` line by hand. Also `init`'s index line reads the keys `index_folder` returns. ⚠ `PARSER_GENERATION` is 11. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-08, release 1.108.334).
+
+The 1.108.335 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.335 — **A read-only open reads the file the path names** (L-137): `_uri` (`storage/generation.py`) escapes `%`, `#` and `?` in the path, and `readonly_uri` and the immutable fallback both build through it. ⚠⚠ **SQLite reads the string as a URI**: under a directory named `c#proj` the open was WRITABLE on a stray file `c` and `has_any()` answered False over stored vectors. ⚠ Escape those three only, `%` first; a test database in `tmp_path` cannot express this (`tests/test_readonly_uri_quotes_the_path.py`). Forensics: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.333 count, verbatim:
+
+- ⚠ Prior (1.108.333): 14948 passed, 25 skipped, **0 failed** (14973 total).

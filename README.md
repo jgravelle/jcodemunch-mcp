@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.336](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.336)** (2026-10-08) — a fusion search scores no query against another model's vectors
 - **[v1.108.335](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.335)** (2026-10-08) — a read-only open reads the file the path names
 - **[v1.108.334](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.334)** (2026-10-08) — a semantic search writes no vector of a second model
 - **[v1.108.333](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.333)** (2026-10-07) — the parse budget stops a slow parse again on a fresh install
-- **[v1.108.332](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.332)** (2026-10-07) — a macro's docstring is the comment directly above it
 <!-- WHATSNEW:END -->
 
 ---

@@ -70,6 +70,9 @@ def stale_reason(stored: Optional[dict], model: str, task_type: str) -> Optional
     `embed_repo` only, so the top-up wrote a second model's vectors beside the
     first's). A function that calls `set_many` and not this fails
     `tests/test_semantic_topup_checks_the_stored_model.py`.
+    The fusion exit of `search_symbols` writes nothing and asks too, before it
+    scores a query vector against the stored ones (LEDGER L-135); a function
+    that calls `score_all` and not this fails the same file.
 
     ⚠ Unknown is NOT a change (#500). An unreadable store (``None``), a store
     with no model name, and an empty ``model`` all answer None: forcing a
