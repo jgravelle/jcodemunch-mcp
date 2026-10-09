@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.336] - 2026-10-08 - a fusion search scores no query against another model's vectors
+
 ### Fixed
 
 - **A fusion search no longer scores a query against another model's vectors (LEDGER
