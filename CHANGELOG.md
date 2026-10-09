@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Indexing a Python file that holds a dynamic import no longer walks the file once per table
+  (LEDGER L-147).** The dynamic-import scan added in 1.108.320 (#876) has to know two things
+  about names in the file: whether a module-level literal table is only ever read, and whether a
+  loop variable is bound only by its loops. It answered each by walking the file's whole syntax
+  tree, once or twice per name, and then walked the tree again for each of seven passes. A file
+  with 64 literal tables was walked 199 times, and one with 4 tables 19 times
+  (`tests/test_dynamic_import_scan_walks_the_tree_once.py`, `evidence/red.txt`). On this
+  repository's own source that was about a fifth of a cold index: on Linux, 2.455 s and 2.417 s
+  against 1.964 s and 1.936 s for the code before #876 on the same files
+  (`evidence/l147_linux_timing.txt`). The nightly's cold-index Floor caught it ten days later on
+  a slow runner (#1005); our first reading of that failure called it runner variance, which was
+  wrong, and the issue carries the correction.
+  The file is now walked once, into a list with parent links, and every pass reads the list. The
+  same two test files are walked 1.03 and 1.3 times. The cold index above reads 2.155 s and
+  2.14 s. What the scan returns is unchanged: identical output on 892 real Python files, this
+  repository, its environment and the standard library (`evidence/l147_equivalence.txt`), so no
+  index needs rebuilding.
+  Not recovered: the scan still parses each such file a second time, with Python's own parser,
+  and the cold index is still about a tenth slower than before #876.
+
 ## [1.108.338] - 2026-10-09 - a .NET build tree and a NuGet restore tree stay out of the index
 
 Both entries below are @outoftheblue9's work (#1001). An index built before this release keeps the files these rules now prune
