@@ -78,6 +78,13 @@ def _harness(tmp_path, monkeypatch, store_name):
             )
 
         @staticmethod
+        def fusion(query="handler", **kwargs):
+            return search_symbols(
+                repo=indexed["repo"], query=query, fusion=True,
+                storage_path=str(store_dir), max_results=10, **kwargs
+            )
+
+        @staticmethod
         def store():
             return EmbeddingStore(db_path)
 
@@ -668,6 +675,139 @@ class TestWhatMustNotChange:
         assert seen == [True, False]
 
 
+class TestTheFusionExitAsksToo:
+    """LEDGER L-135: `fusion=True` scores a query vector against the stored
+    matrix. It writes nothing, and it asked nothing either: a query from the
+    active model was scored against another model's vectors."""
+
+    def test_a_changed_model_scores_no_similarity_and_says_why(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4)
+        response = repo.fusion()
+
+        mismatch = response.get("semantic_store_mismatch")
+        assert mismatch, sorted(response)
+        assert mismatch["reason"] == "embedding_model_changed"
+        assert (mismatch["stored_model"], mismatch["active_model"]) == ("model-a", "model-b")
+        assert "embed_repo" in mismatch["remedy"]
+        assert _semantic_channel(response) == "unavailable"
+        assert response["result_count"] == 5, response
+
+    def test_a_changed_model_at_the_same_width_is_not_scored(self, repo):
+        """The widths agree, so nothing downstream can tell: the channel ranked
+        by a query vector of one model against vectors of another."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 8)
+        response = repo.fusion()
+
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_model_changed"
+        assert _semantic_channel(response) == "unavailable"
+        assert repo.calls == []
+
+    def test_the_provider_is_called_for_nothing(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4)
+        repo.fusion()
+        repo.fusion()
+        assert repo.calls == []
+
+    def test_a_task_type_change_is_not_scored(self, repo):
+        repo.provider("gemini-model", 8, provider_name="gemini", task_aware=False)
+        repo.embed()
+        repo.provider("gemini-model", 8, provider_name="gemini", task_aware=True)
+        response = repo.fusion()
+
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_task_type_changed"
+        assert _semantic_channel(response) == "unavailable"
+        assert repo.calls == []
+
+    def test_vectors_with_no_metadata_are_not_scored(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_dimension", "embed_model", "embed_task_type")
+        repo.provider("model-b", 4)
+        response = repo.fusion()
+
+        assert response["semantic_store_mismatch"]["reason"] == "embedding_metadata_missing"
+        assert _semantic_channel(response) == "unavailable"
+
+    def test_an_unknown_model_at_another_width_is_named(self, repo):
+        """No name to compare, so the width of the stored vectors decides. The
+        channel was empty here and the verdict said `ok`."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_model")
+        repo.provider("model-b", 4)
+        response = repo.fusion()
+
+        mismatch = response["semantic_store_mismatch"]
+        assert mismatch["reason"] == "embedding_dimension_mismatch"
+        assert (mismatch["stored_dimension"], mismatch["active_dimension"]) == (8, 4)
+        assert _semantic_channel(response) == "unavailable"
+        assert [n for n, _model, _task in repo.calls] == [1]
+
+    def test_the_ranking_ledger_records_that_the_channel_did_not_run(self, repo, monkeypatch):
+        from jcodemunch_mcp.storage import token_tracker
+
+        seen = []
+        monkeypatch.setattr(
+            token_tracker, "record_ranking_event",
+            lambda **kwargs: seen.append(kwargs["semantic_used"]),
+        )
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.fusion()
+        repo.provider("model-b", 8)
+        # Another query: the first answer is cached, and a replay records no row.
+        repo.fusion(query="handler_1")
+        assert seen == [True, False]
+
+    def test_a_mismatch_is_not_replayed_after_the_rebuild(self, repo):
+        """`embed_repo` is the remedy the response names; the next search must
+        see the rebuilt store, not a cached refusal."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.provider("model-b", 4)
+        assert "semantic_store_mismatch" in repo.fusion()
+
+        repo.embed()
+        response = repo.fusion()
+        assert "semantic_store_mismatch" not in response, response
+        assert _semantic_channel(response) == "ok"
+
+    def test_the_same_model_still_scores(self, repo):
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.calls.clear()
+        response = repo.fusion()
+
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "ok"
+        assert [n for n, _model, _task in repo.calls] == [1]
+
+    def test_an_unknown_stored_model_at_the_same_width_still_scores(self, repo):
+        """Unknown is not a change (#500)."""
+        repo.provider("model-a", 8)
+        repo.embed()
+        repo.drop_meta("embed_model")
+        repo.provider("model-b", 8)
+        response = repo.fusion()
+
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "ok"
+
+    def test_a_repo_with_no_vectors_is_off_and_calls_no_provider(self, repo):
+        repo.provider("model-a", 8)
+        response = repo.fusion()
+
+        assert "semantic_store_mismatch" not in response
+        assert _semantic_channel(response) == "off"
+        assert repo.calls == []
+
+
 META = {"has_vectors": True, "dimension": 8, "model": "model-a", "task_type": ""}
 
 
@@ -721,6 +861,43 @@ def test_every_function_that_writes_vectors_asks_what_built_the_store():
         ("search_symbols.py", "_search_symbols_semantic"),
     }, writers
     assert [w for w in writers if not w[2]] == [], writers
+
+
+def _scorers_that_do_not_ask(source):
+    """Functions that call `score_all` and never `stale_reason`."""
+    return sorted(
+        name for name, names in _functions_calling(ast.parse(source), "score_all")
+        if "stale_reason" not in names
+    )
+
+
+def test_every_function_that_scores_a_query_asks_what_built_the_store():
+    """LEDGER L-135: the writer ratchet above is keyed on `set_many`, and the
+    fusion exit reads. A query vector scored against the stored matrix is the
+    other way to mix two models."""
+    scorers, silent = [], []
+    for path in sorted(SRC.rglob("*.py")):
+        if path.name == "embedding_matrix.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        scorers += [(path.name, name) for name, _ in _functions_calling(ast.parse(source), "score_all")]
+        silent += [(path.name, name) for name in _scorers_that_do_not_ask(source)]
+    assert set(scorers) >= {
+        ("search_symbols.py", "_search_symbols_semantic"),
+        ("search_symbols.py", "_search_symbols_fusion"),
+    }, scorers
+    assert silent == [], silent
+
+
+def test_the_scorer_scan_sees_a_function_that_does_not_ask():
+    source = NL.join([
+        "def asks(m, q):",
+        "    stale_reason(None, '', '')",
+        "    return m.score_all(q)",
+        "def does_not(m, q):",
+        "    return m.score_all(q)",
+    ])
+    assert _scorers_that_do_not_ask(source) == ["does_not"]
 
 
 def test_the_compact_encoder_keeps_the_mismatch():
