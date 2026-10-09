@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.337] - 2026-10-09 - a shutdown checkpoints a database without migrating it
+
 ### Fixed
 
 - **Shutting the server down no longer migrates or re-schemas the databases it only meant to
