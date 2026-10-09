@@ -2284,3 +2284,17 @@ The 1.108.335 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.333 count, verbatim:
 
 - ⚠ Prior (1.108.333): 14948 passed, 25 skipped, **0 failed** (14973 total).
+
+## Current State rotation (2026-10-09, release 1.108.337)
+
+The 1.108.334 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.334):** **A semantic search writes no vector of a second model** (L-121): `stale_reason` (`storage/embedding_store.py`) is THE rule, and `embed_repo` and `search_symbols`' semantic top-up both ask it (`tests/test_semantic_topup_checks_the_stored_model.py`). ⚠⚠ **On a reason the search does NOT rebuild**: it writes nothing and returns `semantic_store_mismatch`; `embed_repo` rebuilds. ⚠ A stamp never outlives its vectors (`drop_orphan_stamp()`, never `clear()`). Residue L-135, L-136. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-08, release 1.108.335).
+
+The 1.108.336 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.336 — **A fusion search scores no query against another model's vectors** (L-135): `_search_symbols_fusion` asks `stale_reason` before it calls the provider and returns `semantic_store_mismatch`, the semantic exit's body (`_stale_store_mismatch`, `_width_store_mismatch`). ⚠⚠ **A function that calls `score_all` and never `stale_reason` fails `tests/test_semantic_topup_checks_the_stored_model.py`**; the L-121 scan was keyed on `set_many`, and this exit reads. ⚠ `_embed_task_types` (`tools/embed_repo.py`) is the ONE task-type rule for the writer that stamps and the exits that compare. Residue L-139, L-140, L-141. Forensics: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.334 count, verbatim:
+
+- ⚠ Prior (1.108.334): 14997 passed, 25 skipped, **0 failed** (15022 total).
