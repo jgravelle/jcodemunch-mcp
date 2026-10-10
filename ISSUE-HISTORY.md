@@ -2337,3 +2337,17 @@ no overlap. #1005 was reopened with a correction and the loosening dropped (jjg)
 walking a file's syntax tree per name and per pass; fixed in #1011, released as 1.108.339. A local timing of the suspect commit on a fixed
 older copy of `src/` had shown too little to see: the cost was the new code on the new files. The Standing lesson dated 10-09 is the
 rule this earned.
+
+## Current State rotation (2026-10-10, release 1.108.340)
+
+The 1.108.337 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.337):** **A shutdown checkpoints a database without migrating it** (L-143): `checkpoint_db` (`storage/sqlite_store.py`) opens a PLAIN connection and never raises. ⚠⚠ **Never route it through `_connect`**, which creates the index schema or migrates. Residue L-144. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-09, release 1.108.338).
+
+The 1.108.339 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.339 — **The dynamic-import scan walks a Python file once** (L-147, #1005): `_python_dynamic_imports` (`parser/imports.py`) reads ONE node list with parent links. ⚠⚠ **Never answer a per-name question there with `ast.walk(tree)` or a pass over `all_nodes`**; `tests/test_dynamic_import_scan_walks_the_tree_once.py` counts visits and calls per node. ⚠ Output unchanged, no `PARSER_GENERATION` bump. Not recovered: a tenth of a cold index against pre-#876. Residue L-148, L-149. Forensics: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.337 count, verbatim:
+
+- ⚠ Prior (1.108.337): 15063 passed, 25 skipped, **0 failed** (15088 total).

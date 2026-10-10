@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.340] - 2026-10-10 - ASP.NET Web Forms is indexed, and a handler wired in markup is referenced
+
 ### Fixed - a Web Forms handler wired in markup is referenced, and markup reaches the file graph
 
 Web Forms binds codebehind methods in ways the AST call graph cannot see, so
