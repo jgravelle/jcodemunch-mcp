@@ -9573,8 +9573,15 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 # The `\b` and the lookbehind keep a long run of name characters from being
 # re-read from every position (see `_ASPX_DIRECTIVE` in imports.py).
 _ASPX_DIRECTIVE_RE = re.compile(rb"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+# Double-quoted, single-quoted or unquoted, as ASP.NET's parser accepts (see
+# `_ASPX_VALUE` in imports.py): an unquoted value ends at a delimiter, and in a
+# tag also at the `/` of `/>`.
+_ASPX_ATTR_NAME_RE = rb"(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"
 _ASPX_ATTR_RE = re.compile(
-    rb'(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"([^"]*)"'
+    _ASPX_ATTR_NAME_RE + rb"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=]+)(?=\s|$))"""
+)
+_ASPX_TAG_ATTR_RE = re.compile(
+    _ASPX_ATTR_NAME_RE + rb"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=/]+)(?=[\s/>]|$))"""
 )
 # Any tag prefix: <%@ Register TagPrefix= %> lets a project define its own.
 # Attributes may hold quoted HTML (`ErrorMessage="<br>..."`) or an inline
@@ -9585,7 +9592,9 @@ _ASPX_CONTROL_RE = re.compile(
     rb"<(\w+):(\w+)\b((?:\"[^\"]*\"|'[^']*'|" + _ASPX_INLINE_BLOCK + rb"|[^<>\"'])*)>",
     re.IGNORECASE,
 )
-_ASPX_RUNAT_SERVER_RE = re.compile(rb'runat\s*=\s*"server"', re.IGNORECASE)
+_ASPX_RUNAT_SERVER_RE = re.compile(
+    rb"""(?<![\w\x80-\xff:.\-])runat\s*=\s*(?:"server"|'server'|server(?=[\s/>]|$))""", re.IGNORECASE
+)
 # `</script\b[^<>]*>`, not `</script>`, to satisfy CodeQL py/bad-tag-filter.
 _ASPX_SCRIPT_OPEN_TAG_RE = re.compile(rb"<script\b([^<>]*)>", re.IGNORECASE)
 _ASPX_SCRIPT_OPEN_RE = re.compile(rb"<script\b", re.IGNORECASE)
@@ -9649,8 +9658,11 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     def _text(raw: bytes) -> str:
         return raw.decode("utf-8", errors="replace")
 
-    def _attrs(raw: bytes) -> dict[str, str]:
-        return {_text(k).lower(): _text(v) for k, v in _ASPX_ATTR_RE.findall(raw)}
+    def _attrs(raw: bytes, pattern: re.Pattern = _ASPX_ATTR_RE) -> dict[str, str]:
+        return {
+            _text(k).lower(): _text(dq or sq or bare)
+            for k, dq, sq, bare in pattern.findall(raw)
+        }
 
     def _line_for_offset(offset: int) -> int:
         return bisect.bisect_left(newlines, offset) + 1
@@ -9719,7 +9731,7 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         attrs_raw = m.group(3) or b""
         if not _ASPX_RUNAT_SERVER_RE.search(attrs_raw):
             continue
-        attrs = _attrs(attrs_raw)
+        attrs = _attrs(attrs_raw, _ASPX_TAG_ATTR_RE)
         control_id = attrs.get("id")
         if not control_id or control_id in seen_ids:
             continue

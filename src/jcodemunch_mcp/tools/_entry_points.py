@@ -158,6 +158,11 @@ _HOST_INVOKED_NAMES = frozenset({
 # Build-consumed: project-file items. Runtime-loadable: LoadControl, a CMS's
 # stored control path, MasterPageFile set in code.
 _BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targets")
+# W3C formats other ecosystems use too: `build_consumed` only with .NET
+# evidence, `schema_consumer` with a Maven or Gradle build (JAXB, Spring-WS and
+# CXF compile every schema under a directory by default, naming none).
+_SHARED_FORMAT_SUFFIXES = (".xsd", ".wsdl")
+_JVM_BUILD_NAMES = frozenset({"pom.xml", "build.gradle", "build.gradle.kts"})
 _RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
 
 
@@ -170,16 +175,37 @@ def is_host_invoked(file_path: str) -> bool:
     return base in _HOST_INVOKED_NAMES or base.endswith(_HOST_INVOKED_SUFFIXES)
 
 
-def unseen_consumer(file_path: str) -> Optional[str]:
-    """`build_consumed`, `runtime_loadable`, or None.
+# Source files count too: a subtree index can hold no project file, and a wrong
+# "yes" only keeps a cap, while a wrong "no" reports a live schema dead.
+_DOTNET_SOURCE_SUFFIXES = (".cs", ".fs")
+
+
+def has_dotnet_evidence(source_files) -> bool:
+    """True when any indexed file is .NET source or one IIS or MSBuild invokes."""
+    return any(
+        is_host_invoked(f) or f.lower().endswith(_DOTNET_SOURCE_SUFFIXES) for f in source_files
+    )
+
+
+def has_jvm_build(source_files) -> bool:
+    """True when any indexed file is a Maven or Gradle build file."""
+    return any(_basename_lower(f) in _JVM_BUILD_NAMES for f in source_files)
+
+
+def unseen_consumer(file_path: str, *, dotnet: bool, jvm: bool) -> Optional[str]:
+    """`build_consumed`, `schema_consumer`, `runtime_loadable`, or None.
 
     A host-invoked file is a root and never capped, so `Directory.Build.props`
-    (also a `.props`) returns None.
+    (also a `.props`) returns None. `dotnet` is `has_dotnet_evidence` and `jvm`
+    is `has_jvm_build` for the repository; with neither, `.xsd`/`.wsdl` are not
+    capped.
     """
     if is_host_invoked(file_path):
         return None
     base = _basename_lower(file_path)
     if base.endswith(_BUILD_CONSUMED_SUFFIXES):
+        if not dotnet and base.endswith(_SHARED_FORMAT_SUFFIXES):
+            return "schema_consumer" if jvm else None
         return "build_consumed"
     if base.endswith(_RUNTIME_LOADABLE_SUFFIXES):
         return "runtime_loadable"

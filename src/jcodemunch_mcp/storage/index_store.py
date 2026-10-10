@@ -627,7 +627,12 @@ INDEX_VERSION = 17
 # 18 (L-173 item 7): a JavaScript or TypeScript call through a string key
 #   (`t["m"]()`) records the member. It recorded the container. No symbol id
 #   moves; only `call_references` changes, on UNCHANGED content.
-PARSER_GENERATION = 18
+#
+# 19 (follow-up to #1012): a Web Forms attribute value may be single-quoted or
+#   unquoted. A page whose directive or server control uses either form gains
+#   its codebehind and handler edges, its control symbols and its server-script
+#   symbols, on UNCHANGED content.
+PARSER_GENERATION = 19
 
 
 @dataclass(frozen=True)

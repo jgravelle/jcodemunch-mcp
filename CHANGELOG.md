@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema is capped as a .NET build item only in a .NET repository
+
+ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
+value, and the Web Forms reader took only the first. An unquoted
+`runat=server` failed the server-control gate, so that control's `OnClick=`
+handler gave its codebehind method no reference, and a `CodeFile='Q.aspx.cs'`
+directive gave the page no edge to its codebehind. The directive and attribute
+patterns of `parser/imports.py` and `parser/extractor.py`, including the `On*`
+handler pattern and both `runat` gates, now accept all three forms, and so do
+`plan_refactoring`'s Web Forms definition patterns. An unquoted value must end
+at a delimiter, so an empty `Title=` does not take the next attribute's name;
+in a tag it also stops at the `/` of `/>`, while a directive value may be a
+path. Each pattern stays linear on a long run of its own form. `runat` must be
+the whole attribute name and `server` the whole value, so `data-runat="server"`
+and `runat=server-x` no longer open the gate. `PARSER_GENERATION` 18 -> 19, so
+an existing index re-parses its pages instead of keeping the edges it missed.
+
+`.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
+they were capped as `build_consumed` in every repository, so `check_delete_safe`
+gave a Java schema LoadControl and project-file advice that did not apply.
+`build_consumed` now needs .NET evidence in the index: .NET source (`.cs`,
+`.fs`) or a file IIS or MSBuild invokes (a project file, a page,
+`global.asax`); source counts so that a subtree index with no project file
+keeps the cap. With a Maven or Gradle build file (`pom.xml`, `build.gradle`,
+`build.gradle.kts`) instead, the schema takes the new neutral cap
+`schema_consumer`, because JAXB, Spring-WS and CXF compile every schema under a
+directory by default and name none, so dropping the cap would have reported a
+live schema dead at confidence 1.0. With neither, a schema is reported like any
+other file. A wrong match only keeps a cap. The roots and the .NET-only
+formats (`.resx`, `.xaml`, `.props`, `.targets`, `.ascx`, `.master`) keep
+their extension rule: a project-file gate would un-root the pages of a Web
+Site project, which has no project file. Both points raised by @jgravelle in
+the review of #1012. (@outoftheblue9)
+
 ## [1.108.356] - 2026-10-13 - a JavaScript method called through a string key is recorded as called
 
 ### Fixed - a JavaScript method called through a string key recorded the wrong name (LEDGER L-173)

@@ -179,8 +179,8 @@ _DEF_PATTERNS = {
     "razor": re.compile(r"^\s*@\s*(?:functions|code|page|inject)\s+"),
     # Web Forms "definition": a server control's ID, or the Inherits codebehind class.
     "aspx": re.compile(
-        r"<\w+:\w+[^>]*\bID\s*=\s*[\"']{name}[\"']"
-        r"|<%@[^%]*\bInherits\s*=\s*[\"'][^\"']*{left}{name}[\"']"
+        r"<\w+:\w+[^>]*\bID\s*=\s*[\"']?{name}(?:[\"'\s/>]|$)"
+        r"|<%@[^%]*\bInherits\s*=\s*[\"']?[\w.]*{left}{name}(?:[\"'\s%]|$)"
     ),
     "astro": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
     "blade": re.compile(r"^\s*@\s*(?:section|component|slot)\s*\(\s*['\"]{name}['\"]"),
