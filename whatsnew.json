@@ -1,6 +1,12 @@
 {
-  "current": "1.108.339",
+  "current": "1.108.340",
   "entries": [
+    {
+      "version": "1.108.340",
+      "date": "2026-10-10",
+      "title": "ASP.NET Web Forms is indexed, and a handler wired in markup is referenced",
+      "summary": "ASP.NET Web Forms markup (.aspx, .ascx, .master, .asax, .ashx, .asmx) is indexed as its own language, `aspx`, and ten XML-shaped .NET files (.csproj, .resx, .xaml and others) as `xml`. An event handler wired only in markup (OnClick=\"btnSave_Click\") now reads as referenced, and pages, handlers and project files are roots, so the dead-code tools stop offering live Web Forms code for deletion. Contributed by @outoftheblue9. An existing C# index that holds one of the new file types over the size cap now reads as an inadequate corpus until `max_file_size` covers the file."
+    },
     {
       "version": "1.108.339",
       "date": "2026-10-09",
@@ -18,12 +24,6 @@
       "date": "2026-10-09",
       "title": "a shutdown checkpoints a database without migrating it",
       "summary": "At shutdown the server compacts the WAL of every database in its storage directory. It opened each one through the indexer's connection, which creates the index schema or runs the version migrations. A database still being created raised no such table out of the shutdown, any other SQLite file there (telemetry.db) gained the index tables, and a file that is not a database stopped the loop. The checkpoint now opens a plain connection and never raises. Index tables an earlier shutdown created in another database stay there."
-    },
-    {
-      "version": "1.108.336",
-      "date": "2026-10-08",
-      "title": "a fusion search scores no query against another model's vectors",
-      "summary": "After a change of embedding model, search_symbols with fusion=true embedded the query with the new model and scored it against the old model's stored vectors, reporting the semantic channel as ok. It now compares what built the stored vectors before it calls the provider. On a mismatch it scores no similarity, fuses the other channels and returns semantic_store_mismatch with the reason; run embed_repo to rebuild. One store changes on upgrade: vectors with no metadata are not scored by a fusion search until embed_repo runs."
     }
   ]
 }
