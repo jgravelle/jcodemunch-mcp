@@ -88,18 +88,21 @@ file. The direction is the careful one. ⚠ `.config` and `.settings` are delibe
 mapped: `web.config` and a `Settings.settings` holding a connection-string
 setting both carry plaintext credentials, `is_secret_file()` is False for
 them and `redact_dict` makes zero substitutions on an ADO.NET connection
-string; they land with connection-string redaction, not before, and a test
+string; they are mapped once connection strings are redacted, not before, and a test
 pins that for both. Fixtures are real MIT-licensed Microsoft code pinned by commit SHA
 (`tests/fixtures/dotnet/SOURCES.md`); the declarative-handler fixture is
 hand-written and says so.
 
-Both entries above are @outoftheblue9's work (#1012). Four changes came from
-review and are the maintainers': the directive and attribute patterns are
-anchored, so a long run of name characters is read once (an unclosed
-`<%@aaaa...` of 100 KB took minutes in one call no parse budget interrupts); a
-namespace import resolves to no file; `get_dead_code_v2` names the .NET reason
-under its own key; and the `runat="server"` gate has a test that fails without
-it (`tests/test_aspx_review_guards.py`).
+Both entries above are @outoftheblue9's work (#1012). The changes below came
+from two rounds of review and are the maintainers'. Three patterns cost
+quadratic time in one call no parse budget interrupts: the directive and
+attribute patterns are anchored, so a long run of name characters is read once
+(an unclosed `<%@aaaa...` of 100 KB took minutes), and the inline server script
+is found by a scan instead of one pattern (115 s at 500 KB). A namespace
+import resolves to no file. An attribute whose name only ends in an event name
+(`data-onclick`) names no handler. `get_dead_code_v2` names the .NET reason
+under its own key. And the `runat="server"` gate has a test that fails
+without it (`tests/test_aspx_review_guards.py`).
 
 ## [1.108.339] - 2026-10-09 - the dynamic-import scan walks a Python file once
 

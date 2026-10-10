@@ -1174,7 +1174,9 @@ def _aspx_tags(content: str):
 
 
 _ASPX_RUNAT_SERVER = re.compile(r'runat\s*=\s*"server"', re.IGNORECASE)
-_ASPX_EVENT_ATTR = re.compile(r'\b(on[a-z]+)\s*=\s*"([^"]*)"', re.IGNORECASE)
+# The lookbehind makes `on...` the attribute's whole name: with `\b` alone,
+# `data-onclick="Foo"` and `aria-onx="Bar"` named server handlers.
+_ASPX_EVENT_ATTR = re.compile(r'(?<![\w:.\-])(on[a-z]+)\s*=\s*"([^"]*)"', re.IGNORECASE)
 # OnClient* handlers are JavaScript, not codebehind methods.
 _ASPX_CLIENT_EVENT_PREFIX = "onclient"
 # Bare method names only; databound expressions are not handler references.
@@ -1232,7 +1234,7 @@ def _extract_aspx_imports(content: str) -> list[dict]:
         edge.update(extra)
         edges.append(edge)
 
-    handlers = None
+    handlers = None  # sorted handler names, found once
     for m in _ASPX_DIRECTIVE.finditer(content):
         name = m.group(1).lower()
         attrs = {k.lower(): v for k, v in _ASPX_ATTR.findall(m.group(2))}
@@ -1251,9 +1253,9 @@ def _extract_aspx_imports(content: str) -> list[dict]:
                 # Handler names on a separate edge to the codebehind file, so
                 # check_references sees them without mixing into the Inherits edge.
                 if handlers is None:
-                    handlers = _aspx_handler_names(content)
+                    handlers = sorted(_aspx_handler_names(content))
                 if handlers:
-                    _add(code, sorted(handlers), aspx_binding="markup_event")
+                    _add(code, handlers, aspx_binding="markup_event")
             master = attrs.get("masterpagefile")
             if master:
                 _add(master, [])

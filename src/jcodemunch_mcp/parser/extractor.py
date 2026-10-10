@@ -9137,11 +9137,39 @@ _ASPX_CONTROL_RE = re.compile(
 )
 _ASPX_RUNAT_SERVER_RE = re.compile(rb'runat\s*=\s*"server"', re.IGNORECASE)
 # `</script\b[^<>]*>`, not `</script>`, to satisfy CodeQL py/bad-tag-filter.
-# The body stops at the next `<script` so an unclosed one cannot scan to EOF.
-_ASPX_SERVER_SCRIPT_RE = re.compile(
-    rb'<script\b[^<>]*runat\s*=\s*"server"[^<>]*>((?:(?!<script\b).)*?)</script\b[^<>]*>',
-    re.IGNORECASE | re.DOTALL,
-)
+_ASPX_SCRIPT_OPEN_TAG_RE = re.compile(rb"<script\b([^<>]*)>", re.IGNORECASE)
+_ASPX_SCRIPT_OPEN_RE = re.compile(rb"<script\b", re.IGNORECASE)
+_ASPX_SCRIPT_CLOSE_RE = re.compile(rb"</script\b[^<>]*>", re.IGNORECASE)
+
+
+def _aspx_server_scripts(source_bytes: bytes):
+    """Yield ``(body_start, body)`` for each closed `<script runat="server">`.
+
+    The body stops at the next `<script`, so an unclosed one yields nothing.
+    A scan, not one pattern: as a single regex, every `runat="server"` in an
+    open tag was a place to retry from, and each retry re-read the body to
+    the end of the file (17 s at 200 KB, in a call no parse budget interrupts;
+    review of #1012). Here the close is looked for only up to the next
+    `<script`, so each byte is read a bounded number of times.
+    """
+    pos = 0
+    while True:
+        parse_budget.checkpoint()
+        opened = _ASPX_SCRIPT_OPEN_TAG_RE.search(source_bytes, pos)
+        if opened is None:
+            return
+        pos = opened.end()
+        if not _ASPX_RUNAT_SERVER_RE.search(opened.group(1)):
+            continue
+        following = _ASPX_SCRIPT_OPEN_RE.search(source_bytes, pos)
+        limit = following.start() if following else len(source_bytes)
+        closed = _ASPX_SCRIPT_CLOSE_RE.search(source_bytes, pos, limit)
+        if closed is None:
+            continue
+        yield pos, source_bytes[pos:closed.start()]
+        pos = closed.end()
+
+
 _ASPX_CODE_ATTRS = ("codebehind", "codefile", "src")
 
 _ASPX_KIND_BY_DIRECTIVE = {
@@ -9298,13 +9326,12 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Inline <script runat="server"> re-parsed as C#. Offsets inside the body are
     # exact only while it is valid UTF-8.
-    for m in _ASPX_SERVER_SCRIPT_RE.finditer(source_bytes):
+    for script_body_start, body_raw in _aspx_server_scripts(source_bytes):
         parse_budget.checkpoint()
-        body_raw = m.group(1)
         body = _text(body_raw)
         if not body.strip():
             continue
-        offset_line = _line_for_offset(m.start(1)) - 1
+        offset_line = _line_for_offset(script_body_start) - 1
         wrapper_name = f"{view_name}ServerScript"
         wrapper_prefix = f"class {wrapper_name} {{\n"
         try:
@@ -9317,7 +9344,7 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             logger.debug("aspx inline server script parse failed", exc_info=True)
             continue
         prefix_len = len(wrapper_prefix.encode("utf-8"))
-        body_start = m.start(1)
+        body_start = script_body_start
         body_len = len(body_raw)
         wrapper_id = make_symbol_id(filename, wrapper_name, "class")
         rewrapped: list[tuple[Symbol, Symbol]] = []

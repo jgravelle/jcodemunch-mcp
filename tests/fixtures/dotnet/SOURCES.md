@@ -96,12 +96,14 @@ Vendored files are byte-identical to upstream **except**:
 
 The files listed under "Vendored" above are copied from repositories Microsoft
 publishes under the MIT License. That license requires this notice to travel
-with every copy:
+with every copy. The two copyright lines are each repository's own, as they
+stand at the pinned commits; the text after them is the same in both:
 
 ```
-MIT License
+The MIT License (MIT)
 
-Copyright (c) Microsoft Corporation.
+Copyright (c) 2016 Microsoft Corporation      (microsoft/dotnet-framework-docker, LICENSE.TXT)
+Copyright (c) 2015 Microsoft                  (microsoft/WPF-Samples, LICENSE)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

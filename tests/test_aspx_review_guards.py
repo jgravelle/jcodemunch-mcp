@@ -4,7 +4,9 @@ Four defects the review reproduced on the PR's tree, each with the twin that
 must keep working:
 
 - two regexes re-read a long run of name characters from every position, in
-  one C call no parse budget interrupts (100 KB took minutes);
+  one C call no parse budget interrupts (100 KB took minutes), and a third,
+  the server-script pattern, retried from every `runat="server"` in an open
+  tag (second review);
 - `<%@ Import Namespace="Utils" %>` resolved as a path with extension
   expansion, so an unimported `utils.js` in any ancestor directory read as
   used and `find_dead_code` stopped reporting it;
@@ -36,6 +38,9 @@ HOSTILE = {
     "directive_attribute_run": "<%@ Page " + "a" * RUN + " %>",
     "directive_dotted_run": "<%@ Page " + "a.b:c-" * (RUN // 6) + " %>",
     "control_attribute_run": '<asp:Button runat="server" ' + "a" * RUN + " />",
+    "server_script_unclosed_body": "<script " + 'runat="server" ' * 20000 + ">" + "x" * RUN,
+    "server_script_unclosed_tag": "<script " + 'runat="server" ' * (RUN // 5),
+    "server_scripts_never_closed": '<script runat="server">x' * (RUN // 24),
 }
 
 
@@ -192,6 +197,21 @@ def test_a_handler_on_an_element_without_runat_server_is_no_edge(markup):
 def test_a_client_side_handler_on_a_server_control_is_no_edge():
     markup = '<asp:Button ID="b" runat="server" OnClientClick="Client_Name" OnClick="Server_Name" />'
     assert _aspx_handler_names(markup) == ["Server_Name"]
+
+
+def test_an_attribute_whose_name_only_ends_in_an_event_name_is_no_edge():
+    """`data-onclick` and `aria-onx` are not `onclick`: the name is anchored."""
+    markup = '<div runat="server" data-onclick="Foo" aria-onx="Bar" meta:onx="Baz" onclick="Real">'
+    assert _aspx_handler_names(markup) == ["Real"]
+
+
+def test_a_closed_server_script_is_still_reparsed_and_an_unclosed_one_is_not():
+    """The twin of the script shapes above: the scan finds what the pattern found."""
+    closed = '<%@ Page Language="C#" %>\n<script runat="server">\nvoid Hello_Zzz() { }\n</script>\n'
+    names = {s.name for s in parse_file(closed, "App/x.aspx", "aspx")}
+    assert "Hello_Zzz" in names, names
+    unclosed = '<%@ Page Language="C#" %>\n<script runat="server">\nvoid Lost_Zzz() { }\n<script>var a;</script>\n'
+    assert "Lost_Zzz" not in {s.name for s in parse_file(unclosed, "App/x.aspx", "aspx")}
 
 
 def test_the_same_bare_name_is_an_edge_once_the_control_runs_at_the_server():
