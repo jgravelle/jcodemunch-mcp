@@ -9120,8 +9120,12 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
 # Bytes patterns so match offsets are byte offsets; `\x80-\xff` lets names hold
 # non-ASCII UTF-8, since `\w` is ASCII-only on bytes.
-_ASPX_DIRECTIVE_RE = re.compile(rb"<%@\s*(\w+)((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
-_ASPX_ATTR_RE = re.compile(rb'([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"([^"]*)"')
+# The `\b` and the lookbehind keep a long run of name characters from being
+# re-read from every position (see `_ASPX_DIRECTIVE` in imports.py).
+_ASPX_DIRECTIVE_RE = re.compile(rb"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+_ASPX_ATTR_RE = re.compile(
+    rb'(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"([^"]*)"'
+)
 # Any tag prefix: <%@ Register TagPrefix= %> lets a project define its own.
 # Attributes may hold quoted HTML (`ErrorMessage="<br>..."`) or an inline
 # `<%...%>`; outside those nothing crosses a bare `<`, so an unclosed tag fails

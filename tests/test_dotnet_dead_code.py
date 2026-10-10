@@ -267,10 +267,10 @@ def test_v2_treats_host_invoked_files_as_entry_points(webforms_repo):
     out = get_dead_code_v2(repo_id, min_confidence=0.0, storage_path=storage)
     diag = out.get("_meta", {}).get("signal_diagnostics", {})
     assert diag.get("entry_points_detected", 0) >= 4, diag
-    flagged = {
-        d.get("symbol_id", ""): d.get("signals", [])
-        for d in out.get("dead_symbols", [])
-    }
-    for sid, signals in flagged.items():
-        if "Default.aspx.cs" in sid or "Orphan.ascx.cs" in sid:
-            assert "unreachable_file" not in signals, (sid, signals)
+    # Rows carry `id`; this read `symbol_id`, a key no row has, so the loop
+    # below matched nothing and asserted nothing (review of #1012).
+    flagged = {d["id"]: d.get("signals", []) for d in out.get("dead_symbols", [])}
+    checked = [sid for sid in flagged if "Default.aspx.cs" in sid or "Orphan.ascx.cs" in sid]
+    assert checked, sorted(flagged)
+    for sid in checked:
+        assert "unreachable_file" not in flagged[sid], (sid, flagged[sid])

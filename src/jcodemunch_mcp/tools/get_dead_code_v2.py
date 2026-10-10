@@ -624,15 +624,24 @@ def get_dead_code_v2(
     boundary_roots = {f for f in source_files if boundary.reaching(f)} if boundary else set()
     # Forward only: what a maybe-loaded file imports may load with it; what
     # imports it is a separate question the graph already answers.
-    # .NET controls and build items load through edges the index does not carry.
-    boundary_roots |= {f for f in source_files if unseen_consumer(f)}
-    maybe_loaded = set(boundary_roots)
-    queue = deque(boundary_roots)
-    while queue:
-        for imported in forward.get(queue.popleft(), []):
-            if imported not in maybe_loaded:
-                maybe_loaded.add(imported)
-                queue.append(imported)
+    def _with_what_they_import(roots: set) -> set:
+        loaded = set(roots)
+        queue = deque(roots)
+        while queue:
+            for imported in forward.get(queue.popleft(), []):
+                if imported not in loaded:
+                    loaded.add(imported)
+                    queue.append(imported)
+        return loaded
+
+    dynamic_loaded = _with_what_they_import(boundary_roots)
+    # .NET controls and build items load through edges the index does not
+    # carry. Undecided for the same reason-shape as (f), but it is a DIFFERENT
+    # reason, and the response names it apart: these files were reported under
+    # `dynamic_import_boundary` with no site, in a repository holding no dynamic
+    # import (review of #1012).
+    unseen_roots = {f: kind for f in source_files if (kind := unseen_consumer(f))}
+    maybe_loaded = dynamic_loaded | _with_what_they_import(set(unseen_roots))
 
     # Pre-compute barrel exports (Signal 3 input). Recursively follows CJS
     # ``module.exports = require(...)`` / ESM ``export * from`` so that
@@ -730,6 +739,7 @@ def get_dead_code_v2(
     cofire_counts: dict[str, int] = {}
     undecided_counts: dict[str, int] = {}
     undecided_files: set[str] = set()
+    undecided_symbols_in: dict[str, int] = {}
     # Pass 1 collects; pass 2 scores (v1.108.231). Which signals are worth a
     # vote is a property of the whole repository, so it cannot be known until
     # every symbol has been seen. Scoring inline was what made a signal that
@@ -776,6 +786,7 @@ def get_dead_code_v2(
             if sym_file in maybe_loaded:
                 undecided.append("unreachable_file")
                 undecided_files.add(sym_file)
+                undecided_symbols_in[sym_file] = undecided_symbols_in.get(sym_file, 0) + 1
             else:
                 signals.append("unreachable_file")
 
@@ -864,11 +875,30 @@ def get_dead_code_v2(
             ),
         },
     }
-    if undecided_files:
-        sites = sorted({s for f in undecided_files for s in boundary.reaching(f)})
+    by_dynamic_import = undecided_files & dynamic_loaded
+    by_unseen_consumer = undecided_files - dynamic_loaded
+    if by_unseen_consumer:
+        kinds: dict[str, int] = {}
+        for f in by_unseen_consumer:
+            kind = unseen_roots.get(f, "imported_by_one")
+            kinds[kind] = kinds.get(kind, 0) + 1
+        result["unseen_consumer_boundary"] = {
+            "files": len(by_unseen_consumer),
+            "symbols": sum(undecided_symbols_in[f] for f in by_unseen_consumer),
+            "files_by_kind": dict(sorted(kinds.items())),
+            "note": (
+                "unreachable_file was not decided for these files: a .NET project "
+                "file may consume them (build_consumed), or a user control or master "
+                "page may be loaded by path at runtime (runtime_loadable); "
+                "imported_by_one counts the files such a file imports. The index "
+                "carries neither edge. Their other signals still vote."
+            ),
+        }
+    if by_dynamic_import:
+        sites = sorted({s for f in by_dynamic_import for s in boundary.reaching(f)})
         result["dynamic_import_boundary"] = {
-            "files": len(undecided_files),
-            "symbols": undecided_counts.get("unreachable_file", 0),
+            "files": len(by_dynamic_import),
+            "symbols": sum(undecided_symbols_in[f] for f in by_dynamic_import),
             "sites": sites[:FILES_CAP],
             "sites_total": len(sites),
             "note": (

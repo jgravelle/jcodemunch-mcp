@@ -1121,8 +1121,15 @@ def _extract_vue_imports(content: str) -> list[dict]:
 # ASP.NET Web Forms directives: codebehind, master page, registered controls.
 # A `%` may appear in a value (`Title="50% off"`); stopping at the next `<%`
 # keeps an unclosed directive from scanning to the end of the file.
-_ASPX_DIRECTIVE = re.compile(r"<%@\s*(\w+)((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
-_ASPX_ATTR = re.compile(r'(\w[\w:.\-]*)\s*=\s*"([^"]*)"')
+#
+# Both patterns are anchored so a long run of name characters is read ONCE
+# (review of #1012). Without the `\b`, the directive name and the body both
+# match word characters, so an unclosed `<%@aaaa...` was split at every
+# position; without the lookbehind, the attribute name was retried from every
+# character of the run. Each is one C call that no parse budget interrupts:
+# 100 KB of `a` took minutes.
+_ASPX_DIRECTIVE = re.compile(r"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+_ASPX_ATTR = re.compile(r'(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*"([^"]*)"')
 
 _ASPX_MARKUP_SUFFIXES = (".aspx", ".ascx", ".master", ".asax", ".ashx", ".asmx")
 
@@ -2452,6 +2459,13 @@ def resolve_specifier(
                         return cand
     # Web Forms paths are relative to the markup file or to the app root (an
     # ancestor), not the repo root: try the sibling, then each ancestor directory.
+    #
+    # A markup specifier names a FILE, extension included (`CodeBehind=`,
+    # `Src=`, `MasterPageFile=`), so it is matched as written and never
+    # through `_candidates`. With extension expansion, `<%@ Import
+    # Namespace="Utils" %>` bound an unrelated `utils.js` in any ancestor
+    # directory, and `check_delete_safe` blocked that file's deletion as final
+    # (review of #1012). A namespace resolves to nothing, here or below.
     if not specifier.startswith((".", "/")) and importer_path.lower().endswith(
         _ASPX_MARKUP_SUFFIXES
     ):
@@ -2460,18 +2474,17 @@ def resolve_specifier(
         probe_dir = posixpath.dirname(importer_path)
         while True:
             joined = posixpath.normpath(posixpath.join(probe_dir, specifier))
-            for c in _candidates(joined):
-                if c in source_files:
-                    return c
+            if joined in source_files:
+                return joined
             if lowered is None:
                 lowered = _lowercase_paths(source_files)
-            for c in _candidates(joined):
-                hit = lowered.get(c.lower())
-                if hit:
-                    return hit
+            hit = lowered.get(joined.lower())
+            if hit:
+                return hit
             if not probe_dir:
                 break
             probe_dir = posixpath.dirname(probe_dir)
+        return None
 
     # Python bare module name: a script's own directory is `sys.path[0]`, so
     # `import checks` in `tools/run.py` is `tools/checks.py`, ahead of the root.
