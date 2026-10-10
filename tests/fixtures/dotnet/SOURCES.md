@@ -17,7 +17,7 @@ byte-for-byte is not reproducible evidence. Same reasoning as
 ## Vendored — `microsoft/dotnet-framework-docker`
 
 **Commit:** `1c4b3a1f86a3429648bb6af07965d00e625910cf`
-**License:** MIT — Copyright (c) Microsoft Corporation
+**License:** MIT — Copyright (c) 2016 Microsoft Corporation
 **Upstream dir:** `samples/aspnetapp/aspnetapp/`
 
 A complete, Microsoft-maintained ASP.NET Web Forms application. Chosen over the
@@ -39,7 +39,7 @@ family rather than a fragment.
 ## Vendored — `microsoft/WPF-Samples`
 
 **Commit:** `428feec619ff748a7c98f53bb6f757ee7dc6b7c7`
-**License:** MIT — Copyright (c) Microsoft Corporation
+**License:** MIT — Copyright (c) 2015 Microsoft
 
 | local | upstream | why this file |
 |---|---|---|

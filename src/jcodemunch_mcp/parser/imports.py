@@ -1252,10 +1252,14 @@ def _extract_aspx_imports(content: str) -> list[dict]:
                     )
                 # Handler names on a separate edge to the codebehind file, so
                 # check_references sees them without mixing into the Inherits edge.
+                # ONE such edge per file, on its first code directive: a page has
+                # one codebehind, and an edge per directive made the output
+                # directives x handlers (a 462 KB page produced 80 million names
+                # and 681 MB of edges; review of #1012).
                 if handlers is None:
                     handlers = sorted(_aspx_handler_names(content))
-                if handlers:
-                    _add(code, handlers, aspx_binding="markup_event")
+                    if handlers:
+                        _add(code, handlers, aspx_binding="markup_event")
             master = attrs.get("masterpagefile")
             if master:
                 _add(master, [])

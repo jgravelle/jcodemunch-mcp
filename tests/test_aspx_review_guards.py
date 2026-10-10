@@ -1,7 +1,7 @@
 """Guards from the review of #1012 (ASP.NET Web Forms, @outoftheblue9).
 
-Four defects the review reproduced on the PR's tree, each with the twin that
-must keep working:
+Defects three rounds of review reproduced on the PR's tree, each with the twin
+that must keep working:
 
 - two regexes re-read a long run of name characters from every position, in
   one C call no parse budget interrupts (100 KB took minutes), and a third,
@@ -13,7 +13,9 @@ must keep working:
 - `get_dead_code_v2` reported files held back for a .NET reason under
   `dynamic_import_boundary`, with no site, in a repository holding no dynamic
   import;
-- the `runat="server"` gate had a test that passed with the gate removed.
+- the `runat="server"` gate had a test that passed with the gate removed;
+- a handler edge was emitted per code directive, each carrying every handler
+  name, so a page under the size cap produced directives x handlers names.
 """
 
 from __future__ import annotations
@@ -212,6 +214,45 @@ def test_a_closed_server_script_is_still_reparsed_and_an_unclosed_one_is_not():
     assert "Hello_Zzz" in names, names
     unclosed = '<%@ Page Language="C#" %>\n<script runat="server">\nvoid Lost_Zzz() { }\n<script>var a;</script>\n'
     assert "Lost_Zzz" not in {s.name for s in parse_file(unclosed, "App/x.aspx", "aspx")}
+
+
+def test_only_a_server_script_is_reparsed_and_every_one_of_them_is():
+    """The gate, the stop and the loop of the scan, none of which a timing
+    test sees: each of the three was removed in turn and every other Web
+    Forms test stayed green (third review)."""
+    head = '<%@ Page Language="C#" %>\n'
+
+    def names(markup: str) -> set:
+        return {s.name for s in parse_file(head + markup, "App/x.aspx", "aspx")}
+
+    # A client script is JavaScript: not re-parsed as C#.
+    assert "Client_Zzz" not in names("<script>\nvoid Client_Zzz() { }\n</script>\n")
+    # An unclosed server script stops at the next script tag in ANY case.
+    assert "Lost_Zzz" not in names(
+        '<script runat="server">\nvoid Lost_Zzz() { }\n<SCRIPT>var a;</SCRIPT>\n'
+    )
+    # Two server scripts: both are found, in any case.
+    both = names(
+        '<script runat="server">\nvoid First_Zzz() { }\n</script>\n<p>between</p>\n'
+        '<SCRIPT RunAt="server">\nvoid Second_Zzz() { }\n</SCRIPT>\n'
+    )
+    assert {"First_Zzz", "Second_Zzz"} <= both, both
+
+
+@pytest.mark.parametrize("count", [50, 400])
+def test_the_names_a_page_emits_grow_with_the_page_not_with_its_square(count):
+    """`count` code directives and `count` handlers: one handler edge, not one
+    per directive. Counted, never timed."""
+    page = "".join('<%%@ Page Src="C%d.cs" %%>\n' % k for k in range(count))
+    page += "".join('<a runat="server" onx="H%d">\n' % k for k in range(count))
+    edges = extract_imports(page, "App/x.aspx", "aspx")
+    names = sum(len(e["names"]) for e in edges)
+    # A file edge and a designer edge per directive, plus each handler once.
+    assert len(edges) <= 2 * count + 1, len(edges)
+    assert names <= 3 * count, names
+    event_edges = [e for e in edges if e.get("aspx_binding") == "markup_event"]
+    assert len(event_edges) == 1 and len(event_edges[0]["names"]) == count
+    assert event_edges[0]["specifier"] == "C0.cs"
 
 
 def test_the_same_bare_name_is_an_edge_once_the_control_runs_at_the_server():

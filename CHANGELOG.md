@@ -94,12 +94,14 @@ pins that for both. Fixtures are real MIT-licensed Microsoft code pinned by comm
 hand-written and says so.
 
 Both entries above are @outoftheblue9's work (#1012). The changes below came
-from two rounds of review and are the maintainers'. Three patterns cost
+from three rounds of review and are the maintainers'. Three patterns cost
 quadratic time in one call no parse budget interrupts: the directive and
 attribute patterns are anchored, so a long run of name characters is read once
 (an unclosed `<%@aaaa...` of 100 KB took minutes), and the inline server script
 is found by a scan instead of one pattern (115 s at 500 KB). A namespace
-import resolves to no file. An attribute whose name only ends in an event name
+import resolves to no file. A page emits one handler edge, on its first code
+directive, where an edge per directive made the output directives times
+handlers. An attribute whose name only ends in an event name
 (`data-onclick`) names no handler. `get_dead_code_v2` names the .NET reason
 under its own key. And the `runat="server"` gate has a test that fails
 without it (`tests/test_aspx_review_guards.py`).
