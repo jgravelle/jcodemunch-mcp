@@ -10,7 +10,9 @@ every such method read as uncalled. `On*=` on a `runat="server"` control
 and ASP.NET honours both, including after an inline `<%# ... %>` attribute
 value) now emits an import edge naming the handler; `OnClient*` is excluded because it is
 JavaScript, and a tag without `runat="server"` names no server method,
-since a fabricated reference makes dead code look live. The codebehind class is
+since a fabricated reference makes dead code look live. ⚠ That gate governs
+the EDGE only: `check_references` and `get_dead_code_v2` also match content,
+so a method named in a client-side `onclick=` still reads as referenced. The codebehind class is
 `partial` across `X.aspx.cs` and `X.aspx.designer.cs` while the directive
 names only the first, so a `designer_partial` edge covers the generated half,
 whose control fields had no incoming edge. None of it reached the file
@@ -21,7 +23,11 @@ resolved to None and `find_importers`, `get_blast_radius` and
 `get_dependency_graph` were blind to markup. Resolution now tries the
 sibling, then each ancestor, case-insensitively as ASP.NET does
 (`codebehind="Site.master.cs"` names `Site.Master.cs`), gated on the
-IMPORTER's extension like the Python-relative (#423) and Gleam branches. ⚠
+IMPORTER's extension like the Python-relative (#423) and Gleam branches. A
+markup specifier is matched as written, extension included, so
+`<%@ Import Namespace="Utils" %>` resolves to no file. ⚠ The ancestor walk
+applies to a bare name as well as to `~/`: `CodeBehind="X.aspx.cs"` with no
+sibling of that name binds an ancestor directory's `X.aspx.cs`. ⚠
 `AutoEventWireup` lifecycle names (`Page_*`) are deliberately NOT
 synthesized: most such names have no definition in a typical solution, and
 each would have gained one phantom reference per page, inherited by any unrelated
@@ -40,7 +46,9 @@ and counted in `<reason>_withheld`: `build_consumed` for project-file items
 `runtime_loadable` for an unreferenced `.ascx`/`.master`, which
 `LoadControl`, a CMS's stored control path or `MasterPageFile` set in code can
 load by path. A codebehind whose only importer is capped inherits the cap, and
-`get_dead_code_v2` leaves signal 1 undecided for both. `check_delete_safe`
+`get_dead_code_v2` leaves signal 1 undecided for both and counts them under a
+new `unseen_consumer_boundary` key (`files`, `symbols`, `files_by_kind`, `note`),
+apart from `dynamic_import_boundary`, which names dynamic imports only. `check_delete_safe`
 answers `dynamic_import_boundary` for a symbol in a capped file instead of
 `safe_to_delete`. A `<%@ Register %>`ed control is an ordinary edge and stays
 live. A `%` in a directive value (`Title="50% off"`) no longer drops the
@@ -71,7 +79,12 @@ import extraction under the `razor` key and move output for every existing
 razor arm's `@import '...'` is not Web Forms syntax. Ten XML-shaped .NET
 extensions (`.xaml`, `.csproj`, `.vbproj`, `.fsproj`, `.props`, `.targets`,
 `.resx`, `.nuspec`, `.xsd`, `.wsdl`) map onto the existing `xml` language,
-adding no new language. ⚠ `.config` and `.settings` are deliberately NOT
+adding no new language. ⚠⚠ **This changes answers on an existing C# repository
+that holds one of these files over `max_file_size`** (a `.resx` with an embedded
+image is the common case): the file is now `too_large`, a withheld reason, so the
+corpus reads as inadequate and `find_dead_code` and `check_delete_safe` withhold
+verdicts they gave before (`corpus_inadequate`) until `max_file_size` covers the
+file. The direction is the careful one. ⚠ `.config` and `.settings` are deliberately NOT
 mapped: `web.config` and a `Settings.settings` holding a connection-string
 setting both carry plaintext credentials, `is_secret_file()` is False for
 them and `redact_dict` makes zero substitutions on an ADO.NET connection
@@ -79,6 +92,14 @@ string; they land with connection-string redaction, not before, and a test
 pins that for both. Fixtures are real MIT-licensed Microsoft code pinned by commit SHA
 (`tests/fixtures/dotnet/SOURCES.md`); the declarative-handler fixture is
 hand-written and says so.
+
+Both entries above are @outoftheblue9's work (#1012). Four changes came from
+review and are the maintainers': the directive and attribute patterns are
+anchored, so a long run of name characters is read once (an unclosed
+`<%@aaaa...` of 100 KB took minutes in one call no parse budget interrupts); a
+namespace import resolves to no file; `get_dead_code_v2` names the .NET reason
+under its own key; and the `runat="server"` gate has a test that fails without
+it (`tests/test_aspx_review_guards.py`).
 
 ## [1.108.339] - 2026-10-09 - the dynamic-import scan walks a Python file once
 
