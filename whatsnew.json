@@ -1,6 +1,12 @@
 {
-  "current": "1.108.338",
+  "current": "1.108.339",
   "entries": [
+    {
+      "version": "1.108.339",
+      "date": "2026-10-09",
+      "title": "the dynamic-import scan walks a Python file once",
+      "summary": "Indexing a Python file that holds a dynamic import walked the file's whole syntax tree once or twice per literal table, once per loop variable and once per pass, a cost added in 1.108.320. The file is now walked once. A cold index of this project's own source is about an eighth faster on Linux, and the edges the scan returns are unchanged, so no index needs rebuilding. About a tenth of a cold index against the code before 1.108.320 is not recovered."
+    },
     {
       "version": "1.108.338",
       "date": "2026-10-09",
@@ -18,12 +24,6 @@
       "date": "2026-10-08",
       "title": "a fusion search scores no query against another model's vectors",
       "summary": "After a change of embedding model, search_symbols with fusion=true embedded the query with the new model and scored it against the old model's stored vectors, reporting the semantic channel as ok. It now compares what built the stored vectors before it calls the provider. On a mismatch it scores no similarity, fuses the other channels and returns semantic_store_mismatch with the reason; run embed_repo to rebuild. One store changes on upgrade: vectors with no metadata are not scored by a fusion search until embed_repo runs."
-    },
-    {
-      "version": "1.108.335",
-      "date": "2026-10-08",
-      "title": "a read-only open reads the file the path names",
-      "summary": "Where the storage directory's name held #, a percent escape or ?, every read-only reader opened another file: under a directory named c#proj the open was writable on a stray empty file c, and the embedding store reported no vectors over a store that held them. The path is now escaped where the SQLite URI is built, so those readers see what is stored. A path without those characters opens as before."
     }
   ]
 }

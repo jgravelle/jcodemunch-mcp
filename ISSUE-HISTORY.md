@@ -2312,3 +2312,28 @@ The 1.108.337 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.335 count, verbatim:
 
 - ⚠ Prior (1.108.335): 15038 passed, 25 skipped, **0 failed** (15063 total).
+
+## Current State rotation (2026-10-09, release 1.108.339)
+
+The 1.108.336 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.336):** **A fusion search scores no query against another model's vectors** (L-135): `_search_symbols_fusion` asks `stale_reason` before it calls the provider and returns `semantic_store_mismatch`. ⚠⚠ **A function that calls `score_all` and never `stale_reason` fails `tests/test_semantic_topup_checks_the_stored_model.py`.** ⚠ `_embed_task_types` (`tools/embed_repo.py`) is the ONE task-type rule. Residue L-139, L-140, L-141. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-09, release 1.108.337).
+
+The 1.108.338 entry, verbatim, dropped when it was compressed to a `Prior` line:
+
+- **Version:** 1.108.338 — **A .NET build tree and a NuGet restore tree stay out of the index** (#1001, @outoftheblue9): `obj/`/`bin/` are pruned only beside a `.csproj`/`.vbproj`/`.fsproj`, `packages/` only when a child holds its own `.nupkg`, `.vs/` always (`security.py`). ⚠⚠ **A solution file is NOT a marker**: a root `.sln` pruned a hand-written `bin/deploy.py` and `search_text` certified the absence. ⚠ Both rules prune on evidence the writer left, never on the name. `index_file` applies neither and `index_repo` only `.vs/` (L-142). Forensics: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.336 count, verbatim:
+
+- ⚠ Prior (1.108.336): 15056 passed, 25 skipped, **0 failed** (15081 total).
+
+## 2026-10-09: a cold-index Floor failure read as runner noise (#1005, LEDGER L-146 and L-147)
+
+The nightly of 2026-10-09 failed `index.cold_self_seconds` at 5.207 against a Floor of 5.2. Triage compared readings BETWEEN jobs, saw
+about 2x between runners, closed #1005 as runner variance and drafted a loosening of the Floor, twice. The second review of that draft
+divided each job's cold-index reading by another timing of the same job; over the 24 recorded CI runs
+(`harness/results/self_latency_ci_runs_*.json`) the ratio steps 1.29x to 1.36x between the nightlies of 2026-09-29 and 2026-09-30 with
+no overlap. #1005 was reopened with a correction and the loosening dropped (jjg). The cause was the dynamic-import scan of #876
+walking a file's syntax tree per name and per pass; fixed in #1011, released as 1.108.339. A local timing of the suspect commit on a fixed
+older copy of `src/` had shown too little to see: the cost was the new code on the new files. The Standing lesson dated 10-09 is the
+rule this earned.
