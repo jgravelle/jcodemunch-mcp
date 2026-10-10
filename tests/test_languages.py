@@ -2111,6 +2111,79 @@ def test_xml_extension_mapping():
     assert get_language_for_path("data/UPPER.XML") == "xml"
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Views/MainWindow.xaml",
+        "WebApp.csproj",
+        "Legacy.vbproj",
+        "Tooling.fsproj",
+        "Directory.Build.props",
+        "Directory.Build.targets",
+        "Properties/Resources.resx",
+        "package.nuspec",
+        "schemas/order.xsd",
+        "Service References/svc.wsdl",
+    ],
+)
+def test_xml_shaped_dotnet_extensions_map_to_xml(path):
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+
+    assert get_language_for_path(path) == "xml"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Web.config",
+        "web.config",
+        "App_Data/app.config",
+        "Properties/Settings.settings",
+        "My Project/Settings.settings",
+    ],
+)
+def test_dotnet_config_is_not_indexed_without_connection_string_redaction(path):
+    """`.config`/`.settings` stay unmapped while no guard redacts connection strings.
+
+    Fails once either guard covers them, signalling the extensions may be mapped.
+    """
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+    from jcodemunch_mcp.redact import redact_dict
+    from jcodemunch_mcp.security import is_secret_file
+
+    assert get_language_for_path(path) is None, (
+        f"{path!r} was mapped -- only do this together with connection-string "
+        "redaction; see the comment beside the xml block in languages.py"
+    )
+    assert is_secret_file(path) is False, (
+        f"is_secret_file now covers {path!r} -- reconsider mapping the extension"
+    )
+    conn = "Data Source=srv;Initial Catalog=db;User ID=sa;Password=Hunter2Secret;"
+    _, count = redact_dict({"text": conn})
+    assert count == 0, (
+        "redact_dict now rewrites ADO.NET connection strings -- reconsider mapping "
+        ".config and .settings, and drop this guard"
+    )
+
+
+def test_xml_shaped_additions_add_no_new_language():
+    from jcodemunch_mcp.parser.languages import LANGUAGE_EXTENSIONS, LANGUAGE_REGISTRY
+
+    assert LANGUAGE_EXTENSIONS[".xaml"] == "xml"
+    assert "xml" in LANGUAGE_REGISTRY
+    assert set(LANGUAGE_EXTENSIONS.values()) <= set(LANGUAGE_REGISTRY)
+
+
+def test_dotnet_codebehind_still_resolves_to_csharp():
+    from jcodemunch_mcp.parser.languages import get_language_for_path
+
+    assert get_language_for_path("Admin/Orders.aspx.cs") == "csharp"
+    assert get_language_for_path("Admin/Orders.aspx.designer.cs") == "csharp"
+    assert get_language_for_path("Admin/PriceList.Designer.cs") == "csharp"
+    # A dotted filename still reaches the simple-extension branch.
+    assert get_language_for_path("My.Namespaced.Page.xml") == "xml"
+
+
 # ---------------------------------------------------------------------------
 # Arduino
 # ---------------------------------------------------------------------------

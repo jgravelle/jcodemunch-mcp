@@ -1,5 +1,6 @@
 """Extract import statements from source files using language-specific regex patterns."""
 
+import functools
 import json
 import logging
 import os
@@ -1117,6 +1118,163 @@ def _extract_vue_imports(content: str) -> list[dict]:
     return edges
 
 
+# ASP.NET Web Forms directives: codebehind, master page, registered controls.
+# A `%` may appear in a value (`Title="50% off"`); stopping at the next `<%`
+# keeps an unclosed directive from scanning to the end of the file.
+#
+# Both patterns are anchored so a long run of name characters is read ONCE
+# (review of #1012). Without the `\b`, the directive name and the body both
+# match word characters, so an unclosed `<%@aaaa...` was split at every
+# position; without the lookbehind, the attribute name was retried from every
+# character of the run. Each is one C call that no parse budget interrupts:
+# 100 KB of `a` took minutes.
+_ASPX_DIRECTIVE = re.compile(r"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+_ASPX_ATTR = re.compile(r'(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*"([^"]*)"')
+
+_ASPX_MARKUP_SUFFIXES = (".aspx", ".ascx", ".master", ".asax", ".ashx", ".asmx")
+
+# The generated `X.aspx.designer.cs` half of the partial codebehind class; the
+# directive names only `X.aspx.cs`, so the designer file needs its own edge.
+_ASPX_DESIGNER_SUFFIX = ".designer.cs"
+
+
+@functools.lru_cache(maxsize=2)
+def _lowercase_paths_cached(source_files: frozenset) -> dict:
+    return {f.lower(): f for f in sorted(source_files)}
+
+
+def _lowercase_paths(source_files) -> dict:
+    if isinstance(source_files, frozenset):
+        return _lowercase_paths_cached(source_files)
+    return {f.lower(): f for f in sorted(source_files)}
+
+def _aspx_tags(content: str):
+    """Yield each `<...>` tag, which may span lines.
+
+    An inline `<%...%>` inside an attribute is skipped whole so its `%>` does not
+    end the tag. A scanner, not a regex: every regex form backtracks
+    super-linearly on unclosed or chained `<%` blocks.
+    """
+    i = 0
+    while (start := content.find("<", i)) >= 0:
+        j = start + 1
+        while True:
+            gt = content.find(">", j)
+            if gt < 0:
+                return
+            block = content.find("<%", j, gt)
+            if block < 0:
+                yield content[start:gt + 1]
+                i = gt + 1
+                break
+            close = content.find("%>", block + 2)
+            if close < 0:
+                return
+            j = close + 2
+
+
+_ASPX_RUNAT_SERVER = re.compile(r'runat\s*=\s*"server"', re.IGNORECASE)
+# The lookbehind makes `on...` the attribute's whole name: with `\b` alone,
+# `data-onclick="Foo"` and `aria-onx="Bar"` named server handlers.
+_ASPX_EVENT_ATTR = re.compile(r'(?<![\w:.\-])(on[a-z]+)\s*=\s*"([^"]*)"', re.IGNORECASE)
+# OnClient* handlers are JavaScript, not codebehind methods.
+_ASPX_CLIENT_EVENT_PREFIX = "onclient"
+# Bare method names only; databound expressions are not handler references.
+_ASPX_HANDLER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# AutoEventWireup lifecycle methods, deliberately NOT emitted as edges: without
+# checking the codebehind defines them, they add phantom references (matched by
+# name repo-wide) that make dead code look alive.
+_ASPX_LIFECYCLE_METHODS = (
+    "Page_PreInit", "Page_Init", "Page_InitComplete", "Page_PreLoad",
+    "Page_Load", "Page_LoadComplete", "Page_DataBind", "Page_PreRender",
+    "Page_PreRenderComplete", "Page_SaveStateComplete", "Page_Unload",
+    "Page_Error", "Page_AbortTransaction", "Page_CommitTransaction",
+)
+
+
+def _aspx_handler_names(content: str) -> list[str]:
+    """Codebehind method names from `On*=` attributes on `runat="server"` tags."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for raw in _aspx_tags(content):
+        if not _ASPX_RUNAT_SERVER.search(raw):
+            continue
+        for attr_name, value in _ASPX_EVENT_ATTR.findall(raw):
+            if attr_name.lower().startswith(_ASPX_CLIENT_EVENT_PREFIX):
+                continue
+            value = value.strip()
+            if not _ASPX_HANDLER_NAME.match(value) or value in seen:
+                continue
+            seen.add(value)
+            found.append(value)
+    return found
+
+
+def _extract_aspx_imports(content: str) -> list[dict]:
+    """Extract dependency edges from Web Forms directives and server-control handlers.
+
+    `Inherits=` is a class name, so it rides in `names` on the codebehind edge.
+    """
+    edges: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(spec: str, names: list[str], **extra) -> None:
+        spec = (spec or "").strip()
+        if not spec:
+            return
+        # `~/` is the ASP.NET application root.
+        if spec.startswith("~/"):
+            spec = spec[2:]
+        key = (spec, ",".join(names))
+        if key in seen:
+            return
+        seen.add(key)
+        edge = {"specifier": spec, "names": [n for n in names if n]}
+        edge.update(extra)
+        edges.append(edge)
+
+    handlers = None  # sorted handler names, found once
+    for m in _ASPX_DIRECTIVE.finditer(content):
+        name = m.group(1).lower()
+        attrs = {k.lower(): v for k, v in _ASPX_ATTR.findall(m.group(2))}
+
+        if name in ("page", "control", "master", "application", "webservice", "webhandler"):
+            code = attrs.get("codebehind") or attrs.get("codefile") or attrs.get("src")
+            if code:
+                _add(code, [attrs.get("inherits", "")])
+                # Emitted unconditionally; a missing designer file just won't resolve.
+                if code.lower().endswith(".cs"):
+                    _add(
+                        code[: -len(".cs")] + _ASPX_DESIGNER_SUFFIX,
+                        [attrs.get("inherits", "")],
+                        aspx_binding="designer_partial",
+                    )
+                # Handler names on a separate edge to the codebehind file, so
+                # check_references sees them without mixing into the Inherits edge.
+                # ONE such edge per file, on its first code directive: a page has
+                # one codebehind, and an edge per directive made the output
+                # directives x handlers (a 462 KB page produced 80 million names
+                # and 681 MB of edges; review of #1012).
+                if handlers is None:
+                    handlers = sorted(_aspx_handler_names(content))
+                    if handlers:
+                        _add(code, handlers, aspx_binding="markup_event")
+            master = attrs.get("masterpagefile")
+            if master:
+                _add(master, [])
+        elif name == "register":
+            src = attrs.get("src")
+            if src:
+                _add(src, [attrs.get("tagname", "")])
+        elif name == "import":
+            ns = attrs.get("namespace")
+            if ns:
+                edges.append({"specifier": ns, "names": [ns]})
+
+    return edges
+
+
 def _extract_astro_imports(content: str) -> list[dict]:
     """Extract imports from Astro frontmatter + synthetic template usage edges."""
     frontmatter, template_body, _, _ = split_astro_frontmatter(content)
@@ -1480,6 +1638,7 @@ _LANGUAGE_EXTRACTORS = {
     "arduino": _extract_c_imports,
     "ruby": _extract_ruby_imports,
     "csharp": _extract_csharp_imports,
+    "aspx": _extract_aspx_imports,
     "php": _extract_php_imports,
     "swift": _extract_swift_imports,
     "scala": _extract_scala_imports,
@@ -2304,6 +2463,34 @@ def resolve_specifier(
                              posixpath.normpath(posixpath.join(importer_dir, specifier + e))):
                     if cand in source_files:
                         return cand
+    # Web Forms paths are relative to the markup file or to the app root (an
+    # ancestor), not the repo root: try the sibling, then each ancestor directory.
+    #
+    # A markup specifier names a FILE, extension included (`CodeBehind=`,
+    # `Src=`, `MasterPageFile=`), so it is matched as written and never
+    # through `_candidates`. With extension expansion, `<%@ Import
+    # Namespace="Utils" %>` bound an unrelated `utils.js` in any ancestor
+    # directory, and `check_delete_safe` blocked that file's deletion as final
+    # (review of #1012). A namespace resolves to nothing, here or below.
+    if not specifier.startswith((".", "/")) and importer_path.lower().endswith(
+        _ASPX_MARKUP_SUFFIXES
+    ):
+        # ASP.NET paths are case-insensitive; an exact match still wins per directory.
+        lowered = None
+        probe_dir = posixpath.dirname(importer_path)
+        while True:
+            joined = posixpath.normpath(posixpath.join(probe_dir, specifier))
+            if joined in source_files:
+                return joined
+            if lowered is None:
+                lowered = _lowercase_paths(source_files)
+            hit = lowered.get(joined.lower())
+            if hit:
+                return hit
+            if not probe_dir:
+                break
+            probe_dir = posixpath.dirname(probe_dir)
+        return None
 
     # Python bare module name: a script's own directory is `sys.path[0]`, so
     # `import checks` in `tools/run.py` is `tools/checks.py`, ahead of the root.
