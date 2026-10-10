@@ -92,6 +92,12 @@ _IMPORT_PATTERNS = {
     "less": re.compile(r"^\s*@import\s+"),
     "styl": re.compile(r"^\s*@import\s+"),
     "razor": re.compile(r"^\s*@\s*using\s+"),
+    "aspx": re.compile(
+        r"<%@\s*(?:Import\b"
+        r"|(?:Page|Control|Master|Application|Register)\b[^%]*?"
+        r"(?:CodeBehind|CodeFile|Src|MasterPageFile)\s*=)",
+        re.IGNORECASE,
+    ),
     "astro": re.compile(r"^\s*import\s+"),
     "blade": re.compile(r"^\s*@\s*(?:inject|use)(?:\s+|\()"),
     "al": re.compile(r"^\s*using\s+"),
@@ -170,6 +176,11 @@ _DEF_PATTERNS = {
     "less": re.compile(r"^\s*\.{name}\s*\{|^\s*#{name}\s*\{|^\s*{name}\s*\{|^\s*\.{name}\s*\("),
     "styl": re.compile(r"^\s*\.{name}\s*$|^\s*#{name}\s*$|^\s*{name}\s*$"),
     "razor": re.compile(r"^\s*@\s*(?:functions|code|page|inject)\s+"),
+    # Web Forms "definition": a server control's ID, or the Inherits codebehind class.
+    "aspx": re.compile(
+        r"<\w+:\w+[^>]*\bID\s*=\s*[\"']{name}[\"']"
+        r"|<%@[^%]*\bInherits\s*=\s*[\"'][^\"']*\b{name}[\"']"
+    ),
     "astro": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
     "blade": re.compile(r"^\s*@\s*(?:section|component|slot)\s*\(\s*['\"]{name}['\"]"),
     "al": re.compile(r"^\s*(?:page|table|codeunit|report|query|enum)\s+{name}\b"),
@@ -1073,7 +1084,7 @@ def _compute_new_import(old_import_line, old_file, new_file, sym_name, language)
         # HCL/Terraform: module "name" { source = "..." } — warn only
         return old_import_line, "HCL/Terraform module source cannot be auto-rewritten; manual update required"
 
-    elif language in ("razor", "blade", "ejs"):
+    elif language in ("razor", "blade", "ejs", "aspx"):
         # Template engines: mixed syntax, path-based rewrite
         old_spec = PurePosixPath(old_file).as_posix()
         new_spec = PurePosixPath(new_file).as_posix()
@@ -1220,6 +1231,11 @@ def _format_import_line(imp_dict, language):
         return f"#Include {spec}"
     elif language in ("razor", "blade", "ejs"):
         return f"@import '{spec}'"
+    elif language == "aspx":
+        # Path-shaped spec is a user control; anything else is a namespace.
+        if "/" in spec or spec.lower().endswith((".ascx", ".aspx", ".master")):
+            return f'<%@ Register Src="{spec}" TagPrefix="uc" TagName="Control" %>'
+        return f'<%@ Import Namespace="{spec}" %>'
     elif language in ("al", "nix", "verse"):
         return f"import {spec}"
     elif language == "erlang":

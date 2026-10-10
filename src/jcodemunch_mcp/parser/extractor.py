@@ -424,6 +424,8 @@ def _parse_file_within_budget(content: str, filename: str, language: str, source
         symbols = _parse_blade_symbols(source_bytes, filename)
     elif language == "razor":
         symbols = _parse_razor_symbols(source_bytes, filename)
+    elif language == "aspx":
+        symbols = _parse_aspx_symbols(source_bytes, filename)
     elif language == "astro":
         symbols = _parse_astro_symbols(source_bytes, filename)
     elif language in TEMPLATE_ENGINE_LANGUAGES:
@@ -9108,6 +9110,275 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             byte_length=len(chunk),
             content_hash=compute_content_hash(chunk),
         ))
+
+    return symbols
+
+
+# ---------------------------------------------------------------------------
+# ASP.NET Web Forms (.aspx / .ascx / .master / .asax) custom symbol extractor
+# ---------------------------------------------------------------------------
+
+# Bytes patterns so match offsets are byte offsets; `\x80-\xff` lets names hold
+# non-ASCII UTF-8, since `\w` is ASCII-only on bytes.
+# The `\b` and the lookbehind keep a long run of name characters from being
+# re-read from every position (see `_ASPX_DIRECTIVE` in imports.py).
+_ASPX_DIRECTIVE_RE = re.compile(rb"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+_ASPX_ATTR_RE = re.compile(
+    rb'(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"([^"]*)"'
+)
+# Any tag prefix: <%@ Register TagPrefix= %> lets a project define its own.
+# Attributes may hold quoted HTML (`ErrorMessage="<br>..."`) or an inline
+# `<%...%>`; outside those nothing crosses a bare `<`, so an unclosed tag fails
+# fast instead of scanning to EOF.
+_ASPX_INLINE_BLOCK = rb"<%(?:[^%<]|%(?!>)|<(?!%))*%>"
+_ASPX_CONTROL_RE = re.compile(
+    rb"<(\w+):(\w+)\b((?:\"[^\"]*\"|'[^']*'|" + _ASPX_INLINE_BLOCK + rb"|[^<>\"'])*)>",
+    re.IGNORECASE,
+)
+_ASPX_RUNAT_SERVER_RE = re.compile(rb'runat\s*=\s*"server"', re.IGNORECASE)
+# `</script\b[^<>]*>`, not `</script>`, to satisfy CodeQL py/bad-tag-filter.
+_ASPX_SCRIPT_OPEN_TAG_RE = re.compile(rb"<script\b([^<>]*)>", re.IGNORECASE)
+_ASPX_SCRIPT_OPEN_RE = re.compile(rb"<script\b", re.IGNORECASE)
+_ASPX_SCRIPT_CLOSE_RE = re.compile(rb"</script\b[^<>]*>", re.IGNORECASE)
+
+
+def _aspx_server_scripts(source_bytes: bytes):
+    """Yield ``(body_start, body)`` for each closed `<script runat="server">`.
+
+    The body stops at the next `<script`, so an unclosed one yields nothing.
+    A scan, not one pattern: as a single regex, every `runat="server"` in an
+    open tag was a place to retry from, and each retry re-read the body to
+    the end of the file (17 s at 200 KB, in a call no parse budget interrupts;
+    review of #1012). Here the close is looked for only up to the next
+    `<script`, so each byte is read a bounded number of times.
+    """
+    pos = 0
+    while True:
+        parse_budget.checkpoint()
+        opened = _ASPX_SCRIPT_OPEN_TAG_RE.search(source_bytes, pos)
+        if opened is None:
+            return
+        pos = opened.end()
+        if not _ASPX_RUNAT_SERVER_RE.search(opened.group(1)):
+            continue
+        following = _ASPX_SCRIPT_OPEN_RE.search(source_bytes, pos)
+        limit = following.start() if following else len(source_bytes)
+        closed = _ASPX_SCRIPT_CLOSE_RE.search(source_bytes, pos, limit)
+        if closed is None:
+            continue
+        yield pos, source_bytes[pos:closed.start()]
+        pos = closed.end()
+
+
+_ASPX_CODE_ATTRS = ("codebehind", "codefile", "src")
+
+_ASPX_KIND_BY_DIRECTIVE = {
+    "page": "page",
+    "control": "control",
+    "master": "master",
+    "application": "application",
+    "webservice": "webservice",
+    "webhandler": "webhandler",
+}
+
+
+def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
+    """Extract symbols from ASP.NET Web Forms markup.
+
+    `On*=` handler names are references to codebehind methods, not definitions,
+    so they are not emitted as symbols.
+    """
+    from pathlib import Path as _Path
+
+    stem = _Path(filename).name
+    view_name = stem.rsplit(".", 1)[0] if "." in stem else stem
+    newlines = [i for i, b in enumerate(source_bytes) if b == 0x0A]
+    total_lines = len(newlines) + 1
+    symbols: list[Symbol] = []
+
+    def _text(raw: bytes) -> str:
+        return raw.decode("utf-8", errors="replace")
+
+    def _attrs(raw: bytes) -> dict[str, str]:
+        return {_text(k).lower(): _text(v) for k, v in _ASPX_ATTR_RE.findall(raw)}
+
+    def _line_for_offset(offset: int) -> int:
+        return bisect.bisect_left(newlines, offset) + 1
+
+    doc_kind = "page"
+    directive_attrs: dict[str, str] = {}
+    for m in _ASPX_DIRECTIVE_RE.finditer(source_bytes):
+        parse_budget.checkpoint()
+        name = _text(m.group(1)).lower()
+        if name in _ASPX_KIND_BY_DIRECTIVE:
+            doc_kind = _ASPX_KIND_BY_DIRECTIVE[name]
+            directive_attrs = _attrs(m.group(2))
+            break
+
+    page_symbol = Symbol(
+        id=make_symbol_id(filename, view_name, "class"),
+        file=filename,
+        name=view_name,
+        qualified_name=directive_attrs.get("inherits", view_name),
+        kind="class",
+        language="aspx",
+        signature=f"{doc_kind} {view_name}",
+        line=1,
+        end_line=total_lines,
+        byte_offset=0,
+        byte_length=len(source_bytes),
+        content_hash=compute_content_hash(source_bytes),
+    )
+    symbols.append(page_symbol)
+    page_id = page_symbol.id
+
+    inherits = directive_attrs.get("inherits", "")
+    code_file = next(
+        (directive_attrs[a] for a in _ASPX_CODE_ATTRS if a in directive_attrs), ""
+    )
+    if inherits or code_file:
+        detail = " ".join(
+            part
+            for part in (
+                f'Inherits="{inherits}"' if inherits else "",
+                f'CodeBehind="{code_file}"' if code_file else "",
+            )
+            if part
+        )
+        symbols.append(
+            Symbol(
+                id=make_symbol_id(filename, f"{view_name}.codebehind", "constant"),
+                file=filename,
+                name=inherits or code_file,
+                qualified_name=inherits or code_file,
+                kind="constant",
+                language="aspx",
+                signature=f"<%@ {doc_kind.title()} {detail} %>",
+                parent=page_id,
+                line=1,
+                end_line=1,
+                byte_offset=0,
+                byte_length=0,
+                content_hash="",
+            )
+        )
+
+    seen_ids: set[str] = set()
+    for m in _ASPX_CONTROL_RE.finditer(source_bytes):
+        parse_budget.checkpoint()
+        attrs_raw = m.group(3) or b""
+        if not _ASPX_RUNAT_SERVER_RE.search(attrs_raw):
+            continue
+        attrs = _attrs(attrs_raw)
+        control_id = attrs.get("id")
+        if not control_id or control_id in seen_ids:
+            continue
+        seen_ids.add(control_id)
+        prefix, control_type = _text(m.group(1)), _text(m.group(2))
+        line = _line_for_offset(m.start())
+        snippet = m.group(0)
+        symbols.append(
+            Symbol(
+                id=make_symbol_id(filename, control_id, "constant"),
+                file=filename,
+                name=control_id,
+                qualified_name=f"{view_name}.{control_id}",
+                kind="constant",
+                language="aspx",
+                signature=f'<{prefix}:{control_type} ID="{control_id}" runat="server"/>',
+                parent=page_id,
+                line=line,
+                end_line=line,
+                byte_offset=m.start(),
+                byte_length=len(snippet),
+                content_hash=compute_content_hash(snippet),
+            )
+        )
+
+    for m in _ASPX_DIRECTIVE_RE.finditer(source_bytes):
+        parse_budget.checkpoint()
+        if m.group(1).lower() != b"register":
+            continue
+        attrs = _attrs(m.group(2))
+        prefix = attrs.get("tagprefix")
+        target = attrs.get("src") or attrs.get("namespace") or ""
+        if not prefix:
+            continue
+        line = _line_for_offset(m.start())
+        snippet = m.group(0)
+        symbols.append(
+            Symbol(
+                id=make_symbol_id(filename, f"tagprefix:{prefix}", "constant"),
+                file=filename,
+                name=prefix,
+                qualified_name=f"{prefix}:{target}",
+                kind="constant",
+                language="aspx",
+                signature=f'<%@ Register TagPrefix="{prefix}" Src="{target}" %>',
+                parent=page_id,
+                line=line,
+                end_line=line,
+                byte_offset=m.start(),
+                byte_length=len(snippet),
+                content_hash=compute_content_hash(snippet),
+            )
+        )
+
+    # Inline <script runat="server"> re-parsed as C#. Offsets inside the body are
+    # exact only while it is valid UTF-8.
+    for script_body_start, body_raw in _aspx_server_scripts(source_bytes):
+        parse_budget.checkpoint()
+        body = _text(body_raw)
+        if not body.strip():
+            continue
+        offset_line = _line_for_offset(script_body_start) - 1
+        wrapper_name = f"{view_name}ServerScript"
+        wrapper_prefix = f"class {wrapper_name} {{\n"
+        try:
+            inner = parse_file(
+                f"{wrapper_prefix}{body}\n}}",
+                filename,
+                "csharp",
+            )
+        except Exception:
+            logger.debug("aspx inline server script parse failed", exc_info=True)
+            continue
+        prefix_len = len(wrapper_prefix.encode("utf-8"))
+        body_start = script_body_start
+        body_len = len(body_raw)
+        wrapper_id = make_symbol_id(filename, wrapper_name, "class")
+        rewrapped: list[tuple[Symbol, Symbol]] = []
+        for sym in inner:
+            parse_budget.checkpoint()
+            if sym.id == wrapper_id:
+                continue  # the synthetic wrapper; members are owned by the page
+            qn = sym.qualified_name
+            if qn.startswith(wrapper_name + "."):
+                qn = qn[len(wrapper_name) + 1:]
+            qn = f"{view_name}.{qn}"
+            rel = max(0, sym.byte_offset - prefix_len)
+            new_line = max(1, sym.line + offset_line - 1)
+            rewrapped.append((sym, Symbol(
+                id=make_symbol_id(filename, qn, sym.kind),
+                file=filename,
+                name=sym.name,
+                qualified_name=qn,
+                kind=sym.kind,
+                language="aspx",
+                signature=sym.signature,
+                docstring=sym.docstring,
+                summary=sym.summary,
+                decorators=list(sym.decorators),
+                keywords=list(sym.keywords),
+                parent=page_id,
+                line=new_line,
+                end_line=max(new_line, sym.end_line + offset_line - 1),
+                byte_offset=body_start + min(rel, body_len),
+                byte_length=min(sym.byte_length, max(0, body_len - rel)),
+                content_hash=sym.content_hash,
+                ecosystem_context=sym.ecosystem_context,
+            )))
+        symbols.extend(_keep_block_parents(rewrapped))
 
     return symbols
 

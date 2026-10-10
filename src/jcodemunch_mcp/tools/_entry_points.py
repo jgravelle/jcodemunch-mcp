@@ -145,6 +145,47 @@ def entry_point_spec(index) -> EntryPointSpec:
     )
 
 
+# .NET files IIS or MSBuild invoke directly: nothing imports them by design.
+# By extension, unlike the name-only manifest list, because the extension is the
+# host's contract. `.master`/`.ascx` stay out: they have real importers.
+_HOST_INVOKED_SUFFIXES = (".aspx", ".ashx", ".asmx", ".csproj", ".vbproj", ".fsproj", ".nuspec")
+_HOST_INVOKED_NAMES = frozenset({
+    "global.asax", "directory.build.props", "directory.build.targets", "directory.packages.props",
+})
+
+# Reached by edges the index does not carry, so "no importer" proves nothing;
+# they may still be dead, so the dead-code tools cap rather than root them.
+# Build-consumed: project-file items. Runtime-loadable: LoadControl, a CMS's
+# stored control path, MasterPageFile set in code.
+_BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targets")
+_RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
+
+
+def _basename_lower(file_path: str) -> str:
+    return file_path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def is_host_invoked(file_path: str) -> bool:
+    base = _basename_lower(file_path)
+    return base in _HOST_INVOKED_NAMES or base.endswith(_HOST_INVOKED_SUFFIXES)
+
+
+def unseen_consumer(file_path: str) -> Optional[str]:
+    """`build_consumed`, `runtime_loadable`, or None.
+
+    A host-invoked file is a root and never capped, so `Directory.Build.props`
+    (also a `.props`) returns None.
+    """
+    if is_host_invoked(file_path):
+        return None
+    base = _basename_lower(file_path)
+    if base.endswith(_BUILD_CONSUMED_SUFFIXES):
+        return "build_consumed"
+    if base.endswith(_RUNTIME_LOADABLE_SUFFIXES):
+        return "runtime_loadable"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # package.json: the files a manifest DECLARES as roots
 # ---------------------------------------------------------------------------
