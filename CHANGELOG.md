@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.339] - 2026-10-09 - the dynamic-import scan walks a Python file once
+
 ### Fixed
 
 - **Indexing a Python file that holds a dynamic import no longer walks the file once per table
