@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - `get_dead_code_v2` on an index with no call references no longer costs time quadratic in one file's functions (LEDGER L-150)
+
+When an index holds no call reference, `get_dead_code_v2` decides whether a function has a
+caller from text. That loop ran once per function or method, and each pass split the symbol's
+whole file into lines, joined every line outside the symbol back into one string and ran a
+word-boundary search over the result. The file's text was cached; the split, the join and the
+search were not. Found in the fourth review of #1012.
+
+On one generated Python file of empty functions beside a one-line module, the tool took 3.38 s
+at 2,872 functions, 13.68 s at 5,655 and 53.42 s at 11,109 (`evidence/measure_old.txt`). The
+largest of those files is 266,624 bytes, under the default `max_file_size`. The same three now
+take 0.07 s, 0.13 s and 0.22 s (`evidence/measure_new.txt`).
+
+Each file is now read, split and tokenised once (`FileWords` in `tools/_call_graph.py`), and a
+symbol's question is a lookup: which lines name it, and is one of them outside its own span. A
+name that is not one word (`add/2`, `ns::f`, `$x`, `save!`) is searched only on the lines that
+hold its rarest word, and an operator name only on the lines that contain it. The answer is
+unchanged: the old loop and the new one mark the same 2,368 of 2,618 functions and methods as
+called on this repository's `src/` forced onto the fallback, and agree on twenty hand-written
+cases and two hundred generated files. The test counts splits and searched characters and never
+times anything; sixteen reintroduced defects each fail it (`evidence/mutants.txt`).
+
+The cost is memory. On that `src/` run the fallback's peak was 34.1 MB against 10.0 MB, because
+the word lists for every file it reads are kept until it returns. Only a repository whose index
+holds no call reference takes this path; one with any call reference is unaffected.
+
 ## [1.108.341] - 2026-10-11 - the index CLI chooses the index identity, and an existing directory is a local target
 
 ### Added - the `index` CLI can choose the index identity (#1017)

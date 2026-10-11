@@ -21,7 +21,7 @@ from typing import Optional
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo as _resolve_repo
-from ._call_graph import _word_match, build_symbols_by_file
+from ._call_graph import FileWords, _word_match, build_symbols_by_file
 # One matcher, not two: entry_point_patterns must mean the same thing in
 # both dead-code tools or #436 gets replaced by a subtler version of itself.
 from ._entry_points import (
@@ -462,6 +462,55 @@ def _sweep_module_level_callers(
                 break
 
 
+def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, list[str]]) -> set[str]:
+    """Ids of the functions and methods some text names outside their own lines.
+
+    The answer when the index holds no call reference at all. A symbol has a
+    caller if its name appears as a word in its own file outside its line
+    span, or anywhere in a file that imports its file. Matching the symbol's
+    own lines would make every function "call" itself.
+
+    ⚠⚠ **One file's text is read, split and tokenised ONCE** (LEDGER L-150).
+    This loop used to split the symbol's file, join every line outside the
+    symbol and search the result, once per symbol: 57.99 s on one 240 kB file
+    of empty functions, where `find_dead_code` took 0.04 s. Never answer a
+    per-symbol question here with a pass over the file's text; ask
+    ``FileWords``. ``tests/test_dead_code_text_fallback_reads_a_file_once.py``
+    counts the work and holds the old loop as the oracle.
+    """
+    callee_has_caller: set[str] = set()
+    words_cache: dict[str, Optional[FileWords]] = {}
+
+    def _words(file_path: str) -> Optional[FileWords]:
+        if file_path not in words_cache:
+            content = store.get_file_content(owner, name, file_path) or ""
+            words_cache[file_path] = FileWords(content) if content else None
+        return words_cache[file_path]
+
+    for sym in index.symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sym_file = sym.get("file", "")
+        sym_name = sym.get("name", "")
+        if not sym_name or not sym_file:
+            continue
+        sym_line = sym.get("line", 0)
+        sym_end_line = sym.get("end_line", sym_line)
+        own = _words(sym_file)
+        if own is not None and sym_line:
+            start_idx = max(0, sym_line - 1)
+            end_idx = min(own.line_count, sym_end_line)
+            if own.names_outside(sym_name, start_idx, end_idx):
+                callee_has_caller.add(sym["id"])
+                continue
+        for importer_file in rev.get(sym_file, []):
+            importer = _words(importer_file)
+            if importer is not None and importer.names(sym_name):
+                callee_has_caller.add(sym["id"])
+                break
+    return callee_has_caller
+
+
 def get_dead_code_v2(
     repo: str,
     min_confidence: float = 0.5,
@@ -692,41 +741,8 @@ def get_dead_code_v2(
             index, store, owner, name, rev, callee_has_caller
         )
     else:
-        # Fallback: text heuristic with file content caching
-        symbols_by_file = build_symbols_by_file(index)
-        _file_cache: dict[str, str] = {}
-        for sym in index.symbols:
-            if sym.get("kind") not in ("function", "method"):
-                continue
-            sym_file = sym.get("file", "")
-            sym_name = sym.get("name", "")
-            if not sym_name or not sym_file:
-                continue
-            # Check the symbol's own file (intra-file calls) and any importing
-            # file. The text heuristic must avoid matching the symbol's own
-            # definition line — otherwise every function trivially "calls"
-            # itself. Match the whole file body excluding the symbol's own
-            # line range.
-            sym_line = sym.get("line", 0)
-            sym_end_line = sym.get("end_line", sym_line)
-            if sym_file not in _file_cache:
-                _file_cache[sym_file] = store.get_file_content(owner, name, sym_file) or ""
-            own_content = _file_cache[sym_file]
-            if own_content and sym_line:
-                lines = own_content.splitlines()
-                start_idx = max(0, sym_line - 1)
-                end_idx = min(len(lines), sym_end_line)
-                outside = "\n".join(lines[:start_idx] + lines[end_idx:])
-                if outside and _word_match(outside, sym_name):
-                    callee_has_caller.add(sym["id"])
-                    continue
-            for importer_file in rev.get(sym_file, []):
-                if importer_file not in _file_cache:
-                    _file_cache[importer_file] = store.get_file_content(owner, name, importer_file) or ""
-                content = _file_cache[importer_file]
-                if content and _word_match(content, sym_name):
-                    callee_has_caller.add(sym["id"])
-                    break
+        # Fallback: text heuristic, one pass per file (LEDGER L-150).
+        callee_has_caller = _text_fallback_callers(index, store, owner, name, rev)
 
     dead_symbols: list[dict] = []
     seen_ids: set[str] = set()
