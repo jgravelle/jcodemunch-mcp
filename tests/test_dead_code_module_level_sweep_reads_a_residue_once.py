@@ -56,15 +56,21 @@ class _Work:
         self.chars = 0
         self.calls = 0
         self.tokenised = 0
+        self.longest = 0
+        self.listings = 0
 
     def word_match(self, content: str, name: str) -> bool:
         self.chars += len(content)
         self.calls += 1
+        self.longest = max(self.longest, len(content))
         return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
 
     def word_starts(self, content: str, name: str) -> list[int]:
+        """The search that lists every match: it cannot stop at the first."""
         self.chars += len(content)
         self.calls += 1
+        self.listings += 1
+        self.longest = max(self.longest, len(content))
         return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
 
 
@@ -344,8 +350,7 @@ def test_names_made_of_common_words_cost_one_scan_each(work):
     """The stated remainder: one scan of the residue per distinct name, never more.
 
     Every word of every name is on every residue line, so no word narrows the
-    search. Asking each line would cost more than the old sweep did (measured
-    in review: 54.31 s against 46.92 s); one scan per name costs the same.
+    search. Asking each line costs more than one search of the text does.
     """
     symbols, files = _common_words(300)
     got, want = _both(symbols, files)
@@ -355,6 +360,101 @@ def test_names_made_of_common_words_cost_one_scan_each(work):
     size = _residue_size(symbols, files)
     assert work.calls <= len(symbols), f"{work.calls} searches for {len(symbols)} names"
     assert work.chars <= len(symbols) * size, f"{work.chars} characters; one scan each is {len(symbols) * size}"
+    assert work.listings == 0, "the sweep asks whether a caller exists; it must not list every match"
+
+
+def _called_everywhere(n):
+    """n two-word names, each called on every one of forty long residue lines."""
+    symbols, _ = _common_words(n)
+    names = [s["name"] for s in symbols]
+    lines = []
+    for nm in names:
+        lines += [f"def {nm}", "  body"]
+    lines += [" ".join(names)] * 40
+    return symbols, {"big.x": NL.join(lines) + NL}
+
+
+def test_a_name_called_on_every_line_is_found_at_the_first(work):
+    """Existence stops at the first match (review, round two).
+
+    Listing every line that names a name which is on every line cost up to
+    sixty-four times the old sweep, which stopped at its first match.
+    """
+    symbols, files = _called_everywhere(200)
+    got, want = _both(symbols, files)
+    assert got == want == {s['id'] for s in symbols}
+    work.chars = work.calls = work.listings = 0
+    _sweep(symbols, files)
+    assert work.listings == 0, f"{work.listings} names had every match listed"
+    assert work.calls <= len(symbols), f"{work.calls} searches for {len(symbols)} names"
+
+
+# ---------------------------------------------------------------------------
+# the index: which lines are asked, and when the text is searched instead
+# ---------------------------------------------------------------------------
+
+
+def _index_of(lines):
+    return _call_graph.FileWords(NL.join(lines)), sum(len(ln) for ln in lines) + len(lines)
+
+
+def test_short_lines_that_hold_the_word_are_asked_and_the_long_text_is_not_searched(work):
+    """Twenty short lines hold the words; four thousand characters elsewhere do not."""
+    lines = ["w1 w2"] * 20 + ["z" * 200] * 20
+    words, chars = _index_of(lines)
+    assert words.lines_naming("w1-w2") == [] and not words.names("w2-w1")
+    assert work.longest <= 5, f"a {work.longest}-character search in a {chars}-character text"
+
+
+def test_a_word_on_every_line_is_not_asked_line_by_line(work):
+    lines = ["w1 w2 w3"] * 400
+    words, chars = _index_of(lines)
+    assert words.lines_naming("w1-w2") == [] and not words.names("w2-w3")
+    assert work.calls == 2, f"{work.calls} searches for two names"
+
+
+@pytest.mark.parametrize("filler, searched_whole", [(40, True), (200, False)])
+def test_the_route_is_chosen_by_cost_in_characters(work, filler, searched_whole):
+    """Ten 100-character lines hold the word: asking them costs their 1,000 characters
+    and `_ASK_COST` each. With 40 characters of other text that is more than
+    the text holds, so the text is searched; with 200 it is less, so the lines are.
+    """
+    lines = ["w1 " + "y" * 97] * 10 + ["z" * filler]
+    words, chars = _index_of(lines)
+    asking = 10 * 100 + 10 * _call_graph.FileWords._ASK_COST
+    assert (asking > chars) is searched_whole, (asking, chars)
+    assert words.lines_naming("w1-w1") == []
+    assert (work.longest > 100) is searched_whole, (work.longest, chars)
+    # The substring test spares a line that cannot match: nothing is searched
+    # at all when the lines are asked and none holds the name.
+    assert work.calls == (1 if searched_whole else 0), work.calls
+
+
+def test_existence_stops_at_the_first_line_that_names_it(work):
+    lines = ["call do-it now " + "y" * 60] * 200 + ["z" * 40000]
+    words, _ = _index_of(lines)
+    assert words.names("do-it") is True
+    assert work.calls == 1 and work.listings == 0, (work.calls, work.listings)
+    work.calls = 0
+    assert words.names("do-it") is True and work.calls == 0, "the answer is kept"
+    assert words.lines_naming("do-it") == list(range(200))
+    assert words.names("do-it") is True
+
+
+def test_a_listing_answers_the_existence_question_after_it(work):
+    words, _ = _index_of(["a do-it b", "c", "do-it"])
+    assert words.lines_naming("do-it") == [0, 2]
+    work.calls = 0
+    assert words.names("do-it") is True and work.calls == 0
+    assert words.lines_naming("no-such") == [] and words.names("no-such") is False
+
+
+def test_one_line_named_twice_is_listed_once():
+    words, _ = _index_of(["w1-w2 w1-w2 w1 w2"] * 50)
+    assert words.lines_naming("w1-w2") == list(range(50))
+    assert words.lines_naming("+") == []
+    plus, _ = _index_of(["a+b c+d"] * 3)
+    assert plus.lines_naming("+") == [0, 1, 2]
 
 
 def test_the_sweep_holds_one_whole_text_search_and_it_is_the_spanning_names():

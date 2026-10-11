@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+### Fixed - `get_dead_code_v2`'s module-level sweep no longer searches a file's whole residue once per function (LEDGER L-152)
+
+On an index that holds call references, `get_dead_code_v2` sweeps what those references cannot
+see: code at module level. A function whose name is a plain identifier was looked up in a token
+set built once per file. Any other name (`do-thing`, `valid?`, `save!`) ran a word-boundary
+search over the file's whole module-level text, once per function and per file that could call
+it. The comment beside it called such names rare. In Clojure nearly every function name is one.
+Found while fixing L-150.
+
+On one Clojure file of two-line functions with as many module-level lines, the tool took 0.90 s
+at 2,000 functions, 3.73 s at 4,000 and 15.43 s at 8,000; a Ruby file of predicate methods took
+0.80 s, 2.83 s and 10.90 s (`evidence/measure_old.txt`). The same six now take 0.06 s, 0.10 s,
+0.18 s and 0.07 s, 0.09 s, 0.18 s (`evidence/measure_new.txt`).
+
+Such a name is now asked of the word index 1.108.342 added, built once per file's module-level
+text. The matching rule is unchanged, and so is the path plain identifiers take. The old sweep
+and the new one add the same callers on this repository's `src/` (163) and on `tests/fixtures`
+(65, where 55 function names are not plain identifiers), and agree on twenty-four hand-written
+cases and six hundred generated repositories. Twenty-eight reintroduced defects each fail the
+tests (`evidence/mutants.txt`).
+
+The index itself changed, which also moves 1.108.342's text fallback. It narrows a search to
+the lines that hold a name's rarest word, and now prices that: when asking those lines would
+cost more characters than the text holds, it searches the text once for that name. A question
+that only needs to know whether a caller exists stops at the first match. Timed on the shapes
+the review used, 1.108.342's code against this (`evidence/shapes_main.txt`,
+`evidence/shapes_head.txt`):
+
+| shape | 1.108.342 | now |
+|---|---|---|
+| sweep, 1,600 names each called on every residue line | 0.151 s | 0.188 s |
+| sweep, 1,600 names each called once, every word on 400 other lines | 0.150 s | 0.206 s |
+| sweep, 1,600 names never called, every word on every residue line | 5.856 s | 5.939 s |
+| sweep, 1,600 names never called, two shared words per residue line | 0.306 s | 0.019 s |
+| index, 1,500 names, 400 lines hold every word and 800 long lines do not | 2.138 s | 0.066 s |
+| index, 1,500 names, every line holds every word | 5.224 s | 3.428 s |
+
+What it does not fix: when every word of a name is on most lines and nothing calls it, each such
+name still costs one search of the text (the third row). In the first two rows the sweep is
+slower than before by the cost of building the index once. The sweep's peak memory on 2,000
+hyphenated functions rose from 475,568 bytes to 658,785 (`evidence/measure_more.txt`).
+
+Not changed, and wrong: the word-boundary rule cannot match a name that ends in a punctuation
+mark unless a word character follows it, so a Ruby method `check_0?` called on a line of its own
+at module level still reads `no_callers` (`evidence/measure_new.txt`). That is ledger row L-154.
+Clojure, Elixir, Erlang and PHP files record no call reference at all, so in a repository where
+another language does, a function of theirs that is called only from inside another function
+reads `no_callers` too (`evidence/measure_more.txt`). That is ledger row L-155.
+
 ## [1.108.342] - 2026-10-11 - the dead-code text fallback reads a file once
 
 ### Fixed - `get_dead_code_v2` on an index with no call references no longer costs time quadratic in one file's functions (LEDGER L-150)
@@ -33,42 +82,6 @@ execute, and never times anything; twenty-three reintroduced defects each fail i
 The cost is memory. On that `src/` run the fallback's peak was 34.1 MB against 10.0 MB, because
 the word lists for every file it reads are kept until it returns. Only a repository whose index
 holds no call reference takes this path; one with any call reference is unaffected.
-
-### Fixed - `get_dead_code_v2`'s module-level sweep no longer searches a file's whole residue once per function (LEDGER L-152)
-
-On an index that holds call references, `get_dead_code_v2` sweeps what those references cannot
-see: code at module level. A function whose name is a plain identifier was looked up in a token
-set built once per file. Any other name (`do-thing`, `valid?`, `save!`) ran a word-boundary
-search over the file's whole module-level text, once per function and per file that could call
-it. The comment beside it called such names rare. In Clojure nearly every function name is one.
-Found while fixing L-150.
-
-On one Clojure file of two-line functions with as many module-level lines, the tool took 0.90 s
-at 2,000 functions, 3.73 s at 4,000 and 15.43 s at 8,000; a Ruby file of predicate methods took
-0.80 s, 2.83 s and 10.90 s (`evidence/measure_old.txt`). The same six now take 0.10 s, 0.18 s,
-0.35 s and 0.05 s, 0.09 s, 0.22 s (`evidence/measure_new.txt`).
-
-Such a name is now asked of the word index L-150 added, built once per file's module-level text.
-The matching rule is unchanged, and so is the path plain identifiers take. The old sweep and the
-new one add the same callers on this repository's `src/` (163) and on `tests/fixtures` (65,
-where 55 function names are not plain identifiers), and agree on twenty-four hand-written cases
-and six hundred generated repositories. Nineteen reintroduced defects each fail the tests
-(`evidence/mutants.txt`).
-
-What it does not fix. The word index narrows a search to the lines that hold a name's rarest
-word. When every word of a name is on most lines, nothing narrows it, and the index scans the
-text once for that name: what the old code cost for every name, and no more. With 1,600 such
-names in one file the old sweep took 6.17 s and the new one 6.11 s; with two shared words per
-line, 0.31 s and 0.18 s (`evidence/measure_more.txt`). This applies to the text fallback of
-1.108.342 as well, which reads the same index. The sweep's peak memory on 2,000 hyphenated
-functions rose from 475,568 bytes to 988,878.
-
-Not changed, and wrong: the word-boundary rule cannot match a name that ends in a punctuation
-mark unless a word character follows it, so a Ruby method `check_0?` called on a line of its own
-at module level still reads `no_callers` (`evidence/measure_new.txt`). That is ledger row L-154.
-Clojure, Elixir, Erlang and PHP files record no call reference at all, so in a repository where
-another language does, a function of theirs that is called only from inside another function
-reads `no_callers` too (`evidence/measure_more.txt`). That is ledger row L-155.
 
 ## [1.108.341] - 2026-10-11 - the index CLI chooses the index identity, and an existing directory is a local target
 

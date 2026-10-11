@@ -55,6 +55,7 @@ def _word_starts(content: str, name: str) -> list[int]:
 
 
 _WORD_RE = re.compile(r"\w+")
+_WORD_ONLY_RE = re.compile(r"\w+")
 # Every character ``str.splitlines`` cuts on. A name holding one can match
 # across two lines of the text, which a per-line index cannot see.
 _LINE_SEP_RE = re.compile("[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
@@ -78,25 +79,30 @@ class FileWords:
     A name made only of word characters is a dictionary read. Any other name
     (``do-thing``, ``ns::f``, ``$x``, ``save!``) is searched only on the lines
     that hold its rarest word, because each ``\\w+`` run inside a matched name
-    is a whole word of the line. When that word is on a quarter of the lines, or on so many that
-    asking each costs more than reading the text (``_SCAN_WORTH``), and for a
-    name with no word character (an operator), the text is scanned once for
-    that name instead. Answers are kept per name, so two hundred overloads of
-    one name cost one lookup.
+    is a whole word of the line. When asking those lines would cost more than
+    reading the whole text (their characters plus ``_ASK_COST`` each, against
+    the text's characters), and for a name with no word character (an
+    operator), the text is searched once for that name instead. Answers are
+    kept per name, so two hundred overloads of one name cost one lookup.
 
-    ⚠ **The scan is the floor, not zero.** N distinct compound names whose
-    every word is on most lines cost N scans of the text: the cost of asking
-    ``_word_match`` once per name, which is what the callers did before this
-    class, and never more.
+    ``names`` asks only whether a line exists and stops at the first one, by
+    either route; ``lines_naming`` lists them all. A caller that needs
+    existence must ask ``names``: listing every line of a name that is on
+    every line costs a full scan where the first match would have done.
+
+    ⚠ **A search of the text is the floor, not zero.** N distinct compound
+    names whose every word is on most lines cost N searches of the text,
+    which is what asking ``_word_match`` once per name costs.
 
     ⚠ Holds the file's lines and one list entry per distinct word per line:
     several times the text. Build it for a file asked about more than once.
     """
 
-    __slots__ = ("_lines", "_by_word", "_by_name", "_chars", "_text", "_line_starts")
+    __slots__ = ("_lines", "_by_word", "_by_name", "_named", "_chars", "_text", "_line_starts")
 
-    # A per-line question is worth about this many characters of a scan.
-    _SCAN_WORTH = 64
+    # What asking one line costs beyond reading its characters, in characters
+    # of a scan (a substring test and, on a hit, one ``_word_match`` call).
+    _ASK_COST = 16
 
     def __init__(self, content: str) -> None:
         self._lines = content.splitlines()
@@ -106,12 +112,12 @@ class FileWords:
                 by_word.setdefault(word, []).append(i)
         self._by_word = by_word
         self._by_name: dict[str, list[int]] = {}
+        self._named: dict[str, bool] = {}
         self._chars = sum(len(line) for line in self._lines) + len(self._lines)
         self._text: Optional[str] = None
         self._line_starts: list[int] = []
 
-    def _scan(self, name: str) -> list[int]:
-        """Lines naming *name*, from one scan of the text joined by newlines."""
+    def _joined(self) -> str:
         if self._text is None:
             starts, offset = [], 0
             for line in self._lines:
@@ -119,12 +125,34 @@ class FileWords:
                 offset += len(line) + 1
             self._line_starts = starts
             self._text = "\n".join(self._lines)
+        return self._text
+
+    def _scan(self, name: str) -> list[int]:
+        """Lines naming *name*, from one scan of the text joined by newlines."""
+        text = self._joined()
         found: list[int] = []
-        for offset in _word_starts(self._text, name):
+        for offset in _word_starts(text, name):
             line = bisect_right(self._line_starts, offset) - 1
             if not found or found[-1] != line:
                 found.append(line)
         return found
+
+    def _candidates(self, name: str) -> Optional[list[int]]:
+        """The lines worth asking about a compound *name*, or None to search the text.
+
+        None when *name* has no word to narrow by, and when asking the lines
+        that hold its rarest word would cost more than reading the text.
+        """
+        words = _WORD_RE.findall(name)
+        if not words:
+            return None
+        rarest = min((self._by_word.get(w, []) for w in words), key=len)
+        lines = self._lines
+        asking = self._ASK_COST * len(rarest)
+        if asking > self._chars:
+            return None
+        asking += sum(len(lines[i]) for i in rarest)
+        return None if asking > self._chars else rarest
 
     @property
     def line_count(self) -> int:
@@ -137,18 +165,17 @@ class FileWords:
             return found
         if _LINE_SEP_RE.search(name):
             raise ValueError("a name holding a line separator cannot be answered per line")
-        words = _WORD_RE.findall(name)
-        if len(words) == 1 and words[0] == name:
+        if _WORD_ONLY_RE.fullmatch(name):
             found = self._by_word.get(name, [])
-        elif words:
-            rarest = min((self._by_word.get(w, []) for w in words), key=len)
-            if len(rarest) * self._SCAN_WORTH > self._chars or len(rarest) * 4 > len(self._lines):
+        else:
+            candidates = self._candidates(name)
+            if candidates is None:
                 found = self._scan(name)
             else:
-                found = [i for i in rarest if _word_match(self._lines[i], name)]
-        else:
-            found = self._scan(name)
+                lines = self._lines
+                found = [i for i in candidates if name in lines[i] and _word_match(lines[i], name)]
         self._by_name[name] = found
+        self._named[name] = bool(found)
         return found
 
     @staticmethod
@@ -157,8 +184,23 @@ class FileWords:
         return _LINE_SEP_RE.search(name) is not None
 
     def names(self, name: str) -> bool:
-        """True if any line names *name*."""
-        return bool(self.lines_naming(name))
+        """True if any line names *name*. Stops at the first one."""
+        named = self._named.get(name)
+        if named is not None:
+            return named
+        if _LINE_SEP_RE.search(name):
+            raise ValueError("a name holding a line separator cannot be answered per line")
+        if _WORD_ONLY_RE.fullmatch(name):
+            named = name in self._by_word
+        else:
+            candidates = self._candidates(name)
+            if candidates is None:
+                named = _word_match(self._joined(), name)
+            else:
+                lines = self._lines
+                named = any(name in lines[i] and _word_match(lines[i], name) for i in candidates)
+        self._named[name] = named
+        return named
 
     def names_outside(self, name: str, start: int, end: int) -> bool:
         """True if a line outside ``[start, end)`` names *name*.
