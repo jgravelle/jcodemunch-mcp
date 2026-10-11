@@ -1,6 +1,12 @@
 {
-  "current": "1.108.342",
+  "current": "1.108.343",
   "entries": [
+    {
+      "version": "1.108.343",
+      "date": "2026-10-11",
+      "title": "dead code: a file is read as text wherever its language records no call",
+      "summary": "`get_dead_code_v2` no longer reports a called function as having no caller because its language records no call reference while another language in the repository does. It chose between call references and file text with one repository-wide question; the choice is now made per file, by what the index holds for that file's language. Measured on Clojure, Elixir, Erlang, PHP, C, Bash and Dart beside Python. When text was read for a caller the response says so in a new key, `callers_read_as_text`. Also in this release: the module-level sweep no longer searches a file's whole module-level text once per function whose name is not a plain identifier (a Clojure file of 8,000 functions went from 15.43 s to 0.18 s). Still reported: a caller in another file where the import graph holds no edge, and a name ending in `?` or `!`."
+    },
     {
       "version": "1.108.342",
       "date": "2026-10-11",
@@ -18,12 +24,6 @@
       "date": "2026-10-10",
       "title": "ASP.NET Web Forms is indexed, and a handler wired in markup is referenced",
       "summary": "ASP.NET Web Forms markup (.aspx, .ascx, .master, .asax, .ashx, .asmx) is indexed as its own language, `aspx`, and ten XML-shaped .NET files (.csproj, .resx, .xaml and others) as `xml`. An event handler wired only in markup (OnClick=\"btnSave_Click\") now reads as referenced, and pages, handlers and project files are roots, so the dead-code tools stop offering live Web Forms code for deletion. Contributed by @outoftheblue9. An existing C# index that holds one of the new file types over the size cap now reads as an inadequate corpus until `max_file_size` covers the file."
-    },
-    {
-      "version": "1.108.339",
-      "date": "2026-10-09",
-      "title": "the dynamic-import scan walks a Python file once",
-      "summary": "Indexing a Python file that holds a dynamic import walked the file's whole syntax tree once or twice per literal table, once per loop variable and once per pass, a cost added in 1.108.320. The file is now walked once. A cold index of this project's own source is about an eighth faster on Linux, and the edges the scan returns are unchanged, so no index needs rebuilding. About a tenth of a cold index against the code before 1.108.320 is not recovered."
     }
   ]
 }

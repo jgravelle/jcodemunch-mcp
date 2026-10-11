@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.343] - 2026-10-11 - dead code: a file is read as text wherever its language records no call
+
 ### Fixed - `get_dead_code_v2` reported a called function as having no caller when its language records no calls and another language in the repository does (LEDGER L-155)
 
 `get_dead_code_v2` has two sources of evidence that a function is called: the call references a

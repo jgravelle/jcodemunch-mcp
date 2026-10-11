@@ -2371,3 +2371,13 @@ The 1.108.339 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.339 count, verbatim:
 
 - ⚠ Prior (1.108.339): 15173 passed, 25 skipped, **0 failed** (15198 total).
+
+## Current State rotation (2026-10-11, release 1.108.343)
+
+The 1.108.340 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.340):** **ASP.NET Web Forms is indexed, and a handler wired in markup is referenced** (#1012, @outoftheblue9): language `aspx` (never a `razor` alias), ten XML-shaped .NET extensions as `xml`. ⚠⚠ **`.config`/`.settings` stay UNMAPPED until connection strings are redacted.** ⚠ A markup regex is one C call no parse budget interrupts: anchor every name (`tests/test_aspx_review_guards.py`). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.340 count, verbatim:
+
+- ⚠ Prior (1.108.340): 15386 passed, 25 skipped, **0 failed** (15411 total).
