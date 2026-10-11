@@ -36,7 +36,7 @@ split and is not resolved by it.
 | `watch-uninstall` | Remove the installed `watch-all` login service |
 | `watch-status` | Print service state + per-repo reindex status (also exposed as MCP tool `get_watch_status`) |
 | `hook-event create\|remove` | Record a worktree lifecycle event (called by Claude Code hooks) |
-| `index [target]` | Index a local folder (default: `.`) or GitHub repo (`owner/repo`). One command, no init required. `--identity-mode config\|local\|git` (#1017) chooses how a local target is keyed, as `index_folder`'s `identity_mode` does; default `config`, refused for a GitHub target |
+| `index [target]` | Index a local folder (default: `.`) or GitHub repo (`owner/repo`). One command, no init required. `--identity-mode config\|local\|git` (#1017) chooses how a local target is keyed, as `index_folder`'s `identity_mode` does; default `config`, refused for a GitHub target. A target that is an existing directory is local, even one spelled `owner/repo`; `https://github.com/owner/repo` forces the GitHub repo |
 | `index-file <path>` | Re-index a single file within an existing indexed folder (used by PostToolUse hooks) |
 | `import-scip <path.scip> [--repo <id>]` | (v1.108.96) Ingest a SCIP index file (compiler-verified cross-references from scip-typescript / scip-python / scip-java / scip-go / rust-analyzer; .gz accepted) into the scip_* tables. Hand-rolled protobuf reader, no deps. `find_references` then tags `compiler_verified` refs + appends compiler-only refs. Cap via `JCODEMUNCH_SCIP_MAX_ROWS`. |
 | `config` | Print effective configuration grouped by concern |

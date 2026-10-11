@@ -23,7 +23,7 @@ def _git(*args, cwd: Path) -> None:
 
 def _run(args, storage: Path, cwd: Path | None = None):
     # The developer's own JCODEMUNCH_* settings stay out of the subprocess: with
-    # JCODEMUNCH_TRUSTED_FOLDERS set, five of these failed (review of #1017).
+    # JCODEMUNCH_TRUSTED_FOLDERS set, every test that indexes failed (review of #1017).
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("JCODEMUNCH_")}
     env["CODE_INDEX_PATH"] = str(storage)
     env["JCODEMUNCH_USE_AI_SUMMARIES"] = "false"
@@ -171,3 +171,19 @@ def test_an_explicit_mode_reaches_a_folder_spelled_with_a_trailing_slash(tmp_pat
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["repo"].startswith("local/proj-")
+
+
+def test_owner_slash_repo_names_the_local_directory_when_one_exists(tmp_path, monkeypatch):
+    """A decision, not a spelling case: `owner/repo` is the directory when the
+    directory is there, as `git clone` reads an existing path, and the URL
+    forms still reach GitHub because they name no directory."""
+    from jcodemunch_mcp.server import _index_target_is_local
+
+    monkeypatch.chdir(tmp_path)
+    assert _index_target_is_local("example-owner/example-repo") is False
+
+    (tmp_path / "example-owner" / "example-repo").mkdir(parents=True)
+
+    assert _index_target_is_local("example-owner/example-repo") is True
+    assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
+    assert _index_target_is_local("git@github.com:example-owner/example-repo") is False

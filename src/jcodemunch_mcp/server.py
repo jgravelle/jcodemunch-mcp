@@ -1166,6 +1166,10 @@ def _index_target_is_local(target: str) -> bool:
     start with /, ., or a Windows drive letter, or hold no slash at all, and
     everything else (owner/repo, github.com/owner/repo, https://...,
     git@...) is a GitHub target that `parse_github_url` normalises.
+
+    So `owner/repo` names the local directory when one of that name exists
+    under the working directory, as `git clone` reads an existing path; the
+    URL forms never name a directory and always reach GitHub.
     """
     try:
         if Path(target).expanduser().is_dir():
@@ -9550,7 +9554,11 @@ def main(argv: Optional[list[str]] = None):
         "target",
         nargs="?",
         default=".",
-        help="Local path or owner/repo (default: current directory)",
+        help=(
+            "Local path or owner/repo (default: current directory). A directory "
+            "that exists is indexed as a local folder, even one spelled owner/repo; "
+            "pass https://github.com/owner/repo to force the GitHub repo."
+        ),
     )
     index_parser.add_argument(
         "--no-ai-summaries",

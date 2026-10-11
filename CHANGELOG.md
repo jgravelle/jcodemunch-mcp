@@ -10,7 +10,7 @@ ran in `config` mode, and a script that needed a path keyed a particular way
 had to call the Python function instead of the command. `jcodemunch-mcp index
 <path> --identity-mode local|git` now passes the mode through. The default is
 `config` (an index that already covers the path keeps its identity, else the
-config decides), so a command without the option does what it did. A value outside
+config decides). A value outside
 the three is refused by the parser before anything is indexed. An explicit
 mode with a GitHub target is refused with a structured error before any
 network call, because identity modes describe local folders only; the refusal
@@ -19,7 +19,12 @@ the CLI decided local-or-GitHub from the target's spelling alone, so an
 existing directory typed as `proj/`, `proj/sub`, `~/proj` or `work/../proj`
 was sent to the GitHub indexer, with or without the option. A directory that
 exists is now local however it is spelled (`_index_target_is_local`); a
-target that is no directory is routed as before. A mode that
+target that is no directory is routed as before. ⚠ That moves one command
+that carries no option: `index owner/repo` run where a directory `owner/repo`
+exists under the working directory (a ghq-style checkout root is one) now
+indexes that directory, where it fetched the GitHub repo before. It is how
+`git clone` reads an existing path. `https://github.com/owner/repo` and
+`git@github.com:owner/repo` name no directory and always reach GitHub. A mode that
 conflicts with an index already in the store is `index_folder`'s own refusal,
 naming the index to invalidate. No MCP tool changes. Requested by @sKlat-beep
 in #1016.
