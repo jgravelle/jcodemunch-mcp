@@ -482,9 +482,10 @@ def _files_read_as_text(index) -> set[str]:
     """Files whose language records no call reference anywhere in this index.
 
     ``call_references`` are written per symbol by the parsers that know their
-    language's call nodes. Several do not (Clojure, Elixir, Erlang), and one
-    that is declared to (PHP, in ``parser/extractor._CALL_NODE_TYPES``) wrote
-    none when measured (LEDGER L-155). For a file of such a language the
+    language's call nodes. Most do not (Clojure, Elixir, Erlang, C, Bash),
+    and two that are declared to (PHP and Dart, in
+    ``parser/extractor._CALL_NODE_TYPES``) wrote none when measured (LEDGER
+    L-155, L-158). For a file of such a language the
     call index is not evidence of anything: an absent caller there means
     nobody looked.
 
@@ -513,18 +514,24 @@ def _files_read_as_text(index) -> set[str]:
     return {f for f, languages in languages_of.items() if not (languages & recording)}
 
 
-def _text_reading_disclosure(index, text_files: set[str]) -> dict:
-    """What the response says when some files' callers were read from text.
+def _text_reading_disclosure(index, files_read: set[str]) -> dict:
+    """What the response says when some files' text was read for a caller.
 
     Text is weaker evidence than a call reference: a mention in a comment
     counts. Disclosed, because the caller cannot otherwise tell which rows
     rest on it. A count and the languages, never the file list (a list
     shipped unbounded on 1.x cannot be bounded later).
+
+    ⚠ *files_read* is what ``_TextCallers`` READ, never the files that were
+    eligible. The eligible set holds every data file with a symbol
+    (``pyproject.toml``, ``package.json``), which nothing asks about: the
+    first version counted those and put this key on a repository where no
+    text had been read (review of L-155).
     """
     return {
-        "files": len(text_files),
+        "files": len(files_read),
         "languages": sorted({
-            s.get("language") or "" for s in index.symbols if s.get("file") in text_files
+            s["language"] for s in index.symbols if s.get("file") in files_read and s.get("language")
         }),
     }
 
@@ -554,11 +561,15 @@ class _TextCallers:
     def __init__(self, store, owner: str, name: str) -> None:
         self._store, self._owner, self._name = store, owner, name
         self._words: dict[str, Optional[FileWords]] = {}
+        # Files whose text was consulted for a caller; what the response discloses.
+        self.files_read: set[str] = set()
 
     def _file_words(self, file_path: str) -> Optional[FileWords]:
         if file_path not in self._words:
             content = self._store.get_file_content(self._owner, self._name, file_path) or ""
             self._words[file_path] = FileWords(content) if content else None
+            if content:
+                self.files_read.add(file_path)
         return self._words[file_path]
 
     def names_caller(self, sym: dict, caller_file: str) -> bool:
@@ -571,6 +582,8 @@ class _TextCallers:
             return False
         if FileWords.spans_lines(sym_name):
             content = self._store.get_file_content(self._owner, self._name, caller_file) or ""
+            if content:
+                self.files_read.add(caller_file)
             if content and own:
                 lines = content.splitlines()
                 start_idx = max(0, sym_line - 1)
@@ -587,15 +600,24 @@ class _TextCallers:
         return words.names_outside(sym_name, start_idx, end_idx)
 
 
-def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, list[str]]) -> set[str]:
+def _text_fallback_callers(
+    index, store, owner: str, name: str, rev: dict[str, list[str]],
+    text: Optional["_TextCallers"] = None,
+) -> set[str]:
     """Ids of the functions and methods some text names outside their own lines.
 
     The answer when the index holds no call reference at all: every file is
     read through ``_TextCallers``, the symbol's own file first, then each file
-    that imports it.
+    that imports it. Pass *text* to learn afterwards which files were read.
+
+    ⚠ A file listed as its OWN importer is read as the symbol's own file (the
+    symbol's lines excluded) both times; the loop this replaced read it
+    whole the second time, which made every function there its own caller.
+    ``_build_reverse_adjacency`` drops self-edges, so the tool never asks.
     """
     callee_has_caller: set[str] = set()
-    text = _TextCallers(store, owner, name)
+    if text is None:
+        text = _TextCallers(store, owner, name)
     for sym in index.symbols:
         if sym.get("kind") not in ("function", "method"):
             continue
@@ -809,9 +831,9 @@ def get_dead_code_v2(
     # repository whose every language records calls, and then nothing below
     # differs from the call-reference path alone.
     text_files: set[str] = set()
+    text_callers = _TextCallers(store, owner, name)
     if callers_by_name:
         text_files = _files_read_as_text(index)
-        text_callers = _TextCallers(store, owner, name)
         # Fast path: use pre-computed AST call_references index
         # Any symbol whose name appears as a value in callers_by_name has at least one caller
         called_names_by_file: dict[str, set[str]] = {}
@@ -858,7 +880,7 @@ def get_dead_code_v2(
         )
     else:
         # Fallback: text heuristic, one pass per file (LEDGER L-150).
-        callee_has_caller = _text_fallback_callers(index, store, owner, name, rev)
+        callee_has_caller = _text_fallback_callers(index, store, owner, name, rev, text_callers)
 
     dead_symbols: list[dict] = []
     seen_ids: set[str] = set()
@@ -1007,8 +1029,8 @@ def get_dead_code_v2(
             ),
         },
     }
-    if text_files:
-        result["callers_read_as_text"] = _text_reading_disclosure(index, text_files)
+    if text_callers.files_read:
+        result["callers_read_as_text"] = _text_reading_disclosure(index, text_callers.files_read)
     by_dynamic_import = undecided_files & dynamic_loaded
     by_unseen_consumer = undecided_files - dynamic_loaded
     if by_unseen_consumer:
@@ -1130,9 +1152,10 @@ def _call_graph_only_dead_code(
 
     A file whose language records no call reference in this index is not
     covered by that graph at all, so its own text is read for a caller
-    (LEDGER L-155, the same rule as the 3-signal path). ⚠ Its OWN text only:
-    this mode has no import graph to say which other files could call it,
-    so a call from another file of such a language is still not seen.
+    (LEDGER L-155, the same rule as the 3-signal path), whether or not any
+    other language records one. ⚠ Its OWN text only: this mode has no
+    import graph to say which other files could call it, so a call from
+    another file of such a language is still not seen (L-157).
     """
     import fnmatch
 
@@ -1156,7 +1179,11 @@ def _call_graph_only_dead_code(
     callers_by_name = get_callers() or {}
     # Names that have at least one caller in the indexed call graph.
     called_names: set[str] = {ref for (_caller_file, ref) in callers_by_name.keys()}
-    text_files = _files_read_as_text(index) if (callers_by_name and store is not None) else set()
+    # ⚠ No `if callers_by_name` in front of this. The first version had one,
+    # which kept the repository-wide flip in this mode: a Clojure file was
+    # read as text only when some OTHER language recorded a call (review of
+    # L-155). With no call reference at all every file is read as text.
+    text_files = _files_read_as_text(index) if store is not None else set()
     text_callers = _TextCallers(store, owner, name)
 
     dead_symbols: list[dict] = []
@@ -1225,6 +1252,6 @@ def _call_graph_only_dead_code(
             "truncated": truncated,
         },
     }
-    if text_files:
-        result["callers_read_as_text"] = _text_reading_disclosure(index, text_files)
+    if text_callers.files_read:
+        result["callers_read_as_text"] = _text_reading_disclosure(index, text_callers.files_read)
     return result

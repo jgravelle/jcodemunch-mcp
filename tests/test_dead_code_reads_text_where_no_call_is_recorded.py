@@ -39,6 +39,18 @@ SOURCES = {
     "php": ("a.php", "<?php\nnamespace App;\nfunction used_thing() { return 1; }\nfunction unused_thing() { return 1; }\n"
                      "function run() { return used_thing(); }\n",
             "used_thing", "unused_thing"),
+    # The four above are the ledger row's. The defect was wider: the parser's
+    # table of call nodes holds thirteen languages, and every other language
+    # records none by construction. Two of those, and Dart, which the table
+    # names and which recorded none here.
+    "c": ("a.c", "int used_thing(int x) {\n  return x;\n}\n\nint unused_thing(int x) {\n  return x;\n}\n\n"
+                 "int run(void) {\n  return used_thing(1);\n}\n",
+          "used_thing", "unused_thing"),
+    "bash": ("a.sh", "used_thing() {\n  echo 1\n}\n\nunused_thing() {\n  echo 2\n}\n\nrun() {\n  used_thing\n}\n",
+             "used_thing", "unused_thing"),
+    "dart": ("a.dart", "int usedThing(int x) {\n  return x;\n}\n\nint unusedThing(int x) {\n  return x;\n}\n\n"
+                       "int run() {\n  return usedThing(1);\n}\n",
+             "usedThing", "unusedThing"),
 }
 
 PYTHON_PAIR = {
@@ -209,3 +221,80 @@ def test_call_graph_only_mode_is_unmoved_where_every_language_records_calls(tmp_
     dead = {r["name"] for r in out["dead_symbols"]}
     assert dead == {"a", "named_only"}, dead
     assert "callers_read_as_text" not in out
+
+
+# ---------------------------------------------------------------------------
+# review of L-155: the flip survived in call-graph-only mode, and the
+# disclosure counted files nobody read
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("language", sorted(SOURCES))
+def test_call_graph_only_mode_does_not_depend_on_the_python_beside_it(tmp_path, language):
+    """Alone, beside Python that calls nothing, beside Python that calls: one answer."""
+    fname, body, used, unused = SOURCES[language]
+    beside = {
+        "alone": {},
+        "python_without_a_call": {"py.py": "def b():" + chr(10) + "    return 1" + chr(10)},
+        "python_with_a_call": NO_IMPORTS,
+    }
+    answers = {}
+    for label, extra in beside.items():
+        root = tmp_path / label
+        root.mkdir()
+        repo, store, index = _index(root, {**extra, fname: body})
+        assert bool(index.get_callers_by_name()) == (label == "python_with_a_call")
+        out = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+        assert out["_meta"]["mode"] == "call_graph_only", (label, out["_meta"])
+        answers[label] = sorted(r["name"] for r in out["dead_symbols"] if r["file"] == fname)
+    assert answers["alone"] == answers["python_without_a_call"] == answers["python_with_a_call"] == sorted([unused, "run"]), answers
+
+
+DATA_FILES = {
+    "pyproject.toml": "[project]" + chr(10) + 'name = "x"' + chr(10),
+    "package.json": '{"name": "x", "version": "1.0.0"}' + chr(10),
+}
+
+
+def test_a_data_file_nobody_reads_is_not_disclosed_as_read(tmp_path):
+    """TOML and JSON hold symbols and record no call; no function is asked of them."""
+    repo, store, index = _index(tmp_path, {**PYTHON_PAIR, **DATA_FILES})
+    eligible = v2._files_read_as_text(index)
+    assert eligible & set(DATA_FILES), "guard: a data file must be eligible for this test to mean anything"
+    out = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+    assert "callers_read_as_text" not in out, out.get("callers_read_as_text")
+
+
+def test_the_disclosure_counts_the_files_read_not_the_files_eligible(tmp_path):
+    repo, store, index = _index(tmp_path, {**PYTHON_PAIR, **DATA_FILES, "a.clj": SOURCES["clojure"][1]})
+    assert len(v2._files_read_as_text(index)) > 1
+    out = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+    assert out["callers_read_as_text"] == {"files": 1, "languages": ["clojure"]}, out["callers_read_as_text"]
+
+
+def test_an_index_with_no_call_reference_discloses_its_text_reading_too(tmp_path):
+    """The text fallback reads every function's file; the response says how many."""
+    files = {"util.py": "X = 1" + chr(10), "py.py": "import util" + chr(10), "a.clj": SOURCES["clojure"][1]}
+    repo, store, index = _index(tmp_path, files)
+    assert not index.get_callers_by_name()
+    out = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+    assert out.get("_meta", {}).get("mode") != "call_graph_only"
+    assert out["callers_read_as_text"] == {"files": 1, "languages": ["clojure"]}, out["callers_read_as_text"]
+
+
+class _StubIndex:
+    def __init__(self, symbols):
+        self.symbols = symbols
+
+
+def test_a_file_of_two_languages_is_read_as_text_only_when_neither_records_a_call():
+    """The rule itself, on symbol rows: a template with a script block follows its recording half."""
+    index = _StubIndex([
+        {"file": "page.vue", "language": "vue", "name": "tpl"},
+        {"file": "page.vue", "language": "typescript", "name": "setup"},
+        {"file": "other.ts", "language": "typescript", "name": "f", "call_references": ["g"]},
+        {"file": "both.x", "language": "vue", "name": "a"},
+        {"file": "both.x", "language": "toml", "name": "b"},
+        {"file": "", "language": "vue", "name": "no file"},
+    ])
+    assert v2._files_read_as_text(index) == {"both.x"}

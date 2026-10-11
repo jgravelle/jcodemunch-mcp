@@ -9,38 +9,52 @@ parser records, and the file's text. It chose between them with one question ask
 repository: does the index hold any call reference? With none, it read files as text. With any,
 it read call references, plus the text at module level only.
 
-The parsers for Clojure, Elixir and Erlang record no call reference, and PHP's recorded none on
-every shape tried. So in a repository that also holds Python or Ruby, a function of one of those
-four that is called only from inside another function had no evidence on either path. It was
-reported with `no_callers`, and the same file indexed alone was not. This is #409's flip one
-level down: there one call reference anywhere moved a repository onto a path that could not see
-module-level calls. Found in the review of L-152.
+Most languages here record no call reference. The parser keeps a table of call nodes
+(`_CALL_NODE_TYPES`) for thirteen languages, and every other language records none by
+construction. Two of the thirteen, PHP and Dart, recorded none either on the shapes tried. So in
+a repository that also holds Python or Ruby, a function in any of those languages that is called
+only from inside another function had no evidence on either path and was reported with
+`no_callers`. Measured on Clojure, Elixir, Erlang, PHP, C, Bash and Dart (`evidence/red.txt`).
+This is #409's flip one level down: there one call reference anywhere moved a repository onto a
+path that could not see module-level calls. Found in the review of L-152.
 
 The choice is now made per file. A file is read as text when none of its symbols' languages has
-a call reference anywhere in the index. The index is asked, not a table of languages: the table
-the parser keeps (`_CALL_NODE_TYPES`) names PHP, and PHP wrote none. The call-graph-only mode
-(the one an index with no import edge takes) reads a function's own file the same way.
+a call reference anywhere in the index. The index is asked, not the table, which names PHP and
+Dart. A file that holds symbols of two languages (a template with a script block) is read as
+text only when neither records a call.
 
-When any file was read as text the response says so in a new key,
-`callers_read_as_text: {"files": n, "languages": [...]}`. Text is weaker evidence than a call
-reference: a mention in a comment counts as a caller. The key is absent when no file was read
-that way, and it carries a count and the language names, never the file list.
+The call-graph-only mode (the one an index with no import edge takes) had the same defect in a
+second form: it knew no text at all, so a file of such a language had every function reported.
+It now reads a function's own file by the same per-file rule, whatever else the repository
+holds. A Clojure file indexed alone, beside Python that calls nothing and beside Python that
+calls give one answer there.
+
+When a file's text was read for a caller the response says so in a new key,
+`callers_read_as_text: {"files": n, "languages": [...]}`, on all three paths, the old text
+fallback included. Text is weaker evidence than a call reference: a mention in a comment counts
+as a caller. `files` counts the files whose text was read, not the files eligible: a
+`pyproject.toml` holds symbols and records no call, and nothing is asked of it. The key is
+absent when no text was read, and it carries a count and language names, never the file list.
 
 Measured through the tool, 1.108.342's code plus L-152's fix against this
 (`evidence/measure_l155.txt`): on this repository's `src/` the same 451 functions carry
-`no_callers` before and after, and no file is read as text. On `tests/fixtures`, 160 before and
-140 after; 20 are no longer reported and none is newly reported, with 45 files of 19 languages
-read as text. Eight reintroduced defects each fail the tests (`evidence/mutants.txt`).
+`no_callers` before and after, and on `benchmarks/` the same 138; neither response carries the
+key. On `tests/fixtures`, 160 before and 140 after; 20 are no longer reported and none is newly
+reported, with 17 files read as text. Thirteen reintroduced defects each fail the tests
+(`evidence/mutants.txt`).
 
 What this does not fix (`evidence/limits_l155.txt`, each still reported after the fix):
 
 - A name that ends in `?` or `!` is still not found by the text rule (L-154; measured on
   Elixir's `valid?`).
-- A Clojure function called only from another Clojure file. The text of a file is read for a
-  function when the import graph says that file imports the function's file, and no such edge
-  was there for a `:require` (L-157).
+- A function called only from ANOTHER file is found only where the import graph holds an edge
+  from the calling file to the function's file. PHP's `require` gives one. A Clojure `:require`,
+  an Elixir `alias`, and two C files that include one header do not (L-157).
 - In call-graph-only mode there is no import graph, so only a function's own file is read
   (L-157).
+- The choice is per language. A language that records some calls gets no text reading for the
+  call shapes its parser misses: a Go method called through a receiver, `t.UsedMethod()`, is
+  reported, before and after (L-159).
 
 A language that can record calls is read as text too when the repository's files of it hold no
 call between functions. That only ever finds a caller a call reference would not; it never
