@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def dod():
         sys.path.remove(str(HOOKS))
 
 
-BASE = '''
+BASE = """
 import argparse, os
 
 def build():
@@ -64,7 +65,7 @@ def build():
     return ap
 
 LEVEL = os.environ.get("JCODEMUNCH_LOG_LEVEL")
-'''
+"""
 
 DOCS = "| `index [target]` | `--no-ai-summaries` skips summaries. `JCODEMUNCH_LOG_LEVEL` sets the level. |"
 
@@ -80,13 +81,13 @@ def _added(dod, base: dict, head: dict) -> set[str]:
 
 def test_an_option_added_in_server_py_is_found(dod):
     head = BASE.replace(
-        '    return ap',
-        '    index_parser.add_argument(\n'
+        "    return ap",
+        "    index_parser.add_argument(\n"
         '        "--identity-mode",\n'
         '        choices=["config", "local", "git"],\n'
         '        default="config",\n'
-        '    )\n'
-        '    return ap',
+        "    )\n"
+        "    return ap",
     )
     assert _added(dod, {SERVER: BASE}, {SERVER: head}) == {"--identity-mode"}
 
@@ -115,7 +116,9 @@ def test_a_short_and_long_pair_is_named_by_its_long_form(dod):
 
 
 def test_a_new_file_counts_everything_in_it(dod):
-    head = {"src/jcodemunch_mcp/cli/new.py": 'def f(p):\n    p.add_argument("--fresh")\n'}
+    head = {
+        "src/jcodemunch_mcp/cli/new.py": 'def f(p):\n    p.add_argument("--fresh")\n'
+    }
     assert _added(dod, {}, head) == {"--fresh"}
 
 
@@ -141,8 +144,13 @@ def test_a_name_moved_between_two_changed_files_is_not_an_addition(dod):
     line = '    index_parser.add_argument("--no-ai-summaries", action="store_true")\n'
     head_server = BASE.replace(line, "")
     assert head_server != BASE
-    head_other = 'def wire(p):\n    p.add_argument("--no-ai-summaries", action="store_true")\n'
-    assert _added(dod, {SERVER: BASE, other: ""}, {SERVER: head_server, other: head_other}) == set()
+    head_other = (
+        'def wire(p):\n    p.add_argument("--no-ai-summaries", action="store_true")\n'
+    )
+    assert (
+        _added(dod, {SERVER: BASE, other: ""}, {SERVER: head_server, other: head_other})
+        == set()
+    )
 
 
 def test_a_mention_is_not_an_addition(dod):
@@ -186,10 +194,19 @@ def test_a_positional_argument_is_not_an_option(dod):
         ("refresh", "| `config refresh` | sub-subcommand |", True),
         ("refresh", "we refresh the index often", False),
         ("refresh", "`refresh-all` exists", False),
+        ("refresh", "see `refresh [path]` in the middle of a sentence", False),
+        ("server", "| `server.py` | the dispatcher |", False),
+        ("status", "| `status()` | reports progress |", False),
+        ("sync", "run `uv sync --locked` first", False),
+        ("log", "| `log/2` | erlang arity |", False),
     ],
 )
 def test_a_name_is_documented_only_as_itself(dod, name, docs, documented):
-    kind = "env" if name.isupper() else ("option" if name.startswith("--") else "subcommand")
+    kind = (
+        "env"
+        if name.isupper()
+        else ("option" if name.startswith("--") else "subcommand")
+    )
     assert dod.row6_undocumented({kind: {name}}, docs) == ([] if documented else [name])
 
 
@@ -197,30 +214,39 @@ def test_a_name_is_documented_only_as_itself(dod, name, docs, documented):
 
 
 def _head_with_everything() -> str:
-    return BASE.replace(
-        "    return ap",
-        '    index_parser.add_argument("--identity-mode", default="config")\n'
-        '    sub.add_parser("refresh")\n'
-        "    return ap",
-    ) + 'KNOB = os.environ.get("JCODEMUNCH_NEW_KNOB")\n'
+    return (
+        BASE.replace(
+            "    return ap",
+            '    index_parser.add_argument("--identity-mode", default="config")\n'
+            '    sub.add_parser("refresh")\n'
+            "    return ap",
+        )
+        + 'KNOB = os.environ.get("JCODEMUNCH_NEW_KNOB")\n'
+    )
 
 
 def test_nothing_added_is_not_applicable(dod):
-    verdict, evidence = dod.row6_verdict({SERVER: BASE}, {SERVER: BASE + "\nX = 1\n"}, DOCS)
+    verdict, evidence = dod.row6_verdict(
+        {SERVER: BASE}, {SERVER: BASE + "\nX = 1\n"}, DOCS
+    )
     assert verdict is None
     assert "no CLI subcommand, option or env var added" in evidence
 
 
 def test_an_undocumented_addition_is_unmet_and_named(dod):
-    verdict, evidence = dod.row6_verdict({SERVER: BASE}, {SERVER: _head_with_everything()}, DOCS)
+    verdict, evidence = dod.row6_verdict(
+        {SERVER: BASE}, {SERVER: _head_with_everything()}, DOCS
+    )
     assert verdict == "unmet"
     for name in ("--identity-mode", "refresh", "JCODEMUNCH_NEW_KNOB"):
         assert name in evidence
 
 
 def test_a_partly_documented_addition_names_only_what_is_missing(dod):
-    docs = DOCS + " `--identity-mode` and `refresh [path]`."
-    verdict, evidence = dod.row6_verdict({SERVER: BASE}, {SERVER: _head_with_everything()}, docs)
+    docs = "\n".join([DOCS + " `--identity-mode`", "| `refresh [path]` | re-parse |"])
+    verdict, evidence = dod.row6_verdict(
+        {SERVER: BASE}, {SERVER: _head_with_everything()}, docs
+    )
     assert verdict == "unmet"
     missing = evidence.split("no row names:")[1]
     assert "JCODEMUNCH_NEW_KNOB" in missing
@@ -228,14 +254,23 @@ def test_a_partly_documented_addition_names_only_what_is_missing(dod):
 
 
 def test_a_documented_addition_is_met(dod):
-    docs = DOCS + " `--identity-mode`, `refresh [path]`, `JCODEMUNCH_NEW_KNOB`."
-    verdict, evidence = dod.row6_verdict({SERVER: BASE}, {SERVER: _head_with_everything()}, docs)
+    docs = "\n".join(
+        [
+            DOCS + " `--identity-mode`, `JCODEMUNCH_NEW_KNOB`",
+            "| `refresh [path]` | re-parse |",
+        ]
+    )
+    verdict, evidence = dod.row6_verdict(
+        {SERVER: BASE}, {SERVER: _head_with_everything()}, docs
+    )
     assert verdict == "met"
     assert "--identity-mode" in evidence
 
 
 def test_a_head_file_that_cannot_be_parsed_is_unmet_never_not_applicable(dod):
-    verdict, evidence = dod.row6_verdict({SERVER: BASE}, {SERVER: "def broken(:\n"}, DOCS)
+    verdict, evidence = dod.row6_verdict(
+        {SERVER: BASE}, {SERVER: "def broken(:\n"}, DOCS
+    )
     assert verdict == "unmet"
     assert SERVER in evidence
 
@@ -262,7 +297,8 @@ class _DropIdentityMode(ast.NodeTransformer):
             and isinstance(call.func, ast.Attribute)
             and call.func.attr == "add_argument"
             and any(
-                isinstance(a, ast.Constant) and a.value == "--identity-mode" for a in call.args
+                isinstance(a, ast.Constant) and a.value == "--identity-mode"
+                for a in call.args
             )
         ):
             self.dropped += 1
@@ -274,7 +310,9 @@ def test_the_1018_shape_from_the_real_server_py(dod):
     head = (ROOT / SERVER).read_text(encoding="utf-8")
     dropper = _DropIdentityMode()
     base = ast.unparse(dropper.visit(ast.parse(head)))
-    assert dropper.dropped == 1, "the reported option is no longer where the report found it"
+    assert dropper.dropped >= 1, (
+        "the reported option is no longer where the report found it"
+    )
 
     added, unparsed = dod.row6_added({SERVER: base}, {SERVER: head})
     assert unparsed == []
@@ -287,14 +325,340 @@ def test_the_1018_shape_from_the_real_server_py(dod):
     assert dod.row6_verdict({SERVER: base}, {SERVER: head}, without)[0] == "unmet"
 
 
-def test_the_checklist_grades_row_six_through_the_verdict_function():
-    """`main` must call the function these tests exercise; a row 6 decided
-    from touched paths alone is the defect."""
-    tree = ast.parse((HOOKS / "dod_checklist.py").read_text(encoding="utf-8"))
-    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
-    called = {
-        n.func.id
-        for n in ast.walk(main)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+# -- spellings review round one found ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        ('import os\nA = os.environ.get("OPENAI_NEW_KNOB")\n', {"OPENAI_NEW_KNOB"}),
+        (
+            'import os\nA = os.getenv("CODE_INDEX_NEW_KNOB", "x")\n',
+            {"CODE_INDEX_NEW_KNOB"},
+        ),
+        ('import os\nA = os.environ["WATCHFILES_NEW_KNOB"]\n', {"WATCHFILES_NEW_KNOB"}),
+        (
+            'from os import environ, getenv\nA = environ.get("A_KNOB")\nB = getenv("B_KNOB")\n',
+            {"A_KNOB", "B_KNOB"},
+        ),
+        ('PREFIX = "JCODEMUNCH_HOOK_"\n', set()),
+        ('d = {}\nA = d.get("NOT_AN_ENV_READ")\n', set()),
+        ('import os\nA = os.environ.get("lower_case")\n', set()),
+    ],
+    ids=[
+        "environ-get",
+        "getenv",
+        "subscript",
+        "bare-imports",
+        "prefix-constant",
+        "dict-get",
+        "lower-case",
+    ],
+)
+def test_an_env_read_is_named_whatever_its_prefix(dod, source, expected):
+    assert dod.cli_env_names(source)["env"] == expected
+
+
+def test_suppress_imported_by_name_is_still_hidden(dod):
+    source = (
+        "from argparse import SUPPRESS\n"
+        'def f(p):\n    p.add_argument("--internal-probe", help=SUPPRESS)\n'
+    )
+    assert dod.cli_env_names(source)["option"] == set()
+
+
+def test_a_subcommand_alias_is_a_subcommand(dod):
+    source = 'def f(sub):\n    sub.add_parser("list-repos", aliases=["ls", "lr"])\n'
+    assert dod.cli_env_names(source)["subcommand"] == {"list-repos", "ls", "lr"}
+
+
+def test_a_source_with_a_bom_parses(dod):
+    source = '﻿def f(p):\n    p.add_argument("--fresh")\n'
+    assert dod.cli_env_names(source)["option"] == {"--fresh"}
+
+
+def test_a_name_the_rest_of_src_declared_at_the_base_is_not_an_addition(dod):
+    """A renamed file has no base under its new path, and a second use of a
+    name another module owns appears in a changed file: neither was ADDED."""
+    head = {
+        "src/jcodemunch_mcp/cli/receipt_cli.py": 'def f(p):\n    p.add_argument("--by-day")\n    p.add_argument("--brand-new")\n'
     }
-    assert "row6_verdict" in called
+    elsewhere = {"subcommand": set(), "option": {"--by-day"}, "env": set()}
+
+    added, _ = dod.row6_added({}, head, elsewhere)
+    assert added["option"] == {"--brand-new"}
+
+    asked = []
+
+    def lazy():
+        asked.append(1)
+        return elsewhere
+
+    verdict, evidence = dod.row6_verdict({}, head, "", lazy)
+    assert (
+        verdict == "unmet" and "--brand-new" in evidence and "--by-day" not in evidence
+    )
+    assert asked == [1]
+
+    asked.clear()
+    assert (
+        dod.row6_verdict({"a.py": "x = 1\n"}, {"a.py": "x = 2\n"}, "", lazy)[0] is None
+    )
+    assert asked == [], (
+        "the base tree is walked only when the changed files show an addition"
+    )
+
+
+def test_claude_md_documents_through_its_table_rows_only(dod, tmp_path):
+    (tmp_path / "CLI-AND-ENV.md").write_text(
+        "| `index [target]` | x |\n", encoding="utf-8"
+    )
+    (tmp_path / "CLAUDE.md").write_text(
+        "Run `jcodemunch-mcp prose-only .` and `--prose-flag` in a sentence.\n"
+        "| `refresh [path]` | `--max-seconds` bounded |\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text(
+        "`--readme-only` and `jcodemunch-mcp readme-cmd`\n", encoding="utf-8"
+    )
+    docs = dod.row6_docs_text(tmp_path)
+    added = {
+        "subcommand": {"refresh", "prose-only", "readme-cmd", "index"},
+        "option": {"--max-seconds", "--prose-flag", "--readme-only"},
+    }
+    assert dod.row6_undocumented(added, docs) == [
+        "prose-only",
+        "readme-cmd",
+        "--prose-flag",
+        "--readme-only",
+    ]
+
+
+# -- the entry point: a real git repository the test owns --------------------
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            *args,
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout
+
+
+OTHER = "src/jcodemunch_mcp/cli/receipt.py"
+OTHER_SRC = 'import os\n\ndef wire(p):\n    p.add_argument("--by-day")\n\nROOT = os.environ.get("JCODEMUNCH_OLD_KNOB")\n'
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """`main` holds server.py and cli/receipt.py and a docs table; the test
+    works on branch `work`."""
+    r = tmp_path / "repo"
+    (r / "src" / "jcodemunch_mcp" / "cli").mkdir(parents=True)
+    (r / SERVER).write_text(BASE, encoding="utf-8")
+    (r / OTHER).write_text(OTHER_SRC, encoding="utf-8")
+    (r / "CLI-AND-ENV.md").write_text(DOCS + "\n", encoding="utf-8")
+    _git(r, "init", "-q", "-b", "main")
+    _git(r, "add", "-A")
+    _git(r, "commit", "-q", "-m", "base")
+    _git(r, "checkout", "-q", "-b", "work")
+    return r
+
+
+def _changed(repo: Path) -> list[str]:
+    """The path list `main` builds: committed against the base, plus unstaged."""
+    return sorted(
+        set(_git(repo, "diff", "--name-only", "main...HEAD").split())
+        | set(_git(repo, "diff", "--name-only").split())
+    )
+
+
+NO_PARITY = lambda: (None, "config.py and cli/ untouched")  # noqa: E731
+
+
+def _add_option(repo: Path, flag: str = "--identity-mode") -> None:
+    p = repo / SERVER
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            "    return ap", f'    index_parser.add_argument("{flag}")\n    return ap'
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_a_committed_option_in_server_py_is_unmet_then_met(dod, repo):
+    _add_option(repo)
+    _git(repo, "commit", "-q", "-am", "add option")
+
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "unmet" and "--identity-mode" in evidence
+
+    with (repo / "CLI-AND-ENV.md").open("a", encoding="utf-8") as fh:
+        fh.write("| `index [target]` | `--identity-mode` picks the key |\n")
+    assert dod.row6_row(_changed(repo), "main", repo, NO_PARITY)[0] == "met"
+
+
+def test_an_uncommitted_and_a_staged_addition_are_both_graded(dod, repo):
+    _add_option(repo, "--unstaged")
+    assert dod.row6_row(_changed(repo), "main", repo, NO_PARITY)[0] == "unmet"
+
+    _git(repo, "add", "-A")
+    assert _changed(repo) == [], (
+        "a staged-only change is absent from the path list main builds"
+    )
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "unmet" and "--unstaged" in evidence
+
+
+def test_the_base_is_the_merge_base_not_the_base_refs_tip(dod, repo):
+    """An option that reaches `main` AFTER the branch point was not added by
+    the branch, and one the branch adds is still seen."""
+    _add_option(repo, "--from-branch")
+    _git(repo, "commit", "-q", "-am", "branch adds")
+    _git(repo, "checkout", "-q", "main")
+    (repo / OTHER).write_text(
+        OTHER_SRC + 'X = os.environ.get("JCODEMUNCH_MAIN_ONLY")\n', encoding="utf-8"
+    )
+    _git(repo, "commit", "-q", "-am", "main moves")
+    _git(repo, "checkout", "-q", "work")
+
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "unmet"
+    assert "--from-branch" in evidence and "JCODEMUNCH_MAIN_ONLY" not in evidence
+
+
+def test_a_name_the_base_ref_dropped_after_the_branch_point_is_not_an_addition(
+    dod, repo
+):
+    """`main` removes an option the branch still carries. Against the ref's
+    TIP the branch would appear to have added it."""
+    _git(repo, "checkout", "-q", "main")
+    _add_option(repo, "--legacy-undocumented")
+    _git(repo, "commit", "-q", "-am", "main has a legacy option")
+    _git(repo, "checkout", "-q", "-b", "work2")
+    p = repo / SERVER
+    p.write_text(p.read_text(encoding="utf-8") + "\nTOUCHED = 1\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "branch touches the file")
+    _git(repo, "checkout", "-q", "main")
+    p.write_text(
+        p.read_text(encoding="utf-8").replace(
+            '    index_parser.add_argument("--legacy-undocumented")\n', ""
+        ),
+        encoding="utf-8",
+    )
+    _git(repo, "commit", "-q", "-am", "main drops it")
+    _git(repo, "checkout", "-q", "work2")
+    assert "--legacy-undocumented" in p.read_text(encoding="utf-8")
+
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "n.a.", evidence
+
+
+def test_an_env_var_added_outside_server_py_and_cli_is_unmet(dod, repo):
+    """The module the old rule never watched."""
+    sec = repo / "src" / "jcodemunch_mcp" / "security.py"
+    sec.write_text(
+        'import os\nCAP = os.environ.get("JCODEMUNCH_NEW_CAP")\n', encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "new module reads an env var")
+
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "unmet" and "JCODEMUNCH_NEW_CAP" in evidence
+
+
+def test_a_renamed_file_adds_nothing(dod, repo):
+    _git(repo, "mv", OTHER, "src/jcodemunch_mcp/cli/receipt_cli.py")
+    _git(repo, "commit", "-q", "-m", "rename")
+    assert _changed(repo) == [
+        "src/jcodemunch_mcp/cli/receipt_cli.py"
+    ] or OTHER in _changed(repo)
+
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "n.a.", evidence
+
+
+def test_a_second_use_of_a_name_another_module_owns_adds_nothing(dod, repo):
+    _add_option(repo, "--by-day")
+    p = repo / SERVER
+    p.write_text(
+        p.read_text(encoding="utf-8") + 'OLD = os.environ.get("JCODEMUNCH_OLD_KNOB")\n',
+        encoding="utf-8",
+    )
+    _git(repo, "commit", "-q", "-am", "reuse")
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, NO_PARITY)
+    assert verdict == "n.a.", evidence
+
+
+def test_a_change_outside_src_or_to_a_non_python_file_is_not_applicable(dod, repo):
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "tool.py").write_text(
+        'def f(p):\n    p.add_argument("--script-flag")\n', encoding="utf-8"
+    )
+    (repo / "src" / "jcodemunch_mcp" / "data.json").write_text(
+        '{"JCODEMUNCH_X": 1}', encoding="utf-8"
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "outside")
+    assert dod.row6_row(_changed(repo), "main", repo, NO_PARITY)[0] == "n.a."
+
+
+def test_a_base_that_cannot_be_resolved_is_unmet_never_not_applicable(dod, repo):
+    verdict, evidence = dod.row6_row([], "origin/nope", repo, NO_PARITY)
+    assert verdict == "unmet" and "origin/nope" in evidence
+
+
+@pytest.mark.parametrize(
+    "add_option, parity, expected",
+    [
+        (False, (None, "untouched"), "n.a."),
+        (False, ("met", "parity ok"), "met"),
+        (False, ("unmet", "parity failed"), "unmet"),
+        (True, (None, "untouched"), "unmet"),
+        (True, ("met", "parity ok"), "unmet"),
+        (True, ("unmet", "parity failed"), "unmet"),
+    ],
+)
+def test_either_half_unmet_makes_the_row_unmet(dod, repo, add_option, parity, expected):
+    if add_option:
+        _add_option(repo)
+        _git(repo, "commit", "-q", "-am", "add option")
+    verdict, evidence = dod.row6_row(_changed(repo), "main", repo, lambda: parity)
+    assert verdict == expected
+    assert parity[1] in evidence
+
+
+def test_main_hands_row_six_to_the_row_function_and_nothing_else():
+    """`main` writes row 6 exactly once, and its verdict is `row6_row`'s."""
+    tree = ast.parse((HOOKS / "dod_checklist.py").read_text(encoding="utf-8"))
+    main = next(
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main"
+    )
+    sixes = [
+        n
+        for n in ast.walk(main)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "row"
+        and n.args
+        and isinstance(n.args[0], ast.Constant)
+        and n.args[0].value == 6
+    ]
+    assert len(sixes) == 1
+    (call,) = sixes
+    assert len(call.args) == 2 and isinstance(call.args[1], ast.Starred)
+    inner = call.args[1].value
+    assert isinstance(inner, ast.Call) and inner.func.id == "row6_row"
+    assert [a.id for a in inner.args[:3]] == ["changed", "base", "REPO"]

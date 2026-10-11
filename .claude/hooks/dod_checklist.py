@@ -47,23 +47,64 @@ BACKGROUND_RE = re.compile(
 )
 
 
-#: An env-var NAME as a whole string literal (a mention inside help text is not a read).
-ENV_NAME_RE = re.compile(r"(?:JCODEMUNCH|MUNCH)_[A-Z0-9_]+\Z")
-#: Where DoD 6 lets the row live (`CLAUDE.md` holds the invariant rows, README the usage).
-ROW6_DOCS = ("CONFIGURATION.md", "CLI-AND-ENV.md", "README.md", "CLAUDE.md")
+#: An env-var NAME as a whole string literal (a mention inside help text is not a
+#: read; a trailing underscore is a prefix constant, not a name).
+ENV_NAME_RE = re.compile(r"(?:JCODEMUNCH|MUNCH)_[A-Z0-9_]*[A-Z0-9]\Z")
+#: Any env-var name, for the first argument of an env READ (`OPENAI_API_BASE`).
+ENV_READ_ARG_RE = re.compile(r"[A-Z][A-Z0-9_]*[A-Z0-9]\Z")
+#: Where DoD 6 puts the row: the two tables, plus the invariant rows the
+#: 2026-08-31 split left in CLAUDE.md (table rows only, never its prose).
+ROW6_DOCS = ("CONFIGURATION.md", "CLI-AND-ENV.md", "CLAUDE.md")
 ROW6_KINDS = ("subcommand", "option", "env")
+#: One `git grep` pattern for "a base file that could declare a name".
+ROW6_CANDIDATE = r"add_parser|add_argument|environ|getenv|MUNCH_"
+
+
+def _env_read_arg(node: ast.AST) -> str | None:
+    """The literal name an env READ asks for: `os.environ.get("X")`,
+    `os.getenv("X")`, `os.environ["X"]`, with or without the `os.` prefix."""
+
+    def is_environ(n: ast.AST) -> bool:
+        return (isinstance(n, ast.Attribute) and n.attr == "environ") or (
+            isinstance(n, ast.Name) and n.id == "environ"
+        )
+
+    arg = None
+    if isinstance(node, ast.Call) and node.args:
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr == "get" and is_environ(f.value):
+            arg = node.args[0]
+        elif (isinstance(f, ast.Attribute) and f.attr == "getenv") or (
+            isinstance(f, ast.Name) and f.id == "getenv"
+        ):
+            arg = node.args[0]
+    elif isinstance(node, ast.Subscript) and is_environ(node.value):
+        arg = node.slice
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value if ENV_READ_ARG_RE.match(arg.value) else None
+    return None
+
+
+def _is_suppress(value: ast.AST) -> bool:
+    return (isinstance(value, ast.Attribute) and value.attr == "SUPPRESS") or (
+        isinstance(value, ast.Name) and value.id == "SUPPRESS"
+    )
 
 
 def cli_env_names(source: str) -> dict[str, set[str]]:
     """The CLI subcommands, long options and env-var names one Python source declares.
 
     Read from the AST, so a wrapped call, a comment, a docstring or a help
-    string cannot add or hide a name. An option argparse itself hides
-    (`help=argparse.SUPPRESS`) is not a documented surface and is left out.
-    Raises SyntaxError on a source that does not parse.
+    string cannot add or hide a name. An env var is a `JCODEMUNCH_*`/`MUNCH_*`
+    literal, or the literal first argument of an env read whatever its prefix.
+    An option argparse itself hides (`help=SUPPRESS`) is not a documented
+    surface and is left out. Raises SyntaxError on a source that does not parse.
     """
     names: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
-    for node in ast.walk(ast.parse(source)):
+    for node in ast.walk(ast.parse(source.lstrip("﻿"))):
+        read = _env_read_arg(node)
+        if read:
+            names["env"].add(read)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if ENV_NAME_RE.match(node.value):
                 names["env"].add(node.value)
@@ -75,31 +116,40 @@ def cli_env_names(source: str) -> dict[str, set[str]]:
             for a in node.args
             if isinstance(a, ast.Constant) and isinstance(a.value, str)
         ]
-        if node.func.attr == "add_parser" and literals:
-            names["subcommand"].add(literals[0])
+        if node.func.attr == "add_parser":
+            names["subcommand"].update(literals[:1])
+            for k in node.keywords:
+                if k.arg == "aliases" and isinstance(k.value, (ast.List, ast.Tuple)):
+                    names["subcommand"].update(
+                        e.value
+                        for e in k.value.elts
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                    )
         elif node.func.attr == "add_argument":
-            hidden = any(
-                k.arg == "help"
-                and isinstance(k.value, ast.Attribute)
-                and k.value.attr == "SUPPRESS"
-                for k in node.keywords
-            )
-            if not hidden:
+            if not any(
+                k.arg == "help" and _is_suppress(k.value) for k in node.keywords
+            ):
                 names["option"].update(v for v in literals if v.startswith("--"))
     return names
 
 
 def row6_added(
-    base_sources: dict[str, str], head_sources: dict[str, str]
+    base_sources: dict[str, str],
+    head_sources: dict[str, str],
+    elsewhere: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
-    """Names the head sources declare and the base sources did not, by kind,
-    plus the head paths that could not be parsed.
+    """Names the head sources declare and the base did not, by kind, plus the
+    head paths that could not be parsed.
 
-    Both sides are the SAME set of changed files, unioned, so a name moved
-    from one changed file to another is not an addition. A base file that is
-    absent or unparseable contributes nothing: everything in its head counts.
+    `base_sources` are the changed files as they stood at the base. A base file
+    that is absent or unparseable contributes nothing: everything in its head
+    counts. `elsewhere` is what the REST of `src/` declared at the base; a name
+    in it was not added by this change wherever it now appears (a renamed
+    file, a second use of a name another module owns).
     """
-    base: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
+    base: dict[str, set[str]] = {
+        k: set(elsewhere[k]) if elsewhere else set() for k in ROW6_KINDS
+    }
     head: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
     unparsed: list[str] = []
     for text in base_sources.values():
@@ -126,10 +176,14 @@ def _row6_pattern(kind: str, name: str) -> re.Pattern:
         return re.compile(rf"(?<![\w-]){esc}(?![\w-])")
     if kind == "env":
         return re.compile(rf"(?<![A-Za-z0-9_]){esc}(?![A-Za-z0-9_])")
-    # A subcommand is an ordinary word (`index`, `refresh`), so prose does not
-    # document it: it must open a code span, follow one word inside it
-    # (`config refresh`), or follow the program name.
-    return re.compile(rf"(?:`(?:[\w-]+ )?|jcodemunch-mcp\s+(?:[\w-]+\s+)?){esc}(?![\w-])")
+    # A subcommand is an ordinary word (`index`, `server`, `check`), so prose,
+    # a module name (`server.py`), a call (`status()`) or another tool's verb
+    # (`uv sync`) must not document it. It counts when it opens the first cell
+    # of a table row (after at most one parent word), or follows the program name.
+    return re.compile(
+        rf"(?:^\|\s*`(?:[\w-]+ )?|jcodemunch-mcp\s+(?:[\w-]+\s+)?){esc}(?![\w.(/:=-])",
+        re.M,
+    )
 
 
 def row6_undocumented(added: dict[str, set[str]], docs_text: str) -> list[str]:
@@ -144,27 +198,50 @@ def row6_undocumented(added: dict[str, set[str]], docs_text: str) -> list[str]:
 
 
 def row6_docs_text(repo: pathlib.Path) -> str:
-    return "\n".join(
-        (repo / d).read_text(encoding="utf-8", errors="replace")
-        for d in ROW6_DOCS
-        if (repo / d).exists()
-    )
+    """The text DoD 6 accepts a row in. `CLAUDE.md` contributes its table rows
+    only: its prose and shell examples name `uv sync`, `git log --since`,
+    `server.py` and would document almost any word."""
+    parts = []
+    for d in ROW6_DOCS:
+        p = repo / d
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        if d == "CLAUDE.md":
+            text = "\n".join(ln for ln in text.splitlines() if ln.startswith("|"))
+        parts.append(text)
+    return "\n".join(parts)
 
 
 def row6_verdict(
-    base_sources: dict[str, str], head_sources: dict[str, str], docs_text: str
+    base_sources: dict[str, str],
+    head_sources: dict[str, str],
+    docs_text: str,
+    elsewhere=None,
 ) -> tuple[str | None, str]:
     """DoD 6 for the CLI and env half: `(None, why)` when nothing was added,
     else `met`/`unmet` with the names. A head file that cannot be parsed is
-    `unmet`: what it adds could not be established."""
+    `unmet`: what it adds could not be established. `elsewhere` is a dict, or
+    a callable returning one, asked only when the changed files alone show an
+    addition (it costs a walk of the base tree)."""
     added, unparsed = row6_added(base_sources, head_sources)
     if unparsed:
-        return "unmet", "could not parse " + ", ".join(unparsed) + "; what it adds is not established"
+        return "unmet", "could not parse " + ", ".join(
+            unparsed
+        ) + "; what it adds is not established"
+    if elsewhere is not None and any(added.values()):
+        declared = elsewhere() if callable(elsewhere) else elsewhere
+        added, _ = row6_added(base_sources, head_sources, declared)
     names = [n for kind in ROW6_KINDS for n in sorted(added[kind])]
     if not names:
-        return None, "no CLI subcommand, option or env var added under src/ (AST, base vs head)"
+        return (
+            None,
+            "no CLI subcommand, option or env var added under src/ (AST, base vs head)",
+        )
     missing = row6_undocumented(added, docs_text)
-    listed = ", ".join(names[:12]) + (f" (+{len(names) - 12} more)" if len(names) > 12 else "")
+    listed = ", ".join(names[:12]) + (
+        f" (+{len(names) - 12} more)" if len(names) > 12 else ""
+    )
     if missing:
         return "unmet", (
             f"added: {listed}; no row names: {', '.join(missing[:12])}"
@@ -173,28 +250,94 @@ def row6_verdict(
     return "met", f"added: {listed}; each is named in {' / '.join(ROW6_DOCS)}"
 
 
-def row6_sources(changed: list[str], base: str) -> tuple[dict[str, str], dict[str, str]]:
-    """Base and head text of every changed Python file under src/. The base
-    is the merge base, the side `git diff base...HEAD` compares against."""
-    paths = [c for c in changed if c.startswith("src/") and c.endswith(".py")]
-    merge_base = git("merge-base", base, "HEAD").strip() or base
+def _git_rc(repo: pathlib.Path, *args: str) -> tuple[int, str]:
+    r = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    return r.returncode, r.stdout or ""
+
+
+def row6_base_names(repo: pathlib.Path, merge_base: str) -> dict[str, set[str]]:
+    """Every name `src/` declared at the merge base, whichever file held it."""
+    names: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
+    _, listing = _git_rc(
+        repo, "grep", "-l", "-E", ROW6_CANDIDATE, merge_base, "--", "src"
+    )
+    for entry in listing.splitlines():
+        path = entry.split(":", 1)[-1]
+        if not path.endswith(".py"):
+            continue
+        rc, text = _git_rc(repo, "show", f"{merge_base}:{path}")
+        if rc != 0:
+            continue
+        try:
+            found = cli_env_names(text)
+        except (SyntaxError, ValueError):
+            continue
+        for kind in ROW6_KINDS:
+            names[kind] |= found[kind]
+    return names
+
+
+def row6_sources(
+    changed: list[str], merge_base: str, repo: pathlib.Path
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Base and head text of every changed Python file under src/: the base
+    from the merge base (the side `git diff base...HEAD` compares against),
+    the head from the working tree, which is what is about to be committed."""
     base_sources: dict[str, str] = {}
     head_sources: dict[str, str] = {}
-    for path in paths:
-        shown = subprocess.run(
-            ["git", "show", f"{merge_base}:{path}"],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        if shown.returncode == 0:
-            base_sources[path] = shown.stdout
-        on_disk = REPO / path
+    for path in sorted({c.replace("\\", "/") for c in changed}):
+        if not (path.startswith("src/") and path.endswith(".py")):
+            continue
+        rc, text = _git_rc(repo, "show", f"{merge_base}:{path}")
+        if rc == 0:
+            base_sources[path] = text
+        on_disk = repo / path
         if on_disk.exists():
-            head_sources[path] = on_disk.read_text(encoding="utf-8", errors="replace")
+            head_sources[path] = on_disk.read_text(
+                encoding="utf-8-sig", errors="replace"
+            )
     return base_sources, head_sources
+
+
+def row6_row(
+    changed: list[str], base: str, repo: pathlib.Path, parity
+) -> tuple[str, str]:
+    """DoD 6's verdict and evidence. Two halves, and either `unmet` is `unmet`:
+    what the change ADDED (W-53: a touched-path test read `n.a.` for an option
+    added in server.py, where nearly every subcommand lives), and `parity()`,
+    the config-key tests, `(None, why)` when their files did not move.
+
+    Staged files are graded too (W-31's rule for row 3). A base that cannot be
+    resolved is `unmet`: an empty diff against a missing ref is not "nothing
+    was added"."""
+    rc, merge_base = _git_rc(repo, "merge-base", base, "HEAD")
+    merge_base = merge_base.strip()
+    if rc != 0 or not merge_base:
+        added = (
+            "unmet",
+            f"could not resolve the merge base of {base} and HEAD; what was added is not established",
+        )
+    else:
+        _, staged = _git_rc(repo, "diff", "--name-only", "--cached")
+        paths = list(changed) + staged.split()
+        base_sources, head_sources = row6_sources(paths, merge_base, repo)
+        added = row6_verdict(
+            base_sources,
+            head_sources,
+            row6_docs_text(repo),
+            lambda: row6_base_names(repo, merge_base),
+        )
+    parity_verdict, parity_evidence = parity()
+    halves = [v for v in (added[0], parity_verdict) if v is not None]
+    verdict = "n.a." if not halves else ("unmet" if "unmet" in halves else "met")
+    return verdict, f"{added[1]}; {parity_evidence}"
 
 
 def sh(*cmd: str) -> tuple[int, str]:
@@ -232,11 +375,15 @@ def evidence(name: str) -> str | None:
 CODE_ROOTS = paths_for("redgreen")  # W-43: projected from _common.PATH_TABLE
 
 
-def row1_verdict(changed: list[str], red: str | None, green: str | None) -> tuple[str, str]:
+def row1_verdict(
+    changed: list[str], red: str | None, green: str | None
+) -> tuple[str, str]:
     """Row 1: red then green. Returns (verdict, evidence)."""
     if red is None or green is None:
         if not any(c.startswith(CODE_ROOTS) for c in changed):
-            return "n.a.", "no change under a code root (" + ", ".join(CODE_ROOTS) + ") and no red/green pair"
+            return "n.a.", "no change under a code root (" + ", ".join(
+                CODE_ROOTS
+            ) + ") and no red/green pair"
         return (
             "unmet",
             "evidence/red.txt (touched tests at the base ref, must fail) and evidence/green.txt (at HEAD, must pass) are required",
@@ -265,10 +412,14 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def make_stamp(kind: str, text: str, branch: str, tree: str, *, content: str | None = None) -> dict:
+def make_stamp(
+    kind: str, text: str, branch: str, tree: str, *, content: str | None = None
+) -> dict:
     stamp = {"kind": kind, "branch": branch, "tree": tree, "sha256": _sha(text)}
     if content is not None:
-        stamp["content_tree"] = content  # #715: every tracked file, not only the code roots
+        stamp["content_tree"] = (
+            content  # #715: every tracked file, not only the code roots
+        )
     return stamp
 
 
@@ -280,21 +431,36 @@ def write_stamp(kind: str) -> int:
     """`--stamp red|green`: bind the run just written to this branch and tree."""
     text = evidence(f"{kind}.txt")
     if text is None:
-        print(f"dod_checklist: evidence/{kind}.txt is absent; run the tests into it first", file=sys.stderr)
+        print(
+            f"dod_checklist: evidence/{kind}.txt is absent; run the tests into it first",
+            file=sys.stderr,
+        )
         return 2
     tree = tree_id()
     if tree.startswith(UNREADABLE_PREFIX):
         # UNKNOWN is not a tree: a random id would always "differ" from green's.
-        print(f"dod_checklist: the tree could not be read; evidence/{kind}.txt is not stamped", file=sys.stderr)
+        print(
+            f"dod_checklist: the tree could not be read; evidence/{kind}.txt is not stamped",
+            file=sys.stderr,
+        )
         return 2
     stamp = make_stamp(kind, text, current_branch(), tree, content=content_tree())
-    (EVIDENCE / f"{kind}.stamp.json").write_text(json.dumps(stamp, indent=1), encoding="utf-8")
-    print(f"stamped evidence/{kind}.txt: branch={stamp['branch']} tree={stamp['tree'][:12]}")
+    (EVIDENCE / f"{kind}.stamp.json").write_text(
+        json.dumps(stamp, indent=1), encoding="utf-8"
+    )
+    print(
+        f"stamped evidence/{kind}.txt: branch={stamp['branch']} tree={stamp['tree'][:12]}"
+    )
     return 0
 
 
 def _outside_code_roots_only(
-    red_stamp: dict, green_stamp: dict, diff_paths, *, changed: list[str], content_now: str | None
+    red_stamp: dict,
+    green_stamp: dict,
+    diff_paths,
+    *,
+    changed: list[str],
+    content_now: str | None,
 ) -> tuple[list[str] | None, str]:
     """#715: equal tier trees are a genuine pair when the fix lives outside the code roots.
 
@@ -310,7 +476,9 @@ def _outside_code_roots_only(
       red ran before any of them (a doc edited before red leaves red on the fix).
     Every UNKNOWN fails closed. Returns (moved paths, "") or (None, why not).
     """
-    beyond_tests = [c for c in changed if c.startswith(CODE_ROOTS) and not c.startswith("tests/")]
+    beyond_tests = [
+        c for c in changed if c.startswith(CODE_ROOTS) and not c.startswith("tests/")
+    ]
     if beyond_tests:
         return None, (
             f"the change touches code roots beyond tests/ ({', '.join(beyond_tests[:3])}), "
@@ -323,14 +491,26 @@ def _outside_code_roots_only(
         if c.startswith(UNREADABLE_PREFIX):
             return None, f"{kind} content tree could not be read (fail closed)"
     if b != content_now:
-        return None, "evidence/green.txt ran on content that has changed since; re-run green and stamp it"
+        return (
+            None,
+            "evidence/green.txt ran on content that has changed since; re-run green and stamp it",
+        )
     if a == b:
-        return None, "red and green ran on identical content, so red did not run on the pre-change tree"
+        return (
+            None,
+            "red and green ran on identical content, so red did not run on the pre-change tree",
+        )
     moved = diff_paths(a, b)
     if moved is None:
-        return None, "git could not compare the red and green content trees (fail closed)"
+        return (
+            None,
+            "git could not compare the red and green content trees (fail closed)",
+        )
     if not moved:
-        return None, "git names no path between the red and green content trees (fail closed)"
+        return (
+            None,
+            "git names no path between the red and green content trees (fail closed)",
+        )
     inside = [p for p in moved if p.startswith(CODE_ROOTS)]
     if inside:
         return None, (
@@ -340,7 +520,10 @@ def _outside_code_roots_only(
         )
     stray = [p for p in moved if p not in changed]
     if stray:
-        return None, f"{', '.join(stray[:3])} moved between red and green but is not part of this change"
+        return (
+            None,
+            f"{', '.join(stray[:3])} moved between red and green but is not part of this change",
+        )
     unmoved = [c for c in changed if not c.startswith(CODE_ROOTS) and c not in moved]
     if unmoved:
         return None, (
@@ -364,7 +547,9 @@ def row1_binding(
 ) -> str | None:
     """None when the pair belongs to this change; otherwise why it does not."""
     if red_stamp is None or green_stamp is None:
-        missing = [k for k, s in (("red", red_stamp), ("green", green_stamp)) if s is None]
+        missing = [
+            k for k, s in (("red", red_stamp), ("green", green_stamp)) if s is None
+        ]
         return (
             f"evidence/{'/'.join(missing)} not stamped; run "
             "`python .claude/hooks/dod_checklist.py --stamp red|green` right after each run"
@@ -374,7 +559,11 @@ def row1_binding(
             return f"evidence/{kind}.txt was stamped on branch {stamp.get('branch')!r}, not {branch!r}"
         if stamp.get("sha256") != _sha(text):
             return f"evidence/{kind}.txt changed after it was stamped"
-    for kind, t in (("red", red_stamp.get("tree")), ("green", green_stamp.get("tree")), ("the current", tree)):
+    for kind, t in (
+        ("red", red_stamp.get("tree")),
+        ("green", green_stamp.get("tree")),
+        ("the current", tree),
+    ):
         if not isinstance(t, str) or not t or t.startswith(UNREADABLE_PREFIX):
             return f"{kind} tree could not be read, so the pair cannot be bound (fail closed)"
     if green_stamp.get("tree") != tree:
@@ -384,7 +573,11 @@ def row1_binding(
         )
     if red_stamp.get("tree") == green_stamp.get("tree"):
         moved, why = _outside_code_roots_only(
-            red_stamp, green_stamp, diff_paths, changed=list(changed), content_now=content_now
+            red_stamp,
+            green_stamp,
+            diff_paths,
+            changed=list(changed),
+            content_now=content_now,
         )
         if moved is None:
             return f"evidence/red.txt ran on the same code-root tree as green.txt, and {why}"
@@ -407,20 +600,36 @@ def row1(
     if red is None or green is None:
         return row1_verdict(changed, red, green)
     why = row1_binding(
-        red, green, red_stamp, green_stamp, branch=branch, tree=tree,
-        diff_paths=diff_paths, changed=changed, content_now=content_now,
+        red,
+        green,
+        red_stamp,
+        green_stamp,
+        branch=branch,
+        tree=tree,
+        diff_paths=diff_paths,
+        changed=changed,
+        content_now=content_now,
     )
     if why is None:
         verdict, ev = row1_verdict(changed, red, green)
         if red_stamp.get("tree") == green_stamp.get("tree"):
             moved, _ = _outside_code_roots_only(
-                red_stamp, green_stamp, diff_paths, changed=changed, content_now=content_now
+                red_stamp,
+                green_stamp,
+                diff_paths,
+                changed=changed,
+                content_now=content_now,
             )
-            shown = ", ".join((moved or [])[:5]) + (f" (+{len(moved) - 5} more)" if moved and len(moved) > 5 else "")
+            shown = ", ".join((moved or [])[:5]) + (
+                f" (+{len(moved) - 5} more)" if moved and len(moved) > 5 else ""
+            )
             ev += f"; red and green share a code-root tree and differ only outside it (#715): {shown}"
         return verdict, ev
     if not any(c.startswith(CODE_ROOTS) for c in changed):
-        return "n.a.", f"no change under a code root; the red/green pair on disk is not this change's ({why})"
+        return (
+            "n.a.",
+            f"no change under a code root; the red/green pair on disk is not this change's ({why})",
+        )
     return "unmet", why
 
 
@@ -495,13 +704,16 @@ def ledger_uncovered(subjects: list[str], repo: pathlib.Path) -> list[str]:
     """
     try:
         entries = json.loads(
-            (repo / "harness" / "retired.json").read_text(encoding="utf-8", errors="replace")
+            (repo / "harness" / "retired.json").read_text(
+                encoding="utf-8", errors="replace"
+            )
         )["retired"]
         recorded = {str(e.get("path", "")) for e in entries}
     except Exception:
         return list(subjects)
     return [
-        s for s in subjects
+        s
+        for s in subjects
         if s not in recorded and not any(p.startswith(s + "::") for p in recorded)
     ]
 
@@ -581,7 +793,7 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
             # `tests/test_a.py::test_from_the_deleted_file`. That feeds the wrong
             # file to the survival check AND to the rename comparison. A modified
             # file and a rename both overwrite this from `+++ b/` on the next line.
-            current = line[len("+++ b/"):].strip()
+            current = line[len("+++ b/") :].strip()
             continue
         if line.startswith("@@"):
             _flush()
@@ -614,9 +826,7 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
             text = file_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return False
-        return bool(
-            re.search(rf"^\s*(?:async\s+)?def {re.escape(name)}\b", text, re.M)
-        )
+        return bool(re.search(rf"^\s*(?:async\s+)?def {re.escape(name)}\b", text, re.M))
 
     def _is_a_rename(path: str, body: tuple[str, ...]) -> bool:
         """Did some function ADDED to this file keep this one's body?
@@ -639,9 +849,12 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
         for (added_path, _name), added_body in added.items():
             if added_path != path or not added_body:
                 continue
-            if difflib.SequenceMatcher(
-                None, "\n".join(body), "\n".join(added_body)
-            ).ratio() >= _RENAME_BODY_SIMILARITY:
+            if (
+                difflib.SequenceMatcher(
+                    None, "\n".join(body), "\n".join(added_body)
+                ).ratio()
+                >= _RENAME_BODY_SIMILARITY
+            ):
                 return True
         return False
 
@@ -653,6 +866,7 @@ def retired_test_functions(diff: str, repo: pathlib.Path) -> list[str]:
         and name not in moved
         and not _is_a_rename(path, body)
     )
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -697,10 +911,19 @@ def main() -> int:
     # 1 red then green
     red, green = evidence("red.txt"), evidence("green.txt")
     if red is not None and green is not None:
-        row(1, *row1(  # W-38, #671
-            changed, red, green, _stamp_json("red.stamp.json"), _stamp_json("green.stamp.json"),
-            branch=current_branch(), tree=tree_id(), content_now=content_tree(),
-        ))
+        row(
+            1,
+            *row1(  # W-38, #671
+                changed,
+                red,
+                green,
+                _stamp_json("red.stamp.json"),
+                _stamp_json("green.stamp.json"),
+                branch=current_branch(),
+                tree=tree_id(),
+                content_now=content_tree(),
+            ),
+        )
     else:
         row(1, *row1_verdict(changed, red, green))  # W-38
 
@@ -813,16 +1036,11 @@ def main() -> int:
             + (out.strip().splitlines() or ["?"])[-1][:120],
         )
 
-    # 6 config/env/CLI rows. Two halves: what the change ADDED (W-53: a
-    # touched-path test read `n.a.` for an option added in server.py, where
-    # nearly every subcommand lives), and the config-key parity tests when
-    # their files moved.
-    added_verdict, added_evidence = row6_verdict(
-        *row6_sources(changed, base), row6_docs_text(REPO)
-    )
-    if not touched("src/jcodemunch_mcp/config.py", "src/jcodemunch_mcp/cli/"):
-        parity_verdict, parity_evidence = None, "config.py and cli/ untouched"
-    else:
+    # 6 config/env/CLI rows: what the change added, and the config-key
+    # parity tests when their files moved (row6_row combines the two).
+    def row6_parity() -> tuple[str | None, str]:
+        if not touched("src/jcodemunch_mcp/config.py", "src/jcodemunch_mcp/cli/"):
+            return None, "config.py and cli/ untouched"
         rc, out = sh(
             "uv",
             "run",
@@ -833,17 +1051,13 @@ def main() -> int:
             "-p",
             "no:cacheprovider",
         )
-        parity_verdict = "met" if rc == 0 else "unmet"
-        parity_evidence = (
+        return (
+            "met" if rc == 0 else "unmet",
             "tests/test_cli_env_split.py + test_config_docs_reverse_parity.py: "
-            + (out.strip().splitlines() or ["?"])[-1][:120]
+            + (out.strip().splitlines() or ["?"])[-1][:120],
         )
-    halves = [v for v in (added_verdict, parity_verdict) if v is not None]
-    row(
-        6,
-        "n.a." if not halves else ("unmet" if "unmet" in halves else "met"),
-        f"{added_evidence}; {parity_evidence}",
-    )
+
+    row(6, *row6_row(changed, base, REPO, row6_parity))
 
     # 7 background behaviour disclosure
     if not BACKGROUND_RE.search(src_diff):
@@ -918,7 +1132,8 @@ def main() -> int:
         uncovered = ledger_uncovered(deleted_test_files + retired_functions, REPO)
         row(
             11,
-            "met" if rc == 0 and "harness/retired.json" in changed and not uncovered
+            "met"
+            if rc == 0 and "harness/retired.json" in changed and not uncovered
             else "unmet",
             f"retired: {subject}; ledger test rc={rc}; harness/retired.json "
             f"changed={'harness/retired.json' in changed}; "
