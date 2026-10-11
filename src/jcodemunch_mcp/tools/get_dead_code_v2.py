@@ -462,6 +462,31 @@ def _sweep_module_level_callers(
                 break
 
 
+def _spanning_name_has_caller(sym: dict, store, owner: str, name: str, rev: dict[str, list[str]]) -> bool:
+    """The whole-text search, for the one symbol whose name holds a line separator.
+
+    Reads each file again and searches all of it: the cost L-150 removed,
+    kept for a name no per-line index can answer.
+    """
+    sym_file = sym.get("file", "")
+    sym_name = sym.get("name", "")
+    sym_line = sym.get("line", 0)
+    sym_end_line = sym.get("end_line", sym_line)
+    own_content = store.get_file_content(owner, name, sym_file) or ""
+    if own_content and sym_line:
+        lines = own_content.splitlines()
+        start_idx = max(0, sym_line - 1)
+        end_idx = min(len(lines), sym_end_line)
+        outside = "\n".join(lines[:start_idx] + lines[end_idx:])
+        if outside and _word_match(outside, sym_name):
+            return True
+    for importer_file in rev.get(sym_file, []):
+        content = store.get_file_content(owner, name, importer_file) or ""
+        if content and _word_match(content, sym_name):
+            return True
+    return False
+
+
 def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, list[str]]) -> set[str]:
     """Ids of the functions and methods some text names outside their own lines.
 
@@ -472,11 +497,16 @@ def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, l
 
     ⚠⚠ **One file's text is read, split and tokenised ONCE** (LEDGER L-150).
     This loop used to split the symbol's file, join every line outside the
-    symbol and search the result, once per symbol: 57.99 s on one 240 kB file
-    of empty functions, where `find_dead_code` took 0.04 s. Never answer a
-    per-symbol question here with a pass over the file's text; ask
-    ``FileWords``. ``tests/test_dead_code_text_fallback_reads_a_file_once.py``
-    counts the work and holds the old loop as the oracle.
+    symbol and search the result, once per symbol; the ledger row carries the
+    timings. Never answer a per-symbol question here with a pass over the
+    file's text; ask ``FileWords``.
+    ``tests/test_dead_code_text_fallback_reads_a_file_once.py`` counts the
+    work and holds the old loop as the oracle.
+
+    A name that holds a line separator can match across two lines, which a
+    per-line index cannot answer. No parser here is known to produce one;
+    if one arrives it takes ``_spanning_name_has_caller``, the old search
+    for that one symbol.
     """
     callee_has_caller: set[str] = set()
     words_cache: dict[str, Optional[FileWords]] = {}
@@ -496,6 +526,10 @@ def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, l
             continue
         sym_line = sym.get("line", 0)
         sym_end_line = sym.get("end_line", sym_line)
+        if FileWords.spans_lines(sym_name):
+            if _spanning_name_has_caller(sym, store, owner, name, rev):
+                callee_has_caller.add(sym["id"])
+            continue
         own = _words(sym_file)
         if own is not None and sym_line:
             start_idx = max(0, sym_line - 1)
