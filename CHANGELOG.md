@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.341] - 2026-10-11 - the index CLI chooses the index identity, and an existing directory is a local target
+
 ### Added - the `index` CLI can choose the index identity (#1017)
 
 `index_folder` has taken `identity_mode` (`config`, `local`, `git`) since

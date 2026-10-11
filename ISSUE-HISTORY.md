@@ -2351,3 +2351,13 @@ The 1.108.339 entry, verbatim, dropped when it was compressed to a `Prior` line:
 The `Tests:` line's 1.108.337 count, verbatim:
 
 - ⚠ Prior (1.108.337): 15063 passed, 25 skipped, **0 failed** (15088 total).
+
+## Current State rotation (2026-10-11, release 1.108.341)
+
+The 1.108.338 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.338):** **A .NET build tree and a NuGet restore tree stay out of the index** (#1001, @outoftheblue9): `obj/`/`bin/` pruned only beside a project file, `packages/` only on its own `.nupkg` (`security.py`). ⚠⚠ **A solution file is NOT a marker.** Residue L-142. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-09, release 1.108.339).
+
+The `Tests:` line's 1.108.338 count, verbatim:
+
+- ⚠ Prior (1.108.338): 15138 passed, 25 skipped, **0 failed** (15163 total).
