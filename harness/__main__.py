@@ -1055,6 +1055,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.results_out and a.command not in ("fast", "full", "bench", "all"):
         ap.error(f"--results-out applies to a tier run, not to `{a.command}`")
+    if a.results_out and (
+        Path(a.results_out).resolve() == (RESULTS_DIR / "latest.json").resolve()
+    ):
+        ap.error("--results-out names the tracked latest.json; that is --write-results")
     _FAILURE_REPORTS.clear()
     tee = None
     if a.summary or a.annotate:

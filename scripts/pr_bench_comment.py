@@ -74,9 +74,8 @@ def is_run_of(results: dict, head_sha: str) -> bool:
 
 def _box(results: dict | None) -> tuple | None:
     env = (results or {}).get("env") or {}
-    if not env:
-        return None
-    return (env.get("runner"), str(env.get("os") or "").split("-")[0], env.get("cpus"))
+    box = (env.get("runner"), str(env.get("os") or "").split("-")[0], env.get("cpus"))
+    return box if all(box) else None
 
 
 def comparable(base_results: dict | None, pr_results: dict) -> bool:
@@ -84,6 +83,14 @@ def comparable(base_results: dict | None, pr_results: dict) -> bool:
     box (runner, OS family, CPU count); an unknown side is not comparable."""
     base, pr = _box(base_results), _box(pr_results)
     return base is not None and base == pr
+
+
+def _latency(results: dict | None) -> dict:
+    """The self-latency ids of a result. A FAILED step keeps its numbers under
+    `measurement` (LEDGER L-72), and those are the rows a reader most needs."""
+    lat = (results or {}).get("artifacts", {}).get("self_latency", {}) or {}
+    measured = lat.get("measurement")
+    return measured if isinstance(measured, dict) else lat
 
 
 def _box_text(results: dict | None) -> str:
@@ -106,8 +113,8 @@ def rows(
     run of this tree); `deltas=False` prints `n/c` in their delta cell (the
     two runs are not on comparable boxes). Token rows are never affected."""
     out = []
-    base_lat = (base_results or {}).get("artifacts", {}).get("self_latency", {}) or {}
-    pr_lat = pr_results.get("artifacts", {}).get("self_latency", {}) or {}
+    base_lat = _latency(base_results)
+    pr_lat = _latency(pr_results)
     for tid, e in T.load(announce=False).items():
         if latency and tid in pr_lat:
             pv, bv = pr_lat.get(tid), base_lat.get(tid)
@@ -293,20 +300,29 @@ def main(argv=None) -> int:
     )
     stamp = (pr_results.get("env") or {}).get("commit") or "absent"
     if not table:
-        print(
-            f"REFUSED: {a.results} is not a run of this tree (its env.commit is "
-            f"{stamp}, HEAD is {head[:8]}) and no --benchmark was given, so there "
-            "is nothing measured to table. Run `python -m harness bench --offline "
-            "--results-out <path>` on this commit and pass that path as --results.",
-            file=sys.stderr,
-        )
+        if this_run:
+            why = (
+                f"{a.results} is a run of this tree (env.commit {stamp}) but holds no "
+                "self-latency measurement: the step did not run, or wrote none"
+            )
+        else:
+            why = (
+                f"{a.results} is not a run of this tree (its env.commit is {stamp}, "
+                f"HEAD is {head[:8]}); run `python -m harness bench --offline "
+                "--results-out <path>` on this commit and pass that path as --results"
+            )
+        if a.benchmark:
+            why += f"; and the --benchmark file {a.benchmark} does not exist"
+        else:
+            why += "; and no --benchmark was given"
+        print(f"REFUSED: nothing measured to table. {why}.", file=sys.stderr)
         return 2
     notes = []
     if not this_run:
         notes.append(
             f"_Latency rows omitted: `{a.results}` is not a run of this tree (its "
-            f"`env.commit` is `{stamp}`, HEAD is `{head[:8]}`). The offline bench "
-            "job's summary carries this tree's latency verdicts._"
+            f"`env.commit` is `{stamp}`, HEAD is `{head[:8]}`). This tree's latency "
+            "verdicts are in its own bench tier summary._"
         )
     elif not same_box:
         notes.append(

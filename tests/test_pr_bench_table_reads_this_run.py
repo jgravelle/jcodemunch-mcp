@@ -190,6 +190,58 @@ def test_no_base_artifact_renders_the_run_without_a_delta(monkeypatch, tmp_path)
     assert _latency_row(summary.read_text(encoding="utf-8"))[3:6] == ["—", "9.4", "n/c"]
 
 
+def test_a_failed_latency_step_still_shows_its_rows(base_artifact, tmp_path):
+    """A failed step keeps its numbers under `measurement` (LEDGER L-72); the
+    run where a Floor failed is the one the table must not come back empty for."""
+    result = _result(0.0, _head()[:8])
+    result["artifacts"]["self_latency"] = {
+        "rc": 1,
+        "seconds": 3.0,
+        "tail": "FAIL",
+        "measurement": {LATENCY_ID: 99.0},
+    }
+    results = tmp_path / "latest_cur.json"
+    results.write_text(json.dumps(result), encoding="utf-8")
+    summary = tmp_path / "bench_table.md"
+
+    assert pbc.main(["--results", str(results), "--summary", str(summary)]) == 0
+
+    row = _latency_row(summary.read_text(encoding="utf-8"))
+    assert row[3:5] == ["7.9", "99"] and row[6] == "**FAIL**"
+
+
+def test_the_refusal_names_the_cause_it_has(base_artifact, tmp_path, capsys):
+    """Three ways to have nothing to table, three different sentences."""
+    this_run_no_latency = _result(0.0, _head()[:8])
+    this_run_no_latency["artifacts"] = {}
+    a = tmp_path / "nolat.json"
+    a.write_text(json.dumps(this_run_no_latency), encoding="utf-8")
+    assert pbc.main(["--results", str(a)]) == 2
+    err = capsys.readouterr().err
+    assert "is a run of this tree" in err and "is not a run of this tree" not in err
+    assert "no --benchmark was given" in err
+
+    b = tmp_path / "base.json"
+    b.write_text(json.dumps(base_artifact), encoding="utf-8")
+    missing = tmp_path / "nope.json"
+    assert pbc.main(["--results", str(b), "--benchmark", str(missing)]) == 2
+    err = capsys.readouterr().err
+    assert "is not a run of this tree" in err
+    assert "does not exist" in err and "no --benchmark was given" not in err
+
+    assert pbc.main(["--results", str(b)]) == 2
+    err = capsys.readouterr().err
+    assert "is not a run of this tree" in err and "no --benchmark was given" in err
+
+
+def test_a_box_with_no_recorded_fields_is_not_comparable_to_anything():
+    bare_a, bare_b = {"env": {"commit": "aaaaaaaa"}}, {"env": {"commit": "bbbbbbbb"}}
+    assert pbc.comparable(bare_a, bare_b) is False
+    assert pbc.comparable(None, _result(1.0, "aaaaaaaa")) is False
+    assert pbc.comparable(_result(1.0, "a" * 8), _result(2.0, "b" * 8)) is True
+    assert pbc.comparable(_result(1.0, "a" * 8), _result(2.0, "b" * 8, LOCAL_BOX)) is False
+
+
 # -- the real callers, with real git and no mock -----------------------------
 
 
@@ -316,6 +368,17 @@ def test_results_out_is_refused_by_a_command_that_runs_no_tier(command, tmp_path
     assert exc.value.code == 2
     assert "--results-out" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_results_out_refuses_the_tracked_file_and_leaves_it(stub_bench, capsys):
+    """The flag unlinks its target before the run; the tracked file is
+    `--write-results`' to write, and must not be the thing unlinked."""
+    tracked = stub_bench / "latest.json"
+    with pytest.raises(SystemExit) as exc:
+        hm.main(["bench", "--offline", "--results-out", str(tracked)])
+    assert exc.value.code == 2
+    assert "--write-results" in capsys.readouterr().err
+    assert tracked.read_text(encoding="utf-8") == '{"committed": true}\n'
 
 
 # -- the command documents: a table reads the file its own step wrote --------
