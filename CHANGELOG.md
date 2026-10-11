@@ -27,7 +27,7 @@ second case (`github.com/owner/repo` exists there), and its `github.com`
 folder is the first. It is how `git clone` reads an existing path. A target
 that starts with a URL scheme or `git@host:`
 (`https://github.com/owner/repo`, `git@github.com:owner/repo`) is never
-probed as a path and always reaches GitHub. A mode that
+probed as a path, and is routed by its spelling as before. A mode that
 conflicts with an index already in the store is `index_folder`'s own refusal,
 naming the index to invalidate. No MCP tool changes. Requested by @sKlat-beep
 in #1016.

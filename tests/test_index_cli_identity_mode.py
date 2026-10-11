@@ -229,3 +229,8 @@ def test_a_url_scheme_skips_the_probe_and_a_drive_letter_is_not_a_scheme(tmp_pat
     assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
     assert _index_target_is_local("git@github.com:example-owner/example-repo") is False
     assert probed == [], "a URL is never probed as a path"
+
+    # Anchored at the start, and `git@` needs its `host:`; each of these is
+    # local only because the probe ran.
+    assert _index_target_is_local("proj/ab://c") is True
+    assert _index_target_is_local("git@work/sub") is True
