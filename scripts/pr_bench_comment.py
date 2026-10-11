@@ -57,16 +57,40 @@ def _delta(base, pr):
     return "—"
 
 
-def is_base_artifact(base_results: dict | None, pr_results: dict) -> bool:
-    """True when `--results` holds the base ref's own committed artifact.
+def is_run_of(results: dict, head_sha: str) -> bool:
+    """True when `results` was measured on the commit `head_sha` names.
 
-    A bench run without `--write-results` leaves the tracked `latest.json`
-    alone, so on a branch that file IS the base ref's copy and a table built
-    from it reads base = PR in every row (workflow FINDINGS W-52). Whole-result
-    equality, date and env included: a fresh run that happens to measure the
-    same values is a result, and is rendered.
+    The latency rows are a measurement of ONE tree. A result file that was not
+    produced on HEAD is some other tree's run: the artifact committed on the
+    base ref (a bench run without `--write-results` leaves the tracked file
+    alone, and the token job never runs the bench at all), or one from an
+    older weekly result. Rendered as this PR's column it read base = PR, delta
+    `+0`, on every PR (workflow FINDINGS W-52). An absent or unreadable stamp
+    is not a run of this tree.
     """
-    return base_results is not None and base_results == pr_results
+    commit = str((results.get("env") or {}).get("commit") or "")
+    return len(commit) >= 7 and commit != "unknown" and head_sha.startswith(commit)
+
+
+def _box(results: dict | None) -> tuple | None:
+    env = (results or {}).get("env") or {}
+    if not env:
+        return None
+    return (env.get("runner"), str(env.get("os") or "").split("-")[0], env.get("cpus"))
+
+
+def comparable(base_results: dict | None, pr_results: dict) -> bool:
+    """A timing delta means something only between runs on the same kind of
+    box (runner, OS family, CPU count); an unknown side is not comparable."""
+    base, pr = _box(base_results), _box(pr_results)
+    return base is not None and base == pr
+
+
+def _box_text(results: dict | None) -> str:
+    box = _box(results)
+    if box is None:
+        return "an unrecorded box"
+    return f"{box[0]} {box[1]}, {box[2]} cpus"
 
 
 def rows(
@@ -74,12 +98,18 @@ def rows(
     pr_results: dict,
     base_ref_json: dict | None,
     bench: list | None,
+    *,
+    latency: bool = True,
+    deltas: bool = True,
 ) -> list[list[str]]:
+    """`latency=False` leaves the self-latency rows out (the results are not a
+    run of this tree); `deltas=False` prints `n/c` in their delta cell (the
+    two runs are not on comparable boxes). Token rows are never affected."""
     out = []
     base_lat = (base_results or {}).get("artifacts", {}).get("self_latency", {}) or {}
     pr_lat = pr_results.get("artifacts", {}).get("self_latency", {}) or {}
     for tid, e in T.load(announce=False).items():
-        if tid in pr_lat:
+        if latency and tid in pr_lat:
             pv, bv = pr_lat.get(tid), base_lat.get(tid)
             out.append(
                 [
@@ -88,7 +118,7 @@ def rows(
                     f"{e['comparator']} {e['floor']}",
                     _fmt(bv),
                     _fmt(pv),
-                    _delta(bv, pv),
+                    _delta(bv, pv) if deltas else "n/c",
                     "PASS" if T.passes(tid, pv) else "**FAIL**",
                 ]
             )
@@ -155,7 +185,9 @@ def rows(
     return out
 
 
-def render(table: list[list[str]], head_sha: str) -> str:
+def render(
+    table: list[list[str]], head_sha: str, notes: list[str] | None = None
+) -> str:
     md = [
         MARKER,
         f"### Harness bench on `{head_sha[:7]}` (base = committed artifacts)",
@@ -164,6 +196,9 @@ def render(table: list[list[str]], head_sha: str) -> str:
         "|---|---|---|---|---|---|---|",
     ]
     md += ["| " + " | ".join(r) + " |" for r in table]
+    for note in notes or []:
+        md.append("")
+        md.append(note)
     md.append("")
     md.append(
         "_Floors from `harness/thresholds.json`; base from `harness/results/latest.json` and `benchmarks/jcm_reference.json` on the base ref. A failing `latency.*` p95 is re-sampled once before its verdict (harness F-19); the first p95 is in `self_latency.json` as `_warm_p95_first_ms`._"
@@ -239,21 +274,6 @@ def main(argv=None) -> int:
         else None
     )
     base_results = _git_show(a.base_ref, "harness/results/latest.json")
-    if is_base_artifact(base_results, pr_results):
-        print(
-            f"REFUSED: {a.results} is the artifact committed on {a.base_ref}, not a "
-            "run of this tree, so every row would read base = PR. Run "
-            "`python -m harness bench --offline --results-out <path>` and pass that "
-            "path as --results (CI's `--write-results` run rewrites the tracked file).",
-            file=sys.stderr,
-        )
-        return 2
-    table = rows(
-        base_results,
-        pr_results,
-        _git_show(a.base_ref, "benchmarks/jcm_reference.json"),
-        bench,
-    )
     head = subprocess.check_output(
         ["git", "rev-parse", "HEAD"],
         cwd=REPO,
@@ -261,7 +281,40 @@ def main(argv=None) -> int:
         encoding="utf-8",
         errors="replace",
     ).strip()
-    body = render(table, head)
+    this_run = is_run_of(pr_results, head)
+    same_box = comparable(base_results, pr_results)
+    table = rows(
+        base_results,
+        pr_results,
+        _git_show(a.base_ref, "benchmarks/jcm_reference.json"),
+        bench,
+        latency=this_run,
+        deltas=same_box,
+    )
+    stamp = (pr_results.get("env") or {}).get("commit") or "absent"
+    if not table:
+        print(
+            f"REFUSED: {a.results} is not a run of this tree (its env.commit is "
+            f"{stamp}, HEAD is {head[:8]}) and no --benchmark was given, so there "
+            "is nothing measured to table. Run `python -m harness bench --offline "
+            "--results-out <path>` on this commit and pass that path as --results.",
+            file=sys.stderr,
+        )
+        return 2
+    notes = []
+    if not this_run:
+        notes.append(
+            f"_Latency rows omitted: `{a.results}` is not a run of this tree (its "
+            f"`env.commit` is `{stamp}`, HEAD is `{head[:8]}`). The offline bench "
+            "job's summary carries this tree's latency verdicts._"
+        )
+    elif not same_box:
+        notes.append(
+            f"_Latency deltas read `n/c` (not comparable): the base was measured on "
+            f"{_box_text(base_results)}, this run on {_box_text(pr_results)}. Each "
+            "verdict is this run against its Floor._"
+        )
+    body = render(table, head, notes)
     print(body)
     if a.summary:
         with open(a.summary, "a", encoding="utf-8") as fh:

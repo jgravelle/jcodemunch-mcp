@@ -1053,6 +1053,8 @@ def main(argv: list[str] | None = None) -> int:
         help="print a ::error annotation for every FAIL verdict",
     )
     a = ap.parse_args(argv)
+    if a.results_out and a.command not in ("fast", "full", "bench", "all"):
+        ap.error(f"--results-out applies to a tier run, not to `{a.command}`")
     _FAILURE_REPORTS.clear()
     tee = None
     if a.summary or a.annotate:
@@ -1111,6 +1113,10 @@ def _dispatch(a) -> int:
         ok, _ = offline_checks(stamp=a.stamp)
         return 0 if ok else 1
 
+    if a.results_out:
+        # A run that dies before the write must not leave an earlier run's file
+        # under the name a reader is about to table (W-52).
+        Path(a.results_out).unlink(missing_ok=True)
     result = {
         "schema": "jcm-harness-result/v1",
         "date": time.strftime("%Y-%m-%dT%H:%M:%S"),

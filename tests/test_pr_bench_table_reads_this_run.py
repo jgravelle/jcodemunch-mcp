@@ -1,21 +1,25 @@
-"""The PR bench table never compares the base ref's artifact with itself
-(workflow FINDINGS W-52).
+"""A latency row in the PR bench table is a measurement of THIS tree, or it is
+not printed (workflow FINDINGS W-52).
 
-`/feature` step 7 ran `python -m harness bench --offline --summary ...` and
-then `scripts/pr_bench_comment.py --results harness/results/latest.json`. A
-bench run without `--write-results` leaves that tracked file alone (W-29,
-harness F-23), so on a branch `--results` named the copy the base ref holds
-and every row read base = PR, delta `+0`, `PASS`: a table of zeros by
-construction, pasted into a PR as evidence. Three halves, each pinned here:
-the renderer refuses the base's own artifact, the harness can write this
-run's result to a caller's path without touching the tracked file, and no
-command pairs a non-writing bench run with a table read from the tracked file.
+`scripts/pr_bench_comment.py` took its PR column from `--results` without
+asking what that file was a run of. Two callers handed it the artifact
+committed on the base ref: `/feature` step 7, whose bench run did not pass
+`--write-results`, and `pr-gate.yml`'s token job, which runs no harness bench
+at all. Both tables read base = PR, delta `+0`, `PASS` in all six latency rows
+(#1018's CI comment and its three local renders). The result carries the
+commit it was measured on, so the renderer asks: rows from a file that is not
+a run of HEAD are left out and said to be left out, the token rows beside them
+still render, and a table with nothing measured in it is refused. A delta
+between two different kinds of box reads `n/c` (W-28; Standing lesson 10-09).
+`python -m harness --results-out PATH` is how a branch run hands over its own
+result without rewriting the tracked file.
 """
 from __future__ import annotations
 
 import importlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -29,22 +33,56 @@ pbc = importlib.import_module("pr_bench_comment")
 
 TRACKED = "harness/results/latest.json"
 LATENCY_ID = "latency.search_symbols_warm_p95_ms"
+CI_BOX = {"os": "Linux-6.17.0-azure", "python": "3.12.14", "cpus": 4, "runner": "github"}
+LOCAL_BOX = {"os": "Windows-11-10.0", "python": "3.12.4", "cpus": 24, "runner": "local"}
 
 
-def _result(value: float, date: str) -> dict:
+def _head() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=REPO, text=True, encoding="utf-8"
+    ).strip()
+
+
+def _result(value: float, commit: str | None, box: dict = CI_BOX) -> dict:
+    env = dict(box)
+    if commit is not None:
+        env["commit"] = commit
     return {
         "schema": "jcm-harness-result/v1",
-        "date": date,
-        "env": {"commit": "0" * 40},
+        "date": "2026-10-11T00:00:00",
+        "env": env,
         "tiers": {"bench": {"seconds": 1.0, "ok": True}},
         "artifacts": {"self_latency": {LATENCY_ID: value}},
     }
 
 
+def _bench_file(tmp_path: Path) -> Path:
+    p = tmp_path / "benchmark.json"
+    p.write_text(
+        json.dumps(
+            [
+                {
+                    "repo": "expressjs/express",
+                    "tasks": [{"jmunch_tokens": 100, "grep_baseline_tokens": 4000}],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return p
+
+
+def _latency_row(text: str) -> list[str] | None:
+    for ln in text.splitlines():
+        if LATENCY_ID in ln and ln.startswith("|"):
+            return [c.strip() for c in ln.strip("|").split("|")]
+    return None
+
+
 @pytest.fixture
 def base_artifact(monkeypatch):
     """The base ref's committed artifacts, supplied without running git."""
-    base = _result(7.9, "2026-10-01T00:00:00")
+    base = _result(7.9, "0ldc0mm1")
 
     def fake_show(ref: str, path: str):
         return json.loads(json.dumps(base)) if path == TRACKED else None
@@ -53,55 +91,167 @@ def base_artifact(monkeypatch):
     return base
 
 
-def test_the_table_refuses_the_base_refs_own_artifact(base_artifact, tmp_path, capsys):
+# -- the property: a latency row is this tree's run --------------------------
+
+
+def test_a_run_of_head_renders_its_latency_rows(base_artifact, tmp_path):
+    results = tmp_path / "latest_cur.json"
+    results.write_text(json.dumps(_result(9.4, _head()[:8])), encoding="utf-8")
+    summary = tmp_path / "bench_table.md"
+
+    assert pbc.main(["--results", str(results), "--summary", str(summary)]) == 0
+
+    assert _latency_row(summary.read_text(encoding="utf-8"))[3:6] == ["7.9", "9.4", "+1.5"]
+
+
+def test_equal_values_measured_on_head_are_a_result_and_render(base_artifact, tmp_path):
+    results = tmp_path / "latest_cur.json"
+    results.write_text(json.dumps(_result(7.9, _head()[:8])), encoding="utf-8")
+    summary = tmp_path / "bench_table.md"
+
+    assert pbc.main(["--results", str(results), "--summary", str(summary)]) == 0
+
+    assert _latency_row(summary.read_text(encoding="utf-8"))[3:6] == ["7.9", "7.9", "+0"]
+
+
+@pytest.mark.parametrize(
+    "commit",
+    ["0ldc0mm1", "deadbeef", "unknown", "", None, "abc"],
+    ids=["the-base-artifact", "an-older-run", "unknown", "empty", "absent", "too-short"],
+)
+def test_results_that_are_not_a_run_of_head_are_refused_alone(
+    base_artifact, tmp_path, capsys, commit
+):
+    """`/feature` step 7's shape: no token benchmark, so nothing is measured."""
     results = tmp_path / "latest.json"
-    results.write_text(json.dumps(base_artifact, indent=2) + "\n", encoding="utf-8")
+    results.write_text(json.dumps(_result(7.9, commit)), encoding="utf-8")
     summary = tmp_path / "bench_table.md"
 
     rc = pbc.main(["--results", str(results), "--summary", str(summary)])
 
     out = capsys.readouterr()
-    assert rc != 0
+    assert rc == 2
     assert not summary.exists(), "a refused table must not be written as evidence"
     assert "| threshold |" not in out.out
     assert "--results-out" in out.err
 
 
-def test_the_table_renders_a_run_that_is_not_the_base(base_artifact, tmp_path, capsys):
+def test_the_token_job_keeps_its_token_rows_and_drops_the_latency_rows(
+    base_artifact, tmp_path
+):
+    """`pr-gate.yml`'s shape: the tracked file is the base's, the token
+    benchmark is this run's. The comment is still posted."""
     results = tmp_path / "latest.json"
+    results.write_text(json.dumps(base_artifact), encoding="utf-8")
+    summary = tmp_path / "summary.md"
+
+    rc = pbc.main(
+        [
+            "--results",
+            str(results),
+            "--benchmark",
+            str(_bench_file(tmp_path)),
+            "--summary",
+            str(summary),
+        ]
+    )
+
+    text = summary.read_text(encoding="utf-8")
+    assert rc == 0
+    assert _latency_row(text) is None
+    assert "`token.grand_ratio_vs_grep`" in text
+    assert "Latency rows omitted" in text and "0ldc0mm1" in text
+
+
+def test_a_delta_between_two_kinds_of_box_reads_not_comparable(base_artifact, tmp_path):
+    results = tmp_path / "latest_cur.json"
     results.write_text(
-        json.dumps(_result(9.4, "2026-10-11T00:00:00")), encoding="utf-8"
+        json.dumps(_result(170.6, _head()[:8], LOCAL_BOX)), encoding="utf-8"
     )
     summary = tmp_path / "bench_table.md"
 
-    rc = pbc.main(["--results", str(results), "--summary", str(summary)])
+    assert pbc.main(["--results", str(results), "--summary", str(summary)]) == 0
 
-    assert rc == 0
-    row = next(
-        ln for ln in summary.read_text(encoding="utf-8").splitlines() if LATENCY_ID in ln
-    )
-    cells = [c.strip() for c in row.strip("|").split("|")]
-    assert cells[3:6] == ["7.9", "9.4", "+1.5"]
-
-
-def test_a_run_that_measures_the_same_values_on_another_day_is_not_refused(
-    base_artifact, tmp_path
-):
-    """Equal VALUES are a legitimate result; only the same artifact is refused."""
-    results = tmp_path / "latest.json"
-    results.write_text(
-        json.dumps(_result(7.9, "2026-10-11T00:00:00")), encoding="utf-8"
-    )
-    assert pbc.main(["--results", str(results)]) == 0
+    text = summary.read_text(encoding="utf-8")
+    row = _latency_row(text)
+    assert row[3:6] == ["7.9", "170.6", "n/c"]
+    assert row[6] == "**FAIL**", "the verdict is still this run against its Floor"
+    assert "github Linux, 4 cpus" in text and "local Windows, 24 cpus" in text
 
 
-def test_no_base_artifact_is_not_a_refusal(monkeypatch, tmp_path):
+def test_no_base_artifact_renders_the_run_without_a_delta(monkeypatch, tmp_path):
     monkeypatch.setattr(pbc, "_git_show", lambda ref, path: None)
-    results = tmp_path / "latest.json"
-    results.write_text(
-        json.dumps(_result(7.9, "2026-10-11T00:00:00")), encoding="utf-8"
+    results = tmp_path / "latest_cur.json"
+    results.write_text(json.dumps(_result(9.4, _head()[:8])), encoding="utf-8")
+    summary = tmp_path / "bench_table.md"
+
+    assert pbc.main(["--results", str(results), "--summary", str(summary)]) == 0
+
+    assert _latency_row(summary.read_text(encoding="utf-8"))[3:6] == ["—", "9.4", "n/c"]
+
+
+# -- the real callers, with real git and no mock -----------------------------
+
+
+def _committed_artifact(tmp_path: Path) -> Path:
+    """The artifact committed on HEAD, copied to a file the test owns. It can
+    never be a run of the commit that contains it."""
+    blob = subprocess.check_output(["git", "show", f"HEAD:{TRACKED}"], cwd=REPO)
+    p = tmp_path / "committed_latest.json"
+    p.write_bytes(blob)
+    return p
+
+
+def test_the_committed_artifact_alone_is_refused_through_real_git(tmp_path):
+    p = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts" / "pr_bench_comment.py"),
+            "--base-ref",
+            "HEAD",
+            "--results",
+            str(_committed_artifact(tmp_path)),
+        ],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
     )
-    assert pbc.main(["--results", str(results)]) == 0
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert "| threshold |" not in p.stdout
+    assert "REFUSED" in p.stderr
+
+
+def test_the_committed_artifact_beside_a_token_run_posts_token_rows_only(tmp_path):
+    summary = tmp_path / "summary.md"
+    p = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "scripts" / "pr_bench_comment.py"),
+            "--base-ref",
+            "HEAD",
+            "--results",
+            str(_committed_artifact(tmp_path)),
+            "--benchmark",
+            str(_bench_file(tmp_path)),
+            "--summary",
+            str(summary),
+        ],
+        cwd=REPO,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    text = summary.read_text(encoding="utf-8")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "`token.grand_ratio_vs_grep`" in text
+    assert "latency." not in text.split("_Latency rows omitted")[0]
+    assert "Latency rows omitted" in text
+
+
+# -- the harness half: this run's result, to a path the caller owns ----------
 
 
 @pytest.fixture
@@ -130,6 +280,7 @@ def test_results_out_writes_this_run_and_leaves_the_tracked_file(stub_bench, tmp
     assert rc == 0
     written = json.loads(out.read_text(encoding="utf-8"))
     assert written["artifacts"]["self_latency"][LATENCY_ID] == 9.4
+    assert pbc.is_run_of(written, _head())
     assert (stub_bench / "latest.json").read_text(encoding="utf-8") == (
         '{"committed": true}\n'
     )
@@ -141,8 +292,37 @@ def test_write_results_still_writes_the_tracked_file(stub_bench):
     assert tracked["artifacts"]["self_latency"][LATENCY_ID] == 9.4
 
 
-_BENCH_RE = re.compile(r"harness bench[^`\n]*")
-_TABLE_RE = re.compile(r"pr_bench_comment\.py[^`\n]*--results\s+(\S+)")
+def test_a_run_that_dies_leaves_no_earlier_result_under_the_name(
+    stub_bench, monkeypatch, tmp_path
+):
+    out = tmp_path / "latest_cur.json"
+    out.write_text('{"from": "an earlier run"}', encoding="utf-8")
+
+    def boom(result, *, offline, write_results=False):
+        raise RuntimeError("bench died")
+
+    monkeypatch.setattr(hm, "tier_bench", boom)
+    with pytest.raises(RuntimeError):
+        hm.main(["bench", "--offline", "--results-out", str(out)])
+
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("command", ["thresholds", "check", "threshold", "corpora", "warm"])
+def test_results_out_is_refused_by_a_command_that_runs_no_tier(command, tmp_path, capsys):
+    out = tmp_path / "latest_cur.json"
+    with pytest.raises(SystemExit) as exc:
+        hm.main([command, "--results-out", str(out)])
+    assert exc.value.code == 2
+    assert "--results-out" in capsys.readouterr().err
+    assert not out.exists()
+
+
+# -- the command documents: a table reads the file its own step wrote --------
+
+_TABLE_RE = re.compile(r"pr_bench_comment\.py(?P<args>[^`\n]*)")
+_RESULTS_RE = re.compile(r"--results(?:=|\s+)(\S+)")
+_OUT_RE = re.compile(r"--results-out(?:=|\s+)(\S+)")
 
 
 def _joined(text: str) -> str:
@@ -150,39 +330,97 @@ def _joined(text: str) -> str:
     return re.sub(r"\s*\n\s+", " ", text)
 
 
-def _unwritten_table_reads(text: str) -> list[str]:
-    """Table commands that read the tracked file when the bench command before
-    them (the nearest one above, or none) did not write it."""
+def _tables_not_fed_by_results_out(text: str) -> list[str]:
+    """Table commands whose `--results` is not a path a `--results-out` run
+    wrote earlier in the same document. An omitted `--results` is the script's
+    default, the tracked file, and is reported as `<default>`."""
     text = _joined(text)
-    out = []
+    bad = []
     for m in _TABLE_RE.finditer(text):
-        if m.group(1).strip("`.,)") != TRACKED:
+        args = m.group("args")
+        if "--base-ref" not in args and "--results" not in args and "--summary" not in args:
+            continue  # a mention of the script, not a command
+        r = _RESULTS_RE.search(args)
+        if r is None:
+            if "--summary" in args or "--post" in args:
+                bad.append("<default>")
             continue
-        before = _BENCH_RE.findall(text[: m.start()])
-        if not before or "--write-results" not in before[-1]:
-            out.append(TRACKED)
-    return out
+        path = r.group(1).rstrip("`.,)")
+        written = {p.rstrip("`.,)") for p in _OUT_RE.findall(text[: m.start()])}
+        if path not in written:
+            bad.append(path)
+    return bad
+
+
+COMMAND_DOCS = sorted(
+    str(p.relative_to(REPO)).replace("\\", "/")
+    for p in list((REPO / ".claude" / "commands").glob("*.md"))
+    + [REPO / "docs" / "workflows" / "DESIGN.md"]
+)
+
+
+def test_every_command_document_tables_a_file_its_own_run_wrote():
+    found = {
+        path: bad
+        for path in COMMAND_DOCS
+        if (bad := _tables_not_fed_by_results_out((REPO / path).read_text(encoding="utf-8")))
+    }
+    assert found == {}
+
+
+def test_feature_step_seven_is_seen_by_the_scan():
+    """The scan is not passing because it matches nothing."""
+    text = _joined((REPO / ".claude" / "commands" / "feature.md").read_text(encoding="utf-8"))
+    tabled = [
+        r.group(1)
+        for m in _TABLE_RE.finditer(text)
+        if (r := _RESULTS_RE.search(m.group("args")))
+    ]
+    assert tabled and all(p in _OUT_RE.findall(text) for p in tabled)
+
+
+_OLD = (
+    "   `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`\n"
+    "   and then the per-criterion table against main:\n"
+    "   `uv run python scripts/pr_bench_comment.py --base-ref origin/main\n"
+    "   --results {results} --summary x.md`\n"
+)
 
 
 @pytest.mark.parametrize(
-    "path",
-    sorted(
-        str(p.relative_to(REPO)).replace("\\", "/")
-        for p in list((REPO / ".claude" / "commands").glob("*.md"))
-        + [REPO / "docs" / "workflows" / "DESIGN.md"]
-    ),
+    "text, expected",
+    [
+        (_OLD.format(results=TRACKED), [TRACKED]),
+        (_OLD.replace("--results {results}", f"--results={TRACKED}"), [TRACKED]),
+        (_OLD.format(results="./" + TRACKED), ["./" + TRACKED]),
+        (_OLD.replace(" --results {results}", ""), ["<default>"]),
+        (
+            _OLD.format(results=TRACKED).replace("--offline", "--offline --write-results"),
+            [TRACKED],
+        ),
+        (
+            "`python -m harness bench --offline --results-out ev/cur.json`\n"
+            "The harness bench tier wrote it.\n"
+            "`python scripts/pr_bench_comment.py --base-ref origin/main --results ev/cur.json`\n",
+            [],
+        ),
+        (
+            "`python scripts/pr_bench_comment.py --base-ref origin/main --results ev/cur.json`\n"
+            "`python -m harness bench --offline --results-out ev/cur.json`\n",
+            ["ev/cur.json"],
+        ),
+        ("`scripts/pr_bench_comment.py` renders the table (W-2).\n", []),
+    ],
+    ids=[
+        "tracked",
+        "equals-form",
+        "dot-slash",
+        "omitted-default",
+        "write-results-then-tracked",
+        "fed-by-results-out",
+        "table-before-its-run",
+        "a-mention-is-not-a-command",
+    ],
 )
-def test_no_command_tables_the_tracked_file_after_a_run_that_did_not_write_it(path):
-    assert _unwritten_table_reads((REPO / path).read_text(encoding="utf-8")) == []
-
-
-def test_the_command_scan_sees_the_defect_it_names():
-    """Non-vacuity: the scan fires on step 7 as it stood, wrapped or not."""
-    old = (
-        "   `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`\n"
-        "   and then the per-criterion table against main:\n"
-        "   `uv run python scripts/pr_bench_comment.py --base-ref origin/main\n"
-        "   --results harness/results/latest.json --summary x.md`\n"
-    )
-    assert _unwritten_table_reads(old) == [TRACKED]
-    assert _unwritten_table_reads(old.replace("--offline", "--offline --write-results")) == []
+def test_the_command_scan_against_each_spelling(text, expected):
+    assert _tables_not_fed_by_results_out(text) == expected
