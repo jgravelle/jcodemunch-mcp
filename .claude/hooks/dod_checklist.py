@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import collections
 import difflib
 import hashlib
 import json
@@ -55,31 +56,48 @@ ENV_READ_ARG_RE = re.compile(r"[A-Z][A-Z0-9_]*[A-Z0-9]\Z")
 #: Where DoD 6 puts the row: the two tables, plus the invariant rows the
 #: 2026-08-31 split left in CLAUDE.md (table rows only, never its prose).
 ROW6_DOCS = ("CONFIGURATION.md", "CLI-AND-ENV.md", "CLAUDE.md")
+#: A subcommand's row is in a CLI table; a CONFIGURATION.md key row (`port`,
+#: `host`, `transport`) must not document a subcommand of the same word.
+ROW6_SUBCOMMAND_DOCS = ("CLI-AND-ENV.md", "CLAUDE.md")
 ROW6_KINDS = ("subcommand", "option", "env")
+#: A subcommand or option is COUNTED (one `--dry-run` per subcommand that
+#: takes it); an env var is a name however many modules read it.
+ROW6_COUNTED = ("subcommand", "option")
 #: One `git grep` pattern for "a base file that could declare a name".
 ROW6_CANDIDATE = r"add_parser|add_argument|environ|getenv|MUNCH_"
+_BOM = chr(0xFEFF)
+
+
+def _is_environ(n: ast.AST) -> bool:
+    return (isinstance(n, ast.Attribute) and n.attr == "environ") or (
+        isinstance(n, ast.Name) and n.id == "environ"
+    )
 
 
 def _env_read_arg(node: ast.AST) -> str | None:
     """The literal name an env READ asks for: `os.environ.get("X")`,
-    `os.getenv("X")`, `os.environ["X"]`, with or without the `os.` prefix."""
-
-    def is_environ(n: ast.AST) -> bool:
-        return (isinstance(n, ast.Attribute) and n.attr == "environ") or (
-            isinstance(n, ast.Name) and n.id == "environ"
-        )
-
+    `os.getenv("X")`, `os.environ["X"]`, `"X" in os.environ`, with or without
+    the `os.` prefix. A store or a delete is not a read."""
     arg = None
     if isinstance(node, ast.Call) and node.args:
         f = node.func
-        if isinstance(f, ast.Attribute) and f.attr == "get" and is_environ(f.value):
+        if isinstance(f, ast.Attribute) and f.attr == "get" and _is_environ(f.value):
             arg = node.args[0]
-        elif (isinstance(f, ast.Attribute) and f.attr == "getenv") or (
-            isinstance(f, ast.Name) and f.id == "getenv"
+        elif (isinstance(f, ast.Name) and f.id == "getenv") or (
+            isinstance(f, ast.Attribute)
+            and f.attr == "getenv"
+            and isinstance(f.value, ast.Name)
+            and f.value.id == "os"
         ):
             arg = node.args[0]
-    elif isinstance(node, ast.Subscript) and is_environ(node.value):
-        arg = node.slice
+    elif isinstance(node, ast.Subscript) and _is_environ(node.value):
+        if isinstance(node.ctx, ast.Load):
+            arg = node.slice
+    elif isinstance(node, ast.Compare) and len(node.ops) == 1:
+        if isinstance(node.ops[0], (ast.In, ast.NotIn)) and _is_environ(
+            node.comparators[0]
+        ):
+            arg = node.left
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
         return arg.value if ENV_READ_ARG_RE.match(arg.value) else None
     return None
@@ -91,8 +109,9 @@ def _is_suppress(value: ast.AST) -> bool:
     )
 
 
-def cli_env_names(source: str) -> dict[str, set[str]]:
-    """The CLI subcommands, long options and env-var names one Python source declares.
+def cli_env_counts(source: str) -> dict[str, collections.Counter]:
+    """How many times one Python source declares each CLI subcommand, long
+    option and env-var name.
 
     Read from the AST, so a wrapped call, a comment, a docstring or a help
     string cannot add or hide a name. An env var is a `JCODEMUNCH_*`/`MUNCH_*`
@@ -100,14 +119,17 @@ def cli_env_names(source: str) -> dict[str, set[str]]:
     An option argparse itself hides (`help=SUPPRESS`) is not a documented
     surface and is left out. Raises SyntaxError on a source that does not parse.
     """
-    names: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
-    for node in ast.walk(ast.parse(source.lstrip("﻿"))):
+    counts: dict[str, collections.Counter] = {
+        k: collections.Counter() for k in ROW6_KINDS
+    }
+    env: set[str] = set()
+    for node in ast.walk(ast.parse(source.lstrip(_BOM))):
         read = _env_read_arg(node)
         if read:
-            names["env"].add(read)
+            env.add(read)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if ENV_NAME_RE.match(node.value):
-                names["env"].add(node.value)
+                env.add(node.value)
             continue
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
             continue
@@ -117,10 +139,10 @@ def cli_env_names(source: str) -> dict[str, set[str]]:
             if isinstance(a, ast.Constant) and isinstance(a.value, str)
         ]
         if node.func.attr == "add_parser":
-            names["subcommand"].update(literals[:1])
+            counts["subcommand"].update(literals[:1])
             for k in node.keywords:
                 if k.arg == "aliases" and isinstance(k.value, (ast.List, ast.Tuple)):
-                    names["subcommand"].update(
+                    counts["subcommand"].update(
                         e.value
                         for e in k.value.elts
                         if isinstance(e, ast.Constant) and isinstance(e.value, str)
@@ -129,79 +151,107 @@ def cli_env_names(source: str) -> dict[str, set[str]]:
             if not any(
                 k.arg == "help" and _is_suppress(k.value) for k in node.keywords
             ):
-                names["option"].update(v for v in literals if v.startswith("--"))
-    return names
+                counts["option"].update(v for v in literals if v.startswith("--"))
+    counts["env"].update(env)
+    return counts
 
 
-def row6_added(
-    base_sources: dict[str, str],
-    head_sources: dict[str, str],
-    elsewhere: dict[str, set[str]] | None = None,
-) -> tuple[dict[str, set[str]], list[str]]:
-    """Names the head sources declare and the base did not, by kind, plus the
-    head paths that could not be parsed.
+def cli_env_names(source: str) -> dict[str, set[str]]:
+    """The names `cli_env_counts` finds, without their counts."""
+    return {kind: set(c) for kind, c in cli_env_counts(source).items()}
 
-    `base_sources` are the changed files as they stood at the base. A base file
-    that is absent or unparseable contributes nothing: everything in its head
-    counts. `elsewhere` is what the REST of `src/` declared at the base; a name
-    in it was not added by this change wherever it now appears (a renamed
-    file, a second use of a name another module owns).
-    """
-    base: dict[str, set[str]] = {
-        k: set(elsewhere[k]) if elsewhere else set() for k in ROW6_KINDS
+
+def row6_tally(sources) -> tuple[dict[str, collections.Counter], list[str]]:
+    """The summed counts of `sources` (a path -> text mapping), plus the paths
+    that could not be parsed."""
+    total: dict[str, collections.Counter] = {
+        k: collections.Counter() for k in ROW6_KINDS
     }
-    head: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
     unparsed: list[str] = []
-    for text in base_sources.values():
+    for path, text in sorted(sources.items()):
         try:
-            found = cli_env_names(text)
-        except (SyntaxError, ValueError):
-            continue
-        for kind in ROW6_KINDS:
-            base[kind] |= found[kind]
-    for path, text in sorted(head_sources.items()):
-        try:
-            found = cli_env_names(text)
+            found = cli_env_counts(text)
         except (SyntaxError, ValueError):
             unparsed.append(path)
             continue
         for kind in ROW6_KINDS:
-            head[kind] |= found[kind]
-    return {kind: head[kind] - base[kind] for kind in ROW6_KINDS}, unparsed
+            total[kind].update(found[kind])
+    return total, unparsed
 
 
-def _row6_pattern(kind: str, name: str) -> re.Pattern:
+def row6_grew(
+    base: dict[str, collections.Counter], head: dict[str, collections.Counter]
+) -> dict[str, set[str]]:
+    """Names the head has MORE of than the base. A subcommand or an option is
+    counted, so a second subcommand taking `--dry-run` is an addition and a
+    renamed file or variable is not; an env var is a name, so a second read of
+    one another module already reads is not."""
+    out: dict[str, set[str]] = {}
+    for kind in ROW6_KINDS:
+        if kind in ROW6_COUNTED:
+            out[kind] = {n for n, c in head[kind].items() if c > base[kind].get(n, 0)}
+        else:
+            out[kind] = set(head[kind]) - set(base[kind])
+    return out
+
+
+def row6_added(
+    base_sources: dict[str, str], head_sources: dict[str, str]
+) -> tuple[dict[str, set[str]], list[str]]:
+    """What the head sources declare beyond the base sources, by kind, plus
+    the head paths that could not be parsed. A base file that is absent or
+    unparseable contributes nothing: everything in its head counts."""
+    base, _ = row6_tally(base_sources)
+    head, unparsed = row6_tally(head_sources)
+    return row6_grew(base, head), unparsed
+
+
+def _first_cells(text: str) -> str:
+    return "\n".join(m.group(1) for m in re.finditer(r"^\|([^|\n]*)\|", text, re.M))
+
+
+def _row6_documented(kind: str, name: str, docs: dict[str, str]) -> bool:
     esc = re.escape(name)
+    everything = "\n".join(docs.values())
     if kind == "option":
-        return re.compile(rf"(?<![\w-]){esc}(?![\w-])")
+        return bool(re.search(rf"(?<![\w-]){esc}(?![\w-])", everything))
     if kind == "env":
-        return re.compile(rf"(?<![A-Za-z0-9_]){esc}(?![A-Za-z0-9_])")
+        # Always written in a code span in these docs; bare prose (`CI`) is not a row.
+        return bool(re.search(rf"`{esc}(?![A-Za-z0-9_])", everything))
     # A subcommand is an ordinary word (`index`, `server`, `check`), so prose,
     # a module name (`server.py`), a call (`status()`) or another tool's verb
-    # (`uv sync`) must not document it. It counts when it opens the first cell
-    # of a table row (after at most one parent word), or follows the program name.
-    return re.compile(
-        rf"(?:^\|\s*`(?:[\w-]+ )?|jcodemunch-mcp\s+(?:[\w-]+\s+)?){esc}(?![\w.(/:=-])",
-        re.M,
+    # (`uv sync`) must not document it. It counts when it opens a code span in
+    # the FIRST cell of a CLI table row (after at most one parent word; a cell
+    # may hold two: `org-report` / `org-rollup`), or follows the program name.
+    tail = rf"{esc}(?![\w.(/:=-])"
+    cells = "\n".join(
+        _first_cells(text) for d, text in docs.items() if d in ROW6_SUBCOMMAND_DOCS
+    )
+    return bool(
+        re.search(rf"`(?:[\w-]+ )?{tail}", cells)
+        or re.search(rf"jcodemunch-mcp\s+(?:[\w-]+\s+)?{tail}", everything)
     )
 
 
-def row6_undocumented(added: dict[str, set[str]], docs_text: str) -> list[str]:
+def row6_undocumented(added: dict[str, set[str]], docs) -> list[str]:
     """The added names no doc names, as themselves (a longer flag or variable
-    that merely contains the name does not document it)."""
+    that merely contains the name does not document it). `docs` is the mapping
+    `row6_docs` returns; a bare string is read as `CLI-AND-ENV.md`."""
+    if isinstance(docs, str):
+        docs = {"CLI-AND-ENV.md": docs}
     return [
         name
         for kind in ROW6_KINDS
         for name in sorted(added.get(kind, ()))
-        if not _row6_pattern(kind, name).search(docs_text)
+        if not _row6_documented(kind, name, docs)
     ]
 
 
-def row6_docs_text(repo: pathlib.Path) -> str:
-    """The text DoD 6 accepts a row in. `CLAUDE.md` contributes its table rows
-    only: its prose and shell examples name `uv sync`, `git log --since`,
-    `server.py` and would document almost any word."""
-    parts = []
+def row6_docs(repo: pathlib.Path) -> dict[str, str]:
+    """The text DoD 6 accepts a row in, by file. `CLAUDE.md` contributes its
+    table rows only: its prose and shell examples name `uv sync`,
+    `git log --since`, `server.py` and would document almost any word."""
+    docs: dict[str, str] = {}
     for d in ROW6_DOCS:
         p = repo / d
         if not p.exists():
@@ -209,36 +259,39 @@ def row6_docs_text(repo: pathlib.Path) -> str:
         text = p.read_text(encoding="utf-8", errors="replace")
         if d == "CLAUDE.md":
             text = "\n".join(ln for ln in text.splitlines() if ln.startswith("|"))
-        parts.append(text)
-    return "\n".join(parts)
+        docs[d] = text
+    return docs
 
 
 def row6_verdict(
     base_sources: dict[str, str],
     head_sources: dict[str, str],
-    docs_text: str,
-    elsewhere=None,
+    docs,
+    tree=None,
 ) -> tuple[str | None, str]:
     """DoD 6 for the CLI and env half: `(None, why)` when nothing was added,
     else `met`/`unmet` with the names. A head file that cannot be parsed is
-    `unmet`: what it adds could not be established. `elsewhere` is a dict, or
-    a callable returning one, asked only when the changed files alone show an
-    addition (it costs a walk of the base tree)."""
+    `unmet`: what it adds could not be established.
+
+    The changed files alone cannot tell an addition from a move (a renamed
+    file has no base under its new path). `tree`, a callable returning the
+    whole of `src/` as `(base_counts, head_counts)`, settles it, and is asked
+    only when the changed files show a candidate (it walks both trees)."""
     added, unparsed = row6_added(base_sources, head_sources)
     if unparsed:
         return "unmet", "could not parse " + ", ".join(
             unparsed
         ) + "; what it adds is not established"
-    if elsewhere is not None and any(added.values()):
-        declared = elsewhere() if callable(elsewhere) else elsewhere
-        added, _ = row6_added(base_sources, head_sources, declared)
+    if tree is not None and any(added.values()):
+        whole = row6_grew(*tree())
+        added = {kind: added[kind] & whole[kind] for kind in ROW6_KINDS}
     names = [n for kind in ROW6_KINDS for n in sorted(added[kind])]
     if not names:
-        return (
-            None,
-            "no CLI subcommand, option or env var added under src/ (AST, base vs head)",
+        return None, (
+            "no CLI subcommand or option gained a declaration and no env var is newly read"
+            " under src/ (AST, base vs head)"
         )
-    missing = row6_undocumented(added, docs_text)
+    missing = row6_undocumented(added, docs)
     listed = ", ".join(names[:12]) + (
         f" (+{len(names) - 12} more)" if len(names) > 12 else ""
     )
@@ -262,9 +315,11 @@ def _git_rc(repo: pathlib.Path, *args: str) -> tuple[int, str]:
     return r.returncode, r.stdout or ""
 
 
-def row6_base_names(repo: pathlib.Path, merge_base: str) -> dict[str, set[str]]:
-    """Every name `src/` declared at the merge base, whichever file held it."""
-    names: dict[str, set[str]] = {k: set() for k in ROW6_KINDS}
+def row6_base_counts(
+    repo: pathlib.Path, merge_base: str
+) -> dict[str, collections.Counter]:
+    """What all of `src/` declared at the merge base, whichever file held it."""
+    sources: dict[str, str] = {}
     _, listing = _git_rc(
         repo, "grep", "-l", "-E", ROW6_CANDIDATE, merge_base, "--", "src"
     )
@@ -273,15 +328,20 @@ def row6_base_names(repo: pathlib.Path, merge_base: str) -> dict[str, set[str]]:
         if not path.endswith(".py"):
             continue
         rc, text = _git_rc(repo, "show", f"{merge_base}:{path}")
-        if rc != 0:
-            continue
-        try:
-            found = cli_env_names(text)
-        except (SyntaxError, ValueError):
-            continue
-        for kind in ROW6_KINDS:
-            names[kind] |= found[kind]
-    return names
+        if rc == 0:
+            sources[path] = text
+    return row6_tally(sources)[0]
+
+
+def row6_head_counts(repo: pathlib.Path) -> dict[str, collections.Counter]:
+    """What all of `src/` declares in the working tree."""
+    sources = {
+        p.relative_to(repo).as_posix(): p.read_text(
+            encoding="utf-8-sig", errors="replace"
+        )
+        for p in sorted((repo / "src").rglob("*.py"))
+    }
+    return row6_tally(sources)[0]
 
 
 def row6_sources(
@@ -306,17 +366,39 @@ def row6_sources(
     return base_sources, head_sources
 
 
+PARITY_PATHS = ("src/jcodemunch_mcp/config.py", "src/jcodemunch_mcp/cli/")
+PARITY_TESTS = (
+    "tests/test_cli_env_split.py",
+    "tests/test_config_docs_reverse_parity.py",
+)
+
+
+def row6_parity(changed: list[str], run=None) -> tuple[str | None, str]:
+    """DoD 6's config-key half: the two parity tests, run when `config.py` or
+    `cli/` moved; `(None, why)` otherwise. `run` is `sh` unless a test passes one."""
+    if not any(c.startswith(PARITY_PATHS) for c in changed):
+        return None, "config.py and cli/ untouched"
+    rc, out = (run or sh)(
+        "uv", "run", "pytest", *PARITY_TESTS, "-q", "-p", "no:cacheprovider"
+    )
+    return (
+        "met" if rc == 0 else "unmet",
+        "tests/test_cli_env_split.py + test_config_docs_reverse_parity.py: "
+        + (out.strip().splitlines() or ["?"])[-1][:120],
+    )
+
+
 def row6_row(
-    changed: list[str], base: str, repo: pathlib.Path, parity
+    changed: list[str], base: str, repo: pathlib.Path, parity=None
 ) -> tuple[str, str]:
     """DoD 6's verdict and evidence. Two halves, and either `unmet` is `unmet`:
     what the change ADDED (W-53: a touched-path test read `n.a.` for an option
-    added in server.py, where nearly every subcommand lives), and `parity()`,
-    the config-key tests, `(None, why)` when their files did not move.
+    added in server.py, where nearly every subcommand lives), and the
+    config-key parity tests (`row6_parity`, or the callable a test passes).
 
-    Staged files are graded too (W-31's rule for row 3). A base that cannot be
-    resolved is `unmet`: an empty diff against a missing ref is not "nothing
-    was added"."""
+    Staged and untracked files are graded too (W-31's rule for row 3). A base
+    that cannot be resolved is `unmet`: an empty diff against a missing ref is
+    not "nothing was added"."""
     rc, merge_base = _git_rc(repo, "merge-base", base, "HEAD")
     merge_base = merge_base.strip()
     if rc != 0 or not merge_base:
@@ -326,15 +408,18 @@ def row6_row(
         )
     else:
         _, staged = _git_rc(repo, "diff", "--name-only", "--cached")
-        paths = list(changed) + staged.split()
+        _, untracked = _git_rc(
+            repo, "ls-files", "--others", "--exclude-standard", "--", "src"
+        )
+        paths = list(changed) + staged.split() + untracked.split()
         base_sources, head_sources = row6_sources(paths, merge_base, repo)
         added = row6_verdict(
             base_sources,
             head_sources,
-            row6_docs_text(repo),
-            lambda: row6_base_names(repo, merge_base),
+            row6_docs(repo),
+            lambda: (row6_base_counts(repo, merge_base), row6_head_counts(repo)),
         )
-    parity_verdict, parity_evidence = parity()
+    parity_verdict, parity_evidence = parity() if parity else row6_parity(changed)
     halves = [v for v in (added[0], parity_verdict) if v is not None]
     verdict = "n.a." if not halves else ("unmet" if "unmet" in halves else "met")
     return verdict, f"{added[1]}; {parity_evidence}"
@@ -1038,26 +1123,7 @@ def main() -> int:
 
     # 6 config/env/CLI rows: what the change added, and the config-key
     # parity tests when their files moved (row6_row combines the two).
-    def row6_parity() -> tuple[str | None, str]:
-        if not touched("src/jcodemunch_mcp/config.py", "src/jcodemunch_mcp/cli/"):
-            return None, "config.py and cli/ untouched"
-        rc, out = sh(
-            "uv",
-            "run",
-            "pytest",
-            "tests/test_cli_env_split.py",
-            "tests/test_config_docs_reverse_parity.py",
-            "-q",
-            "-p",
-            "no:cacheprovider",
-        )
-        return (
-            "met" if rc == 0 else "unmet",
-            "tests/test_cli_env_split.py + test_config_docs_reverse_parity.py: "
-            + (out.strip().splitlines() or ["?"])[-1][:120],
-        )
-
-    row(6, *row6_row(changed, base, REPO, row6_parity))
+    row(6, *row6_row(changed, base, REPO))
 
     # 7 background behaviour disclosure
     if not BACKGROUND_RE.search(src_diff):
