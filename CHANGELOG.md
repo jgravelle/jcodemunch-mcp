@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Added - the `index` CLI can choose the index identity (#1017)
+
+`index_folder` has taken `identity_mode` (`config`, `local`, `git`) since
+v1.108.6, and the `index` subcommand never passed it. The CLI therefore always
+ran in `config` mode, and a script that needed a path keyed a particular way
+had to call the Python function instead of the command. `jcodemunch-mcp index
+<path> --identity-mode local|git` now passes the mode through. The default is
+`config`, so a command without the option does what it did. A value outside
+the three is refused by the parser before anything is indexed. An explicit
+mode with a GitHub target is refused with a structured error before any
+network call, because identity modes describe local folders only. A mode that
+conflicts with an index already in the store is `index_folder`'s own refusal,
+naming the index to invalidate. No MCP tool changes. Requested by @sKlat-beep
+in #1016.
+
 ## [1.108.340] - 2026-10-10 - ASP.NET Web Forms is indexed, and a handler wired in markup is referenced
 
 ### Fixed - a Web Forms handler wired in markup is referenced, and markup reaches the file graph

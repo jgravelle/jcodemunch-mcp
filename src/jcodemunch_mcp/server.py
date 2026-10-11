@@ -9555,6 +9555,17 @@ def main(argv: Optional[list[str]] = None):
             "with `#` are comments."
         ),
     )
+    index_parser.add_argument(
+        "--identity-mode",
+        choices=["config", "local", "git"],
+        default="config",
+        help=(
+            "How a local target is keyed in the index store: 'config' (default) "
+            "follows the identity_mode / git_root_identity config; 'local' keys "
+            "it by its own folder; 'git' keys it by its git root and origin. "
+            "Local targets only."
+        ),
+    )
     _add_common_args(index_parser)
 
     # --- index-file ---
@@ -11028,6 +11039,7 @@ def main(argv: Optional[list[str]] = None):
         # git@github.com:owner/repo) routes to the GitHub indexer, which calls
         # parse_github_url for normalization.
         is_local = "/" not in t or t.startswith("/") or t.startswith(".") or (len(t) > 1 and t[1] == ":")
+        identity_mode = getattr(args, "identity_mode", "config")
         if is_local:
             from .tools.index_folder import index_folder as _index_folder
             result = _index_folder(
@@ -11037,8 +11049,15 @@ def main(argv: Optional[list[str]] = None):
                 extra_ignore_patterns=args.extra_ignore,
                 follow_symlinks=args.follow_symlinks,
                 paths=paths_arg,
+                identity_mode=identity_mode,
             )
         else:
+            if identity_mode != "config":
+                print(_json.dumps({
+                    "success": False,
+                    "error": "--identity-mode is only supported for local targets, not GitHub repos.",
+                }, indent=2))
+                sys.exit(1)
             if paths_arg is not None:
                 print(_json.dumps({
                     "success": False,
