@@ -1157,6 +1157,29 @@ def _default_use_ai_summaries() -> bool:
     return str(raw).strip().lower() not in ("false", "0", "no", "off")
 
 
+def _index_target_is_local(target: str) -> bool:
+    """Is the `index` CLI target a local folder rather than a GitHub repo?
+
+    A directory that exists is local however it is spelled (`proj/`,
+    `proj/sub`, `~/proj`, `work/../proj`); the spelling rule alone sent each
+    of those to the GitHub indexer (review of #1017). Otherwise local paths
+    start with /, ., or a Windows drive letter, or hold no slash at all, and
+    everything else (owner/repo, github.com/owner/repo, https://...,
+    git@...) is a GitHub target that `parse_github_url` normalises.
+    """
+    try:
+        if Path(target).expanduser().is_dir():
+            return True
+    except (OSError, RuntimeError, ValueError):
+        logger.debug("index target %r could not be probed as a path", target, exc_info=True)
+    return (
+        "/" not in target
+        or target.startswith("/")
+        or target.startswith(".")
+        or (len(target) > 1 and target[1] == ":")
+    )
+
+
 def _load_index_paths_from_arg(paths_from: str) -> tuple[Optional[list], Optional[str]]:
     """Read explicit paths from a file or stdin for `jcodemunch-mcp index --paths-from`.
 
@@ -9561,6 +9584,7 @@ def main(argv: Optional[list[str]] = None):
         default="config",
         help=(
             "How a local target is keyed in the index store: 'config' (default) "
+            "reuses the identity of an index that already covers the path, else "
             "follows the identity_mode / git_root_identity config; 'local' keys "
             "it by its own folder; 'git' keys it by its git root and origin. "
             "Local targets only."
@@ -11034,11 +11058,7 @@ def main(argv: Optional[list[str]] = None):
                 print(_json.dumps({"success": False, "error": _err}, indent=2))
                 sys.exit(1)
 
-        # Heuristic: local paths start with /, ., or a Windows drive letter.
-        # Everything else (owner/repo, github.com/owner/repo, https://github.com/...,
-        # git@github.com:owner/repo) routes to the GitHub indexer, which calls
-        # parse_github_url for normalization.
-        is_local = "/" not in t or t.startswith("/") or t.startswith(".") or (len(t) > 1 and t[1] == ":")
+        is_local = _index_target_is_local(t)
         identity_mode = getattr(args, "identity_mode", "config")
         if is_local:
             from .tools.index_folder import index_folder as _index_folder
@@ -11055,7 +11075,11 @@ def main(argv: Optional[list[str]] = None):
             if identity_mode != "config":
                 print(_json.dumps({
                     "success": False,
-                    "error": "--identity-mode is only supported for local targets, not GitHub repos.",
+                    "error": (
+                        f"--identity-mode is only supported for local targets, and {t!r} "
+                        "was read as a GitHub repo because no such directory exists. "
+                        "For a local folder, check the path."
+                    ),
                 }, indent=2))
                 sys.exit(1)
             if paths_arg is not None:

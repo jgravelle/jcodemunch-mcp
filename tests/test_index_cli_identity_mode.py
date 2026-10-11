@@ -6,6 +6,8 @@ and a script that needed a path keyed a particular way had to call the Python
 function. Each test drives the real subcommand in a subprocess against a
 store it owns.
 """
+from __future__ import annotations
+
 import json
 import os
 import subprocess
@@ -19,13 +21,12 @@ def _git(*args, cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True)
 
 
-def _run(args, storage: Path):
-    env = {
-        **os.environ,
-        "CODE_INDEX_PATH": str(storage),
-        "JCODEMUNCH_USE_AI_SUMMARIES": "false",
-    }
-    env.pop("JCODEMUNCH_GIT_ROOT_IDENTITY", None)
+def _run(args, storage: Path, cwd: Path | None = None):
+    # The developer's own JCODEMUNCH_* settings stay out of the subprocess: with
+    # JCODEMUNCH_TRUSTED_FOLDERS set, five of these failed (review of #1017).
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("JCODEMUNCH_")}
+    env["CODE_INDEX_PATH"] = str(storage)
+    env["JCODEMUNCH_USE_AI_SUMMARIES"] = "false"
     return subprocess.run(
         [sys.executable, "-m", "jcodemunch_mcp", *args],
         capture_output=True,
@@ -35,6 +36,7 @@ def _run(args, storage: Path):
         env=env,
         timeout=120,
         stdin=subprocess.DEVNULL,
+        cwd=str(cwd) if cwd else None,
     )
 
 
@@ -108,6 +110,7 @@ def test_a_github_target_refuses_an_explicit_mode_before_any_network_call(tmp_pa
     body = json.loads(result.stdout)
     assert body["success"] is False
     assert "--identity-mode" in body["error"] and "local" in body["error"]
+    assert "example-owner/example-repo" in body["error"], "the refusal names the target"
 
 
 def test_a_mode_that_conflicts_with_an_existing_index_is_a_refusal_not_a_traceback(tmp_path, checkout):
@@ -122,3 +125,49 @@ def test_a_mode_that_conflicts_with_an_existing_index_is_a_refusal_not_a_traceba
     assert body["success"] is False
     assert "local identity" in body["error"]
     assert "Traceback" not in second.stderr
+
+
+@pytest.mark.parametrize("spelling", ["proj/", "proj/sub", "work/../proj", "~/proj"])
+def test_a_directory_that_exists_is_local_however_it_is_spelled(tmp_path, monkeypatch, spelling):
+    """Each of these was sent to the GitHub indexer by the spelling rule, where
+    an explicit mode would have been refused with a message about GitHub repos."""
+    from jcodemunch_mcp.server import _index_target_is_local
+
+    (tmp_path / "proj" / "sub").mkdir(parents=True)
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    assert _index_target_is_local(spelling) is True
+
+
+@pytest.mark.parametrize(
+    "target, expected",
+    [
+        ("example-owner/example-repo", False),
+        ("github.com/example-owner/example-repo", False),
+        ("https://github.com/example-owner/example-repo", False),
+        ("git@github.com:example-owner/example-repo", False),
+        (".", True),
+        ("./missing", True),
+        ("/missing/abs", True),
+        (r"C:\missing\abs", True),
+        ("missing-bare-name", True),
+    ],
+)
+def test_a_target_that_is_no_directory_is_routed_as_before(tmp_path, monkeypatch, target, expected):
+    from jcodemunch_mcp.server import _index_target_is_local
+
+    monkeypatch.chdir(tmp_path)
+
+    assert _index_target_is_local(target) is expected
+
+
+def test_an_explicit_mode_reaches_a_folder_spelled_with_a_trailing_slash(tmp_path, checkout):
+    storage = _store(tmp_path, git_root_identity=True)
+
+    result = _run(["index", "proj/", "--identity-mode", "local"], storage, cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["repo"].startswith("local/proj-")
