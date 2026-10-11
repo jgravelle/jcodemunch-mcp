@@ -74,10 +74,12 @@ under `.claude/state/evidence/`. Authority for every rule is
    the skip-ceiling verdict rows in `full.md`, not only the exit code.
 7. **Bench delta.** Load `benchmark-methodology`. If `benchmarks/`,
    `harness/` or `src/jcodemunch_mcp/server.py` changed, run
-   `uv run python -m harness bench --offline --summary .claude/state/evidence/bench.md`
+   `uv run python -m harness bench --offline --results-out .claude/state/evidence/latest_cur.json --summary .claude/state/evidence/bench.md`
    and then the per-criterion table against main:
-   `uv run python scripts/pr_bench_comment.py --base-ref origin/main --results harness/results/latest.json --summary .claude/state/evidence/bench_table.md`
-   (never `--post`). Otherwise write the one line `bench: not required
+   `uv run python scripts/pr_bench_comment.py --base-ref origin/main --results .claude/state/evidence/latest_cur.json --summary .claude/state/evidence/bench_table.md`
+   (never `--post`; `--results` is the file THIS run wrote, never the
+   tracked `latest.json`, which a branch run does not rewrite: the script
+   refuses the base ref's own artifact, W-52). Otherwise write the one line `bench: not required
    (no change under benchmarks/, harness/ or server.py)` to
    `evidence/bench_table.md`; a table of zeros by construction is not
    evidence. The description half of DoD 4 comes from step 3's

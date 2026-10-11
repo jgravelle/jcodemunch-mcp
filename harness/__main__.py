@@ -7,7 +7,8 @@ printed as one line: id, criterion, floor, observed, PASS|FAIL.
 
 Tier membership: harness/tiers.json. Floors: harness/thresholds.json (only).
 Corpus checksums: harness/corpora.json. Results: harness/results/latest.json
-when --write-results is given.
+when --write-results is given; --results-out PATH writes the same result to
+PATH and leaves the tracked file alone.
 
 Methodology rules R1-R62 (docs/harness/ARCHAEOLOGY.md section A) bind the bench
 tier; the assertions that enforce them cite the rule number.
@@ -975,9 +976,20 @@ def tier_bench(result: dict, *, offline: bool, write_results: bool = False) -> b
     return ok
 
 
-def write_results(result: dict) -> Path:
-    RESULTS_DIR.mkdir(exist_ok=True)
-    p = RESULTS_DIR / "latest.json"
+def write_results(result: dict, path: Path | None = None) -> Path:
+    """Write the run's result: the tracked `latest.json`, or `path` when given.
+
+    A caller's `path` (`--results-out`) is how a branch run hands THIS run's
+    numbers to `scripts/pr_bench_comment.py` without touching the tracked file
+    (workflow FINDINGS W-52: the table read the tracked file a plain run had
+    not written, and compared the base ref with itself).
+    """
+    if path is None:
+        RESULTS_DIR.mkdir(exist_ok=True)
+        p = RESULTS_DIR / "latest.json"
+    else:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -1013,6 +1025,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument(
         "--write-results", action="store_true", help="write harness/results/latest.json"
+    )
+    ap.add_argument(
+        "--results-out",
+        metavar="PATH",
+        help="write this run's result JSON to PATH; tracked files are not touched",
     )
     ap.add_argument(
         "--pin",
@@ -1109,6 +1126,8 @@ def _dispatch(a) -> int:
         ok = tier_bench(result, offline=a.offline, write_results=a.write_results) and ok
     if a.write_results:
         print("results ->", write_results(result))
+    if a.results_out:
+        print("results ->", write_results(result, Path(a.results_out)))
     print("HARNESS", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

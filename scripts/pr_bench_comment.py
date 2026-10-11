@@ -57,6 +57,18 @@ def _delta(base, pr):
     return "—"
 
 
+def is_base_artifact(base_results: dict | None, pr_results: dict) -> bool:
+    """True when `--results` holds the base ref's own committed artifact.
+
+    A bench run without `--write-results` leaves the tracked `latest.json`
+    alone, so on a branch that file IS the base ref's copy and a table built
+    from it reads base = PR in every row (workflow FINDINGS W-52). Whole-result
+    equality, date and env included: a fresh run that happens to measure the
+    same values is a result, and is rendered.
+    """
+    return base_results is not None and base_results == pr_results
+
+
 def rows(
     base_results: dict | None,
     pr_results: dict,
@@ -226,8 +238,18 @@ def main(argv=None) -> int:
         if a.benchmark and Path(a.benchmark).exists()
         else None
     )
+    base_results = _git_show(a.base_ref, "harness/results/latest.json")
+    if is_base_artifact(base_results, pr_results):
+        print(
+            f"REFUSED: {a.results} is the artifact committed on {a.base_ref}, not a "
+            "run of this tree, so every row would read base = PR. Run "
+            "`python -m harness bench --offline --results-out <path>` and pass that "
+            "path as --results (CI's `--write-results` run rewrites the tracked file).",
+            file=sys.stderr,
+        )
+        return 2
     table = rows(
-        _git_show(a.base_ref, "harness/results/latest.json"),
+        base_results,
         pr_results,
         _git_show(a.base_ref, "benchmarks/jcm_reference.json"),
         bench,
