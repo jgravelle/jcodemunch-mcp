@@ -87,6 +87,11 @@ class _CountedWords:
         self.work.tokenised += len(text)
         return self.real.findall(text)
 
+    def finditer(self, text):
+        # L-157's word pairs tokenise this way; counted like any other pass.
+        self.work.tokenised += len(text)
+        return self.real.finditer(text)
+
 
 def _watch(monkeypatch) -> _Work:
     w = _Work()

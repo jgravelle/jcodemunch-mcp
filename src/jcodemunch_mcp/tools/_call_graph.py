@@ -61,6 +61,27 @@ _WORD_ONLY_RE = re.compile(r"\w+")
 _LINE_SEP_RE = re.compile("[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
 
 
+def words_of(text: str) -> list[str]:
+    """Each ``\\w+`` run of *text*, in order."""
+    return _WORD_RE.findall(text)
+
+
+def is_one_word(name: str) -> bool:
+    """True if *name* is made of word characters only (a plain identifier)."""
+    return _WORD_ONLY_RE.fullmatch(name) is not None
+
+
+def adjacent_word_pairs(text: str) -> list[tuple[str, str, str]]:
+    """``(word, separator, next word)`` for each two adjacent ``\\w+`` runs of *text*."""
+    pairs: list[tuple[str, str, str]] = []
+    previous, previous_end = None, 0
+    for match in _WORD_RE.finditer(text):
+        if previous is not None:
+            pairs.append((previous, text[previous_end:match.start()], match.group()))
+        previous, previous_end = match.group(), match.end()
+    return pairs
+
+
 class FileWords:
     """Which lines of one file name what, from ONE pass over its text.
 
@@ -157,6 +178,22 @@ class FileWords:
     @property
     def line_count(self) -> int:
         return len(self._lines)
+
+    def words(self):
+        """The distinct words of the file (each ``\\w+`` run of any line)."""
+        return self._by_word.keys()
+
+    def word_pairs(self) -> set[tuple[str, str, str]]:
+        """Every ``(word, separator, next word)`` of two adjacent words on a line.
+
+        A line that names ``do-thing`` holds the pair ``("do", "-", "thing")``,
+        so a file without that pair cannot name it. Far more selective than
+        either word. Not kept: one pass over the lines per call.
+        """
+        pairs: set[tuple[str, str, str]] = set()
+        for line in self._lines:
+            pairs.update(adjacent_word_pairs(line))
+        return pairs
 
     def lines_naming(self, name: str) -> list[int]:
         """Ascending indices of the lines that name *name* as a word."""
