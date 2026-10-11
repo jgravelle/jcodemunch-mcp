@@ -23,8 +23,9 @@ These tests count work. They do not time anything (Standing lesson 10-09):
 as the oracle. It is quadratic on purpose and runs on small inputs only.
 
 What the counters do not see: work done inside one C call that is neither a
-`splitlines`, a `_word_match` nor the tokeniser (a `str.find` per symbol over
-the whole text, say).
+`splitlines`, a `_word_match` nor the tokeniser: a `str.find` per symbol over
+the whole text, a direct `re.search` over lines joined again per symbol, a
+`map` over every line. Three such rewrites pass this file (review, round two).
 """
 
 from __future__ import annotations
@@ -126,6 +127,23 @@ class _Ops:
         return self._in_frame
 
 
+def _settled(measure) -> int:
+    """Run *measure* until two runs in a row count the same; return that count.
+
+    From Python 3.12 the first traced run of a code object undercounts (0 on
+    3.12, about two fifths on 3.13 and 3.14) while the interpreter instruments
+    it, so a single reading depends on which test ran before. The workloads
+    here are deterministic, so two equal readings are the count.
+    """
+    previous = measure()
+    for _ in range(5):
+        current = measure()
+        if current == previous:
+            return current
+        previous = current
+    raise AssertionError(f"the instruction count did not settle: last two readings {previous}, {current}")
+
+
 @pytest.fixture
 def work(monkeypatch):
     """Count every word-boundary search either module makes."""
@@ -221,11 +239,17 @@ def _run_counted(tmp_path, monkeypatch, n):
 
     monkeypatch.setattr(IndexStore, "get_file_content", counted)
     w = _watch(monkeypatch)
-    with _Ops() as ops:
-        result = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+    result = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
     assert "error" not in result, result
-    w.ops = ops.count
-    return result, _Counted.splits, w.chars, size, w
+    splits, chars = _Counted.splits, w.chars
+
+    def traced():
+        with _Ops() as ops:
+            v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
+        return ops.count
+
+    w.count_ops = lambda: _settled(traced)
+    return result, splits, chars, size, w
 
 
 def test_the_reported_shape_takes_the_text_fallback(tmp_path):
@@ -255,10 +279,10 @@ def test_searched_characters_grow_no_faster_than_the_file(tmp_path, monkeypatch)
 
 def test_the_tools_instructions_grow_in_step_with_the_functions(tmp_path, monkeypatch):
     """Four times the functions: about four times the instructions, not sixteen."""
-    *_, small = _run_counted(tmp_path, monkeypatch, 60)
-    *_, large = _run_counted(tmp_path, monkeypatch, 240)
-    assert small.ops > 1000, small.ops
-    assert large.ops <= 6 * small.ops, f"{small.ops} instructions at 60 functions, {large.ops} at 240"
+    small = _run_counted(tmp_path, monkeypatch, 60)[-1].count_ops()
+    large = _run_counted(tmp_path, monkeypatch, 240)[-1].count_ops()
+    assert small > 1000, small
+    assert large <= 6 * small, f"{small} instructions at 60 functions, {large} at 240"
 
 
 def test_the_entry_point_still_finds_the_module_level_call(tmp_path):
@@ -303,10 +327,12 @@ def test_one_file_is_split_once_whatever_the_names_look_like(work, name_of):
 
 
 def _ops_of(symbols, files, rev=None):
-    store = _Store(files)
-    with _Ops() as ops:
-        v2._text_fallback_callers(SimpleNamespace(symbols=symbols), store, "o", "n", rev or {})
-    return ops.count
+    def traced():
+        with _Ops() as ops:
+            v2._text_fallback_callers(SimpleNamespace(symbols=symbols), _Store(files), "o", "n", rev or {})
+        return ops.count
+
+    return _settled(traced)
 
 
 def _overloads(n, name, call):
@@ -595,3 +621,17 @@ def test_a_name_that_spans_lines_is_refused_not_answered():
     with pytest.raises(ValueError):
         words.lines_naming("a" + chr(10) + "b")
     assert words.names("a") and not words.names("c")
+
+
+def test_lines_outside_a_span_are_the_slices_lines():
+    """`names_outside` against the slice it stands for, every small file and bound."""
+    for count in range(6):
+        for hit in range(count + 1):
+            lines = ["x"] * count
+            if hit < count:
+                lines[hit] = "run"
+            words = _call_graph.FileWords(chr(10).join(lines))
+            for start in range(-8, 9):
+                for end in range(-8, 9):
+                    want = "run" in lines[:start] + lines[end:]
+                    assert words.names_outside("run", start, end) is want, (lines, start, end)
