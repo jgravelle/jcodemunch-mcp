@@ -34,7 +34,9 @@ When a file's text was read for a caller the response says so in a new key,
 fallback included. Text is weaker evidence than a call reference: a mention in a comment counts
 as a caller. `files` counts the files whose text was read, not the files eligible: a
 `pyproject.toml` holds symbols and records no call, and nothing is asked of it. The key is
-absent when no text was read, and it carries a count and language names, never the file list.
+absent when no file was read that way, and it carries a count and language names, never the
+file list. It does not cover the module-level sweep, which reads the text outside every symbol
+on any repository with call references and is not disclosed.
 
 Measured through the tool, 1.108.342's code plus L-152's fix against this
 (`evidence/measure_l155.txt`): on this repository's `src/` the same 451 functions carry
@@ -59,6 +61,12 @@ What this does not fix (`evidence/limits_l155.txt`, each still reported after th
 A language that can record calls is read as text too when the repository's files of it hold no
 call between functions. That only ever finds a caller a call reference would not; it never
 removes one.
+
+One consequence in call-graph-only mode, measured by the reviewer and recorded as L-160: a
+Python file holding `def a()` and a module-level `a()` no longer has `a` reported when indexed
+alone, and still has it reported beside another Python file that records a call. Before, it
+was reported both times. That mode has no module-level sweep, so the answer for a language
+that records calls now depends on whether any file of it does.
 
 ### Fixed - `get_dead_code_v2`'s module-level sweep no longer searches a file's whole residue once per function (LEDGER L-152)
 
