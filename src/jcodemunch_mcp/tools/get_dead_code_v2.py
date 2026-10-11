@@ -400,10 +400,17 @@ def _sweep_module_level_callers(
     # 9.7k-function repo. This mirrors ``called_names_by_file`` above, which is
     # the same shape for the same reason.
     residue_names_cache: dict[str, set[str]] = {}
-    # Names that are not plain identifiers (Erlang ``add/2``, PHP FQNs) cannot
-    # be found by token equality, so they keep the regex path against the
-    # residue text. Rare, so the text is cached only when one shows up.
+    # Names that are not plain identifiers (Clojure ``do-thing``, Ruby
+    # ``valid?``, Erlang ``add/2``, PHP FQNs) cannot be found by token
+    # equality, so they keep ``_word_match``'s word-boundary rule, asked of a
+    # ``FileWords`` built ONCE per residue (LEDGER L-152). ⚠ They are not
+    # rare: in Clojure nearly every function name is one, and searching the
+    # whole residue text per symbol and caller file was quadratic in a file's
+    # functions. Never call ``_word_match`` on a residue text per symbol; only
+    # a name that holds a line separator still does, because it can match
+    # across two residue lines and no per-line index can answer that.
     residue_text_cache: dict[str, str] = {}
+    residue_words_cache: dict[str, Optional[FileWords]] = {}
 
     def _residue_text(file_path: str) -> str:
         """File text with every symbol's line span removed."""
@@ -431,6 +438,12 @@ def _sweep_module_level_callers(
         residue_text_cache[file_path] = content
         return content
 
+    def _residue_words(file_path: str) -> Optional[FileWords]:
+        if file_path not in residue_words_cache:
+            text = _residue_text(file_path)
+            residue_words_cache[file_path] = FileWords(text) if text else None
+        return residue_words_cache[file_path]
+
     def _residue_names(file_path: str) -> set[str]:
         if file_path not in residue_names_cache:
             residue_names_cache[file_path] = set(
@@ -454,9 +467,12 @@ def _sweep_module_level_callers(
         for caller_file in (sym_file, *rev.get(sym_file, ())):
             if plain:
                 hit = sym_name in _residue_names(caller_file)
-            else:
+            elif FileWords.spans_lines(sym_name):
                 residue = _residue_text(caller_file)
                 hit = bool(residue) and _word_match(residue, sym_name)
+            else:
+                words = _residue_words(caller_file)
+                hit = words is not None and words.names(sym_name)
             if hit:
                 callee_has_caller.add(sid)
                 break
