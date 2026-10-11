@@ -154,6 +154,11 @@ def test_a_directory_that_exists_is_local_however_it_is_spelled(tmp_path, monkey
         ("/missing/abs", True),
         (r"C:\missing\abs", True),
         ("missing-bare-name", True),
+        ("C://missing/abs", True),
+        ("/missing/a://b", True),
+        ("./a://b", True),
+        ("git@github.com:repo", True),
+        ("ssh://git@github.com/example-owner/example-repo", False),
     ],
 )
 def test_a_target_that_is_no_directory_is_routed_as_before(tmp_path, monkeypatch, target, expected):
@@ -198,3 +203,29 @@ def test_owner_slash_repo_names_the_local_directory_when_one_exists(tmp_path, mo
     monkeypatch.setattr(Path, "is_dir", lambda self: True)
     assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
     assert _index_target_is_local("git@github.com:example-owner/example-repo") is False
+
+
+def test_a_url_scheme_skips_the_probe_and_a_drive_letter_is_not_a_scheme(tmp_path, monkeypatch):
+    """The guard that keeps a URL from being read as a path is anchored on a
+    scheme of two or more characters. Unanchored, it sent `C://<existing dir>`
+    and a directory named `git@work` to the GitHub indexer (review of #1017)."""
+    from jcodemunch_mcp.server import _index_target_is_local
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "git@work").mkdir()
+    assert _index_target_is_local("git@work") is True
+
+    if os.name == "nt":
+        drive, rest = os.path.splitdrive(str(tmp_path))
+        doubled = drive + "//" + rest.lstrip("\\/").replace("\\", "/")
+    else:
+        (tmp_path / "x:" / "y").mkdir(parents=True)
+        doubled = "x://y"
+    assert Path(doubled).is_dir(), doubled
+    assert _index_target_is_local(doubled) is True
+
+    probed = []
+    monkeypatch.setattr(Path, "is_dir", lambda self: probed.append(str(self)) or True)
+    assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
+    assert _index_target_is_local("git@github.com:example-owner/example-repo") is False
+    assert probed == [], "a URL is never probed as a path"

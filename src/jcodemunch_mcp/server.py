@@ -10,6 +10,7 @@ import json
 import jsonschema
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -1157,6 +1158,9 @@ def _default_use_ai_summaries() -> bool:
     return str(raw).strip().lower() not in ("false", "0", "no", "off")
 
 
+_INDEX_TARGET_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]+://|git@[^/\\:]+:")
+
+
 def _index_target_is_local(target: str) -> bool:
     """Is the `index` CLI target a local folder rather than a GitHub repo?
 
@@ -1169,17 +1173,17 @@ def _index_target_is_local(target: str) -> bool:
 
     So `owner/repo` and `github.com/owner/repo` name the local directory when
     one of that name exists under the working directory, as `git clone` reads
-    an existing path. The URL forms (`scheme://...`, `git@...`) are never
-    probed: on POSIX `https://host/o/r` is also a relative path that could
-    exist, and a URL always means the remote.
+    an existing path. A target that STARTS with a URL scheme or `git@host:`
+    skips the probe and nothing else: on POSIX `https://host/o/r` is also a
+    relative path that could exist, and a URL always means the remote. The
+    scheme needs two characters, so `C://proj` is a drive path and is probed.
     """
-    if "://" in target or target.startswith("git@"):
-        return False
-    try:
-        if Path(target).expanduser().is_dir():
-            return True
-    except (OSError, RuntimeError, ValueError):
-        logger.debug("index target %r could not be probed as a path", target, exc_info=True)
+    if not _INDEX_TARGET_URL_RE.match(target):
+        try:
+            if Path(target).expanduser().is_dir():
+                return True
+        except (OSError, RuntimeError, ValueError):
+            logger.debug("index target %r could not be probed as a path", target, exc_info=True)
     return (
         "/" not in target
         or target.startswith("/")
@@ -11090,8 +11094,8 @@ def main(argv: Optional[list[str]] = None):
                     "success": False,
                     "error": (
                         f"--identity-mode is only supported for local targets, and {t!r} "
-                        "was read as a GitHub repo because no such directory exists. "
-                        "For a local folder, check the path."
+                        "was read as a GitHub repo. For a local folder, check that the "
+                        "path exists."
                     ),
                 }, indent=2))
                 sys.exit(1)

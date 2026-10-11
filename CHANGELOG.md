@@ -24,7 +24,8 @@ carry no option: `index owner/repo` or `index github.com/owner/repo`, run
 where a directory of that relative name exists, now indexes the directory,
 where it fetched the GitHub repo before. A ghq or `GOPATH/src` root is the
 second case (`github.com/owner/repo` exists there), and its `github.com`
-folder is the first. It is how `git clone` reads an existing path. A URL
+folder is the first. It is how `git clone` reads an existing path. A target
+that starts with a URL scheme or `git@host:`
 (`https://github.com/owner/repo`, `git@github.com:owner/repo`) is never
 probed as a path and always reaches GitHub. A mode that
 conflicts with an index already in the store is `index_folder`'s own refusal,
