@@ -1,6 +1,12 @@
 {
-  "current": "1.108.341",
+  "current": "1.108.342",
   "entries": [
+    {
+      "version": "1.108.342",
+      "date": "2026-10-11",
+      "title": "the dead-code text fallback reads a file once",
+      "summary": "`get_dead_code_v2` on an index that holds no call reference no longer costs time quadratic in the functions of one file. It decided whether each function had a caller by splitting the function's whole file, joining the lines outside it and searching the result, once per function. On one generated Python file the tool took 3.38 s at 2,872 functions, 13.68 s at 5,655 and 53.42 s at 11,109; the same three now take 0.05 s, 0.12 s and 0.22 s. Each file is read, split and tokenised once, and the answers are unchanged. The fallback's peak memory is higher (34.1 MB against 10.0 MB on this repository's source). A repository whose index holds any call reference never took this path."
+    },
     {
       "version": "1.108.341",
       "date": "2026-10-11",
@@ -18,12 +24,6 @@
       "date": "2026-10-09",
       "title": "the dynamic-import scan walks a Python file once",
       "summary": "Indexing a Python file that holds a dynamic import walked the file's whole syntax tree once or twice per literal table, once per loop variable and once per pass, a cost added in 1.108.320. The file is now walked once. A cold index of this project's own source is about an eighth faster on Linux, and the edges the scan returns are unchanged, so no index needs rebuilding. About a tenth of a cold index against the code before 1.108.320 is not recovered."
-    },
-    {
-      "version": "1.108.338",
-      "date": "2026-10-09",
-      "title": "a .NET build tree and a NuGet restore tree stay out of the index",
-      "summary": "A .NET project with no .gitignore indexed its build output as source. obj/ and bin/ are now pruned when a .csproj, .vbproj or .fsproj sits beside them (a solution file alone is not enough), .vs/ is always skipped, and a packages/ directory is pruned when a child holds the .nupkg NuGet wrote. Config keys skip_msbuild_output and skip_nuget_packages turn the two marker rules off. index_file applies neither rule and index_repo applies only the .vs/ skip. Contributed by @outoftheblue9 (#1001)."
     }
   ]
 }

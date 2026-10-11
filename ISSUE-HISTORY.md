@@ -2361,3 +2361,13 @@ The 1.108.338 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.338 count, verbatim:
 
 - ⚠ Prior (1.108.338): 15138 passed, 25 skipped, **0 failed** (15163 total).
+
+## Current State rotation (2026-10-11, release 1.108.342)
+
+The 1.108.339 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.339):** **The dynamic-import scan walks a Python file once** (L-147, #1005). ⚠⚠ **Never answer a per-name question in `_python_dynamic_imports` with `ast.walk(tree)` or a pass over `all_nodes`.** Residue L-148, L-149. Full text: `CHANGELOG.md`; verbatim in `ISSUE-HISTORY.md` (2026-10-10, release 1.108.340).
+
+The `Tests:` line's 1.108.339 count, verbatim:
+
+- ⚠ Prior (1.108.339): 15173 passed, 25 skipped, **0 failed** (15198 total).

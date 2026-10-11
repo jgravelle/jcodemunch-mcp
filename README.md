@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.342](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.342)** (2026-10-11) — the dead-code text fallback reads a file once
 - **[v1.108.341](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.341)** (2026-10-11) — the index CLI chooses the index identity, and an existing directory is a local target
 - **[v1.108.340](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.340)** (2026-10-10) — ASP.NET Web Forms is indexed, and a handler wired in markup is referenced
 - **[v1.108.339](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.339)** (2026-10-09) — the dynamic-import scan walks a Python file once
-- **[v1.108.338](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.338)** (2026-10-09) — a .NET build tree and a NuGet restore tree stay out of the index
 <!-- WHATSNEW:END -->
 
 ---

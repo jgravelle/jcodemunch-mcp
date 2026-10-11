@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.342] - 2026-10-11 - the dead-code text fallback reads a file once
+
 ### Fixed - `get_dead_code_v2` on an index with no call references no longer costs time quadratic in one file's functions (LEDGER L-150)
 
 When an index holds no call reference, `get_dead_code_v2` decides whether a function has a
