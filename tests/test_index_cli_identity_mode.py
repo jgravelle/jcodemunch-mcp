@@ -174,16 +174,27 @@ def test_an_explicit_mode_reaches_a_folder_spelled_with_a_trailing_slash(tmp_pat
 
 
 def test_owner_slash_repo_names_the_local_directory_when_one_exists(tmp_path, monkeypatch):
-    """A decision, not a spelling case: `owner/repo` is the directory when the
-    directory is there, as `git clone` reads an existing path, and the URL
-    forms still reach GitHub because they name no directory."""
+    """A decision, not a spelling case: `owner/repo` and `github.com/owner/repo`
+    are the directory when the directory is there, as `git clone` reads an
+    existing path, and a URL is never probed as a path."""
     from jcodemunch_mcp.server import _index_target_is_local
 
     monkeypatch.chdir(tmp_path)
     assert _index_target_is_local("example-owner/example-repo") is False
+    assert _index_target_is_local("github.com/example-owner/example-repo") is False
 
     (tmp_path / "example-owner" / "example-repo").mkdir(parents=True)
 
     assert _index_target_is_local("example-owner/example-repo") is True
+    assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
+    assert _index_target_is_local("git@github.com:example-owner/example-repo") is False
+
+    # A ghq or GOPATH/src root: the host-qualified spelling is a directory too.
+    (tmp_path / "github.com" / "example-owner" / "example-repo").mkdir(parents=True)
+    assert _index_target_is_local("github.com/example-owner/example-repo") is True
+
+    # A URL whose text is also an existing relative path (possible on POSIX,
+    # where a colon is legal in a name) still means the remote.
+    monkeypatch.setattr(Path, "is_dir", lambda self: True)
     assert _index_target_is_local("https://github.com/example-owner/example-repo") is False
     assert _index_target_is_local("git@github.com:example-owner/example-repo") is False

@@ -1167,10 +1167,14 @@ def _index_target_is_local(target: str) -> bool:
     everything else (owner/repo, github.com/owner/repo, https://...,
     git@...) is a GitHub target that `parse_github_url` normalises.
 
-    So `owner/repo` names the local directory when one of that name exists
-    under the working directory, as `git clone` reads an existing path; the
-    URL forms never name a directory and always reach GitHub.
+    So `owner/repo` and `github.com/owner/repo` name the local directory when
+    one of that name exists under the working directory, as `git clone` reads
+    an existing path. The URL forms (`scheme://...`, `git@...`) are never
+    probed: on POSIX `https://host/o/r` is also a relative path that could
+    exist, and a URL always means the remote.
     """
+    if "://" in target or target.startswith("git@"):
+        return False
     try:
         if Path(target).expanduser().is_dir():
             return True
@@ -9556,7 +9560,8 @@ def main(argv: Optional[list[str]] = None):
         default=".",
         help=(
             "Local path or owner/repo (default: current directory). A directory "
-            "that exists is indexed as a local folder, even one spelled owner/repo; "
+            "that exists is indexed as a local folder, even one spelled owner/repo "
+            "or github.com/owner/repo; "
             "pass https://github.com/owner/repo to force the GitHub repo."
         ),
     )

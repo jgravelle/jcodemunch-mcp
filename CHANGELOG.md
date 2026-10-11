@@ -19,12 +19,14 @@ the CLI decided local-or-GitHub from the target's spelling alone, so an
 existing directory typed as `proj/`, `proj/sub`, `~/proj` or `work/../proj`
 was sent to the GitHub indexer, with or without the option. A directory that
 exists is now local however it is spelled (`_index_target_is_local`); a
-target that is no directory is routed as before. ⚠ That moves one command
-that carries no option: `index owner/repo` run where a directory `owner/repo`
-exists under the working directory (a ghq-style checkout root is one) now
-indexes that directory, where it fetched the GitHub repo before. It is how
-`git clone` reads an existing path. `https://github.com/owner/repo` and
-`git@github.com:owner/repo` name no directory and always reach GitHub. A mode that
+target that is no directory is routed as before. ⚠ That moves commands that
+carry no option: `index owner/repo` or `index github.com/owner/repo`, run
+where a directory of that relative name exists, now indexes the directory,
+where it fetched the GitHub repo before. A ghq or `GOPATH/src` root is the
+second case (`github.com/owner/repo` exists there), and its `github.com`
+folder is the first. It is how `git clone` reads an existing path. A URL
+(`https://github.com/owner/repo`, `git@github.com:owner/repo`) is never
+probed as a path and always reaches GitHub. A mode that
 conflicts with an index already in the store is `index_folder`'s own refusal,
 naming the index to invalidate. No MCP tool changes. Requested by @sKlat-beep
 in #1016.
