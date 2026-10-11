@@ -27,6 +27,7 @@ awareness), consistent with the rest of jCodemunch's AST-level analysis.
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections import deque
 from typing import TYPE_CHECKING, Optional
 
@@ -42,6 +43,15 @@ if TYPE_CHECKING:
 def _word_match(content: str, name: str) -> bool:
     """Return True if *name* appears as a word token in *content*."""
     return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
+
+
+def _word_starts(content: str, name: str) -> list[int]:
+    """Offsets in *content* where *name* starts as a word token, in one scan.
+
+    Occurrences that overlap an earlier one are not listed; they share a
+    character with it, so a caller that maps offsets to lines loses nothing.
+    """
+    return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
 
 
 _WORD_RE = re.compile(r"\w+")
@@ -66,17 +76,27 @@ class FileWords:
     rather than answer "no line".
 
     A name made only of word characters is a dictionary read. Any other name
-    (``add/2``, ``ns::f``, ``$x``, ``save!``) is searched only on the lines
+    (``do-thing``, ``ns::f``, ``$x``, ``save!``) is searched only on the lines
     that hold its rarest word, because each ``\\w+`` run inside a matched name
-    is a whole word of the line. A name with no word character (an operator)
-    is searched on the lines that contain it. Answers are kept per name, so
-    two hundred overloads of one name cost one lookup.
+    is a whole word of the line. When that word is on a quarter of the lines, or on so many that
+    asking each costs more than reading the text (``_SCAN_WORTH``), and for a
+    name with no word character (an operator), the text is scanned once for
+    that name instead. Answers are kept per name, so two hundred overloads of
+    one name cost one lookup.
+
+    ⚠ **The scan is the floor, not zero.** N distinct compound names whose
+    every word is on most lines cost N scans of the text: the cost of asking
+    ``_word_match`` once per name, which is what the callers did before this
+    class, and never more.
 
     ⚠ Holds the file's lines and one list entry per distinct word per line:
     several times the text. Build it for a file asked about more than once.
     """
 
-    __slots__ = ("_lines", "_by_word", "_by_name")
+    __slots__ = ("_lines", "_by_word", "_by_name", "_chars", "_text", "_line_starts")
+
+    # A per-line question is worth about this many characters of a scan.
+    _SCAN_WORTH = 64
 
     def __init__(self, content: str) -> None:
         self._lines = content.splitlines()
@@ -86,6 +106,25 @@ class FileWords:
                 by_word.setdefault(word, []).append(i)
         self._by_word = by_word
         self._by_name: dict[str, list[int]] = {}
+        self._chars = sum(len(line) for line in self._lines) + len(self._lines)
+        self._text: Optional[str] = None
+        self._line_starts: list[int] = []
+
+    def _scan(self, name: str) -> list[int]:
+        """Lines naming *name*, from one scan of the text joined by newlines."""
+        if self._text is None:
+            starts, offset = [], 0
+            for line in self._lines:
+                starts.append(offset)
+                offset += len(line) + 1
+            self._line_starts = starts
+            self._text = "\n".join(self._lines)
+        found: list[int] = []
+        for offset in _word_starts(self._text, name):
+            line = bisect_right(self._line_starts, offset) - 1
+            if not found or found[-1] != line:
+                found.append(line)
+        return found
 
     @property
     def line_count(self) -> int:
@@ -103,12 +142,12 @@ class FileWords:
             found = self._by_word.get(name, [])
         elif words:
             rarest = min((self._by_word.get(w, []) for w in words), key=len)
-            found = [i for i in rarest if _word_match(self._lines[i], name)]
+            if len(rarest) * self._SCAN_WORTH > self._chars or len(rarest) * 4 > len(self._lines):
+                found = self._scan(name)
+            else:
+                found = [i for i in rarest if _word_match(self._lines[i], name)]
         else:
-            found = [
-                i for i, line in enumerate(self._lines)
-                if name in line and _word_match(line, name)
-            ]
+            found = self._scan(name)
         self._by_name[name] = found
         return found
 

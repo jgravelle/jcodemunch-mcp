@@ -71,6 +71,11 @@ class _Work:
         self.calls += 1
         return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
 
+    def word_starts(self, content: str, name: str) -> list[int]:
+        self.chars += len(content)
+        self.calls += 1
+        return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
+
 
 class _CountedWords:
     """The tokeniser, counting the characters it is handed."""
@@ -88,6 +93,7 @@ def _watch(monkeypatch) -> _Work:
     w.tokenised = 0
     monkeypatch.setattr(_call_graph, "_word_match", w.word_match)
     monkeypatch.setattr(v2, "_word_match", w.word_match)
+    monkeypatch.setattr(_call_graph, "_word_starts", w.word_starts, raising=False)
     # `raising=False`: on a tree without the tokeniser the other counters still read.
     real = getattr(_call_graph, "_WORD_RE", re.compile(r"\w+"))
     monkeypatch.setattr(_call_graph, "_WORD_RE", _CountedWords(w, real), raising=False)

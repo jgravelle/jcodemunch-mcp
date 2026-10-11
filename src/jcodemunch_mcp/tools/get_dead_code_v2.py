@@ -400,9 +400,9 @@ def _sweep_module_level_callers(
     # 9.7k-function repo. This mirrors ``called_names_by_file`` above, which is
     # the same shape for the same reason.
     residue_names_cache: dict[str, set[str]] = {}
-    # Names that are not plain identifiers (Clojure ``do-thing``, Ruby
-    # ``valid?``, Erlang ``add/2``, PHP FQNs) cannot be found by token
-    # equality, so they keep ``_word_match``'s word-boundary rule, asked of a
+    # Names that are not plain identifiers (Clojure ``do-thing``, Ruby and
+    # Elixir ``valid?``) cannot be found by token equality, so they keep
+    # ``_word_match``'s word-boundary rule, asked of a
     # ``FileWords`` built ONCE per residue (LEDGER L-152). ⚠ They are not
     # rare: in Clojure nearly every function name is one, and searching the
     # whole residue text per symbol and caller file was quadratic in a file's

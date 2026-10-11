@@ -20,7 +20,12 @@ These tests count work and never time it (Standing lesson 10-09):
 `_reference_sweep` is the sweep as it was on `main` at `f2ec2db8`, the oracle.
 
 What the counters do not see: work inside one C call that is neither a
-`_word_match` nor the tokeniser.
+`_word_match`, a `_word_starts` nor the tokeniser. A source scan of the sweep
+closes the nearest case (the old search with `re` inlined).
+
+The remainder, stated by `test_names_made_of_common_words_cost_one_scan_each`:
+N distinct names whose every word is on most residue lines cost N scans of the
+residue. That is what the old sweep cost for every name, and never more.
 """
 
 from __future__ import annotations
@@ -57,6 +62,11 @@ class _Work:
         self.calls += 1
         return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
 
+    def word_starts(self, content: str, name: str) -> list[int]:
+        self.chars += len(content)
+        self.calls += 1
+        return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
+
 
 class _CountedWords:
     def __init__(self, work: _Work, real) -> None:
@@ -72,6 +82,7 @@ def work(monkeypatch):
     w = _Work()
     monkeypatch.setattr(_call_graph, "_word_match", w.word_match)
     monkeypatch.setattr(v2, "_word_match", w.word_match)
+    monkeypatch.setattr(_call_graph, "_word_starts", w.word_starts, raising=False)
     # `raising=False`: on a tree without the tokeniser the other counter still reads.
     real = getattr(_call_graph, "_WORD_RE", re.compile(r"\w+"))
     monkeypatch.setattr(_call_graph, "_WORD_RE", _CountedWords(w, real), raising=False)
@@ -250,6 +261,7 @@ def _tool_work(tmp_path, monkeypatch, n):
     w = _Work()
     monkeypatch.setattr(_call_graph, "_word_match", w.word_match)
     monkeypatch.setattr(v2, "_word_match", w.word_match)
+    monkeypatch.setattr(_call_graph, "_word_starts", w.word_starts, raising=False)
     out = v2.get_dead_code_v2(repo=repo, min_confidence=0.0, max_results=0, storage_path=store)
     assert "error" not in out, out
     return w.chars, size, out
@@ -307,7 +319,54 @@ SHAPES = {
     "overloads of a compound": lambda n: _many(n, lambda i: "add/2", lambda i: f"x{i}"),
     "plain": lambda n: _many(n, lambda i: f"fn_{i}"),
     "importers": _with_importers,
+    "dotted": lambda n: _many(n, lambda i: f"ns.fn_{i}"),
+    "backslashed": lambda n: _many(n, lambda i: f"App\\fn_{i}"),
+    "unicode": lambda n: _many(n, lambda i: f"größe-{i}"),
+    "plain and compound in one file": lambda n: _many(n, lambda i: f"fn_{i}" if i % 2 else f"do-thing-{i}"),
 }
+
+
+def _common_words(n):
+    """n distinct two-word names over a small vocabulary; every residue line holds every word."""
+    vocab = int(n ** 0.5) + 2
+    pairs = [(a, b) for a in range(vocab) for b in range(vocab) if a != b][:n]
+    assert len(pairs) == n
+    lines, symbols = [], []
+    for i, (a, b) in enumerate(pairs):
+        lines += [f"def w{a}-w{b}", "  body"]
+        symbols.append(_sym(f"s{i}", f"w{a}-w{b}", "big.x", 2 * i + 1, 2 * i + 2))
+    every = " ".join(f"w{k}" for k in range(vocab))
+    lines += [every] * max(1, n // vocab)
+    return symbols, {"big.x": NL.join(lines) + NL}
+
+
+def test_names_made_of_common_words_cost_one_scan_each(work):
+    """The stated remainder: one scan of the residue per distinct name, never more.
+
+    Every word of every name is on every residue line, so no word narrows the
+    search. Asking each line would cost more than the old sweep did (measured
+    in review: 54.31 s against 46.92 s); one scan per name costs the same.
+    """
+    symbols, files = _common_words(300)
+    got, want = _both(symbols, files)
+    assert got == want == set()
+    work.chars = work.calls = 0
+    _sweep(symbols, files)
+    size = _residue_size(symbols, files)
+    assert work.calls <= len(symbols), f"{work.calls} searches for {len(symbols)} names"
+    assert work.chars <= len(symbols) * size, f"{work.chars} characters; one scan each is {len(symbols) * size}"
+
+
+def test_the_sweep_holds_one_whole_text_search_and_it_is_the_spanning_names():
+    """The old search with `re` inlined passes every counter; this reads the source."""
+    import inspect
+
+    source = inspect.getsource(v2._sweep_module_level_callers)
+    assert source.count("_word_match(") == 1, "a second whole-residue search is back"
+    arm = source.index("FileWords.spans_lines(sym_name)")
+    assert arm < source.index("_word_match(") < source.index("words = _residue_words(caller_file)")
+    for banned in ("re.search", "re.finditer", "re.compile", "_word_starts", ".count(", ".find(", ".index("):
+        assert banned not in source, f"`{banned}` in the sweep: a per-symbol pass over the residue text"
 
 
 def _residue_size(symbols, files):
@@ -452,6 +511,18 @@ CASES = {
         [_sym("a", "run", "f.x", 1, 1), _sym("b", "go", "f.x", 2, 2), _sym("c", "$v", "f.x", 3, 3)],
         {"f.x": "def run\ndef go\ndef $v\n2run\ngo-on\nx = $v\n"},
     ),
+    "case is kept": (
+        [_sym("a", "Do-It", "f.clj", 1, 1), _sym("b", "go-on", "f.clj", 2, 2)],
+        {"f.clj": "(defn Do-It [] 1)\n(defn go-on [] 1)\n(do-it)\n(Go-On)\n(GO-ON)\n"},
+    ),
+    "a name is not trimmed": (
+        [_sym("a", "do-it ", "f.clj", 1, 1), _sym("b", " go-on", "f.clj", 2, 2), _sym("c", "be-it ", "f.clj", 3, 3)],
+        {"f.clj": "x\ny\nz\n(do-it)\n(go-on)\nbe-it now\n"},
+    ),
+    "a name every word of which is on every line": (
+        [_sym("a", "w1-w2", "f.x", 1, 1), _sym("b", "w2-w1", "f.x", 2, 2)],
+        {"f.x": "d\nd\n" + "w1 w2\n" * 40 + "x w2-w1 y\n" + "w2 w1\n" * 40},
+    ),
     "unicode in a compound name": (
         [_sym("a", "größe-x", "f.x", 1, 1), _sym("b", "名前-y", "f.x", 2, 2)],
         {"f.x": "def größe-x\ndef 名前-y\ngröße-x\n名前-ys\n"},
@@ -479,6 +550,9 @@ EXPECTED = {
     "a newline name spans a removed symbol": {"a"},
     "crlf, form feed and a unicode separator": {"a", "b"},
     "a plain name keeps the token rule": {"a", "b", "c"},
+    "case is kept": set(),
+    "a name is not trimmed": {"c"},
+    "a name every word of which is on every line": {"b"},
     "unicode in a compound name": {"a"},
 }
 
