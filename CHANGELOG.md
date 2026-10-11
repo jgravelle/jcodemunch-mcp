@@ -44,6 +44,12 @@ name still costs one search of the text (the third row). In the first two rows t
 slower than before by the cost of building the index once. The sweep's peak memory on 2,000
 hyphenated functions rose from 475,568 bytes to 658,785 (`evidence/measure_more.txt`).
 
+Two more remainders, timed by the reviewer and not by this run, are ledger row L-156. The index
+is built per file, so a repository of many files that each hold one such function pays a build
+per file for one question (2,000 files with 200 module-level lines each: 0.475 s before, 2.339 s
+now). And where a few very long lines each begin with many such names, listing the lines costs
+a full search where the old code stopped early (five 100,000-character lines: 0.077 s, 2.513 s).
+
 Not changed, and wrong: the word-boundary rule cannot match a name that ends in a punctuation
 mark unless a word character follows it, so a Ruby method `check_0?` called on a line of its own
 at module level still reads `no_callers` (`evidence/measure_new.txt`). That is ledger row L-154.
