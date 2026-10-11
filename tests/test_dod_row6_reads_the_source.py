@@ -447,6 +447,13 @@ def test_a_second_subcommand_taking_an_existing_option_is_an_addition(dod):
     assert "--no-ai-summaries" in evidence and "watch" in evidence
 
 
+def test_a_subcommand_name_declared_a_second_time_is_an_addition(dod):
+    """`list` under a second parent parser: the name is in the tree already."""
+    base = _counts(dod, subcommand=["list", "index"])
+    head = _counts(dod, subcommand=["list", "list", "index"])
+    assert dod.row6_grew(base, head)["subcommand"] == {"list"}
+
+
 def test_a_second_read_of_an_env_var_is_not_an_addition(dod):
     base = _counts(dod, env=["JCODEMUNCH_OLD_KNOB"])
     head = _counts(dod, env=["JCODEMUNCH_OLD_KNOB"])
