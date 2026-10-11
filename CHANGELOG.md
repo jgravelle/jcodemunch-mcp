@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Fixed - `get_dead_code_v2` reported a called function as having no caller when its language records no calls and another language in the repository does (LEDGER L-155)
+
+`get_dead_code_v2` has two sources of evidence that a function is called: the call references a
+parser records, and the file's text. It chose between them with one question asked of the whole
+repository: does the index hold any call reference? With none, it read files as text. With any,
+it read call references, plus the text at module level only.
+
+The parsers for Clojure, Elixir and Erlang record no call reference, and PHP's recorded none on
+every shape tried. So in a repository that also holds Python or Ruby, a function of one of those
+four that is called only from inside another function had no evidence on either path. It was
+reported with `no_callers`, and the same file indexed alone was not. This is #409's flip one
+level down: there one call reference anywhere moved a repository onto a path that could not see
+module-level calls. Found in the review of L-152.
+
+The choice is now made per file. A file is read as text when none of its symbols' languages has
+a call reference anywhere in the index. The index is asked, not a table of languages: the table
+the parser keeps (`_CALL_NODE_TYPES`) names PHP, and PHP wrote none. The call-graph-only mode
+(the one an index with no import edge takes) reads a function's own file the same way.
+
+When any file was read as text the response says so in a new key,
+`callers_read_as_text: {"files": n, "languages": [...]}`. Text is weaker evidence than a call
+reference: a mention in a comment counts as a caller. The key is absent when no file was read
+that way, and it carries a count and the language names, never the file list.
+
+Measured through the tool, 1.108.342's code plus L-152's fix against this
+(`evidence/measure_l155.txt`): on this repository's `src/` the same 451 functions carry
+`no_callers` before and after, and no file is read as text. On `tests/fixtures`, 160 before and
+140 after; 20 are no longer reported and none is newly reported, with 45 files of 19 languages
+read as text. Eight reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+What this does not fix (`evidence/limits_l155.txt`, each still reported after the fix):
+
+- A name that ends in `?` or `!` is still not found by the text rule (L-154; measured on
+  Elixir's `valid?`).
+- A Clojure function called only from another Clojure file. The text of a file is read for a
+  function when the import graph says that file imports the function's file, and no such edge
+  was there for a `:require` (L-157).
+- In call-graph-only mode there is no import graph, so only a function's own file is read
+  (L-157).
+
+A language that can record calls is read as text too when the repository's files of it hold no
+call between functions. That only ever finds a caller a call reference would not; it never
+removes one.
+
 ### Fixed - `get_dead_code_v2`'s module-level sweep no longer searches a file's whole residue once per function (LEDGER L-152)
 
 On an index that holds call references, `get_dead_code_v2` sweeps what those references cannot

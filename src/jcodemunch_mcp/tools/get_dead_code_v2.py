@@ -478,61 +478,124 @@ def _sweep_module_level_callers(
                 break
 
 
-def _spanning_name_has_caller(sym: dict, store, owner: str, name: str, rev: dict[str, list[str]]) -> bool:
-    """The whole-text search, for the one symbol whose name holds a line separator.
+def _files_read_as_text(index) -> set[str]:
+    """Files whose language records no call reference anywhere in this index.
 
-    Reads each file again and searches all of it: the cost L-150 removed,
-    kept for a name no per-line index can answer.
+    ``call_references`` are written per symbol by the parsers that know their
+    language's call nodes. Several do not (Clojure, Elixir, Erlang), and one
+    that is declared to (PHP, in ``parser/extractor._CALL_NODE_TYPES``) wrote
+    none when measured (LEDGER L-155). For a file of such a language the
+    call index is not evidence of anything: an absent caller there means
+    nobody looked.
+
+    ⚠⚠ **Ask the INDEX, never a list of languages.** A table of languages
+    that record calls is a second copy of the parsers' behaviour, and the
+    one that exists is already wrong about PHP. A language is trusted here
+    when some symbol of it carries a call reference in this index.
+
+    ⚠ So a language that CAN record calls, in a repository whose files of it
+    hold none, is read as text too. That is the safe direction: text only
+    ever finds a caller, it never removes one.
+
+    A file can hold symbols of more than one language (a template with a
+    script block). It is read as text only when NONE of them records calls.
     """
-    sym_file = sym.get("file", "")
-    sym_name = sym.get("name", "")
-    sym_line = sym.get("line", 0)
-    sym_end_line = sym.get("end_line", sym_line)
-    own_content = store.get_file_content(owner, name, sym_file) or ""
-    if own_content and sym_line:
-        lines = own_content.splitlines()
-        start_idx = max(0, sym_line - 1)
-        end_idx = min(len(lines), sym_end_line)
-        outside = "\n".join(lines[:start_idx] + lines[end_idx:])
-        if outside and _word_match(outside, sym_name):
-            return True
-    for importer_file in rev.get(sym_file, []):
-        content = store.get_file_content(owner, name, importer_file) or ""
-        if content and _word_match(content, sym_name):
-            return True
-    return False
+    recording: set[str] = set()
+    languages_of: dict[str, set[str]] = {}
+    for sym in index.symbols:
+        sym_file = sym.get("file")
+        if not sym_file:
+            continue
+        language = sym.get("language") or ""
+        languages_of.setdefault(sym_file, set()).add(language)
+        if sym.get("call_references"):
+            recording.add(language)
+    return {f for f, languages in languages_of.items() if not (languages & recording)}
 
 
-def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, list[str]]) -> set[str]:
-    """Ids of the functions and methods some text names outside their own lines.
+def _text_reading_disclosure(index, text_files: set[str]) -> dict:
+    """What the response says when some files' callers were read from text.
 
-    The answer when the index holds no call reference at all. A symbol has a
-    caller if its name appears as a word in its own file outside its line
-    span, or anywhere in a file that imports its file. Matching the symbol's
-    own lines would make every function "call" itself.
+    Text is weaker evidence than a call reference: a mention in a comment
+    counts. Disclosed, because the caller cannot otherwise tell which rows
+    rest on it. A count and the languages, never the file list (a list
+    shipped unbounded on 1.x cannot be bounded later).
+    """
+    return {
+        "files": len(text_files),
+        "languages": sorted({
+            s.get("language") or "" for s in index.symbols if s.get("file") in text_files
+        }),
+    }
+
+
+class _TextCallers:
+    """Does a file's text name a symbol outside the symbol's own lines?
+
+    The evidence for a caller where no call reference exists: the whole
+    index (the text fallback), or the files of a language that records none
+    (L-155). A symbol has a caller in its own file if its name appears as a
+    word outside its line span, and in another file if it appears anywhere.
+    Matching the symbol's own lines would make every function "call" itself.
 
     ⚠⚠ **One file's text is read, split and tokenised ONCE** (LEDGER L-150).
-    This loop used to split the symbol's file, join every line outside the
-    symbol and search the result, once per symbol; the ledger row carries the
-    timings. Never answer a per-symbol question here with a pass over the
-    file's text; ask ``FileWords``.
+    The loop this replaced split the symbol's file, joined every line outside
+    the symbol and searched the result, once per symbol; the ledger row
+    carries the timings. Never answer a per-symbol question here with a pass
+    over the file's text; ask ``FileWords``.
     ``tests/test_dead_code_text_fallback_reads_a_file_once.py`` counts the
     work and holds the old loop as the oracle.
 
     A name that holds a line separator can match across two lines, which a
     per-line index cannot answer. No parser here is known to produce one;
-    if one arrives it takes ``_spanning_name_has_caller``, the old search
-    for that one symbol.
+    if one arrives it takes the old whole-text search for that one question.
+    """
+
+    def __init__(self, store, owner: str, name: str) -> None:
+        self._store, self._owner, self._name = store, owner, name
+        self._words: dict[str, Optional[FileWords]] = {}
+
+    def _file_words(self, file_path: str) -> Optional[FileWords]:
+        if file_path not in self._words:
+            content = self._store.get_file_content(self._owner, self._name, file_path) or ""
+            self._words[file_path] = FileWords(content) if content else None
+        return self._words[file_path]
+
+    def names_caller(self, sym: dict, caller_file: str) -> bool:
+        """True if *caller_file*'s text names *sym* outside *sym*'s own lines."""
+        sym_name = sym.get("name", "")
+        own = caller_file == sym.get("file", "")
+        sym_line = sym.get("line", 0)
+        sym_end_line = sym.get("end_line", sym_line)
+        if own and not sym_line:
+            return False
+        if FileWords.spans_lines(sym_name):
+            content = self._store.get_file_content(self._owner, self._name, caller_file) or ""
+            if content and own:
+                lines = content.splitlines()
+                start_idx = max(0, sym_line - 1)
+                end_idx = min(len(lines), sym_end_line)
+                content = "\n".join(lines[:start_idx] + lines[end_idx:])
+            return bool(content) and _word_match(content, sym_name)
+        words = self._file_words(caller_file)
+        if words is None:
+            return False
+        if not own:
+            return words.names(sym_name)
+        start_idx = max(0, sym_line - 1)
+        end_idx = min(words.line_count, sym_end_line)
+        return words.names_outside(sym_name, start_idx, end_idx)
+
+
+def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, list[str]]) -> set[str]:
+    """Ids of the functions and methods some text names outside their own lines.
+
+    The answer when the index holds no call reference at all: every file is
+    read through ``_TextCallers``, the symbol's own file first, then each file
+    that imports it.
     """
     callee_has_caller: set[str] = set()
-    words_cache: dict[str, Optional[FileWords]] = {}
-
-    def _words(file_path: str) -> Optional[FileWords]:
-        if file_path not in words_cache:
-            content = store.get_file_content(owner, name, file_path) or ""
-            words_cache[file_path] = FileWords(content) if content else None
-        return words_cache[file_path]
-
+    text = _TextCallers(store, owner, name)
     for sym in index.symbols:
         if sym.get("kind") not in ("function", "method"):
             continue
@@ -540,22 +603,8 @@ def _text_fallback_callers(index, store, owner: str, name: str, rev: dict[str, l
         sym_name = sym.get("name", "")
         if not sym_name or not sym_file:
             continue
-        sym_line = sym.get("line", 0)
-        sym_end_line = sym.get("end_line", sym_line)
-        if FileWords.spans_lines(sym_name):
-            if _spanning_name_has_caller(sym, store, owner, name, rev):
-                callee_has_caller.add(sym["id"])
-            continue
-        own = _words(sym_file)
-        if own is not None and sym_line:
-            start_idx = max(0, sym_line - 1)
-            end_idx = min(own.line_count, sym_end_line)
-            if own.names_outside(sym_name, start_idx, end_idx):
-                callee_has_caller.add(sym["id"])
-                continue
-        for importer_file in rev.get(sym_file, []):
-            importer = _words(importer_file)
-            if importer is not None and importer.names(sym_name):
+        for caller_file in (sym_file, *rev.get(sym_file, [])):
+            if text.names_caller(sym, caller_file):
                 callee_has_caller.add(sym["id"])
                 break
     return callee_has_caller
@@ -622,6 +671,7 @@ def get_dead_code_v2(
         # call_references.
         _fallback = _call_graph_only_dead_code(
             index, owner, name, t0,
+            store=store,
             include_tests=include_tests,
             max_results=max_results,
             file_pattern=file_pattern,
@@ -754,7 +804,14 @@ def get_dead_code_v2(
     get_callers = getattr(index, "get_callers_by_name", None)
     callers_by_name = get_callers() if get_callers else None
     callee_has_caller: set[str] = set()
+    # Files the call index says nothing about (L-155): their language records
+    # no call reference in this index, so they are read as text. Empty for a
+    # repository whose every language records calls, and then nothing below
+    # differs from the call-reference path alone.
+    text_files: set[str] = set()
     if callers_by_name:
+        text_files = _files_read_as_text(index)
+        text_callers = _TextCallers(store, owner, name)
         # Fast path: use pre-computed AST call_references index
         # Any symbol whose name appears as a value in callers_by_name has at least one caller
         called_names_by_file: dict[str, set[str]] = {}
@@ -773,7 +830,16 @@ def get_dead_code_v2(
             # defined and called within the same module.
             search_files = (sym_file, *rev.get(sym_file, ()))
             for caller_file in search_files:
-                if sym_name in called_names_by_file.get(caller_file, set()):
+                if caller_file in text_files:
+                    # ⚠ Which path ran used to be one repository-wide test,
+                    # so one Python call reference anywhere left a Clojure
+                    # function called inside another with no evidence at
+                    # all, reported `no_callers` (#409's flip, one level
+                    # down). The choice is per caller file now.
+                    hit = text_callers.names_caller(sym, caller_file)
+                else:
+                    hit = sym_name in called_names_by_file.get(caller_file, set())
+                if hit:
                     callee_has_caller.add(sym["id"])
                     break
         # Sweep what the AST index structurally cannot see (#409).
@@ -941,6 +1007,8 @@ def get_dead_code_v2(
             ),
         },
     }
+    if text_files:
+        result["callers_read_as_text"] = _text_reading_disclosure(index, text_files)
     by_dynamic_import = undecided_files & dynamic_loaded
     by_unseen_consumer = undecided_files - dynamic_loaded
     if by_unseen_consumer:
@@ -1044,6 +1112,7 @@ def _call_graph_only_dead_code(
     include_tests: bool = False,
     max_results: int = 100,
     file_pattern: Optional[str] = None,
+    store=None,
 ) -> dict:
     """Fallback dead-code detection when ``index.imports`` is empty.
 
@@ -1058,6 +1127,12 @@ def _call_graph_only_dead_code(
     can interpret. Each returned symbol has a single signal
     (``no_callers``); ``confidence`` is fixed at 0.5 to reflect the
     weaker evidence (cf. 3-signal where each signal is worth 1/3).
+
+    A file whose language records no call reference in this index is not
+    covered by that graph at all, so its own text is read for a caller
+    (LEDGER L-155, the same rule as the 3-signal path). ⚠ Its OWN text only:
+    this mode has no import graph to say which other files could call it,
+    so a call from another file of such a language is still not seen.
     """
     import fnmatch
 
@@ -1081,6 +1156,8 @@ def _call_graph_only_dead_code(
     callers_by_name = get_callers() or {}
     # Names that have at least one caller in the indexed call graph.
     called_names: set[str] = {ref for (_caller_file, ref) in callers_by_name.keys()}
+    text_files = _files_read_as_text(index) if (callers_by_name and store is not None) else set()
+    text_callers = _TextCallers(store, owner, name)
 
     dead_symbols: list[dict] = []
     seen: set[str] = set()
@@ -1107,6 +1184,8 @@ def _call_graph_only_dead_code(
         total_analysed += 1
         if sym_name in called_names:
             continue
+        if sym_file in text_files and text_callers.names_caller(sym, sym_file):
+            continue
         seen.add(sid)
         dead_symbols.append({
             "id": sid,
@@ -1126,7 +1205,7 @@ def _call_graph_only_dead_code(
         dead_symbols = dead_symbols[:max_results]
         truncated = True
 
-    return {
+    result = {
         "repo": f"{owner}/{name}",
         "dead_symbols": dead_symbols,
         "total_analysed": total_analysed,
@@ -1146,3 +1225,6 @@ def _call_graph_only_dead_code(
             "truncated": truncated,
         },
     }
+    if text_files:
+        result["callers_read_as_text"] = _text_reading_disclosure(index, text_files)
+    return result
