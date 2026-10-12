@@ -1105,7 +1105,7 @@ def get_dead_code_v2(
     # differs from the call-reference path alone.
     text_files: set[str] = set()
     text_callers = _TextCallers(store, owner, name)
-    class_rows = constructors_as_their_classes(index.symbols)
+    class_rows = constructors_as_their_classes(index.symbols, rev)
     if callers_by_name:
         text_files = _files_read_as_text(index)
         # Fast path: use pre-computed AST call_references index
@@ -1459,9 +1459,11 @@ def _call_graph_only_dead_code(
     # This mode has no import graph, so another file is reached only this way (L-157).
     elsewhere = _CallersElsewhere(index, text_callers, _text_files_that_can_call(index, text_files))
 
-    # A fixed-word constructor is called by creating its class (L-167).
+    # A fixed-word constructor is called by creating its class (L-167). This
+    # mode has no import graph, and these languages extend only what they
+    # import, so a subclass counts in its base's own file.
     class_rows: dict[str, list[dict]] = {}
-    for row in constructors_as_their_classes(index.symbols):
+    for row in constructors_as_their_classes(index.symbols, {}):
         class_rows.setdefault(row["id"], []).append(row)
 
     dead_symbols: list[dict] = []

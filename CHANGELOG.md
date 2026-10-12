@@ -15,13 +15,17 @@ name is called in its own file or in a file that imports it, inside a function o
 one. The tool asks its existing questions a second time, of the class, and files the answer
 under the constructor (`_call_graph.constructors_as_their_classes`); no second rule was written,
 and nothing is re-parsed. A class that is created runs the constructor it inherits, so creating
-a subclass counts for each class it extends. Python's `__new__` is counted with `__init__`.
+a subclass counts for each class it extends, where the subclass is in its base's file or in a
+file that imports it. Python's `__new__` is counted with `__init__`.
 
 Measured through `get_dead_code_v2` on pinned clones, read and parsed only
 (`evidence/measure_dead_l167.txt`, with each commit): on this repository's `src/`, 42 functions
 named `__init__` carried `no_callers` before and 13 after, of 455 rows before and 426 after; on
 zod, 13 named `constructor` before and 4 after, of 853 and 844. Every row that left is a
-constructor, and no row is newly reported on either, on express or on sinatra.
+constructor, and no row is newly reported on either, on express or on sinatra. The cost does
+not grow with a shared name: 800 files, each with its own `Base` and five subclasses, take
+1.35 s before and 1.36 s after (`evidence/cost_l167.txt`). `get_repo_health` reads this tool,
+so its dead-code share falls, and its grade can rise, by the constructors no longer reported.
 
 What this does not do:
 
@@ -30,18 +34,20 @@ What this does not do:
 - **A class created only in a Python constant's initialiser or a class attribute is not seen**
   (`ONE = T()`). Nothing is: a function called there reads `no_callers` too, on both trees
   (`evidence/shapes_l167.txt`). One of the 13 left on `src/` is this.
-- **A subclass counts only where its base is written as a bare name.** `class Kid(a.Base)` and
-  `class Kid extends ns.Base` join nothing.
+- **A subclass counts only where its base is written as a bare name**, and only from the
+  base's file or a file that imports it. `class Kid(a.Base)`, `class Kid extends ns.Base` and a
+  base reached through a re-export join nothing.
 - **A class created by something that is handed it is not seen**: ten of the 13 left on `src/`
   are context providers a registry creates.
-- **Toward not reporting, by design**: classes are joined to their bases by name, so two
-  classes of one name are both taken as the base; a subclass constructor that never calls up
-  still counts for the classes it extends; and an import line that names the class counts as a
-  use, as it does for a function.
+- **Toward not reporting, by design**: two classes of one name in one file are both taken as
+  the base; a subclass constructor that never calls up still counts for the classes it
+  extends; an import line that names the class counts as a use, as it does for a function; a
+  class created only inside one of its own methods counts as created; and a function that
+  shares the class's name, called in a file that imports the class, counts as creating it.
 - **`get_call_hierarchy` and `check_delete_safe` were not changed**: asked about a constructor,
   they do not list the places its class is created.
 
-The rest is LEDGER L-169. Fifteen reintroduced defects each fail the tests
+The rest is LEDGER L-169. Sixteen reintroduced defects each fail the tests
 (`evidence/mutants.txt`).
 
 ## [1.108.350] - 2026-10-12 - a watched repo no longer stays stale after a commit, switch or pull

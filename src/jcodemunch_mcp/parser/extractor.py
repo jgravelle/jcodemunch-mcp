@@ -449,7 +449,7 @@ def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple
     Read from the class node DOWN: its direct constructors, and the first
     statement of each. ⚠ Since JDK 25 statements may come before the call
     (``Kid(int x) { check(x); super(x); }``); the grammar here parses that
-    ``super`` as an error node, so it records nothing (L-167).
+    ``super`` as an error node, so it records nothing (L-169).
     ⚠ Never from the call node up. Asking a node for its parent costs the depth
     of the tree, once per call (L-164).
     ⚠ ``this(...)`` is left out. It calls a constructor of the enclosing one's

@@ -414,11 +414,7 @@ CONSTRUCTOR_WORDS: dict[str, frozenset[str]] = {
     "tsx": frozenset({"constructor"}),
 }
 
-#: Languages whose classes extend each other (a ``.ts`` class extends a ``.js`` one).
-_CLASS_FAMILY: dict[str, str] = {"python": "python", "javascript": "js", "typescript": "js", "tsx": "js"}
-
-
-def constructors_as_their_classes(symbols) -> list[dict]:
+def constructors_as_their_classes(symbols, importers: dict[str, list[str]]) -> list[dict]:
     """Each fixed-word constructor, once per class whose creation runs it.
 
     A row is the CLASS's symbol (its name, file and lines) carrying the
@@ -428,29 +424,40 @@ def constructors_as_their_classes(symbols) -> list[dict]:
 
     A class that is created runs the constructor it inherits, and a subclass's
     own constructor is taken to call up, so a constructor gets a row for its
-    own class and for every descendant.
+    own class and for every descendant. *importers* maps a file to the files
+    that import it (``{}`` when the index has no import graph).
 
-    ⚠ Descendants are joined by NAME within one language family, from the
-    bases ``get_class_hierarchy._parse_bases`` reads off the signature. Two
-    classes of one name are both taken as the base. Toward not reporting.
-    A base written through a module or a namespace (``a.Base``) is not read
-    there, so it joins nothing (L-169).
-    ⚠ A subclass constructor that never calls up still counts for its
-    ancestors (JavaScript requires the call; Python does not).
+    ⚠⚠ **A subclass is joined to its base by name ONLY in the base's own file
+    or a file that imports it.** These languages must import a class to extend
+    it, so a same-named base anywhere else is another class, and a subclass is
+    never in another language than its imports reach. The first version
+    joined by name across the whole index: it cleared the constructor of an
+    unimported ``Base`` whenever any ``Kid(Base)`` was created, and a name
+    shared by N bases and their subclasses cost N squared rows (review of
+    L-167: 1.47 s to 15.21 s at 800 files).
+    ⚠ A subclass that reaches its base through a re-export is therefore not
+    joined. Toward reporting.
+    ⚠ Bases come from ``get_class_hierarchy._parse_bases``, which reads a bare
+    capitalised name; ``a.Base`` joins nothing (L-169). What follows
+    ``implements`` is cut off first: implementing a class runs no constructor.
+    ⚠ Two classes of one name in one file are both taken as the base, and a
+    subclass constructor that never calls up still counts for its ancestors
+    (JavaScript requires the call; Python does not). Toward not reporting.
     """
     from .get_class_hierarchy import _parse_bases  # noqa: PLC0415  (it imports nothing of ours)
 
     classes_by_id: dict[str, dict] = {}
+    # (base name, file of the subclass) -> the subclasses
     children: dict[tuple[str, str], list[dict]] = {}
     for sym in symbols:
         if sym.get("kind") != "class":
             continue
-        family = _CLASS_FAMILY.get(sym.get("language") or "")
-        if family is None or not sym.get("id") or not sym.get("name"):
+        if (sym.get("language") or "") not in CONSTRUCTOR_WORDS or not sym.get("id") or not sym.get("name"):
             continue
         classes_by_id[sym["id"]] = sym
-        for base in _parse_bases(sym.get("signature") or ""):
-            children.setdefault((family, base), []).append(sym)
+        extends = (sym.get("signature") or "").split(" implements ", 1)[0]
+        for base in _parse_bases(extends):
+            children.setdefault((base, sym.get("file") or ""), []).append(sym)
     if not classes_by_id:
         return []
     rows: list[dict] = []
@@ -462,7 +469,6 @@ def constructors_as_their_classes(symbols) -> list[dict]:
         own = classes_by_id.get(sym.get("parent") or "")
         if own is None:
             continue
-        family = _CLASS_FAMILY[own.get("language") or ""]
         seen: set[str] = set()
         pending = [own]
         while pending:
@@ -471,7 +477,9 @@ def constructors_as_their_classes(symbols) -> list[dict]:
                 continue
             seen.add(cls["id"])
             rows.append({**cls, "id": sym["id"], "kind": "method"})
-            pending.extend(children.get((family, cls["name"]), ()))
+            cls_file = cls.get("file") or ""
+            for where in (cls_file, *importers.get(cls_file, ())):
+                pending.extend(children.get((cls["name"], where), ()))
     return rows
 
 def _callers_from_references(

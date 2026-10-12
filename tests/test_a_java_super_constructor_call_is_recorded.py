@@ -123,12 +123,12 @@ LOOKALIKES = {
         "class Kid extends Base {\n  Kid() { this(1); }\n  Kid(int x) { helper(x); }\n}\n", "Kid", [[], ["helper"]],
     ),
     # Since JDK 25 statements may come before the call. The grammar here parses
-    # that `super` as an error node; nothing is recorded for it (L-167).
+    # that `super` as an error node; nothing is recorded for it (L-169).
     "a statement before the super call": (
         "class Kid extends Base {\n  Kid(int x) { check(x); super(x); }\n}\n", "Kid", [["check"]],
     ),
     # A class that extends another of its own name: the recorded name is the
-    # constructor's own, which is dropped as recursion (L-167).
+    # constructor's own, which is dropped as recursion (L-169).
     "a superclass of the class's own name": (
         "class Base extends other.Base {\n  Base() { super(1); }\n}\n", "Base", [[]],
     ),

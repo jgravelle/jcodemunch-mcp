@@ -5,13 +5,12 @@ nothing ever calls it by that word: `T()` records a call of `T`, `new K()` a
 call of `K`. The tool looked for a caller of the name `__init__` or
 `constructor`, found none, and reported the constructor of every class with
 `no_callers` however often the class was created: live code reported dead, in a
-tool whose rows feed delete decisions (40 of the 451 functions reported on this
-repository's `src/`).
+tool whose rows feed delete decisions.
 
 A constructor now has a caller when its class has one by the rule a function
 has: the class's name is called in its own file or in a file that imports it.
 A subclass that is created runs the constructor it inherits, so creating a
-descendant counts for every ancestor. Every fixture goes through
+descendant counts for every ancestor it reaches by import. Every fixture goes through
 `index_folder` and the tool.
 """
 
@@ -281,6 +280,54 @@ def test_a_subclass_in_another_language_counts_for_nothing(tmp_path):
     rows = _signals(tmp_path, files)
     assert "no_callers" in rows["a.py::Base.__init__#method"], rows
     assert "no_callers" not in rows.get("k.js::Kid.constructor#method", []), rows
+
+
+def test_a_created_subclass_of_a_same_named_base_it_does_not_import_counts_for_nothing(tmp_path):
+    """`app.py` extends its own `Base`; `lib.py`'s `Base` is another class (review of L-167)."""
+    files = {
+        "lib.py": "class Base:\n    def __init__(self, x):\n        self.x = x\n",
+        "app.py": "class Base:\n    def __init__(self, x):\n        self.x = x\n\nclass Kid(Base):\n    pass\n\n"
+                  "def make():\n    return Kid(1)\n",
+        "glue.py": "import app\n\ndef run():\n    return app.make()\n",
+    }
+    rows = _signals(tmp_path, files)
+    assert "no_callers" in rows["lib.py::Base.__init__#method"], rows
+    assert "no_callers" not in rows.get("app.py::Base.__init__#method", []), rows
+
+
+def test_a_class_that_implements_another_runs_no_constructor_of_it(tmp_path):
+    """TypeScript lets a class implement a class; that creates nothing of it."""
+    files = {
+        "h.ts": "export class Handler {\n  constructor(private x: number) {}\n}\n",
+        "i.ts": "import * as h from './h';\n\nexport class Impl implements Handler {\n  constructor() {}\n}\n\n"
+                "export function make(): Impl { return new Impl(); }\n\nexport function use(): Impl { return make(); }\n",
+    }
+    rows = _signals(tmp_path, files)
+    assert "no_callers" in rows["h.ts::Handler.constructor#method"], rows
+    assert "no_callers" not in rows.get("i.ts::Impl.constructor#method", []), rows
+
+
+def test_a_name_many_bases_share_costs_one_row_per_class(tmp_path):
+    """N files, each with its own `Base` and five subclasses: 6 rows a file, not 5N + 1.
+
+    Joined by name across the index this was N squared rows, twenty million at
+    2,000 files (review of L-167).
+    """
+    from jcodemunch_mcp.tools._call_graph import constructors_as_their_classes
+
+    symbols = []
+    for n in range(300):
+        file = f"m{n}.py"
+        symbols.append({"id": f"{file}::Base#class", "kind": "class", "name": "Base", "file": file,
+                        "language": "python", "signature": "class Base"})
+        symbols.append({"id": f"{file}::Base.__init__#method", "kind": "method", "name": "__init__", "file": file,
+                        "language": "python", "parent": f"{file}::Base#class"})
+        for k in range(5):
+            symbols.append({"id": f"{file}::Kid{k}#class", "kind": "class", "name": f"Kid{k}", "file": file,
+                            "language": "python", "signature": f"class Kid{k}(Base)"})
+    rows = constructors_as_their_classes(symbols, {})
+    assert len(rows) == 300 * 6
+    assert {row["file"] for row in rows if row["id"] == "m7.py::Base.__init__#method"} == {"m7.py"}
 
 
 def test_two_classes_that_name_each_other_as_base_end(tmp_path):
