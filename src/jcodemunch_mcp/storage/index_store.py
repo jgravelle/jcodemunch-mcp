@@ -598,7 +598,12 @@ INDEX_VERSION = 17
 #   a function named like a receiver read as called. ⚠⚠ No symbol id moves;
 #   only `call_references` changes, on UNCHANGED content, and the dead-code
 #   and call-hierarchy tools read nothing else for these languages.
-PARSER_GENERATION = 12
+#
+# 13 (L-164): a call written inside a Rust macro invocation is recorded. The
+#   grammar leaves a macro's arguments as tokens, so `assert_eq!(f(x), y)`
+#   recorded no call of `f`. ⚠⚠ No symbol id moves; only `call_references`
+#   changes, on UNCHANGED content.
+PARSER_GENERATION = 13
 
 
 @dataclass(frozen=True)

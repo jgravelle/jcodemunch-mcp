@@ -120,7 +120,9 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
     "typescript": {"call_expression", "new_expression"},
     "tsx": {"call_expression", "new_expression"},
     "go": {"call_expression"},
-    "rust": {"call_expression"},
+    # `token_tree`: a macro's arguments, which the grammar leaves as tokens
+    # (`_record_token_tree_calls`, LEDGER L-164).
+    "rust": {"call_expression", "token_tree"},
     "java": {"method_invocation", "object_creation_expression"},
     "php": {"function_call_expression", "method_call_expression", "scoped_call_expression"},
     "ruby": {"call", "method_call"},
@@ -261,6 +263,80 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
     return None
 
 
+#: The node a Rust macro's arguments are: tokens, not expressions.
+_TOKEN_TREE = "token_tree"
+#: Reserved words the Rust grammar hands back as an `identifier` inside a token
+#: tree (`else`, `in`) or that can stand before a parenthesised group there. No
+#: function can carry one of these names, so leaving them out loses no call.
+_RUST_WORDS_THAT_ARE_NOT_CALLS = frozenset({
+    "as", "async", "await", "box", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+    "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union", "unsafe", "use",
+    "where", "while", "yield",
+})
+#: A name after one of these is being DECLARED, not called: `fn name(args)`,
+#: `struct Pair(u8, u8)`.
+_RUST_DECLARING_WORDS = frozenset({"fn", "struct", "union"})
+
+
+def _token_text(node) -> str:
+    return node.text.decode("utf-8", errors="replace")
+
+
+def _record_token_tree_calls(tree, calls: list[tuple[int, str]]) -> None:
+    """Record the calls written directly inside one Rust token tree.
+
+    A macro's arguments are not parsed: ``assert_eq!(e(x), seq([y]))`` holds a
+    ``token_tree`` of tokens, and no ``call_expression``. A function called only
+    inside ``assert_eq!``, ``vec!`` or a test macro had no caller, and Rust tests
+    are written almost entirely inside such macros (LEDGER L-164).
+
+    The rule: an identifier directly followed by a parenthesised group is a
+    call of that identifier. ``f(x)``, ``t.m(x)`` and ``a::b::f(x)`` all end in
+    that shape; a turbofish (``f::<T>(x)``) is stepped over. Not a call: a
+    reserved word (``in (0..n)``), a name being declared (``fn name(x)``), and a
+    name followed by ``!`` (the next macro's own name).
+
+    ⚠ Only this tree's own tokens. A nested tree is a ``token_tree`` node too,
+    and the walk that called this reaches it by itself.
+    ⚠ Tokens cannot tell a call from a tuple-struct pattern or an enum variant
+    with a field: ``Some(y)`` and ``A(u8)`` are recorded. Toward not reporting.
+    """
+    children = tree.children
+    for i, group in enumerate(children):
+        parse_budget.checkpoint()
+        if group.type != _TOKEN_TREE or not group.children or group.children[0].type != "(":
+            continue
+        j = i - 1
+        if j >= 0 and children[j].type in (">", ">>"):
+            # `name::<T, U>(...)`: step back over the angle brackets to the `::`.
+            # `Vec<u8>>` closes two with one `>>` token.
+            depth = 0
+            while j >= 0:
+                parse_budget.checkpoint()
+                kind = children[j].type
+                if kind == ">":
+                    depth += 1
+                elif kind == ">>":
+                    depth += 2
+                elif kind == "<":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j -= 1
+            if j < 1 or children[j - 1].type != "::":
+                continue
+            j -= 2
+        if j < 0 or children[j].type != "identifier":
+            continue
+        name = _token_text(children[j])
+        if name in _RUST_WORDS_THAT_ARE_NOT_CALLS:
+            continue
+        if j >= 1 and _token_text(children[j - 1]) in _RUST_DECLARING_WORDS:
+            continue
+        calls.append((children[j].start_byte, name))
+
+
 def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
     """Append what one call node calls to ``calls``. THE one recorder.
 
@@ -275,6 +351,9 @@ def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> Non
     node. Before a grammar's call nodes are added (L-158), check that none of
     them carries the field.
     """
+    if node.type == _TOKEN_TREE:
+        _record_token_tree_calls(node, calls)
+        return
     name = _extract_call_name(node, source_bytes)
     if name:
         calls.append((node.start_byte, name))
