@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Fixed - a watched repo stayed `stale` after a commit, switch or pull that changed no file (#1040)
+
+Reported by @randyhbh, with the mechanism. A repo is `fresh` when the index's stored `git_head`
+equals the live `HEAD`. The stored value was refreshed only inside `index_folder`, and the
+watcher ran `index_folder` only on a file event. A commit writes under `.git/` only, which the
+watcher does not watch, so after `git commit` the repo read `stale` in `get_watch_status` and
+`list-repos`, and `search_text` refused to certify absence, over an index whose every file was
+current. It stayed that way until some unrelated file changed. A pre-commit hook that touches
+the tree made it certain: the reindex it provoked ran during the commit and stored the parent's
+SHA, and the ref was written seconds later. #330 had fixed the no-change run to refresh the
+SHA; the watched case never started one.
+
+The watcher already woke every second and threw the empty wake-up away. It now uses it: it
+reads where HEAD points (`HEAD` and the ref it names, a few dozen bytes; no process is
+started), and once a move has held still for one more wake-up it asks git for the commit and
+compares it with the stored one. When they differ it runs the ordinary incremental index, whose
+no-change path refreshes the SHA. So a commit is followed on the second idle wake-up after it
+(wake-ups are a second apart), a rebase by one reconciliation after its last commit, and
+`git switch -c` by nothing, since the commit did not move.
+
+The report suggested rewriting the stored SHA directly. That would mark the index current at
+the new HEAD without reading a file, and a checkout whose file events were lost would then
+carry old symbols under a `fresh` verdict. The incremental index reads the tree, so a HEAD move
+now also repairs such a miss.
+
+Measured on this box (`evidence/signature_cost.txt`): one read of where HEAD points takes 230.5
+microseconds for this repository, once a second per watched repo.
+
+What this does not do:
+
+- **A repo nobody is watching still reads `stale` after a commit** until something indexes it.
+  That verdict is correct: nothing has checked the tree.
+- **A HEAD move costs one incremental index of the repo**, which walks the tree. On a very large
+  repository that is the same cost as the `post-commit` hook workaround in the report.
+- **A reftable repository is read but not tested here**; the signature stats its table list.
+  LEDGER L-168.
+
+Thirteen reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
 ## [1.108.349] - 2026-10-12 - a Java constructor reached only by super(...) is no longer reported as having no caller
 
 ### Fixed - a Java constructor reached only by `super(...)` was reported as having no caller (LEDGER L-166)

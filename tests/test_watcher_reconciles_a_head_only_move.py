@@ -1,0 +1,330 @@
+"""A watched repo's index follows a HEAD move that changes no working-tree file (#1040, @randyhbh).
+
+`FreshnessProbe.repo_freshness` compares the index's stored `git_head` with the
+live `HEAD`. The stored value was refreshed only inside `index_folder`, which
+the watcher called only on a file event, and a commit, a `git switch` to a
+branch with the same tree, or a fast-forward that touches nothing indexed
+writes under `.git/` only. No event, no run: the repo read `stale` and
+`search_text` refused to certify absence over an index whose every file was
+current, until some unrelated file changed. A pre-commit hook that touches the
+tree made it worse: the reindex it provoked ran DURING the commit and stored
+the parent's SHA, and the ref was written seconds later, unseen.
+
+The watcher now reads a cheap signature of where HEAD points on every idle
+wake-up, and when it has moved and settled, compares the live HEAD with the
+stored one and runs the ordinary incremental index when they differ.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp import watcher
+from jcodemunch_mcp.storage import IndexStore
+from jcodemunch_mcp.tools.index_folder import index_folder
+
+_GIT_ENV = {
+    **os.environ,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+}
+
+
+def _git(cwd, *args) -> str:
+    done = subprocess.run(
+        ["git", *args], cwd=str(cwd), env=_GIT_ENV, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, timeout=60,
+    )
+    assert done.returncode == 0, (args, done.stdout, done.stderr)
+    return done.stdout.strip()
+
+
+def _repo(tmp_path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "-q", "-b", "main")
+    (root / "code.py").write_text("def first():\n    return 1\n", encoding="utf-8")
+    _git(root, "add", "code.py")
+    _git(root, "commit", "-q", "-m", "one")
+    return root
+
+
+def _indexed(tmp_path):
+    """A committed repo, indexed. Returns (root, storage, owner, name)."""
+    root = _repo(tmp_path)
+    storage = str(tmp_path / "store")
+    result = index_folder(str(root), use_ai_summaries=False, storage_path=storage, context_providers=False)
+    assert result["success"] is True, result
+    owner, name = result["repo"].split("/", 1)
+    return root, storage, owner, name
+
+
+def _stored_head(storage, owner, name) -> str:
+    index = IndexStore(base_path=storage).load_index(owner, name)
+    return (getattr(index, "git_head", "") or "") if index is not None else ""
+
+
+def _symbol_names(storage, owner, name) -> set[str]:
+    index = IndexStore(base_path=storage).load_index(owner, name)
+    return {s.get("name") for s in index.symbols}
+
+
+# --------------------------------------------------------------------------- the signature
+
+
+def test_the_signature_moves_with_a_commit(tmp_path):
+    root = _repo(tmp_path)
+    before = watcher._git_head_signature(str(root))
+    assert before is not None
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    assert watcher._git_head_signature(str(root)) != before
+
+
+def test_the_signature_moves_with_a_switch(tmp_path):
+    root = _repo(tmp_path)
+    before = watcher._git_head_signature(str(root))
+    _git(root, "switch", "-q", "-c", "other")
+    assert watcher._git_head_signature(str(root)) != before
+
+
+def test_the_signature_moves_with_a_commit_after_refs_are_packed(tmp_path):
+    root = _repo(tmp_path)
+    _git(root, "pack-refs", "--all")
+    before = watcher._git_head_signature(str(root))
+    assert before is not None
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    assert watcher._git_head_signature(str(root)) != before
+
+
+def test_the_signature_moves_when_a_detached_head_moves(tmp_path):
+    root = _repo(tmp_path)
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    _git(root, "switch", "-q", "--detach", "HEAD")
+    before = watcher._git_head_signature(str(root))
+    _git(root, "switch", "-q", "--detach", "HEAD~1")
+    assert watcher._git_head_signature(str(root)) != before
+
+
+def test_a_linked_worktree_has_its_own_signature(tmp_path):
+    """A worktree's `.git` is a FILE naming its git dir; its branch ref is in the common dir."""
+    root = _repo(tmp_path)
+    tree = tmp_path / "tree"
+    _git(root, "worktree", "add", "-q", "-b", "side", str(tree))
+    main_before = watcher._git_head_signature(str(root))
+    tree_before = watcher._git_head_signature(str(tree))
+    assert tree_before is not None
+    _git(tree, "commit", "-q", "--allow-empty", "-m", "side")
+    assert watcher._git_head_signature(str(tree)) != tree_before
+    assert watcher._git_head_signature(str(root)) == main_before
+
+
+def test_a_watched_subdirectory_reads_the_repository_above_it(tmp_path):
+    root = _repo(tmp_path)
+    sub = root / "pkg"
+    sub.mkdir()
+    before = watcher._git_head_signature(str(sub))
+    assert before is not None
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    assert watcher._git_head_signature(str(sub)) != before
+
+
+def test_the_signature_holds_still_while_only_the_working_tree_changes(tmp_path):
+    root = _repo(tmp_path)
+    before = watcher._git_head_signature(str(root))
+    (root / "code.py").write_text("def second():\n    return 2\n", encoding="utf-8")
+    (root / "new.py").write_text("x = 1\n", encoding="utf-8")
+    _git(root, "add", "new.py")  # the git index is not HEAD
+    assert watcher._git_head_signature(str(root)) == before
+
+
+def test_a_folder_under_no_repository_has_no_signature(tmp_path):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert watcher._git_head_signature(str(plain)) is None
+
+
+# --------------------------------------------------------------------------- the detector
+
+
+def test_a_move_is_reported_once_it_has_settled():
+    """One idle wake-up sees the move; the next, seeing the same thing, reports it."""
+    detector = watcher._HeadMoveDetector()
+    assert detector.observe(("a",)) is False  # first sight: wait for it to settle
+    assert detector.observe(("a",)) is True
+    assert detector.observe(("a",)) is False  # reported once
+    assert detector.observe(("b",)) is False
+    assert detector.observe(("b",)) is True
+
+
+def test_a_head_that_keeps_moving_is_not_reported_until_it_stops():
+    """A rebase moves HEAD once per commit; one reconciliation follows the last."""
+    detector = watcher._HeadMoveDetector()
+    detector.observe(("a",))
+    detector.observe(("a",))
+    assert [detector.observe((n,)) for n in ("b", "c", "d", "e")] == [False, False, False, False]
+    assert detector.observe(("e",)) is True
+
+
+def test_a_head_that_moves_and_comes_back_is_not_reported():
+    detector = watcher._HeadMoveDetector()
+    detector.observe(("a",))
+    detector.observe(("a",))
+    assert detector.observe(("b",)) is False
+    assert detector.observe(("a",)) is False
+    assert detector.observe(("a",)) is False
+
+
+def test_no_signature_is_never_a_move():
+    """UNKNOWN is not a change: a folder under no repository reconciles nothing."""
+    detector = watcher._HeadMoveDetector()
+    assert [detector.observe(None) for _ in range(4)] == [False, False, False, False]
+    detector.observe(("a",))
+    assert detector.observe(("a",)) is True
+    assert detector.observe(None) is False  # the read failed for one wake-up
+    assert detector.observe(None) is False
+    assert detector.observe(("a",)) is False  # and nothing moved meanwhile
+
+
+# --------------------------------------------------------------------------- the reconciliation
+
+
+def _reconcile(root, storage, owner, name, calls=None):
+    return watcher._reconcile_head_move(
+        folder_path=str(root), repo_id=f"{owner}/{name}", store=IndexStore(base_path=storage),
+        use_ai_summaries=False, context_providers=False, storage_path=storage,
+        extra_ignore_patterns=None, follow_symlinks=False, on_reindex=None,
+        quiet=True, log_file_handle=None, build_hash_cache=lambda: None,
+    )
+
+
+async def test_a_head_only_move_refreshes_the_stored_head(tmp_path):
+    root, storage, owner, name = _indexed(tmp_path)
+    assert _stored_head(storage, owner, name) == _git(root, "rev-parse", "HEAD")
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    head = _git(root, "rev-parse", "HEAD")
+    assert _stored_head(storage, owner, name) != head
+    assert await _reconcile(root, storage, owner, name) is True
+    assert _stored_head(storage, owner, name) == head
+
+
+async def test_a_move_whose_file_events_were_lost_is_reindexed(tmp_path):
+    """The reconciliation is the ordinary incremental index, so it reads the tree.
+
+    Refreshing the stored SHA alone would certify an index as current at the
+    new HEAD while a file the commit changed still held its old symbols.
+    """
+    root, storage, owner, name = _indexed(tmp_path)
+    (root / "code.py").write_text("def second():\n    return 2\n", encoding="utf-8")
+    _git(root, "commit", "-q", "-am", "two")
+    assert await _reconcile(root, storage, owner, name) is True
+    assert _stored_head(storage, owner, name) == _git(root, "rev-parse", "HEAD")
+    names = _symbol_names(storage, owner, name)
+    assert "second" in names and "first" not in names
+
+
+async def test_a_signature_change_that_leaves_head_where_it_was_runs_no_index(tmp_path, monkeypatch):
+    """`git switch -c other` moves the signature and not the commit. Nothing to do."""
+    root, storage, owner, name = _indexed(tmp_path)
+    _git(root, "switch", "-q", "-c", "other")
+    calls = []
+    monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: calls.append(kwargs) or {"success": True})
+    assert await _reconcile(root, storage, owner, name) is False
+    assert calls == []
+
+
+async def test_a_folder_under_no_repository_runs_no_index(tmp_path, monkeypatch):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "code.py").write_text("def first():\n    return 1\n", encoding="utf-8")
+    storage = str(tmp_path / "store")
+    result = index_folder(str(plain), use_ai_summaries=False, storage_path=storage, context_providers=False)
+    owner, name = result["repo"].split("/", 1)
+    calls = []
+    monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: calls.append(kwargs) or {"success": True})
+    assert await _reconcile(plain, storage, owner, name) is False
+    assert calls == []
+
+
+# --------------------------------------------------------------------------- the watcher, end to end
+
+
+async def _until(condition, task, what, seconds=30.0):
+    async def observe():
+        while not condition():
+            if task.done():
+                task.result()
+                pytest.fail("the watcher stopped")
+            await asyncio.sleep(0.1)
+    try:
+        await asyncio.wait_for(observe(), seconds)
+    except asyncio.TimeoutError as error:
+        raise AssertionError(f"timed out waiting for {what}") from error
+
+
+async def _stop(task):
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_the_watcher_follows_a_commit_that_changes_no_file(tmp_path):
+    """The report: after `git commit` the watched repo stays `stale` until a file changes."""
+    pytest.importorskip("watchfiles")
+    root, storage, owner, name = _indexed(tmp_path)
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    try:
+        _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+        head = _git(root, "rev-parse", "HEAD")
+        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the stored head to follow the commit")
+        _git(root, "commit", "-q", "--allow-empty", "-m", "three")
+        head = _git(root, "rev-parse", "HEAD")
+        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the stored head to follow a second commit")
+    finally:
+        await _stop(task)
+
+
+async def test_the_watcher_follows_a_commit_made_before_it_started(tmp_path):
+    """HEAD moved between the caller's index and the watcher's first wake-up."""
+    pytest.importorskip("watchfiles")
+    root, storage, owner, name = _indexed(tmp_path)
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    head = _git(root, "rev-parse", "HEAD")
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    try:
+        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the stored head to reach HEAD")
+    finally:
+        await _stop(task)
+
+
+async def test_the_watcher_ends_at_head_after_a_commit_that_changes_a_file(tmp_path):
+    """The reported race: the file event's reindex can run before the ref is written."""
+    pytest.importorskip("watchfiles")
+    root, storage, owner, name = _indexed(tmp_path)
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    try:
+        (root / "code.py").write_text("def second():\n    return 2\n", encoding="utf-8")
+        await _until(lambda: "second" in _symbol_names(storage, owner, name), task, "the edit to be indexed")
+        _git(root, "commit", "-q", "-am", "two")  # the ref is written after the reindex
+        head = _git(root, "rev-parse", "HEAD")
+        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the stored head to follow the commit")
+        assert "second" in _symbol_names(storage, owner, name)
+    finally:
+        await _stop(task)
