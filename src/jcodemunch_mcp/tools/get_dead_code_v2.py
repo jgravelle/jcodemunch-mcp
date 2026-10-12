@@ -21,6 +21,7 @@ from typing import Optional
 
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
+from ..parser.symbols import STATE_KINDS
 from ._utils import resolve_repo as _resolve_repo
 from ._call_graph import (
     LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT,
@@ -377,7 +378,8 @@ def _signal_diagnostics(
 
 #: Symbol kinds whose lines are code that runs outside every function: the
 #: initialiser of a constant, a variable, a class field or a property.
-_DATA_KINDS = frozenset({"constant", "variable", "field", "property"})
+#: Derived from the vocabulary (#806), so a state kind added there is read here.
+_DATA_KINDS = frozenset(STATE_KINDS)
 
 #: A quoted string that opens and closes on one line. A word inside one is
 #: data, not a name the code uses: without this a constant holding the text
