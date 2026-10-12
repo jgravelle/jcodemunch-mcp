@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Fixed - a function used only in a constant's initialiser or a dispatch table was reported as having no caller (LEDGER L-169)
+
+A call written outside every function belongs to no function, so no call reference records it.
+`get_dead_code_v2` reads that code as text instead: each file with its symbols' lines taken out.
+It took out every symbol's lines, and a constant, a variable and a class field are symbols. So
+the place a module-level call is usually written, the right-hand side of an assignment, was
+removed before it was read. A function used only as `ONE = helper()`, or named only in a
+dispatch table, read `no_callers` in Python, JavaScript, TypeScript, Go, Java, C# and Rust. Live
+code reported dead, in a tool whose rows feed delete decisions. Found fixing L-167.
+
+The lines of a constant, variable, field or property are read now, in the function's own file
+and in the files that import it. Three things keep that from counting what is not a use: the
+name the line declares is blanked (`int size;` is not a use of `size()`), what sits inside
+quotes on one line is removed (`NAMES = ["helper"]` is text), and a line that a function or
+method holds stays out, since its body is answered by its call references. Nothing is
+re-parsed.
+
+Measured through `get_dead_code_v2` on pinned clones, read and parsed only
+(`evidence/measure_dead_l169.txt`, with each commit), rows with `no_callers` before and after:
+this repository's `src/` 426 and 375, zod 844 and 686, RestSharp 654 and 625, sinatra 327 and
+324, ripgrep 536 and 534; express, gin and gson did not move. No row is newly reported on any
+of the eight. `evidence/cleared_src_l169.txt` shows, for each of the 51 rows that left `src/`,
+a line that names it: by this session's reading 46 are named in an initialiser's code (42 of
+them entries of five dispatch tables), one is a class created in a constant, and 4 are named
+only in a comment or in a string that spans lines.
+
+What this does not do:
+
+- **It reads text, not calls.** A comment inside an initialiser, and a string that spans
+  lines, still count as a use of any function they name: the 4 rows above. Toward not
+  reporting.
+- **A function written inside an initialiser that is not a symbol of its own is read as text
+  with it** (an unnamed handler in a table). What it calls was invisible before and is counted
+  now; a property it reads (`b.size`) also counts as a use of a method of that name. The 158
+  rows that left zod were not classified.
+- **The mode with no import graph is unchanged** (gson): it reads no code outside functions.
+- **A use in another file is seen only through an import.** Go, Java, C# and Rust files call
+  each other with none, and a call in another file's initialiser there is still not counted.
+- **A name used only as text is not a use**: a function looked up by a quoted name is still
+  reported.
+
+`get_repo_health` reads this tool, so its dead-code share falls, and its grade can rise, by the
+rows no longer reported. The rest is LEDGER L-170. Ten reintroduced defects each fail the tests
+(`evidence/mutants.txt`).
+
 ## [1.108.351] - 2026-10-12 - the constructor of a class that is created is no longer reported as having no caller
 
 ### Fixed - the constructor of a class that is created was reported as having no caller (LEDGER L-167)
