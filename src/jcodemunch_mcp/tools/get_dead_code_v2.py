@@ -654,8 +654,10 @@ class _CallersElsewhere:
     too (toward not reporting), and a call on the declaring line itself is
     missed (toward reporting).
 
-    ⚠⚠ **Never one question per (symbol, file).** One map from each word to
-    the files that hold it is built once, and a name made of word
+    ⚠⚠ **Never one question per (symbol, file).** The answer is kept per
+    NAME (``_calling_files``), so a name defined in a thousand files is
+    worked out once. One map from each word to the files that hold it is
+    built once, and a name made of word
     characters is a read of it. A name of two or more words (``do-thing``,
     ``ns::f``) is asked only of the files that hold its rarest adjacent
     word PAIR with the same separator, from a second map built on the
@@ -676,6 +678,7 @@ class _CallersElsewhere:
         self._text, self._files = text, files
         self._by_word: Optional[dict[str, list[str]]] = None
         self._by_pair: Optional[dict[tuple[str, str, str], list[str]]] = None
+        self._calling: dict[str, tuple[str, ...]] = {}
         # (file, name) -> the line spans, as slices, of that file's symbols of that name
         self._same_name: dict[tuple[str, str], list[tuple[int, int]]] = {}
         for sym in index.symbols:
@@ -709,44 +712,59 @@ class _CallersElsewhere:
             self._by_pair = by_pair
         return self._by_pair
 
-    def names_caller(self, sym: dict) -> bool:
-        """True if a text-read code file other than *sym*'s own names it outside a same-named symbol."""
-        sym_name, own = sym.get("name", ""), sym.get("file", "")
-        if not sym_name or FileWords.spans_lines(sym_name):
-            return False
-        if is_one_word(sym_name):
-            rarest = self._files_by_word().get(sym_name, [])
+    def _calling_files(self, name: str) -> tuple[str, ...]:
+        """Up to two files that name *name* beyond their own declarations of it.
+
+        The answer for a symbol is whether one of these is not its own file,
+        so two are enough, and it depends on the NAME only: it is computed
+        once per name. ⚠ The first version walked the files per SYMBOL, and
+        seven callback names defined in each of 1,998 files and called by
+        nothing cost files times functions questions (review of L-157).
+        """
+        found = self._calling.get(name)
+        if found is not None:
+            return found
+        if is_one_word(name):
+            rarest = self._files_by_word().get(name, [])
         else:
-            name_pairs = adjacent_word_pairs(sym_name)
+            name_pairs = adjacent_word_pairs(name)
             if name_pairs:
                 by_pair = self._files_by_pair()
                 rarest = min((by_pair.get(p, []) for p in name_pairs), key=len)
             else:
-                name_words = words_of(sym_name)
-                if not name_words:
-                    return False
+                name_words = words_of(name)
                 by_word = self._files_by_word()
-                rarest = min((by_word.get(w, []) for w in name_words), key=len)
+                rarest = min((by_word.get(w, []) for w in name_words), key=len) if name_words else []
+        calling: list[str] = []
         for file_path in rarest:
-            if file_path == own:
-                continue
             words = self._text._file_words(file_path)
             if words is None:
                 continue
-            spans = self._same_name.get((file_path, sym_name))
+            spans = self._same_name.get((file_path, name))
             if not spans:
-                if words.names(sym_name):
-                    return True
+                if not words.names(name):
+                    continue
             else:
-                named = words.lines_naming(sym_name)
+                named = words.lines_naming(name)
                 declaring: set[int] = set()
                 for start, end in spans:
                     k = bisect_left(named, start)
                     if k < len(named) and named[k] < end:
                         declaring.add(named[k])
-                if len(named) > len(declaring):
-                    return True
-        return False
+                if len(named) <= len(declaring):
+                    continue
+            calling.append(file_path)
+            if len(calling) == 2:
+                break
+        found = self._calling[name] = tuple(calling)
+        return found
+
+    def names_caller(self, sym: dict) -> bool:
+        """True if a text-read code file other than *sym*'s own names it beyond a declaration of it."""
+        sym_name, own = sym.get("name", ""), sym.get("file", "")
+        if not sym_name or FileWords.spans_lines(sym_name):
+            return False
+        return any(file_path != own for file_path in self._calling_files(sym_name))
 
 
 def _sweep_other_text_files(index, text: _TextCallers, text_files: set[str], callee_has_caller: set[str]) -> None:

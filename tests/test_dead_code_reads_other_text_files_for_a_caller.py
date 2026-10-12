@@ -314,3 +314,66 @@ def test_a_compound_name_is_not_asked_of_every_file_that_holds_its_words(tmp_pat
         assert len(_without_callers(out)) >= files_n * 10
     # Four times the functions: about four times the questions. Asking every file would be sixteen times.
     assert counts[16] <= 5 * counts[4] + 40, counts
+
+
+# ---------------------------------------------------------------------------
+# review of L-157: the same uncalled names defined in every file
+# ---------------------------------------------------------------------------
+
+CALLBACKS = ("init", "handle", "rules", "up", "down", "terminate", "authorize")
+
+
+def _callbacks_everywhere(files_n):
+    """Every file defines the same seven functions and nothing calls them by name."""
+    files = dict(PYTHON_PAIR)
+    for f in range(files_n):
+        files["m%d.clj" % f] = "(ns m%d)\n" % f + "".join("(defn %s [x]\n  x)\n\n" % n for n in CALLBACKS)
+    return files
+
+
+def test_a_name_defined_in_every_file_is_worked_out_once_not_once_per_function(tmp_path, monkeypatch):
+    """Seven callbacks in N files are 7N functions; asking each file per function is 7N times N questions."""
+    asked = []
+    real_names, real_lines = FileWords.names, FileWords.lines_naming
+    counts = {}
+    for files_n in (4, 16):
+        root = tmp_path / str(files_n)
+        root.mkdir()
+        repo, store, _ = _index(root, _callbacks_everywhere(files_n))
+        monkeypatch.setattr(FileWords, "names", lambda self, name: (asked.append(name), real_names(self, name))[1])
+        monkeypatch.setattr(FileWords, "lines_naming", lambda self, name: (asked.append(name), real_lines(self, name))[1])
+        asked.clear()
+        out = _run(repo, store)
+        counts[files_n] = len(asked)
+        monkeypatch.setattr(FileWords, "names", real_names)
+        monkeypatch.setattr(FileWords, "lines_naming", real_lines)
+        dead = _without_callers(out)
+        assert all(("m%d.clj" % f, n) in dead for f in range(files_n) for n in CALLBACKS), "nothing calls them"
+    # Four times the files and the functions: about four times the questions, never sixteen.
+    assert counts[16] <= 5 * counts[4] + 40, counts
+
+
+def test_a_shared_name_that_one_file_calls_is_live_everywhere_but_the_answer_skips_the_asker(tmp_path):
+    """Two files define `init`; a third calls it. Both definitions are live; a lone definer is not its own caller."""
+    files = {
+        "a.clj": "(ns a)\n(defn init [x]\n  x)\n",
+        "b.clj": "(ns b)\n(defn init [x]\n  x)\n",
+        "c.clj": "(ns c)\n(defn run []\n  (a/init 1))\n",
+    }
+    repo, store, _ = _index(tmp_path, {**PYTHON_PAIR, **files})
+    dead = _without_callers(_run(repo, store))
+    assert ("a.clj", "init") not in dead and ("b.clj", "init") not in dead, dead
+    lone = tmp_path / "lone"
+    lone.mkdir()
+    repo, store, _ = _index(lone, {**PYTHON_PAIR, "a.clj": "(ns a)\n(defn init [x]\n  (init x))\n", "b.clj": "(ns b)\n(defn other [] 1)\n"})
+    assert ("a.clj", "init") in _without_callers(_run(repo, store))
+
+
+def test_a_recursive_function_called_from_a_later_file_is_live(tmp_path):
+    """The first file that names `walk` beyond its declaration is its own; the caller is the second."""
+    files = {
+        "a.clj": "(ns a)\n(defn walk [x]\n  (walk x))\n",
+        "z.clj": "(ns z)\n(defn run []\n  (a/walk 1))\n",
+    }
+    repo, store, _ = _index(tmp_path, {**PYTHON_PAIR, **files})
+    assert ("a.clj", "walk") not in _without_callers(_run(repo, store))
