@@ -1,6 +1,12 @@
 {
-  "current": "1.108.343",
+  "current": "1.108.344",
   "entries": [
+    {
+      "version": "1.108.344",
+      "date": "2026-10-11",
+      "title": "dead code: a caller in another file is found without an import edge",
+      "summary": "`get_dead_code_v2` no longer reports a function as having no caller when its only caller is in another file the import graph does not join to it. For a language that records no call reference the tool read the function's own file and its importers; a Clojure `:require`, an Elixir `alias`, an Erlang remote call, a Bash `source` and two C files sharing a header give the graph no such edge. A function still without a caller is now asked of every other text-read code file. The trade is toward not reporting: a function nothing calls is no longer reported when another code file names it in a comment, an Elixir `@spec`, an Erlang `-export` or a doc comment above a C prototype. The CHANGELOG lists every measured case in both directions."
+    },
     {
       "version": "1.108.343",
       "date": "2026-10-11",
@@ -18,12 +24,6 @@
       "date": "2026-10-11",
       "title": "the index CLI chooses the index identity, and an existing directory is a local target",
       "summary": "`jcodemunch-mcp index <path> --identity-mode local|git` chooses how a local path is keyed in the index store; the CLI always ran in `config` mode before. An explicit mode on a GitHub target is refused before any network call. A directory that exists is now a local target however it is spelled (`proj/`, `proj/sub`, `~/proj`), where the CLI sent those spellings to the GitHub indexer. That moves one command with no option: `index owner/repo` or `index github.com/owner/repo`, run where a directory of that relative name exists, now indexes the directory. `https://github.com/owner/repo` forces the remote. Requested by @sKlat-beep (#1017)."
-    },
-    {
-      "version": "1.108.340",
-      "date": "2026-10-10",
-      "title": "ASP.NET Web Forms is indexed, and a handler wired in markup is referenced",
-      "summary": "ASP.NET Web Forms markup (.aspx, .ascx, .master, .asax, .ashx, .asmx) is indexed as its own language, `aspx`, and ten XML-shaped .NET files (.csproj, .resx, .xaml and others) as `xml`. An event handler wired only in markup (OnClick=\"btnSave_Click\") now reads as referenced, and pages, handlers and project files are roots, so the dead-code tools stop offering live Web Forms code for deletion. Contributed by @outoftheblue9. An existing C# index that holds one of the new file types over the size cap now reads as an inadequate corpus until `max_file_size` covers the file."
     }
   ]
 }

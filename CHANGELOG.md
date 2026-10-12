@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.344] - 2026-10-11 - dead code: a caller in another file is found without an import edge
+
 ### Fixed - `get_dead_code_v2` reported a function as having no caller when its only caller was in another file the import graph did not join to it (LEDGER L-157)
 
 For a function of a language that records no call reference, `get_dead_code_v2` read text in

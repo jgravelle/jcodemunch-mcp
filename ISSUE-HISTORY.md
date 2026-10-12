@@ -2381,3 +2381,13 @@ The 1.108.340 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.340 count, verbatim:
 
 - ⚠ Prior (1.108.340): 15386 passed, 25 skipped, **0 failed** (15411 total).
+
+## Current State rotation (2026-10-11, release 1.108.344)
+
+The 1.108.341 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.341):** **The `index` CLI takes `--identity-mode`, and an existing directory is a local target however it is spelled** (#1017, @sKlat-beep): `_index_target_is_local` (`server.py`) is the one local-or-GitHub rule. ⚠⚠ **A URL-shaped target skips only the directory PROBE, on an ANCHORED match**; `://` anywhere in the string once moved `C://dir` to GitHub. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.341 count, verbatim:
+
+- ⚠ Prior (1.108.341): 15415 passed, 25 skipped, **0 failed** (15440 total).
