@@ -14,7 +14,7 @@ from .get_blast_radius import (
     _name_in_content,
     importers_with_verdict,
 )
-from ._call_graph import _symbol_body
+from ._call_graph import _symbol_body, word_left, word_pattern
 from ..storage import record_savings
 
 logger = logging.getLogger(__name__)
@@ -345,7 +345,7 @@ def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):
 
 def _apply_word_replacement(text: str, old_name: str, new_name: str) -> str:
     """Replace old_name with new_name at word boundaries."""
-    return re.sub(r"\b" + re.escape(old_name) + r"\b", new_name, text)
+    return re.sub(word_pattern(old_name), new_name, text)
 
 
 def _classify_line(line_text: str, old_name: str, language: str) -> str:
@@ -482,7 +482,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
     
     # Check if old_name appears outside all string boundaries
     # Use word boundary matching
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     for match in pattern.finditer(stripped):
         match_start, match_end = match.start(), match.end()
         # Check if this occurrence is outside ALL string boundaries
@@ -527,7 +527,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
 def _scan_non_code_files(store, owner, name, index, old_name):
     """Scan non-code files for word-boundary matches -> warnings."""
     warnings = []
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     for fpath in index.source_files:
         ext = PurePosixPath(fpath).suffix.lower()
         if ext not in _NON_CODE_EXTENSIONS:
@@ -1258,7 +1258,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
     For single-part imports (no dots), we check if that part appears as a word.
     """
     # Check full qualified name first
-    if re.search(r"\b" + re.escape(specifier) + r"\b", body):
+    if re.search(word_pattern(specifier), body):
         return True
     
     # For qualified imports (with dots), check if used in qualified access pattern
@@ -1273,7 +1273,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
             return True
     elif len(parts) == 1:
         # Single-part import (e.g., `import os`): check if it appears as a word
-        if re.search(r"\b" + re.escape(specifier) + r"\b", body):
+        if re.search(word_pattern(specifier), body):
             return True
     
     return False
@@ -1285,7 +1285,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
 
 def _count_symbol_occurrences(content: str, symbol_name: str) -> int:
     """Count how many times a symbol name appears at word boundaries in content."""
-    pattern = re.compile(r"\b" + re.escape(symbol_name) + r"\b")
+    pattern = re.compile(word_pattern(symbol_name))
     return len(pattern.findall(content))
 
 
@@ -1402,7 +1402,7 @@ def _is_inside_interpolation(line_text: str, symbol_name: str, language: str) ->
             # Replace {{ and }} with placeholders before checking for interpolation
             escaped_content = fstring_content.replace("{{", "⟪ESCAPED_OPEN⟫").replace("}}", "⟪ESCAPED_CLOSE⟫")
             # Check for {symbol_name} inside the f-string (after removing escaped braces)
-            interp_pattern = re.compile(r"\{[^}]*\b" + re.escape(symbol_name) + r"\b[^}]*\}")
+            interp_pattern = re.compile(r"\{[^}]*" + word_pattern(symbol_name) + r"[^}]*\}")
             if interp_pattern.search(escaped_content):
                 return True
         # Also check for unclosed f-strings (opening quote found but no closing) - line is still in string
@@ -1422,7 +1422,7 @@ def _is_inside_interpolation(line_text: str, symbol_name: str, language: str) ->
                 content_after = stripped[start:]
                 # Bug 6: Also handle escaped braces in unclosed f-strings
                 escaped_content = content_after.replace("{{", "⟪ESCAPED_OPEN⟫").replace("}}", "⟪ESCAPED_CLOSE⟫")
-                interp_pattern = re.compile(r"\{[^}]*\b" + re.escape(symbol_name) + r"\b[^}]*\}")
+                interp_pattern = re.compile(r"\{[^}]*" + word_pattern(symbol_name) + r"[^}]*\}")
                 if interp_pattern.search(escaped_content):
                     return True
     
@@ -1466,7 +1466,7 @@ def _check_symbol_in_template_interp(content: str, symbol_name: str) -> bool:
             # Extract interpolation content (from ${ to matching })
             interp_content = content[start:j-1] if brace_depth == 0 else content[start:]
             # Check for symbol name at word boundary
-            if re.search(r"\b" + re.escape(symbol_name) + r"\b", interp_content):
+            if re.search(word_pattern(symbol_name), interp_content):
                 return True
             i = j
         else:
@@ -1550,7 +1550,7 @@ def _plan_rename(index, store, owner, name, sym, new_name, depth):
 def _generate_rename_blocks(content, old_name, new_name, language):
     """Generate {old_text, new_text, category} blocks for all matches in a file."""
     lines = content.splitlines()
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     blocks = []
 
     for i, line in enumerate(lines):
@@ -1617,7 +1617,7 @@ def _extract_symbol_with_deps(store, owner, name, index, sym):
         # Fix B: Check if any imported name appears in the symbol body
         if imp_names:
             for n in imp_names:
-                if re.search(r"\b" + re.escape(n) + r"\b", body):
+                if re.search(word_pattern(n), body):
                     needed_imports.append(imp)
                     break
         elif specifier:
@@ -1745,7 +1745,7 @@ def _generate_import_rewrites(index, store, owner, name, affected_files, sym_nam
         for i, line in enumerate(content.splitlines()):
             if not (_IMPORT_PATTERNS.get(language, _DEFAULT_IMPORT_PATTERN)).match(line.strip()):
                 continue
-            if not re.search(r"\b" + re.escape(sym_name) + r"\b", line):
+            if not re.search(word_pattern(sym_name), line):
                 continue
 
             # Handle multi-import lines: "from X import a, b" when only "a" moves
@@ -1974,7 +1974,7 @@ def _find_inter_symbol_deps(index, store, owner, name, syms, source_file):
     for sym in syms:
         body = _symbol_body(lines, sym)
         for stay_sym in staying:
-            if re.search(r"\b" + re.escape(stay_sym["name"]) + r"\b", body):
+            if re.search(word_pattern(stay_sym["name"]), body):
                 warnings.append({
                     "extracted": sym["name"],
                     "references": stay_sym["name"],
@@ -1986,7 +1986,7 @@ def _find_inter_symbol_deps(index, store, owner, name, syms, source_file):
     for stay_sym in staying:
         stay_body = _symbol_body(lines, stay_sym)
         for sym in syms:
-            if re.search(r"\b" + re.escape(sym["name"]) + r"\b", stay_body):
+            if re.search(word_pattern(sym["name"]), stay_body):
                 warnings.append({
                     "extracted": sym["name"],
                     "references": stay_sym["name"],
@@ -2180,7 +2180,7 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
         if not file_content:
             continue
         file_lines = file_content.splitlines()
-        pattern = re.compile(r"\b" + re.escape(sym_name) + r"\s*\(")
+        pattern = re.compile(word_left(sym_name) + re.escape(sym_name) + r"\s*\(")
 
         for i, line in enumerate(file_lines):
             # Skip all lines that are part of the definition signature
@@ -2227,7 +2227,7 @@ def _extract_call_expression(lines, func_name, start_line_idx):
     """Extract a full function call, handling multi-line with paren balancing."""
     line = lines[start_line_idx]
     # Find the function name and opening paren
-    match = re.search(r"\b" + re.escape(func_name) + r"\s*\(", line)
+    match = re.search(word_left(func_name) + re.escape(func_name) + r"\s*\(", line)
     if not match:
         return line.strip()
 

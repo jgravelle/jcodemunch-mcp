@@ -855,7 +855,8 @@ def _find_call_position(
     Returns a Position (0-indexed) or None.
     """
     import re
-    pattern = re.compile(r"\b" + re.escape(called_name) + r"\s*\(")
+    from ..tools._call_graph import word_left
+    pattern = re.compile(word_left(called_name) + re.escape(called_name) + r"\s*\(")
     for i in range(start_line, min(start_line + 200, len(lines))):
         m = pattern.search(lines[i])
         if m:

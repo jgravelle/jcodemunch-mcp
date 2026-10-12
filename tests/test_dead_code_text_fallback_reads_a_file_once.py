@@ -69,12 +69,12 @@ class _Work:
     def word_match(self, content: str, name: str) -> bool:
         self.chars += len(content)
         self.calls += 1
-        return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
+        return bool(re.search(_call_graph.word_pattern(name), content))
 
     def word_starts(self, content: str, name: str) -> list[int]:
         self.chars += len(content)
         self.calls += 1
-        return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
+        return [m.start() for m in re.finditer(_call_graph.word_pattern(name), content)]
 
 
 class _CountedWords:
@@ -197,14 +197,14 @@ def _reference_callers(index, store, owner, name, rev) -> set[str]:
             start_idx = max(0, sym_line - 1)
             end_idx = min(len(lines), sym_end_line)
             outside = "\n".join(lines[:start_idx] + lines[end_idx:])
-            if outside and re.search(r"\b" + re.escape(sym_name) + r"\b", outside):
+            if outside and re.search(_call_graph.word_pattern(sym_name), outside):
                 callee_has_caller.add(sym["id"])
                 continue
         for importer_file in rev.get(sym_file, []):
             if importer_file not in _file_cache:
                 _file_cache[importer_file] = store.get_file_content(owner, name, importer_file) or ""
             content = _file_cache[importer_file]
-            if content and re.search(r"\b" + re.escape(sym_name) + r"\b", content):
+            if content and re.search(_call_graph.word_pattern(sym_name), content):
                 callee_has_caller.add(sym["id"])
                 break
     return callee_has_caller
@@ -462,11 +462,11 @@ CASES = {
         [_sym("a", "m::mul", "f.f90", 1, 1), _sym("b", "m::div", "f.f90", 2, 2)],
         {"f.f90": "function mul\nfunction div\ncall m::mul(1)\ncall m:: div(1)\n"},
     ),
-    "a sigil needs a word before it": (
+    "a sigil glued to a word is not the name (L-154)": (
         [_sym("a", "$go", "f.php", 1, 1), _sym("b", "$no", "f.php", 2, 2)],
         {"f.php": "x\ny\nrun$go()\nrun $no()\n"},
     ),
-    "a bang needs a word after it": (
+    "a bang glued to a word is not the name (L-154)": (
         [_sym("a", "save!", "f.rb", 1, 1), _sym("b", "keep!", "f.rb", 2, 2)],
         {"f.rb": "x\ny\nsave!now\nkeep! now\n"},
     ),
@@ -555,9 +555,9 @@ EXPECTED = {
     "arity name, called": {"a"},
     "arity name, a different arity elsewhere": set(),
     "qualified name": {"a"},
-    "a sigil needs a word before it": {"a"},
-    "a bang needs a word after it": {"a"},
-    "an operator between words": {"a"},
+    "a sigil glued to a word is not the name (L-154)": {"b"},
+    "a bang glued to a word is not the name (L-154)": {"b"},
+    "an operator between words": {"a", "b"},
     "a name with no span is not searched in its own file": set(),
     "a name with no span is still searched in an importer": {"a"},
     "an end before the start removes nothing": {"a"},

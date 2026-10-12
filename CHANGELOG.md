@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Fixed - a name that starts or ends in a punctuation mark was never matched where it is used (LEDGER L-154)
+
+Every tool that asks "does this text name this symbol" used one rule: a word boundary, the
+name, a word boundary. A word boundary beside a punctuation mark exists only when a WORD
+character is on its other side. So a name that ends in a mark (Ruby and Elixir `valid?` and
+`save!`, Clojure `empty?`) matched in `valid?x` and never in `valid?`, `valid?(x)` or
+`valid? x`. A name that starts with one (Clojure `-main`, `$x`) matched in `run-main` and never
+in `(-main)`. `get_dead_code_v2` reported such a function with `no_callers` wherever its
+evidence was text, `get_blast_radius` did not count its uses, and the rename plan in
+`plan_refactoring` skipped them. Found while fixing L-152.
+
+Measured through `get_dead_code_v2` on three repositories, shallow clones read and parsed only
+(`evidence/measure_l154.txt`, with their commits). In ring (Clojure), 30 functions have a name
+with a mark at an end: all 30 carried `no_callers` before and 6 do now. In plug (Elixir), 85
+such functions: all 85 before, 1 now. In sinatra (Ruby), 154 such functions: 98 before and 96
+now. Ruby moved little because its evidence is mostly call references, which never went
+through this rule; what is left there is L-159. No function is newly reported on any of the
+three, on this repository's `src/` (no such name, the same 451 rows) or on `tests/fixtures`.
+
+The rule is one builder now, `word_pattern` in `tools/_call_graph.py`. On a side where the name
+has a word character the boundary is unchanged, so a name with a word character at both ends
+gets the pattern it always had, byte for byte. On a side where it has a mark, the name must not
+be glued to a word character. A name with no word character at all (an operator) and a side
+that is whitespace carry no condition.
+
+The rule had 23 hand-written copies in five modules (`evidence/sites.txt`), and this row first
+counted fewer. All 23 call the builder, and a test scans `src/` for a boundary written beside
+an escaped name. Thirteen reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+What changes that is not a pure gain, each pinned in the tests:
+
+- `valid?x` no longer names `valid?`, and `run-main` no longer names `-main`. Those were the
+  only places the old rule matched such names.
+- `"a$x"` does not name `$x`: a sigil glued to a word is not a token. A PHP string that
+  interpolates a variable directly after a letter is missed.
+- An operator name is matched anywhere it appears, so `==` is named in `a===b`.
+- `-` still ends a token, as before: `main` is named in `run-main` and `empty?` in
+  `not-empty?`.
+
+Two test files pinned the old behaviour as cases ("a bang needs a word after it", "a sigil
+needs a word before it", "a predicate needs a word after the mark"). Those three cases are
+inverted and renamed, the operator case now expects both spellings, and the files' reference
+loops read the rule from the builder; no assertion was removed.
+
 ## [1.108.344] - 2026-10-11 - dead code: a caller in another file is found without an import edge
 
 ### Fixed - `get_dead_code_v2` reported a function as having no caller when its only caller was in another file the import graph did not join to it (LEDGER L-157)

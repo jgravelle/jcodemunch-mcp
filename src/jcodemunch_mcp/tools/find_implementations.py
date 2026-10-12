@@ -25,6 +25,7 @@ from ._utils import symbol_span_bytes
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_class_hierarchy import _build_class_maps
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
+from ._call_graph import word_right
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +417,7 @@ def find_implementations(
         if not match_dec:
             for d in decs:
                 # @target_name(...) or @target_name
-                if re.match(rf"@?{re.escape(target_name)}\b", d):
+                if re.match(r"@?" + re.escape(target_name) + word_right(target_name), d):
                     match_dec = d
                     break
         if match_dec:

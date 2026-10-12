@@ -40,9 +40,70 @@ if TYPE_CHECKING:
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
+_WORD_CHAR_RE = re.compile(r"\w")
+
+
+def word_left(name: str) -> str:
+    """The pattern that must hold just BEFORE *name* for it to start a token.
+
+    ``\\b`` when the name starts with a word character, as it always was.
+    When it starts with a mark (``$x``, ``-main``, ``@count``, ``*out*``) a
+    word boundary there exists only if a WORD character precedes it, which
+    is backwards: it matched ``run-main`` and never ``(-main)``. For those
+    the name must not be glued to a word character on that side.
+
+    No condition at all for a name that starts with whitespace (the space
+    is the separator) and for a name with no word character anywhere (an
+    operator: ``==`` is named in ``a==b`` and in ``a == b``, and nothing
+    says where an operator ends, so it is also named in ``a===b``).
+    """
+    if not name or _WORD_CHAR_RE.match(name[0]):
+        return r"\b"
+    if name[0].isspace() or not _WORD_CHAR_RE.search(name):
+        return ""
+    return r"(?<!\w)"
+
+
+def word_right(name: str) -> str:
+    """The pattern that must hold just AFTER *name* for it to end a token.
+
+    ``\\b`` when the name ends with a word character. When it ends with a
+    mark (``valid?``, ``save!``, ``name=``) the old ``\\b`` matched ``valid?x``
+    and never ``valid?``, ``valid?(x)`` or ``valid? x`` (LEDGER L-154).
+    """
+    if not name or _WORD_CHAR_RE.match(name[-1]):
+        return r"\b"
+    if name[-1].isspace() or not _WORD_CHAR_RE.search(name):
+        return ""
+    return r"(?!\w)"
+
+
+def word_pattern(name: str) -> str:
+    """Regex source that matches *name* as a whole token. THE word rule.
+
+    ⚠⚠ **Never write ``\\b`` beside ``re.escape(name)`` by hand.** The rule
+    had more than twenty copies in four modules and every one was wrong for
+    a name that starts or ends in a mark: Ruby and Elixir ``valid?`` and
+    ``save!``, Clojure ``empty?`` and ``-main``, PHP ``$x``. The dead-code
+    tools read such a function as never named, and the rename plan skipped
+    its uses. ``tests/test_a_name_is_matched_as_a_token_whatever_its_ends.py``
+    scans ``src/`` for a copy.
+
+    A name with a word character at both ends gets ``\\b`` + name + ``\\b``,
+    byte for byte what it always got.
+
+    ⚠ ``\\w`` stands in for "a character that continues a name", which no one
+    rule can know for every language. So ``-`` still ends a token: ``main``
+    is named in ``run-main`` and ``empty?`` in ``not-empty?``, as before.
+    And a sigil glued to a word is not a token: ``$x`` is not named in
+    ``"a$x"``.
+    """
+    return word_left(name) + re.escape(name) + word_right(name)
+
+
 def _word_match(content: str, name: str) -> bool:
     """Return True if *name* appears as a word token in *content*."""
-    return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
+    return bool(re.search(word_pattern(name), content))
 
 
 def _word_starts(content: str, name: str) -> list[int]:
@@ -51,7 +112,7 @@ def _word_starts(content: str, name: str) -> list[int]:
     Occurrences that overlap an earlier one are not listed; they share a
     character with it, so a caller that maps offsets to lines loses nothing.
     """
-    return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
+    return [m.start() for m in re.finditer(word_pattern(name), content)]
 
 
 _WORD_RE = re.compile(r"\w+")
