@@ -9,7 +9,7 @@ with one (`$x`, Clojure `-main`) matched only after a word character, which is
 symbol" read live code as unnamed: `get_dead_code_v2` reported it without
 callers, and the rename plan skipped its uses.
 
-The rule is one builder now (`word_pattern` in `tools/_call_graph.py`): on a
+The rule is one builder now (`word_pattern` in `jcodemunch_mcp/word_rule.py`): on a
 side where the name has a word character the boundary is `\\b` as before, and
 on a side where it has a mark the name must not be glued to a word character.
 A name that starts and ends with a word character gets the pattern it always
@@ -53,17 +53,34 @@ CASES = [
     ("empty?", "(empty? coll)", True),
     ("empty?", "(not-empty? coll)", True),  # `-` is not a word character: as `main` is named in `run-main`
     ("name=", "self.name= 1", True),
+    # a trailing `=` is written at the use: a word may touch it, another `=` may not
+    ("name=", "u.name=value", True),
+    ("name=", "self.name=name", True),
+    ("name=", "self.name = 1", False),  # the name is `name=`; `name =` is not it
+    ("name=", "return 1 if name==x", False),
+    ("name=", "x if name=~/a/", False),
+    ("name=", "{name=>1}", False),
+    ("name=", "rename=value", False),
     # a name that STARTS with a mark
     ("$x", "$x", True),
     ("$x", "echo $x;", True),
     ("$x", "f($x, $y)", True),
     ("$x", "$xy", False),
     ("$x", "a$x", False),
+    ("$total", "item_$total", False),  # a `$` glued to a word character is not read as a sigil
     ("-main", "(-main)", True),
     ("-main", "(defn -main [& args])", True),
     ("-main", "(run-main)", False),
     ("@count", "x = @count + 1", True),
     ("@count", "user@count", False),
+    # a selector's mark is written at the use: a word may touch it
+    (".btn", ".btn { }", True),
+    (".btn", "a.btn:hover", True),
+    (".btn", ".btn.active", True),
+    (".active", "a.btn.active", True),
+    (".btn", ".btns", False),
+    ("#main", "div#main", True),
+    ("#main", "#mainly", False),
     # marks on both sides
     ("*out*", "(binding [*out* w])", True),
     ("*out*", "x*out*y", False),
@@ -80,6 +97,7 @@ CASES = [
     ("run", "run()", True),
     ("run", "rerun()", False),
     ("run", "run_all()", False),
+    ("valid", "valid?(x)", True),  # a mark ends a token: the plain name is named in the longer one
     ("do-thing", "(do-thing 1)", True),
     ("do-thing", "(redo-thing 1)", False),
     ("add/2", "add/2", True),
@@ -116,6 +134,40 @@ def test_an_empty_name_matches_nothing_new():
     assert _call_graph.word_pattern("") == r"\b\b"
 
 
+def test_the_call_graph_reads_the_leaf_and_builds_nothing_itself():
+    from jcodemunch_mcp import word_rule  # imported here: the module is new, and a red run must fail, not fail to collect
+
+    assert _call_graph.word_pattern is word_rule.word_pattern
+
+
+def test_a_template_with_a_literal_brace_is_filled_without_raising():
+    """`str.format` reads the `{` of a regex as a field; the CSS templates hold one."""
+    from jcodemunch_mcp.word_rule import fill_name_template
+
+    assert fill_name_template(r"^\s*\.{name}\s*\{|{left}{name}{right}", "valid?") == (
+        r"^\s*\.valid\?\s*\{|\bvalid\?(?!\w)"
+    )
+    assert plan._classify_line(".btn {", "btn", "css") == "definition"
+
+
+@pytest.mark.parametrize("line, name, language", [
+    ("  def valid?", "valid?", "ruby"),
+    ("  def save!(x)", "save!", "ruby"),
+    ("  def name=(v)", "name=", "ruby"),
+    ("  def valid?(x) do", "valid?", "elixir"),
+    ("(defn empty? [x]", "empty?", "clojure"),
+    ("  def valid", "valid", "ruby"),
+    ("(defn run [x]", "run", "clojure"),
+])
+def test_the_line_that_defines_a_name_is_a_definition_whatever_its_ends(line, name, language):
+    """The per-language definition templates end the name with the rule, not with a boundary."""
+    assert plan._classify_line(line, name, language) == "definition"
+
+
+def test_a_longer_name_is_not_the_definition():
+    assert plan._classify_line("  def validate", "valid", "ruby") != "definition"
+
+
 # ---------------------------------------------------------------------------
 # through the tools
 # ---------------------------------------------------------------------------
@@ -146,6 +198,10 @@ def _without_callers(repo, store):
 
 
 TOOL_CASES = {
+    # `u.name=value` is the ordinary call of a setter; the first version of the fix lost it.
+    "ruby setter, called glued at module level": (
+        {"a.rb": "class U\n  def name=(v)\n    @n = v\n  end\n\n  def other=(v)\n    @o = v\n  end\nend\n\nu = U.new\nu.name=5\n"},
+        ("a.rb", "name="), ("a.rb", "other=")),
     # Ruby records a call inside a method; a call at the top of the file is text.
     "ruby, called at module level": (
         {"a.rb": "def check_thing?\n  true\nend\n\ndef other_thing?\n  true\nend\n\ncheck_thing?\n"},
@@ -196,16 +252,25 @@ def test_a_rename_rewrites_the_uses_and_nothing_glued_to_them():
     assert plan._apply_word_replacement("run() rerun()", "run", "go") == "go() rerun()"
 
 
+def test_a_setter_rename_rewrites_the_calls_and_never_a_comparison():
+    text = "u.name=value\nself.name=name\nreturn 1 if name==x\nh = {name=>1}\n"
+    assert plan._apply_word_replacement(text, "name=", "title=") == (
+        "u.title=value\nself.title=name\nreturn 1 if name==x\nh = {name=>1}\n"
+    )
+
+
 # ---------------------------------------------------------------------------
 # the rule has one builder
 # ---------------------------------------------------------------------------
 
-# A boundary written beside an escaped name, in any of the shapes the copies took.
+# A word boundary joined to something built at run time, in any of the shapes the
+# copies took: concatenated to an escape, to a variable holding one, to a joined
+# alternation, written into an f-string, or left in a `{name}` template.
 _HAND_ROLLED = re.compile(
-    r"""\\b["']\s*\+\s*re\.escape\(      # r"\b" + re.escape(
-      | re\.escape\([^()]*(?:\([^()]*\)[^()]*)*\)\s*\+\s*r?["']\\b   # re.escape(...) + r"\b
-      | \{re\.escape\([^{}]*\)\}\\b      # f"...{re.escape(x)}\b"
-      | \\b\{re\.escape\(                # f"\b{re.escape(
+    r"""\\b\(?["']\s*\+          # r"\b" +   or   r"\b(" +
+      | \+\s*[rRfF]{0,2}["']\\b   # + r"\b...
+      | \{[^{}0-9][^{}]*\}\\b      # {name}\b in a template or an f-string (never a {0,40} quantifier)
+      | \\b\{[^{}0-9]             # \b{name}
     """,
     re.VERBOSE,
 )
@@ -222,9 +287,25 @@ def _hand_rolled_sites(text: str) -> list[int]:
     'if re.match(rf"@?{re.escape(target_name)}\\b", d):',
     "x = re.compile('\\\\b' + re.escape(n))",
     'interp = re.compile(r"\\{[^}]*\\b" + re.escape(symbol_name) + r"\\b[^}]*\\}")',
+    # the three the first version of this scan could not see (review of L-154)
+    '"ruby": re.compile(r"^\\s*(class|module|def)\\s+{name}\\b"),',
+    'if re.search(r"\\b" + qualified_pattern + r"\\b", body, re.DOTALL):',
+    'pattern = re.compile(r"\\b(" + "|".join(re.escape(n) for n in names) + r")\\s*\\(")',
+    'r"|<%@[^%]*Inherits=[^%]*\\b{name}"',
 ])
 def test_the_scan_sees_each_shape_the_copies_took(line):
     assert _hand_rolled_sites(line) == [1], line
+
+
+@pytest.mark.parametrize("line", [
+    'return word_left(name) + re.escape(name) + word_right(name)',
+    'r"\\b(break|breaks)\\b[^.]{0,40}\\b"',
+    '"ruby": re.compile(r"^\\s*(class|module|def)\\s+{name}{right}"),',
+    'return r"\\b"',
+    '_KEYWORD = re.compile(r"\\b(class|def)\\b")',
+])
+def test_the_scan_leaves_the_builder_and_fixed_patterns_alone(line):
+    assert _hand_rolled_sites(line) == [], line
 
 
 def test_no_module_writes_the_word_rule_by_hand():
@@ -235,5 +316,5 @@ def test_no_module_writes_the_word_rule_by_hand():
             offenders.append(f"{path.relative_to(SRC).as_posix()}:{line_no}")
     assert not offenders, (
         "a word boundary written beside re.escape(name) is wrong for a name that starts or ends in a "
-        "mark (L-154); build it with tools._call_graph.word_pattern / word_left / word_right: " + ", ".join(offenders)
+        "mark (L-154); build it with jcodemunch_mcp.word_rule (word_pattern, word_left, word_right, fill_name_template): " + ", ".join(offenders)
     )

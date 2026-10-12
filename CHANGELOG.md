@@ -8,10 +8,10 @@ Every tool that asks "does this text name this symbol" used one rule: a word bou
 name, a word boundary. A word boundary beside a punctuation mark exists only when a WORD
 character is on its other side. So a name that ends in a mark (Ruby and Elixir `valid?` and
 `save!`, Clojure `empty?`) matched in `valid?x` and never in `valid?`, `valid?(x)` or
-`valid? x`. A name that starts with one (Clojure `-main`, `$x`) matched in `run-main` and never
-in `(-main)`. `get_dead_code_v2` reported such a function with `no_callers` wherever its
-evidence was text, `get_blast_radius` did not count its uses, and the rename plan in
-`plan_refactoring` skipped them. Found while fixing L-152.
+`valid? x`. A name that starts with one (Clojure `-main`) matched in `run-main` and never in
+`(-main)`. `get_dead_code_v2` reported such a function with `no_callers` wherever its evidence
+was text, `get_blast_radius` did not find its uses, and the rename plan in `plan_refactoring`
+skipped them and classified the line that defines one as a use. Found while fixing L-152.
 
 Measured through `get_dead_code_v2` on three repositories, shallow clones read and parsed only
 (`evidence/measure_l154.txt`, with their commits). In ring (Clojure), 30 functions have a name
@@ -21,30 +21,50 @@ now. Ruby moved little because its evidence is mostly call references, which nev
 through this rule; what is left there is L-159. No function is newly reported on any of the
 three, on this repository's `src/` (no such name, the same 451 rows) or on `tests/fixtures`.
 
-The rule is one builder now, `word_pattern` in `tools/_call_graph.py`. On a side where the name
-has a word character the boundary is unchanged, so a name with a word character at both ends
-gets the pattern it always had, byte for byte. On a side where it has a mark, the name must not
-be glued to a word character. A name with no word character at all (an operator) and a side
-that is whitespace carry no condition.
+The rule is one module now, `jcodemunch_mcp/word_rule.py`, and each side of a name is decided
+by the name's own first or last character:
 
-The rule had 23 hand-written copies in five modules (`evidence/sites.txt`), and this row first
-counted fewer. All 23 call the builder, and a test scans `src/` for a boundary written beside
-an escaped name. Thirteen reintroduced defects each fail the tests (`evidence/mutants.txt`).
+- a word character: the boundary is unchanged, so a name with a word character at both ends
+  gets the pattern it always had, byte for byte;
+- `?`, `!`, `-`, `$`, `@`, `*` and any other mark not named below: the name must not be glued
+  to a word character on that side;
+- a trailing `=` (a Ruby setter): a word may touch it, since `u.name=value` is the ordinary
+  call, but it must not be the start of `==`, `=~` or `=>`;
+- a leading `.` or `#` (a CSS selector): a word may touch it, since `a.btn` and `div#main` name
+  `.btn` and `#main`;
+- whitespace, and a name with no word character at all (an operator): no condition.
+
+The setter and selector lines came out of the review. The first version treated every mark
+alike, which reported a called Ruby setter as having no caller and made a rename of `name=`
+rewrite the comparison `name=="x"`.
+
+The rule was written by hand on 84 lines of six modules (`evidence/sites.txt`, counted by the
+test's own scan; the ledger row had counted 19). Fifty-nine of them were the per-language
+definition templates in `plan_refactoring.py`, which ended the name with a boundary. All 84
+read the module now, and the scan fails on a new one in any of the shapes they took:
+concatenated to an escape, to a variable holding one, to a joined alternation, written into an
+f-string, or left in a `{name}` template. The templates are also filled by replacement now;
+`str.format` read the literal brace in the CSS ones as a field. Twenty reintroduced defects
+each fail the tests (`evidence/mutants.txt`).
 
 What changes that is not a pure gain, each pinned in the tests:
 
 - `valid?x` no longer names `valid?`, and `run-main` no longer names `-main`. Those were the
   only places the old rule matched such names.
-- `"a$x"` does not name `$x`: a sigil glued to a word is not a token. A PHP string that
-  interpolates a variable directly after a letter is missed.
-- An operator name is matched anywhere it appears, so `==` is named in `a===b`.
-- `-` still ends a token, as before: `main` is named in `run-main` and `empty?` in
-  `not-empty?`.
+- `"a$x"` and `"item_$total"` do not name `$x` and `$total`: a `$` glued to a word character is
+  not read as a sigil. A PHP string that interpolates a variable directly after a letter, a
+  digit or an underscore is missed.
+- An operator name is matched anywhere it appears, so `==` is named in `a===b`, and a rename of
+  an operator rewrites every occurrence.
+- A glued local assignment `name=1` is indistinguishable from a call of the setter `name=`.
+- `-` still ends a token, as before: `main` is named in `run-main`, `empty?` in `not-empty?`,
+  and `valid` in `valid?`.
 
-Two test files pinned the old behaviour as cases ("a bang needs a word after it", "a sigil
-needs a word before it", "a predicate needs a word after the mark"). Those three cases are
-inverted and renamed, the operator case now expects both spellings, and the files' reference
-loops read the rule from the builder; no assertion was removed.
+Three test files stated the old behaviour. Two pinned it as cases ("a bang needs a word after
+it", "a sigil needs a word before it", "a predicate needs a word after the mark"): those three
+are inverted and renamed, the operator case expects both spellings, and the files' reference
+loops read the rule from the module. The third filled the definition templates itself and now
+fills them the way the tool does. No assertion was removed.
 
 ## [1.108.344] - 2026-10-11 - dead code: a caller in another file is found without an import edge
 

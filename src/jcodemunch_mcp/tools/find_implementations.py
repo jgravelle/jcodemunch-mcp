@@ -25,7 +25,7 @@ from ._utils import symbol_span_bytes
 from ._utils import index_status_to_tool_error, resolve_repo
 from .get_class_hierarchy import _build_class_maps
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
-from ._call_graph import word_right
+from ..word_rule import word_right
 
 logger = logging.getLogger(__name__)
 

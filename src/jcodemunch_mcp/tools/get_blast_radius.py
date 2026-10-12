@@ -17,7 +17,8 @@ from ..retrieval.verdict import (
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
-from ._call_graph import build_symbols_by_file, bfs_callers, word_pattern
+from ._call_graph import build_symbols_by_file, bfs_callers
+from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block

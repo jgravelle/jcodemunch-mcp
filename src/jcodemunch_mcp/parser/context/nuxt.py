@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from ...word_rule import word_left
 from .base import ContextProvider, FileContext, register_provider
 
 logger = logging.getLogger(__name__)
@@ -256,7 +257,7 @@ class NuxtContextProvider(ContextProvider):
 
         # Build regex from auto-import names
         names = sorted(self._auto_import_symbols.keys(), key=len, reverse=True)
-        pattern = re.compile(r"\b(" + "|".join(re.escape(n) for n in names) + r")\s*\(")
+        pattern = re.compile("(" + "|".join(word_left(n) + re.escape(n) for n in names) + r")\s*\(")
 
         edge_count = 0
         for vue_file in sorted(folder_path.rglob("*.vue")):
