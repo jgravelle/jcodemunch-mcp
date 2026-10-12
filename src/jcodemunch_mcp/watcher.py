@@ -462,6 +462,11 @@ BACKSLASH = chr(92)
 #: next file event or HEAD move: the reported symptom, surviving the fix.
 _HEAD_RECONCILE_RETRY_SECONDS = 60.0
 
+#: The most the idle check reads of ``HEAD`` or a ref file (one SHA, or one
+#: ``ref:`` line), and of a ``.git`` pointer file or ``commondir`` (one path).
+_GIT_REF_MAX_BYTES = 256
+_GIT_POINTER_MAX_BYTES = 4096
+
 #: What ``_reconcile_head_move`` did.
 _HEAD_UNCHANGED = "unchanged"    # the stored head already is the live one, or there is none to compare
 _HEAD_RECONCILED = "reconciled"  # an index run was made and succeeded
@@ -485,9 +490,8 @@ def _git_dirs(folder_path: str) -> Optional[tuple[Path, Path]]:
         if stat.S_ISDIR(mode):
             git_dir = entry
         else:
-            try:
-                text = entry.read_text(encoding="utf-8", errors="replace").strip()
-            except OSError:
+            text = _small_file_text(entry, _GIT_POINTER_MAX_BYTES)
+            if text is None:
                 return None
             if not text.startswith("gitdir:"):
                 return None
@@ -495,10 +499,7 @@ def _git_dirs(folder_path: str) -> Optional[tuple[Path, Path]]:
             if not git_dir.is_absolute():
                 git_dir = candidate / git_dir
         common = git_dir
-        try:
-            pointer = (git_dir / "commondir").read_text(encoding="utf-8", errors="replace").strip()
-        except OSError:
-            pointer = ""
+        pointer = _small_file_text(git_dir / "commondir", _GIT_POINTER_MAX_BYTES)
         if pointer:
             common = Path(pointer) if Path(pointer).is_absolute() else git_dir / pointer
         return git_dir, common
@@ -513,11 +514,15 @@ def _file_stamp(path: Path) -> Optional[tuple[int, int]]:
     return (st.st_mtime_ns, st.st_size)
 
 
-def _small_file_text(path: Path) -> Optional[str]:
-    """A ref file's content: one SHA. None when absent; never more than 256 bytes."""
+def _small_file_text(path: Path, limit: int = _GIT_REF_MAX_BYTES) -> Optional[str]:
+    """The start of a small file under a git dir, stripped. None when it cannot be read.
+
+    ⚠ Never more than ``limit`` bytes: every read the idle check makes is
+    bounded, and SECURITY.md states the two bounds.
+    """
     try:
         with open(path, "rb") as handle:
-            return handle.read(256).decode("utf-8", errors="replace").strip()
+            return handle.read(limit).decode("utf-8", errors="replace").strip()
     except OSError:
         return None
 
@@ -585,8 +590,8 @@ class _HeadMoveDetector:
     between the caller's index and this watch's first wake-up.
     ⚠ ``None`` is never a move (UNKNOWN is not a change) and clears the
     candidate, so a read that fails once costs one wake-up and reports nothing.
-    ⚠ A move is reported ONCE, whatever the reconciliation then does; the
-    watch loop owns the retry of a failed one (``_HEAD_RECONCILE_RETRY_SECONDS``).
+    ⚠ A move is reported ONCE, whatever the reconciliation then does;
+    ``_HeadRetry`` owns the retry of a failed one.
     """
 
     def __init__(self) -> None:
@@ -602,6 +607,27 @@ class _HeadMoveDetector:
             return False
         self._acted_on = signature
         self._candidate = None
+        return True
+
+
+class _HeadRetry:
+    """When a FAILED reconciliation is tried again: once, no sooner than the delay.
+
+    ⚠ The delay is the whole bound on what a persistent failure costs. A retry
+    that ignored it would run an index on every wake-up, once a second, for as
+    long as the failure lasted. ``due`` answers True once per ``schedule``.
+    """
+
+    def __init__(self) -> None:
+        self._at: Optional[float] = None
+
+    def schedule(self, now: float) -> None:
+        self._at = now + _HEAD_RECONCILE_RETRY_SECONDS
+
+    def due(self, now: float) -> bool:
+        if self._at is None or now < self._at:
+            return False
+        self._at = None
         return True
 
 
@@ -829,7 +855,7 @@ async def _watch_single(
     )
 
     _head_moves = _HeadMoveDetector()
-    _head_retry_at: Optional[float] = None
+    _head_retry = _HeadRetry()
 
     async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
         relevant = [
@@ -842,9 +868,8 @@ async def _watch_single(
             # An idle wake-up. A HEAD move writes under `.git/` only, which no
             # file event announces (#1040).
             _settled = _head_moves.observe(await asyncio.to_thread(_git_head_signature, folder_path))
-            _retry_due = _head_retry_at is not None and time.monotonic() >= _head_retry_at
+            _retry_due = _head_retry.due(time.monotonic())
             if _settled or _retry_due:
-                _head_retry_at = None
                 _outcome = await _reconcile_head_move(
                     folder_path=folder_path,
                     repo_id=repo_id,
@@ -860,7 +885,7 @@ async def _watch_single(
                     build_hash_cache=_build_hash_cache,
                 )
                 if _outcome == _HEAD_FAILED:
-                    _head_retry_at = time.monotonic() + _HEAD_RECONCILE_RETRY_SECONDS
+                    _head_retry.schedule(time.monotonic())
             continue
 
         n_added = sum(1 for c, _ in relevant if c == Change.added)

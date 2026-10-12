@@ -195,6 +195,38 @@ def test_an_absolute_ref_name_is_not_followed(tmp_path):
     assert "SECRET-OUTSIDE" not in repr(watcher._git_head_signature(str(root)))
 
 
+def test_an_absolute_ref_name_written_with_forward_slashes_is_not_followed(tmp_path):
+    """`C:/x/outside.txt` on Windows (the colon), `/x/outside.txt` elsewhere (the leading slash)."""
+    root = _repo(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (root / ".git" / "HEAD").write_text("ref: " + outside.as_posix() + "\n", encoding="utf-8")
+    assert "SECRET-OUTSIDE" not in repr(watcher._git_head_signature(str(root)))
+
+
+def test_no_read_under_the_git_directory_is_longer_than_its_bound(tmp_path):
+    """SECURITY.md states two bounds: 256 bytes of HEAD and a ref, 4096 of a pointer file."""
+    assert (watcher._GIT_REF_MAX_BYTES, watcher._GIT_POINTER_MAX_BYTES) == (256, 4096)
+    root = _repo(tmp_path)
+    ref = root / ".git" / "refs" / "heads" / "main"
+    ref.write_text("a" * 300 + "TAIL-OF-A-LONG-REF", encoding="utf-8")
+    signature = watcher._git_head_signature(str(root))
+    assert signature[1] == "a" * 256
+
+    # A `.git` pointer FILE, written by hand (git hides the one it writes on Windows).
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    pointer = linked / ".git"
+    text = "gitdir: " + str(root / ".git")
+    pointer.write_text(text + "\n", encoding="utf-8")
+    assert watcher._git_dirs(str(linked)) == (root / ".git", root / ".git")
+    pointer.write_text(" " * 5000 + text, encoding="utf-8")
+    assert watcher._git_dirs(str(linked)) is None  # nothing past the bound is read to find `gitdir:`
+    pointer.write_text(text + "\n", encoding="utf-8")
+    (root / ".git" / "commondir").write_text(" " * 5000 + "elsewhere", encoding="utf-8")
+    assert watcher._git_dirs(str(linked)) == (root / ".git", root / ".git")  # a commondir past the bound names nothing
+
+
 def test_an_ordinary_branch_name_with_slashes_and_dots_is_followed(tmp_path):
     root = _repo(tmp_path)
     _git(root, "switch", "-q", "-c", "feature/v1.2-x")
@@ -253,6 +285,28 @@ def test_no_signature_is_never_a_move():
     assert detector.observe(None) is False  # the read failed for one wake-up
     assert detector.observe(None) is False
     assert detector.observe(("a",)) is False  # and nothing moved meanwhile
+
+
+# --------------------------------------------------------------------------- the retry
+
+
+def test_a_failed_reconciliation_is_due_again_once_and_no_sooner_than_the_delay(monkeypatch):
+    """The delay is the whole bound on what a persistent failure costs: an index per wake-up without it."""
+    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 60.0)
+    retry = watcher._HeadRetry()
+    assert retry.due(1000.0) is False  # nothing failed
+    retry.schedule(1000.0)
+    assert [retry.due(t) for t in (1000.0, 1001.0, 1030.0, 1059.9)] == [False, False, False, False]
+    assert retry.due(1060.0) is True
+    assert [retry.due(t) for t in (1060.0, 1061.0, 5000.0)] == [False, False, False]  # once per failure
+    retry.schedule(5000.0)
+    assert retry.due(5059.0) is False
+    assert retry.due(5061.0) is True
+
+
+def test_the_retry_delay_is_at_least_a_minute():
+    """A reconciliation is a walk of the tree; a failing one is not repeated faster than this."""
+    assert watcher._HEAD_RECONCILE_RETRY_SECONDS >= 60.0
 
 
 # --------------------------------------------------------------------------- the reconciliation
