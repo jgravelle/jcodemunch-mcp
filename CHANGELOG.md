@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.349] - 2026-10-12 - a Java constructor reached only by super(...) is no longer reported as having no caller
+
 ### Fixed - a Java constructor reached only by `super(...)` was reported as having no caller (LEDGER L-166)
 
 A Java constructor is named for its class, and `new Base()` records a call of `Base`. A

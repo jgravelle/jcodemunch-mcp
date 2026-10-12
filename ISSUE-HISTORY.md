@@ -2431,3 +2431,13 @@ The 1.108.345 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.345 count, verbatim:
 
 - ⚠ Prior (1.108.345): 16024 passed, 25 skipped, **0 failed** (16049 total).
+
+## Current State rotation (2026-10-12, release 1.108.349)
+
+The 1.108.346 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.346):** **A call through a receiver records the METHOD, never the receiver** (L-159): `_extract_call_name` reads the grammar's callee fields. ⚠⚠ **Never fall back to an identifier inside the callee.** `PARSER_GENERATION` 12. Residue L-158, L-164. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.346 count, verbatim:
+
+- ⚠ Prior (1.108.346): 16062 passed, 25 skipped, **0 failed** (16087 total).

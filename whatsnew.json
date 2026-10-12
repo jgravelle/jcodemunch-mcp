@@ -1,6 +1,12 @@
 {
-  "current": "1.108.348",
+  "current": "1.108.349",
   "entries": [
+    {
+      "version": "1.108.349",
+      "date": "2026-10-12",
+      "title": "a Java constructor reached only by super(...) is no longer reported as having no caller",
+      "summary": "A Java subclass constructor reaches its superclass's constructor with `super(...)`, which the parser recorded nothing for. So the constructor of a class that is only ever subclassed, which is every abstract class, was reported by `get_dead_code_v2` with no caller. `super(...)` now records the name the class extends. An existing index is re-parsed once. The effect is small: four constructors on gson. `this(...)`, an implicit super call and other languages' constructors (`__init__`, `constructor`, `initialize`) are not covered; the CHANGELOG lists the limits."
+    },
     {
       "version": "1.108.348",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a call through a receiver records the method, never the receiver",
       "summary": "For a call written through a receiver, `t.Recv()`, the parser recorded the receiver's name in Go, Java, Rust, Ruby and C#. So a method called only that way read as never called, and `get_dead_code_v2` reported it with no caller; a function that shared a name with a receiver read as called. The parser now reads each grammar's own callee and member fields, and a callee it does not know records nothing. Every tool that reads call references inherits it. An existing index is re-parsed once. Some functions that were found only by a shared name are reported now, a few of them live; the CHANGELOG lists the measured cases."
-    },
-    {
-      "version": "1.108.345",
-      "date": "2026-10-11",
-      "title": "a name that starts or ends in a punctuation mark is matched where it is used",
-      "summary": "A name that ends or starts in a punctuation mark (Ruby and Elixir `valid?` and `save!`, Clojure `empty?` and `-main`) was never matched where it is used: every tool that asks whether text names a symbol wrapped the name in word boundaries, and a word boundary beside a mark exists only when a word character is on its other side. `get_dead_code_v2` reported such a function with no caller wherever its evidence was text, `get_blast_radius` did not find its uses, and the rename plan in `plan_refactoring` skipped them. The rule is one module now and each side of a name is decided by the name's own first or last character; a name with a word character at both ends is matched exactly as before. The CHANGELOG lists what the new rule no longer matches."
     }
   ]
 }

@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.349](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.349)** (2026-10-12) — a Java constructor reached only by super(...) is no longer reported as having no caller
 - **[v1.108.348](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.348)** (2026-10-12) — a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
 - **[v1.108.347](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.347)** (2026-10-12) — a Rust function called only inside a macro is no longer reported as having no caller
 - **[v1.108.346](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.346)** (2026-10-12) — a call through a receiver records the method, never the receiver
-- **[v1.108.345](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.345)** (2026-10-11) — a name that starts or ends in a punctuation mark is matched where it is used
 <!-- WHATSNEW:END -->
 
 ---
