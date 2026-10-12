@@ -2421,3 +2421,13 @@ The 1.108.344 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.344 count, verbatim:
 
 - ⚠ Prior (1.108.344): 15809 passed, 25 skipped, **0 failed** (15834 total).
+
+## Current State rotation (2026-10-12, release 1.108.348)
+
+The 1.108.345 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.345):** **A name that starts or ends in a mark is matched as a token** (L-154): `word_rule.py` (Key Files). ⚠ Not a superset of the old rule; limits in L-163. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.345 count, verbatim:
+
+- ⚠ Prior (1.108.345): 16024 passed, 25 skipped, **0 failed** (16049 total).

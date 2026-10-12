@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.348] - 2026-10-12 - a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
+
 ### Fixed - a Go, Java, C#, Rust or Ruby function called only from another file was reported as having no caller (LEDGER L-165)
 
 `get_dead_code_v2` looked for a caller of a function in two places: the function's own file,

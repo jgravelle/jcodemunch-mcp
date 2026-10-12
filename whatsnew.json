@@ -1,6 +1,12 @@
 {
-  "current": "1.108.347",
+  "current": "1.108.348",
   "entries": [
+    {
+      "version": "1.108.348",
+      "date": "2026-10-12",
+      "title": "a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller",
+      "summary": "`get_dead_code_v2` looked for a caller in a function's own file and in the files that import it. In Go, Java, C#, Rust and Ruby a file calls another with no import between them, so a function called only from another file of its package, namespace or crate was reported with no caller. A function of such a language now has a caller when any symbol of the same language records a call of its name. Python, JavaScript and TypeScript are unchanged. The match is by name, so an uncalled function can hide behind any call of its name, a library method's included; the CHANGELOG lists the limits."
+    },
     {
       "version": "1.108.347",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-11",
       "title": "a name that starts or ends in a punctuation mark is matched where it is used",
       "summary": "A name that ends or starts in a punctuation mark (Ruby and Elixir `valid?` and `save!`, Clojure `empty?` and `-main`) was never matched where it is used: every tool that asks whether text names a symbol wrapped the name in word boundaries, and a word boundary beside a mark exists only when a word character is on its other side. `get_dead_code_v2` reported such a function with no caller wherever its evidence was text, `get_blast_radius` did not find its uses, and the rename plan in `plan_refactoring` skipped them. The rule is one module now and each side of a name is decided by the name's own first or last character; a name with a word character at both ends is matched exactly as before. The CHANGELOG lists what the new rule no longer matches."
-    },
-    {
-      "version": "1.108.344",
-      "date": "2026-10-11",
-      "title": "dead code: a caller in another file is found without an import edge",
-      "summary": "`get_dead_code_v2` no longer reports a function as having no caller when its only caller is in another file the import graph does not join to it. For a language that records no call reference the tool read the function's own file and its importers; a Clojure `:require`, an Elixir `alias`, an Erlang remote call, a Bash `source` and two C files sharing a header give the graph no such edge. A function still without a caller is now asked of every other text-read code file. The trade is toward not reporting: a function nothing calls is no longer reported when another code file names it in a comment, an Elixir `@spec`, an Erlang `-export` or a doc comment above a C prototype. The CHANGELOG lists every measured case in both directions."
     }
   ]
 }
