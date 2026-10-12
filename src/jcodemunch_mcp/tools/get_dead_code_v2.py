@@ -28,6 +28,7 @@ from ._call_graph import (
     _word_match,
     adjacent_word_pairs,
     build_symbols_by_file,
+    constructors_as_their_classes,
     is_one_word,
     words_of,
 )
@@ -381,6 +382,7 @@ def _sweep_module_level_callers(
     name: str,
     rev: dict[str, list[str]],
     callee_has_caller: set[str],
+    symbols=None,
 ) -> None:
     """Add callers that the per-symbol AST call index cannot record.
 
@@ -392,7 +394,8 @@ def _sweep_module_level_callers(
     pass left without a caller, so a repo whose callers all resolve reads no
     file contents at all.
 
-    Mutates ``callee_has_caller`` in place. Only ever adds.
+    Mutates ``callee_has_caller`` in place. Only ever adds. *symbols* is what is
+    asked about, every symbol of the index when not given.
 
     ⚠ Disclosed residual: this matches text, not calls, so a bare mention of the
     name at module level (an ``__all__`` entry, a decorator line above a
@@ -460,7 +463,7 @@ def _sweep_module_level_callers(
             )
         return residue_names_cache[file_path]
 
-    for sym in index.symbols:
+    for sym in (index.symbols if symbols is None else symbols):
         if sym.get("kind") not in ("function", "method"):
             continue
         sid = sym.get("id", "")
@@ -831,12 +834,14 @@ def _sweep_other_text_files(index, text: _TextCallers, text_files: set[str], cal
 def _text_fallback_callers(
     index, store, owner: str, name: str, rev: dict[str, list[str]],
     text: Optional["_TextCallers"] = None,
+    symbols=None,
 ) -> set[str]:
     """Ids of the functions and methods some text names outside their own lines.
 
     The answer when the index holds no call reference at all: every file is
     read through ``_TextCallers``, the symbol's own file first, then each file
-    that imports it. Pass *text* to learn afterwards which files were read.
+    that imports it. Pass *text* to learn afterwards which files were read, and
+    *symbols* to ask about something other than every symbol of the index.
 
     ⚠ A file listed as its OWN importer is read as the symbol's own file (the
     symbol's lines excluded) both times; the loop this replaced read it
@@ -846,7 +851,7 @@ def _text_fallback_callers(
     callee_has_caller: set[str] = set()
     if text is None:
         text = _TextCallers(store, owner, name)
-    for sym in index.symbols:
+    for sym in (index.symbols if symbols is None else symbols):
         if sym.get("kind") not in ("function", "method"):
             continue
         sym_file = sym.get("file", "")
@@ -858,6 +863,46 @@ def _text_fallback_callers(
                 callee_has_caller.add(sym["id"])
                 break
     return callee_has_caller
+
+
+def _mark_callers_from_references(
+    symbols,
+    rev: dict[str, list[str]],
+    called_names_by_file: dict[str, set[str]],
+    text_files: set[str],
+    text_callers: "_TextCallers",
+    callee_has_caller: set[str],
+) -> None:
+    """Add each of *symbols* that a call reference names, in its own file or an importer.
+
+    A caller file whose language records no call in this index is read as
+    text instead. Mutates ``callee_has_caller`` in place. Only ever adds.
+    """
+    for sym in symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sym_file = sym.get("file", "")
+        sym_name = sym.get("name", "")
+        if not sym_name or not sym_file:
+            continue
+        # Check the symbol's own file (intra-file calls) and any importing
+        # file. Same-file callers were missed pre-1.80.10, which produced
+        # false positives in nested-root TS monorepos where a function is
+        # defined and called within the same module.
+        search_files = (sym_file, *rev.get(sym_file, ()))
+        for caller_file in search_files:
+            if caller_file in text_files:
+                # ⚠ Which path ran used to be one repository-wide test,
+                # so one Python call reference anywhere left a Clojure
+                # function called inside another with no evidence at
+                # all, reported `no_callers` (#409's flip, one level
+                # down). The choice is per caller file now.
+                hit = text_callers.names_caller(sym, caller_file)
+            else:
+                hit = sym_name in called_names_by_file.get(caller_file, set())
+            if hit:
+                callee_has_caller.add(sym["id"])
+                break
 
 
 def get_dead_code_v2(
@@ -1060,6 +1105,7 @@ def get_dead_code_v2(
     # differs from the call-reference path alone.
     text_files: set[str] = set()
     text_callers = _TextCallers(store, owner, name)
+    class_rows = constructors_as_their_classes(index.symbols)
     if callers_by_name:
         text_files = _files_read_as_text(index)
         # Fast path: use pre-computed AST call_references index
@@ -1067,31 +1113,9 @@ def get_dead_code_v2(
         called_names_by_file: dict[str, set[str]] = {}
         for (caller_file, called_name) in callers_by_name:
             called_names_by_file.setdefault(caller_file, set()).add(called_name)
-        for sym in index.symbols:
-            if sym.get("kind") not in ("function", "method"):
-                continue
-            sym_file = sym.get("file", "")
-            sym_name = sym.get("name", "")
-            if not sym_name or not sym_file:
-                continue
-            # Check the symbol's own file (intra-file calls) and any importing
-            # file. Same-file callers were missed pre-1.80.10, which produced
-            # false positives in nested-root TS monorepos where a function is
-            # defined and called within the same module.
-            search_files = (sym_file, *rev.get(sym_file, ()))
-            for caller_file in search_files:
-                if caller_file in text_files:
-                    # ⚠ Which path ran used to be one repository-wide test,
-                    # so one Python call reference anywhere left a Clojure
-                    # function called inside another with no evidence at
-                    # all, reported `no_callers` (#409's flip, one level
-                    # down). The choice is per caller file now.
-                    hit = text_callers.names_caller(sym, caller_file)
-                else:
-                    hit = sym_name in called_names_by_file.get(caller_file, set())
-                if hit:
-                    callee_has_caller.add(sym["id"])
-                    break
+        _mark_callers_from_references(
+            index.symbols, rev, called_names_by_file, text_files, text_callers, callee_has_caller
+        )
         # Sweep what the AST index structurally cannot see (#409).
         # ``call_references`` are recorded PER SYMBOL, so a call written at
         # module level belongs to no symbol and never enters ``callers_by_name``
@@ -1108,9 +1132,21 @@ def get_dead_code_v2(
         )
         # A language whose files call each other with no import (L-165).
         _sweep_callers_that_need_no_import(index, callee_has_caller)
+        # A constructor named with a fixed word is called by creating its
+        # class, never by that word (L-167). Asked the two questions above,
+        # of the class.
+        _mark_callers_from_references(
+            class_rows, rev, called_names_by_file, text_files, text_callers, callee_has_caller
+        )
+        _sweep_module_level_callers(
+            index, store, owner, name, rev, callee_has_caller, symbols=class_rows
+        )
     else:
         # Fallback: text heuristic, one pass per file (LEDGER L-150).
         callee_has_caller = _text_fallback_callers(index, store, owner, name, rev, text_callers)
+        callee_has_caller |= _text_fallback_callers(
+            index, store, owner, name, rev, text_callers, symbols=class_rows
+        )
         # No language records a call here, so every file with a symbol is read as text.
         text_files = _files_read_as_text(index)
     # A text-read function still without a caller may be called from a file
@@ -1423,6 +1459,11 @@ def _call_graph_only_dead_code(
     # This mode has no import graph, so another file is reached only this way (L-157).
     elsewhere = _CallersElsewhere(index, text_callers, _text_files_that_can_call(index, text_files))
 
+    # A fixed-word constructor is called by creating its class (L-167).
+    class_rows: dict[str, list[dict]] = {}
+    for row in constructors_as_their_classes(index.symbols):
+        class_rows.setdefault(row["id"], []).append(row)
+
     dead_symbols: list[dict] = []
     seen: set[str] = set()
     total_analysed = 0
@@ -1450,6 +1491,15 @@ def _call_graph_only_dead_code(
             continue
         if sym_file in text_files and (
             text_callers.names_caller(sym, sym_file) or elsewhere.names_caller(sym)
+        ):
+            continue
+        if any(
+            row["name"] in called_names
+            or (
+                row["file"] in text_files
+                and (text_callers.names_caller(row, row["file"]) or elsewhere.names_caller(row))
+            )
+            for row in class_rows.get(sid, ())
         ):
             continue
         seen.add(sid)

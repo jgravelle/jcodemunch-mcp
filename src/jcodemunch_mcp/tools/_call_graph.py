@@ -399,6 +399,81 @@ LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT: frozenset[str] = frozenset(
     {"go", "java", "csharp", "rust", "ruby", "kotlin", "swift", "php"}
 )
 
+#: The names a language gives a constructor, where that name is a fixed word
+#: nothing ever calls: ``T()`` records a call of ``T`` and ``new K()`` a call
+#: of ``K``, so a search for a caller of ``__init__`` or ``constructor`` finds
+#: none however often the class is created (LEDGER L-167).
+#:
+#: ⚠ A language belongs here only when creating a class RECORDS a call of the
+#: class's name. Ruby's ``initialize`` is a fixed word too and is left out:
+#: ``T.new(1)`` records ``new``, so there is no call of ``T`` to count (L-169).
+CONSTRUCTOR_WORDS: dict[str, frozenset[str]] = {
+    "python": frozenset({"__init__", "__new__"}),
+    "javascript": frozenset({"constructor"}),
+    "typescript": frozenset({"constructor"}),
+    "tsx": frozenset({"constructor"}),
+}
+
+#: Languages whose classes extend each other (a ``.ts`` class extends a ``.js`` one).
+_CLASS_FAMILY: dict[str, str] = {"python": "python", "javascript": "js", "typescript": "js", "tsx": "js"}
+
+
+def constructors_as_their_classes(symbols) -> list[dict]:
+    """Each fixed-word constructor, once per class whose creation runs it.
+
+    A row is the CLASS's symbol (its name, file and lines) carrying the
+    CONSTRUCTOR's id and kind. Asking "does this function have a caller" of
+    such a row asks whether the class is created, by whatever rule the asker
+    applies to a function; an answer of yes is filed under the constructor.
+
+    A class that is created runs the constructor it inherits, and a subclass's
+    own constructor is taken to call up, so a constructor gets a row for its
+    own class and for every descendant.
+
+    ⚠ Descendants are joined by NAME within one language family, from the
+    bases ``get_class_hierarchy._parse_bases`` reads off the signature. Two
+    classes of one name are both taken as the base. Toward not reporting.
+    A base written through a module or a namespace (``a.Base``) is not read
+    there, so it joins nothing (L-169).
+    ⚠ A subclass constructor that never calls up still counts for its
+    ancestors (JavaScript requires the call; Python does not).
+    """
+    from .get_class_hierarchy import _parse_bases  # noqa: PLC0415  (it imports nothing of ours)
+
+    classes_by_id: dict[str, dict] = {}
+    children: dict[tuple[str, str], list[dict]] = {}
+    for sym in symbols:
+        if sym.get("kind") != "class":
+            continue
+        family = _CLASS_FAMILY.get(sym.get("language") or "")
+        if family is None or not sym.get("id") or not sym.get("name"):
+            continue
+        classes_by_id[sym["id"]] = sym
+        for base in _parse_bases(sym.get("signature") or ""):
+            children.setdefault((family, base), []).append(sym)
+    if not classes_by_id:
+        return []
+    rows: list[dict] = []
+    for sym in symbols:
+        if sym.get("kind") != "method" or not sym.get("id"):
+            continue
+        if sym.get("name") not in CONSTRUCTOR_WORDS.get(sym.get("language") or "", ()):
+            continue
+        own = classes_by_id.get(sym.get("parent") or "")
+        if own is None:
+            continue
+        family = _CLASS_FAMILY[own.get("language") or ""]
+        seen: set[str] = set()
+        pending = [own]
+        while pending:
+            cls = pending.pop()
+            if cls["id"] in seen:
+                continue
+            seen.add(cls["id"])
+            rows.append({**cls, "id": sym["id"], "kind": "method"})
+            pending.extend(children.get((family, cls["name"]), ()))
+    return rows
+
 def _callers_from_references(
     index: "CodeIndex",
     sym: dict,
