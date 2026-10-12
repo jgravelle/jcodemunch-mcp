@@ -23,8 +23,10 @@ Measured through `get_dead_code_v2` on pinned clones, read and parsed only
 named `__init__` carried `no_callers` before and 13 after, of 455 rows before and 426 after; on
 zod, 13 named `constructor` before and 4 after, of 853 and 844. Every row that left is a
 constructor, and no row is newly reported on either, on express or on sinatra. The cost does
-not grow with a shared name: 800 files, each with its own `Base` and five subclasses, take
-1.35 s before and 1.36 s after (`evidence/cost_l167.txt`). `get_repo_health` reads this tool,
+not grow with a shared name: 800 files, each with its own `Base` and five subclasses that are
+all created, take 1.35 s before and 1.36 s after (`evidence/cost_l167.txt`). Where the classes
+are never created the files are read a second time, and the reviewer measured the same 800
+files at 1.47 s before and 3.38 s after. `get_repo_health` reads this tool,
 so its dead-code share falls, and its grade can rise, by the constructors no longer reported.
 
 What this does not do:
@@ -35,8 +37,9 @@ What this does not do:
   (`ONE = T()`). Nothing is: a function called there reads `no_callers` too, on both trees
   (`evidence/shapes_l167.txt`). One of the 13 left on `src/` is this.
 - **A subclass counts only where its base is written as a bare name**, and only from the
-  base's file or a file that imports it. `class Kid(a.Base)`, `class Kid extends ns.Base` and a
-  base reached through a re-export join nothing.
+  base's file or a file that imports it. `class Kid(a.Base)` and `class Kid extends ns.Base`
+  join nothing. In an index with no import at all, a subclass counts in its base's own file
+  only, so script files that share globals leave the base's constructor reported.
 - **A class created by something that is handed it is not seen**: ten of the 13 left on `src/`
   are context providers a registry creates.
 - **Toward not reporting, by design**: two classes of one name in one file are both taken as

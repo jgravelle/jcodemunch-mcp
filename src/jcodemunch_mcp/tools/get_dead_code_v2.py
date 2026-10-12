@@ -1460,8 +1460,10 @@ def _call_graph_only_dead_code(
     elsewhere = _CallersElsewhere(index, text_callers, _text_files_that_can_call(index, text_files))
 
     # A fixed-word constructor is called by creating its class (L-167). This
-    # mode has no import graph, and these languages extend only what they
-    # import, so a subclass counts in its base's own file.
+    # mode has no import graph to bound the join, so a subclass counts in its
+    # base's own file only. ⚠ Script files that share globals with no import
+    # extend across files; a subclass created there leaves its base's
+    # constructor reported (L-169).
     class_rows: dict[str, list[dict]] = {}
     for row in constructors_as_their_classes(index.symbols, {}):
         class_rows.setdefault(row["id"], []).append(row)
