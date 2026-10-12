@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.351] - 2026-10-12 - the constructor of a class that is created is no longer reported as having no caller
+
 ### Fixed - the constructor of a class that is created was reported as having no caller (LEDGER L-167)
 
 Python, JavaScript and TypeScript name a constructor with a fixed word, and nothing calls it by

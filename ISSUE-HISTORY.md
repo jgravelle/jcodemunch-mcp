@@ -2451,3 +2451,13 @@ The 1.108.347 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.347 count, verbatim:
 
 - ⚠ Prior (1.108.347): 16111 passed, 25 skipped, **0 failed** (16136 total).
+
+## Current State rotation (2026-10-12, release 1.108.351)
+
+The 1.108.348 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.348):** **`get_dead_code_v2` counts a call from another file where the language needs no import** (L-165): `LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT`. ⚠⚠ **Python, JS and TS stay out.** ⚠ By name: hides an uncalled function behind any call of its name. Residue L-166. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.348 count, verbatim:
+
+- ⚠ Prior (1.108.348): 16128 passed, 25 skipped, **0 failed** (16153 total).

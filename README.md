@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.351](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.351)** (2026-10-12) — the constructor of a class that is created is no longer reported as having no caller
 - **[v1.108.350](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.350)** (2026-10-12) — a watched repo no longer stays stale after a commit, switch or pull
 - **[v1.108.349](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.349)** (2026-10-12) — a Java constructor reached only by super(...) is no longer reported as having no caller
 - **[v1.108.348](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.348)** (2026-10-12) — a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
-- **[v1.108.347](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.347)** (2026-10-12) — a Rust function called only inside a macro is no longer reported as having no caller
 <!-- WHATSNEW:END -->
 
 ---

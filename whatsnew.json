@@ -1,6 +1,12 @@
 {
-  "current": "1.108.350",
+  "current": "1.108.351",
   "entries": [
+    {
+      "version": "1.108.351",
+      "date": "2026-10-12",
+      "title": "the constructor of a class that is created is no longer reported as having no caller",
+      "summary": "`get_dead_code_v2` reported a Python `__init__` and a JavaScript or TypeScript `constructor` with no caller however often the class was created, because nothing calls a constructor by that word. Creating a class, or a subclass of it, now counts as a call of its constructor. On this repository's own source 29 of 42 such rows are gone, and on zod 9 of 13. Ruby's `initialize` is not covered yet; the CHANGELOG lists that and the other limits. `get_repo_health` reads this tool, so its dead-code share can fall for Python and JS/TS repositories."
+    },
     {
       "version": "1.108.350",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller",
       "summary": "`get_dead_code_v2` looked for a caller in a function's own file and in the files that import it. In Go, Java, C#, Rust and Ruby a file calls another with no import between them, so a function called only from another file of its package, namespace or crate was reported with no caller. A function of such a language now has a caller when any symbol of the same language records a call of its name. Python, JavaScript and TypeScript are unchanged. The match is by name, so an uncalled function can hide behind any call of its name, a library method's included; the CHANGELOG lists the limits."
-    },
-    {
-      "version": "1.108.347",
-      "date": "2026-10-12",
-      "title": "a Rust function called only inside a macro is no longer reported as having no caller",
-      "summary": "The Rust grammar leaves a macro's arguments as tokens, so a function called only inside `assert_eq!`, `vec!`, `println!` or a test macro had no caller on record, and `get_dead_code_v2` reported it with no caller. Rust tests are written almost entirely inside such macros. The parser now reads those tokens, and the body of each `macro_rules!` arm: a name directly followed by a parenthesised group is a call of that name. Every tool that reads call references inherits it. An existing index is re-parsed once. Tokens cannot tell a call from a pattern, so `Some(y)` inside a macro is recorded too; the CHANGELOG lists the limits."
     }
   ]
 }
