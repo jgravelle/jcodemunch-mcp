@@ -384,17 +384,37 @@ _DATA_KINDS = frozenset(STATE_KINDS)
 #: A quoted string that opens and closes on one line. A word inside one is
 #: data, not a name the code uses: without this a constant holding the text
 #: ``"name"`` counted as a use of every method called ``name``.
-_QUOTED_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"|'(?:[^'\\\n]|\\.)*'")
+_DOUBLE_QUOTED_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"")
+_QUOTED_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"" + "|" + r"'(?:[^'\\\n]|\\.)*'")
+
+#: Languages that write a string between single quotes. Anywhere else an
+#: apostrophe is something shorter (a Rust lifetime, a character), and pairing
+#: two of them removed the code between: ``static ONE: &'static str =
+#: helper('a');`` lost its call (review of L-169).
+_SINGLE_QUOTE_STRING_LANGUAGES = frozenset({
+    "python", "javascript", "typescript", "tsx", "vue", "ruby", "php", "perl",
+    "lua", "luau", "dart", "bash", "groovy", "gdscript", "r", "sql",
+})
 
 
 def _without_declared_name(line: str, declared: str) -> str:
-    """*line* with the first whole-word occurrence of *declared* blanked.
+    """*line* with the first occurrence of *declared* blanked.
 
     The line that declares ``size`` names it once as the thing declared. Left
     in, every field would count as a use of the method that shares its name.
+    Once only: in ``static int size = size();`` the second is a call.
+
+    A name that is not a plain identifier (Ruby's ``@@after_reload``) is
+    blanked where it is written, sigil and all; left in, the word behind
+    the sigil counted as a use of the method ``after_reload``.
     """
-    if not declared or _IDENT_ONLY_RE.fullmatch(declared) is None:
+    if not declared:
         return line
+    if _IDENT_ONLY_RE.fullmatch(declared) is None:
+        at = line.find(declared)
+        if at < 0:
+            return line
+        return line[:at] + " " * len(declared) + line[at + len(declared):]
     for match in _IDENT_RE.finditer(line):
         if match.group(0) == declared:
             return line[: match.start()] + " " * len(declared) + line[match.end():]
@@ -470,8 +490,11 @@ def _sweep_module_level_callers(
         ⚠ A function written inside an initialiser that is NOT a symbol of
         its own (an unnamed handler in a table) is read as text with it:
         nothing else reads it, and what it calls was invisible before.
-        ⚠ Text, not calls: a comment or a string over several lines inside
-        an initialiser still counts. Toward not reporting.
+        ⚠ Text, not calls. On a kept line every word counts: a comment, a
+        string over several lines, an object key or keyword argument
+        (``size: 3``, ``name=1``), a type annotation (``x: T | None``) and a
+        modifier (``readonly``) all name a function or a class of that
+        word. Toward not reporting; LEDGER L-170.
         """
         if file_path in residue_text_cache:
             return residue_text_cache[file_path]
@@ -481,6 +504,7 @@ def _sweep_module_level_callers(
             covered = bytearray(len(lines))
             in_function = bytearray(len(lines))
             data: list[tuple[int, int, str]] = []
+            quoted = _DOUBLE_QUOTED_RE
             for s in symbols_by_file.get(file_path, ()):
                 line = s.get("line") or 0
                 if line <= 0:
@@ -494,6 +518,8 @@ def _sweep_module_level_callers(
                 if end <= start:
                     continue
                 kind = s.get("kind")
+                if (s.get("language") or "") in _SINGLE_QUOTE_STRING_LANGUAGES:
+                    quoted = _QUOTED_RE
                 if kind in _DATA_KINDS:
                     data.append((start, end, s.get("name") or ""))
                     continue
@@ -509,7 +535,7 @@ def _sweep_module_level_callers(
                     if not kept[i] and not in_function[i]:
                         kept[i] = 1
                         covered[i] = 0
-                        lines[i] = _QUOTED_RE.sub(" ", lines[i])
+                        lines[i] = quoted.sub(" ", lines[i])
             content = "\n".join(
                 ln for i, ln in enumerate(lines) if not covered[i]
             )

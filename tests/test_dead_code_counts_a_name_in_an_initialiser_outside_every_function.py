@@ -207,6 +207,65 @@ def test_a_field_declared_on_a_line_a_method_holds_is_not_read_as_text(tmp_path)
     assert "no_callers" not in rows.get(("k.ts", "helper"), []), rows
 
 
+def test_a_method_written_inside_a_constant_is_not_read_as_text(tmp_path):
+    """The constant's lines are read AROUND the method it holds (review of L-169).
+
+    `b.size` reads a property. With the method's lines read as text, zod lost
+    107 more rows (`evidence/guard_l169.txt`).
+    """
+    files = {
+        "k.js": "class Box {\n  size() { return 1; }\n}\n"
+                "function helper() { return 1; }\n"
+                "const T = {\n  run(b) {\n    return b.size;\n  },\n  other: helper,\n};\n"
+                "function f() { return 1; }\nfunction g() { return f(); }\ng();\n",
+    }
+    rows = _signals(tmp_path, {**PYTHON_PAIR, **files})
+    assert "no_callers" in rows[("k.js", "Box.size")], rows
+    assert "no_callers" not in rows.get(("k.js", "helper"), []), rows
+
+
+def test_a_ruby_class_variable_does_not_count_as_a_use_of_the_method_behind_its_sigil(tmp_path):
+    """`@@after_reload = []` declares `@@after_reload`. It is not a call of `after_reload`."""
+    files = {
+        "r.rb": "class Reloader\n  @@after_reload = []\n\n  def after_reload\n    1\n  end\n\n"
+                "  def f\n    1\n  end\n\n  def g\n    f()\n  end\nend\n",
+    }
+    rows = _signals(tmp_path, {**PYTHON_PAIR, **files})
+    assert "no_callers" in rows[("r.rb", "Reloader.after_reload")], rows
+
+
+def test_the_declared_name_is_blanked_once(tmp_path):
+    """In `static int size = size();` the second `size` is a call."""
+    files = {
+        "A.java": "package p;\n\nclass A {\n  static int size() { return 1; }\n  static int size = size();\n"
+                  "  static int f() { return 1; }\n  static int g() { return f(); }\n}\n",
+    }
+    rows = _signals(tmp_path, {**PYTHON_PAIR, **files})
+    assert "no_callers" not in rows.get(("A.java", "A.size"), []), rows
+
+
+def test_a_quoted_word_on_a_later_line_of_a_table_is_not_a_use(tmp_path):
+    files = {
+        "a.py": "def helper():\n    return 1\n\ndef listed():\n    return 2\n\n"
+                "NAMES = [\n    \"helper\",\n    listed,\n]\n",
+    }
+    rows = _signals(tmp_path, {**PYTHON_PAIR, **files})
+    assert "no_callers" in rows[("a.py", "helper")], rows
+    assert "no_callers" not in rows.get(("a.py", "listed"), []), rows
+
+
+def test_a_rust_apostrophe_is_not_a_string(tmp_path):
+    """A lifetime and a character on one line are not a pair of quotes around the call between them."""
+    files = {
+        "a.rs": "const fn helper(_c: char) -> &'static str { \"x\" }\n\nfn unused() -> i32 { 2 }\n\n"
+                "static ONE: &'static str = helper('a');\n\n"
+                "const fn f() -> i32 { 1 }\n\nconst fn g() -> i32 { f() }\n\nstatic TWO: i32 = g();\n",
+    }
+    rows = _signals(tmp_path, {**PYTHON_PAIR, **files})
+    assert "no_callers" not in rows.get(("a.rs", "helper"), []), rows
+    assert "no_callers" in rows[("a.rs", "unused")], rows
+
+
 def test_a_name_inside_another_function_is_still_not_read_as_code_outside_every_function(tmp_path):
     """The text read is what lies outside functions; a function body is answered by its call references."""
     files = {

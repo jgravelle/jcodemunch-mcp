@@ -1,7 +1,7 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.108.351 — **Creating a class counts as a call of its constructor** (L-167): `constructors_as_their_classes` hands `get_dead_code_v2` each `__init__`/`constructor` as its class. ⚠⚠ **A subclass joins its base only from the base's file or an importer** (by name across the index was quadratic). ⚠ Ruby not covered: L-169. Full text: `CHANGELOG.md`.
+- **Version:** 1.108.351 — **Creating a class counts as a call of its constructor** (L-167): `constructors_as_their_classes` hands `get_dead_code_v2` each `__init__`/`constructor` as its class. ⚠⚠ **A subclass joins its base only from the base's file or an importer** (by name across the index was quadratic). ⚠ Ruby not covered: L-170. Full text: `CHANGELOG.md`.
 - **Prior (1.108.350):** **The watcher follows a HEAD move that changed no file** (#1040): `_reconcile_head_move` runs the ordinary incremental index. ⚠⚠ **Never a bare SHA rewrite**: it marks unread files `fresh`. ⚠ Reads under `.git` are bounded and in `SECURITY.md`. Residue L-168. Full text: `CHANGELOG.md`.
 - **Prior (1.108.349):** **A Java `super(...)` records the superclass's constructor** (L-166): `_record_super_constructor_calls` reads the class node DOWN. `PARSER_GENERATION` 14. ⚠ `__init__`, `constructor` and `initialize` still read `no_callers`: L-167. Full text: `CHANGELOG.md`.
 - **Older releases (1.108.348 and earlier):** see `CHANGELOG.md` (1.108.303-.310, 1.108.314-.315, 1.108.316 through 1.108.348 in `ISSUE-HISTORY.md`). The 1.108.182 entry ("a stall has a name and a ceiling", #375) and the 1.108.177-.181 #377 hardening arc are there in full.
