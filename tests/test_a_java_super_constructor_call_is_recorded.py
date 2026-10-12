@@ -78,6 +78,22 @@ CASES = {
         "  static class Kid extends Base {\n    Kid() { super(2); }\n  }\n}\n",
         "Outer", [["Top"]],
     ),
+    "a block comment before the superclass": (
+        "class Kid extends /* why */ Base {\n  Kid() { super(2); }\n}\n",
+        "Kid", [["Base"]],
+    ),
+    "a line comment before the superclass": (
+        "class Kid extends // why\n    Base {\n  Kid() { super(2); }\n}\n",
+        "Kid", [["Base"]],
+    ),
+    "an annotated superclass": (
+        "class Kid extends @Ann Base {\n  Kid() { super(2); }\n}\n",
+        "Kid", [["Base"]],
+    ),
+    "an annotated qualified generic superclass": (
+        "class Kid extends pkg.@Ann Base<String> {\n  Kid() { super(2); }\n}\n",
+        "Kid", [["Base"]],
+    ),
     "implements beside extends": (
         "class Kid extends Base implements Runnable, Other {\n  Kid() { super(2); }\n  public void run() {}\n}\n",
         "Kid", [["Base"]],
@@ -106,6 +122,16 @@ LOOKALIKES = {
     "this in a constructor": (
         "class Kid extends Base {\n  Kid() { this(1); }\n  Kid(int x) { helper(x); }\n}\n", "Kid", [[], ["helper"]],
     ),
+    # Since JDK 25 statements may come before the call. The grammar here parses
+    # that `super` as an error node; nothing is recorded for it (L-167).
+    "a statement before the super call": (
+        "class Kid extends Base {\n  Kid(int x) { check(x); super(x); }\n}\n", "Kid", [["check"]],
+    ),
+    # A class that extends another of its own name: the recorded name is the
+    # constructor's own, which is dropped as recursion (L-167).
+    "a superclass of the class's own name": (
+        "class Base extends other.Base {\n  Base() { super(1); }\n}\n", "Base", [[]],
+    ),
     "an enum constructor": (
         "enum Kid {\n  A(1);\n  Kid(int x) { helper(x); }\n}\n", "Kid", [["helper"]],
     ),
@@ -133,7 +159,7 @@ def test_a_method_records_nothing_for_its_class_superclass():
 
 
 def test_only_java_reads_a_class_declaration_for_calls():
-    """`class_declaration` is a node of five grammars here; only Java's row asks for it."""
+    """`class_declaration` is a node of several grammars here; only Java's row asks for it."""
     holders = sorted(lang for lang, types in _CALL_NODE_TYPES.items() if "class_declaration" in types)
     assert holders == ["java"]
 

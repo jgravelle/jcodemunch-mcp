@@ -162,6 +162,7 @@ _CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
     "member_binding_expression": "name",     # C#: the `.M` of a?.M
     "conditional_access_expression": None,   # C#: a?.M
     "scoped_type_identifier": None,          # Java: new pkg.Type()
+    "annotated_type": None,                  # Java: extends @Ann Type
 }
 
 #: A node that wraps the callee: the field that holds what it wraps, `None` for
@@ -427,6 +428,15 @@ def _record_macro_calls(macro, calls: list[tuple[int, str]]) -> None:
     calls.extend(found)
 
 
+def _java_first_named(node):
+    """The first named child that is not a comment. Java's are `line_comment` and `block_comment`."""
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.is_named and not child.type.endswith("comment"):
+            return child
+    return None
+
+
 def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
     """Append a Java class's `super(...)` calls to ``calls``, under the superclass's name.
 
@@ -437,7 +447,9 @@ def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple
     only ever subclassed had no caller on record (LEDGER L-166).
 
     Read from the class node DOWN: its direct constructors, and the first
-    statement of each, which is the only place the language allows the call.
+    statement of each. ⚠ Since JDK 25 statements may come before the call
+    (``Kid(int x) { check(x); super(x); }``); the grammar here parses that
+    ``super`` as an error node, so it records nothing (L-167).
     ⚠ Never from the call node up. Asking a node for its parent costs the depth
     of the tree, once per call (L-164).
     ⚠ ``this(...)`` is left out. It calls a constructor of the enclosing one's
@@ -449,7 +461,7 @@ def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple
     body = node.child_by_field_name("body")
     if superclass is None or body is None:
         return
-    name = _extract_call_name(_callee_first_named(superclass), source_bytes)
+    name = _extract_call_name(_java_first_named(superclass), source_bytes)
     if not name:
         return
     for member in body.children:
@@ -457,13 +469,7 @@ def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple
         if member.type != "constructor_declaration":
             continue
         constructor_body = member.child_by_field_name("body")
-        first = None
-        for statement in (constructor_body.children if constructor_body is not None else ()):
-            parse_budget.checkpoint()
-            # Java's comments are `line_comment` and `block_comment`.
-            if statement.is_named and not statement.type.endswith("comment"):
-                first = statement
-                break
+        first = _java_first_named(constructor_body) if constructor_body is not None else None
         if first is None or first.type != "explicit_constructor_invocation":
             continue
         called = first.child_by_field_name("constructor")

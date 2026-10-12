@@ -12,14 +12,15 @@ subclassed, which is every abstract class, had no caller on record, and `get_dea
 reported it with `no_callers`. Found fixing L-159.
 
 A constructor's `super(...)` now records the name its class extends, whether that is written
-`Base`, `Base<T>` or `pkg.Base`, and whether the call is `super(x)` or `outer.super(x)`. The
-class is read downward, its constructors and the first statement of each, which is the only
-place the language allows the call.
+`Base`, `Base<T>`, `pkg.Base` or `@Ann Base`, and whether the call is `super(x)` or
+`outer.super(x)`. The class is read downward: its constructors, and the first statement of each.
 
 Measured through `get_dead_code_v2` on gson, a shallow clone read and parsed only
-(`evidence/measure_dead_l166.txt`, with its commit): 1701 distinct functions carried
-`no_callers` before and 1698 after. Three constructors are no longer reported and none is
-newly reported; `tests/fixtures` did not move. The fix is small.
+(`evidence/measure_dead_l166.txt`, with its commit): 1708 functions carried `no_callers` before
+and 1704 after. Four constructors in three test classes are no longer reported and none is
+newly reported; `tests/fixtures` did not move. The fix is small. The ledger row asked whether
+`super(...)` reaches any of the twenty-four gson functions 1.108.346 newly reported: it reaches
+none of them, and all twenty-four are still reported.
 
 What this does not do:
 
@@ -28,13 +29,17 @@ What this does not do:
   with `new` anywhere, every overload is cleared by name already.
 - **A superclass constructor called implicitly is not recorded.** A constructor with no
   explicit call runs the superclass's no-argument one; nothing is written, so nothing is read.
+- **A `super(...)` that follows other statements is not recorded.** JDK 25 allows
+  `Kid(int x) { check(x); super(x); }`; the grammar this release ships parses that `super` as an
+  error. L-167.
 - **Other languages' constructors are a larger gap and are not touched.** A Python `__init__`,
   a JavaScript or TypeScript `constructor` and a Ruby `initialize` are never called by their
-  own name, and each reads `no_callers`: 40 rows on this repository's `src/`, 13 on zod and 27
-  on sinatra. C# `: base(...)` and `: this(...)` record nothing. L-167.
+  own name, and each reads `no_callers`: 40 of the 451 reported functions on this repository's
+  `src/`, 13 of 853 on zod and 27 of 327 on sinatra. C# `: base(...)` and `: this(...)` record
+  nothing. L-167.
 - **An existing index is re-parsed once**: `PARSER_GENERATION` moves to 14.
 
-Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Ten reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.348] - 2026-10-12 - a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
 
@@ -87,7 +92,7 @@ What this does not do:
   same import-edge rule, and a by-name match there would list a caller of another function of
   that name. L-166.
 
-Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Ten reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.347] - 2026-10-12 - a Rust function called only inside a macro is no longer reported as having no caller
 
