@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.347](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.347)** (2026-10-12) — a Rust function called only inside a macro is no longer reported as having no caller
 - **[v1.108.346](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.346)** (2026-10-12) — a call through a receiver records the method, never the receiver
 - **[v1.108.345](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.345)** (2026-10-11) — a name that starts or ends in a punctuation mark is matched where it is used
 - **[v1.108.344](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.344)** (2026-10-11) — dead code: a caller in another file is found without an import edge
-- **[v1.108.343](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.343)** (2026-10-11) — dead code: a file is read as text wherever its language records no call
 <!-- WHATSNEW:END -->
 
 ---

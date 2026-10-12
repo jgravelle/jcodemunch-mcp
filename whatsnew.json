@@ -1,6 +1,12 @@
 {
-  "current": "1.108.346",
+  "current": "1.108.347",
   "entries": [
+    {
+      "version": "1.108.347",
+      "date": "2026-10-12",
+      "title": "a Rust function called only inside a macro is no longer reported as having no caller",
+      "summary": "The Rust grammar leaves a macro's arguments as tokens, so a function called only inside `assert_eq!`, `vec!`, `println!` or a test macro had no caller on record, and `get_dead_code_v2` reported it with no caller. Rust tests are written almost entirely inside such macros. The parser now reads those tokens, and the body of each `macro_rules!` arm: a name directly followed by a parenthesised group is a call of that name. Every tool that reads call references inherits it. An existing index is re-parsed once. Tokens cannot tell a call from a pattern, so `Some(y)` inside a macro is recorded too; the CHANGELOG lists the limits."
+    },
     {
       "version": "1.108.346",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-11",
       "title": "dead code: a caller in another file is found without an import edge",
       "summary": "`get_dead_code_v2` no longer reports a function as having no caller when its only caller is in another file the import graph does not join to it. For a language that records no call reference the tool read the function's own file and its importers; a Clojure `:require`, an Elixir `alias`, an Erlang remote call, a Bash `source` and two C files sharing a header give the graph no such edge. A function still without a caller is now asked of every other text-read code file. The trade is toward not reporting: a function nothing calls is no longer reported when another code file names it in a comment, an Elixir `@spec`, an Erlang `-export` or a doc comment above a C prototype. The CHANGELOG lists every measured case in both directions."
-    },
-    {
-      "version": "1.108.343",
-      "date": "2026-10-11",
-      "title": "dead code: a file is read as text wherever its language records no call",
-      "summary": "`get_dead_code_v2` no longer reports a called function as having no caller because its language records no call reference while another language in the repository does. It chose between call references and file text with one repository-wide question; the choice is now made per file, by what the index holds for that file's language. Measured on Clojure, Elixir, Erlang, PHP, C, Bash and Dart beside Python. When text was read for a caller the response says so in a new key, `callers_read_as_text`. Also in this release: the module-level sweep no longer searches a file's whole module-level text once per function whose name is not a plain identifier (a Clojure file of 8,000 functions went from 15.43 s to 0.18 s). Still reported: a caller in another file where the import graph holds no edge, and a name ending in `?` or `!`."
     }
   ]
 }

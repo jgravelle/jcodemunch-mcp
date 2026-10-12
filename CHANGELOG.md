@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.347] - 2026-10-12 - a Rust function called only inside a macro is no longer reported as having no caller
+
 ### Fixed - a Rust function called only inside a macro invocation was reported as having no caller (LEDGER L-164)
 
 The Rust grammar does not parse a macro's arguments. `assert_eq!(e(x), seq([y]))` reaches the

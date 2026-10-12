@@ -2411,3 +2411,13 @@ The 1.108.343 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.343 count, verbatim:
 
 - ⚠ Prior (1.108.343): 15775 passed, 25 skipped, **0 failed** (15800 total).
+
+## Current State rotation (2026-10-12, release 1.108.347)
+
+The 1.108.344 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.344):** **`get_dead_code_v2` asks every other text-read code file for a caller, import edge or not** (L-157): `_CallersElsewhere`. ⚠⚠ **The answer is kept per NAME**; per function it cost files times functions. ⚠ Weakest evidence in the tool, toward not reporting: limits in L-161. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.344 count, verbatim:
+
+- ⚠ Prior (1.108.344): 15809 passed, 25 skipped, **0 failed** (15834 total).
