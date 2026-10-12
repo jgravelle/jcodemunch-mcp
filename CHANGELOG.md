@@ -92,7 +92,7 @@ What this does not do:
   same import-edge rule, and a by-name match there would list a caller of another function of
   that name. L-166.
 
-Ten reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.347] - 2026-10-12 - a Rust function called only inside a macro is no longer reported as having no caller
 
