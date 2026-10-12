@@ -2391,3 +2391,13 @@ The 1.108.341 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.341 count, verbatim:
 
 - ⚠ Prior (1.108.341): 15415 passed, 25 skipped, **0 failed** (15440 total).
+
+## Current State rotation (2026-10-11, release 1.108.345)
+
+The 1.108.342 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.342):** **`get_dead_code_v2`'s text fallback reads a file once** (L-150): `FileWords` (`tools/_call_graph.py`) answers which lines name a word. ⚠⚠ **Never answer a per-symbol question there with a pass over a file's text.** Residue L-152. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.342 count, verbatim:
+
+- ⚠ Prior (1.108.342): 15614 passed, 25 skipped, **0 failed** (15639 total).

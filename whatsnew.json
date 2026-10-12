@@ -1,6 +1,12 @@
 {
-  "current": "1.108.344",
+  "current": "1.108.345",
   "entries": [
+    {
+      "version": "1.108.345",
+      "date": "2026-10-11",
+      "title": "a name that starts or ends in a punctuation mark is matched where it is used",
+      "summary": "A name that ends or starts in a punctuation mark (Ruby and Elixir `valid?` and `save!`, Clojure `empty?` and `-main`) was never matched where it is used: every tool that asks whether text names a symbol wrapped the name in word boundaries, and a word boundary beside a mark exists only when a word character is on its other side. `get_dead_code_v2` reported such a function with no caller wherever its evidence was text, `get_blast_radius` did not find its uses, and the rename plan in `plan_refactoring` skipped them. The rule is one module now and each side of a name is decided by the name's own first or last character; a name with a word character at both ends is matched exactly as before. The CHANGELOG lists what the new rule no longer matches."
+    },
     {
       "version": "1.108.344",
       "date": "2026-10-11",
@@ -18,12 +24,6 @@
       "date": "2026-10-11",
       "title": "the dead-code text fallback reads a file once",
       "summary": "`get_dead_code_v2` on an index that holds no call reference no longer costs time quadratic in the functions of one file. It decided whether each function had a caller by splitting the function's whole file, joining the lines outside it and searching the result, once per function. On one generated Python file the tool took 3.38 s at 2,872 functions, 13.68 s at 5,655 and 53.42 s at 11,109; the same three now take 0.05 s, 0.12 s and 0.22 s. Each file is read, split and tokenised once, and the answers are unchanged. The fallback's peak memory is higher (34.1 MB against 10.0 MB on this repository's source). A repository whose index holds any call reference never took this path."
-    },
-    {
-      "version": "1.108.341",
-      "date": "2026-10-11",
-      "title": "the index CLI chooses the index identity, and an existing directory is a local target",
-      "summary": "`jcodemunch-mcp index <path> --identity-mode local|git` chooses how a local path is keyed in the index store; the CLI always ran in `config` mode before. An explicit mode on a GitHub target is refused before any network call. A directory that exists is now a local target however it is spelled (`proj/`, `proj/sub`, `~/proj`), where the CLI sent those spellings to the GitHub indexer. That moves one command with no option: `index owner/repo` or `index github.com/owner/repo`, run where a directory of that relative name exists, now indexes the directory. `https://github.com/owner/repo` forces the remote. Requested by @sKlat-beep (#1017)."
     }
   ]
 }

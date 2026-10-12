@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.345] - 2026-10-11 - a name that starts or ends in a punctuation mark is matched where it is used
+
 ### Fixed - a name that starts or ends in a punctuation mark was never matched where it is used (LEDGER L-154)
 
 Every tool that asks "does this text name this symbol" used one rule: a word boundary, the

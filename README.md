@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.345](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.345)** (2026-10-11) — a name that starts or ends in a punctuation mark is matched where it is used
 - **[v1.108.344](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.344)** (2026-10-11) — dead code: a caller in another file is found without an import edge
 - **[v1.108.343](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.343)** (2026-10-11) — dead code: a file is read as text wherever its language records no call
 - **[v1.108.342](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.342)** (2026-10-11) — the dead-code text fallback reads a file once
-- **[v1.108.341](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.341)** (2026-10-11) — the index CLI chooses the index identity, and an existing directory is a local target
 <!-- WHATSNEW:END -->
 
 ---
