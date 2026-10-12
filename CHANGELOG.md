@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.350] - 2026-10-12 - a watched repo no longer stays stale after a commit, switch or pull
+
 ### Fixed - a watched repo stayed `stale` after a commit, switch or pull that changed no file (#1040)
 
 Reported by @randyhbh, with the mechanism. A repo is `fresh` when the index's stored `git_head`

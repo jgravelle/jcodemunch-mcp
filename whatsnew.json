@@ -1,6 +1,12 @@
 {
-  "current": "1.108.349",
+  "current": "1.108.350",
   "entries": [
+    {
+      "version": "1.108.350",
+      "date": "2026-10-12",
+      "title": "a watched repo no longer stays stale after a commit, switch or pull",
+      "summary": "With `watch-all` running, a commit, `git switch` or pull that changed no working-tree file left the index reading `stale`, because the watcher only acted on file events and none arrived. The watcher now checks where HEAD points once a second and, when it has moved, runs the ordinary incremental index, which refreshes the stored commit. The check reads a few small files under `.git` and starts no process; `SECURITY.md` discloses it. Reported by @randyhbh (#1040). Not run on macOS, the reporter's platform; the CHANGELOG lists the limits."
+    },
     {
       "version": "1.108.349",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a Rust function called only inside a macro is no longer reported as having no caller",
       "summary": "The Rust grammar leaves a macro's arguments as tokens, so a function called only inside `assert_eq!`, `vec!`, `println!` or a test macro had no caller on record, and `get_dead_code_v2` reported it with no caller. Rust tests are written almost entirely inside such macros. The parser now reads those tokens, and the body of each `macro_rules!` arm: a name directly followed by a parenthesised group is a call of that name. Every tool that reads call references inherits it. An existing index is re-parsed once. Tokens cannot tell a call from a pattern, so `Some(y)` inside a macro is recorded too; the CHANGELOG lists the limits."
-    },
-    {
-      "version": "1.108.346",
-      "date": "2026-10-12",
-      "title": "a call through a receiver records the method, never the receiver",
-      "summary": "For a call written through a receiver, `t.Recv()`, the parser recorded the receiver's name in Go, Java, Rust, Ruby and C#. So a method called only that way read as never called, and `get_dead_code_v2` reported it with no caller; a function that shared a name with a receiver read as called. The parser now reads each grammar's own callee and member fields, and a callee it does not know records nothing. Every tool that reads call references inherits it. An existing index is re-parsed once. Some functions that were found only by a shared name are reported now, a few of them live; the CHANGELOG lists the measured cases."
     }
   ]
 }

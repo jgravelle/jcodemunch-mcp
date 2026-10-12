@@ -2441,3 +2441,13 @@ The 1.108.346 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.346 count, verbatim:
 
 - ⚠ Prior (1.108.346): 16062 passed, 25 skipped, **0 failed** (16087 total).
+
+## Current State rotation (2026-10-12, release 1.108.350)
+
+The 1.108.347 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.347):** **A call inside a Rust macro invocation or `macro_rules!` body is recorded** (L-164): `_record_macro_calls`. ⚠⚠ **Each token is read ONCE, from the macro node down; never ask a node for its parent** (two versions were quadratic). `PARSER_GENERATION` 13. Residue L-165. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.347 count, verbatim:
+
+- ⚠ Prior (1.108.347): 16111 passed, 25 skipped, **0 failed** (16136 total).
