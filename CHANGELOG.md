@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.346] - 2026-10-12 - a call through a receiver records the method, never the receiver
+
 ### Fixed - a call through a receiver recorded the receiver's name, so the method read as never called (LEDGER L-159)
 
 For every call the parser records one name, and the tools that ask "who calls this" read those

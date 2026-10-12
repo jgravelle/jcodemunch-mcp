@@ -2401,3 +2401,13 @@ The 1.108.342 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.342 count, verbatim:
 
 - ⚠ Prior (1.108.342): 15614 passed, 25 skipped, **0 failed** (15639 total).
+
+## Current State rotation (2026-10-12, release 1.108.346)
+
+The 1.108.343 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.343):** **`get_dead_code_v2` reads a file as text wherever its language records no call** (L-155, L-152): `_files_read_as_text` asks the INDEX per file. ⚠⚠ **Never gate caller evidence on a repository-wide test, and never on `_CALL_NODE_TYPES`** (it names PHP and Dart, which record none). Residue L-154, L-157, L-159, L-160. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.343 count, verbatim:
+
+- ⚠ Prior (1.108.343): 15775 passed, 25 skipped, **0 failed** (15800 total).
