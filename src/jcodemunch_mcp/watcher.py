@@ -454,6 +454,20 @@ async def _initial_index(
 # A HEAD move that changes no working-tree file (#1040)
 # ---------------------------------------------------------------------------
 
+BACKSLASH = chr(92)
+
+#: After a reconciliation that FAILED, how long before the watch tries again.
+#: The detector reports a move once, so without this a failure (the store
+#: locked for a moment, a provider raising) left the repo ``stale`` until the
+#: next file event or HEAD move: the reported symptom, surviving the fix.
+_HEAD_RECONCILE_RETRY_SECONDS = 60.0
+
+#: What ``_reconcile_head_move`` did.
+_HEAD_UNCHANGED = "unchanged"    # the stored head already is the live one, or there is none to compare
+_HEAD_RECONCILED = "reconciled"  # an index run was made and succeeded
+_HEAD_FAILED = "failed"          # an index run was made and failed
+
+
 def _git_dirs(folder_path: str) -> Optional[tuple[Path, Path]]:
     """(git dir, common dir) of the repository that holds ``folder_path``, or None.
 
@@ -508,6 +522,19 @@ def _small_file_text(path: Path) -> Optional[str]:
         return None
 
 
+def _is_plain_ref_name(ref: str) -> bool:
+    """True for a ref HEAD may name that stays inside the git dir when joined to it.
+
+    git writes ``refs/heads/x`` with forward slashes on every platform. A HEAD
+    file is still a file anyone can write, so a name with a backslash, a
+    drive or a ``..`` part is not followed: joined to the git dir it would
+    name a file outside it.
+    """
+    if not ref or BACKSLASH in ref or ":" in ref or ref.startswith("/"):
+        return False
+    return all(part not in ("", ".", "..") for part in ref.split("/"))
+
+
 def _git_head_signature(folder_path: str) -> Optional[tuple]:
     """A cheap value that changes whenever HEAD may have moved, or None.
 
@@ -531,7 +558,7 @@ def _git_head_signature(folder_path: str) -> Optional[tuple]:
         if head is None:
             return None
         ref = head[len("ref:"):].strip() if head.startswith("ref:") else ""
-        if ref and (".." in ref.split("/") or Path(ref).is_absolute()):
+        if not _is_plain_ref_name(ref):
             ref = ""
         return (
             head,
@@ -558,6 +585,8 @@ class _HeadMoveDetector:
     between the caller's index and this watch's first wake-up.
     ⚠ ``None`` is never a move (UNKNOWN is not a change) and clears the
     candidate, so a read that fails once costs one wake-up and reports nothing.
+    ⚠ A move is reported ONCE, whatever the reconciliation then does; the
+    watch loop owns the retry of a failed one (``_HEAD_RECONCILE_RETRY_SECONDS``).
     """
 
     def __init__(self) -> None:
@@ -604,8 +633,8 @@ async def _reconcile_head_move(
     log_file_handle: Optional[IO],
     build_hash_cache: Callable[[], None],
     context_providers: bool = True,
-) -> bool:
-    """Bring the index to where HEAD is now. True when an index run was made.
+) -> str:
+    """Bring the index to where HEAD is now. Returns one of the ``_HEAD_*`` outcomes.
 
     A commit, a ``git switch`` or a ``git pull`` that changes no indexed file
     writes under ``.git/`` only, and no file event follows. The index kept the
@@ -624,11 +653,11 @@ async def _reconcile_head_move(
     """
     live = await asyncio.to_thread(_get_git_head, Path(folder_path))
     if not live:
-        return False
+        return _HEAD_UNCHANGED
     owner, name = repo_id.split("/", 1)
     stored = await asyncio.to_thread(_stored_git_head, store, owner, name)
     if stored is None or stored == live:
-        return False
+        return _HEAD_UNCHANGED
     _watcher_output(
         f"  HEAD moved in {folder_path} with no file event: reconciling the index",
         quiet=quiet, log_file_handle=log_file_handle,
@@ -656,12 +685,12 @@ async def _reconcile_head_move(
             mark_reindex_done(repo_id, result)
             if on_reindex is not None and result.get("message") != "No changes detected":
                 on_reindex()
-        else:
-            _watcher_output(
-                f"  WARNING: reconciling {folder_path} after a HEAD move failed: {result.get('error')}",
-                quiet=quiet, log_file_handle=log_file_handle,
-            )
-            mark_reindex_failed(repo_id, result.get("error", "unknown error"))
+            return _HEAD_RECONCILED
+        _watcher_output(
+            f"  WARNING: reconciling {folder_path} after a HEAD move failed: {result.get('error')}",
+            quiet=quiet, log_file_handle=log_file_handle,
+        )
+        mark_reindex_failed(repo_id, result.get("error", "unknown error"))
     except Exception as exc:
         logger.exception("HEAD-move reconciliation error for %s: %s", folder_path, exc)
         _watcher_output(
@@ -669,7 +698,7 @@ async def _reconcile_head_move(
             quiet=quiet, log_file_handle=log_file_handle,
         )
         mark_reindex_failed(repo_id, str(exc))
-    return True
+    return _HEAD_FAILED
 
 
 async def _watch_single(
@@ -800,6 +829,7 @@ async def _watch_single(
     )
 
     _head_moves = _HeadMoveDetector()
+    _head_retry_at: Optional[float] = None
 
     async for changes in _safe_awatch(folder_path, debounce_ms, yield_idle=True):
         relevant = [
@@ -811,8 +841,11 @@ async def _watch_single(
         if not relevant:
             # An idle wake-up. A HEAD move writes under `.git/` only, which no
             # file event announces (#1040).
-            if _head_moves.observe(await asyncio.to_thread(_git_head_signature, folder_path)):
-                await _reconcile_head_move(
+            _settled = _head_moves.observe(await asyncio.to_thread(_git_head_signature, folder_path))
+            _retry_due = _head_retry_at is not None and time.monotonic() >= _head_retry_at
+            if _settled or _retry_due:
+                _head_retry_at = None
+                _outcome = await _reconcile_head_move(
                     folder_path=folder_path,
                     repo_id=repo_id,
                     store=store,
@@ -826,6 +859,8 @@ async def _watch_single(
                     log_file_handle=log_file_handle,
                     build_hash_cache=_build_hash_cache,
                 )
+                if _outcome == _HEAD_FAILED:
+                    _head_retry_at = time.monotonic() + _HEAD_RECONCILE_RETRY_SECONDS
             continue
 
         n_added = sum(1 for c, _ in relevant if c == Change.added)

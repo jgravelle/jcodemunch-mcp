@@ -150,7 +150,70 @@ def test_a_folder_under_no_repository_has_no_signature(tmp_path):
     assert watcher._git_head_signature(str(plain)) is None
 
 
+def test_a_ref_that_lives_only_in_packed_refs_is_seen_when_that_file_changes(tmp_path):
+    """No loose ref to read: the signature has to move with `packed-refs` itself."""
+    root = _repo(tmp_path)
+    first = _git(root, "rev-parse", "HEAD")
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    second = _git(root, "rev-parse", "HEAD")
+    _git(root, "pack-refs", "--all")
+    packed = root / ".git" / "packed-refs"
+    assert not (root / ".git" / "refs" / "heads" / "main").exists()
+    before = watcher._git_head_signature(str(root))
+    text = packed.read_text(encoding="utf-8")
+    assert second in text
+    packed.write_text(text.replace(second, first), encoding="utf-8")  # what `git reset` writes loose, written packed
+    stamp = packed.stat().st_mtime + 5
+    os.utime(packed, (stamp, stamp))
+    assert watcher._git_head_signature(str(root)) != before
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/../../outside.txt",
+    "refs" + chr(92) + ".." + chr(92) + ".." + chr(92) + "outside.txt",
+    "../outside.txt",
+    "/outside.txt",
+    "refs/heads/./../../../outside.txt",
+])
+def test_a_ref_name_that_leaves_the_git_directory_is_not_followed(tmp_path, ref):
+    """HEAD is a file anyone can write. A name that climbs out of `.git` reads nothing."""
+    root = _repo(tmp_path)
+    (root / "outside.txt").write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (tmp_path / "outside.txt").write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (root / ".git" / "HEAD").write_text("ref: " + ref + "\n", encoding="utf-8")
+    signature = watcher._git_head_signature(str(root))
+    assert signature is not None
+    assert "SECRET-OUTSIDE" not in repr(signature)
+    assert signature[1] is None and signature[2] is None
+
+
+def test_an_absolute_ref_name_is_not_followed(tmp_path):
+    root = _repo(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("SECRET-OUTSIDE", encoding="utf-8")
+    (root / ".git" / "HEAD").write_text("ref: " + str(outside) + "\n", encoding="utf-8")
+    assert "SECRET-OUTSIDE" not in repr(watcher._git_head_signature(str(root)))
+
+
+def test_an_ordinary_branch_name_with_slashes_and_dots_is_followed(tmp_path):
+    root = _repo(tmp_path)
+    _git(root, "switch", "-q", "-c", "feature/v1.2-x")
+    signature = watcher._git_head_signature(str(root))
+    assert signature[1] == _git(root, "rev-parse", "HEAD")
+
+
 # --------------------------------------------------------------------------- the detector
+
+
+def test_a_read_that_fails_clears_the_candidate():
+    """A move seen once, then an unreadable wake-up: the move has to be seen twice again."""
+    detector = watcher._HeadMoveDetector()
+    detector.observe(("a",))
+    detector.observe(("a",))
+    assert detector.observe(("b",)) is False
+    assert detector.observe(None) is False
+    assert detector.observe(("b",)) is False
+    assert detector.observe(("b",)) is True
 
 
 def test_a_move_is_reported_once_it_has_settled():
@@ -195,13 +258,15 @@ def test_no_signature_is_never_a_move():
 # --------------------------------------------------------------------------- the reconciliation
 
 
-def _reconcile(root, storage, owner, name, calls=None):
-    return watcher._reconcile_head_move(
+def _reconcile(root, storage, owner, name, **overrides):
+    options = dict(
         folder_path=str(root), repo_id=f"{owner}/{name}", store=IndexStore(base_path=storage),
         use_ai_summaries=False, context_providers=False, storage_path=storage,
         extra_ignore_patterns=None, follow_symlinks=False, on_reindex=None,
         quiet=True, log_file_handle=None, build_hash_cache=lambda: None,
     )
+    options.update(overrides)
+    return watcher._reconcile_head_move(**options)
 
 
 async def test_a_head_only_move_refreshes_the_stored_head(tmp_path):
@@ -210,7 +275,7 @@ async def test_a_head_only_move_refreshes_the_stored_head(tmp_path):
     _git(root, "commit", "-q", "--allow-empty", "-m", "two")
     head = _git(root, "rev-parse", "HEAD")
     assert _stored_head(storage, owner, name) != head
-    assert await _reconcile(root, storage, owner, name) is True
+    assert await _reconcile(root, storage, owner, name) == watcher._HEAD_RECONCILED
     assert _stored_head(storage, owner, name) == head
 
 
@@ -223,7 +288,7 @@ async def test_a_move_whose_file_events_were_lost_is_reindexed(tmp_path):
     root, storage, owner, name = _indexed(tmp_path)
     (root / "code.py").write_text("def second():\n    return 2\n", encoding="utf-8")
     _git(root, "commit", "-q", "-am", "two")
-    assert await _reconcile(root, storage, owner, name) is True
+    assert await _reconcile(root, storage, owner, name) == watcher._HEAD_RECONCILED
     assert _stored_head(storage, owner, name) == _git(root, "rev-parse", "HEAD")
     names = _symbol_names(storage, owner, name)
     assert "second" in names and "first" not in names
@@ -235,7 +300,7 @@ async def test_a_signature_change_that_leaves_head_where_it_was_runs_no_index(tm
     _git(root, "switch", "-q", "-c", "other")
     calls = []
     monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: calls.append(kwargs) or {"success": True})
-    assert await _reconcile(root, storage, owner, name) is False
+    assert await _reconcile(root, storage, owner, name) == watcher._HEAD_UNCHANGED
     assert calls == []
 
 
@@ -248,8 +313,97 @@ async def test_a_folder_under_no_repository_runs_no_index(tmp_path, monkeypatch)
     owner, name = result["repo"].split("/", 1)
     calls = []
     monkeypatch.setattr(watcher, "index_folder", lambda **kwargs: calls.append(kwargs) or {"success": True})
-    assert await _reconcile(plain, storage, owner, name) is False
+    assert await _reconcile(plain, storage, owner, name) == watcher._HEAD_UNCHANGED
     assert calls == []
+
+
+def _recording_index(result=None, raises=None):
+    calls = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        if raises is not None:
+            raise raises
+        return result if result is not None else {"success": True, "message": "No changes detected"}
+
+    return calls, fake
+
+
+async def _moved(tmp_path):
+    root, storage, owner, name = _indexed(tmp_path)
+    _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+    return root, storage, owner, name
+
+
+async def test_the_index_run_is_the_watchs_own_incremental_index(tmp_path, monkeypatch):
+    """The watch's options, passed through: never a second set of them.
+
+    A reconciliation that turned AI summaries on would bill a summarizer once
+    per commit; one that dropped the ignore patterns would index what the
+    watch was told to leave out.
+    """
+    root, storage, owner, name = await _moved(tmp_path)
+    calls, fake = _recording_index()
+    monkeypatch.setattr(watcher, "index_folder", fake)
+    outcome = await _reconcile(
+        root, storage, owner, name,
+        use_ai_summaries=False, context_providers=False, extra_ignore_patterns=["gen/"], follow_symlinks=True,
+    )
+    assert outcome == watcher._HEAD_RECONCILED
+    assert calls == [{
+        "path": str(root), "use_ai_summaries": False, "context_providers": False, "storage_path": storage,
+        "extra_ignore_patterns": ["gen/"], "follow_symlinks": True, "incremental": True,
+    }]
+    calls.clear()
+    await _reconcile(root, storage, owner, name, use_ai_summaries=True, context_providers=True)
+    assert calls[0]["use_ai_summaries"] is True and calls[0]["context_providers"] is True
+
+
+async def test_a_reconciliation_records_its_start_and_outcome_and_rebuilds_the_hash_cache(tmp_path, monkeypatch):
+    root, storage, owner, name = await _moved(tmp_path)
+    events = []
+    monkeypatch.setattr(watcher, "mark_reindex_start", lambda repo: events.append(("start", repo)))
+    monkeypatch.setattr(watcher, "mark_reindex_done", lambda repo, result: events.append(("done", repo)))
+    monkeypatch.setattr(watcher, "mark_reindex_failed", lambda repo, error, **kw: events.append(("failed", repo)))
+    _, fake = _recording_index()
+    monkeypatch.setattr(watcher, "index_folder", fake)
+    outcome = await _reconcile(root, storage, owner, name, build_hash_cache=lambda: events.append(("cache", "")))
+    repo = f"{owner}/{name}"
+    assert outcome == watcher._HEAD_RECONCILED
+    assert events == [("start", repo), ("cache", ""), ("done", repo)]
+
+
+async def test_activity_is_counted_only_when_the_reconciliation_changed_something(tmp_path, monkeypatch):
+    """`on_reindex` feeds the idle timeout: a commit that changed no file is not activity."""
+    root, storage, owner, name = await _moved(tmp_path)
+    counted = []
+    _, fake = _recording_index({"success": True, "message": "No changes detected"})
+    monkeypatch.setattr(watcher, "index_folder", fake)
+    await _reconcile(root, storage, owner, name, on_reindex=lambda: counted.append(1))
+    assert counted == []
+    _, fake = _recording_index({"success": True, "changed": 1})
+    monkeypatch.setattr(watcher, "index_folder", fake)
+    await _reconcile(root, storage, owner, name, on_reindex=lambda: counted.append(1))
+    assert counted == [1]
+
+
+@pytest.mark.parametrize("how", ["returns a failure", "raises"])
+async def test_an_index_that_fails_is_recorded_and_does_not_stop_the_watch(tmp_path, monkeypatch, how):
+    root, storage, owner, name = await _moved(tmp_path)
+    events = []
+    monkeypatch.setattr(watcher, "mark_reindex_start", lambda repo: events.append("start"))
+    monkeypatch.setattr(watcher, "mark_reindex_done", lambda repo, result: events.append("done"))
+    monkeypatch.setattr(watcher, "mark_reindex_failed", lambda repo, error, **kw: events.append(("failed", error)))
+    if how == "raises":
+        _, fake = _recording_index(raises=RuntimeError("store is locked"))
+    else:
+        _, fake = _recording_index({"success": False, "error": "store is locked"})
+    monkeypatch.setattr(watcher, "index_folder", fake)
+    cache = []
+    outcome = await _reconcile(root, storage, owner, name, build_hash_cache=lambda: cache.append(1))
+    assert outcome == watcher._HEAD_FAILED
+    assert events == ["start", ("failed", "store is locked")]
+    assert cache == []
 
 
 # --------------------------------------------------------------------------- the watcher, end to end
@@ -326,5 +480,37 @@ async def test_the_watcher_ends_at_head_after_a_commit_that_changes_a_file(tmp_p
         head = _git(root, "rev-parse", "HEAD")
         await _until(lambda: _stored_head(storage, owner, name) == head, task, "the stored head to follow the commit")
         assert "second" in _symbol_names(storage, owner, name)
+    finally:
+        await _stop(task)
+
+
+async def test_the_watcher_tries_again_after_a_reconciliation_that_failed(tmp_path, monkeypatch):
+    """A move is reported once. Without a retry, one failed index left the repo `stale` for good."""
+    pytest.importorskip("watchfiles")
+    root, storage, owner, name = _indexed(tmp_path)
+    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 0.5)
+    real = watcher.index_folder
+    state = {"armed": False, "failed": 0, "calls": 0}
+
+    def flaky(**kwargs):
+        state["calls"] += 1
+        if state["armed"] and state["failed"] == 0:
+            state["failed"] += 1
+            return {"success": False, "error": "store is locked"}
+        return real(**kwargs)
+
+    monkeypatch.setattr(watcher, "index_folder", flaky)
+    task = asyncio.create_task(watcher._watch_single(
+        str(root), 200, False, storage, None, False,
+        skip_initial_index=True, quiet=True, context_providers=False,
+    ))
+    try:
+        # The watcher's first batch is a root reconciliation, which indexes. Arm after it.
+        await _until(lambda: state["calls"] >= 1, task, "the watcher's first index run")
+        state["armed"] = True
+        _git(root, "commit", "-q", "--allow-empty", "-m", "two")
+        head = _git(root, "rev-parse", "HEAD")
+        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the retry to reach HEAD")
+        assert state["failed"] == 1
     finally:
         await _stop(task)

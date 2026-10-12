@@ -15,12 +15,14 @@ SHA, and the ref was written seconds later. #330 had fixed the no-change run to 
 SHA; the watched case never started one.
 
 The watcher already woke every second and threw the empty wake-up away. It now uses it: it
-reads where HEAD points (`HEAD` and the ref it names, a few dozen bytes; no process is
+reads where HEAD points (`HEAD` and the ref it names, at most 256 bytes of each; no process is
 started), and once a move has held still for one more wake-up it asks git for the commit and
 compares it with the stored one. When they differ it runs the ordinary incremental index, whose
 no-change path refreshes the SHA. So a commit is followed on the second idle wake-up after it
-(wake-ups are a second apart), a rebase by one reconciliation after its last commit, and
-`git switch -c` by nothing, since the commit did not move.
+(wake-ups are a second apart), and `git switch -c` by nothing, since the commit did not move.
+HEAD moves that follow each other inside one wake-up, as a fast rebase's do, get one
+reconciliation after the last; moves further apart get one each. A reconciliation that fails
+is tried again after a minute.
 
 The report suggested rewriting the stored SHA directly. That would mark the index current at
 the new HEAD without reading a file, and a checkout whose file events were lost would then
@@ -39,7 +41,7 @@ What this does not do:
 - **A reftable repository is read but not tested here**; the signature stats its table list.
   LEDGER L-168.
 
-Thirteen reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Thirty reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.349] - 2026-10-12 - a Java constructor reached only by super(...) is no longer reported as having no caller
 
