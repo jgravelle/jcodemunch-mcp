@@ -59,6 +59,9 @@ What changes that is not a pure gain, each pinned in the tests:
 - A glued local assignment `name=1` is indistinguishable from a call of the setter `name=`.
 - `-` still ends a token, as before: `main` is named in `run-main`, `empty?` in `not-empty?`,
   and `valid` in `valid?`.
+- A CSS name that starts with `:` or `%` (`:root`, `%btn`) is no longer named when glued to a
+  word, as in `html:root`; only `.` and `#` have the selector rule. The reviewer measured it;
+  it reaches `get_blast_radius` and the rename, not the dead-code rows.
 
 Three test files stated the old behaviour. Two pinned it as cases ("a bang needs a word after
 it", "a sigil needs a word before it", "a predicate needs a word after the mark"): those three
