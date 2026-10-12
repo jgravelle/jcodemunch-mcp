@@ -23,6 +23,7 @@ from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
 from ._utils import resolve_repo as _resolve_repo
 from ._call_graph import (
+    LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT,
     FileWords,
     _word_match,
     adjacent_word_pairs,
@@ -484,6 +485,47 @@ def _sweep_module_level_callers(
             if hit:
                 callee_has_caller.add(sid)
                 break
+
+
+def _sweep_callers_that_need_no_import(index, callee_has_caller: set[str]) -> None:
+    """Count a call recorded in another file where the language needs no import.
+
+    The pass before this looks for a caller in the function's own file and in
+    the files that import it. In Go, Java, C#, Rust and Ruby (the list is
+    ``LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT``) a file calls another
+    with no import between them, so a function called only from
+    another file of its package, namespace or crate read ``no_callers``: live
+    code reported dead (LEDGER L-165; ripgrep's ``args``, called as
+    ``crate::flags::config::args()``).
+
+    A function of such a language that is still without a caller has one when
+    any symbol of the SAME language records a call of its name.
+
+    ⚠ By name, across the whole index: a function nothing calls is not
+    reported when another function of that language shares its name and is
+    called (``new``, ``get``, ``default``). Toward not reporting, the direction
+    this signal errs in everywhere (the call-graph-only mode has always matched
+    by name across every file and language).
+    ⚠ Only ADDS callers, and only for functions the pass before left without
+    one, so nothing here can report a function that pass cleared.
+    """
+    called: dict[str, set[str]] = {}
+    for sym in index.symbols:
+        references = sym.get("call_references")
+        if references:
+            language = sym.get("language") or ""
+            if language in LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT:
+                called.setdefault(language, set()).update(references)
+    if not called:
+        return
+    for sym in index.symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sym_id = sym.get("id", "")
+        if not sym_id or sym_id in callee_has_caller:
+            continue
+        if sym.get("name", "") in called.get(sym.get("language") or "", ()):
+            callee_has_caller.add(sym_id)
 
 
 def _files_read_as_text(index) -> set[str]:
@@ -1064,6 +1106,8 @@ def get_dead_code_v2(
         _sweep_module_level_callers(
             index, store, owner, name, rev, callee_has_caller
         )
+        # A language whose files call each other with no import (L-165).
+        _sweep_callers_that_need_no_import(index, callee_has_caller)
     else:
         # Fallback: text heuristic, one pass per file (LEDGER L-150).
         callee_has_caller = _text_fallback_callers(index, store, owner, name, rev, text_callers)

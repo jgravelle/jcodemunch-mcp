@@ -378,6 +378,27 @@ class _CalleeNameIndex:
 # Direct caller / callee finders
 # ---------------------------------------------------------------------------
 
+#: Languages whose files call each other with NO import between the two files.
+#: Two files of one Go package, two classes of one Java package and two C#
+#: files of one namespace need none; a Rust path call
+#: (``crate::flags::config::args()``) needs no ``use``; a Ruby ``require`` is
+#: global to the process; Kotlin (one package), Swift (one module) and PHP
+#: (one namespace, or an autoloader) are the same. For these the import graph
+#: cannot say which files may call a function, so "no importer calls it" is
+#: not "nothing calls it" (LEDGER L-165).
+#:
+#: ⚠ A property of the LANGUAGE, not of what a parser records: whether a
+#: language's calls are recorded at all is asked of the index
+#: (``get_dead_code_v2._files_read_as_text``), never of a list.
+#: Kotlin, Swift and PHP record no call today (L-158) and are read as text; they
+#: are listed so the fix for that inherits this rule.
+#: ⚠⚠ **Python, JavaScript, TypeScript and Dart must stay out.** A file there calls
+#: only what it imports or defines, so a same-named call in a file that does
+#: not import the function is a call of another function.
+LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT: frozenset[str] = frozenset(
+    {"go", "java", "csharp", "rust", "ruby", "kotlin", "swift", "php"}
+)
+
 def _callers_from_references(
     index: "CodeIndex",
     sym: dict,

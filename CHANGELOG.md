@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed - a Go, Java, C#, Rust or Ruby function called only from another file was reported as having no caller (LEDGER L-165)
+
+`get_dead_code_v2` looked for a caller of a function in two places: the function's own file,
+and each file the import graph says imports that file. That is the right rule for Python and
+JavaScript, where a file must import a name to call it. It is the wrong rule where a file calls
+another with no import between them: two files of one Go package, two classes of one Java
+package, two C# files of one namespace, a Rust path call (`crate::flags::config::args()` needs
+no `use`), any two Ruby files (a `require` is global to the process). There the call was on
+record and was never asked about, and the function carried `no_callers`. L-157 fixed the same
+blindness for files read as text; the call-reference path kept it. Found fixing L-159.
+
+A function of such a language that is still without a caller now has one when any symbol of the
+SAME language records a call of its name. The languages are one named set,
+`LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT` (`tools/_call_graph.py`): Go, Java, C#, Rust
+and Ruby, plus Kotlin, Swift and PHP, which need no import either and record no call today
+(L-158). Python, JavaScript and TypeScript are not in it and behave as before: a same-named
+call in a file that does not import the function counts for nothing.
+
+Measured through `get_dead_code_v2` on shallow clones read and parsed only
+(`evidence/measure_dead_l165.txt`, with each commit), distinct functions carrying `no_callers`
+before and after: gin 750 and 647, ripgrep 810 and 521, RestSharp 828 and 625, sinatra 455 and
+305. None is newly reported in any of them. express, zod, this repository's `src/` and
+`tests/fixtures` did not move.
+
+What this does not do:
+
+- **The match is by name, so an uncalled function can hide behind a called one of the same
+  name.** Of the 289 ripgrep functions no longer reported, 110 carry a name only one Rust
+  function has; the other 179 share theirs (`write`, `finish`, `empty`). In RestSharp 35 of the
+  203 are `Dispose`. A function nothing calls is not reported when a same-named one of its
+  language is called. This errs toward not reporting, and it is how the call-graph-only mode has
+  always matched.
+- **gson did not move** (1701 before and after). An index with no import edge takes the
+  call-graph-only path, which already asked every file.
+- **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row called it the same
+  shape. It is not: every call of it is inside a module-level `rgtest!`, and a macro with no
+  enclosing function records nothing. L-166.
+- **`get_call_hierarchy` and `get_impact_preview` are unchanged.** They list callers through the
+  same import-edge rule, and a by-name match there would list a caller of another function of
+  that name. L-166.
+
+Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
 ## [1.108.347] - 2026-10-12 - a Rust function called only inside a macro is no longer reported as having no caller
 
 ### Fixed - a Rust function called only inside a macro invocation was reported as having no caller (LEDGER L-164)
