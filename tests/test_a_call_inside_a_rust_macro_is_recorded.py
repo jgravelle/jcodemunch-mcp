@@ -48,6 +48,16 @@ CASES = {
     "a turbofish that opens with a qualified type": (
         "    m!(f::<<T as Tr>::Out>(1), g::<Option<<T as Tr>::Out>>(2));\n", ["f", "g"],
     ),
+    # A test that defines a local macro and calls its helper only in the body
+    # (ripgrep's `sgramq`): every arm's body is read.
+    "the body of a macro_rules arm": (
+        "    macro_rules! t {\n"
+        "        ($regex:expr, $expected:expr) => { assert_eq!(sgramq($regex), $expected); };\n"
+        "        ($one:expr) => { second_arm($one) };\n"
+        "    }\n",
+        ["sgramq", "second_arm"],
+    ),
+    "a comment between the name and its group": ("    m!(g /* why */ (3), h // why\n (4));\n", ["g", "h"]),
     "calls at several depths, in source order": (
         "    m!(last(1), first(inner(2)), mid!(deep(3)), tail(4));\n", ["last", "first", "inner", "deep", "tail"],
     ),
@@ -86,9 +96,11 @@ LOOKALIKES = {
     ),
     "an underscore before a group": ("    m!(_ (1), matches!(x, _ (y)));\n"),
     "a macro called on its own result": ("    let x = mac!(1)(2);\n"),
-    # What a macro expands to is not read, and neither is the body of a
-    # `macro_rules!` definition: it is not an invocation.
-    "a macro_rules body": ("    macro_rules! mr { ($x:expr) => { helper($x) }; }\n"),
+    # The PATTERN of a `macro_rules!` arm declares shapes, it calls nothing;
+    # and a metavariable before a group is not a name.
+    "a macro_rules pattern and a metavariable": (
+        "    macro_rules! mr { ($f:ident ( $x:expr ), named ( $y:expr )) => { $f($x); }; }\n"
+    ),
     # Angle brackets that are comparisons, not a turbofish: no `::` before them.
     "a comparison before a group": ("    m!(k a < b > (d));\n"),
 }
@@ -123,7 +135,7 @@ def test_only_rust_reads_tokens_this_way():
     """The rule is in Rust's row of the table and nowhere else."""
     from jcodemunch_mcp.parser.extractor import _CALL_NODE_TYPES
 
-    assert [lang for lang, types in _CALL_NODE_TYPES.items() if "macro_invocation" in types] == ["rust"]
+    assert [lang for lang, types in _CALL_NODE_TYPES.items() if types & {"macro_invocation", "macro_definition"}] == ["rust"]
 
 
 # ---- through index_folder and get_dead_code_v2
