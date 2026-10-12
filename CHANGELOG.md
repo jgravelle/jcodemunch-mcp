@@ -39,7 +39,8 @@ reported (`evidence/limits_l157.txt`):
 - a doc comment above its prototype names it. In a header documented that way every declared
   function reads as called.
 
-The last four were the reviewer's shapes. On `tests/fixtures`, 140 functions carried
+The last three bullets were the reviewer's shapes, and it measured an Erlang `-spec` for the
+same name in another module the same way. On `tests/fixtures`, 140 functions carried
 `no_callers` before and 137 after (`evidence/measure_l157.txt`, at `min_confidence` 0); the
 three that left are `content`, `get` and `bootstrap.bundle.min.js`, each named by an unrelated
 fixture and none of them called. On this repository's `src/` (451) and `benchmarks/` (138)
