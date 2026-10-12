@@ -603,7 +603,12 @@ INDEX_VERSION = 17
 #   grammar leaves a macro's arguments as tokens, so `assert_eq!(f(x), y)`
 #   recorded no call of `f`. ⚠⚠ No symbol id moves; only `call_references`
 #   changes, on UNCHANGED content.
-PARSER_GENERATION = 13
+#
+# 14 (L-166): a Java constructor's `super(...)` records the superclass's
+#   constructor, by the name the class extends. It recorded nothing, so the
+#   constructor of a class that is only subclassed read as never called.
+#   No symbol id moves; only `call_references` changes, on UNCHANGED content.
+PARSER_GENERATION = 14
 
 
 @dataclass(frozen=True)

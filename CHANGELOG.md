@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Fixed - a Java constructor reached only by `super(...)` was reported as having no caller (LEDGER L-166)
+
+A Java constructor is named for its class, and `new Base()` records a call of `Base`. A
+subclass constructor reaches the same constructor with `super(...)`, which the grammar gives a
+node of its own, and the parser recorded nothing for it. The node names nothing either: the
+name is on the class, in `extends Base`. So the constructor of a class that is only ever
+subclassed, which is every abstract class, had no caller on record, and `get_dead_code_v2`
+reported it with `no_callers`. Found fixing L-159.
+
+A constructor's `super(...)` now records the name its class extends, whether that is written
+`Base`, `Base<T>` or `pkg.Base`, and whether the call is `super(x)` or `outer.super(x)`. The
+class is read downward, its constructors and the first statement of each, which is the only
+place the language allows the call.
+
+Measured through `get_dead_code_v2` on gson, a shallow clone read and parsed only
+(`evidence/measure_dead_l166.txt`, with its commit): 1701 distinct functions carried
+`no_callers` before and 1698 after. Three constructors are no longer reported and none is
+newly reported; `tests/fixtures` did not move. The fix is small.
+
+What this does not do:
+
+- **`this(...)` is not recorded.** It calls a constructor of the enclosing one's own name, and a
+  call of the enclosing function's name is dropped as recursion. Where the class is created
+  with `new` anywhere, every overload is cleared by name already.
+- **A superclass constructor called implicitly is not recorded.** A constructor with no
+  explicit call runs the superclass's no-argument one; nothing is written, so nothing is read.
+- **Other languages' constructors are a larger gap and are not touched.** A Python `__init__`,
+  a JavaScript or TypeScript `constructor` and a Ruby `initialize` are never called by their
+  own name, and each reads `no_callers`: 40 rows on this repository's `src/`, 13 on zod and 27
+  on sinatra. C# `: base(...)` and `: this(...)` record nothing. L-167.
+- **An existing index is re-parsed once**: `PARSER_GENERATION` moves to 14.
+
+Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
 ## [1.108.348] - 2026-10-12 - a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
 
 ### Fixed - a Go, Java, C#, Rust or Ruby function called only from another file was reported as having no caller (LEDGER L-165)
