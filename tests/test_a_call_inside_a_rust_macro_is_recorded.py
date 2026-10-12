@@ -48,7 +48,7 @@ CASES = {
 }
 
 # tokens that look like `name (` and are not a call
-NOT_CALLS = {
+LOOKALIKES = {
     "a keyword before a group": (
         "    m! { if (a) { } else { } while (q) { } for i in (0..n) { } return (z); match (a, b) { } }\n"
     ),
@@ -63,7 +63,7 @@ NOT_CALLS = {
 }
 # `A(u8)` in the enum above is a variant with a field: the same tokens as a
 # call, and recorded. Stated here so the list below is exact.
-NOT_CALLS_RECORDS = {"a type declared in the macro": ["A"]}
+LOOKALIKE_RECORDS = {"a type declared in the macro": ["A"]}
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -72,9 +72,9 @@ def test_a_call_in_a_macro_is_recorded(case):
     assert _run_records(body) == expected
 
 
-@pytest.mark.parametrize("case", sorted(NOT_CALLS))
+@pytest.mark.parametrize("case", sorted(LOOKALIKES))
 def test_tokens_that_are_not_a_call_record_nothing(case):
-    assert _run_records(NOT_CALLS[case]) == NOT_CALLS_RECORDS.get(case, [])
+    assert _run_records(LOOKALIKES[case]) == LOOKALIKE_RECORDS.get(case, [])
 
 
 def test_a_call_outside_a_macro_is_recorded_as_before():
