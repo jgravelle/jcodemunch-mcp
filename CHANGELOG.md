@@ -6,7 +6,7 @@
 
 For every call the parser records one name, and the tools that ask "who calls this" read those
 names: `get_dead_code_v2`, `get_call_hierarchy`, `get_impact_preview`, `get_untested_symbols`,
-`find_similar_symbols` and `winnow_symbols`. The rule that picks the name knew two ways a
+`find_similar_symbols`, `winnow_symbols`, `find_implementations` and the LSP bridge. The rule that picks the name knew two ways a
 grammar writes a member call, JavaScript's and Python's. For any other callee it took the first
 identifier inside it. In Go, Java, Rust, Ruby and C#, the first identifier inside `t.Recv()` is
 `t`.
@@ -58,9 +58,14 @@ What changes that is not a pure gain:
 - **Ruby still records a bare receiver, beside the method.** Ruby writes a method called with
   no receiver and no arguments exactly like a local variable, so in `settings.environment` the
   receiver may be a call. Without this, 27 of sinatra's methods that the old rule had found
-  were reported.
+  were reported (the last lines of `evidence/measure_dead_l159.txt`).
 - **A call of a container's element records the container** (`fs[0]()` records `fs`,
-  `t.handlers[k]()` records `handlers`), as before for the first and newly for the second.
+  `t.handlers[k]()` records `handlers`), as before for the first and newly for the second, in
+  Go, Python, JavaScript and C#. The first version of this fix recorded nothing for the C#
+  forms (`fs[0]()`, `a?[0]()`, and a null-forgiving `f!()`); its reviewer measured that.
+- **A method that delegates to a method of the same name records no call for it.** A call to
+  the enclosing function's own name is dropped as recursion, so `write` calling `w.write()`
+  records nothing now, where it recorded `w`. The reviewer's measurement; L-164.
 - **An existing index is re-parsed once.** The names change on unchanged files, so
   `PARSER_GENERATION` moves to 12 and the next index of a repository is a full one.
 
@@ -68,7 +73,7 @@ PHP, Kotlin, Swift and Dart record no call at all (L-158), and `get_dead_code_v2
 files as text for that reason. They still record none, and the test pins it: a parser that
 recorded some of their call shapes would take the text evidence away for the rest.
 
-Twenty-four reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Twenty-seven reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.345] - 2026-10-11 - a name that starts or ends in a punctuation mark is matched where it is used
 

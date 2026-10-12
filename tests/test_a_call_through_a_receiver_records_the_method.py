@@ -171,6 +171,12 @@ CONTAINER_CASES = {
     "go": ("a.go", "package p\nfunc run() {\n\tfs[0]()\n\tm.handlers[k]()\n}\n", ["fs", "handlers"]),
     "python": ("a.py", "def run(t):\n    fs[0]()\n    t.handlers[k]()\n", ["fs", "handlers"]),
     "javascript": ("a.js", "function run(t) {\n  fs[0]();\n  t.handlers[k]();\n}\n", ["fs", "handlers"]),
+    # C#'s element access, its conditional form, and a null-forgiving callee.
+    "csharp": (
+        "A.cs",
+        "class A {\n  void Run(B a) {\n    fs[0]();\n    a.handlers[k](1);\n    cond?[0]();\n    forgiven!();\n  }\n}\n",
+        ["fs", "handlers", "cond", "forgiven"],
+    ),
 }
 
 # A callee with no name records nothing, and never the name of something
@@ -182,6 +188,7 @@ NAMELESS_CASES = {
     # `t.call_me.()` holds one named call, `t.call_me`, and one nameless one;
     # `t` is Ruby's bare receiver (RUBY_BARE_RECEIVER).
     "ruby": ("a.rb", "def run(t)\n  t.()\n  t.call_me.()\n  Mod.()\nend\n"),
+    "rust": ("a.rs", "fn run(t: T) {\n    (|x| x)(1);\n}\n"),
 }
 NAMELESS_RECORDS = {"ruby": ["t", "call_me"]}
 

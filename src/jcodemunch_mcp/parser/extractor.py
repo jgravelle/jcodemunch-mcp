@@ -170,7 +170,14 @@ _CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
     "index_expression": "operand",           # Go: fs[0], and F[T]
     "subscript": "value",                    # Python: fs[0]
     "subscript_expression": "object",        # JavaScript: fs[0]
+    "element_access_expression": "expression",  # C#: fs[0]
+    "postfix_unary_expression": None,        # C#: f!
 }
+
+#: C#'s `a?[0]`: the last child of the conditional access is the `[0]`, which
+#: has no name. The container is on the other side, in this field.
+_CALLEE_ELEMENT_BINDING = "element_binding_expression"
+_CALLEE_CONDITION_FIELD = "condition"
 
 _CALL_NODES_OF_ANY_LANGUAGE = frozenset(t for types in _CALL_NODE_TYPES.values() for t in types)
 #: A callee nests one level per `.`, `::`, `<>` or `()`; past this it has no name.
@@ -200,7 +207,7 @@ def _callee_of(node):
         callee = node.child_by_field_name(field)
         if callee is not None:
             return callee
-    if node.child_by_field_name("receiver") is not None or node.child_by_field_name("object") is not None:
+    if node.child_by_field_name("receiver") is not None:
         return None  # Ruby `t.()`: a receiver and no method. The receiver is not the callee.
     for child in node.children:
         parse_budget.checkpoint()
@@ -240,7 +247,11 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
         elif kind in _CALLEE_MEMBER_FIELD:
             field = _CALLEE_MEMBER_FIELD[kind]
             member = current.child_by_field_name(field) if field else None
-            current = member if member is not None else _callee_last_named(current)
+            if member is None:
+                member = _callee_last_named(current)
+            if member is not None and member.type == _CALLEE_ELEMENT_BINDING:
+                member = current.child_by_field_name(_CALLEE_CONDITION_FIELD)
+            current = member
         elif kind in _CALLEE_WRAPPER_FIELD:
             field = _CALLEE_WRAPPER_FIELD[kind]
             inner = current.child_by_field_name(field) if field else None
@@ -257,8 +268,12 @@ def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> Non
     no receiver and no arguments (``settings``) the same ``identifier`` node as
     a local variable, so in ``settings.environment`` the receiver may itself be
     a call. It is recorded too: leaving it out reported 27 of sinatra's methods
-    as uncalled that the old rule had found (``evidence/measure_l159.txt``).
-    No other grammar here has a ``receiver`` field.
+    as uncalled that the old rule had found (LEDGER L-159).
+    ⚠ The rule is keyed on the FIELD, not on the language. Of the grammars in
+    ``_CALL_NODE_TYPES`` only Ruby has a ``receiver`` field on a call node. Go
+    and Kotlin have one too, on a method DECLARATION, which is never a call
+    node. Before a grammar's call nodes are added (L-158), check that none of
+    them carries the field.
     """
     name = _extract_call_name(node, source_bytes)
     if name:
