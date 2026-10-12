@@ -10,33 +10,49 @@ call expression. So a function called only inside `assert_eq!`, `assert!`, `vec!
 or a test macro had no caller on record, and `get_dead_code_v2` reported it with `no_callers`.
 Rust tests are written almost entirely inside such macros, so a test helper was the usual
 victim. Until 1.108.346 a local variable that happened to share the function's name had been
-recorded as a call and stood in for some of them; that release stopped recording receivers,
-and three such functions in ripgrep were its newly reported rows. Found fixing L-159.
+recorded as a call and stood in for some of them; that release stopped recording receivers and
+reported them. Found fixing L-159.
 
 The parser now reads the tokens of a macro invocation: a name directly followed by a
 parenthesised group is a call of that name. That one shape is how `f(x)`, `t.m(x)` and
 `a::b::f(x)` all end, in `(...)`, `[...]` and `{...}` macros alike, nested or not; a turbofish
-(`f::<T>(x)`) is stepped over. Not read as calls: a reserved word before a group (`in (0..n)`),
-a name being declared (`fn name(x)`, `struct Pair(u8, u8)`), and the next macro's own name.
+(`f::<T>(x)`) is stepped over. A contextual keyword counts as a name, since a function may
+carry it (`Foo::default()`, `a.union(&b)`, `gen(3)`). Not read as calls: a reserved word before
+a group (`in (0..n)`), a name being declared (`fn name(x)`, `struct Pair(u8, u8)`), a lifetime
+or a label, the closure traits (`Fn(u8) -> u8`), the next macro's own name, and everything in
+an attribute's arguments (`#[cfg(any(unix, not(windows)))]`).
 
 Measured through `get_dead_code_v2` on ripgrep, a shallow clone read and parsed only
 (`evidence/measure_dead_l164.txt`, with its commit): 849 distinct functions carried
 `no_callers` before and 810 after. Thirty-nine are no longer reported and none is newly
-reported; `tests/fixtures` did not move. Parsing ripgrep's 110 Rust files records 9502 call
-references where it recorded 8469, in 1.159 s against 1.131 s, best of three.
+reported; `tests/fixtures` did not move. Parsing ripgrep's 110 Rust files records 9488 call
+references where it recorded 8469, in 1.212 s against 1.126 s, best of three.
+
+The tokens are read in one forward pass. The first version walked back from each group to
+look for a turbofish, which cost N times N on a macro of N comparisons: its reviewer measured
+a 72 KB file that `main` parsed in 0.125 s running past the 20 s parse budget, which skips the
+file. The same file's shape at 16000 pieces now parses in 0.349 s against 0.253 s on `main`,
+and a test doubles such a tree and counts the loop's steps. The first version also took a name
+only from an `identifier` token, so `default`, `union` and `gen` were never recorded, and read
+attribute arguments as calls; both were the reviewer's measurements.
 
 What this does not do:
 
 - **Tokens cannot tell a call from a pattern.** `matches!(x, Wrapped(y))` records `Wrapped`,
-  and an enum variant with a field declared inside a macro records its name. Toward not
-  reporting.
-- **What a macro expands to is not read**, only what is written in the invocation.
-- **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row named it with the
-  other two. Its calls are recorded now, but they are in another file, and the tool does not
-  count that call; this is the row's second item, with `args`, and is L-165.
+  `Some(y)` records `Some`, and an enum variant with a field declared inside a macro records
+  its name. Toward not reporting.
+- **What a macro expands to is not read**, only what is written in the invocation. A
+  `macro_rules!` body written inside a function is read the same way; `$name($arg)` in it
+  records nothing.
+- **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row named it with two
+  others. Its calls are recorded now, but they are in another file, and the tool does not
+  count that call; that is L-165.
+- **The order of a function's recorded calls can change**, where a name is now first seen
+  inside a macro. No name is lost (the reviewer's measurement on ripgrep: none of 455 changed
+  functions lost a reference).
 - **An existing index is re-parsed once**: `PARSER_GENERATION` moves to 13.
 
-Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Sixteen reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.346] - 2026-10-12 - a call through a receiver records the method, never the receiver
 

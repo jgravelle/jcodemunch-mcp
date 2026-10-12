@@ -43,6 +43,13 @@ CASES = {
     "a macro inside a macro": ("    nested!(other!(deep(1)));\n", ["deep"]),
     "a closure body": ("    rgtest!(name, |dir: Dir| { dir.create(1); helper(dir); });\n", ["create", "helper"]),
     "beside an ordinary call": ("    before();\n    assert!(inside());\n    after();\n", ["before", "inside", "after"]),
+    "a turbofish inside a path": ("    dbg!(Vec::<u8>::new());\n", ["new"]),
+    # `default`, `union` and `gen` are contextual: a function may carry the
+    # name, and the grammar gives each its own token kind, not `identifier`.
+    "a contextual keyword as the name": (
+        "    assert_eq!(x, Foo::default());\n    assert!(a.union(&b).count() == 1);\n    let v = vec![gen(3), default()];\n",
+        ["default", "union", "count", "gen"],
+    ),
     # A tuple-struct or enum-variant constructor has the same tokens as a call.
     "a constructor": ("    assert!(matches!(x, Wrapped(y)));\n", ["Wrapped"]),
 }
@@ -58,6 +65,14 @@ LOOKALIKES = {
     "a group with no name before it": ("    m!((1, 2), [3], (4));\n"),
     "a bracket or brace after a name": ("    m!(xs[0], S { a: 1 });\n"),
     "a literal or a primitive type before a group": ('    m!(2 (3), u8 (4), "s" (5));\n'),
+    # An attribute's arguments are a token tree too, and none of them is a call.
+    "an attribute's arguments": (
+        "    #[cfg(any(unix, not(windows)))]\n    let x = 1;\n    #[allow(clippy::too_many(x))]\n    let y = 2;\n"
+    ),
+    "closure-trait sugar": ("    m!(Box<dyn Fn(u8) -> u8>, FnOnce(u8), FnMut(u8));\n"),
+    "a lifetime or a label before a group": ("    m!(&'a (dyn Tr), break 'lbl (1));\n"),
+    "a reserved word the grammar calls an identifier": ("    m!(try (x), do (y), become (z));\n"),
+    "a turbofish that never closes": ("    m!(x::<T (1));\n"),
     # Angle brackets that are comparisons, not a turbofish: no `::` before them.
     "a comparison before a group": ("    m!(k a < b > (d));\n"),
 }

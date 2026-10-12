@@ -265,22 +265,57 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
 
 #: The node a Rust macro's arguments are: tokens, not expressions.
 _TOKEN_TREE = "token_tree"
-#: Reserved words the Rust grammar hands back as an `identifier` inside a token
-#: tree (`else`, `in`) or that can stand before a parenthesised group there. No
-#: function can carry one of these names, so leaving them out loses no call.
+#: Rust's strict and reserved keywords, which no function can be named without
+#: `r#`, and the three closure traits written `Fn(u8) -> u8`. A token tree
+#: hands some of these back as an `identifier` (`else`, `in`, `try`), so the
+#: rule cannot rely on the token's kind.
+#: ⚠ NOT here, deliberately: `union`, `default`, `gen`, `auto`, `raw`, `safe`,
+#: `macro_rules`. They are contextual, and a function may carry the name
+#: (`Foo::default()`, `a.union(&b)`).
 _RUST_WORDS_THAT_ARE_NOT_CALLS = frozenset({
-    "as", "async", "await", "box", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
-    "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
-    "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "union", "unsafe", "use",
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate", "do", "dyn",
+    "else", "enum", "extern", "false", "final", "fn", "for", "if", "impl", "in", "let", "loop", "macro",
+    "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return", "self", "Self", "static",
+    "struct", "super", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use", "virtual",
     "where", "while", "yield",
+    "Fn", "FnMut", "FnOnce",
 })
-#: A name after one of these is being DECLARED, not called: `fn name(args)`,
-#: `struct Pair(u8, u8)`.
-_RUST_DECLARING_WORDS = frozenset({"fn", "struct", "union"})
+#: A name after one of these is not being called: `fn name(args)` and
+#: `struct Pair(u8, u8)` declare it, and `'a (dyn Tr)` and `break 'lbl (1)`
+#: are a lifetime and a label.
+_RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED = frozenset({"fn", "struct", "union", "'"})
+#: The nodes an attribute's arguments hang off: `#[cfg(any(unix, not(windows)))]`
+#: is a token tree too, and nothing in it is a call.
+_RUST_ATTRIBUTE_NODES = frozenset({"attribute", "attribute_item", "inner_attribute_item"})
+_RUST_NAME_TOKEN_RE = re.compile(r"(?:r#)?[^\W\d]\w*\Z")
 
 
 def _token_text(node) -> str:
     return node.text.decode("utf-8", errors="replace")
+
+
+def _is_attribute_argument(tree) -> bool:
+    """Is this token tree, or a tree it is nested in, an attribute's argument?"""
+    node = tree.parent
+    while node is not None and node.type == _TOKEN_TREE:
+        parse_budget.checkpoint()
+        node = node.parent
+    return node is not None and node.type in _RUST_ATTRIBUTE_NODES
+
+
+def _rust_name_token(node) -> Optional[str]:
+    """The name a token could be calling by, or None.
+
+    An ``identifier``, or a contextual keyword the grammar gives its own token
+    kind (``default``, ``union``, ``gen``): such a token's kind IS its text.
+    """
+    if node.type == "identifier":
+        name = _token_text(node)
+    elif not node.is_named and _RUST_NAME_TOKEN_RE.match(node.type):
+        name = node.type
+    else:
+        return None
+    return None if name in _RUST_WORDS_THAT_ARE_NOT_CALLS else name
 
 
 def _record_token_tree_calls(tree, calls: list[tuple[int, str]]) -> None:
@@ -291,50 +326,60 @@ def _record_token_tree_calls(tree, calls: list[tuple[int, str]]) -> None:
     inside ``assert_eq!``, ``vec!`` or a test macro had no caller, and Rust tests
     are written almost entirely inside such macros (LEDGER L-164).
 
-    The rule: an identifier directly followed by a parenthesised group is a
-    call of that identifier. ``f(x)``, ``t.m(x)`` and ``a::b::f(x)`` all end in
-    that shape; a turbofish (``f::<T>(x)``) is stepped over. Not a call: a
-    reserved word (``in (0..n)``), a name being declared (``fn name(x)``), and a
-    name followed by ``!`` (the next macro's own name).
+    The rule: a name directly followed by a parenthesised group is a call of
+    that name. ``f(x)``, ``t.m(x)`` and ``a::b::f(x)`` all end in that shape; a
+    turbofish between the two (``f::<T>(x)``) is stepped over. Not a call: a
+    reserved word (``in (0..n)``), a name being declared (``fn name(x)``), a
+    lifetime or label, a name followed by ``!`` (the next macro's own name),
+    and anything in an attribute's arguments (``#[cfg(not(windows))]``).
 
+    ⚠⚠ **One forward pass, and it must stay one.** The first version walked
+    BACK from each group over ``>`` tokens to find a turbofish's ``<``; a tree
+    of N comparisons (``a > (b)``) cost N * N, and a 72 KB file that parsed in
+    0.125 s ran past the parse budget and was skipped whole (L-164's review).
+    ``tests/test_parse_path_loops_are_linear.py`` doubles such a tree.
     ⚠ Only this tree's own tokens. A nested tree is a ``token_tree`` node too,
     and the walk that called this reaches it by itself.
     ⚠ Tokens cannot tell a call from a tuple-struct pattern or an enum variant
     with a field: ``Some(y)`` and ``A(u8)`` are recorded. Toward not reporting.
     """
+    if _is_attribute_argument(tree):
+        return
     children = tree.children
-    for i, group in enumerate(children):
+    count = len(children)
+    pending = None  # the name token a group directly after would be a call of
+    i = 0
+    while i < count:
         parse_budget.checkpoint()
-        if group.type != _TOKEN_TREE or not group.children or group.children[0].type != "(":
-            continue
-        j = i - 1
-        if j >= 0 and children[j].type in (">", ">>"):
-            # `name::<T, U>(...)`: step back over the angle brackets to the `::`.
-            # `Vec<u8>>` closes two with one `>>` token.
+        token = children[i]
+        kind = token.type
+        if kind == _TOKEN_TREE:
+            if pending is not None and token.children and token.children[0].type == "(":
+                calls.append((pending.start_byte, _rust_name_token(pending) or ""))
+            pending = None
+        elif kind == "::" and pending is not None and i + 1 < count and children[i + 1].type == "<":
+            # A turbofish: step over `::<...>` and keep the name before it.
             depth = 0
-            while j >= 0:
+            i += 1
+            while i < count:
                 parse_budget.checkpoint()
-                kind = children[j].type
-                if kind == ">":
+                inner = children[i].type
+                if inner == "<":
                     depth += 1
-                elif kind == ">>":
-                    depth += 2
-                elif kind == "<":
+                elif inner == ">":
                     depth -= 1
-                    if depth == 0:
-                        break
-                j -= 1
-            if j < 1 or children[j - 1].type != "::":
-                continue
-            j -= 2
-        if j < 0 or children[j].type != "identifier":
-            continue
-        name = _token_text(children[j])
-        if name in _RUST_WORDS_THAT_ARE_NOT_CALLS:
-            continue
-        if j >= 1 and _token_text(children[j - 1]) in _RUST_DECLARING_WORDS:
-            continue
-        calls.append((children[j].start_byte, name))
+                elif inner == ">>":
+                    depth -= 2
+                if depth <= 0:
+                    break
+                i += 1
+        elif _rust_name_token(token) is not None and not (
+            i >= 1 and children[i - 1].type in _RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED
+        ):
+            pending = token
+        else:
+            pending = None
+        i += 1
 
 
 def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
