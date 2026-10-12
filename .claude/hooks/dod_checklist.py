@@ -48,6 +48,43 @@ BACKGROUND_RE = re.compile(
 )
 
 
+#: The section DoD 7 asks to change, and the files it may live in. It moved from
+#: README.md to SECURITY.md when the README was shortened, and the row went on
+#: looking in the README, so a disclosed change read `unmet` (FINDINGS W-54).
+DISCLOSURE_HEADING = "## Background behavior, fully disclosed"
+DISCLOSURE_FILES = ("SECURITY.md", "README.md")
+
+
+def disclosure_section(text: str) -> str | None:
+    """The section's body, from its heading to the next `## ` heading, or None
+    when the text has no such heading."""
+    lines = text.splitlines()
+    for start, line in enumerate(lines):
+        if line.strip() == DISCLOSURE_HEADING:
+            break
+    else:
+        return None
+    body = []
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        body.append(line.rstrip())
+    return "\n".join(body).strip()
+
+
+def disclosure_changed(base_texts: dict[str, str], head_texts: dict[str, str]) -> bool:
+    """True when the section's body differs between base and head in any file
+    that holds it at head. A change elsewhere in the file is not a disclosure,
+    and a section that only disappeared is not one either."""
+    for name in DISCLOSURE_FILES:
+        head = disclosure_section(head_texts.get(name, ""))
+        if head is None:
+            continue
+        if head != disclosure_section(base_texts.get(name, "")):
+            return True
+    return False
+
+
 #: An env-var NAME as a whole string literal (a mention inside help text is not a
 #: read; a trailing underscore is a prefix constant, not a name).
 ENV_NAME_RE = re.compile(r"(?:JCODEMUNCH|MUNCH)_[A-Z0-9_]*[A-Z0-9]\Z")
@@ -1129,11 +1166,21 @@ def main() -> int:
     if not BACKGROUND_RE.search(src_diff):
         row(7, "n.a.", "no thread/socket/http/scheduled addition in the diff")
     else:
-        readme_diff = git("diff", f"{base}...HEAD", "--", "README.md")
+        _rc7, _mb7 = _git_rc(REPO, "merge-base", base, "HEAD")
+        _base7: dict[str, str] = {}
+        _head7: dict[str, str] = {}
+        for _name7 in DISCLOSURE_FILES:
+            _rc, _text = _git_rc(REPO, "show", f"{_mb7.strip()}:{_name7}") if _rc7 == 0 else (1, "")
+            _base7[_name7] = _text if _rc == 0 else ""
+            try:
+                _head7[_name7] = (REPO / _name7).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                _head7[_name7] = ""
         row(
             7,
-            "met" if "Background behavior" in readme_diff else "unmet",
-            "diff adds a thread/socket/http/schedule; README 'Background behavior, fully disclosed' must change",
+            "met" if disclosure_changed(_base7, _head7) else "unmet",
+            "diff adds a thread/socket/http/schedule; the 'Background behavior, fully disclosed' section "
+            "(SECURITY.md, or README.md) must change",
         )
 
     # 8 *_basis beside a published rate
