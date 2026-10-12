@@ -44,6 +44,13 @@ CASES = {
     "a closure body": ("    rgtest!(name, |dir: Dir| { dir.create(1); helper(dir); });\n", ["create", "helper"]),
     "beside an ordinary call": ("    before();\n    assert!(inside());\n    after();\n", ["before", "inside", "after"]),
     "a turbofish inside a path": ("    dbg!(Vec::<u8>::new());\n", ["new"]),
+    # `<<` is one token where a turbofish opens with a qualified type.
+    "a turbofish that opens with a qualified type": (
+        "    m!(f::<<T as Tr>::Out>(1), g::<Option<<T as Tr>::Out>>(2));\n", ["f", "g"],
+    ),
+    "calls at several depths, in source order": (
+        "    m!(last(1), first(inner(2)), mid!(deep(3)), tail(4));\n", ["last", "first", "inner", "deep", "tail"],
+    ),
     # `default`, `union` and `gen` are contextual: a function may carry the
     # name, and the grammar gives each its own token kind, not `identifier`.
     "a contextual keyword as the name": (
@@ -73,6 +80,15 @@ LOOKALIKES = {
     "a lifetime or a label before a group": ("    m!(&'a (dyn Tr), break 'lbl (1));\n"),
     "a reserved word the grammar calls an identifier": ("    m!(try (x), do (y), become (z));\n"),
     "a turbofish that never closes": ("    m!(x::<T (1));\n"),
+    # Inside a macro an attribute is tokens too: `#` then a bracketed group.
+    "an attribute written in the macro's body": (
+        "    items! { #[cfg(not(test))] fn f() { } #[derive(Clone(x))] struct S; #![allow(unused(x))] }\n"
+    ),
+    "an underscore before a group": ("    m!(_ (1), matches!(x, _ (y)));\n"),
+    "a macro called on its own result": ("    let x = mac!(1)(2);\n"),
+    # What a macro expands to is not read, and neither is the body of a
+    # `macro_rules!` definition: it is not an invocation.
+    "a macro_rules body": ("    macro_rules! mr { ($x:expr) => { helper($x) }; }\n"),
     # Angle brackets that are comparisons, not a turbofish: no `::` before them.
     "a comparison before a group": ("    m!(k a < b > (d));\n"),
 }
@@ -107,7 +123,7 @@ def test_only_rust_reads_tokens_this_way():
     """The rule is in Rust's row of the table and nowhere else."""
     from jcodemunch_mcp.parser.extractor import _CALL_NODE_TYPES
 
-    assert [lang for lang, types in _CALL_NODE_TYPES.items() if "token_tree" in types] == ["rust"]
+    assert [lang for lang, types in _CALL_NODE_TYPES.items() if "macro_invocation" in types] == ["rust"]
 
 
 # ---- through index_folder and get_dead_code_v2

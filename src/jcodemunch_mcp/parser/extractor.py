@@ -120,9 +120,9 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
     "typescript": {"call_expression", "new_expression"},
     "tsx": {"call_expression", "new_expression"},
     "go": {"call_expression"},
-    # `token_tree`: a macro's arguments, which the grammar leaves as tokens
-    # (`_record_token_tree_calls`, LEDGER L-164).
-    "rust": {"call_expression", "token_tree"},
+    # `macro_invocation`: its arguments are tokens the grammar does not parse
+    # (`_record_macro_calls`, LEDGER L-164).
+    "rust": {"call_expression", "macro_invocation"},
     "java": {"method_invocation", "object_creation_expression"},
     "php": {"function_call_expression", "method_call_expression", "scoped_call_expression"},
     "ruby": {"call", "method_call"},
@@ -181,7 +181,11 @@ _CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
 _CALLEE_ELEMENT_BINDING = "element_binding_expression"
 _CALLEE_CONDITION_FIELD = "condition"
 
-_CALL_NODES_OF_ANY_LANGUAGE = frozenset(t for types in _CALL_NODE_TYPES.values() for t in types)
+#: A Rust macro invocation holds calls; it is not one, and it has no callee.
+_RUST_MACRO_INVOCATION = "macro_invocation"
+_CALL_NODES_OF_ANY_LANGUAGE = frozenset(
+    t for types in _CALL_NODE_TYPES.values() for t in types
+) - {_RUST_MACRO_INVOCATION}
 #: A callee nests one level per `.`, `::`, `<>` or `()`; past this it has no name.
 _CALLEE_MAX_DEPTH = 64
 
@@ -268,7 +272,7 @@ _TOKEN_TREE = "token_tree"
 #: Rust's strict and reserved keywords, which no function can be named without
 #: `r#`, and the three closure traits written `Fn(u8) -> u8`. A token tree
 #: hands some of these back as an `identifier` (`else`, `in`, `try`), so the
-#: rule cannot rely on the token's kind.
+#: rule cannot rely on the token's kind. `_` is a pattern, never a name.
 #: ⚠ NOT here, deliberately: `union`, `default`, `gen`, `auto`, `raw`, `safe`,
 #: `macro_rules`. They are contextual, and a function may carry the name
 #: (`Foo::default()`, `a.union(&b)`).
@@ -278,29 +282,17 @@ _RUST_WORDS_THAT_ARE_NOT_CALLS = frozenset({
     "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return", "self", "Self", "static",
     "struct", "super", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use", "virtual",
     "where", "while", "yield",
-    "Fn", "FnMut", "FnOnce",
+    "Fn", "FnMut", "FnOnce", "_",
 })
 #: A name after one of these is not being called: `fn name(args)` and
 #: `struct Pair(u8, u8)` declare it, and `'a (dyn Tr)` and `break 'lbl (1)`
 #: are a lifetime and a label.
 _RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED = frozenset({"fn", "struct", "union", "'"})
-#: The nodes an attribute's arguments hang off: `#[cfg(any(unix, not(windows)))]`
-#: is a token tree too, and nothing in it is a call.
-_RUST_ATTRIBUTE_NODES = frozenset({"attribute", "attribute_item", "inner_attribute_item"})
 _RUST_NAME_TOKEN_RE = re.compile(r"(?:r#)?[^\W\d]\w*\Z")
 
 
 def _token_text(node) -> str:
     return node.text.decode("utf-8", errors="replace")
-
-
-def _is_attribute_argument(tree) -> bool:
-    """Is this token tree, or a tree it is nested in, an attribute's argument?"""
-    node = tree.parent
-    while node is not None and node.type == _TOKEN_TREE:
-        parse_budget.checkpoint()
-        node = node.parent
-    return node is not None and node.type in _RUST_ATTRIBUTE_NODES
 
 
 def _rust_name_token(node) -> Optional[str]:
@@ -318,8 +310,8 @@ def _rust_name_token(node) -> Optional[str]:
     return None if name in _RUST_WORDS_THAT_ARE_NOT_CALLS else name
 
 
-def _record_token_tree_calls(tree, calls: list[tuple[int, str]]) -> None:
-    """Record the calls written directly inside one Rust token tree.
+def _record_macro_calls(macro, calls: list[tuple[int, str]]) -> None:
+    """Record the calls written in one Rust macro invocation's arguments.
 
     A macro's arguments are not parsed: ``assert_eq!(e(x), seq([y]))`` holds a
     ``token_tree`` of tokens, and no ``call_expression``. A function called only
@@ -331,55 +323,74 @@ def _record_token_tree_calls(tree, calls: list[tuple[int, str]]) -> None:
     turbofish between the two (``f::<T>(x)``) is stepped over. Not a call: a
     reserved word (``in (0..n)``), a name being declared (``fn name(x)``), a
     lifetime or label, a name followed by ``!`` (the next macro's own name),
-    and anything in an attribute's arguments (``#[cfg(not(windows))]``).
+    and an attribute written in the macro's body (``#[cfg(not(test))]``).
 
-    ⚠⚠ **One forward pass, and it must stay one.** The first version walked
-    BACK from each group over ``>`` tokens to find a turbofish's ``<``; a tree
-    of N comparisons (``a > (b)``) cost N * N, and a 72 KB file that parsed in
-    0.125 s ran past the parse budget and was skipped whole (L-164's review).
-    ``tests/test_parse_path_loops_are_linear.py`` doubles such a tree.
-    ⚠ Only this tree's own tokens. A nested tree is a ``token_tree`` node too,
-    and the walk that called this reaches it by itself.
+    ⚠⚠ **Every token is read ONCE, from the invocation down, and it must stay
+    so.** Two earlier versions did not (L-164's review, twice). The first
+    walked BACK from each group to find a turbofish's ``<``: N * N on a macro
+    of N comparisons. The second made every nested tree a call node and asked
+    each for its ancestors: depth times trees, and a file nested 160 deep ran
+    past the parse budget and was skipped whole. Hence the invocation is the
+    node the walk hands over, its trees are walked here with a stack, and
+    nothing asks a node for its parent.
+    ``tests/test_parse_path_loops_are_linear.py`` doubles width and depth.
+    ⚠ A parsed attribute (``#[cfg(any(unix, not(windows)))]`` on an item or a
+    statement) is not under a macro invocation, so it is never reached.
     ⚠ Tokens cannot tell a call from a tuple-struct pattern or an enum variant
     with a field: ``Some(y)`` and ``A(u8)`` are recorded. Toward not reporting.
     """
-    if _is_attribute_argument(tree):
-        return
-    children = tree.children
-    count = len(children)
-    pending = None  # the name token a group directly after would be a call of
-    i = 0
-    while i < count:
+    found: list[tuple[int, str]] = []
+    trees = [child for child in macro.children if child.type == _TOKEN_TREE]
+    while trees:
         parse_budget.checkpoint()
-        token = children[i]
-        kind = token.type
-        if kind == _TOKEN_TREE:
-            if pending is not None and token.children and token.children[0].type == "(":
-                calls.append((pending.start_byte, _rust_name_token(pending) or ""))
-            pending = None
-        elif kind == "::" and pending is not None and i + 1 < count and children[i + 1].type == "<":
-            # A turbofish: step over `::<...>` and keep the name before it.
-            depth = 0
-            i += 1
-            while i < count:
-                parse_budget.checkpoint()
-                inner = children[i].type
-                if inner == "<":
-                    depth += 1
-                elif inner == ">":
-                    depth -= 1
-                elif inner == ">>":
-                    depth -= 2
-                if depth <= 0:
-                    break
+        children = trees.pop().children
+        count = len(children)
+        pending = None  # (start, name) a group directly after would be a call of
+        i = 0
+        while i < count:
+            parse_budget.checkpoint()
+            token = children[i]
+            kind = token.type
+            if kind == _TOKEN_TREE:
+                opener = token.children[0].type if token.children else ""
+                is_attribute = opener == "[" and i >= 1 and (
+                    children[i - 1].type == "#"
+                    or (children[i - 1].type == "!" and i >= 2 and children[i - 2].type == "#")
+                )
+                if not is_attribute:
+                    if pending is not None and opener == "(":
+                        found.append(pending)
+                    trees.append(token)
+                pending = None
+            elif kind == "::" and pending is not None and i + 1 < count and children[i + 1].type in ("<", "<<"):
+                # A turbofish: step over `::<...>` and keep the name before it.
+                depth = 0
                 i += 1
-        elif _rust_name_token(token) is not None and not (
-            i >= 1 and children[i - 1].type in _RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED
-        ):
-            pending = token
-        else:
-            pending = None
-        i += 1
+                while i < count:
+                    parse_budget.checkpoint()
+                    inner = children[i].type
+                    if inner == "<":
+                        depth += 1
+                    elif inner == "<<":
+                        depth += 2
+                    elif inner == ">":
+                        depth -= 1
+                    elif inner == ">>":
+                        depth -= 2
+                    if depth <= 0:
+                        break
+                    i += 1
+            else:
+                name = _rust_name_token(token)
+                if name is not None and not (
+                    i >= 1 and children[i - 1].type in _RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED
+                ):
+                    pending = (token.start_byte, name)
+                else:
+                    pending = None
+            i += 1
+    found.sort()  # the stack reads inner trees out of source order
+    calls.extend(found)
 
 
 def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
@@ -396,8 +407,8 @@ def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> Non
     node. Before a grammar's call nodes are added (L-158), check that none of
     them carries the field.
     """
-    if node.type == _TOKEN_TREE:
-        _record_token_tree_calls(node, calls)
+    if node.type == _RUST_MACRO_INVOCATION:
+        _record_macro_calls(node, calls)
         return
     name = _extract_call_name(node, source_bytes)
     if name:
