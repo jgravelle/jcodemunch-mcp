@@ -131,65 +131,141 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
 }
 
 
-def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
-    """Extract the function/method name from a call node.
+#: Where a call node keeps what it calls, tried in this order. `function` is
+#: most grammars'; `method` is Ruby's; `name` is Java's `method_invocation`;
+#: `constructor` and `type` are the two `new` forms.
+_CALLEE_FIELDS = ("function", "method", "name", "constructor", "type")
 
-    Handles:
-    - Simple identifier: foo() -> "foo"
-    - Member expression: obj.method() -> "method"
-    - Constructor: new Foo() -> "Foo"
-    - Return None for complex computed calls.
+#: A node that IS a name.
+_CALLEE_NAME_NODES = frozenset({
+    "identifier", "type_identifier", "field_identifier", "property_identifier",
+    "private_property_identifier", "constant",
+})
+
+#: A node that reaches a member of something: the field that holds the MEMBER.
+#: `None` means the grammar gives it no field and the member is the last named
+#: child. ⚠ The member is what is called. The other side is the receiver, and
+#: recording it is LEDGER L-159.
+_CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
+    "member_expression": "property",         # JavaScript, TypeScript: t.m, t?.m, t.#m
+    "attribute": "attribute",                # Python: t.m
+    "selector_expression": "field",          # Go: t.M, pkg.F
+    "field_expression": "field",             # Rust: t.m
+    "scoped_identifier": "name",             # Rust: Type::assoc, a::b::f
+    "member_access_expression": "name",      # C#: a.M, this.M, base.M
+    "member_binding_expression": "name",     # C#: the `.M` of a?.M
+    "conditional_access_expression": None,   # C#: a?.M
+    "scoped_type_identifier": None,          # Java: new pkg.Type()
+}
+
+#: A node that wraps the callee: the field that holds what it wraps, `None` for
+#: the first named child. A subscript resolves to its container: an element has
+#: no name, and the container is what holds the function.
+_CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
+    "generic_function": "function",          # Rust: f::<T>
+    "generic_name": None,                    # C#: F<T>
+    "generic_type": None,                    # Java: new Type<T>()
+    "non_null_expression": None,             # TypeScript: f!
+    "parenthesized_expression": None,        # (t.m)()
+    "index_expression": "operand",           # Go: fs[0], and F[T]
+    "subscript": "value",                    # Python: fs[0]
+    "subscript_expression": "object",        # JavaScript: fs[0]
+}
+
+_CALL_NODES_OF_ANY_LANGUAGE = frozenset(t for types in _CALL_NODE_TYPES.values() for t in types)
+#: A callee nests one level per `.`, `::`, `<>` or `()`; past this it has no name.
+_CALLEE_MAX_DEPTH = 64
+
+
+def _callee_first_named(node):
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.is_named and child.type != "comment":
+            return child
+    return None
+
+
+def _callee_last_named(node):
+    for child in reversed(node.children):
+        parse_budget.checkpoint()
+        if child.is_named and child.type != "comment":
+            return child
+    return None
+
+
+def _callee_of(node):
+    """The child of a call node that says what is called, or None."""
+    for field in _CALLEE_FIELDS:
+        parse_budget.checkpoint()
+        callee = node.child_by_field_name(field)
+        if callee is not None:
+            return callee
+    if node.child_by_field_name("receiver") is not None or node.child_by_field_name("object") is not None:
+        return None  # Ruby `t.()`: a receiver and no method. The receiver is not the callee.
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.type not in ("(", ")", "[", "]", "new"):
+            return child
+    return None
+
+
+def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
+    """The name of what a call node calls, or None when it has no name.
+
+    - ``foo()`` -> ``foo``; ``new Foo()`` -> ``Foo``
+    - a member, in every grammar's spelling (``obj.method()``, ``Type::assoc()``,
+      ``a?.M()``, ``this.m()``) -> the member
+    - a generic, parenthesised or chained callee -> the name underneath
+    - an element of a container (``fs[0]()``) -> the container
+    - a function literal called in place, or a callee of a type not named in
+      the tables above -> None
+
+    ⚠⚠ **Never fall back to "an identifier somewhere inside the callee".** That
+    was the rule for every shape but JavaScript's and Python's until L-159, and
+    in Go, Java, Rust, Ruby and C# the first identifier inside ``t.Recv()`` is
+    the RECEIVER: the method read as never called and a function named like
+    the receiver read as called. A callee this does not know records nothing.
     """
     parse_budget.checkpoint()
-    node_type = node.type
-
-    if node_type == "identifier":
-        # Simple call: foo()
-        return node.text.decode("utf-8", errors="replace")
-
-    if node_type in ("call_expression", "function_call_expression", "method_invocation",
-                      "invocation_expression", "call", "method_call", "function_expression_invocation",
-                      "new_expression", "object_creation_expression"):
-        # For call_expression, the function being called is the first child
-        # For Python call: foo() -> the "foo" is the first child (an identifier)
-        # For JS call_expression: the function is first child (could be identifier or member expression)
-        first_child = None
-        for child in node.children:
-            parse_budget.checkpoint()
-            if child.type not in ("(", ")", "[", "]", "new"):
-                first_child = child
-                break
-
-        if first_child is None:
+    current = node
+    for _ in range(_CALLEE_MAX_DEPTH):
+        parse_budget.checkpoint()
+        if current is None:
             return None
-
-        ft = first_child.type
-        if ft in ("identifier", "type_identifier"):
-            return first_child.text.decode("utf-8", errors="replace")
-        elif ft in ("member_expression", "attribute_expression", "attribute", "method_declaration"):
-            # For JS/TS: member_expression contains property_identifier for the method name
-            # For Python: attribute node contains two identifiers (object and method)
-            # First check for property_identifier (JS/TS way)
-            for child in first_child.children:
-                parse_budget.checkpoint()
-                if child.type == "property_identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            # Fallback: for Python attribute, get the last identifier (method name)
-            identifiers = [c for c in first_child.children if c.type == "identifier"]
-            if identifiers:
-                return identifiers[-1].text.decode("utf-8", errors="replace")
-        elif ft == "call_expression":
-            # Nested call: foo()(bar) - extract foo's name
-            return _extract_call_name(first_child, source_bytes)
+        kind = current.type
+        if kind in _CALLEE_NAME_NODES:
+            return current.text.decode("utf-8", errors="replace")
+        if kind in _CALL_NODES_OF_ANY_LANGUAGE:
+            current = _callee_of(current)  # the call itself, or `foo()(bar)`: foo
+        elif kind in _CALLEE_MEMBER_FIELD:
+            field = _CALLEE_MEMBER_FIELD[kind]
+            member = current.child_by_field_name(field) if field else None
+            current = member if member is not None else _callee_last_named(current)
+        elif kind in _CALLEE_WRAPPER_FIELD:
+            field = _CALLEE_WRAPPER_FIELD[kind]
+            inner = current.child_by_field_name(field) if field else None
+            current = inner if inner is not None else _callee_first_named(current)
         else:
-            # Could be a parenthesized expression or other complex case
-            # Try to find an identifier within
-            for child in first_child.children:
-                parse_budget.checkpoint()
-                if child.type == "identifier":
-                    return child.text.decode("utf-8", errors="replace")
-
+            return None
     return None
+
+
+def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
+    """Append what one call node calls to ``calls``. THE one recorder.
+
+    ⚠ Ruby alone records a second name. Its grammar gives a method called with
+    no receiver and no arguments (``settings``) the same ``identifier`` node as
+    a local variable, so in ``settings.environment`` the receiver may itself be
+    a call. It is recorded too: leaving it out reported 27 of sinatra's methods
+    as uncalled that the old rule had found (``evidence/measure_l159.txt``).
+    No other grammar here has a ``receiver`` field.
+    """
+    name = _extract_call_name(node, source_bytes)
+    if name:
+        calls.append((node.start_byte, name))
+    receiver = node.child_by_field_name("receiver")
+    if receiver is not None and receiver.type == "identifier":
+        calls.append((receiver.start_byte, receiver.text.decode("utf-8", errors="replace")))
 
 
 def _collect_calls(
@@ -214,9 +290,7 @@ def _collect_calls(
         parse_budget.checkpoint()
         current = stack.pop()
         if current.type in call_types:
-            name = _extract_call_name(current, source_bytes)
-            if name:
-                results.append((current.start_byte, name))
+            _record_call(current, source_bytes, results)
         # Extend with all children at once (push in reverse for pre-order)
         stack.extend(reversed(current.children))
 
@@ -917,9 +991,7 @@ def _walk_tree(
 
     # Collect call sites during the same walk (when enabled)
     if call_types is not None and calls is not None and node.type in call_types:
-        name = _extract_call_name(node, source_bytes)
-        if name:
-            calls.append((node.start_byte, name))
+        _record_call(node, source_bytes, calls)
 
     # Check if this node is a symbol
     # #830: a C-family type specifier WITHOUT a body is a mention of a type,

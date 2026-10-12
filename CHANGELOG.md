@@ -2,6 +2,74 @@
 
 ## [Unreleased]
 
+### Fixed - a call through a receiver recorded the receiver's name, so the method read as never called (LEDGER L-159)
+
+For every call the parser records one name, and the tools that ask "who calls this" read those
+names: `get_dead_code_v2`, `get_call_hierarchy`, `get_impact_preview`, `get_untested_symbols`,
+`find_similar_symbols` and `winnow_symbols`. The rule that picks the name knew two ways a
+grammar writes a member call, JavaScript's and Python's. For any other callee it took the first
+identifier inside it. In Go, Java, Rust, Ruby and C#, the first identifier inside `t.Recv()` is
+`t`.
+
+So the recorded name was the receiver's, and that is two errors. The method was never named:
+`get_dead_code_v2` reported a Go, Java, Rust or C# method called only as `t.UsedMethod()` or
+`this.usedMethod()` with `no_callers`, live code as dead, in a tool whose rows feed delete
+decisions. And a function that shared a name with a receiver (`t`, `args`, a class called
+statically) read as called. Found by the reviewer of L-155, who measured the Go and Java cases.
+
+Measured on every call node of nine trees, 130845 of them, this repository's `src/` and
+`tests/fixtures` and seven shallow clones read and parsed only (`evidence/measure_l159.txt`,
+with their commits):
+
+| language | call nodes | recorded another name before | recorded none before |
+|---|---|---|---|
+| Go | 9145 | 6165 | 595 |
+| Java | 18098 | 8882 | 849 |
+| Rust | 10043 | 5285 | 1768 |
+| Ruby | 12991 | 1877 | 1327 |
+| C# | 4768 | 3171 | 27 |
+| TypeScript | 41100 | 0 | 4 |
+
+JavaScript, Python and TSX did not move, and no call in any language lost its name.
+
+The rule reads the grammar's own fields now: where each call node keeps its callee, and for
+each member shape which side is the member (`extractor.py` has the tables). It covers what the
+old fallback got wrong beyond the reported call: a path (`Type::assoc()` recorded `Type`), a
+static call, C#'s `a?.M()`, a generic method or constructor, `new pkg.Type()`, a parenthesised
+callee, a JavaScript private method. The fallback is gone. A callee of a type the tables do not
+name records nothing, where it used to record whatever identifier came first.
+
+Through `get_dead_code_v2` on the same trees, distinct functions carrying `no_callers` before
+and after (`evidence/measure_dead_l159.txt`): gin 781 and 750, ripgrep 1296 and 849, gson 2056
+and 1701, RestSharp 840 and 828, sinatra 521 and 455. express, zod, this repository's `src/`
+and `tests/fixtures` did not move.
+
+What changes that is not a pure gain:
+
+- **Functions that were found only by a shared name are reported now**: 8 in ripgrep and 24 in
+  gson, none in the other seven trees. Of the ripgrep eight, five were read. `defaults` has no
+  call anywhere. `seq`, `m` and `cmd` are live: they are called only inside macro invocations
+  (`assert_eq!`, `eqnice!`), whose arguments the Rust grammar leaves as tokens, so no call was
+  ever recorded for them and a local variable of the same name had been standing in. `args` is
+  live, called from another file as `crate::flags::config::args()`; why that call is not
+  counted was not looked into. Of the gson twenty-four, four were read: three are constructors
+  nothing calls with `new` (two of them private), found before through static calls on the
+  class, and `excluder` has no call. The rest are L-164.
+- **Ruby still records a bare receiver, beside the method.** Ruby writes a method called with
+  no receiver and no arguments exactly like a local variable, so in `settings.environment` the
+  receiver may be a call. Without this, 27 of sinatra's methods that the old rule had found
+  were reported.
+- **A call of a container's element records the container** (`fs[0]()` records `fs`,
+  `t.handlers[k]()` records `handlers`), as before for the first and newly for the second.
+- **An existing index is re-parsed once.** The names change on unchanged files, so
+  `PARSER_GENERATION` moves to 12 and the next index of a repository is a full one.
+
+PHP, Kotlin, Swift and Dart record no call at all (L-158), and `get_dead_code_v2` reads their
+files as text for that reason. They still record none, and the test pins it: a parser that
+recorded some of their call shapes would take the text evidence away for the rest.
+
+Twenty-four reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
 ## [1.108.345] - 2026-10-11 - a name that starts or ends in a punctuation mark is matched where it is used
 
 ### Fixed - a name that starts or ends in a punctuation mark was never matched where it is used (LEDGER L-154)

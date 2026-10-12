@@ -592,7 +592,13 @@ INDEX_VERSION = 17
 #   `{{ ... }}` or `{% ... %}` opens no comment; and a whitespace-control
 #   mark is dropped only for its own dialect (`+` Jinja and dbt, `~` Twig).
 #   ⚠⚠ No symbol id moves; only `docstring` changes, on UNCHANGED content.
-PARSER_GENERATION = 11
+#
+# 12 (L-159): a call through a receiver records the METHOD. In Go, Java, Rust,
+#   Ruby and C# `t.Recv()` recorded `t`, so a method read as never called and
+#   a function named like a receiver read as called. ⚠⚠ No symbol id moves;
+#   only `call_references` changes, on UNCHANGED content, and the dead-code
+#   and call-hierarchy tools read nothing else for these languages.
+PARSER_GENERATION = 12
 
 
 @dataclass(frozen=True)
