@@ -41,7 +41,7 @@ What this does not do:
 - **A reftable repository is read but not tested here**; the signature stats its table list.
   LEDGER L-168.
 
-Thirty-seven reintroduced defects each fail the tests (`evidence/mutants.txt`).
+Forty reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
 ## [1.108.349] - 2026-10-12 - a Java constructor reached only by super(...) is no longer reported as having no caller
 

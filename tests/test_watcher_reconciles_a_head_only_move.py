@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import subprocess
 from pathlib import Path
 
@@ -538,33 +539,49 @@ async def test_the_watcher_ends_at_head_after_a_commit_that_changes_a_file(tmp_p
         await _stop(task)
 
 
-async def test_the_watcher_tries_again_after_a_reconciliation_that_failed(tmp_path, monkeypatch):
-    """A move is reported once. Without a retry, one failed index left the repo `stale` for good."""
+async def test_the_watcher_tries_a_failed_reconciliation_again_once_and_then_leaves_it(tmp_path, monkeypatch):
+    """A move is reported once, so the loop retries a failure itself, after the delay, one time.
+
+    HEAD never moves here: the only reconciliation the detector asks for is
+    the one for the first signature it sees. That one is made to report a
+    failure, so a SECOND call can only be the retry. It runs for real, finds
+    the heads equal and schedules nothing, so there is no third: a retry that
+    came due on every wake-up, or was scheduled after every outcome, would
+    make one within the wait below.
+
+    An earlier draft failed the index instead and waited for the stored head
+    to reach a new commit. It passed against the watcher's own first index run
+    storing that head while the commit was made (CI, ubuntu 3.10): the
+    interleaving was not pinned.
+    """
     pytest.importorskip("watchfiles")
     root, storage, owner, name = _indexed(tmp_path)
-    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 0.5)
-    real = watcher.index_folder
-    state = {"armed": False, "failed": 0, "calls": 0}
+    monkeypatch.setattr(watcher, "_HEAD_RECONCILE_RETRY_SECONDS", 2.5)
+    real = watcher._reconcile_head_move
+    outcomes = []
+    called_at = []
 
-    def flaky(**kwargs):
-        state["calls"] += 1
-        if state["armed"] and state["failed"] == 0:
-            state["failed"] += 1
-            return {"success": False, "error": "store is locked"}
-        return real(**kwargs)
+    async def first_one_fails(**kwargs):
+        called_at.append(time.monotonic())
+        if not outcomes:
+            outcomes.append(watcher._HEAD_FAILED)
+            return watcher._HEAD_FAILED
+        outcome = await real(**kwargs)
+        outcomes.append(outcome)
+        return outcome
 
-    monkeypatch.setattr(watcher, "index_folder", flaky)
+    monkeypatch.setattr(watcher, "_reconcile_head_move", first_one_fails)
     task = asyncio.create_task(watcher._watch_single(
         str(root), 200, False, storage, None, False,
         skip_initial_index=True, quiet=True, context_providers=False,
     ))
     try:
-        # The watcher's first batch is a root reconciliation, which indexes. Arm after it.
-        await _until(lambda: state["calls"] >= 1, task, "the watcher's first index run")
-        state["armed"] = True
-        _git(root, "commit", "-q", "--allow-empty", "-m", "two")
-        head = _git(root, "rev-parse", "HEAD")
-        await _until(lambda: _stored_head(storage, owner, name) == head, task, "the retry to reach HEAD")
-        assert state["failed"] == 1
+        await _until(lambda: len(outcomes) >= 2, task, "the retry of the failed reconciliation")
+        assert outcomes[:2] == [watcher._HEAD_FAILED, watcher._HEAD_UNCHANGED]
+        # No sooner than the delay. Idle wake-ups are a second apart, so a retry that
+        # ignored the delay would come about one second after the failure.
+        assert called_at[1] - called_at[0] >= 2.5
+        await asyncio.sleep(6.0)  # several idle wake-ups and more than two retry delays
+        assert outcomes == [watcher._HEAD_FAILED, watcher._HEAD_UNCHANGED]
     finally:
         await _stop(task)
