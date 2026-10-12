@@ -28,12 +28,20 @@ before and after: gin 750 and 647, ripgrep 810 and 521, RestSharp 828 and 625, s
 
 What this does not do:
 
-- **The match is by name, so an uncalled function can hide behind a called one of the same
-  name.** Of the 289 ripgrep functions no longer reported, 110 carry a name only one Rust
-  function has; the other 179 share theirs (`write`, `finish`, `empty`). In RestSharp 35 of the
-  203 are `Dispose`. A function nothing calls is not reported when a same-named one of its
-  language is called. This errs toward not reporting, and it is how the call-graph-only mode has
-  always matched.
+- **The match is by name, so an uncalled function can hide behind any call of its name.** A
+  function nothing calls is not reported when a same-named one of its language is called, and
+  a call of a LIBRARY method counts the same way: a project `fn len()` nothing calls is cleared
+  by `v.len()` on a `Vec` in another file, a Go `Println` by `fmt.Println`, a C# `Dispose` by
+  `stream.Dispose()` (the reviewer's fixtures, `no_callers` on `origin/main` and gone here). Of
+  the 289 ripgrep functions no longer reported, 179 share their name with another Rust function
+  (`write`, `finish`, `empty`); the other 110 have a name of their own, and that does not make
+  them safe, since `clone`, `as_str` and `init` are among them. In RestSharp 35 of the 203 are
+  `Dispose`. Which of the cleared functions are dead was not looked into. This errs toward not
+  reporting, and it is how the call-graph-only mode has always matched.
+- **A call written outside any function, in another file, is still not counted.** The pass
+  that reads module-level calls keeps the import-edge rule. A Ruby method called only at the
+  top level or in a class body of another file is still reported; the same call in its own
+  file is counted. L-166.
 - **gson did not move** (1701 before and after). An index with no import edge takes the
   call-graph-only path, which already asked every file.
 - **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row called it the same
