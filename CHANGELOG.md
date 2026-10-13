@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.357] - 2026-10-13 - the generated agent policy no longer orders the index for everything
+
 ### Changed - the generated agent policy no longer orders the index for everything (LEDGER L-175)
 
 The policy that `init` installs and `claude-md --generate --format policy` prints opened "Always

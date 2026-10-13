@@ -2511,3 +2511,13 @@ The 1.108.353 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.353 count, verbatim:
 
 - ⚠ Prior (1.108.353): 16321 passed, 25 skipped, **0 failed** (16346 total).
+
+## Current State rotation (2026-10-13, release 1.108.357)
+
+The 1.108.354 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.354):** **A Go call the grammar reads as a conversion is recorded** (L-171): `type_conversion_expression` is a Go call node (`Generic[int](1)`, `fs[i](1)`). `PARSER_GENERATION` 16. ⚠ A real conversion to a generic type records the type's name: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.354 count, verbatim:
+
+- ⚠ Prior (1.108.354): 16376 passed, 25 skipped, **0 failed** (16401 total).
