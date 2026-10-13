@@ -187,6 +187,8 @@ _CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
     "subscript_expression": "object",        # JavaScript: fs[0]
     "element_access_expression": "expression",  # C#: fs[0]
     "postfix_unary_expression": None,        # C#: f!
+    "pointer_type": None,                    # Go: *F[T](x), the call's result dereferenced
+    "parenthesized_type": None,              # Go: (F[T])(x)
 }
 
 #: C#'s `a?[0]`: the last child of the conditional access is the `[0]`, which

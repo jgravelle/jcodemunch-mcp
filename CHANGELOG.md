@@ -18,9 +18,11 @@ finding of the same ledger row (`t.fs[i](x)`), and the one change fixes both.
 
 The node is a Go call node now, and its name is reached by the tables every other call uses:
 `Generic[int](1)` and `pkg.Generic[int](1)` record `Generic`, `fs[i](1)` and `t.fs[i](x)`
-record `fs`. A conversion to a type that is not a name (`[]byte(s)`, `map[string]int(m)`,
-`chan int(c)`, `func(int) int(f)`, `(*T)(p)`) records nothing, as before, and neither does a
-generic composite literal or a declaration.
+record `fs`. The call is recorded behind a dereference and in parentheses too
+(`*Ptr[int](y)`, `(Generic[int])(1)`, `*fs[i](y)`): the review found those still recording
+nothing. A conversion to a type that is not a name (`[]byte(s)`, `map[string]int(m)`,
+`chan int(c)`, `func(int) int(f)`, `(*T)(p)`, `(*[]int)(p)`) records nothing, as before, and
+neither does a generic composite literal or a declaration.
 
 Measured by parsing eight pinned clones with both trees, 1,959 files
 (`evidence/refs_l171.txt`; commits in `evidence/corpora_l171.txt`): 24 symbols gain one name
@@ -34,15 +36,16 @@ this shape; these two corpora hold none.
 What it does not do:
 
 - **A real conversion to a generic type records the type's name.** `iter.Seq[T](f)` records
-  `Seq`: 7 of the 23 names added on lo are that. The grammar gives the two the same tree. A
-  type and a function cannot share a name in one Go package, so this can only count for a
-  method, or for a function of another package, with that name. Toward not reporting.
+  `Seq`: 7 of the 23 names added on lo are that. So do `pkg.List[int](y)` and
+  `(*List[int])(p)`. The grammar gives a conversion and a call the same tree, and the name is
+  recorded bare, whatever its package. Toward not reporting.
 - **A function value in a container is recorded as the container** (`fs`, `handlers`), as
   `fs[0](1)` always was. The functions stored in it are not known.
 
 `PARSER_GENERATION` is 16, so an existing index is re-parsed: the fix changes what unchanged
-Go files record. The rest is LEDGER L-172. Fourteen reintroduced defects each fail the tests
-(`evidence/mutants.txt`).
+Go files record. The rest is LEDGER L-172. Sixteen mutants each fail the tests
+(`evidence/mutants.txt`): seven reintroduce the defect or one of its spellings, six make a
+conversion to an unnamed type record a name, and three remove a rule the file relies on.
 
 ## [1.108.353] - 2026-10-12 - a C# constructor is no longer reported as having no caller when its class is created
 

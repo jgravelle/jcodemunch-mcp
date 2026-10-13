@@ -50,6 +50,14 @@ CASES = {
     "a call as its argument, in source order": ("x := Generic[int](make2(y)); _ = x", ["Generic", "make2"]),
     "as an argument of a call": ("use(Generic[int](1))", ["use", "Generic"]),
     "called twice is recorded once": ("Generic[int](1); Generic[string](2)", ["Generic"]),
+    # `*F[T](x)` dereferences what the call returns; `(F[T])(x)` is the call in parentheses.
+    "its result dereferenced": ("x := *Ptr[int](y); _ = x", ["Ptr"]),
+    "its result dereferenced twice": ("x := **Ptr[int](y); _ = x", ["Ptr"]),
+    "a qualified function's result dereferenced": ("x := *pkg.Ptr[int](y); _ = x", ["Ptr"]),
+    "the function in parentheses": ("x := (Generic[int])(1); _ = x", ["Generic"]),
+    "a qualified function in parentheses": ("x := (pkg.Generic[int])(1); _ = x", ["Generic"]),
+    "a container element's result dereferenced": ("x := *fs[i](y); _ = x", ["fs"]),
+    "a container element in parentheses": ("x := (fs[i])(y); _ = x", ["fs"]),
     # An element of a container resolves to the container, as `fs[0](1)` does.
     "a function taken from a slice by a variable": ("x := fs[i](1); _ = x", ["fs"]),
     "a function taken from a map by a variable": ("x := table[key](1); _ = x", ["table"]),
@@ -57,6 +65,7 @@ CASES = {
     # The grammar cannot tell this from the first case. The name is recorded:
     # a type and a function share one namespace in a Go package.
     "a conversion to a generic type": ("x := List[int](y); _ = x", ["List"]),
+    "a conversion to a pointer to a generic type": ("x := (*List[int])(p); _ = x", ["List"]),
 }
 
 # Spellings the grammar already gave a `call_expression`. Recorded before and after.
@@ -80,6 +89,11 @@ LOOKALIKES = {
     "a struct conversion": ("x := struct{}(e); _ = x", []),
     "a slice of a generic type": ("x := []List[int](s); _ = x", []),
     "a pointer conversion": ("x := (*T)(p); _ = x", []),
+    "a slice conversion in parentheses": ("x := ([]int)(s); _ = x", []),
+    "a conversion to a pointer to a slice": ("x := (*[]int)(p); _ = x", []),
+    "a conversion to a pointer to an array": ("x := (*[4]byte)(p); _ = x", []),
+    "a channel conversion in parentheses": ("x := (chan int)(c); _ = x", []),
+    "a function-type conversion in parentheses": ("x := (func(int) int)(f); _ = x", []),
     "a generic composite literal": ("x := Pair[int, string]{1, \"a\"}; _ = x", []),
     "a generic type in a declaration": ("var x Generic[int]; _ = x", []),
     "a generic function not called": ("x := Generic[int]; _ = x", []),
