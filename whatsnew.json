@@ -1,6 +1,12 @@
 {
-  "current": "1.108.352",
+  "current": "1.108.353",
   "entries": [
+    {
+      "version": "1.108.353",
+      "date": "2026-10-12",
+      "title": "a C# constructor is no longer reported as having no caller when its class is created",
+      "summary": "`get_dead_code_v2` reported a C# constructor with no caller however often its class was created, because `new Made(...)` recorded no call. It records `Made` now, for plain, generic, qualified and alias-qualified classes. On RestSharp the `no_callers` rows fall from 101 to 73 in the default call, every row that left is a constructor, and no row is newly reported. A target-typed `new()`, `: base(...)` and an attribute still record nothing; the CHANGELOG lists those and the other limits. An existing index is re-parsed on upgrade."
+    },
     {
       "version": "1.108.352",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a watched repo no longer stays stale after a commit, switch or pull",
       "summary": "With `watch-all` running, a commit, `git switch` or pull that changed no working-tree file left the index reading `stale`, because the watcher only acted on file events and none arrived. The watcher now checks where HEAD points once a second and, when it has moved, runs the ordinary incremental index, which refreshes the stored commit. The check reads a few small files under `.git` and starts no process; `SECURITY.md` discloses it. Reported by @randyhbh (#1040). Not run on macOS, the reporter's platform; the CHANGELOG lists the limits."
-    },
-    {
-      "version": "1.108.349",
-      "date": "2026-10-12",
-      "title": "a Java constructor reached only by super(...) is no longer reported as having no caller",
-      "summary": "A Java subclass constructor reaches its superclass's constructor with `super(...)`, which the parser recorded nothing for. So the constructor of a class that is only ever subclassed, which is every abstract class, was reported by `get_dead_code_v2` with no caller. `super(...)` now records the name the class extends. An existing index is re-parsed once. The effect is small: four constructors on gson. `this(...)`, an implicit super call and other languages' constructors (`__init__`, `constructor`, `initialize`) are not covered; the CHANGELOG lists the limits."
     }
   ]
 }

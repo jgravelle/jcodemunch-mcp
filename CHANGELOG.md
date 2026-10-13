@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.353] - 2026-10-12 - a C# constructor is no longer reported as having no caller when its class is created
+
 ### Fixed - a C# constructor was reported as having no caller however often its class was created (LEDGER L-170)
 
 A C# constructor is named for its class, and the only way to call it by that name is

@@ -2471,3 +2471,13 @@ The 1.108.349 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.349 count, verbatim:
 
 - ⚠ Prior (1.108.349): 16157 passed, 25 skipped, **0 failed** (16182 total).
+
+## Current State rotation (2026-10-12, release 1.108.353)
+
+The 1.108.350 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.350):** **The watcher follows a HEAD move that changed no file** (#1040): `_reconcile_head_move` runs the ordinary incremental index. ⚠⚠ **Never a bare SHA rewrite**: it marks unread files `fresh`. ⚠ Reads under `.git` are bounded and in `SECURITY.md`. Residue L-168. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.350 count, verbatim:
+
+- ⚠ Prior (1.108.350): 16204 passed, 25 skipped, **0 failed** (16229 total).
