@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+### Fixed - a C# constructor was reported as having no caller however often its class was created (LEDGER L-170)
+
+A C# constructor is named for its class, and the only way to call it by that name is
+`new Made(...)`. Java's `new Base()` records `Base` and JavaScript's `new K()` records `K`. C#'s
+`object_creation_expression` was not among the nodes the parser reads as calls, so creating a
+class recorded nothing. `get_dead_code_v2` then found no caller of the constructor and reported
+it with `no_callers`: live code reported dead, in a tool whose rows feed delete decisions. Found
+fixing L-159.
+
+`new Made(...)` now records `Made`, with or without arguments, with an object initialiser, for a
+generic class (`new Made<int>()`), a qualified one (`new Ns.Made()`, `new Outer.Made()`) and an
+alias-qualified one (`new global::Ns.Made()`). The callee is resolved by the tables every other
+call uses (`_CALLEE_MEMBER_FIELD` gained C#'s two qualified-name nodes); no second rule was
+written. An array (`new Made[3]`, `stackalloc Made[2]`) creates no instance and records
+nothing, as do a cast, a type test and `typeof`.
+
+Measured through `get_dead_code_v2` on pinned clones, read and parsed only
+(`evidence/measure_dead_l170.txt`, with each commit): on RestSharp, 625 functions carried
+`no_callers` before and 596 after. All 29 rows that left are constructors, and no row is newly
+reported. gson, zod, ripgrep and this repository's `src/` did not move; of eleven languages
+probed with a qualified callee, only C#'s output changed (`evidence/other_languages_*_l170.txt`).
+
+What it does not do (`evidence/shapes_l170.txt`):
+
+- **A target-typed `new()` records nothing.** `Made x = new();` names the class on the
+  target, not in the expression.
+- **`: base(...)`, `: this(...)`, a primary constructor's base call and an attribute
+  (`[Made(1)]`) record nothing**, as before.
+- **A `new` in a field or property initialiser, or in a top-level statement, is in no
+  function**, so no call reference holds it.
+- **35 constructors on RestSharp are still reported** (64 before). Which are test classes a
+  runner creates and which are reached one of the ways above was not looked into.
+- **The match is by name within C#**, as for every C# call since L-165: `new Made()` of a
+  library class also counts for a project constructor, or method, named `Made`. RestSharp's
+  recorded call references rise from 3756 to 5114. `new T()` on a type parameter records `T`.
+  Toward not reporting.
+
+`PARSER_GENERATION` is 15, so an existing index is re-parsed: the fix changes what unchanged
+C# files record. `get_call_hierarchy` and `get_impact_preview` read the same references, so a
+method that creates a class is listed as a caller of its constructor now. `get_repo_health`
+reads the dead-code tool, so its dead-code share can fall for a C# repository. The rest is
+LEDGER L-171. Twelve reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
 ## [1.108.352] - 2026-10-12 - a function used only in a constant or a dispatch table is no longer reported as having no caller
 
 ### Fixed - a function used only in a constant's initialiser or a dispatch table was reported as having no caller (LEDGER L-169)

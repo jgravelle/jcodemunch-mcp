@@ -130,7 +130,9 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
     "java": {"method_invocation", "object_creation_expression", "class_declaration"},
     "php": {"function_call_expression", "method_call_expression", "scoped_call_expression"},
     "ruby": {"call", "method_call"},
-    "csharp": {"invocation_expression"},
+    # `object_creation_expression`: a C# constructor is named for its class,
+    # so `new Made()` is the only call of it there is (LEDGER L-170).
+    "csharp": {"invocation_expression", "object_creation_expression"},
     "kotlin": {"call_expression"},
     "dart": {"function_expression_invocation"},
     "swift": {"call_expression"},
@@ -161,6 +163,8 @@ _CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
     "member_access_expression": "name",      # C#: a.M, this.M, base.M
     "member_binding_expression": "name",     # C#: the `.M` of a?.M
     "conditional_access_expression": None,   # C#: a?.M
+    "qualified_name": "name",                # C#: new Ns.Type()
+    "alias_qualified_name": "name",          # C#: new global::Type()
     "scoped_type_identifier": None,          # Java: new pkg.Type()
     "annotated_type": None,                  # Java: extends @Ann Type
 }

@@ -608,7 +608,12 @@ INDEX_VERSION = 17
 #   constructor, by the name the class extends. It recorded nothing, so the
 #   constructor of a class that is only subclassed read as never called.
 #   No symbol id moves; only `call_references` changes, on UNCHANGED content.
-PARSER_GENERATION = 14
+#
+# 15 (L-170): a C# `new Made(...)` records the class it creates. It recorded
+#   nothing, so a C# constructor read as never called however often its class
+#   was created. No symbol id moves; only `call_references` changes, on
+#   UNCHANGED content.
+PARSER_GENERATION = 15
 
 
 @dataclass(frozen=True)
