@@ -255,12 +255,80 @@ def _extract_js_imports(content: str) -> list[dict]:
     return edges
 
 
+# A line that can continue a `from ... import` clause: names, `as`, commas.
+_PY_CLAUSE_LINE = re.compile(r"^[\w\s,]*$")
+_BACKSLASH = chr(92)
+
+
+def _py_from_clause(content: str, first: str, pos: int) -> str:
+    """The whole name clause of a `from ... import`, wherever the statement ends (LEDGER L-176).
+
+    ⚠⚠ `_PY_FROM` matches ONE line. For the form every formatter writes,
+
+        from pkg.utils import (
+            solve,
+        )
+
+    that line holds `(` and nothing else, so the edge was recorded with NO
+    names: `find_references("solve")` answered 0, `check_references` counted
+    no import, and the per-name module edges of #550 were never offered. A
+    backslash continuation kept the names of its first line only.
+
+    *first* is the rest of the matched line and *pos* the offset where that
+    line ends. Comments are dropped before anything is split: a clause holds
+    no string, so `#` always starts one.
+
+    ⚠ A continuation line may hold names, `as`, commas and whitespace and
+    nothing else. The first line that holds anything more ends the statement
+    and is not read, so an unclosed parenthesis (a file cut short, prose in a
+    docstring that reads like an import) names only what its own lines name
+    and cannot swallow the file.
+    """
+    head = first.split("#", 1)[0].strip()
+    if head.startswith("("):
+        head = head[1:]
+        if ")" in head:
+            return head.split(")", 1)[0]
+        parenthesised = True
+    elif head.endswith(_BACKSLASH):
+        head = head[:-1]
+        parenthesised = False
+    else:
+        return head
+    parts = [head]
+    size = len(content)
+    while pos < size:
+        nxt = content.find("\n", pos + 1)
+        if nxt == -1:
+            nxt = size
+        line = content[pos + 1:nxt].split("#", 1)[0].strip()
+        pos = nxt
+        if line.split(None, 1)[:1] in (["from"], ["import"]):
+            break  # the next statement: this one never closed
+        if parenthesised:
+            body, closed, _ = line.partition(")")
+            if not _PY_CLAUSE_LINE.match(body):
+                break
+            parts.append(body)
+            if closed:
+                break
+        else:
+            more = line.endswith(_BACKSLASH)
+            body = line[:-1] if more else line
+            if not _PY_CLAUSE_LINE.match(body):
+                break
+            parts.append(body)
+            if not more:
+                break
+    return " ".join(parts)
+
+
 def _extract_python_imports(content: str) -> list[dict]:
     edges = []
     seen: set[str] = set()
 
     for m in _PY_FROM.finditer(content):
-        module, names_str = m.group(1), m.group(2)
+        module, names_str = m.group(1), _py_from_clause(content, m.group(2), m.end())
         # Skip 'from __future__ import ...'
         if module.strip() == "__future__":
             continue

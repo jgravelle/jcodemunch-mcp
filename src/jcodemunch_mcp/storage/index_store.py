@@ -627,7 +627,12 @@ INDEX_VERSION = 17
 # 18 (L-173 item 7): a JavaScript or TypeScript call through a string key
 #   (`t["m"]()`) records the member. It recorded the container. No symbol id
 #   moves; only `call_references` changes, on UNCHANGED content.
-PARSER_GENERATION = 18
+#
+# 19 (L-176): a Python `from x import (...)` spread over several lines, or
+#   continued with a backslash, records the names it imports. It recorded
+#   none, so `find_references` missed every name imported that way. No symbol
+#   id moves; only `files.imports` changes, on UNCHANGED content.
+PARSER_GENERATION = 19
 
 
 @dataclass(frozen=True)
