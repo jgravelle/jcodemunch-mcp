@@ -11,17 +11,19 @@ call recorded `t`, the method `m` recorded nothing, and a method called only tha
 `no_callers` in `get_dead_code_v2`: live code reported dead. Found fixing L-159.
 
 A key that is a string holding a name is read as the name now: in single or double quotes, or
-a template with no substitution, behind `?.`, `new`, parentheses or TypeScript's `!`. Any other
-key resolves to the container as before: a variable, a number, a string that is not a name
-(`"a-b"`, `""`, one with an escape), a template with a substitution, two strings joined. The
-rule is read from the grammar's `index` field, which only the JavaScript, TypeScript and TSX
-grammars give a subscript, so PHP's `$t["m"]()`, Python's `t["m"]()`, Go's and C#'s are
-unchanged: there a string key reaches an element of a container.
+a template with no substitution, behind `?.`, `new`, parentheses or TypeScript's `!`. A name is
+what could follow a dot: letters of any script, digits not first, `_` and `$`. Any other key
+resolves to the container as before: a variable, a number, a string that is not a name
+(`"a-b"`, `"a.b"`, `""`, one with an escape), a template with a substitution, two strings
+joined. Other languages are unchanged, because there a string key reaches an element of a
+container: PHP's `$t["m"]()` is the same node type with no `index` field, and Python's, Go's
+and C#'s subscripts are other node types.
 
 Measured by parsing eight pinned clones with both trees, 1,959 files
-(`evidence/refs_l173.txt`): no symbol's references change. Neither zod nor express calls a
-method this way, so the effect is on a method whose only call has this shape, and it is shown by
-the tests and not by a corpus.
+(`evidence/refs_l173.txt`): no symbol's references change. The reviewer's scan of those clones
+found one call through a string key, zod's `this["~validate"](data)`, and `~validate` is not a
+name, so the fix leaves it alone. The effect is on a method whose only call is through a string
+that holds a name, and it is shown by the tests and not by a corpus.
 
 What it does not do:
 
@@ -33,9 +35,11 @@ What it does not do:
   recorded.
 - **A member read by a string and not called records nothing** (`const f = t["m"]`), as
   `t.m` records nothing.
+- **A method declared with a string that is not a name is not reached**: zod's
+  `"~validate"(data) {}` is stored with its quotes and its call records nothing, on both trees.
 
 `PARSER_GENERATION` is 18, so an existing index is re-parsed: the fix changes what unchanged
-files record. The rest is LEDGER L-174. Thirteen mutants each fail the tests
+files record. The rest is LEDGER L-174. Fifteen mutants each fail the tests
 (`evidence/mutants.txt`).
 
 ## [1.108.355] - 2026-10-13 - a Ruby method called by its bare name is recorded as called

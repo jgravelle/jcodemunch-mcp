@@ -54,6 +54,10 @@ BY_STRING_KEY = {
     "a name with a dollar": ('t["$m"]()', ["$m"]),
     "a name with an underscore and a digit": ('t["_m1"]()', ["_m1"]),
     "returned": ('return t["m"]()', ["m"]),
+    "a name in another script": ('t["caf' + chr(0xE9) + '"]()', ["caf" + chr(0xE9)]),
+    "a name that is only a dollar": ('t["$"]()', ["$"]),
+    "an element of the member": ('t["m"][0]()', ["m"]),
+    "on a cast": ('(t)["m"]()', ["m"]),
     "as an argument": ('other(t["m"]())', ["m", "other"]),
 }
 
@@ -71,6 +75,12 @@ BY_ANOTHER_KEY = {
     "two strings joined": ('t["m" + "n"]()', ["t"]),
     "a template with a substitution": ("t[" + BACKTICK + "m${k}" + BACKTICK + "]()", ["t"]),
     "a private-looking string": ('t["#m"]()', ["t"]),
+    "a string with a dot": ('t["a.b"]()', ["t"]),
+    "a string with a tilde": ('t["~validate"]()', ["t"]),
+    "a string with a hyphen after a name": ('t["m-"]()', ["t"]),
+    "a template that ends in a newline": ("t[" + BACKTICK + "m\n" + BACKTICK + "]()", ["t"]),
+    "a template that is only a substitution": ("t[" + BACKTICK + "${k}" + BACKTICK + "]()", ["t"]),
+    "a string that is only an escape": ('t["' + BACKSLASH + 'u006d"]()', ["t"]),
 }
 
 # Shapes that were right before and are unchanged.
