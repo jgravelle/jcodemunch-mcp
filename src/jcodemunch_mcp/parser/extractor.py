@@ -509,6 +509,8 @@ _RUBY_NODES_WITH_A_PATTERN = frozenset({"in_clause", "test_pattern", "match_patt
 #: A scope of its own inside a method. A nested method is read when the walk
 #: reaches it; a class body is in no method.
 _RUBY_NODES_WITH_THEIR_OWN_SCOPE = _RUBY_METHOD_NODES | {"class", "module", "singleton_class"}
+#: A block's implicit parameters: `it` (Ruby 3.4) and `_1` to `_9`. No node declares them.
+_RUBY_IMPLICIT_BLOCK_PARAMETERS = frozenset({"it"} | {f"_{n}" for n in range(1, 10)})
 
 
 def _record_bare_ruby_calls(node, calls: list[tuple[int, str]]) -> None:
@@ -529,6 +531,8 @@ def _record_bare_ruby_calls(node, calls: list[tuple[int, str]]) -> None:
     asking a node for its parent costs the depth of the tree (L-164).
     ⚠ A block parameter stays a local to the end of the method, where Ruby
     ends it with its block. Toward reporting, and rare.
+    ⚠ What the grammar could not parse (an ``ERROR`` node) is read as
+    introducing every name in it: a name the walk cannot place is not called.
     ⚠ The method and the receiver of a ``call`` node are left to
     ``_record_call``, which records both.
     ⚠ These calls are appended when the method node is met, so they come
@@ -558,10 +562,11 @@ def _record_bare_ruby_calls(node, calls: list[tuple[int, str]]) -> None:
             ):
                 declared.add(name)
             elif (parent == "call" and field in ("method", "receiver")) or (
-                parent in _RUBY_METHOD_NODES and field == "name"
+                # `def obj.m`: `obj` is a local of the scope AROUND the method
+                parent in _RUBY_METHOD_NODES and field in ("name", "object")
             ) or parent in ("setter", "alias", "undef"):
                 pass  # `def name=(v)`: the `setter` node holds the method's own name
-            elif name not in declared:
+            elif name not in declared and name not in _RUBY_IMPLICIT_BLOCK_PARAMETERS:
                 found.append((current.start_byte, name))
             continue
         if in_pattern and kind == "keyword_pattern" and current.child_by_field_name("value") is None:
@@ -569,11 +574,12 @@ def _record_bare_ruby_calls(node, calls: list[tuple[int, str]]) -> None:
             if key is not None:
                 declared.add(key.text.decode("utf-8", errors="replace"))
         holds_a_pattern = kind in _RUBY_NODES_WITH_A_PATTERN
+        unparsed = kind == "ERROR"
         children = current.children
         for i in range(len(children) - 1, -1, -1):
             parse_budget.checkpoint()
             child_field = current.field_name_for_child(i)
-            stack.append((children[i], kind, child_field, in_pattern or (holds_a_pattern and child_field == "pattern")))
+            stack.append((children[i], kind, child_field, in_pattern or unparsed or (holds_a_pattern and child_field == "pattern")))
     calls.extend(found)
 
 

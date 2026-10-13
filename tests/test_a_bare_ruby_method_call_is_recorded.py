@@ -85,6 +85,15 @@ LOOKALIKES = {
     "a lambda parameter": ("f = ->(v) { v }\nf", []),
     "a pattern's captures": ("case 1\nin [a, b]\n  a + b\nend", []),
     "a hash pattern's capture": ("case 1\nin {name:}\n  name\nend", []),
+    "a destructured block parameter": ("pairs.each { |(a, b), c| a + b + c }", ["each", "pairs"]),
+    "a nested multiple-assignment target": ("a, (b, c) = 1, [2, 3]\na + b + c", []),
+    "a one-line test pattern's captures": ("if arg in [a, b]\n  a + b\nend", []),
+    "a rightward pattern's captures": ("arg => {name:, other: o}\nname + o", []),
+    "an implicit block parameter": ("items.map { it + 1 }", ["map", "items"]),
+    "a numbered block parameter": ("items.map { _1 + _2 }", ["map", "items"]),
+    "a parameter the grammar could not parse": ("f = ->(x; y) { x + y }\nf", []),
+    "the names in an alias": ("alias fresh stale", []),
+    "the name in an undef": ("undef stale", []),
     "a constant": ("Settings", []),
     "an instance, class and global variable": ("@settings; @@c; $g", []),
     "a symbol and a string": ("[:settings, 'settings']", []),
@@ -160,6 +169,25 @@ def test_a_local_of_a_nested_method_is_not_a_local_of_the_method_around_it():
     source = "class C\n  def host(arg)\n    def inner\n      leaked = 1\n    end\n    leaked\n  end\nend\n"
     assert _method(source) == ["leaked"]
     assert _method(source, "inner") == []
+
+
+def test_the_object_of_a_singleton_method_is_not_a_call():
+    """`def obj.m`: `obj` is a local of the scope around the method, and the method's own walk cannot know it."""
+    source = "class C\n  def host(arg)\n    o = build\n    def o.inner\n      1\n    end\n    o\n  end\nend\n"
+    assert _method(source) == ["build"]
+    assert _method(source, "inner") == []
+
+
+def test_a_local_of_a_nested_singleton_method_is_not_a_local_of_the_method_around_it():
+    source = "class C\n  def host(arg)\n    def self.inner\n      leaked = 1\n    end\n    leaked\n  end\nend\n"
+    assert _method(source) == ["leaked"]
+
+
+@pytest.mark.parametrize("opener", ["class << self", "class Inner", "module Inner"])
+def test_a_class_body_inside_a_method_is_a_scope_of_its_own(opener):
+    """A class body is in no method: its bare names are not the method's, and neither are its locals."""
+    body = opener + "\n  inner_local = 1\n  bare_in_the_body\nend\ninner_local"
+    assert _records(body) == ["inner_local"]
 
 
 def test_a_local_of_one_method_is_not_a_local_of_the_next():

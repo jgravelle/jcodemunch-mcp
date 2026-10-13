@@ -14,16 +14,19 @@ Ruby itself settles what a bare name is by what the method has done so far: it i
 variable once a parameter, an assignment, a block parameter, a pattern capture or
 `rescue => e` has introduced it, and a method call otherwise. The parser now reads each method
 that way (`_record_bare_ruby_calls`), from the method node down, once, in source order, so
-`y = x; x = 2` reads the first `x` as a call. A nested `def` is a scope of its own. A setter's
-own name (`def host=(v)`) is not a call of the reader.
+`y = x; x = 2` reads the first `x` as a call. A nested `def` is a scope of its own, and so is
+a class or module body inside a method. A setter's own name (`def host=(v)`) is not a call of
+the reader. The object of `def obj.m`, a block's implicit parameter (`it`, `_1` to `_9`) and a
+name in a stretch the grammar could not parse are not calls either.
 
 Measured on sinatra at a pinned commit, read and parsed only
 (`evidence/measure_dead_l172.txt`): in the default call 176 methods carried `no_callers`
 before and 152 after; with `include_tests=True`, 326 and 294. No row is newly reported.
 `evidence/cleared_sinatra_l172.txt` names, for each of the 32 rows that left, a method that
 gained the name; none left another way. Parsing eight pinned clones with both trees, 1,959
-files (`evidence/refs_l172.txt`), only Ruby changes: 205 symbols gain 239 names, none is
-removed, and no symbol id moves.
+files (`evidence/refs_l172.txt`), only Ruby changes: 192 symbols gain 224 names, none is
+removed, and no symbol id moves. Ruby's parse time in that run was 0.47 s before and 0.50 s
+after.
 
 What it does not do:
 
@@ -38,15 +41,19 @@ What it does not do:
   reporting.
 - **A block parameter stays a local to the end of its method**, where Ruby ends it with its
   block. Toward reporting.
+- **A shorthand argument or hash value records no call**: `f(x:)` and `{x:}` name `x` with
+  no node for it. Nor does a name inside a pinned expression in a pattern (`in ^(limit)`).
+  Toward reporting; both from the review's probes.
 - **A receiver is still recorded whether or not it is a local** (`items.each` records `items`
   when `items` is a parameter): the L-159 rule, unchanged.
 - **A method's bare calls are listed before its other calls.** On sinatra 17 methods hold the
-  names they already had in a new order.
+  names they already had in a new order, which is the order `get_call_hierarchy` lists
+  their callees in.
 - **`initialize` is still never called by that word** (`T.new` records `new`).
 
 `PARSER_GENERATION` is 17, so an existing index is re-parsed: the fix changes what unchanged
 Ruby files record. `get_repo_health` reads the dead-code tool, so its dead-code share can fall
-for a Ruby repository. The rest is LEDGER L-173. Twenty-five mutants each fail the tests
+for a Ruby repository. The rest is LEDGER L-173. Thirty-six mutants each fail the tests
 (`evidence/mutants.txt`).
 
 ## [1.108.354] - 2026-10-13 - a Go generic function called with one argument is recorded as called
