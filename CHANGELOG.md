@@ -11,11 +11,14 @@ client sees neither, so the offer was delivered once per install and read by nob
 
 The first successful `resolve_repo` answer an install makes now carries it as a
 `surface_notice` object. It gives the tool-list token difference for that install, says the
-list is read on every turn and from cache after the first, names the commands that switch,
-undo and silence it, and asks the agent to tell the user once and not to change the setting
-itself. On a default full-surface install of this version the notice reads 90 tools against 6
-and 26,082 fewer tool-list tokens a turn, and adds 1,146 bytes to that one answer
-(`evidence/notice_sample.txt`); a narrower install is told its own smaller figure.
+list is read on every turn and from cache after the first (the full basis note rides with
+it), names the commands that switch, undo and silence it, and asks the agent to tell the user
+once, with the cache caveat, and not to change the setting itself. Where the surface is set
+by `JCODEMUNCH_TOOL_SURFACE`, the notice names the variable and not the config command, which
+would do nothing. Measured in a fresh storage directory with the shipped defaults
+(`evidence/notice_sample.txt`): 90 tools against 6, 26,082 fewer tool-list tokens a turn,
+and 1,623 bytes added to that one answer. An install with a narrower tool list is told
+its own smaller figure.
 
 It is said **once per install**. A marker, `surface_notice_state.json` in the storage
 directory, records that it was said: a timestamp, the tool, the surface and the version.
@@ -26,7 +29,7 @@ SECURITY.md discloses it under "Background behavior".
 
 The notice is in the response body because the default `meta_fields: []` strips `_meta`, and
 the answer that carries it is sent as JSON so that no compact encoding can drop the key.
-`tests/test_the_surface_offer_reaches_the_user_through_the_agent.py`; eleven guards removed
+`tests/test_the_surface_offer_reaches_the_user_through_the_agent.py`; sixteen guards removed
 one at a time each fail it (`evidence/mutants.txt`).
 
 ### Fixed - a Python import written over several lines recorded none of its names (LEDGER L-176)

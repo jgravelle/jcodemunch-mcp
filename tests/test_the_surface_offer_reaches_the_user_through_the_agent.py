@@ -31,7 +31,8 @@ def install(tmp_path, monkeypatch):
     store = tmp_path / "store"
     store.mkdir()
     monkeypatch.setenv("CODE_INDEX_PATH", str(store))
-    monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
+    # No variable: the surface comes from the config default, as on an install that never chose.
+    monkeypatch.delenv("JCODEMUNCH_TOOL_SURFACE", raising=False)
     monkeypatch.setitem(surface_offer.NOTICE_STATE, "checked", False)
     work = tmp_path / "work"
     work.mkdir()
@@ -83,6 +84,7 @@ def test_it_says_every_turn_and_says_the_basis(install):
     text = _call("resolve_repo", {"path": str(work)})["surface_notice"]["message"]
     assert "every turn" in text
     assert "cache" in text, "a count read as a full-rate saving overstates it; the basis is part of the claim"
+    assert "predates" not in text and "left as it was" not in text, "the code does not know the install's history"
     assert "order/menu/route" in text, "the tools stay callable, and a reader who thinks otherwise declines"
 
 
@@ -91,9 +93,32 @@ def test_it_asks_the_agent_to_relay_it_and_not_to_act(install):
     notice = _call("resolve_repo", {"path": str(work)})["surface_notice"]
     relay = notice["relay_to_user"]
     assert "user" in relay and "once" in relay
+    assert "cache" in relay and "smaller than the count" in relay, "the likely relay is the bare count"
     assert "not" in relay and "yourself" in relay
     assert notice["switch_command"] == "jcodemunch-mcp config set tool_surface counter"
     assert notice["undo_command"] == "jcodemunch-mcp config set tool_surface full"
+    assert notice["silence_command"] == surface_offer.SILENCE_COMMAND
+
+
+def test_it_carries_the_basis_note_its_sibling_renderers_carry(install):
+    """The status rows and the log line are bound to say it is not a per-request saving; so is this."""
+    from jcodemunch_mcp.tier_switch_cost import SCHEMA_TOKENS_BASIS_NOTE
+
+    store, work = install
+    notice = _call("resolve_repo", {"path": str(work)})["surface_notice"]
+    assert notice["schema_tokens_basis_note"] == SCHEMA_TOKENS_BASIS_NOTE
+    assert "NOT a per-request saving" in notice["schema_tokens_basis_note"]
+    assert "schema_tokens_basis_note" in notice["message"]
+
+
+def test_a_surface_set_by_the_environment_is_not_told_to_run_the_config_command(install, monkeypatch):
+    """The variable wins over the config file, so the config command would change nothing."""
+    store, work = install
+    monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
+    notice = _call("resolve_repo", {"path": str(work)})["surface_notice"]
+    for key, surface in (("switch_command", "counter"), ("undo_command", "full")):
+        assert f"JCODEMUNCH_TOOL_SURFACE={surface}" in notice[key], notice[key]
+        assert "config set" not in notice[key], notice[key]
     assert notice["silence_command"] == surface_offer.SILENCE_COMMAND
 
 

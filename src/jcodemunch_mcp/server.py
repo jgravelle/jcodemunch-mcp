@@ -658,6 +658,11 @@ def _surface_notice_for(name: str, result: object) -> "dict | None":
     only on an answer that can carry it: another tool or an error answer
     first does not use it up.
 
+    ⚠ Known limits, each in the repeat-or-skip direction and none silent in the
+    log: two servers answering their first call at the same moment both say
+    it; and a `response_max_bytes` set below the size of this one answer
+    refuses the answer after the marker is written (review, 2026-10-13).
+
     ⚠ Fail-safe: a pricing failure says nothing. An unwritable marker still
     says it, once in this process, and again next session; repeating an
     advisory is recoverable and suppressing it for good is not.
@@ -679,9 +684,11 @@ def _surface_notice_for(name: str, result: object) -> "dict | None":
         offer = _tool_surface_stats().get("surface_offer")
         if not offer:
             return None
-        from .surface_offer import render_offer_notice
+        from .surface_offer import SURFACE_ENV_VAR, render_offer_notice
 
-        notice = render_offer_notice(offer)
+        notice = render_offer_notice(
+            offer, surface_from_env=bool((os.environ.get(SURFACE_ENV_VAR) or "").strip())
+        )
     except Exception:
         logger.debug("surface notice skipped", exc_info=True)
         return None
