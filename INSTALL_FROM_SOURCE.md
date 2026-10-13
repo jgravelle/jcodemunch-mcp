@@ -165,7 +165,7 @@ Create or edit `%USERPROFILE%\.claude\CLAUDE.md` and add:
 
 Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
 
-- An index answers these and a text search does not: who references a symbol (find_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- Relationships are what the index is for: who imports a symbol (find_references), where a name is used (check_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
 - In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
 - On a small repository the built-in tools are usually the cheaper route for finding and reading code.
 - Before the first jCodemunch call: resolve_repo with the current directory; if the project is not indexed, call index_folder.

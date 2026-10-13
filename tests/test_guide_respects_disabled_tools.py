@@ -127,7 +127,8 @@ class TestWhatMustNotChange:
         # banned the built-in tools outright. It closes on where they stay the
         # right choice (tests/test_the_policy_makes_no_absolute_claim.py).
         assert "Never fall back" not in snippet
-        assert snippet.rstrip().endswith("for a file you are about to edit.")
+        last = snippet.rstrip().splitlines()[-1]
+        assert "built-in" in last and "`" not in last, "the snippet closes on a prose line about the built-in tools"
 
     def test_no_category_is_left_empty(self, cfg):
         """A bare `**Search:**` with nothing after it reads as a surface with no

@@ -5006,7 +5006,9 @@ async def read_resource(uri) -> "list[ReadResourceContents]":
 _WORKFLOW_PROMPT_TEXT = """\
 # jcodemunch-mcp — Workflow Guide
 
-Use these tools instead of Grep/Read/search for any indexed repository.
+Use these tools where an index is the cheaper route: relationships, impact, and
+symbol lookup in a large repository. On a small repository the built-in Grep/Read/Glob
+are usually cheaper for finding and reading code.
 
 ## Step-by-step
 

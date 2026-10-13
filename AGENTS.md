@@ -1,7 +1,7 @@
 ## Code Exploration Policy
 
 jCodemunch-MCP indexes this repository's symbols and how they relate. Use it where it is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
-- **An index answers these and a text search does not.** Use jCodemunch for them: who imports or references a symbol (`find_references`), what a change breaks (`get_blast_radius`), who calls a function and what it calls (`get_call_hierarchy`), what is unreachable (`find_dead_code`).
+- **Relationships are what the index is for:** who imports a symbol, where a name is used, what a change breaks, who calls a function, what is unreachable. The tools are listed under "Relationships & impact" below.
 - **A name you already know, or a file you are about to work in:** the built-in search and `Read` are often as cheap. Take whichever is fewer steps.
 - **On a small repository** the built-in tools are usually the cheaper route for finding and reading code.
 - **A large repository, or a question with no known starting point:** the search and symbol tools below read less than opening whole files.
@@ -33,6 +33,7 @@ jCodemunch-MCP indexes this repository's symbols and how they relate. Use it whe
 - where is this name used (imports + every content match) → `check_references`
 - file dependency graph → `get_dependency_graph`
 - what breaks if I change X → `get_blast_radius`
+- who calls a function, and what it calls → `get_call_hierarchy`
 - what symbols actually changed since last commit → `get_changed_symbols`
 - find unreachable/dead code → `find_dead_code`
 - class hierarchy → `get_class_hierarchy`
@@ -67,6 +68,6 @@ jCodemunch-MCP indexes this repository's symbols and how they relate. Use it whe
 
 ## Model-Driven Tool Tiering
 
-Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is optional. To use it, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making, or call `announce_model(model="...")` once.
+Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is off unless `adaptive_tiering` is enabled in the server's config, and while it is off a model id changes nothing. Where it is on, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making, or call `announce_model(model="...")` once.
 
 The server reads the model's family from the id (Opus, Sonnet, Haiku, GPT, o1, Llama), so any current id works and none needs listing here.

@@ -58,7 +58,7 @@ Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in t
 - database columns (dbt/SQLMesh) → `search_columns`
 
 **Reading code:**
-- before opening any file → `get_file_outline` first
+- a file's shape without reading it → `get_file_outline`
 - one or more symbols → `get_symbol_source` (single ID → flat object; array → batch)
 - symbol + its imports → `get_context_bundle`
 - specific line range only → `get_file_content` (last resort)

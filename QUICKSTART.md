@@ -167,7 +167,7 @@ Create or edit `~/.claude/CLAUDE.md` (global — applies to every project):
 ```markdown
 ## Code Exploration Policy
 Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
-- An index answers these and a text search does not: who references a symbol (find_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- Relationships are what the index is for: who imports a symbol (find_references), where a name is used (check_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
 - In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
 - On a small repository the built-in tools are usually the cheaper route for finding and reading code.
 - Before the first jCodemunch call: resolve_repo with the current directory; if not indexed, call index_folder.
@@ -188,7 +188,7 @@ Create a system prompt file for your agent (e.g. `~/.openclaw/agents/coder.md`) 
 ```markdown
 ## Code Exploration Policy
 Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
-- An index answers these and a text search does not: who references a symbol (find_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- Relationships are what the index is for: who imports a symbol (find_references), where a name is used (check_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
 - In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
 - On a small repository the built-in tools are usually the cheaper route for finding and reading code.
 - Before the first jCodemunch call: resolve_repo with the current directory; if not indexed, call index_folder.
@@ -271,7 +271,7 @@ Want a slowest-tools / coldest-caches view? Ask: *"Run analyze_perf"* — the ag
 **Agent uses jCodeMunch in simple tasks but falls back to file reads in complex ones**
 → This is the "pressure bypass" — the agent sees the rule and skips it anyway because native tools feel faster.
 → Claude Code: CLAUDE.md can't stop this. Install the enforcement hooks: [AGENT_HOOKS.md](AGENT_HOOKS.md).
-→ OpenClaw: reinforce the policy in your systemPromptFile with stronger language (e.g. "NEVER use built-in file read tools for code exploration — always use jCodeMunch").
+→ OpenClaw: name in your systemPromptFile the questions that go to the index (who uses a symbol, what a change breaks, who calls a function). An absolute rule against the built-in tools costs more than it saves on a small repository.
 
 **`jcodemunch-mcp` not found**
 → Use `uvx jcodemunch-mcp` in your config instead of the bare command name — it bypasses PATH entirely.
