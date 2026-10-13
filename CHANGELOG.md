@@ -19,9 +19,9 @@ written. An array (`new Made[3]`, `stackalloc Made[2]`) creates no instance and 
 nothing, as do a cast, a type test and `typeof`.
 
 Measured through `get_dead_code_v2` on pinned clones, read and parsed only
-(`evidence/measure_dead_l170.txt`, with each commit): on RestSharp, 625 functions carried
-`no_callers` before and 596 after. All 29 rows that left are constructors, and no row is newly
-reported. gson, zod, ripgrep and this repository's `src/` did not move; of eleven languages
+(`evidence/measure_dead_l170.txt`, with each commit): on RestSharp, in the default call, 101
+functions carried `no_callers` before and 73 after; with `include_tests=True`, 625 and 596. All
+the rows that left (28, and 29) are constructors, and no row is newly reported. gson, zod, ripgrep and this repository's `src/` did not move; of eleven languages
 probed with a qualified callee, only C#'s output changed (`evidence/other_languages_*_l170.txt`).
 
 What it does not do (`evidence/shapes_l170.txt`):
@@ -32,16 +32,19 @@ What it does not do (`evidence/shapes_l170.txt`):
   (`[Made(1)]`) record nothing**, as before.
 - **A `new` in a field or property initialiser, or in a top-level statement, is in no
   function**, so no call reference holds it.
-- **35 constructors on RestSharp are still reported** (64 before). Which are test classes a
-  runner creates and which are reached one of the ways above was not looked into.
+- **10 constructors on RestSharp are still reported** in the default call (38 before); 35 with
+  `include_tests=True` (64 before). Which are test classes a runner creates and which are
+  reached one of the ways above was not looked into.
 - **The match is by name within C#**, as for every C# call since L-165: `new Made()` of a
   library class also counts for a project constructor, or method, named `Made`. RestSharp's
   recorded call references rise from 3756 to 5114. `new T()` on a type parameter records `T`.
   Toward not reporting.
 
 `PARSER_GENERATION` is 15, so an existing index is re-parsed: the fix changes what unchanged
-C# files record. `get_call_hierarchy` and `get_impact_preview` read the same references, so a
-method that creates a class is listed as a caller of its constructor now. `get_repo_health`
+C# files record. `get_call_hierarchy` and `get_impact_preview` read the same references but
+keep their import-edge rule: by the reviewer's probe a method that creates the class in the
+constructor's own file is listed as its caller now, and one in another C# file is not.
+`get_repo_health`
 reads the dead-code tool, so its dead-code share can fall for a C# repository. The rest is
 LEDGER L-171. Twelve reintroduced defects each fail the tests (`evidence/mutants.txt`).
 
