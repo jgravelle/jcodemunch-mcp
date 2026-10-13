@@ -119,7 +119,10 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
     "javascript": {"call_expression", "new_expression"},
     "typescript": {"call_expression", "new_expression"},
     "tsx": {"call_expression", "new_expression"},
-    "go": {"call_expression"},
+    # `type_conversion_expression`: the grammar cannot tell `Generic[int](1)`
+    # or `fs[i](1)` from a conversion to a generic type, and gives all three
+    # this node. A conversion to a type with no name records nothing (L-171).
+    "go": {"call_expression", "type_conversion_expression"},
     # `macro_invocation` and `macro_definition`: a macro's arguments and a
     # `macro_rules!` body are tokens the grammar does not parse
     # (`_record_macro_calls`, LEDGER L-164).
@@ -165,6 +168,7 @@ _CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
     "conditional_access_expression": None,   # C#: a?.M
     "qualified_name": "name",                # C#: new Ns.Type()
     "alias_qualified_name": "name",          # C#: new global::Type()
+    "qualified_type": "name",                # Go: pkg.F[T](x), t.fs[i](x)
     "scoped_type_identifier": None,          # Java: new pkg.Type()
     "annotated_type": None,                  # Java: extends @Ann Type
 }
@@ -175,7 +179,7 @@ _CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
 _CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
     "generic_function": "function",          # Rust: f::<T>
     "generic_name": None,                    # C#: F<T>
-    "generic_type": None,                    # Java: new Type<T>()
+    "generic_type": None,                    # Java: new Type<T>(); Go: F[T](x)
     "non_null_expression": None,             # TypeScript: f!
     "parenthesized_expression": None,        # (t.m)()
     "index_expression": "operand",           # Go: fs[0], and F[T]

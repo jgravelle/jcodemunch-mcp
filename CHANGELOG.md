@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed - a Go generic function called with one argument recorded no call (LEDGER L-171)
+
+Go's grammar cannot tell `Generic[int](1)`, a generic function called with one argument, from
+`List[int](y)`, a conversion to a generic type. It parses both as a
+`type_conversion_expression` whose type is a `generic_type`, and that node was not among the
+ones the parser reads as calls. So the call recorded nothing, and a generic function called
+only that way read `no_callers` in `get_dead_code_v2`: live code reported dead. With two call
+arguments, or none, the grammar gives a `call_expression`, which was always recorded, so the
+defect depended on how many arguments a call happened to have. Found fixing L-159.
+
+`fs[i](1)` is the same node when the index is a bare name, so a function taken from a slice or
+a map by a variable recorded nothing either, where `fs[0](1)` recorded `fs`. That was a second
+finding of the same ledger row (`t.fs[i](x)`), and the one change fixes both.
+
+The node is a Go call node now, and its name is reached by the tables every other call uses:
+`Generic[int](1)` and `pkg.Generic[int](1)` record `Generic`, `fs[i](1)` and `t.fs[i](x)`
+record `fs`. A conversion to a type that is not a name (`[]byte(s)`, `map[string]int(m)`,
+`chan int(c)`, `func(int) int(f)`, `(*T)(p)`) records nothing, as before, and neither does a
+generic composite literal or a declaration.
+
+Measured by parsing eight pinned clones with both trees, 1,959 files
+(`evidence/refs_l171.txt`; commits in `evidence/corpora_l171.txt`): 24 symbols gain one name
+each, 23 on lo and 1 on gin (`Context.Next`, which calls `c.handlers[c.index](c)`). No name is
+removed, no symbol's references are reordered, no symbol id moves, and no language but Go
+changes. Through `get_dead_code_v2` on lo and gin (`evidence/measure_dead_l171.txt`) no
+`no_callers` row moves, in the default call or with `include_tests=True`: each function that
+gained a caller there already had one on record. The fix is for a function whose only call has
+this shape; these two corpora hold none.
+
+What it does not do:
+
+- **A real conversion to a generic type records the type's name.** `iter.Seq[T](f)` records
+  `Seq`: 7 of the 23 names added on lo are that. The grammar gives the two the same tree. A
+  type and a function cannot share a name in one Go package, so this can only count for a
+  method, or for a function of another package, with that name. Toward not reporting.
+- **A function value in a container is recorded as the container** (`fs`, `handlers`), as
+  `fs[0](1)` always was. The functions stored in it are not known.
+
+`PARSER_GENERATION` is 16, so an existing index is re-parsed: the fix changes what unchanged
+Go files record. The rest is LEDGER L-172. Fourteen reintroduced defects each fail the tests
+(`evidence/mutants.txt`).
+
 ## [1.108.353] - 2026-10-12 - a C# constructor is no longer reported as having no caller when its class is created
 
 ### Fixed - a C# constructor was reported as having no caller however often its class was created (LEDGER L-170)

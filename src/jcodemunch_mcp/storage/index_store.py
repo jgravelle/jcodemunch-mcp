@@ -613,7 +613,12 @@ INDEX_VERSION = 17
 #   nothing, so a C# constructor read as never called however often its class
 #   was created. No symbol id moves; only `call_references` changes, on
 #   UNCHANGED content.
-PARSER_GENERATION = 15
+#
+# 16 (L-171): a Go call the grammar reads as a conversion to a generic type
+#   (`Generic[int](1)`, `fs[i](1)`) records what it calls. It recorded
+#   nothing. No symbol id moves; only `call_references` changes, on UNCHANGED
+#   content.
+PARSER_GENERATION = 16
 
 
 @dataclass(frozen=True)

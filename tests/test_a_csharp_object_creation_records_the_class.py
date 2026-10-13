@@ -55,7 +55,7 @@ LOOKALIKES = {
     "an array": ("var x = new Made[3];", []),
     "an array with an initialiser": ("var x = new Made[] { };", []),
     "a stack array": ("System.Span<Made> x = stackalloc Made[2];", []),
-    # The class is named by the target, not by the expression (LEDGER L-171).
+    # The class is named by the target, not by the expression (LEDGER L-172).
     "a target-typed new": ("Made x = new();", []),
     "an anonymous object": ("var x = new { A = 1 };", []),
     # A keyword type has no symbol.
