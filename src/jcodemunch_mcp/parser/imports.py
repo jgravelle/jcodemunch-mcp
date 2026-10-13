@@ -289,7 +289,7 @@ def _py_from_clause(content: str, first: str, pos: int) -> str:
     ⚠ The read WALKS to the closing parenthesis, the end of the continuation
     or the next line that starts `from` or `import`, whichever is first.
     Every `_PY_FROM` match is such a line, so no line is walked twice and
-    the pass over a file stays linear (a test times it at two sizes).
+    the pass over a file stays linear (a test counts the reader's steps).
     """
     head = first.split("#", 1)[0].strip()
     if not head.startswith("(") and not head.endswith(_BACKSLASH):
