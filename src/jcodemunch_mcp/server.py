@@ -8411,7 +8411,9 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     lines = [
         f"## jcodemunch-mcp (v{_ver})",
         "",
-        "Use jcodemunch-mcp tools instead of Grep/Read/Glob for any indexed repository.",
+        "Use jcodemunch-mcp tools where an index is the cheaper route: references, impact, "
+        "call hierarchy, and symbol lookup in a large repository. On a small repository the "
+        "built-in Grep/Read/Glob are usually cheaper for finding and reading code.",
         "",
         "### Quick start",
         *_quick_start_lines(_active),
@@ -8421,7 +8423,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     for cat, tools in categories:
         lines.append(f"**{cat}:** " + ", ".join(f"`{t}`" for t in tools))
     lines.append("")
-    lines.append("Never fall back to Grep, Read, or Glob for indexed repos.")
+    lines.append("The built-in tools stay the right choice for a file you are about to edit.")
     lines.append("")
     return "\n".join(lines)
 

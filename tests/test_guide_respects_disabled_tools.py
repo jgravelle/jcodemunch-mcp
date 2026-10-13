@@ -123,7 +123,11 @@ class TestWhatMustNotChange:
         assert snippet.startswith("## jcodemunch-mcp (v")
         assert "### Quick start" in snippet
         assert "### All tools" in snippet
-        assert "Never fall back to Grep, Read, or Glob" in snippet
+        # Was a required "Never fall back to Grep, Read, or Glob": the snippet
+        # banned the built-in tools outright. It closes on where they stay the
+        # right choice (tests/test_the_policy_makes_no_absolute_claim.py).
+        assert "Never fall back" not in snippet
+        assert snippet.rstrip().endswith("for a file you are about to edit.")
 
     def test_no_category_is_left_empty(self, cfg):
         """A bare `**Search:**` with nothing after it reads as a surface with no

@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Changed - the generated agent policy no longer orders the index for everything (LEDGER L-175)
+
+The policy that `init` installs and `claude-md --generate --format policy` prints opened "Always
+use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash". It
+required `resolve_repo` at the start of every session and `plan_turn` as the "opening move for
+any task", and it printed model ids one generation old. An agent that followed it to the letter
+on a small repository paid for it: each index call is another turn, every turn re-reads the
+context, and the built-in search finds a known name in fewer. The policy forbade the cheaper
+route.
+
+It now says where each route is cheaper. The index is for what a text search cannot answer (who
+references a symbol, what a change breaks, who calls a function, what is unreachable), for a
+large repository, and for a question with no known starting point. The built-in tools are
+named as the usual cheaper route on a small repository and for a file about to be edited.
+`resolve_repo` is asked for before the first jCodemunch call and not before every session, and
+`plan_turn` is offered for a broad task. No versioned model id is printed: the server reads the
+family from whatever id it is given.
+
+The same change is made everywhere that text is carried: both policy variants, the Cursor and
+Windsurf rules, the installed skill, the `jcodemunch_guide` snippet, and the copies in
+`QUICKSTART.md`, `INSTALL_FROM_SOURCE.md`, `AGENT_HOOKS.md` and this repository's `AGENTS.md`.
+`tests/test_the_policy_makes_no_absolute_claim.py` reads each generated surface for the old
+phrases; 48 of its 73 cases failed before the change (`evidence/red.txt`). Three older tests
+required the old phrases and now require their absence.
+
+**If you installed the policy before this release, your file still holds the old text.**
+Nothing rewrites it. `jcodemunch-mcp config --check` reports that it differs, and
+`jcodemunch-mcp claude-md --generate --format policy` prints the current text to paste over it.
+
+What this does not change yet, each recorded in LEDGER L-175: the server's start-up
+instructions and a few tool descriptions still say to prefer the index, the search hooks still
+nudge toward it at any repository size, the policy does not know how big the repository is, and
+jDocMunch's and jDataMunch's own policy text is unchanged.
+
 ## [1.108.356] - 2026-10-13 - a JavaScript method called through a string key is recorded as called
 
 ### Fixed - a JavaScript method called through a string key recorded the wrong name (LEDGER L-173)

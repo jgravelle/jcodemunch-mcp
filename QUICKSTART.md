@@ -166,11 +166,11 @@ Create or edit `~/.claude/CLAUDE.md` (global — applies to every project):
 
 ```markdown
 ## Code Exploration Policy
-Always use jCodemunch-MCP tools — never fall back to Read, Grep, Glob, or Bash for code exploration.
-- Before reading a file: use get_file_outline or get_file_content
-- Before searching: use search_symbols or search_text
-- Before exploring structure: use get_file_tree or get_repo_outline
-- Call resolve_repo with the current directory first; if not indexed, call index_folder.
+Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- An index answers these and a text search does not: who references a symbol (find_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
+- On a small repository the built-in tools are usually the cheaper route for finding and reading code.
+- Before the first jCodemunch call: resolve_repo with the current directory; if not indexed, call index_folder.
 ```
 
 You can also add the same block to a project-level `CLAUDE.md` in your repo root.
@@ -187,11 +187,11 @@ Create a system prompt file for your agent (e.g. `~/.openclaw/agents/coder.md`) 
 
 ```markdown
 ## Code Exploration Policy
-Always use jCodemunch-MCP tools — never fall back to built-in file tools for code exploration.
-- Before reading a file: use get_file_outline or get_file_content
-- Before searching: use search_symbols or search_text
-- Before exploring structure: use get_file_tree or get_repo_outline
-- Call resolve_repo with the current directory first; if not indexed, call index_folder.
+Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- An index answers these and a text search does not: who references a symbol (find_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
+- On a small repository the built-in tools are usually the cheaper route for finding and reading code.
+- Before the first jCodemunch call: resolve_repo with the current directory; if not indexed, call index_folder.
 ```
 
 Then point your agent config at that file in `~/.openclaw/openclaw.json`:

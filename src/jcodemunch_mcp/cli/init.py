@@ -134,7 +134,7 @@ def _enforcement_hooks() -> dict[str, Any]:
 # including subagents — which is the main reliability complaint.
 _CURSOR_RULES_CONTENT = """\
 ---
-description: Use jCodemunch MCP tools for all code navigation instead of built-in search
+description: When jCodemunch MCP tools are the cheaper route for code navigation, and when the built-in search is
 alwaysApply: true
 ---
 
@@ -705,7 +705,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
     if policy != _CLAUDE_MD_POLICY:
         content = (
             "---\n"
-            "description: Use jCodemunch MCP tools for all code navigation instead of built-in search\n"
+            "description: When jCodemunch MCP tools are the cheaper route for code navigation, and when the built-in search is\n"
             "alwaysApply: true\n"
             "---\n\n"
         ) + policy
