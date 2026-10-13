@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.354](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.354)** (2026-10-13) — a Go generic function called with one argument is recorded as called
 - **[v1.108.353](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.353)** (2026-10-12) — a C# constructor is no longer reported as having no caller when its class is created
 - **[v1.108.352](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.352)** (2026-10-12) — a function used only in a constant or a dispatch table is no longer reported as having no caller
 - **[v1.108.351](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.351)** (2026-10-12) — the constructor of a class that is created is no longer reported as having no caller
-- **[v1.108.350](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.350)** (2026-10-12) — a watched repo no longer stays stale after a commit, switch or pull
 <!-- WHATSNEW:END -->
 
 ---

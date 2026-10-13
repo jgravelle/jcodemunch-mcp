@@ -2481,3 +2481,13 @@ The 1.108.350 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.350 count, verbatim:
 
 - ⚠ Prior (1.108.350): 16204 passed, 25 skipped, **0 failed** (16229 total).
+
+## Current State rotation (2026-10-13, release 1.108.354)
+
+The 1.108.351 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.351):** **Creating a class counts as a call of its constructor** (L-167): `constructors_as_their_classes` hands `get_dead_code_v2` each `__init__`/`constructor` as its class. ⚠⚠ **A subclass joins its base only from the base's file or an importer** (by name across the index was quadratic). ⚠ Ruby not covered: L-172. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.351 count, verbatim:
+
+- ⚠ Prior (1.108.351): 16243 passed, 25 skipped, **0 failed** (16268 total).

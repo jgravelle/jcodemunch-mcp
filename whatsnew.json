@@ -1,6 +1,12 @@
 {
-  "current": "1.108.353",
+  "current": "1.108.354",
   "entries": [
+    {
+      "version": "1.108.354",
+      "date": "2026-10-13",
+      "title": "a Go generic function called with one argument is recorded as called",
+      "summary": "Go's grammar parses `Generic[int](1)`, a generic function called with exactly one argument, as a type conversion, and the parser recorded no call for it. A generic function called only that way could read `no_callers` in `get_dead_code_v2`. The call is recorded now, also behind `*` or in parentheses, and so is a function taken from a slice or map by a variable (`fs[i](1)`). On eight pinned repositories 24 functions gain a recorded call and no dead-code row moves; the effect is on a function whose only call has this shape. A real conversion to a generic type records the type's name; the CHANGELOG lists that limit. An existing index is re-parsed on upgrade."
+    },
     {
       "version": "1.108.353",
       "date": "2026-10-12",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "the constructor of a class that is created is no longer reported as having no caller",
       "summary": "`get_dead_code_v2` reported a Python `__init__` and a JavaScript or TypeScript `constructor` with no caller however often the class was created, because nothing calls a constructor by that word. Creating a class, or a subclass of it, now counts as a call of its constructor. On this repository's own source 29 of 42 such rows are gone, and on zod 9 of 13. Ruby's `initialize` is not covered yet; the CHANGELOG lists that and the other limits. `get_repo_health` reads this tool, so its dead-code share can fall for Python and JS/TS repositories."
-    },
-    {
-      "version": "1.108.350",
-      "date": "2026-10-12",
-      "title": "a watched repo no longer stays stale after a commit, switch or pull",
-      "summary": "With `watch-all` running, a commit, `git switch` or pull that changed no working-tree file left the index reading `stale`, because the watcher only acted on file events and none arrived. The watcher now checks where HEAD points once a second and, when it has moved, runs the ordinary incremental index, which refreshes the stored commit. The check reads a few small files under `.git` and starts no process; `SECURITY.md` discloses it. Reported by @randyhbh (#1040). Not run on macOS, the reporter's platform; the CHANGELOG lists the limits."
     }
   ]
 }

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.354] - 2026-10-13 - a Go generic function called with one argument is recorded as called
+
 ### Fixed - a Go generic function called with one argument recorded no call (LEDGER L-171)
 
 Go's grammar cannot tell `Generic[int](1)`, a generic function called with one argument, from
