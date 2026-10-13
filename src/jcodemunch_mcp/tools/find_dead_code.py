@@ -15,7 +15,6 @@ from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
-    has_jvm_build,
     is_host_invoked,
     package_json_entries as _package_json_entries,
     unseen_consumer,
@@ -331,7 +330,6 @@ def find_dead_code(
     boundary_withheld = 0
     unseen_withheld = {"build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0}
     dotnet = has_dotnet_evidence(index.source_files)
-    jvm = has_jvm_build(index.source_files)
 
     dead_files: list[dict] = []
 
@@ -360,11 +358,11 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        unseen = unseen_consumer(f, dotnet=dotnet, jvm=jvm)
+        unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
             unseen = next(
-                filter(None, (unseen_consumer(i, dotnet=dotnet, jvm=jvm) for i in importers)), None
+                filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
             )
         file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or unseen) else ceiling
         capped = min(confidence, file_ceiling)
@@ -514,7 +512,7 @@ def find_dead_code(
     _unseen_why = {
         "build_consumed": "a .NET project file may consume them (EmbeddedResource, Page, "
         "Import)",
-        "schema_consumer": "a Maven or Gradle build may compile them (JAXB, Spring-WS, CXF)",
+        "schema_consumer": "a build or code generator outside the index may compile them",
         "runtime_loadable": ".NET user controls and master pages can be loaded by path at "
         "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
     }

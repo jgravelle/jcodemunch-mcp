@@ -38,7 +38,6 @@ from ._call_graph import (
 from ._entry_points import (
     entry_point_spec,
     has_dotnet_evidence,
-    has_jvm_build,
     is_host_invoked,
     package_json_entries as _package_json_entries,
     unseen_consumer,
@@ -1179,10 +1178,7 @@ def get_dead_code_v2(
     # `dynamic_import_boundary` with no site, in a repository holding no dynamic
     # import (review of #1012).
     dotnet = has_dotnet_evidence(source_files)
-    jvm = has_jvm_build(source_files)
-    unseen_roots = {
-        f: kind for f in source_files if (kind := unseen_consumer(f, dotnet=dotnet, jvm=jvm))
-    }
+    unseen_roots = {f: kind for f in source_files if (kind := unseen_consumer(f, dotnet=dotnet))}
     maybe_loaded = dynamic_loaded | _with_what_they_import(set(unseen_roots))
 
     # Pre-compute barrel exports (Signal 3 input). Recursively follows CJS
@@ -1413,7 +1409,7 @@ def get_dead_code_v2(
             "files_by_kind": dict(sorted(kinds.items())),
             "note": (
                 "unreachable_file was not decided for these files: a .NET project "
-                "file may consume them (build_consumed), a Maven or Gradle build may "
+                "file may consume them (build_consumed), a build or code generator may "
                 "compile a schema (schema_consumer), or a user control or master "
                 "page may be loaded by path at runtime (runtime_loadable); "
                 "imported_by_one counts the files such a file imports. The index "

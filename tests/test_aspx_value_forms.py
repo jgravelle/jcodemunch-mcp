@@ -1,5 +1,5 @@
 """Web Forms attribute values in every form ASP.NET accepts, and `.xsd`/`.wsdl`
-capped only in a repository with .NET evidence."""
+capped in every repository, with .NET evidence choosing only the kind."""
 
 from __future__ import annotations
 
@@ -124,18 +124,62 @@ def test_an_unquoted_directive_value_may_be_a_path():
     assert "Sub/Q.aspx.cs" in {e["specifier"] for e in edges}, edges
 
 
+QUOTED_TEXT = {
+    "handler_in_a_value": '<asp:Button ID="b" runat="server" ToolTip="use OnClick=Evil_Click please" />',
+    "runat_in_a_value": '<asp:Button ID="b" ToolTip="set runat=server here" OnClick="Save_Click" />',
+    "handler_in_single_quotes": "<asp:Button ID=b runat=server ToolTip='OnClick=Evil_Click ok' />",
+    "quoted_handler_in_a_value": """<asp:Button ID="b" runat="server" ToolTip='use OnClick="Evil_Click"' />""",
+    "quoted_runat_in_a_value": """<asp:Button ID="b" ToolTip='x runat="server"' OnClick="Save_Click" />""",
+}
+
+
+@pytest.mark.parametrize("shape", sorted(QUOTED_TEXT))
+def test_text_inside_a_quoted_value_is_no_attribute(shape):
+    assert _aspx_handler_names(QUOTED_TEXT[shape]) == []
+
+
+def test_text_inside_a_quoted_value_opens_no_extractor_gate():
+    page = (
+        '<%@ Page Language="C#" %>\n'
+        '<asp:Button ID="b" ToolTip="set runat=server here" />\n'
+        """<asp:Button ID="c" ToolTip='x runat="server"' />\n"""
+        "<script title='a runat=server b'>\nvoid Zz_Q() { }\n</script>\n"
+    )
+    names = {s.name for s in parse_file(page, "App/Q.aspx", "aspx")}
+    assert not {"b", "c", "Zz_Q"} & names, names
+
+
+def test_quotes_inside_an_inline_block_do_not_shift_the_attributes():
+    markup = (
+        '<asp:HyperLink ID="lnk" NavigateUrl="<%# "x.aspx?id=" + Eval("Id") %>" '
+        'runat="server" OnLoad="Lnk_Load" />'
+    )
+    assert _aspx_handler_names(markup) == ["Lnk_Load"]
+    nugget = '<asp:Button ID="b" runat="server" Text="<%# " OnClick=Evil_Click " %>" />'
+    assert _aspx_handler_names(nugget) == []
+    page = '<%@ Page Language="C#" %>' + chr(10) + markup + chr(10)
+    names = {s.name for s in parse_file(page, "App/Q.aspx", "aspx")}
+    assert "lnk" in names and not any("Eval" in n for n in names), names
+
+
 RUN = 200_000
 NOT_QUADRATIC_SECONDS = 20.0
+# Handlers are read only after a code directive, so each tag shape carries one.
+CODE_DIRECTIVE = '<%@ Page CodeFile="x.aspx.cs" Inherits="A.B" %>'
 
 HOSTILE = {
     "unquoted_pairs": "<%@ Page " + "a=b " * (RUN // 4) + "%>",
     "chained_equals": "<%@ Page " + "a=" * (RUN // 2) + " %>",
+    "bare_value_without_delimiter": "<%@ Page a= " + "b" * RUN + "=c %>",
+}
+TAG_SHAPES = {
     "unclosed_single_quote": "<asp:Button runat=server a='" + "b" * RUN + " />",
     "single_quote_run": "<asp:Button runat=server " + "a='b' " * (RUN // 6) + "/>",
     "unquoted_event_run": "<asp:Button runat=server " + "OnClick=X " * (RUN // 10) + "/>",
     "empty_unquoted_run": "<asp:Button runat=server " + "a= " * (RUN // 3) + "/>",
-    "bare_value_without_delimiter": "<%@ Page a= " + "b" * RUN + "=c %>",
+    "inline_block_run": "<asp:Button runat=server " + "a=<%b%> " * (RUN // 8) + "/>",
 }
+HOSTILE.update({name: CODE_DIRECTIVE + shape for name, shape in TAG_SHAPES.items()})
 
 
 @pytest.mark.parametrize("shape", sorted(HOSTILE))
@@ -143,6 +187,17 @@ def test_import_extraction_stays_linear_on_every_value_form(shape):
     start = time.perf_counter()
     extract_imports(HOSTILE[shape], "App/x.aspx", "aspx")
     assert time.perf_counter() - start < NOT_QUADRATIC_SECONDS
+
+
+@pytest.mark.parametrize("shape", sorted(TAG_SHAPES))
+def test_every_tag_shape_reaches_the_handler_reader(shape, monkeypatch):
+    from jcodemunch_mcp.parser import imports
+
+    calls = []
+    real = imports._aspx_handler_names
+    monkeypatch.setattr(imports, "_aspx_handler_names", lambda c: calls.append(1) or real(c))
+    extract_imports(HOSTILE[shape], "App/x.aspx", "aspx")
+    assert calls, shape
 
 
 @pytest.mark.parametrize("shape", sorted(HOSTILE))
@@ -156,35 +211,23 @@ def test_symbol_extraction_stays_linear_on_every_value_form(shape):
 
 
 @pytest.mark.parametrize("name", ["schema.xsd", "service.wsdl"])
-def test_a_shared_format_is_capped_only_with_dotnet_evidence(name):
-    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=False, jvm=False) is None
-    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=True, jvm=False) == "build_consumed"
-
-
-@pytest.mark.parametrize("name", ["schema.xsd", "service.wsdl"])
-def test_a_shared_format_takes_the_neutral_cap_with_a_jvm_build(name):
-    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=False, jvm=True) == "schema_consumer"
-    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=True, jvm=True) == "build_consumed"
+def test_a_shared_format_is_capped_in_every_repository(name):
+    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=True) == "build_consumed"
+    assert _entry_points.unseen_consumer(f"res/{name}", dotnet=False) == "schema_consumer"
 
 
 @pytest.mark.parametrize("name", ["Strings.resx", "App.xaml", "build.targets", "Menu.ascx", "Site.master"])
 def test_a_dotnet_only_format_is_capped_without_evidence(name):
-    assert _entry_points.unseen_consumer(f"App/{name}", dotnet=False, jvm=False) is not None
+    assert _entry_points.unseen_consumer(f"App/{name}", dotnet=False) is not None
 
 
-def test_a_jvm_build_is_a_maven_or_gradle_build_file():
-    assert _entry_points.has_jvm_build(["svc/pom.xml"]) is True
-    assert _entry_points.has_jvm_build(["build.gradle"]) is True
-    assert _entry_points.has_jvm_build(["app/build.gradle.kts"]) is True
-    assert _entry_points.has_jvm_build(["src/Main.java", "res/schema.xsd", "conf/settings.xml"]) is False
-    assert _entry_points.has_jvm_build([]) is False
-
-
-def test_dotnet_evidence_is_dotnet_source_or_a_file_iis_or_msbuild_invokes():
+def test_dotnet_evidence_is_dotnet_source_a_dotnet_only_format_or_a_host_invoked_file():
     assert _entry_points.has_dotnet_evidence(["src/Main.java", "App/App.csproj"]) is True
     assert _entry_points.has_dotnet_evidence(["src/Main.java", "Web/Default.aspx"]) is True
-    assert _entry_points.has_dotnet_evidence(["src/Main.java", "res/schema.xsd", "res/Strings.resx"]) is False
     assert _entry_points.has_dotnet_evidence(["src/Main.java", "lib/Util.cs"]) is True
+    assert _entry_points.has_dotnet_evidence(["res/schema.xsd", "res/Strings.resx"]) is True
+    assert _entry_points.has_dotnet_evidence(["ui/Menu.ascx", "res/schema.xsd"]) is True
+    assert _entry_points.has_dotnet_evidence(["src/Main.java", "res/schema.xsd", "pom.xml"]) is False
     assert _entry_points.has_dotnet_evidence([]) is False
 
 
@@ -206,30 +249,52 @@ _SCHEMA = (
 )
 
 
-@pytest.fixture(scope="module")
-def java_repo(tmp_path_factory) -> tuple[str, str]:
-    return _index(tmp_path_factory.mktemp("java_xsd"), {
-        "src/main/java/App.java": "public class App { public static void main(String[] a) { } }\n",
-        "src/main/resources/orders.xsd": _SCHEMA,
-    })
+_JAVA = "public class App { public static void main(String[] a) { } }\n"
+_DOTNET = "namespace App { public static class Program { public static void Main() { } } }\n"
+_CONTROL = '<%@ Control Language="C#" %>\n<asp:Label ID="l" runat="server" />\n'
 
-
-@pytest.fixture(scope="module")
-def maven_repo(tmp_path_factory) -> tuple[str, str]:
-    return _index(tmp_path_factory.mktemp("maven_xsd"), {
-        "pom.xml": "<project><modelVersion>4.0.0</modelVersion></project>\n",
-        "src/main/java/App.java": "public class App { public static void main(String[] a) { } }\n",
-        "src/main/resources/orders.xsd": _SCHEMA,
-    })
-
-
-@pytest.fixture(scope="module")
-def dotnet_repo(tmp_path_factory) -> tuple[str, str]:
-    return _index(tmp_path_factory.mktemp("dotnet_xsd"), {
+# Trees whose schema `main` capped and an evidence-gated cap did not (review of
+# #1067): each keeps its cap, and only the kind follows the evidence.
+SCHEMA_TREES = {
+    "dotnet_project": ({
         "App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk" />\n',
-        "App/Program.cs": "namespace App { public static class Program { public static void Main() { } } }\n",
+        "App/Program.cs": _DOTNET,
         "Schemas/orders.xsd": _SCHEMA,
-    })
+    }, "Schemas/orders.xsd", "build_consumed"),
+    "vb_subtree": ({
+        "Module1.vb": "Module Module1\nEnd Module\n",
+        "Resources.resx": "<root />\n",
+        "OrdersDataSet.xsd": _SCHEMA,
+    }, "OrdersDataSet.xsd", "build_consumed"),
+    "controls_only": ({
+        "Menu.ascx": _CONTROL,
+        "Strings.resx": "<root />\n",
+        "App_Code/orders.xsd": _SCHEMA,
+    }, "App_Code/orders.xsd", "build_consumed"),
+    "schemas_only": ({"orders.xsd": _SCHEMA}, "orders.xsd", "schema_consumer"),
+    "java_no_build": ({
+        "src/main/java/App.java": _JAVA,
+        "src/main/resources/orders.xsd": _SCHEMA,
+    }, "src/main/resources/orders.xsd", "schema_consumer"),
+    "maven": ({
+        "pom.xml": "<project><modelVersion>4.0.0</modelVersion></project>\n",
+        "src/main/java/App.java": _JAVA,
+        "src/main/resources/orders.xsd": _SCHEMA,
+    }, "src/main/resources/orders.xsd", "schema_consumer"),
+    "ant": ({
+        "build.xml": '<project name="app" default="jar" />\n',
+        "src/App.java": _JAVA,
+        "schema/orders.xsd": _SCHEMA,
+    }, "schema/orders.xsd", "schema_consumer"),
+}
+
+
+@pytest.fixture(scope="module")
+def schema_repos(tmp_path_factory) -> dict[str, tuple[str, str]]:
+    return {
+        name: _index(tmp_path_factory.mktemp(name), files)
+        for name, (files, _, _) in SCHEMA_TREES.items()
+    }
 
 
 def _schema_row(out: dict, path: str) -> dict:
@@ -238,43 +303,31 @@ def _schema_row(out: dict, path: str) -> dict:
     return rows[path]
 
 
-def test_find_dead_code_caps_a_schema_only_in_a_dotnet_repo(java_repo, dotnet_repo):
+@pytest.mark.parametrize("tree", sorted(SCHEMA_TREES))
+def test_find_dead_code_caps_a_schema_in_every_tree(tree, schema_repos):
     from jcodemunch_mcp.tools.find_dead_code import find_dead_code
 
-    java = find_dead_code(java_repo[0], min_confidence=0.0, storage_path=java_repo[1])
-    dotnet = find_dead_code(dotnet_repo[0], min_confidence=0.0, storage_path=dotnet_repo[1])
-    java_row = _schema_row(java, "src/main/resources/orders.xsd")
-    dotnet_row = _schema_row(dotnet, "Schemas/orders.xsd")
-    assert "build_consumed" not in java_row.get("confidence_capped_by", []), java_row
-    assert "build_consumed" in dotnet_row.get("confidence_capped_by", []), dotnet_row
-
-
-def test_check_delete_safe_names_build_consumed_only_in_a_dotnet_repo(java_repo, dotnet_repo):
-    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
-
-    java = check_delete_safe(java_repo[0], "order", storage_path=java_repo[1])
-    dotnet = check_delete_safe(dotnet_repo[0], "order", storage_path=dotnet_repo[1])
-    assert "build_consumed" not in [b.get("kind") for b in java.get("blockers", [])], java
-    assert java["verdict"] != "dynamic_import_boundary", java
-    assert "build_consumed" in [b.get("kind") for b in dotnet.get("blockers", [])], dotnet
-
-
-def test_a_maven_build_keeps_a_schema_capped_under_the_neutral_kind(maven_repo):
-    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
-    from jcodemunch_mcp.tools.find_dead_code import find_dead_code
-
-    found = find_dead_code(maven_repo[0], min_confidence=0.0, storage_path=maven_repo[1])
-    row = _schema_row(found, "src/main/resources/orders.xsd")
-    caps = row.get("confidence_capped_by", [])
-    assert "schema_consumer" in caps and "build_consumed" not in caps, row
+    _, path, kind = SCHEMA_TREES[tree]
+    repo, storage = schema_repos[tree]
+    row = _schema_row(find_dead_code(repo, min_confidence=0.0, storage_path=storage), path)
+    assert kind in row.get("confidence_capped_by", []), row
     assert row["confidence"] < 1.0, row
-    default = find_dead_code(maven_repo[0], storage_path=maven_repo[1])
-    assert default.get("schema_consumer_withheld", 0) >= 1, default.get("analysis_notes")
+    default = find_dead_code(repo, storage_path=storage)
+    assert path not in {d["file"] for d in default.get("dead_files", [])}, default
+    assert default.get(f"{kind}_withheld", 0) >= 1, default.get("analysis_notes")
 
-    verdict = check_delete_safe(maven_repo[0], "order", storage_path=maven_repo[1])
-    kinds = [b.get("kind") for b in verdict.get("blockers", [])]
-    assert "schema_consumer" in kinds and "build_consumed" not in kinds, verdict
-    assert "Maven or Gradle" in verdict["recommended_action"], verdict
+
+@pytest.mark.parametrize("tree", sorted(SCHEMA_TREES))
+def test_check_delete_safe_never_clears_a_schema(tree, schema_repos):
+    from jcodemunch_mcp.tools.check_delete_safe import check_delete_safe
+
+    _, _, kind = SCHEMA_TREES[tree]
+    repo, storage = schema_repos[tree]
+    verdict = check_delete_safe(repo, "order", storage_path=storage)
+    assert verdict["verdict"] == "dynamic_import_boundary", verdict
+    assert kind in [b.get("kind") for b in verdict.get("blockers", [])], verdict
+    project_file_advice = "project file" in verdict["recommended_action"]
+    assert project_file_advice == (kind == "build_consumed"), verdict["recommended_action"]
 
 
 def test_existing_indexes_reparse_web_forms_pages():

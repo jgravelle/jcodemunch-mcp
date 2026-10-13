@@ -25,9 +25,9 @@ Verdict tiers (most-permissive first):
                              dynamic import scoped to its package can load it
                              (`import_module(f"adapters.{name}")`). The sites
                              are named. LEDGER L-70. Also a .NET control,
-                             master page or build item, or a schema a Maven or
-                             Gradle build compiles, loaded by a path the
-                             index does not carry (`unseen_consumer`).
+                             master page or build item, or a schema a build
+                             or code generator may compile, loaded by a path
+                             the index does not carry (`unseen_consumer`).
 
 ⚠⚠ **`corpus_inadequate`, `name_not_searchable` and `dynamic_import_boundary`
 each replace an absence verdict, never a blocking one.**
@@ -49,7 +49,7 @@ from ..runtime.confidence import symbol_hit_count
 from . import _name_reachability
 from ._corpus_adequacy import UNPROVEN_CEILING, assess_corpus
 from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
-from ._entry_points import has_dotnet_evidence, has_jvm_build, unseen_consumer
+from ._entry_points import has_dotnet_evidence, unseen_consumer
 from ._stop_rule import build_stop_rule
 from ._test_paths import is_test_file as _is_test_file  # noqa: F401  (the one rule, LEDGER L-101)
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -482,13 +482,13 @@ def check_delete_safe(
             blocker["files_total"] = len(reaching)
         blockers.append(blocker)
 
-    # A .NET control, master page or build item is loaded by a path the index
-    # does not carry (LoadControl, a stored control path, the project file):
-    # the same unproven absence as a dynamic import, under the same verdict.
+    # A .NET control, master page or build item, or a schema a build compiles,
+    # is reached by an edge the index does not carry (LoadControl, a stored
+    # control path, the project file, a code generator): the same unproven
+    # absence as a dynamic import, under the same verdict.
     unseen = unseen_consumer(
         target.get("file", ""),
         dotnet=has_dotnet_evidence(index.source_files),
-        jvm=has_jvm_build(index.source_files),
     )
     unseen_gap = False
     if unseen and dynamic_gap is None and verdict in (
@@ -499,16 +499,16 @@ def check_delete_safe(
         unseen_gap = True
         dynamic_gap = {
             "action": (
-                "check the Maven or Gradle build for a plugin that compiles this "
-                "schema (JAXB, Spring-WS, CXF)"
+                "check for a build or code generator outside the index that "
+                "compiles this schema"
                 if unseen == "schema_consumer"
                 else "check how the host loads this file (LoadControl, a stored "
                 "control path, the project file)"
             ),
             "why": (
-                f"{target.get('file', '')} is {unseen}: it can be loaded by a path "
+                f"{target.get('file', '')} is {unseen}: it can be reached by an edge "
                 "the index does not carry, so finding no importer is not evidence "
-                "that nothing loads it"
+                "that nothing uses it"
             ),
         }
         blockers.append({

@@ -158,11 +158,10 @@ _HOST_INVOKED_NAMES = frozenset({
 # Build-consumed: project-file items. Runtime-loadable: LoadControl, a CMS's
 # stored control path, MasterPageFile set in code.
 _BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targets")
-# W3C formats other ecosystems use too: `build_consumed` only with .NET
-# evidence, `schema_consumer` with a Maven or Gradle build (JAXB, Spring-WS and
-# CXF compile every schema under a directory by default, naming none).
+# W3C formats other ecosystems use too: always capped, `build_consumed` with
+# .NET evidence and the neutral `schema_consumer` otherwise, since any build or
+# code generator outside the index may compile them.
 _SHARED_FORMAT_SUFFIXES = (".xsd", ".wsdl")
-_JVM_BUILD_NAMES = frozenset({"pom.xml", "build.gradle", "build.gradle.kts"})
 _RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
 
 
@@ -175,37 +174,36 @@ def is_host_invoked(file_path: str) -> bool:
     return base in _HOST_INVOKED_NAMES or base.endswith(_HOST_INVOKED_SUFFIXES)
 
 
-# Source files count too: a subtree index can hold no project file, and a wrong
-# "yes" only keeps a cap, while a wrong "no" reports a live schema dead.
+# Evidence picks only the kind and its advice, never whether a schema is
+# capped. .NET source and the .NET-only capped formats count, so a subtree or a
+# controls-only tree with no project file still reads as .NET.
 _DOTNET_SOURCE_SUFFIXES = (".cs", ".fs")
+_DOTNET_ONLY_SUFFIXES = tuple(
+    s for s in _BUILD_CONSUMED_SUFFIXES if s not in _SHARED_FORMAT_SUFFIXES
+) + _RUNTIME_LOADABLE_SUFFIXES
 
 
 def has_dotnet_evidence(source_files) -> bool:
-    """True when any indexed file is .NET source or one IIS or MSBuild invokes."""
+    """True when any indexed file is .NET source, a .NET-only format, or one IIS or MSBuild invokes."""
     return any(
-        is_host_invoked(f) or f.lower().endswith(_DOTNET_SOURCE_SUFFIXES) for f in source_files
+        is_host_invoked(f) or f.lower().endswith(_DOTNET_SOURCE_SUFFIXES + _DOTNET_ONLY_SUFFIXES)
+        for f in source_files
     )
 
 
-def has_jvm_build(source_files) -> bool:
-    """True when any indexed file is a Maven or Gradle build file."""
-    return any(_basename_lower(f) in _JVM_BUILD_NAMES for f in source_files)
-
-
-def unseen_consumer(file_path: str, *, dotnet: bool, jvm: bool) -> Optional[str]:
+def unseen_consumer(file_path: str, *, dotnet: bool) -> Optional[str]:
     """`build_consumed`, `schema_consumer`, `runtime_loadable`, or None.
 
     A host-invoked file is a root and never capped, so `Directory.Build.props`
-    (also a `.props`) returns None. `dotnet` is `has_dotnet_evidence` and `jvm`
-    is `has_jvm_build` for the repository; with neither, `.xsd`/`.wsdl` are not
-    capped.
+    (also a `.props`) returns None. `dotnet` is `has_dotnet_evidence` for the
+    repository; without it `.xsd`/`.wsdl` are still capped, as `schema_consumer`.
     """
     if is_host_invoked(file_path):
         return None
     base = _basename_lower(file_path)
     if base.endswith(_BUILD_CONSUMED_SUFFIXES):
         if not dotnet and base.endswith(_SHARED_FORMAT_SUFFIXES):
-            return "schema_consumer" if jvm else None
+            return "schema_consumer"
         return "build_consumed"
     if base.endswith(_RUNTIME_LOADABLE_SUFFIXES):
         return "runtime_loadable"

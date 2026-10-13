@@ -1265,12 +1265,40 @@ def _aspx_tags(content: str):
             j = close + 2
 
 
-_ASPX_RUNAT_SERVER = re.compile(
-    r"""(?<![\w:.\-])runat\s*=\s*(?:"server"|'server'|server(?=[\s/>]|$))""", re.IGNORECASE
-)
-# The lookbehind makes `on...` the attribute's whole name: with `\b` alone,
-# `data-onclick="Foo"` and `aria-onx="Bar"` named server handlers.
-_ASPX_EVENT_ATTR = re.compile(r"(?<![\w:.\-])(on[a-z]+)\s*=\s*" + _ASPX_TAG_VALUE, re.IGNORECASE)
+_ASPX_TAG_ATTR = re.compile(r"(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*" + _ASPX_TAG_VALUE)
+# The whole attribute name: `data-onclick="Foo"` names no server handler.
+_ASPX_EVENT_NAME = re.compile(r"on[a-z]+", re.IGNORECASE)
+
+
+def _without_inline_blocks(text: str) -> str:
+    """`text` with each closed `<%...%>` replaced by a space; a scan, so linear."""
+    parts: list[str] = []
+    i = 0
+    while (start := text.find("<%", i)) >= 0:
+        close = text.find("%>", start + 2)
+        if close < 0:
+            break
+        parts.append(text[i:start])
+        parts.append(" ")
+        i = close + 2
+    parts.append(text[i:])
+    return "".join(parts)
+
+
+def _aspx_tag_attrs(raw: str) -> list[tuple[str, str]]:
+    """(name, value) for each attribute of one tag, left to right.
+
+    One pass consumes each quoted value whole, so `ToolTip="use OnClick=X"`
+    names no handler and opens no `runat` gate. Inline blocks are blanked first:
+    their quotes (`Text="<%# Eval("Id") %>"`) would otherwise shift the pass.
+    """
+    return list(_aspx_attr_pairs(_ASPX_TAG_ATTR, _without_inline_blocks(raw)))
+
+
+def _aspx_runat_server(attrs: list[tuple[str, str]]) -> bool:
+    return any(n.lower() == "runat" and v.lower() == "server" for n, v in attrs)
+
+
 # OnClient* handlers are JavaScript, not codebehind methods.
 _ASPX_CLIENT_EVENT_PREFIX = "onclient"
 # Bare method names only; databound expressions are not handler references.
@@ -1292,9 +1320,12 @@ def _aspx_handler_names(content: str) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     for raw in _aspx_tags(content):
-        if not _ASPX_RUNAT_SERVER.search(raw):
+        attrs = _aspx_tag_attrs(raw)
+        if not _aspx_runat_server(attrs):
             continue
-        for attr_name, value in _aspx_attr_pairs(_ASPX_EVENT_ATTR, raw):
+        for attr_name, value in attrs:
+            if not _ASPX_EVENT_NAME.fullmatch(attr_name):
+                continue
             if attr_name.lower().startswith(_ASPX_CLIENT_EVENT_PREFIX):
                 continue
             value = value.strip()

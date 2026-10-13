@@ -2,39 +2,47 @@
 
 ## [Unreleased]
 
-### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema is capped as a .NET build item only in a .NET repository
+### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
 
 ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
 value, and the Web Forms reader took only the first. An unquoted
 `runat=server` failed the server-control gate, so that control's `OnClick=`
 handler gave its codebehind method no reference, and a `CodeFile='Q.aspx.cs'`
 directive gave the page no edge to its codebehind. The directive and attribute
-patterns of `parser/imports.py` and `parser/extractor.py`, including the `On*`
-handler pattern and both `runat` gates, now accept all three forms, and so do
-`plan_refactoring`'s Web Forms definition patterns. An unquoted value must end
-at a delimiter, so an empty `Title=` does not take the next attribute's name;
-in a tag it also stops at the `/` of `/>`, while a directive value may be a
-path. Each pattern stays linear on a long run of its own form. `runat` must be
-the whole attribute name and `server` the whole value, so `data-runat="server"`
-and `runat=server-x` no longer open the gate. `PARSER_GENERATION` 19 -> 20, so
-an existing index re-parses its pages instead of keeping the edges it missed.
+patterns of `parser/imports.py` and `parser/extractor.py` now accept all three
+forms, and so do `plan_refactoring`'s Web Forms definition patterns. An
+unquoted value must end at a delimiter, so an empty `Title=` does not take the
+next attribute's name; in a tag it also stops at the `/` of `/>`, while a
+directive value may be a path. Each pattern stays linear on a long run of its
+own form.
+
+The `runat` gate and the `On*` pattern were searched over the raw tag, so text
+inside a quoted value counted as an attribute: `ToolTip='use OnClick="Evil_Click"'`
+named a codebehind handler, and `ToolTip='x runat="server"'` opened the gate for
+a tag with no `runat`. A tag's attributes are now read in one left-to-right pass
+that consumes each quoted value whole, in both readers, so text inside a value is
+never an attribute in any quote form. `runat` must be the whole
+attribute name and `server` the whole value, so `data-runat="server"` and
+`runat=server-x` do not open it either. Inline `<%...%>` blocks are blanked
+before that pass, because their quotes shifted it:
+`NavigateUrl="<%# "x.aspx?id=" + Eval("Id") %>"` read an attribute `id`,
+which replaced the control's real `ID` and published a control named
+` + Eval(`. `PARSER_GENERATION` 19 -> 20, so an existing index re-parses its
+pages instead of keeping the edges it missed.
 
 `.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
-they were capped as `build_consumed` in every repository, so `check_delete_safe`
-gave a Java schema LoadControl and project-file advice that did not apply.
-`build_consumed` now needs .NET evidence in the index: .NET source (`.cs`,
-`.fs`) or a file IIS or MSBuild invokes (a project file, a page,
-`global.asax`); source counts so that a subtree index with no project file
-keeps the cap. With a Maven or Gradle build file (`pom.xml`, `build.gradle`,
-`build.gradle.kts`) instead, the schema takes the new neutral cap
-`schema_consumer`, because JAXB, Spring-WS and CXF compile every schema under a
-directory by default and name none, so dropping the cap would have reported a
-live schema dead at confidence 1.0. With neither, a schema is reported like any
-other file. A wrong match only keeps a cap. The roots and the .NET-only
-formats (`.resx`, `.xaml`, `.props`, `.targets`, `.ascx`, `.master`) keep
-their extension rule: a project-file gate would un-root the pages of a Web
-Site project, which has no project file. Both points raised by @jgravelle in
-the review of #1012. (@outoftheblue9)
+every one was capped as `build_consumed`, so `check_delete_safe` gave a Java
+schema LoadControl and project-file advice that did not apply. They stay capped
+in every repository; .NET evidence in the index chooses only the kind and its
+advice. With .NET source (`.cs`, `.fs`), a .NET-only format (`.resx`, `.xaml`,
+`.props`, `.targets`, `.ascx`, `.master`) or a file IIS or MSBuild invokes (a
+project file, a page, `global.asax`), the kind stays `build_consumed`.
+Otherwise it is the new neutral kind `schema_consumer`, counted under
+`schema_consumer_withheld`, and the advice names a build or code generator
+outside the index. No verdict moves toward delete in either ecosystem. The
+roots and the .NET-only formats keep their extension rule. Both points raised
+by @jgravelle in the review of #1012, and the shape of the cap from the review
+of #1067. (@outoftheblue9)
 
 ## [1.108.358] - 2026-10-13 - a Python import written over several lines records its names, and the surface offer reaches the user
 
