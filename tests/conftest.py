@@ -114,6 +114,13 @@ def _fresh_session(monkeypatch):
     monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
     monkeypatch.setattr(turn_budget, "_budget", None)
     monkeypatch.setattr(session_journal, "_journal", None)
+    # The once-per-install surface notice rides in the first `resolve_repo`
+    # answer of an install. Under test that would be whichever test asked first,
+    # so it is off unless a test turns it on (the flag lives in a leaf module so
+    # this costs no server import).
+    from jcodemunch_mcp import surface_offer
+
+    monkeypatch.setitem(surface_offer.NOTICE_STATE, "checked", True)
     server = sys.modules.get("jcodemunch_mcp.server")
     if server is not None:
         monkeypatch.setattr(server, "_steer_state", {"hops": 0, "bundles": 0, "nudged": False, "repos": []})

@@ -581,6 +581,8 @@ Tool surface: full (91 tools, 26,943 schema tokens)
 
 ⚠ `surface_offer_seen` silences the row **without** changing your surface, so declining does not require accepting. It has no effect on which tools are served.
 
+The same offer is also added once per install to the first successful `resolve_repo` answer, as a `surface_notice` object the agent is asked to relay to you; a marker file, `surface_notice_state.json` in the storage directory, records that it was said. `surface_offer_seen` silences that too. See SECURITY.md, "Background behavior".
+
 ⚠ The numbers above are this machine's. Yours differ if you have `disabled_tools` set or are on a narrower `tool_profile` — which is why the offer computes them rather than quoting ours.
 
 #### `disabled_tools` precedence

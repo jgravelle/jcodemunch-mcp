@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Added - the offer to switch tool surface reaches the user, once, through the agent
+
+An install created before the front-door default serves the full tool list for good:
+`tool_surface` is written once at install time and no upgrade revisits it. The offer to switch
+was one WARNING line in the server's log and a row in two status commands. A user inside an MCP
+client sees neither, so the offer was delivered once per install and read by nobody.
+
+The first successful `resolve_repo` answer an install makes now carries it as a
+`surface_notice` object. It gives the tool-list token difference for that install, says the
+list is read on every turn and from cache after the first, names the commands that switch,
+undo and silence it, and asks the agent to tell the user once and not to change the setting
+itself. On a default full-surface install of this version the notice reads 90 tools against 6
+and 26,082 fewer tool-list tokens a turn, and adds 1,146 bytes to that one answer
+(`evidence/notice_sample.txt`); a narrower install is told its own smaller figure.
+
+It is said **once per install**. A marker, `surface_notice_state.json` in the storage
+directory, records that it was said: a timestamp, the tool, the surface and the version.
+Nothing is sent anywhere, no setting is changed and `config.jsonc` is not written. An install
+on the front-door surface, or one with `surface_offer_seen` set, is told nothing and gets no
+marker. To silence it before it is said: `jcodemunch-mcp config set surface_offer_seen true`.
+SECURITY.md discloses it under "Background behavior".
+
+The notice is in the response body because the default `meta_fields: []` strips `_meta`, and
+the answer that carries it is sent as JSON so that no compact encoding can drop the key.
+`tests/test_the_surface_offer_reaches_the_user_through_the_agent.py`; eleven guards removed
+one at a time each fail it (`evidence/mutants.txt`).
+
 ### Fixed - a Python import written over several lines recorded none of its names (LEDGER L-176)
 
 `find_references("solve_dependencies")` answered 0 on fastapi while `fastapi/routing.py` imports

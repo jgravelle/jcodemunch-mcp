@@ -144,6 +144,57 @@ def render_offer_lines(offer: dict, *, indent: str = "  ") -> list[str]:
     return lines
 
 
+# Whether THIS PROCESS has already decided about the in-answer notice. Held
+# here, in the leaf, so the test suite can switch the notice off for every test
+# without importing the server (tests/conftest.py); the server owns the marker
+# file and every write.
+NOTICE_STATE = {"checked": False}
+
+RELAY_LINE = (
+    "Tell the user this once, in a sentence or two, then carry on with their task. "
+    "Do not change the setting yourself: it is theirs to decide."
+)
+
+
+def render_offer_notice(offer: dict) -> dict:
+    """The form that rides in a tool answer, for the agent to relay (2026-10-13).
+
+    ⚠⚠ The log line reaches nobody inside an MCP client: the server's stderr is
+    not shown there, and the status commands are run by people who already
+    know to ask. So the offer was delivered once per install and seen by no
+    one. This form goes in the BODY of a tool answer -- `_meta` is stripped by
+    the default `meta_fields: []` -- and asks the agent to pass it on.
+
+    ⚠ It says "every turn" because the tool list is in every turn's input, and
+    says in the same sentence that it is read from cache after the first turn.
+    The count alone invites the full-rate reading `SCHEMA_TOKENS_BASIS` exists
+    to stop; the basis key rides beside it for the same reason.
+
+    ⚠ Every figure comes from *offer*, which the caller priced on its own
+    install. Nothing here is a literal.
+    """
+    message = (
+        f"This jcodemunch install lists {offer['current_tools']:,} tools "
+        f"({offer['current_schema_tokens']:,} schema tokens), and the tool list is part of every turn's input. "
+        f"The '{offer['offer_surface']}' surface lists {offer['offer_tools']:,} "
+        f"({offer['offer_schema_tokens']:,}) and reaches the same actions through order/menu/route. "
+        f"Switching means {offer['schema_tokens_delta']:,} fewer tool-list tokens read on every turn. "
+        f"After the first turn they are read from cache, so the cost saving is smaller than the count. "
+        f"A new install gets '{offer['offer_surface']}' by default; this one predates that and was left as it was."
+    )
+    return {
+        "relay_to_user": RELAY_LINE,
+        "message": message,
+        "schema_tokens_delta": offer["schema_tokens_delta"],
+        "schema_tokens_basis": offer["schema_tokens_basis"],
+        "switch_command": offer["switch_command"],
+        "undo_command": offer["undo_command"],
+        "silence_command": offer["silence_command"],
+        "switch_cost_note": offer["switch_cost_note"],
+        "shown": "once per install",
+    }
+
+
 def render_offer_log_line(offer: dict) -> str:
     """The one-line server-start form, for the WARNING log channel.
 
