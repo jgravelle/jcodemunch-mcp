@@ -629,6 +629,89 @@ def _announce_surface_offer(transport: str = "unknown") -> bool:
         return False
 
 
+_SURFACE_NOTICE_STATE_FILE = "surface_notice_state.json"
+# The one tool whose answer carries the notice: the call the policy and the
+# start-up instructions put first, and one with no compact encoder of its own.
+_SURFACE_NOTICE_TOOL = "resolve_repo"
+
+
+def _surface_notice_state_path() -> "Path":
+    """The once-per-install marker for the in-answer notice (see `_surface_offer_state_path`)."""
+    from pathlib import Path
+
+    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+    return Path(base) / _SURFACE_NOTICE_STATE_FILE
+
+
+def _surface_notice_for(name: str, result: object) -> "dict | None":
+    """The surface offer for the agent to relay, or None. Said once per install.
+
+    ⚠⚠ `_announce_surface_offer` logs the same offer at server start, and a
+    user inside an MCP client never sees the log: the offer was delivered and
+    read by nobody. This puts it in the answer of the first successful
+    `resolve_repo` call the install makes.
+
+    ⚠ Its own marker, not the log line's: every install that has started a
+    server already holds that one, and those are the installs this is for.
+
+    ⚠ A process prices the offer at most once (`_build_tools_list` twice), and
+    only on an answer that can carry it: another tool or an error answer
+    first does not use it up.
+
+    ⚠ Known limits, each in the repeat-or-skip direction and none silent in the
+    log: two servers answering their first call at the same moment both say
+    it; and a `response_max_bytes` set below the size of this one answer
+    refuses the answer after the marker is written (review, 2026-10-13).
+
+    ⚠ Fail-safe: a pricing failure says nothing. An unwritable marker still
+    says it, once in this process, and again next session; repeating an
+    advisory is recoverable and suppressing it for good is not.
+    """
+    if name != _SURFACE_NOTICE_TOOL or not isinstance(result, dict) or "error" in result:
+        return None
+    from .surface_offer import NOTICE_STATE
+
+    if NOTICE_STATE["checked"]:
+        return None
+    NOTICE_STATE["checked"] = True
+    import json as _json
+    from datetime import datetime, timezone
+
+    try:
+        path = _surface_notice_state_path()
+        if path.is_file():
+            return None
+        offer = _tool_surface_stats().get("surface_offer")
+        if not offer:
+            return None
+        from .surface_offer import SURFACE_ENV_VAR, render_offer_notice
+
+        notice = render_offer_notice(
+            offer, surface_from_env=bool((os.environ.get(SURFACE_ENV_VAR) or "").strip())
+        )
+    except Exception:
+        logger.debug("surface notice skipped", exc_info=True)
+        return None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(
+            _json.dumps(
+                {
+                    "shown_at": datetime.now(timezone.utc).isoformat(),
+                    "tool": name,
+                    "surface": offer.get("current_surface"),
+                    "version": __version__,
+                }
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError:
+        logger.debug("surface notice marker not written", exc_info=True)
+    return notice
+
+
 def _tool_surface_stats(top_n: int = 15) -> dict:
     """Schema token weight of the currently visible tool surface vs the raw catalog.
 
@@ -7486,6 +7569,19 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                 _requested_format = "json"
         except Exception:
             logger.debug("Steering attach failed", exc_info=True)
+
+        # The surface offer, once per install, in the answer the agent reads
+        # first. In the BODY (`_meta` is stripped by default) and as JSON (a
+        # compact encoding drops a key it does not declare, and the marker
+        # would be spent on a notice nobody received). A new dict: `result`
+        # may be an object a cache still holds.
+        try:
+            _surface_notice = _surface_notice_for(name, result)
+            if _surface_notice:
+                result = {**result, "surface_notice": _surface_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("surface notice attach failed", exc_info=True)
 
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.357",
+  "current": "1.108.358",
   "entries": [
+    {
+      "version": "1.108.358",
+      "date": "2026-10-13",
+      "title": "a Python import written over several lines records its names, and the surface offer reaches the user",
+      "summary": "Two changes. A Python `from x import (...)` spread over several lines, or continued with a backslash, recorded only the names on its first line, so `find_references` and `check_references` missed every name on the lines after it. All of them are recorded now; indexes re-parse on their next run (parser generation 19). New behaviour, disclosed in SECURITY.md: an install serving the full tool list is told once, in its first successful `resolve_repo` answer, what the three-tool front door would save it per turn, with a line asking the agent to pass that on. It changes no setting, sends nothing, and writes one marker file, `surface_notice_state.json`, so it is not repeated. `jcodemunch-mcp config set surface_offer_seen true` silences it."
+    },
     {
       "version": "1.108.357",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "a Ruby method called by its bare name is recorded as called",
       "summary": "Ruby writes a call of a method with no receiver and no arguments as a bare name (`settings`), and the parser recorded no call for it. A helper called only that way read `no_callers` in `get_dead_code_v2`. Each method is now read the way Ruby reads it: a bare name is a call unless the method has made a local variable of that name by then. On sinatra at a pinned commit the rows reported `no_callers` fall from 176 to 152 in the default call and none is newly reported. Code outside every method is still not read; the CHANGELOG lists that and the other limits. An existing index is re-parsed on upgrade."
-    },
-    {
-      "version": "1.108.354",
-      "date": "2026-10-13",
-      "title": "a Go generic function called with one argument is recorded as called",
-      "summary": "Go's grammar parses `Generic[int](1)`, a generic function called with exactly one argument, as a type conversion, and the parser recorded no call for it. A generic function called only that way could read `no_callers` in `get_dead_code_v2`. The call is recorded now, also behind `*` or in parentheses, and so is a function taken from a slice or map by a variable (`fs[i](1)`). On eight pinned repositories 24 functions gain a recorded call and no dead-code row moves; the effect is on a function whose only call has this shape. A real conversion to a generic type records the type's name; the CHANGELOG lists that limit. An existing index is re-parsed on upgrade."
     }
   ]
 }
