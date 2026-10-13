@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.355] - 2026-10-13 - a Ruby method called by its bare name is recorded as called
+
 ### Fixed - a Ruby method called by its bare name recorded no call (LEDGER L-172)
 
 Ruby writes a call of a method with no receiver and no arguments as a bare name: `settings`.

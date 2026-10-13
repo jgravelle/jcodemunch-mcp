@@ -1,6 +1,12 @@
 {
-  "current": "1.108.354",
+  "current": "1.108.355",
   "entries": [
+    {
+      "version": "1.108.355",
+      "date": "2026-10-13",
+      "title": "a Ruby method called by its bare name is recorded as called",
+      "summary": "Ruby writes a call of a method with no receiver and no arguments as a bare name (`settings`), and the parser recorded no call for it. A helper called only that way read `no_callers` in `get_dead_code_v2`. Each method is now read the way Ruby reads it: a bare name is a call unless the method has made a local variable of that name by then. On sinatra at a pinned commit the rows reported `no_callers` fall from 176 to 152 in the default call and none is newly reported. Code outside every method is still not read; the CHANGELOG lists that and the other limits. An existing index is re-parsed on upgrade."
+    },
     {
       "version": "1.108.354",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a function used only in a constant or a dispatch table is no longer reported as having no caller",
       "summary": "`get_dead_code_v2` reported a function with no caller when its only use sat in a constant's initialiser, a class field or a dispatch table, because those lines were left out of the text it reads outside functions. They are read now. On this repository's own source the `no_callers` rows fall from 426 to 375, on zod from 844 to 686 and on RestSharp from 654 to 625; no row is newly reported. The read is text, not calls, so a name in a comment on such a line also counts; the CHANGELOG lists that and the other limits. `get_repo_health` reads this tool, so its dead-code share can fall."
-    },
-    {
-      "version": "1.108.351",
-      "date": "2026-10-12",
-      "title": "the constructor of a class that is created is no longer reported as having no caller",
-      "summary": "`get_dead_code_v2` reported a Python `__init__` and a JavaScript or TypeScript `constructor` with no caller however often the class was created, because nothing calls a constructor by that word. Creating a class, or a subclass of it, now counts as a call of its constructor. On this repository's own source 29 of 42 such rows are gone, and on zod 9 of 13. Ruby's `initialize` is not covered yet; the CHANGELOG lists that and the other limits. `get_repo_health` reads this tool, so its dead-code share can fall for Python and JS/TS repositories."
     }
   ]
 }

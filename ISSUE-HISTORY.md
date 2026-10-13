@@ -2491,3 +2491,13 @@ The 1.108.351 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.351 count, verbatim:
 
 - ⚠ Prior (1.108.351): 16243 passed, 25 skipped, **0 failed** (16268 total).
+
+## Current State rotation (2026-10-13, release 1.108.355)
+
+The 1.108.352 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.352):** **An initialiser outside every function is read for callers** (L-169): `_residue_text` keeps the lines of `STATE_KINDS` symbols. ⚠⚠ **A line a function or method holds stays out** (zod loses 265 rows, not 158, without it). ⚠ Text, not calls: L-173. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.352 count, verbatim:
+
+- ⚠ Prior (1.108.352): 16285 passed, 25 skipped, **0 failed** (16310 total).
