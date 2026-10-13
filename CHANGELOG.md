@@ -23,18 +23,25 @@ A one-line import with a trailing comment recorded words of the comment: `# noqa
 an imported name `E402`.
 
 The statement is now read to its closing parenthesis, or to the end of the continuation, and
-comments are dropped before the names are split. A continuation line may hold names, `as`,
-commas and whitespace; the first line that holds anything else, or that starts the next
-import, ends the statement. An unclosed parenthesis therefore names what its own lines name
-and cannot run on through the file.
+comments are dropped before the names are split. A backslash joins the next line in either
+form. The lines after the first are believed only when the statement is whole: it closes,
+and every item is `name` or `name as alias`. A parenthesis that never closes, or prose in a
+docstring that reads like an import, records what its opening line holds, which is what was
+recorded before. The first draft of this fix recorded the words of such prose; the reviewer
+found it. The read stops at the next line that starts `from` or `import`, so no line is
+read twice.
 
 Measured over every `.py` file with `main`'s extractor and with the fix
 (`evidence/corpus_l176.txt`): this repository's `src/` has 62 import edges that go from no
 names to names, and the pinned fastapi clone has 50. Indexed both ways, the `fastapi/` package
 answers `find_references` for `solve_dependencies` and for `get_dependant` with 1 file where it
 answered 0, and `find_dead_code`'s list of files is unchanged (`evidence/entry_l176.txt`).
-`tests/test_a_python_import_spread_over_lines_records_its_names.py` pins sixteen spellings;
-20 of its 24 cases failed before the change (`evidence/red.txt`).
+Against Python's own parser (`evidence/oracle_l176.txt`), `main` missed 323 of the 2319
+names imported by a `from` statement in `src/`, 714 of 3631 in `tests/` and 233 of 3931 in
+the fastapi clone; the fix misses 0 in all three.
+`tests/test_a_python_import_spread_over_lines_records_its_names.py` pins twenty-two
+spellings; 27 of its 37 cases failed before the change (`evidence/red.txt`), and nine guards
+removed one at a time each fail it (`evidence/mutants.txt`).
 
 `PARSER_GENERATION` is 19: the import edges change on unchanged content, so an existing index
 is re-parsed on upgrade.

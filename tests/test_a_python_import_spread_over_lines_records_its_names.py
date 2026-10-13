@@ -15,6 +15,10 @@ continuation recorded the names of its first line only.
 
 The statement is read to its closing parenthesis (or to the end of the
 continuation) and comments are dropped before the names are split.
+
+The following lines are believed only when the statement is whole: it closes,
+and every item is `name` or `name as alias`. A parenthesis that never closes,
+or prose that reads like an import, records what the opening line holds.
 """
 
 from __future__ import annotations
@@ -48,6 +52,12 @@ SHAPES = {
     "CRLF line endings": "from a.b import (\r\n    x,\r\n    y,\r\n)\r\n",
     "a backslash continuation": "from a.b import x, " + BS + "\n    y\n",
     "a backslash before the first name": "from a.b import " + BS + "\n    x, y\n",
+    "a backslash inside the parentheses": "from a.b import (\n    x, " + BS + "\n    y,\n)\n",
+    "a backslash before the parenthesis": "from a.b import " + BS + "\n    (x,\n     y)\n",
+    "an alias split over two lines": "from a.b import (\n    x as\n    first,\n    y,\n)\n",
+    "a parenthesis inside a comment": "from a.b import (  # (see below\n    x,  # not this)\n    y,\n)\n",
+    "tabs": "from a.b import (\n\tx,\n\ty,\n)\n",
+    "code after the closing parenthesis": "from a.b import (\n    x,\n    y,\n); z = 1\n",
     "one line, as before": "from a.b import x, y\n",
     "one line in parentheses, as before": "from a.b import (x, y)\n",
 }
@@ -77,28 +87,71 @@ def test_a_star_and_a_future_import_are_unchanged():
     assert _edges("from __future__ import (\n    annotations,\n)\n") == {}
 
 
-def test_an_unclosed_parenthesis_does_not_swallow_the_file():
-    """A statement that never closes (a file cut short, or prose in a docstring) keeps what its own lines name."""
-    src = "from a.b import (\n    x,\n\ndef f():\n    return 1\n\nimport os\n"
+UNCLOSED = {
+    "code follows": "from a.b import (\n    x,\n\ndef f():\n    return 1\n\nimport os\n",
+    "the next import follows": "from a.b import (\n    x,\nfrom c import w\nimport os\n",
+    "bare words follow": "from a.b import (\n    x,\npass\nreturn\ny\n",
+    "the file ends": "from a.b import (\n    x,\n    y,\n",
+    "a backslash at the end of the file": "from a.b import x, " + BS,
+}
+
+
+@pytest.mark.parametrize("shape", sorted(UNCLOSED))
+def test_an_unclosed_parenthesis_adds_no_name(shape):
+    """A statement that never closes is not believed past its opening line: what main recorded, no more."""
+    src = UNCLOSED[shape]
     edges = _edges(src)
-    assert edges.get("a.b") == ["x"], edges
-    assert "os" in edges and "def" not in " ".join(edges), edges
-    for names in edges.values():
-        assert all(n.isidentifier() for n in names), edges
+    opening_line_names = ["x"] if shape.startswith("a backslash") else []
+    assert edges.get("a.b") == opening_line_names, edges
+    assert not any(s.startswith("a.b.") and s != "a.b.x" for s in edges), edges
+    if "import os" in src:
+        assert "os" in edges, edges
+    if "from c import w" in src:
+        assert edges.get("c") == ["w"], edges
 
 
-def test_an_unclosed_parenthesis_stops_at_the_next_import_statement():
-    """`from c import w` is a run of words and commas too; it is the next statement, not two more names."""
-    edges = _edges("from a.b import (\n    x,\nfrom c import w\nimport os\n")
-    assert edges == {"a.b": ["x"], "a.b.x": ["x"], "c": ["w"], "c.w": ["w"], "os": []}
+PROSE = {
+    "words and commas, never closed": '"""Notes.\n\nfrom here import (\nsome words, more words\nand a last line\n"""\nimport os\n',
+    "words and commas, closed": '"""Notes.\n\nfrom here import (\nsome words, more words)\n"""\nimport os\n',
+    "a sentence on the opening line": '"""Notes.\n\nfrom here import (the following, and more\nwords that go on. Nothing closes it\n"""\nimport os\n',
+}
 
 
-def test_prose_that_reads_like_an_import_names_nothing_that_is_not_an_identifier():
-    src = '"""Notes.\n\nfrom here import (the following, and more\nwords that go on. Nothing closes it\n"""\nimport os\n'
-    edges = _edges(src)
+@pytest.mark.parametrize("shape", sorted(PROSE))
+def test_prose_after_an_opening_parenthesis_is_not_read_as_names(shape):
+    """Two words with no `as` between them are not an import item, so the lines are not believed."""
+    edges = _edges(PROSE[shape])
     assert "os" in edges
-    for names in edges.values():
-        assert all(n.isidentifier() for n in names), edges
+    assert not any(s.startswith("here.") and s not in ("here.the", "here.and") for s in edges), edges
+    assert edges.get("here") in ([], ["the", "and"]), edges
+
+
+def _steps(src: str) -> int:
+    """How many lines the clause reader fetched, counted on the string it searches."""
+
+    class Counted(str):
+        finds = 0
+
+        def find(self, *args):  # the reader's only way to the next line
+            Counted.finds += 1
+            return str.find(self, *args)
+
+    from jcodemunch_mcp.parser import imports
+
+    text = Counted(src)
+    for m in imports._PY_FROM.finditer(text):
+        imports._py_from_clause(text, m.group(2), m.end())
+    return Counted.finds
+
+
+@pytest.mark.parametrize("line", ["from a import x, " + BS, "from a import ("], ids=["backslash", "parenthesis"])
+def test_no_line_is_read_twice_however_many_statements_never_close(line):
+    """Each statement that never closes stops at the next import, so the work is one step a line.
+
+    Counted, not timed: without the stop, 2,000 such lines cost 2,000,000 steps.
+    """
+    n = 2000
+    assert _steps((line + "\n") * n) <= 2 * n
 
 
 @pytest.fixture()
