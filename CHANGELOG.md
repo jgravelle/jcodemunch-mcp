@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Added - `jcodemunch-mcp diagnose`, and two local per-tool counters
+
+A user asked what the product did for them had nothing safe to hand over. `install-status`,
+`list-repos` and `surface` print full paths and repository names. Calls per tool lived only
+inside a running process, and tokens returned per tool were recorded nowhere, so the savings
+file could say what a tool saved and nothing could say what it cost.
+
+`jcodemunch-mcp diagnose` writes one JSON report to `<storage>/diagnose/` and prints its path.
+It holds the three servers' versions, Python and OS; each index as `index-N` with file count,
+symbol count, source bytes, index bytes on disk and embeddings yes, no or unknown; the tool
+surface, profile, tool count and schema tokens; each policy target as present, current or
+differing, with a digest of the installed block beside the digest of the policy this version
+installs; and per tool the calls, tokens returned and tokens saved. It sends nothing.
+
+The report is built from a fixed list of fields and checked against that list on every build,
+so a field added to one of its sources later cannot ride along: a key nobody listed raises. An
+index is a label, never its name or path. A tool name the server does not publish is added
+into `other`, because the files it reads are keyed by strings it did not choose. The
+`anon_id` is left out unless `--include-anon-id` is passed. `--stdout` prints the report and
+writes no file.
+
+The two counters are new background behaviour and SECURITY.md discloses them: calls and tokens
+returned per tool, in `_tool_counters.json` in the storage directory, on by default, written
+every 20 calls and at exit, sent nowhere. `tokens_returned` is the answer's bytes divided by
+4 and the file names that estimator. Only a name the server publishes is counted, so a client
+cannot write an arbitrary string into the file. A count is written to the storage directory in
+force when it was counted, not the one in force at exit. `"tool_counters": false` records
+nothing and writes no file. The savings telemetry payload is unchanged and does not read it.
+
+What it does not do yet: `uninstall` removes neither new file. `source_bytes` is `null` for an
+index that stores no file sizes, which includes an index built by `index` on a local folder
+(LEDGER L-179); a sum over the files that have a size would read as the whole corpus. A
+companion server reads `null` unless it is installed in the same Python environment.
+`tests/test_diagnose_writes_only_what_is_on_its_list.py`.
+
 ## [1.108.358] - 2026-10-13 - a Python import written over several lines records its names, and the surface offer reaches the user
 
 ### Added - the offer to switch tool surface reaches the user, once, through the agent
