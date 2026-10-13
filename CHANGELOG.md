@@ -39,7 +39,7 @@ What it does not do:
   `"~validate"(data) {}` is stored with its quotes and its call records nothing, on both trees.
 
 `PARSER_GENERATION` is 18, so an existing index is re-parsed: the fix changes what unchanged
-files record. The rest is LEDGER L-174. Fifteen mutants each fail the tests
+files record. The rest is LEDGER L-174. Sixteen mutants each fail the tests
 (`evidence/mutants.txt`).
 
 ## [1.108.355] - 2026-10-13 - a Ruby method called by its bare name is recorded as called

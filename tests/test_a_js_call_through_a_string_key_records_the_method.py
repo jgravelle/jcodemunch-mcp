@@ -57,7 +57,10 @@ BY_STRING_KEY = {
     "a name in another script": ('t["caf' + chr(0xE9) + '"]()', ["caf" + chr(0xE9)]),
     "a name that is only a dollar": ('t["$"]()', ["$"]),
     "an element of the member": ('t["m"][0]()', ["m"]),
-    "on a cast": ('(t)["m"]()', ["m"]),
+    "on a container in parentheses": ('(t)["m"]()', ["m"]),
+    # A reserved word is the oldest reason to write a string key.
+    "a reserved word": ('t["finally"]()', ["finally"]),
+    "a word Python reserves": ('t["class"]()', ["class"]),
     "as an argument": ('other(t["m"]())', ["m", "other"]),
 }
 
