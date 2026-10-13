@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.358] - 2026-10-13 - a Python import written over several lines records its names, and the surface offer reaches the user
+
 ### Added - the offer to switch tool surface reaches the user, once, through the agent
 
 An install created before the front-door default serves the full tool list for good:

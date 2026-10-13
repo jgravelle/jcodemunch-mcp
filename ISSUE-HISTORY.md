@@ -2521,3 +2521,13 @@ The 1.108.354 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.354 count, verbatim:
 
 - ⚠ Prior (1.108.354): 16376 passed, 25 skipped, **0 failed** (16401 total).
+
+## Current State rotation (2026-10-13, release 1.108.358)
+
+The 1.108.355 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.355):** **A bare Ruby method call is recorded** (L-172): `_record_bare_ruby_calls` reads each method in source order; a bare name is a call unless a local of that name exists by then. `PARSER_GENERATION` 17. ⚠ Code outside every method is not read: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.355 count, verbatim:
+
+- ⚠ Prior (1.108.355): 16457 passed, 25 skipped, **0 failed** (16482 total).
