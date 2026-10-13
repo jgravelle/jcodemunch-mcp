@@ -255,12 +255,92 @@ def _extract_js_imports(content: str) -> list[dict]:
     return edges
 
 
+# One item of a clause: `name` or `name as alias`.
+_PY_CLAUSE_ITEM = re.compile(r"^\w+(?:\s+as\s+\w+)?$")
+_BACKSLASH = chr(92)
+
+
+def _py_from_clause(content: str, first: str, pos: int) -> str:
+    """The whole name clause of a `from ... import`, wherever the statement ends (LEDGER L-176).
+
+    ⚠⚠ `_PY_FROM` matches ONE line. For the form every formatter writes,
+
+        from pkg.utils import (
+            solve,
+        )
+
+    that line holds `(` and nothing else, so the edge was recorded with NO
+    names: `find_references("solve")` answered 0, `check_references` counted
+    no import, and the per-name module edges of #550 were never offered. A
+    backslash continuation kept the names of its first line only.
+
+    *first* is the rest of the matched line and *pos* the offset where that
+    line ends. Comments are dropped before anything is split: a clause holds
+    no string, so `#` always starts one. A trailing backslash joins the next
+    line in either form, and a parenthesis may open on the line after one.
+
+    ⚠⚠ The following lines are believed only when the statement is WHOLE:
+    it closes (a `)`, or a continuation's last line) and every item is
+    `name` or `name as alias`. Otherwise the clause is what the
+    opening line holds, which is what was recorded before. So a parenthesis
+    that never closes (a file cut short, prose in a docstring that reads
+    like an import) adds no name: review of the first draft found it
+    recording the words of the prose that followed.
+    ⚠ The read WALKS to the closing parenthesis, the end of the continuation
+    or the next line that starts `from` or `import`, whichever is first.
+    Every `_PY_FROM` match is such a line, so no line is walked twice and
+    the pass over a file stays linear (a test counts the reader's steps).
+    """
+    head = first.split("#", 1)[0].strip()
+    if not head.startswith("(") and not head.endswith(_BACKSLASH):
+        return head
+    opening = head.lstrip("(").rstrip(_BACKSLASH)
+    if head.startswith("(") and ")" in head:
+        return head[1:].split(")", 1)[0]
+
+    parts: list[str] = []
+    parenthesised = started = closed = False
+    line = head
+    size = len(content)
+    while True:
+        more = line.endswith(_BACKSLASH)
+        if more:
+            line = line[:-1].rstrip()
+        if not started and line.startswith("("):
+            parenthesised = True
+            line = line[1:]
+        if line or parenthesised:
+            started = True
+        body, hit, _ = line.partition(")") if parenthesised else (line, "", "")
+        parts.append(body)
+        if hit or (started and not parenthesised and not more):
+            closed = True
+            break
+        if pos >= size:
+            break
+        nxt = content.find("\n", pos + 1)
+        if nxt == -1:
+            nxt = size
+        line = content[pos + 1:nxt].split("#", 1)[0].strip()
+        pos = nxt
+        if line.split(None, 1)[:1] in (["from"], ["import"]):
+            break  # the next statement: this one never closed
+
+    if not closed:
+        return opening
+    clause = " ".join(parts)
+    items = [item.strip() for item in clause.split(",")]
+    if not all(_PY_CLAUSE_ITEM.match(item) for item in items if item):
+        return opening
+    return clause
+
+
 def _extract_python_imports(content: str) -> list[dict]:
     edges = []
     seen: set[str] = set()
 
     for m in _PY_FROM.finditer(content):
-        module, names_str = m.group(1), m.group(2)
+        module, names_str = m.group(1), _py_from_clause(content, m.group(2), m.end())
         # Skip 'from __future__ import ...'
         if module.strip() == "__future__":
             continue

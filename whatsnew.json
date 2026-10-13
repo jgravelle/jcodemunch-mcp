@@ -1,6 +1,12 @@
 {
-  "current": "1.108.356",
+  "current": "1.108.357",
   "entries": [
+    {
+      "version": "1.108.357",
+      "date": "2026-10-13",
+      "title": "the generated agent policy no longer orders the index for everything",
+      "summary": "The policy that `init` installs opened \"Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash\", and required two calls before any task. On a small repository that wording costs turns the built-in tools would not. The policy now says where each route is cheaper: the index for relationships, for a large repository and for a question with no known starting point; the built-in tools on a small repository and for a file about to be edited. `resolve_repo` and `plan_turn` are conditional. A policy installed before this release is not rewritten: `jcodemunch-mcp config --check` reports that it differs, and `jcodemunch-mcp claude-md --generate --format policy` prints the current text. This is an interim change; the CHANGELOG lists what still steers to the index."
+    },
     {
       "version": "1.108.356",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "a Go generic function called with one argument is recorded as called",
       "summary": "Go's grammar parses `Generic[int](1)`, a generic function called with exactly one argument, as a type conversion, and the parser recorded no call for it. A generic function called only that way could read `no_callers` in `get_dead_code_v2`. The call is recorded now, also behind `*` or in parentheses, and so is a function taken from a slice or map by a variable (`fs[i](1)`). On eight pinned repositories 24 functions gain a recorded call and no dead-code row moves; the effect is on a function whose only call has this shape. A real conversion to a generic type records the type's name; the CHANGELOG lists that limit. An existing index is re-parsed on upgrade."
-    },
-    {
-      "version": "1.108.353",
-      "date": "2026-10-12",
-      "title": "a C# constructor is no longer reported as having no caller when its class is created",
-      "summary": "`get_dead_code_v2` reported a C# constructor with no caller however often its class was created, because `new Made(...)` recorded no call. It records `Made` now, for plain, generic, qualified and alias-qualified classes. On RestSharp the `no_callers` rows fall from 101 to 73 in the default call, every row that left is a constructor, and no row is newly reported. A target-typed `new()`, `: base(...)` and an attribute still record nothing; the CHANGELOG lists those and the other limits. An existing index is re-parsed on upgrade."
     }
   ]
 }

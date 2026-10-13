@@ -69,9 +69,9 @@ def _build_skill_content() -> str:
     body_lines = [
         "---",
         f"name: {_SKILL_NAME}",
-        "description: Use jCodemunch MCP tools for symbol-level code navigation "
-        "instead of raw Read/Grep/Glob/Bash. Loads on demand; complements the "
-        "always-on policy block.",
+        "description: When to use jCodemunch MCP tools for symbol-level code "
+        "navigation and when the built-in tools are the cheaper route. Loads on "
+        "demand; complements the always-on policy block.",
         "---",
         "",
         _SKILL_MARKER,
@@ -91,8 +91,9 @@ def _build_skill_content() -> str:
         "",
         "## When NOT to load this skill",
         "",
-        "- You already know the exact file and line — just `Read` it (the "
-        "  policy block notes the `Read`-before-`Edit` exception).",
+        "- You already know the exact file and line — just `Read` it.",
+        "- The repository is small: the built-in tools (Grep, Glob, Read) are "
+        "  usually the cheaper route for finding and reading code on a small repository.",
         "- The task is purely conversational with no code context.",
         "- The repo is unindexed and you don't intend to index it.",
         "",
@@ -102,14 +103,14 @@ def _build_skill_content() -> str:
         "What follows is procedural advice for *how* to use those tools, not "
         "a duplicate listing.",
         "",
-        "### Opening move",
+        "### Before the first jCodemunch call",
         "",
-        "Before any code exploration:",
+        "Neither step is needed for a task the built-in tools already answer.",
         "",
         "1. `resolve_repo({\"path\": \".\"})` — confirms the repo is indexed "
         "and queryable. If `indexed: false`, run `index_folder`.",
-        "2. `plan_turn({\"repo\": \"...\", \"query\": \"...\", "
-        "\"model\": \"<your-model-id>\"})` — gets a confidence verdict + "
+        "2. For a broad task with no known starting point: "
+        "`plan_turn({\"repo\": \"...\", \"query\": \"...\"})` — gets a confidence verdict + "
         "recommended files. Obey the confidence:",
         "   - `high` → go directly to the recommended symbols.",
         "   - `medium` → explore the recommended files, cap supplementary reads.",
@@ -118,7 +119,7 @@ def _build_skill_content() -> str:
         "",
         "### Reading code",
         "",
-        "Never `Read` a full file as a first move. The chain is:",
+        "When you need one symbol out of a large file, this reads less than the whole file:",
         "",
         "- `get_file_outline(file_path)` → see the symbol layout first.",
         "- `get_symbol_source(symbol_id)` → fetch just the function body you need.",
@@ -153,14 +154,15 @@ def _build_skill_content() -> str:
         "",
         "Avoid:",
         "",
-        "- `Read`-then-`Grep`-then-`Glob` chains on indexed repos. The index "
-        "  already knows the answer; the chain wastes tokens.",
+        "- Long `Read`-then-`Grep`-then-`Glob` chains for a question about "
+        "  relationships (who references this, what breaks). The index answers "
+        "  those in one call.",
         "- Searching with different keywords after a search PROVED absence: "
         "  `_meta.verdict.evidence_ref` holds an `absent:` token, or "
         "  `_meta.absence_evidence.citable` is `true`. Report the gap. A "
         "  `no_implementation_found` verdict is not proof on its own: "
         "  read the note, re-index if it names the index, and search again.",
-        "- Reading full files when `get_file_outline` would do.",
+        "- Reading a large file in full when `get_file_outline` would do.",
         "- Calling primitives (`find_references` + `get_symbol_source` + ...) "
         "  separately when `assemble_task_context` or `get_context_bundle` "
         "  produces the whole capsule in one call.",
@@ -181,16 +183,11 @@ def _build_skill_content() -> str:
         "",
         "## Tier model",
         "",
-        "The server narrows the exposed tool list based on the model you "
-        "report via `plan_turn`'s `model` parameter. To get the right tier:",
-        "",
-        "- Claude Opus → `claude-opus-4-7`",
-        "- Claude Sonnet → `claude-sonnet-4-6`",
-        "- Claude Haiku → `claude-haiku-4-5`",
-        "- Other models → the model id as your runner prints it",
-        "",
-        "If `plan_turn` doesn't fit a given task, call "
-        "`announce_model({\"model\": \"...\"})` once and proceed.",
+        "The server can narrow the exposed tool list to suit the model you "
+        "report. It is optional: pass your model id, exactly as your runner "
+        "prints it, as `plan_turn`'s `model` parameter, or call "
+        "`announce_model({\"model\": \"...\"})` once. The family is read "
+        "from the id, so any current id works.",
         "",
         "## Tool reference",
         "",

@@ -530,10 +530,10 @@ Runtime tier switching is **off by default**. To enable it, set in `config.jsonc
 "adaptive_tiering": true
 ```
 
-When on, `plan_turn` — already the opening-move tool — accepts an optional `model` parameter that switches the session tier as a side effect, with **no extra MCP request**:
+When on, `plan_turn` accepts an optional `model` parameter that switches the session tier as a side effect, with **no extra MCP request**:
 
 ```
-plan_turn(repo="...", query="...", model="claude-haiku-4-5")
+plan_turn(repo="...", query="...", model="<your-model-id>")
 ```
 
 The server resolves the model to a tier via `model_tier_map` in config (fuzzy matching: normalizes the id, then exact → glob → substring → `*` → `full` fallback). Subsequent `tools/list` calls return only the narrowed set.

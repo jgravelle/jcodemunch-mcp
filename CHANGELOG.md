@@ -16,7 +16,7 @@ at a delimiter, so an empty `Title=` does not take the next attribute's name;
 in a tag it also stops at the `/` of `/>`, while a directive value may be a
 path. Each pattern stays linear on a long run of its own form. `runat` must be
 the whole attribute name and `server` the whole value, so `data-runat="server"`
-and `runat=server-x` no longer open the gate. `PARSER_GENERATION` 18 -> 19, so
+and `runat=server-x` no longer open the gate. `PARSER_GENERATION` 19 -> 20, so
 an existing index re-parses its pages instead of keeping the edges it missed.
 
 `.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
@@ -35,6 +35,97 @@ formats (`.resx`, `.xaml`, `.props`, `.targets`, `.ascx`, `.master`) keep
 their extension rule: a project-file gate would un-root the pages of a Web
 Site project, which has no project file. Both points raised by @jgravelle in
 the review of #1012. (@outoftheblue9)
+### Fixed - a Python import written over several lines recorded none of its names (LEDGER L-176)
+
+`find_references("solve_dependencies")` answered 0 on fastapi while `fastapi/routing.py` imports
+it. The import is written the way every formatter writes a long one:
+
+```python
+from fastapi.dependencies.utils import (
+    get_dependant,
+    solve_dependencies,
+)
+```
+
+The extractor read a `from` import one line at a time, and that line holds `(` and nothing
+else. The edge was stored with no names. So `find_references` missed every name imported in
+that form, `check_references` counted no import for it, and the per-name module edges that let
+`from pkg import (` + `submodule,` + `)` reach `pkg/submodule.py` (#550) were never offered. A
+backslash continuation kept the names of its first line and recorded the backslash as a name.
+A one-line import with a trailing comment recorded words of the comment: `# noqa: E402` gave
+an imported name `E402`.
+
+The statement is now read to its closing parenthesis, or to the end of the continuation, and
+comments are dropped before the names are split. A backslash joins the next line in either
+form. The lines after the first are believed only when the statement is whole: it closes,
+and every item is `name` or `name as alias`. A parenthesis that never closes, or prose in a
+docstring that reads like an import, records what its opening line holds, which is what was
+recorded before. The first draft of this fix recorded the words of such prose; the reviewer
+found it. The read stops at the next line that starts `from` or `import`, so no line is
+read twice.
+
+Measured over every `.py` file with `main`'s extractor and with the fix
+(`evidence/corpus_l176.txt`): this repository's `src/` has 62 import edges that go from no
+names to names, and the pinned fastapi clone has 50. Indexed both ways, the `fastapi/` package
+answers `find_references` for `solve_dependencies` and for `get_dependant` with 1 file where it
+answered 0, and `find_dead_code`'s list of files is unchanged (`evidence/entry_l176.txt`).
+Against Python's own parser (`evidence/oracle_l176.txt`), `main` missed 323 of the 2319
+names imported by a `from` statement in `src/`, 714 of 3631 in `tests/` and 233 of 3931 in
+the fastapi clone; the fix misses 0 in all three.
+`tests/test_a_python_import_spread_over_lines_records_its_names.py` pins twenty-two
+spellings; 27 of its 37 cases failed before the change (`evidence/red.txt`), and nine guards
+removed one at a time each fail it (`evidence/mutants.txt`).
+
+`PARSER_GENERATION` is 19: the import edges change on unchanged content, so an existing index
+is re-parsed on upgrade.
+
+Not fixed here, recorded as LEDGER L-177 with the probe (`evidence/other_languages_l176.txt`):
+a Python `import a, \` continuation; and grouped imports in Scala, PHP, Elixir, Haskell and
+Dart, a destructured `require` in JavaScript and an aliased Kotlin import, which record no
+names or no edge on one line or several.
+
+## [1.108.357] - 2026-10-13 - the generated agent policy no longer orders the index for everything
+
+### Changed - the generated agent policy no longer orders the index for everything (LEDGER L-175)
+
+The policy that `init` installs and `claude-md --generate --format policy` prints opened "Always
+use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash". It
+required `resolve_repo` at the start of every session and `plan_turn` as the "opening move for
+any task", and it printed model ids by version (`claude-opus-4-7`, `claude-sonnet-4-6`,
+`claude-haiku-4-5`). Followed to the letter on a small repository, that wording costs turns:
+each index call is another turn, every turn re-reads the context, and the built-in search
+finds a known name in fewer. The policy forbade that route.
+
+It now says where each route is cheaper. The index is for relationships (who imports a symbol,
+where a name is used, what a change breaks, who calls a function, what is unreachable), for a
+large repository, and for a question with no known starting point. The built-in tools are
+named as the usual cheaper route on a small repository and for a file about to be edited.
+`resolve_repo` is asked for before the first jCodemunch call and not before every session, and
+`plan_turn` is offered for a broad task. The policy prints no versioned model id (the server
+reads the family from whatever id it is given) and says that tool tiering is off unless
+`adaptive_tiering` is set. `get_call_hierarchy` gains a line under "Relationships & impact".
+
+The same change is made where that text is generated or served: both policy variants, the
+Cursor and Windsurf rules (whose frontmatter was written twice and is one constant now), the
+installed skill, the `jcodemunch_guide` snippet and the MCP `workflow` prompt. The docs that
+repeat it follow: `QUICKSTART.md` (which also stops recommending "stronger language"),
+`INSTALL_FROM_SOURCE.md`, `AGENT_HOOKS.md`, `CONFIGURATION.md`, `CAPABILITIES.md`,
+`USER_GUIDE.md`, `ARCHITECTURE.md` and this repository's `AGENTS.md`.
+`tests/test_the_policy_makes_no_absolute_claim.py` reads each generated surface for the old
+phrases; 65 of its 104 cases failed before the change (`evidence/red.txt`), and thirteen old
+sentences put back one at a time each fail a test (`evidence/mutants.txt`). Three older tests
+required the old phrases and now require their absence.
+
+**If you installed the policy before this release, your file still holds the old text.**
+Nothing rewrites it. `jcodemunch-mcp config --check` reports that it differs, and
+`jcodemunch-mcp claude-md --generate --format policy` prints the current text to paste over it.
+
+What this does not change yet, each recorded in LEDGER L-175: the server's start-up
+instructions and a few tool descriptions still say to prefer the index, two parameter
+descriptions still give a versioned model id as their example, `TWEAKCC.md` still suggests a
+prompt patch that orders an outline before every read, the search hooks still
+nudge toward it at any repository size, the policy does not know how big the repository is, and
+jDocMunch's and jDataMunch's own policy text is unchanged.
 
 ## [1.108.356] - 2026-10-13 - a JavaScript method called through a string key is recorded as called
 

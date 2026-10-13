@@ -23,12 +23,16 @@ logger = logging.getLogger(__name__)
 _CLAUDE_MD_POLICY = """\
 ## Code Exploration Policy
 
-Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
-**Exception:** Use `Read` when you need to edit a file — the agent harness requires a `Read` before `Edit`/`Write` will succeed. Use jCodemunch tools to *find and understand* code, then `Read` only the specific file you're about to modify.
+jCodemunch-MCP indexes this repository's symbols and how they relate. Use it where it is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- **Relationships are what the index is for:** who imports a symbol, where a name is used, what a change breaks, who calls a function, what is unreachable. The tools are listed under "Relationships & impact" below.
+- **A name you already know, or a file you are about to work in:** the built-in search and `Read` are often as cheap. Take whichever is fewer steps.
+- **On a small repository** the built-in tools are usually the cheaper route for finding and reading code.
+- **A large repository, or a question with no known starting point:** the search and symbol tools below read less than opening whole files.
+- The agent harness requires a `Read` before `Edit`/`Write` will succeed.
 
-**Start any session:**
-1. `resolve_repo { "path": "." }` — confirm the project is indexed. If not: `index_folder { "path": "." }`
-2. `suggest_queries` — when the repo is unfamiliar
+**Before the first jCodemunch call in a session** (skip it when the task needs none):
+- `resolve_repo { "path": "." }` — confirm the project is indexed. If not: `index_folder { "path": "." }`
+- `suggest_queries` — optional, when the repo is unfamiliar
 
 **Finding code:**
 - symbol by name → `search_symbols` (add `kind=`, `language=`, `file_pattern=`, `decorator=` to narrow)
@@ -37,7 +41,7 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 - database columns (dbt/SQLMesh) → `search_columns`
 
 **Reading code:**
-- before opening any file → `get_file_outline` first
+- a file's shape without reading it → `get_file_outline`
 - one or more symbols → `get_symbol_source` (single ID → flat object; array → batch)
 - symbol + its imports → `get_context_bundle`
 - specific line range only → `get_file_content` (last resort)
@@ -52,14 +56,15 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 - where is this name used (imports + every content match) → `check_references`
 - file dependency graph → `get_dependency_graph`
 - what breaks if I change X → `get_blast_radius`
+- who calls a function, and what it calls → `get_call_hierarchy`
 - what symbols actually changed since last commit → `get_changed_symbols`
 - find unreachable/dead code → `find_dead_code`
 - class hierarchy → `get_class_hierarchy`
 
 ## Session-Aware Routing
 
-**Opening move for any task:**
-1. `plan_turn { "repo": "...", "query": "your task description", "model": "<your-model-id>" }` — get confidence + recommended files; the `model` parameter narrows the exposed tool list to match your capabilities at zero extra requests.
+**For a broad task, when you do not know where to start:**
+1. `plan_turn { "repo": "...", "query": "your task description" }` — get confidence + recommended files. It is one call; skip it when you already know where to look.
 2. Obey the confidence level:
    - `high` → go directly to recommended symbols, max 2 supplementary reads
    - `medium` → explore recommended files, max 5 supplementary reads
@@ -86,30 +91,27 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 
 ## Model-Driven Tool Tiering
 
-Your jcodemunch-mcp server narrows the exposed tool list based on the model you are running as. To avoid wasting requests on primitives when a composite would do, always include `model="<your-model-id>"` in your opening `plan_turn` call.
+Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is off unless `adaptive_tiering` is enabled in the server's config, and while it is off a model id changes nothing. Where it is on, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making, or call `announce_model(model="...")` once.
 
-Replace `<your-model-id>` with your active model:
-- Claude Opus variants → `claude-opus-4-7` (or any `claude-opus-*`)
-- Claude Sonnet variants → `claude-sonnet-4-6`
-- Claude Haiku variants → `claude-haiku-4-5`
-- GPT-4o / GPT-5 / o1 / Llama → use the model id as printed by your runner
-
-The `model=` parameter rides on the existing `plan_turn` call — it does **not** add a separate tool invocation. If `plan_turn` is not appropriate for a non-code task, call `announce_model(model="...")` once instead.
+The server reads the model's family from the id (Opus, Sonnet, Haiku, GPT, o1, Llama), so any current id works and none needs listing here.
 """
 
 
 _CLAUDE_MD_POLICY_COUNTER = """\
 ## Code Exploration Policy
 
-Always use jCodeMunch-MCP for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
-**Exception:** use `Read` when you are about to edit a file — the harness requires a `Read` before `Edit`/`Write`. Use jCodeMunch to *find and understand* code, then `Read` only the file you are changing.
+jCodeMunch-MCP indexes this repository's symbols and how they relate. Use it where it is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- **Relationships are what the index is for:** who imports a symbol, where a name is used, what a change breaks, who calls a function, what is unreachable.
+- **A name you already know, or a file you are about to work in:** the built-in search and `Read` are often as cheap. Take whichever is fewer steps.
+- **On a small repository** the built-in tools are usually the cheaper route for finding and reading code.
+- The harness requires a `Read` before `Edit`/`Write`.
 
 This server runs the **front door** surface: three tools reach every jCodeMunch capability, so the tool list stays small and the catalogue is fetched only when you need it.
 
-**Start any session:**
-1. `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
+**Before the first jCodeMunch call in a session** (skip it when the task needs none):
+- `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
 
-**Then, for any task:**
+**Then, for a task the index suits:**
 - Know what you want → `order { "action": "<name>", "args": { ... } }`
 - Know the goal, not the tool → `route { "query": "your task in a sentence" }` picks the action and shapes the arguments
 - Want to see what exists → `menu { "query": "what you are trying to do" }` returns matching actions with example arguments
@@ -125,7 +127,7 @@ This server runs the **front door** surface: three tools reach every jCodeMunch 
 - With PostToolUse hooks installed (Claude Code), edited files are reindexed automatically.
 - Otherwise `order { "action": "register_edit", "args": { "paths": [...] } }` after an edit, batched for bulk changes.
 
-**Announce your model once per session** so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.
+**Optional:** announce your model once so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.
 """
 
 

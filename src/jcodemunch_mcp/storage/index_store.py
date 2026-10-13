@@ -628,11 +628,16 @@ INDEX_VERSION = 17
 #   (`t["m"]()`) records the member. It recorded the container. No symbol id
 #   moves; only `call_references` changes, on UNCHANGED content.
 #
-# 19 (follow-up to #1012): a Web Forms attribute value may be single-quoted or
+# 19 (L-176): a Python `from x import (...)` spread over several lines, or
+#   continued with a backslash, records the names it imports. It recorded
+#   none, so `find_references` missed every name imported that way. No symbol
+#   id moves; only `files.imports` changes, on UNCHANGED content.
+#
+# 20 (follow-up to #1012): a Web Forms attribute value may be single-quoted or
 #   unquoted. A page whose directive or server control uses either form gains
 #   its codebehind and handler edges, its control symbols and its server-script
 #   symbols, on UNCHANGED content.
-PARSER_GENERATION = 19
+PARSER_GENERATION = 20
 
 
 @dataclass(frozen=True)

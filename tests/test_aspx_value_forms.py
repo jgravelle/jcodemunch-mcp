@@ -280,7 +280,7 @@ def test_a_maven_build_keeps_a_schema_capped_under_the_neutral_kind(maven_repo):
 def test_existing_indexes_reparse_web_forms_pages():
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
 
-    assert PARSER_GENERATION >= 19
+    assert PARSER_GENERATION >= 20
 
 
 @pytest.mark.parametrize("form", sorted(FORMS))

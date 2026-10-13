@@ -46,9 +46,9 @@ Add the following to `~/.claude/CLAUDE.md` (global) or a project-level `CLAUDE.m
 ```markdown
 ## Code Exploration Policy
 
-Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
+Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are. On a small repository the built-in tools are usually the cheaper route for finding and reading code.
 
-**Start any session:**
+**Before the first jCodemunch call in a session** (skip it when the task needs none):
 1. `resolve_repo { "path": "." }` — confirm the project is indexed. If not: `index_folder { "path": "." }`
 2. `suggest_queries` — when the repo is unfamiliar
 
@@ -58,7 +58,7 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 - database columns (dbt/SQLMesh) → `search_columns`
 
 **Reading code:**
-- before opening any file → `get_file_outline` first
+- a file's shape without reading it → `get_file_outline`
 - one or more symbols → `get_symbol_source` (single ID → flat object; array → batch)
 - symbol + its imports → `get_context_bundle`
 - specific line range only → `get_file_content` (last resort)
@@ -104,9 +104,11 @@ Create or edit one of the following files depending on your editor:
 - Google Antigravity: **`.antigravity/rules`**
 
 ```text
-jCodemunch-MCP is available. Use it instead of native file tools for all code exploration.
+jCodemunch-MCP is available. Use it where an index is the cheaper route (references, impact,
+call hierarchy, symbol lookup in a large repository) and the native file tools where they are.
+On a small repository the native tools are usually cheaper for finding and reading code.
 
-Start any session: resolve_repo → (if missing) index_folder → suggest_queries
+Before the first jCodemunch call: resolve_repo → (if missing) index_folder
 
 Finding code:
   symbol by name       → search_symbols (kind=, language=, file_pattern= to narrow)

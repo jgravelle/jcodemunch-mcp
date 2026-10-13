@@ -132,13 +132,18 @@ def _enforcement_hooks() -> dict[str, Any]:
 # Cursor rules use MDC format (frontmatter + markdown).
 # alwaysApply: true ensures the rule is in context for every agent turn,
 # including subagents — which is the main reliability complaint.
-_CURSOR_RULES_CONTENT = """\
+# ONE copy: the rules constant and `install_cursor_rules` both prepend it, so
+# the description cannot say one thing for the full policy and another for a
+# filtered one (L-175: it was written twice and only one copy was tested).
+_CURSOR_FRONTMATTER = """\
 ---
-description: Use jCodemunch MCP tools for all code navigation instead of built-in search
+description: When jCodemunch MCP tools are the cheaper route for code navigation, and when the built-in search is
 alwaysApply: true
 ---
 
-""" + _CLAUDE_MD_POLICY
+"""
+
+_CURSOR_RULES_CONTENT = _CURSOR_FRONTMATTER + _CLAUDE_MD_POLICY
 
 # Windsurf uses a plain-text .windsurfrules file in the project root.
 _WINDSURF_RULES_CONTENT = _CLAUDE_MD_POLICY
@@ -703,12 +708,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
     policy = active_policy()
     content = _CURSOR_RULES_CONTENT
     if policy != _CLAUDE_MD_POLICY:
-        content = (
-            "---\n"
-            "description: Use jCodemunch MCP tools for all code navigation instead of built-in search\n"
-            "alwaysApply: true\n"
-            "---\n\n"
-        ) + policy
+        content = _CURSOR_FRONTMATTER + policy
     path.write_text(content, encoding="utf-8")
     return f"  wrote {path}"
 

@@ -118,7 +118,7 @@ jcodemunch-mcp/
 │   │   ├── session_journal.py # Process-lifetime session tracking
 │   │   ├── session_state.py   # Session save/restore across restarts
 │   │   ├── turn_budget.py     # Cross-call token accumulator
-│   │   ├── plan_turn.py       # Opening-move router (BM25 + PageRank)
+│   │   ├── plan_turn.py       # Broad-task router (BM25 + PageRank)   
 │   │   ├── analyze_perf.py    # Per-tool latency + cache-hit telemetry; baseline diff + ranking-ledger view (v1.74.0+)
 │   │   ├── tune_weights.py    # MCP wrapper around retrieval/tuning.py (v1.79.0+)
 │   │   ├── check_embedding_drift.py # MCP wrapper around retrieval/embed_drift.py (v1.80.0+)
@@ -601,7 +601,7 @@ Several tools accept array parameters alongside their singular equivalents, enab
 
 ### Session and routing
 
-* `plan_turn` — opening-move router (BM25 + PageRank confidence assessment)
+* `plan_turn` — router for a broad task (BM25 + PageRank confidence assessment)
 * `get_session_context` — session history (reads, searches, edits, tool calls)
 * `get_session_snapshot` — compact session state for context injection after compaction
 * `register_edit` — post-edit cache invalidation (BM25, search result caches)
