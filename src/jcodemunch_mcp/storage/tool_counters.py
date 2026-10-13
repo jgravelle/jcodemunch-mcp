@@ -128,7 +128,12 @@ def _acquire(lock: Path, wait: float) -> bool:
             except OSError:
                 pass  # released or removed between the two calls; try again
         except OSError:
-            return False  # the directory is gone or unwritable
+            # ⚠ On Windows, creating a lock its holder is deleting this instant
+            # raises PermissionError, not FileExistsError. That is a held lock:
+            # giving up there lost an exit-time flush its 3 seconds (review,
+            # 2026-10-13: 3 wrong totals in 17 trials at 24 or more processes).
+            if not lock.parent.is_dir():
+                return False  # the storage directory is gone
         if time.monotonic() >= deadline:
             return False
         time.sleep(0.01)
@@ -228,7 +233,11 @@ class _State:
                 row = mine.setdefault(name, [0, 0])
                 row[0] += calls
                 row[1] += tokens
-            self._since_flush += sum(calls for calls, _ in rows.values())
+            # ⚠ The call counter is NOT put back. Put back, it stays at or above
+            # the threshold and every later call starts a writer thread for as
+            # long as the directory is read-only or the disk full (measured: 281
+            # threads in 300 calls). The kept counts go out with the next write
+            # the clock or the next twenty calls bring.
 
 
 _state = _State()
@@ -258,6 +267,25 @@ def read(base_path: Optional[str] = None) -> dict:
     if not path.is_file():
         data["since"] = None
     return data
+
+
+def read_or_none(base_path: Optional[str] = None) -> Optional[dict]:
+    """`read`, or `None` when the file EXISTS and could not be read or parsed.
+
+    For a reader that publishes the counts: an empty record there would say
+    "nothing counted, starting today" about a file that may hold months.
+    """
+    path = Path(_root(base_path)) / FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return read(base_path)
+    except (OSError, ValueError):
+        logger.debug("tool counters file exists and was not read", exc_info=True)
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("tools"), dict):
+        return None
+    return read(base_path)
 
 
 def _flush_at_exit() -> None:

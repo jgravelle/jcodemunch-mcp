@@ -10869,8 +10869,11 @@ def main(argv: Optional[list[str]] = None):
             _path = _diagnose.write_report(_report)
             print(f"Report written to {_path}")
             print("Nothing was sent. It holds no path and no repository name; read it before you share it.")
-            print("Counts a running server has not written yet are not in it (it writes every 20 calls, "
-                  "or on the first call after 30 seconds, and when it stops).")
+            from .storage import tool_counters as _tc
+
+            print(f"Counts a running server has not written yet are not in it (it writes every "
+                  f"{_tc._FLUSH_EVERY} calls, or on the first call after {_tc._FLUSH_SECONDS:g} seconds, "
+                  "and when it stops).")
         sys.exit(0)
 
     if args.command == "uninstall":

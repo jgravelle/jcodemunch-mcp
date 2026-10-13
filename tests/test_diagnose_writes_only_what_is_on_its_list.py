@@ -38,6 +38,12 @@ def store(tmp_path, monkeypatch):
     return root
 
 
+@pytest.fixture(autouse=True)
+def _own_policy_files(tmp_path, monkeypatch):
+    """The default policy targets include the developer's ~/.claude/CLAUDE.md; every test here reads its own."""
+    monkeypatch.setattr(diagnose, "_default_policy_paths", lambda: {"claude_md_project": tmp_path / "none" / "CLAUDE.md"})
+
+
 def _call(tool: str, args: dict):
     return asyncio.run(server.call_tool(tool, args))
 
@@ -138,6 +144,52 @@ def test_a_flush_that_cannot_take_the_lock_keeps_its_counts(store, monkeypatch):
     assert _counters(store)["tools"]["list_repos"]["calls"] == 1
 
 
+def test_a_lock_being_deleted_by_its_holder_is_waited_for(store, monkeypatch):
+    """On Windows that create raises PermissionError, not FileExistsError; giving up there lost exit-time counts."""
+    import os
+
+    real, refusals = os.open, []
+
+    def held(path, flags, *a, **k):
+        if str(path).endswith(tool_counters.LOCK_FILE) and len(refusals) < 3:
+            refusals.append(1)
+            raise PermissionError(13, "delete pending")
+        return real(path, flags, *a, **k)
+
+    monkeypatch.setattr(os, "open", held)
+    tool_counters.record("list_repos", 400)
+    assert _counters(store)["tools"]["list_repos"]["calls"] == 1
+    assert len(refusals) == 3
+
+
+def test_a_storage_directory_that_is_gone_is_not_waited_for(tmp_path):
+    import time
+
+    t0 = time.monotonic()
+    assert tool_counters._acquire(tmp_path / "gone" / tool_counters.LOCK_FILE, 5.0) is False
+    assert time.monotonic() - t0 < 1.0
+
+
+def test_a_write_that_keeps_failing_does_not_start_a_thread_per_call(store, monkeypatch):
+    """Put back, the call counter stayed over the threshold: 281 threads in 300 calls on a read-only directory."""
+    started = []
+    with monkeypatch.context() as m:
+        m.setattr(tool_counters._State, "_flush_in_thread", lambda self: started.append(1))
+        m.setattr(tool_counters, "_merge_into_file", lambda *a, **k: False)
+        for _ in range(tool_counters._FLUSH_EVERY):
+            tool_counters.record("list_repos", 400)
+        _join_writers()
+        assert len(started) == 1
+        tool_counters._state._flushing = False
+        tool_counters.flush()  # fails, and keeps its counts
+        for _ in range(tool_counters._FLUSH_EVERY - 1):
+            tool_counters.record("list_repos", 400)
+        _join_writers()
+        assert len(started) == 1, "the kept counts wait for the next twenty calls or the clock"
+    tool_counters._state._flushing = False
+    assert _counters(store)["tools"]["list_repos"]["calls"] == 2 * tool_counters._FLUSH_EVERY - 1
+
+
 def test_a_lock_left_by_a_dead_process_is_broken(store):
     import os
     import time
@@ -181,7 +233,8 @@ def test_processes_that_stop_together_lose_no_count(store):
          "tools": {"list_repos": {"calls": 1000, "tokens_returned": 5}}}), encoding="utf-8")
     code = ("import sys, time; from jcodemunch_mcp.storage import tool_counters as t; "
             "[t.record('list_repos', 400, sys.argv[1]) for _ in range(5)]; "
-            "time.sleep(max(0.0, float(sys.argv[2]) - time.time()))")
+            "time.sleep(max(0.0, float(sys.argv[2]) - time.time() - 0.2)); "
+            "exec('while time.time() < float(sys.argv[2]): pass')")  # busy-wait to the same instant
     import os
     import time
 
@@ -528,6 +581,56 @@ def test_a_savings_file_that_cannot_be_read_gives_no_saved_figure(install):
     assert absent["tokens_saved_total"] == 0 and absent["by_tool"]["search_symbols"]["tokens_saved"] == 0
 
 
+@pytest.mark.parametrize("how", ["damaged", "busy"])
+def test_a_counters_file_that_cannot_be_read_gives_no_count(install, monkeypatch, how):
+    """Fixed for the savings file first and missed one file over: it read `0 calls, counting since today`."""
+    store, _ = install
+    if how == "damaged":
+        (store / tool_counters.FILE).write_text("{damaged", encoding="utf-8")
+    else:
+        real = Path.read_text
+
+        def busy(self, *a, **k):
+            if self.name == tool_counters.FILE:
+                raise PermissionError("in use")
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(Path, "read_text", busy)
+    tools = _report(install)["tools"]
+    assert tools["counting_since"] is None
+    assert tools["by_tool"]["search_symbols"] == {"calls": None, "tokens_returned": None, "tokens_saved": 700}
+
+
+def test_a_saved_total_that_is_not_a_count_is_unknown(install):
+    store, _ = install
+    (store / "_savings.json").write_text(json.dumps({"total_tokens_saved": "lots", "by_tool": {"search_symbols": 700}}),
+                                         encoding="utf-8")
+    assert _report(install)["tools"]["tokens_saved_total"] is None
+
+
+@pytest.mark.parametrize("system, release, label", [
+    ("Linux", "6.6.30-alice-laptop", "Linux 6.6.30"),
+    ("Windows", "11", "Windows 11"),
+    ("Darwin", "23.5.0", "Darwin 23.5.0"),
+    ("Linux", "5.15.167.4-microsoft-standard-WSL2", "Linux 5.15.167.4"),
+    ("C:/Users/alice", "x", "unknown"),
+    ("", "", "unknown"),
+])
+def test_the_os_label_keeps_the_name_and_the_numbers(system, release, label):
+    assert diagnose._os_label(system, release) == label
+
+
+def test_a_version_loses_its_local_label_and_an_odd_one_is_unknown_not_an_error(install, monkeypatch):
+    assert diagnose._public_version("1.108.358+local.alice.acme") == "1.108.358"
+    assert diagnose._public_version("1.2.3rc1") == "1.2.3rc1"
+    assert diagnose._public_version("x" * 44) is None
+    assert diagnose._public_version("/home/alice/src") is None
+    from importlib import metadata
+
+    monkeypatch.setattr(metadata, "version", lambda dist: "9" * 44 + "+alice")
+    assert set(_report(install)["versions"].values()) >= {None}  # built, and checked, without raising
+
+
 def test_saved_tokens_and_counts_each_carry_their_own_start_date(install):
     """Savings have been recorded far longer than calls; one date over both misleads."""
     store, _ = install
@@ -599,6 +702,10 @@ def test_the_command_prints_where_the_file_is_and_stdout_writes_none(install, ca
 def test_the_two_files_are_disclosed():
     text = (Path(__file__).resolve().parent.parent / "SECURITY.md").read_text(encoding="utf-8")
     para = next(p for p in text.split("\n- ") if tool_counters.FILE in p)
+    config_doc = (Path(__file__).resolve().parent.parent / "CONFIGURATION.md").read_text(encoding="utf-8")
+    for typed in (f"every {tool_counters._FLUSH_EVERY} calls", f"after {tool_counters._FLUSH_SECONDS:g} seconds"):
+        assert typed in config_doc, "the schedule is typed in CONFIGURATION.md too"
+    assert f"up to {tool_counters._LOCK_WAIT_AT_EXIT:g} seconds longer to exit" in para
     for word in ("tool_counters", "calls", "tokens returned", "Nothing is sent", "diagnose", "anon_id",
                  f"every {tool_counters._FLUSH_EVERY} calls", f"after {tool_counters._FLUSH_SECONDS:g} seconds",
                  tool_counters.LOCK_FILE, "counted under both names"):

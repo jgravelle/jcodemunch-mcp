@@ -45,6 +45,7 @@ import logging
 import os
 import platform
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
@@ -108,7 +109,7 @@ _POLICY = {
     "state": _one_of("current", "differs", None),
     "digest": _matches(r"[0-9a-f]{12}", none=True),
 }
-_TOOL = {"calls": _is_count, "tokens_returned": _is_count, "tokens_saved": _count_or_none}
+_TOOL = {"calls": _count_or_none, "tokens_returned": _count_or_none, "tokens_saved": _count_or_none}
 _TOOLS = {
     "estimator": _one_of(ESTIMATOR),
     "counting_since": _matches(_DATE, none=True),
@@ -189,12 +190,30 @@ def _versions() -> dict:
     out: dict = {}
     for dist in _SERVERS:
         try:
-            out[dist] = metadata.version(dist)
+            out[dist] = _public_version(metadata.version(dist))
         except metadata.PackageNotFoundError:
             out[dist] = None  # not installed in this environment
-    out["python"] = platform.python_version()
-    out["os"] = f"{platform.system()} {platform.release()}".strip()
+    python = platform.python_version()
+    out["python"] = python if _VERSIONS["python"](python) else ".".join(str(n) for n in sys.version_info[:3])
+    out["os"] = _os_label(platform.system(), platform.release())
     return out
+
+
+def _public_version(version: object) -> Optional[str]:
+    """A version without its local label: `1.2.3+local.name` ends in the builder's own string."""
+    public = str(version).split("+", 1)[0]
+    return public if re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.!-]{0,39}", public) else None
+
+
+def _os_label(system: str, release: str) -> str:
+    """System name and the numeric start of its release.
+
+    A kernel release can end in a suffix its builder chose
+    (`6.6.30-alice-laptop`), so only the leading numbers are kept.
+    """
+    name = system if re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,19}", system or "") else "unknown"
+    number = re.match(r"[0-9]+(?:[.][0-9]+){0,3}", release or "")
+    return f"{name} {number.group(0)}" if number else name
 
 
 def _surface(stats: Mapping) -> dict:
@@ -331,27 +350,32 @@ def _date(value: object) -> Optional[str]:
 def _tools(root: Path, savings: Optional[dict], known: set) -> dict:
     from .storage import tool_counters
 
-    counters = tool_counters.read(str(root))
+    counters = tool_counters.read_or_none(str(root))
     by_tool: dict = {}
-    # An unreadable savings file gives no saved figure, per tool or in total.
+    # A file that exists and could not be read gives no figure: not saved tokens
+    # from an unreadable savings file, not calls from an unreadable counters
+    # file. ⚠ The second was missed when the first was fixed (review, 2026-10-13).
     blank = 0 if savings is not None else None
+    uncounted = 0 if counters is not None else None
 
     def row(name: str) -> dict:
         key = name if name in known else OTHER
-        return by_tool.setdefault(key, {"calls": 0, "tokens_returned": 0, "tokens_saved": blank})
+        return by_tool.setdefault(key, {"calls": uncounted, "tokens_returned": uncounted, "tokens_saved": blank})
 
-    for name, c in counters["tools"].items():
+    for name, c in (counters["tools"].items() if counters is not None else ()):
         r = row(name)
         r["calls"] += _count(c.get("calls"))
         r["tokens_returned"] += _count(c.get("tokens_returned"))
     saved = (savings or {}).get("by_tool")
     for name, n in (saved.items() if isinstance(saved, dict) else ()):
         row(str(name))["tokens_saved"] += _count(n)
+    # No savings file is nothing saved; a total that is not a count is unknown.
+    total = savings.get("total_tokens_saved", 0) if savings is not None else None
     return {
         "estimator": ESTIMATOR,
-        "counting_since": _date(counters["since"]),
+        "counting_since": _date(counters["since"]) if counters is not None else None,
         "saved_since": _date((savings or {}).get("by_tool_since")),
-        "tokens_saved_total": _count(savings.get("total_tokens_saved")) if savings is not None else None,
+        "tokens_saved_total": total if _is_count(total) else None,
         "by_tool": {k: by_tool[k] for k in sorted(by_tool)},
     }
 
