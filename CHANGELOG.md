@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.352] - 2026-10-12 - a function used only in a constant or a dispatch table is no longer reported as having no caller
+
 ### Fixed - a function used only in a constant's initialiser or a dispatch table was reported as having no caller (LEDGER L-169)
 
 A call written outside every function belongs to no function, so no call reference records it.

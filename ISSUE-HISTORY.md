@@ -2461,3 +2461,13 @@ The 1.108.348 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.348 count, verbatim:
 
 - ⚠ Prior (1.108.348): 16128 passed, 25 skipped, **0 failed** (16153 total).
+
+## Current State rotation (2026-10-12, release 1.108.352)
+
+The 1.108.349 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.349):** **A Java `super(...)` records the superclass's constructor** (L-166): `_record_super_constructor_calls` reads the class node DOWN. `PARSER_GENERATION` 14. ⚠ `__init__`, `constructor` and `initialize` still read `no_callers`: L-167. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.349 count, verbatim:
+
+- ⚠ Prior (1.108.349): 16157 passed, 25 skipped, **0 failed** (16182 total).
