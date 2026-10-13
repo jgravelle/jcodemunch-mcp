@@ -109,8 +109,161 @@ def test_an_unwritable_file_is_not_an_error(store, monkeypatch):
         raise OSError("read-only")
 
     tool_counters.record("list_repos", 400)
-    monkeypatch.setattr(Path, "write_text", refuse)
-    tool_counters.flush()  # does not raise
+    with monkeypatch.context() as m:
+        m.setattr(Path, "write_text", refuse)
+        tool_counters.flush()  # does not raise
+        assert not (store / tool_counters.FILE).exists()
+        # A due write goes through the state itself, not the wrapper above.
+        tool_counters.record("list_repos", 400)
+        tool_counters._state.flush()
+        assert not (store / tool_counters.FILE).exists()
+        assert not list(store.glob("*.tmp")) and not (store / tool_counters.LOCK_FILE).exists()
+    # The temp file was written and the replace refused (the file is open elsewhere): no temp file stays.
+    with monkeypatch.context() as m:
+        m.setattr(Path, "replace", refuse)
+        tool_counters.flush()
+        assert not (store / tool_counters.FILE).exists()
+        assert not [p.name for p in store.iterdir() if p.name.endswith(".tmp")]
+    # A write that could not be made kept its counts: the next one carries them.
+    assert _counters(store)["tools"]["list_repos"] == {"calls": 2, "tokens_returned": 200}
+
+
+def test_a_flush_that_cannot_take_the_lock_keeps_its_counts(store, monkeypatch):
+    monkeypatch.setattr(tool_counters, "_LOCK_WAIT", 0.05)
+    (store / tool_counters.LOCK_FILE).write_text("", encoding="utf-8")  # another process is writing
+    tool_counters.record("list_repos", 400)
+    tool_counters.flush(0.05)
+    assert not (store / tool_counters.FILE).exists()
+    (store / tool_counters.LOCK_FILE).unlink()
+    assert _counters(store)["tools"]["list_repos"]["calls"] == 1
+
+
+def test_a_lock_left_by_a_dead_process_is_broken(store):
+    import os
+    import time
+
+    lock = store / tool_counters.LOCK_FILE
+    lock.write_text("", encoding="utf-8")
+    old = time.time() - tool_counters._LOCK_STALE_SECONDS - 5
+    os.utime(lock, (old, old))
+    tool_counters.record("list_repos", 400)
+    assert _counters(store)["tools"]["list_repos"]["calls"] == 1
+    assert not lock.exists()
+
+
+def test_a_file_that_is_busy_this_instant_is_not_replaced_by_an_empty_one(store, monkeypatch):
+    """Merging into an empty record because a read failed would erase every count on disk."""
+    tool_counters.record("list_repos", 400)
+    before = _counters(store)
+    real = Path.read_text
+
+    def busy(self, *a, **k):
+        if self.name == tool_counters.FILE:
+            raise PermissionError("in use")
+        return real(self, *a, **k)
+
+    tool_counters.record("search_symbols", 400)
+    with monkeypatch.context() as m:
+        m.setattr(Path, "read_text", busy)
+        tool_counters.flush()
+    assert json.loads((store / tool_counters.FILE).read_text(encoding="utf-8")) == before
+    after = _counters(store)["tools"]
+    assert after["list_repos"]["calls"] == 1 and after["search_symbols"]["calls"] == 1
+
+
+def test_processes_that_stop_together_lose_no_count(store):
+    """Real processes: the first draft kept 5 of 40 counts here, twelve trials in twelve."""
+    import subprocess
+    import sys
+
+    (store / tool_counters.FILE).write_text(json.dumps(
+        {"version": 1, "since": "2026-01-01", "estimator": "bytes/4",
+         "tools": {"list_repos": {"calls": 1000, "tokens_returned": 5}}}), encoding="utf-8")
+    code = ("import sys, time; from jcodemunch_mcp.storage import tool_counters as t; "
+            "[t.record('list_repos', 400, sys.argv[1]) for _ in range(5)]; "
+            "time.sleep(max(0.0, float(sys.argv[2]) - time.time()))")
+    import os
+    import time
+
+    src = str(Path(tool_counters.__file__).resolve().parents[2])
+    env = dict(os.environ, PYTHONPATH=src)
+    go = str(time.time() + 4.0)  # every process exits at the same moment
+    procs = [subprocess.Popen([sys.executable, "-c", code, str(store), go], env=env) for _ in range(8)]
+    assert [p.wait(timeout=60) for p in procs] == [0] * 8
+    data = json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))
+    assert data["tools"]["list_repos"] == {"calls": 1040, "tokens_returned": 5 + 40 * 100}
+    assert data["since"] == "2026-01-01", "history is kept, with its start date"
+    assert not list(store.glob("*.tmp")) and not (store / tool_counters.LOCK_FILE).exists()
+
+
+def _join_writers():
+    import threading
+
+    for t in threading.enumerate():
+        if t.name == "jcm-tool-counters":
+            t.join(timeout=10)
+
+
+def test_counting_a_call_never_waits_for_the_disk(store, monkeypatch):
+    """A synchronous write cost about 15 ms on every twentieth call, on the event loop."""
+    import threading
+
+    seen = []
+    real = tool_counters._merge_into_file
+    monkeypatch.setattr(tool_counters, "_merge_into_file",
+                        lambda *a, **k: seen.append(threading.current_thread().name) or real(*a, **k))
+    for _ in range(tool_counters._FLUSH_EVERY):
+        tool_counters.record("list_repos", 400)
+    _join_writers()
+    assert seen == ["jcm-tool-counters"], "the write ran, once, and not in the caller's thread"
+    data = json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))
+    assert data["tools"]["list_repos"]["calls"] == tool_counters._FLUSH_EVERY
+
+
+def test_a_quiet_server_writes_on_the_first_call_after_the_interval(store):
+    tool_counters.record("list_repos", 400)
+    assert not (store / tool_counters.FILE).exists()
+    tool_counters._state._last_flush -= tool_counters._FLUSH_SECONDS + 1
+    tool_counters.record("list_repos", 400)
+    _join_writers()
+    assert json.loads((store / tool_counters.FILE).read_text(encoding="utf-8"))["tools"]["list_repos"]["calls"] == 2
+
+
+def test_a_call_relayed_by_the_front_door_has_its_size_counted_once(store):
+    """`order` re-dispatches, so one request runs two frames; the bytes belong to the tool that answered."""
+    out = _call("order", {"action": "list_repos", "args": {}})
+    size = sum(len(c.text.encode("utf-8")) for c in out)
+    tools = _counters(store)["tools"]
+    assert tools["list_repos"]["calls"] == 1 and tools["order"]["calls"] == 1
+    assert tools["list_repos"]["tokens_returned"] > 0
+    assert tools["order"]["tokens_returned"] == 0
+    assert tools["list_repos"]["tokens_returned"] <= size // 4 + 1
+
+
+def test_a_front_door_answer_of_its_own_keeps_its_size(store):
+    _call("menu", {"query": "find a symbol"})
+    row = _counters(store)["tools"]["menu"]
+    assert row["calls"] == 1 and row["tokens_returned"] > 0
+
+
+def test_a_dispatch_that_raises_is_a_call_with_no_tokens(store, monkeypatch):
+    async def boom(name, arguments):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr(server, "_call_tool_impl", boom)
+    with pytest.raises(RuntimeError):
+        _call("list_repos", {})
+    assert _counters(store)["tools"]["list_repos"] == {"calls": 1, "tokens_returned": 0}
+
+
+def test_the_switch_is_read_from_a_real_config_file(store):
+    from jcodemunch_mcp import config
+
+    (store / "config.jsonc").write_text('{"tool_counters": false}', encoding="utf-8")
+    config.load_config(str(store), create_missing=False)
+    assert config.get("tool_counters") is False
+    _call("list_repos", {})
+    tool_counters.flush()
     assert not (store / tool_counters.FILE).exists()
 
 
@@ -314,8 +467,90 @@ def test_a_key_nobody_listed_fails_the_build():
         diagnose.check_allowed({**good, "indexes": [{"label": "my-private-repo"}]})
 
 
+    tools = {"by_tool": {"my-private-tool": {"calls": 1}}}
+    diagnose.check_allowed({**good, "tools": tools})  # no catalog given: names are not judged
+    with pytest.raises(ValueError, match="my-private-tool"):
+        diagnose.check_allowed({**good, "tools": tools}, known_tools=CATALOG)
+
+
+@pytest.mark.parametrize("extra", [
+    {"schema": {"hostname": "box", "path": "C:/Users/alice"}},
+    {"surface": {"profile": {"source_root": "C:/x"}}},
+    {"surface": {"profile": "C:/Users/alice/acme-secret-repo"}},
+    {"surface": {"surface": "my-surface"}},
+    {"indexes": [{"label": "index-1", "file_count": {"path": "C:/x"}}]},
+    {"indexes": [{"label": "index-1", "embeddings": "C:/x"}]},
+    {"indexes": {"label": "index-1"}},
+    {"anon_id": ["C:/Users/alice"]},
+    {"anon_id": "C:/Users/alice"},
+    {"tools": {"estimator": "C:/Users/alice"}},
+    {"tools": {"by_tool": {"other": {"calls": "C:/x"}}}},
+    {"tools": {"counting_since": "last tuesday"}},
+    {"versions": {"os": "Windows 11 C:\\Users\\alice"}},
+    {"versions": {"jdocmunch-mcp": "/home/alice/src"}},
+    {"policies": {"this_version_digest": "0123456789ab", "targets": {"agents_md": {"digest": "C:/x"}}}},
+    {"sent_anywhere": True},
+], ids=lambda e: next(iter(e)) + ":" + str(next(iter(e.values())))[:24])
+def test_a_value_is_checked_as_well_as_its_key(extra):
+    """Keys alone were checked at first, and the user's own profile string carried a path through."""
+    good = {"schema": diagnose.SCHEMA, "generated_at": "2026-10-13T00:00:00Z"}
+    with pytest.raises(ValueError):
+        diagnose.check_allowed({**good, **extra})
+
+
+def test_a_profile_the_user_named_reads_custom_through_the_real_command(store, capsys):
+    """Through the producer, not a supplied dict: `tool_profile` is the user's string."""
+    (store / "config.jsonc").write_text('{"tool_profile": "C:/Users/alice/acme-secret-repo"}', encoding="utf-8")
+    with pytest.raises(SystemExit):
+        server.main(["diagnose", "--stdout"])
+    out = capsys.readouterr().out
+    assert "acme-secret-repo" not in out and "alice" not in out
+    assert json.loads(out)["surface"]["profile"] == "custom"
+
+
+def test_stdout_writes_no_file_at_all(store, capsys):
+    """The default config loader creates config.jsonc; a command documented to write nothing must not."""
+    assert list(store.iterdir()) == []
+    with pytest.raises(SystemExit):
+        server.main(["diagnose", "--stdout"])
+    assert json.loads(capsys.readouterr().out)["schema"] == diagnose.SCHEMA
+    assert list(store.iterdir()) == []
+
+
+def test_a_savings_file_that_cannot_be_read_gives_no_saved_figure(install):
+    store, _ = install
+    (store / "_savings.json").write_text("{damaged", encoding="utf-8")
+    tools = _report(install)["tools"]
+    assert tools["tokens_saved_total"] is None, "unknown is not zero"
+    assert tools["by_tool"]["search_symbols"] == {"calls": 1, "tokens_returned": 1000, "tokens_saved": None}
+    (store / "_savings.json").unlink()
+    absent = _report(install)["tools"]
+    assert absent["tokens_saved_total"] == 0 and absent["by_tool"]["search_symbols"]["tokens_saved"] == 0
+
+
+def test_saved_tokens_and_counts_each_carry_their_own_start_date(install):
+    """Savings have been recorded far longer than calls; one date over both misleads."""
+    store, _ = install
+    (store / "_savings.json").write_text(json.dumps(
+        {"total_tokens_saved": 5000000, "by_tool": {"search_symbols": 4000000}, "by_tool_since": "2026-07-01"}),
+        encoding="utf-8")
+    tools = _report(install)["tools"]
+    assert tools["saved_since"] == "2026-07-01"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", tools["counting_since"]) and tools["counting_since"] != "2026-07-01"
+    (store / "_savings.json").write_text(json.dumps({"by_tool_since": "C:/Users/alice"}), encoding="utf-8")
+    assert _report(install)["tools"]["saved_since"] is None
+
+
 def test_every_report_passes_its_own_check(install):
     diagnose.check_allowed(_report(install, include_anon_id=True))
+
+
+def test_a_source_that_grows_a_field_fails_the_build_of_the_report(install, monkeypatch):
+    """The check runs inside the build, so a block that gains a key cannot be returned."""
+    real = diagnose._versions
+    monkeypatch.setattr(diagnose, "_versions", lambda: {**real(), "hostname": "box"})
+    with pytest.raises(ValueError, match="hostname"):
+        _report(install)
 
 
 def test_the_module_can_send_nothing():
@@ -340,8 +575,10 @@ def test_the_report_is_written_to_one_local_file(install):
 
 
 def test_the_command_prints_where_the_file_is_and_stdout_writes_none(install, capsys, monkeypatch, tmp_path):
-    store, _ = install
+    store, policy = install
     monkeypatch.chdir(tmp_path)
+    # The default targets include the developer's own ~/.claude/CLAUDE.md; a test reads its own.
+    monkeypatch.setattr(diagnose, "_default_policy_paths", lambda: {"claude_md_project": policy / "CLAUDE.md"})
     with pytest.raises(SystemExit) as done:
         server.main(["diagnose"])
     assert done.value.code == 0
@@ -362,5 +599,7 @@ def test_the_command_prints_where_the_file_is_and_stdout_writes_none(install, ca
 def test_the_two_files_are_disclosed():
     text = (Path(__file__).resolve().parent.parent / "SECURITY.md").read_text(encoding="utf-8")
     para = next(p for p in text.split("\n- ") if tool_counters.FILE in p)
-    for word in ("tool_counters", "calls", "tokens returned", "Nothing is sent", "diagnose", "anon_id"):
+    for word in ("tool_counters", "calls", "tokens returned", "Nothing is sent", "diagnose", "anon_id",
+                 f"every {tool_counters._FLUSH_EVERY} calls", f"after {tool_counters._FLUSH_SECONDS:g} seconds",
+                 tool_counters.LOCK_FILE, "counted under both names"):
         assert word in para, word

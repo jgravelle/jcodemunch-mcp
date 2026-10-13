@@ -16,25 +16,44 @@ surface, profile, tool count and schema tokens; each policy target as present, c
 differing, with a digest of the installed block beside the digest of the policy this version
 installs; and per tool the calls, tokens returned and tokens saved. It sends nothing.
 
-The report is built from a fixed list of fields and checked against that list on every build,
-so a field added to one of its sources later cannot ride along: a key nobody listed raises. An
-index is a label, never its name or path. A tool name the server does not publish is added
-into `other`, because the files it reads are keyed by strings it did not choose. The
-`anon_id` is left out unless `--include-anon-id` is passed. `--stdout` prints the report and
-writes no file.
+The report is built from a fixed list of fields and of what each value may be, checked on
+every build: a key nobody listed raises, and so does a value that is not the type, pattern or
+word its key allows. Review found why the second half is needed: `surface.profile` is the
+user's own `tool_profile` string, and with keys alone checked a profile named after a path
+went into the report as written. It reads `custom` now. An index is a label, never its name
+or path. A tool name the server does not publish is added into `other`, because the files the
+report reads are keyed by strings it did not choose. The `anon_id` is left out unless
+`--include-anon-id` is passed. `--stdout` prints the report and writes no file, the config
+file included.
+
+Unknown is never zero. An index that cannot be opened is listed with its size on disk and
+`null` counts; a savings file that cannot be read gives `null` saved figures. Tokens saved
+have been recorded far longer than the two new counts, so each carries its own start date
+(`saved_since`, `counting_since`).
 
 The two counters are new background behaviour and SECURITY.md discloses them: calls and tokens
-returned per tool, in `_tool_counters.json` in the storage directory, on by default, written
-every 20 calls and at exit, sent nowhere. `tokens_returned` is the answer's bytes divided by
-4 and the file names that estimator. Only a name the server publishes is counted, so a client
-cannot write an arbitrary string into the file. A count is written to the storage directory in
-force when it was counted, not the one in force at exit. `"tool_counters": false` records
-nothing and writes no file. The savings telemetry payload is unchanged and does not read it.
+returned per tool, in `_tool_counters.json` in the storage directory, on by default, sent
+nowhere. `tokens_returned` is the answer's bytes divided by 4 and the file names that
+estimator. Only a name the server publishes is counted, so a client cannot write an arbitrary
+string into the file. A call relayed by the front door is counted under both names and its
+size under the tool that answered. A count is written to the storage directory in force when
+it was counted, not the one in force at exit. `"tool_counters": false` records nothing and
+writes no file. The savings telemetry payload is unchanged and does not read this file.
 
-What it does not do yet: `uninstall` removes neither new file. `source_bytes` is `null` for an
-index that stores no file sizes, which includes an index built by `index` on a local folder
-(LEDGER L-179); a sum over the files that have a size would read as the whole corpus. A
-companion server reads `null` unless it is installed in the same Python environment.
+Counting never waits for the disk: the dispatcher adds to a dict, and a short-lived thread
+writes the file every 20 calls, or on the first call after 30 seconds, and when the server
+stops. A write takes a lock file, goes through a temp file named for its process, and keeps
+every count it could not write. Review measured the first draft, which had none of the three:
+eight processes stopping together kept 5 of 40 counts in 12 of 12 trials, and the write cost
+about 15 ms on the event loop every twentieth call. A test now runs eight real processes that
+stop together and requires all 40.
+
+What it does not do yet: `uninstall` removes none of the new files, and old reports are not
+pruned. A server that is killed loses the counts it had not written, and a report does not
+include what a running server still holds. `source_bytes` is `null` for an index that stores
+no file sizes, which includes an index built by `index` on a local folder (LEDGER L-179); a
+sum over the files that have a size would read as the whole corpus. A companion server reads
+`null` unless it is installed in the same Python environment.
 `tests/test_diagnose_writes_only_what_is_on_its_list.py`.
 
 ## [1.108.358] - 2026-10-13 - a Python import written over several lines records its names, and the surface offer reaches the user

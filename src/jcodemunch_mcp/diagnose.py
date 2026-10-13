@@ -5,22 +5,32 @@ what the product did for them had nothing safe to send. This builds a report
 from a FIXED LIST of fields and writes it to one file in the storage
 directory. It sends nothing.
 
-⚠⚠ **An allowlist, checked on every build** (`check_allowed`). A report is
-assembled from several stores, and a field added to one of them later must not
-ride along because a dict was copied whole: every block here is built key by
-key, and a key nobody listed raises. (Standing lesson 08-28: a denylist catches
-the instance, an allowlist the class.)
+⚠⚠ **An allowlist of keys AND of what each value may be, checked on every
+build** (`check_allowed`). A report is assembled from several stores, and a
+field added to one of them later must not ride along because a dict was copied
+whole: every block is built key by key, a key nobody listed raises, and so
+does a value that is not the type, pattern or word its key allows. ⚠ The first
+draft checked keys only, and `surface.profile`, which is the user's own
+`tool_profile` string, carried a path into the report (review, 2026-10-13).
+(Standing lesson 08-28: a denylist catches the instance, an allowlist the class.)
 
 ⚠⚠ **No name and no path.** An index is `index-N`, ordered by its file name
 and never carrying it. A tool name is kept only when the caller's catalog
 holds it; any other is added into `other`, because the savings and counter
-files are keyed by strings this module did not choose.
+files are keyed by strings this module did not choose. A surface or profile
+that is not one of the shipped words reads `custom`.
 
 ⚠ `anon_id` is read only when the caller asks (`include_anon_id`). It is the
 one value here that links a report to the savings telemetry.
 
 ⚠ UNKNOWN is `None` or `"unknown"`, never `0`, `False` or `"no"`: an index
-that could not be opened is listed with its size on disk and unknown counts.
+that could not be opened is listed with its size on disk and unknown counts,
+and a savings file that could not be read gives no saved figure at all.
+
+⚠ **Two start dates.** Tokens saved have been recorded far longer than calls
+and tokens returned, so each carries its own date (`saved_since`,
+`counting_since`). One date over both would set a lifetime of savings beside
+a day of calls.
 
 ⚠ This module imports no network library and does not import `server`; the
 caller passes the surface figures in. Both are asserted by
@@ -37,76 +47,136 @@ import platform
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import Callable, Iterable, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
 SCHEMA = "jcodemunch.diagnose/v1"
 REPORT_DIR = "diagnose"
 OTHER = "other"
+CUSTOM = "custom"
+ESTIMATOR = "bytes/4"
 
 _SERVERS = ("jcodemunch-mcp", "jdocmunch-mcp", "jdatamunch-mcp")
-_SURFACE_FIELDS = ("surface", "profile", "visible_tools", "catalog_tools", "schema_tokens_visible", "estimator")
-_INDEX_FIELDS = ("label", "file_count", "symbol_count", "source_bytes", "index_bytes", "embeddings")
-_TOOL_FIELDS = ("calls", "tokens_returned", "tokens_saved")
-_POLICY_FIELDS = ("present", "state", "digest")
 POLICY_TARGETS = ("claude_md_global", "claude_md_project", "cursor_rules", "windsurf_rules", "agents_md")
-_LABEL = re.compile(r"index-[1-9][0-9]*")
+_SURFACES = ("full", "counter")
+_PROFILES = ("core", "standard", "full")
 
-# key -> the keys allowed beneath it (None: a leaf).
-_TOP = {
-    "schema": None,
-    "generated_at": None,
-    "sent_anywhere": None,
-    "versions": frozenset(_SERVERS) | {"python", "os"},
-    "surface": frozenset(_SURFACE_FIELDS),
-    "indexes": frozenset(_INDEX_FIELDS),
-    "policies": frozenset({"this_version_digest", "targets"}),
-    "tools": frozenset({"estimator", "counting_since", "tokens_saved_total", "by_tool"}),
-    "anon_id": None,
+
+def _is_count(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def _count_or_none(v: object) -> bool:
+    return v is None or _is_count(v)
+
+
+def _matches(pattern: str, *, none: bool = False) -> Callable[[object], bool]:
+    rx = re.compile(pattern)
+    return lambda v: (none and v is None) or (isinstance(v, str) and rx.fullmatch(v) is not None)
+
+
+def _one_of(*words: object) -> Callable[[object], bool]:
+    return lambda v: any(v is w or (isinstance(v, str) and v == w) for w in words)
+
+
+_DATE = r"\d{4}-\d{2}-\d{2}"
+_VERSION = _matches(r"[0-9A-Za-z][0-9A-Za-z.+!-]{0,39}", none=True)
+
+# Every field a report may carry, and what its value may be.
+_VERSIONS = {**{name: _VERSION for name in _SERVERS},
+             "python": _matches(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]{0,20}"),
+             "os": _matches(r"[A-Za-z0-9][A-Za-z0-9 ._+-]{0,59}")}
+_SURFACE = {
+    "surface": _one_of(*_SURFACES, CUSTOM, None),
+    "profile": _one_of(*_PROFILES, CUSTOM, None),
+    "visible_tools": _count_or_none,
+    "catalog_tools": _count_or_none,
+    "schema_tokens_visible": _count_or_none,
+    "estimator": _one_of(ESTIMATOR, None),
 }
+_INDEX = {
+    "label": _matches(r"index-[1-9][0-9]*"),
+    "file_count": _count_or_none,
+    "symbol_count": _count_or_none,
+    "source_bytes": _count_or_none,
+    "index_bytes": _is_count,
+    "embeddings": _one_of("yes", "no", "unknown"),
+}
+_POLICY = {
+    "present": _one_of(True, False),
+    "state": _one_of("current", "differs", None),
+    "digest": _matches(r"[0-9a-f]{12}", none=True),
+}
+_TOOL = {"calls": _is_count, "tokens_returned": _is_count, "tokens_saved": _count_or_none}
+_TOOLS = {
+    "estimator": _one_of(ESTIMATOR),
+    "counting_since": _matches(_DATE, none=True),
+    "saved_since": _matches(_DATE, none=True),
+    "tokens_saved_total": _count_or_none,
+    "by_tool": None,  # a block, checked row by row
+}
+_LEAVES = {
+    "schema": _one_of(SCHEMA),
+    "generated_at": _matches(_DATE + r"T\d{2}:\d{2}:\d{2}Z"),
+    "sent_anywhere": _one_of(False),
+    "anon_id": _matches(r"[0-9a-fA-F-]{8,64}", none=True),
+}
+_BLOCKS = ("versions", "surface", "indexes", "policies", "tools")
 
 
 def _fail(what: str) -> None:
-    raise ValueError(f"diagnose: {what} is not on the list of fields a report may carry")
+    raise ValueError(f"diagnose: {what} is not on the list of what a report may carry")
+
+
+def _check_block(where: str, block: object, spec: Mapping) -> None:
+    if not isinstance(block, Mapping):
+        _fail(f"value of {where}")
+    for key, value in block.items():
+        if key not in spec:
+            _fail(f"key {where}.{key!r}")
+        if spec[key] is not None and not spec[key](value):
+            _fail(f"value of {where}.{key}")
 
 
 def check_allowed(report: Mapping, known_tools: Optional[Iterable[str]] = None) -> None:
-    """Raise `ValueError` naming the first key or label the list does not hold."""
-    for key in report:
-        if key not in _TOP:
+    """Raise `ValueError` naming the first key, label, name or value the list does not hold."""
+    for key, value in report.items():
+        if key in _LEAVES:
+            if not _LEAVES[key](value):
+                _fail(f"value of {key}")
+        elif key not in _BLOCKS:
             _fail(f"key {key!r}")
-    for block in ("versions", "surface"):
-        for key in report.get(block) or {}:
-            if key not in _TOP[block]:
-                _fail(f"key {block}.{key!r}")
-    for row in report.get("indexes") or []:
-        for key in row:
-            if key not in _TOP["indexes"]:
-                _fail(f"key indexes[].{key!r}")
-        if not _LABEL.fullmatch(str(row.get("label"))):
-            _fail(f"index label {row.get('label')!r}")
-    policies = report.get("policies") or {}
-    for key in policies:
-        if key not in _TOP["policies"]:
-            _fail(f"key policies.{key!r}")
-    for target, row in (policies.get("targets") or {}).items():
+    if "versions" in report:
+        _check_block("versions", report["versions"], _VERSIONS)
+    if "surface" in report:
+        _check_block("surface", report["surface"], _SURFACE)
+    indexes = report.get("indexes", [])
+    if not isinstance(indexes, list):
+        _fail("value of indexes")
+    for row in indexes:
+        if isinstance(row, Mapping) and "label" in row and not _INDEX["label"](row["label"]):
+            _fail(f"index label {row['label']!r}")
+        _check_block("indexes[]", row, _INDEX)
+    policies = report.get("policies", {})
+    _check_block("policies", policies, {"this_version_digest": _matches(r"[0-9a-f]{12}"), "targets": None})
+    targets = policies.get("targets", {})
+    if not isinstance(targets, Mapping):
+        _fail("value of policies.targets")
+    for target, row in targets.items():
         if target not in POLICY_TARGETS:
             _fail(f"policy target {target!r}")
-        for key in row:
-            if key not in _POLICY_FIELDS:
-                _fail(f"key policies.targets.{target}.{key!r}")
-    tools = report.get("tools") or {}
-    for key in tools:
-        if key not in _TOP["tools"]:
-            _fail(f"key tools.{key!r}")
+        _check_block(f"policies.targets.{target}", row, _POLICY)
+    tools = report.get("tools", {})
+    _check_block("tools", tools, _TOOLS)
+    by_tool = tools.get("by_tool", {})
+    if not isinstance(by_tool, Mapping):
+        _fail("value of tools.by_tool")
     allowed_names = None if known_tools is None else set(known_tools) | {OTHER}
-    for name, row in (tools.get("by_tool") or {}).items():
-        if allowed_names is not None and name not in allowed_names:
+    for name, row in by_tool.items():
+        if not isinstance(name, str) or (allowed_names is not None and name not in allowed_names):
             _fail(f"tool name {name!r}")
-        for key in row:
-            if key not in _TOOL_FIELDS:
-                _fail(f"key tools.by_tool.{name}.{key!r}")
+        _check_block(f"tools.by_tool.{name}", row, _TOOL)
 
 
 def _storage(storage_path: Optional[str]) -> Path:
@@ -127,12 +197,31 @@ def _versions() -> dict:
     return out
 
 
+def _surface(stats: Mapping) -> dict:
+    """The six surface fields. A surface or profile word this version does not ship reads `custom`."""
+
+    def word(value: object, shipped: tuple) -> object:
+        return value if value is None or value in shipped else CUSTOM
+
+    def count(value: object) -> object:
+        return value if _is_count(value) else None
+
+    return {
+        "surface": word(stats.get("surface"), _SURFACES),
+        "profile": word(stats.get("profile"), _PROFILES),
+        "visible_tools": count(stats.get("visible_tools")),
+        "catalog_tools": count(stats.get("catalog_tools")),
+        "schema_tokens_visible": count(stats.get("schema_tokens_visible")),
+        "estimator": ESTIMATOR if stats.get("estimator") == ESTIMATOR else None,
+    }
+
+
 def _indexes(root: Path) -> list[dict]:
     from .storage.embedding_store import EmbeddingStore
     from .storage.generation import connect_readonly
     from .storage.sqlite_store import _NON_REPO_DB_FILES
 
-    rows = []
+    rows: list[dict] = []
     try:
         dbs = sorted(p for p in root.glob("*.db") if p.name not in _NON_REPO_DB_FILES)
     except OSError:
@@ -165,8 +254,10 @@ def _indexes(root: Path) -> list[dict]:
         for part in (db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")):
             try:
                 size += part.stat().st_size
+            except FileNotFoundError:
+                pass  # no sidecar: the usual case
             except OSError:
-                pass
+                logger.debug("diagnose: a part of index %d was not measured", n, exc_info=True)
         rows.append({
             "label": f"index-{n}",
             "file_count": files,
@@ -205,7 +296,10 @@ def _policies(paths: Mapping[str, Path]) -> dict:
         row = {"present": False, "state": None, "digest": None}
         try:
             text = Path(path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            text = None
         except (OSError, UnicodeDecodeError):
+            logger.debug("diagnose: policy target %s not read", target, exc_info=True)
             text = None
         block = _policy.installed_policy_block(text) if text is not None else None
         if block is not None:
@@ -215,39 +309,49 @@ def _policies(paths: Mapping[str, Path]) -> dict:
 
 
 def _count(value: object) -> int:
-    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+    return value if _is_count(value) else 0  # type: ignore[return-value]
 
 
-def _savings(root: Path) -> dict:
+def _savings(root: Path) -> Optional[dict]:
+    """The savings file: `{}` when there is none, `None` when it could not be read."""
     try:
         data = json.loads((root / "_savings.json").read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError):
+        logger.debug("diagnose: savings file not read", exc_info=True)
+        return None
+    return data if isinstance(data, dict) else None
 
 
-def _tools(root: Path, savings: dict, known: set) -> dict:
+def _date(value: object) -> Optional[str]:
+    return value if isinstance(value, str) and re.fullmatch(_DATE, value) else None
+
+
+def _tools(root: Path, savings: Optional[dict], known: set) -> dict:
     from .storage import tool_counters
 
     counters = tool_counters.read(str(root))
-    since = counters["since"]
     by_tool: dict = {}
+    # An unreadable savings file gives no saved figure, per tool or in total.
+    blank = 0 if savings is not None else None
 
     def row(name: str) -> dict:
         key = name if name in known else OTHER
-        return by_tool.setdefault(key, {"calls": 0, "tokens_returned": 0, "tokens_saved": 0})
+        return by_tool.setdefault(key, {"calls": 0, "tokens_returned": 0, "tokens_saved": blank})
 
     for name, c in counters["tools"].items():
         r = row(name)
         r["calls"] += _count(c.get("calls"))
         r["tokens_returned"] += _count(c.get("tokens_returned"))
-    saved = savings.get("by_tool")
+    saved = (savings or {}).get("by_tool")
     for name, n in (saved.items() if isinstance(saved, dict) else ()):
         row(str(name))["tokens_saved"] += _count(n)
     return {
-        "estimator": counters["estimator"],
-        "counting_since": since if isinstance(since, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", since) else None,
-        "tokens_saved_total": _count(savings.get("total_tokens_saved")),
+        "estimator": ESTIMATOR,
+        "counting_since": _date(counters["since"]),
+        "saved_since": _date((savings or {}).get("by_tool_since")),
+        "tokens_saved_total": _count(savings.get("total_tokens_saved")) if savings is not None else None,
         "by_tool": {k: by_tool[k] for k in sorted(by_tool)},
     }
 
@@ -264,19 +368,18 @@ def build_report(
     root = _storage(storage_path)
     known = set(known_tools)
     savings = _savings(root)
-    stats = surface_stats or {}
     report: dict = {
         "schema": SCHEMA,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "sent_anywhere": False,
         "versions": _versions(),
-        "surface": {k: stats.get(k) for k in _SURFACE_FIELDS},
+        "surface": _surface(surface_stats or {}),
         "indexes": _indexes(root),
         "policies": _policies(policy_paths if policy_paths is not None else _default_policy_paths()),
         "tools": _tools(root, savings, known),
     }
     if include_anon_id:
-        anon = savings.get("anon_id")
+        anon = (savings or {}).get("anon_id")
         report["anon_id"] = anon if isinstance(anon, str) and re.fullmatch(r"[0-9a-fA-F-]{8,64}", anon) else None
     check_allowed(report, known)
     return report
