@@ -2501,3 +2501,13 @@ The 1.108.352 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.352 count, verbatim:
 
 - ⚠ Prior (1.108.352): 16285 passed, 25 skipped, **0 failed** (16310 total).
+
+## Current State rotation (2026-10-13, release 1.108.356)
+
+The 1.108.353 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.353):** **A C# `new Made()` records the class it creates** (L-170): `object_creation_expression` is a C# call node. `PARSER_GENERATION` 15. ⚠ A target-typed `new()`, `: base(...)` and an attribute record nothing: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.353 count, verbatim:
+
+- ⚠ Prior (1.108.353): 16321 passed, 25 skipped, **0 failed** (16346 total).

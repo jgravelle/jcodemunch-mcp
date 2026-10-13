@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.356] - 2026-10-13 - a JavaScript method called through a string key is recorded as called
+
 ### Fixed - a JavaScript method called through a string key recorded the wrong name (LEDGER L-173)
 
 JavaScript and TypeScript reach a member by a string as well as by a dot: `t["m"]()` calls what

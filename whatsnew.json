@@ -1,6 +1,12 @@
 {
-  "current": "1.108.355",
+  "current": "1.108.356",
   "entries": [
+    {
+      "version": "1.108.356",
+      "date": "2026-10-13",
+      "title": "a JavaScript method called through a string key is recorded as called",
+      "summary": "JavaScript and TypeScript reach a member by a string as well as a dot: `t[\"m\"]()` calls what `t.m()` calls. The parser recorded the container `t` for it and nothing for the method, so a method called only that way read `no_callers` in `get_dead_code_v2`. A key that is a string holding a name is read as the name now. No function on the eight pinned repositories changes; the effect is on a method whose only call has this shape. A key that is a variable, a number or a string that is not a name still records the container; the CHANGELOG lists the limits. An existing index is re-parsed on upgrade."
+    },
     {
       "version": "1.108.355",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-12",
       "title": "a C# constructor is no longer reported as having no caller when its class is created",
       "summary": "`get_dead_code_v2` reported a C# constructor with no caller however often its class was created, because `new Made(...)` recorded no call. It records `Made` now, for plain, generic, qualified and alias-qualified classes. On RestSharp the `no_callers` rows fall from 101 to 73 in the default call, every row that left is a constructor, and no row is newly reported. A target-typed `new()`, `: base(...)` and an attribute still record nothing; the CHANGELOG lists those and the other limits. An existing index is re-parsed on upgrade."
-    },
-    {
-      "version": "1.108.352",
-      "date": "2026-10-12",
-      "title": "a function used only in a constant or a dispatch table is no longer reported as having no caller",
-      "summary": "`get_dead_code_v2` reported a function with no caller when its only use sat in a constant's initialiser, a class field or a dispatch table, because those lines were left out of the text it reads outside functions. They are read now. On this repository's own source the `no_callers` rows fall from 426 to 375, on zod from 844 to 686 and on RestSharp from 654 to 625; no row is newly reported. The read is text, not calls, so a name in a comment on such a line also counts; the CHANGELOG lists that and the other limits. `get_repo_health` reads this tool, so its dead-code share can fall."
     }
   ]
 }
