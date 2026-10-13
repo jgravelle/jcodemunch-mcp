@@ -623,7 +623,11 @@ INDEX_VERSION = 17
 #   (`settings`) records a call where the method around it has introduced no
 #   local of that name. It recorded nothing unless it was a receiver. No
 #   symbol id moves; only `call_references` changes, on UNCHANGED content.
-PARSER_GENERATION = 17
+#
+# 18 (L-173 item 7): a JavaScript or TypeScript call through a string key
+#   (`t["m"]()`) records the member. It recorded the container. No symbol id
+#   moves; only `call_references` changes, on UNCHANGED content.
+PARSER_GENERATION = 18
 
 
 @dataclass(frozen=True)

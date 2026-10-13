@@ -494,7 +494,7 @@ def _sweep_module_level_callers(
         string over several lines, an object key or keyword argument
         (``size: 3``, ``name=1``), a type annotation (``x: T | None``) and a
         modifier (``readonly``) all name a function or a class of that
-        word. Toward not reporting; LEDGER L-173.
+        word. Toward not reporting; LEDGER L-174.
         """
         if file_path in residue_text_cache:
             return residue_text_cache[file_path]

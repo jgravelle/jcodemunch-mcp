@@ -214,6 +214,25 @@ _CALL_NODES_OF_ANY_LANGUAGE = frozenset(
 #: A callee nests one level per `.`, `::`, `<>` or `()`; past this it has no name.
 _CALLEE_MAX_DEPTH = 64
 
+#: JavaScript and TypeScript reach a member by a string too: `t["m"]()` calls
+#: what `t.m()` calls. The key is a `string`, or a `template_string` with no
+#: substitution, with one part that reads as a name (LEDGER L-173 item 7).
+#: ⚠ The key is read from the `index` FIELD, which only these three grammars
+#: give a subscript. PHP has a `subscript_expression` too, with no field, and
+#: there a string key reaches an element of an array, not a member.
+_JS_KEYED_MEMBER = "subscript_expression"
+_JS_STRING_KEYS = frozenset({"string", "template_string"})
+_JS_NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*\Z")
+
+
+def _js_string_key_name(node) -> Optional[str]:
+    """The member a subscript reaches when its key is a string holding a name, or None."""
+    key = node.child_by_field_name("index")
+    if key is None or key.type not in _JS_STRING_KEYS or key.named_child_count != 1:
+        return None
+    text = key.named_children[0].text.decode("utf-8", errors="replace")
+    return text if _JS_NAME.match(text) else None
+
 
 def _callee_first_named(node):
     for child in node.children:
@@ -255,6 +274,8 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
       ``a?.M()``, ``this.m()``) -> the member
     - a generic, parenthesised or chained callee -> the name underneath
     - an element of a container (``fs[0]()``) -> the container
+    - a JavaScript member reached by a string that holds a name (``t["m"]()``)
+      -> the member
     - a function literal called in place, or a callee of a type not named in
       the tables above -> None
 
@@ -284,6 +305,10 @@ def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
                 member = current.child_by_field_name(_CALLEE_CONDITION_FIELD)
             current = member
         elif kind in _CALLEE_WRAPPER_FIELD:
+            if kind == _JS_KEYED_MEMBER:
+                keyed = _js_string_key_name(current)
+                if keyed is not None:
+                    return keyed
             field = _CALLEE_WRAPPER_FIELD[kind]
             inner = current.child_by_field_name(field) if field else None
             current = inner if inner is not None else _callee_first_named(current)
