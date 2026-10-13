@@ -618,7 +618,12 @@ INDEX_VERSION = 17
 #   (`Generic[int](1)`, `fs[i](1)`) records what it calls. It recorded
 #   nothing. No symbol id moves; only `call_references` changes, on UNCHANGED
 #   content.
-PARSER_GENERATION = 16
+#
+# 17 (L-172): a Ruby method called with no receiver and no arguments
+#   (`settings`) records a call where the method around it has introduced no
+#   local of that name. It recorded nothing unless it was a receiver. No
+#   symbol id moves; only `call_references` changes, on UNCHANGED content.
+PARSER_GENERATION = 17
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+### Fixed - a Ruby method called by its bare name recorded no call (LEDGER L-172)
+
+Ruby writes a call of a method with no receiver and no arguments as a bare name: `settings`.
+The grammar gives that the `identifier` node of a local variable, and the parser read only
+`call` nodes, so the commonest way one Ruby method calls another recorded nothing unless the
+name happened to be a receiver (`settings.environment`). A helper called only by its bare name
+read `no_callers` in `get_dead_code_v2`: live code reported dead. Found fixing L-159.
+
+Ruby itself settles what a bare name is by what the method has done so far: it is a local
+variable once a parameter, an assignment, a block parameter, a pattern capture or
+`rescue => e` has introduced it, and a method call otherwise. The parser now reads each method
+that way (`_record_bare_ruby_calls`), from the method node down, once, in source order, so
+`y = x; x = 2` reads the first `x` as a call. A nested `def` is a scope of its own. A setter's
+own name (`def host=(v)`) is not a call of the reader.
+
+Measured on sinatra at a pinned commit, read and parsed only
+(`evidence/measure_dead_l172.txt`): in the default call 176 methods carried `no_callers`
+before and 152 after; with `include_tests=True`, 326 and 294. No row is newly reported.
+`evidence/cleared_sinatra_l172.txt` names, for each of the 32 rows that left, a method that
+gained the name; none left another way. Parsing eight pinned clones with both trees, 1,959
+files (`evidence/refs_l172.txt`), only Ruby changes: 205 symbols gain 239 names, none is
+removed, and no symbol id moves.
+
+What it does not do:
+
+- **Code outside every method is not read.** A bare call in a class body, in a top-level
+  block or in a `define_method` block belongs to no method symbol, as before. Sinatra's own
+  route blocks are that.
+- **The match is by name within Ruby**, as for every Ruby call since L-165: a bare `params` or
+  `request` that is a library's method also counts for a project method of that name. Toward
+  not reporting.
+- **A local it cannot see is read as a call**: one made by a regular expression's named
+  capture (`/(?<year>\d+)/ =~ s`), by `binding.local_variable_set` or by `eval`. Toward not
+  reporting.
+- **A block parameter stays a local to the end of its method**, where Ruby ends it with its
+  block. Toward reporting.
+- **A receiver is still recorded whether or not it is a local** (`items.each` records `items`
+  when `items` is a parameter): the L-159 rule, unchanged.
+- **A method's bare calls are listed before its other calls.** On sinatra 17 methods hold the
+  names they already had in a new order.
+- **`initialize` is still never called by that word** (`T.new` records `new`).
+
+`PARSER_GENERATION` is 17, so an existing index is re-parsed: the fix changes what unchanged
+Ruby files record. `get_repo_health` reads the dead-code tool, so its dead-code share can fall
+for a Ruby repository. The rest is LEDGER L-173. Twenty-five mutants each fail the tests
+(`evidence/mutants.txt`).
+
 ## [1.108.354] - 2026-10-13 - a Go generic function called with one argument is recorded as called
 
 ### Fixed - a Go generic function called with one argument recorded no call (LEDGER L-171)
