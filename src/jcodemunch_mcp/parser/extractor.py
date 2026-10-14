@@ -11710,7 +11710,7 @@ _SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*|\[")
 # T-SQL bracket identifier, `]]` escaping `]`. One line only: with no closer
 # on the line no later `[` on it has one either, so an unmatched `[` cannot
 # swallow the file.
-_SQL_BRACKET_IDENT_RE = re.compile(rb"\[(?:[^\]\r\n]|\]\])*\]")
+_SQL_MASK_BRACKET_RE = re.compile(rb"\[(?:[^\]\r\n]|\]\])*\]")
 _SQL_STRING_LITERAL_RE = re.compile(rb"'[^']*(?:''[^']*)*'?")
 _SQL_NOT_NEWLINE_RE = re.compile(rb"[^\n]")
 
@@ -11735,7 +11735,7 @@ def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
             close = src.find(b"*/", start + 2)
             end = n if close < 0 else close + 2
         elif kind == b"[":
-            ident = _SQL_BRACKET_IDENT_RE.match(src, start)
+            ident = _SQL_MASK_BRACKET_RE.match(src, start)
             if ident is None:
                 newline = src.find(b"\n", start)
                 i = n if newline < 0 else newline
