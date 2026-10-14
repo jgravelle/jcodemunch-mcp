@@ -375,7 +375,9 @@ GITHUB_TOKEN="" gh pr list --state open --json number,author,mergeable,mergeStat
   --jq '.[] | select(.author.login != "jgravelle") | "#\(.number) \(.author.login) \(.mergeable) \(.mergeStateStatus)"'
 ```
 
-Any row reading `MERGEABLE CLEAN` goes in before ours. The reason is mechanical:
+Any row reading `MERGEABLE CLEAN` goes in before ours, unless our latest review
+requests changes on its current head (C-25; the pre-flight names it and lets the
+release through, and the contributor's next push puts it back in line). The reason is mechanical:
 our `[Unreleased]` edits land in the same block a contributor's entry occupies,
 so each of our merges conflicts their branch, and **a conflicting fork PR has no
 `refs/pull/N/merge` and therefore gets NO CI AT ALL** — their branch goes dark

@@ -34,7 +34,8 @@ to whoever owns that login.
    ```
 
    The workflow: pre-flight on `main`'s HEAD (required checks green, pins,
-   changelog, tag absent, PyPI absent, no MERGEABLE CLEAN contributor PR),
+   changelog, tag absent, PyPI absent, no MERGEABLE CLEAN contributor PR
+   unless our latest review requests changes on its current head, C-25),
    build once, Test PyPI, clean-venv smoke on ubuntu and windows, tag, PyPI,
    post-publish smoke from PyPI with the tool count recomputed, GitHub
    release from the CHANGELOG block, MCP registry.
