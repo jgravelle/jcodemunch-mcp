@@ -166,3 +166,93 @@ def test_only_a_mergeable_clean_contributor_pr_blocks():
         },
     ]
     assert pf.mergeable_contributor_prs(prs) == ["#1 someone"]
+
+
+# ---- policy 3b: a PR the maintainer has asked to change does not hold a release
+#
+# The gate refused every release while a contributor PR read MERGEABLE CLEAN, and
+# CLEAN says nothing about review: a PR with a real defect and a posted
+# changes-requested review held our release until the contributor revised it,
+# the coupling policy 2e forbids. The hold is lifted only while the maintainer's
+# LATEST review requests changes ON THE CURRENT HEAD; a new push puts the PR back
+# in line, because then it may be ready.
+
+HEAD = "a" * 40
+
+
+def _review(state, commit=HEAD, login=None, at="2026-10-14T20:00:00Z"):
+    return {"user": {"login": login or pf.OWNER}, "state": state, "commit_id": commit, "submitted_at": at}
+
+
+def test_changes_requested_on_the_head_releases_the_hold():
+    assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED")], HEAD) is True
+
+
+def test_a_push_after_the_review_puts_the_pr_back_in_line():
+    assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED", commit="b" * 40)], HEAD) is False
+
+
+def test_a_later_approval_or_dismissal_ends_the_request():
+    for later in ("APPROVED", "DISMISSED"):
+        reviews = [_review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"), _review(later, at="2026-10-14T21:00:00Z")]
+        assert pf.changes_requested_on_head(reviews, HEAD) is False, later
+
+
+def test_a_later_comment_does_not_end_the_request():
+    reviews = [_review("CHANGES_REQUESTED", at="2026-10-14T20:00:00Z"), _review("COMMENTED", at="2026-10-14T21:00:00Z")]
+    assert pf.changes_requested_on_head(reviews, HEAD) is True
+
+
+def test_only_the_maintainer_can_lift_the_hold():
+    assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED", login="someone-else")], HEAD) is False
+
+
+def test_no_reviews_holds_as_before():
+    assert pf.changes_requested_on_head([], HEAD) is False
+
+
+def test_check_prs_names_a_held_pr_and_passes(monkeypatch):
+    prs = [{"number": 1080, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    calls = []
+
+    def fake_run(cmd, gh=False):
+        calls.append(cmd)
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return 0, json.dumps(prs)
+        return 0, json.dumps([_review("CHANGES_REQUESTED")])
+
+    monkeypatch.setattr(pf, "_run", fake_run)
+    ok, msg = pf.check_prs()
+    assert ok is True, msg
+    assert "#1080" in msg and "changes requested" in msg
+    assert any("pulls/1080/reviews" in " ".join(c) for c in calls)
+
+
+def test_check_prs_still_refuses_a_ready_pr(monkeypatch):
+    prs = [{"number": 1081, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+
+    def fake_run(cmd, gh=False):
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return 0, json.dumps(prs)
+        return 0, json.dumps([])
+
+    monkeypatch.setattr(pf, "_run", fake_run)
+    ok, msg = pf.check_prs()
+    assert ok is False and "#1081" in msg
+
+
+def test_unreadable_reviews_hold_the_release(monkeypatch):
+    """Could not ask is not 'changes requested': the PR keeps holding."""
+    prs = [{"number": 1082, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+
+    def fake_run(cmd, gh=False):
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return 0, json.dumps(prs)
+        return 1, "HTTP 502"
+
+    monkeypatch.setattr(pf, "_run", fake_run)
+    ok, msg = pf.check_prs()
+    assert ok is False and "#1082" in msg

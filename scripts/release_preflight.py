@@ -161,6 +161,30 @@ def mergeable_contributor_prs(prs: list[dict]) -> list[str]:
     ]
 
 
+def changes_requested_on_head(reviews: list[dict], head_sha: str) -> bool:
+    """True when the maintainer's latest deciding review asks for changes on ``head_sha``.
+
+    CLEAN says nothing about review, so a PR with a posted changes-requested
+    review held every release until its author revised it: the coupling policy
+    2e forbids. Only the maintainer's request lifts the hold, only a deciding
+    review (a comment decides nothing) counts, and only on the current head: a
+    new push may be the revision, so it puts the PR back in line.
+    """
+    deciding = sorted(
+        (
+            r
+            for r in reviews
+            if (r.get("user") or {}).get("login") == OWNER
+            and r.get("state") in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED")
+        ),
+        key=lambda r: r.get("submitted_at") or "",
+    )
+    if not deciding:
+        return False
+    latest = deciding[-1]
+    return latest.get("state") == "CHANGES_REQUESTED" and latest.get("commit_id") == head_sha
+
+
 # ------------------------------------------------------------------ live runs
 
 
@@ -302,20 +326,35 @@ def check_prs() -> tuple[bool, str]:
             "--state",
             "open",
             "--json",
-            "number,author,mergeable,mergeStateStatus",
+            "number,author,mergeable,mergeStateStatus,headRefOid",
         ],
         gh=True,
     )
     if rc != 0:
         return False, "gh pr list failed: " + out.strip()[-200:]
-    ready = mergeable_contributor_prs(json.loads(out))
+    prs = json.loads(out)
+    heads = {f"#{p['number']} {p['author']['login']}": (p["number"], p.get("headRefOid", "")) for p in prs}
+    ready, held = [], []
+    for label in mergeable_contributor_prs(prs):
+        number, head = heads[label]
+        rc, body = _run(
+            ["gh", "api", f"repos/{OWNER}/jcodemunch-mcp/pulls/{number}/reviews?per_page=100"],
+            gh=True,
+        )
+        # Could not read the reviews: the PR keeps holding, as it did before.
+        if rc == 0 and changes_requested_on_head(json.loads(body), head):
+            held.append(label)
+        else:
+            ready.append(label)
+    note = f" ({', '.join(held)}: changes requested on the current head)" if held else ""
     if ready:
         return (
             False,
             "contributor PR(s) MERGEABLE CLEAN merge first (policy 3b): "
-            + ", ".join(ready),
+            + ", ".join(ready)
+            + note,
         )
-    return True, "no contributor PR is waiting to merge first"
+    return True, "no contributor PR is waiting to merge first" + note
 
 
 def check_lint() -> tuple[bool, str]:
