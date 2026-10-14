@@ -330,12 +330,12 @@ _MCP_TOOL_PREFIX = "mcp__jcodemunch__"
 
 # Named in the order an agent should reach for them, most-used first.
 _INSTRUCTION_TOOLS_FULL: tuple = (
-    ("resolve_repo", "is this repo indexed? Call it first."),
-    ("get_ranked_context", '"how does X work" in ONE budgeted call, not chained hops.'),
+    ("resolve_repo", "is it indexed? Once, before the first index call."),
+    ("get_ranked_context", '"how does X work" in one budgeted call.'),
     ("search_symbols", "a symbol by name; search_text for strings and config."),
-    ("get_file_outline", "before opening any file."),
+    ("get_file_outline", "a file's shape without reading it."),
     ("get_symbol_source", "one id, or an array to batch."),
-    ("find_references", "who imports a name; check_references for where it is used."),
+    ("find_references", "who imports a name; check_references: where it is used."),
 )
 
 _INSTRUCTION_TOOLS_COUNTER: tuple = (
@@ -361,24 +361,32 @@ def _mcp_instructions(surface: "Optional[str]" = None, prefix: str = _MCP_TOOL_P
     """The `instructions` string for the initialize response, surface-aware."""
     surface = surface or _effective_surface()
     rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
+    # (2026-10-14, owner's ruling) The opening said "Prefer it/them over
+    # Read/Grep/Glob/Bash" and the first row "Call it first", after the policy
+    # (1.108.357) had stopped saying either: on a small repository that steering
+    # costs turns, and agents quoted this string as their reason. It now says
+    # what the policy says, so the two cannot point opposite ways.
     if surface == "counter":
         opening = (
             "This repo can be indexed by jcodemunch. Its whole tool catalog sits "
-            "behind a 3-verb front door. Prefer it over Read/Grep/Glob/Bash for "
-            "code navigation."
+            "behind a 3-verb front door."
         )
     else:
         opening = (
-            "This repo can be indexed by jcodemunch: a prebuilt index of every "
-            "symbol, its file:line span, and who references what. Prefer them "
-            "over Read/Grep/Glob/Bash: one call usually replaces several reads."
+            "This repo can be indexed by jcodemunch: every symbol, its file:line "
+            "span and who references what."
         )
+    routes = (
+        "Use it for who uses a symbol, what a change breaks, call graphs, a large "
+        "repo or an open question. On a small repository, a known name or a file "
+        "you are editing, built-in Grep and Read are often as cheap."
+    )
     lines = [
         opening,
+        routes,
         "",
-        "**If these tools are deferred (names shown, schemas withheld), load them "
-        'in ONE lookup:** ToolSearch "%s". One round trip for the session, '
-        "never one at a time." % _tool_search_query(surface, prefix),
+        "**Tools deferred? Load all in ONE lookup:** ToolSearch "
+        '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
         "",
     ]
     lines += ["- %s: %s" % (name, why) for name, why in rows]
