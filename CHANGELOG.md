@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed - a .NET symbol's summary is its sentence, not the literal `<summary>` tag
+### Fixed - a .NET symbol's summary is its sentence, not the literal `<summary>` tag (#1075, @outoftheblue9)
 
 `extract_summary_from_docstring` took the first line of a docstring as its
 first sentence, which is true for Python, JSDoc, Go and Rust and false for
