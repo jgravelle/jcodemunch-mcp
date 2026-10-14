@@ -26,7 +26,8 @@ Checks
   tag           `v<version>` exists neither locally nor on origin
   pypi          the version is not already on PyPI (network; --offline skips)
   prs           no open contributor PR is MERGEABLE + CLEAN (policy 3b: those
-                merge BEFORE our release commit)
+                merge BEFORE our release commit), unless the maintainer's latest
+                review requests changes on its current head (C-25: named, not held)
   lint          `ruff check src/` clean (CI runs it; a local pytest does not)
   harness       `python -m harness fast` PASS (--no-harness skips; ~50 s)
 
@@ -159,6 +160,33 @@ def mergeable_contributor_prs(prs: list[dict]) -> list[str]:
         and p.get("mergeable") == "MERGEABLE"
         and p.get("mergeStateStatus") == "CLEAN"
     ]
+
+
+def changes_requested_on_head(reviews: list[dict], head_sha: str) -> bool:
+    """True when the maintainer's latest deciding review asks for changes on ``head_sha``.
+
+    CLEAN says nothing about review, so a PR with a posted changes-requested
+    review held every release until its author revised it: the coupling policy
+    2e forbids. Only the maintainer's request lifts the hold, only a deciding
+    review (a comment decides nothing) counts, and only on the current head: a
+    new push may be the revision, so it puts the PR back in line.
+    """
+    deciding = sorted(
+        (
+            r
+            for r in reviews
+            if (r.get("user") or {}).get("login") == OWNER
+            and r.get("state") in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED")
+        ),
+        key=lambda r: r.get("submitted_at") or "",
+    )
+    if not deciding:
+        return False
+    latest = deciding[-1]
+    return (
+        latest.get("state") == "CHANGES_REQUESTED"
+        and latest.get("commit_id") == head_sha
+    )
 
 
 # ------------------------------------------------------------------ live runs
@@ -302,20 +330,57 @@ def check_prs() -> tuple[bool, str]:
             "--state",
             "open",
             "--json",
-            "number,author,mergeable,mergeStateStatus",
+            "number,author,mergeable,mergeStateStatus,headRefOid",
         ],
         gh=True,
     )
     if rc != 0:
         return False, "gh pr list failed: " + out.strip()[-200:]
-    ready = mergeable_contributor_prs(json.loads(out))
+    prs = json.loads(out)
+    heads = {
+        f"#{p['number']} {p['author']['login']}": (p["number"], p.get("headRefOid", ""))
+        for p in prs
+    }
+    ready, held = [], []
+    for label in mergeable_contributor_prs(prs):
+        number, head = heads[label]
+        # Every page, one review per line: GitHub lists reviews oldest first, so a
+        # truncated read would miss the newest decision.
+        rc, body = _run(
+            [
+                "gh",
+                "api",
+                f"repos/{SLUG}/pulls/{number}/reviews?per_page=100",
+                "--paginate",
+                "--jq",
+                ".[]",
+            ],
+            gh=True,
+        )
+        try:
+            reviews = (
+                [json.loads(line) for line in body.splitlines() if line.strip()]
+                if rc == 0
+                else None
+            )
+        except ValueError:
+            reviews = None
+        # Could not read the reviews: the PR keeps holding, as it did before.
+        if reviews is not None and changes_requested_on_head(reviews, head):
+            held.append(label)
+        else:
+            ready.append(label)
+    note = (
+        f" ({', '.join(held)}: changes requested on the current head)" if held else ""
+    )
     if ready:
         return (
             False,
             "contributor PR(s) MERGEABLE CLEAN merge first (policy 3b): "
-            + ", ".join(ready),
+            + ", ".join(ready)
+            + note,
         )
-    return True, "no contributor PR is waiting to merge first"
+    return True, "no contributor PR is waiting to merge first" + note
 
 
 def check_lint() -> tuple[bool, str]:

@@ -20,7 +20,8 @@ produces: the derivation and reconciliation in .claude/state/runs/release-<UTC>/
 refuses:  pre-flight not PASS; tag and pyproject disagree (a bump already
           pending); empty or unmatched [Unreleased]; any recomputed figure
           disagreeing with README or CLAUDE.md; a MERGEABLE CLEAN contributor
-          PR open (policy 3b); CLAUDE.md over budget after the rotation
+          PR open (policy 3b) that we have not asked to change on its
+          current head (C-25); CLAUDE.md over budget after the rotation
 never:    merge, tag, dispatch release.yml, upload, publish, comment
 -->
 

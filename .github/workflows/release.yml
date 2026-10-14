@@ -47,6 +47,10 @@ jobs:
     name: "release: pre-flight"
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Read-only: the policy-3b check reads open PRs and their reviews (C-25).
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       version: ${{ steps.v.outputs.version }}
       sha: ${{ steps.v.outputs.sha }}
