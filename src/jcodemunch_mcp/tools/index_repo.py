@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from ..parser import get_language_for_path
 from ..security import is_secret_file, is_binary_extension, get_max_index_files, get_max_file_size, get_extra_ignore_patterns, get_skip_patterns
+from ..security import generated_migrations_prefixes, get_skip_generated_migrations
 from ..storage import IndexStore
 from ..storage.index_store import PARSER_GENERATION
 from ._indexing_pipeline import (
@@ -240,6 +241,13 @@ def discover_source_files(
     files = []
     blob_shas: dict[str, str] = {}
 
+    # The local walk lists a `migrations` directory to see what it holds; the
+    # tree listing already names every entry, so ask it the same question.
+    migration_prefixes = (
+        generated_migrations_prefixes(e.get("path", "") for e in tree_entries)
+        if get_skip_generated_migrations() else set()
+    )
+
     for entry in tree_entries:
         # Type filter - only blobs (files)
         if entry.get("type") != "blob":
@@ -255,6 +263,10 @@ def discover_source_files(
 
         # Skip list
         if should_skip_file(path):
+            continue
+        if migration_prefixes and any(
+            path.startswith(p) for p in migration_prefixes
+        ):
             continue
 
         # Secret detection
