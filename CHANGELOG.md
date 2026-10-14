@@ -31,6 +31,9 @@ block differs and the command that rewrites it can't disagree about where it
 ends. That function now ends the block at any heading level, not only `## `,
 and starts it only at a heading line, so `config --check` no longer reads a
 user's `#` or `###` section, or a sentence naming the policy, as part of it. A
+`#` line inside a fenced code block is not a heading. `init` asks the same rule
+before appending, so a CLAUDE.md that only mentions the policy by name now gets
+it installed instead of being reported as already holding it. A
 block you edited on purpose can't be told from an old one, which is why the
 diff comes first.
 

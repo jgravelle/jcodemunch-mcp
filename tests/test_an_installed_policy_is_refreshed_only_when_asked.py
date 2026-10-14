@@ -253,13 +253,31 @@ def test_a_users_own_section_after_the_block_is_not_part_of_it(home, monkeypatch
 
 @pytest.mark.parametrize("heading", ["# Deploying", "### Deploying", "#### Deploying"])
 def test_a_users_section_under_any_heading_level_is_kept(home, monkeypatch, heading):
-    """Every policy text ever shipped uses only `## ` headings; any other heading is the user's (review, 2026-10-14)."""
+    """The policy at every release tag uses only `## ` headings; any other heading is the user's (review, 2026-10-14)."""
     h, _, _ = home
     path = _global(h)
     tail = f"\n{heading}\n\nKeep me.\n"
     _write(path, OLD_BLOCK + tail)
     _refresh(monkeypatch, "--yes")
     assert path.read_text(encoding="utf-8").endswith(tail)
+
+
+def test_a_heading_inside_a_code_fence_does_not_end_the_block():
+    """A `# comment` in a fenced shell snippet is not a heading; ending there would split the fence."""
+    fence = "`" * 3
+    lines = (OLD_BLOCK + f"{fence}bash\n# a comment\necho hi\n{fence}\n\n# Mine\n").splitlines()
+    assert policy.policy_block_span(lines) == (0, lines.index("# Mine"))
+
+
+def test_init_and_the_refresh_agree_that_a_sentence_is_not_a_block(home):
+    """`init` asks the same boundary rule, so it installs a policy beside a sentence that names one."""
+    h, _, _ = home
+    path = _global(h)
+    _write(path, "See the ## Code Exploration Policy section.\n")
+    from jcodemunch_mcp.cli import init
+
+    assert "would append" in init.install_claude_md("global", dry_run=True)
+    assert policy.installed_policy_drift(path.read_text(encoding="utf-8")) is None
 
 
 def test_a_sentence_naming_the_policy_is_not_the_block(home, monkeypatch):

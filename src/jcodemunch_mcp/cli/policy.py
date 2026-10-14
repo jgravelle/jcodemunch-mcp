@@ -305,10 +305,11 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
     It starts at the first HEADING line carrying the marker, so a sentence that
     mentions the policy by name is not mistaken for it. It runs to the first
     Markdown heading of any level that is not one of the policy's own ``## ``
-    sections, or to the end of the file. Every policy text ever shipped uses
-    only ``## `` headings, so a user's own ``#`` or ``###`` section after the
-    block ends it too (review, 2026-10-14: the refresh would otherwise have
-    deleted it).
+    sections, or to the end of the file. The policy text at every release tag
+    uses only ``## `` headings and holds no code fence (read from all 686 tags
+    on 2026-10-14), so a user's own ``#`` or ``###`` section after the block
+    ends it too (review, 2026-10-14: the refresh would otherwise have deleted
+    it). A ``#`` line inside a fenced code block is not a heading.
     """
     start = next(
         (i for i, ln in enumerate(lines) if ln.lstrip().startswith("#") and POLICY_MARKER in ln),
@@ -318,9 +319,13 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
         return None
     own = _policy_headings()
     end = len(lines)
+    in_fence = False
     for i in range(start + 1, len(lines)):
         stripped = lines[i].strip()
-        if _HEADING_RE.match(stripped) and stripped not in own:
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and _HEADING_RE.match(stripped) and stripped not in own:
             end = i
             break
     return start, end

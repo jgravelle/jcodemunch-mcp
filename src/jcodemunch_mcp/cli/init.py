@@ -554,10 +554,17 @@ def _claude_md_path(scope: str) -> Path:
 
 
 def _has_policy(path: Path) -> bool:
-    """Check if the Code Exploration Policy marker already exists."""
+    """Does *path* hold the Code Exploration Policy block?
+
+    Asks the one boundary rule (`policy.policy_block_span`), so `init`, the
+    drift check and `claude-md --refresh` agree: a sentence that names the
+    policy is not a block, and `init` installs one beside it.
+    """
     if not path.exists():
         return False
-    return _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8")
+    from .policy import installed_policy_block
+
+    return installed_policy_block(path.read_text(encoding="utf-8")) is not None
 
 
 def with_scoped_config(fn):
