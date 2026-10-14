@@ -184,6 +184,14 @@ def _review(state, commit=HEAD, login=None, at="2026-10-14T20:00:00Z"):
     return {"user": {"login": login or pf.OWNER}, "state": state, "commit_id": commit, "submitted_at": at}
 
 
+def _lines(reviews):
+    """What `gh api --paginate --jq '.[]'` prints: one review per line, every page."""
+    return NL.join(json.dumps(r) for r in reviews)
+
+
+NL = chr(10)
+
+
 def test_changes_requested_on_the_head_releases_the_hold():
     assert pf.changes_requested_on_head([_review("CHANGES_REQUESTED")], HEAD) is True
 
@@ -220,13 +228,15 @@ def test_check_prs_names_a_held_pr_and_passes(monkeypatch):
         calls.append(cmd)
         if cmd[:3] == ["gh", "pr", "list"]:
             return 0, json.dumps(prs)
-        return 0, json.dumps([_review("CHANGES_REQUESTED")])
+        return 0, _lines([_review("CHANGES_REQUESTED")])
 
     monkeypatch.setattr(pf, "_run", fake_run)
     ok, msg = pf.check_prs()
     assert ok is True, msg
     assert "#1080" in msg and "changes requested" in msg
-    assert any("pulls/1080/reviews" in " ".join(c) for c in calls)
+    review_call = next(c for c in calls if any("pulls/1080/reviews" in part for part in c))
+    assert f"repos/{pf.SLUG}/pulls/1080/reviews" in review_call[2]
+    assert "--paginate" in review_call, "a PR with over 100 reviews would lose its newest decision"
 
 
 def test_check_prs_still_refuses_a_ready_pr(monkeypatch):
@@ -236,7 +246,7 @@ def test_check_prs_still_refuses_a_ready_pr(monkeypatch):
     def fake_run(cmd, gh=False):
         if cmd[:3] == ["gh", "pr", "list"]:
             return 0, json.dumps(prs)
-        return 0, json.dumps([])
+        return 0, _lines([])
 
     monkeypatch.setattr(pf, "_run", fake_run)
     ok, msg = pf.check_prs()
@@ -256,3 +266,40 @@ def test_unreadable_reviews_hold_the_release(monkeypatch):
     monkeypatch.setattr(pf, "_run", fake_run)
     ok, msg = pf.check_prs()
     assert ok is False and "#1082" in msg
+
+
+def test_a_dismissal_rewrites_the_review_in_place():
+    """GitHub keeps a dismissed review's commit and time and changes its state."""
+    assert pf.changes_requested_on_head([_review("DISMISSED")], HEAD) is False
+
+
+def test_the_newest_decision_on_a_later_page_wins(monkeypatch):
+    """Reviews arrive oldest first across pages; an approval on page two ends the request."""
+    prs = [{"number": 1083, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+    page_one = [_review("COMMENTED", at=f"2026-10-14T10:{i:02d}:00Z") for i in range(59)]
+    page_one.append(_review("CHANGES_REQUESTED", at="2026-10-14T11:00:00Z"))
+    page_two = [_review("APPROVED", at="2026-10-14T12:00:00Z")]
+
+    def fake_run(cmd, gh=False):
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return 0, json.dumps(prs)
+        return 0, _lines(page_one) + NL + _lines(page_two)
+
+    monkeypatch.setattr(pf, "_run", fake_run)
+    ok, msg = pf.check_prs()
+    assert ok is False and "#1083" in msg
+
+
+def test_a_malformed_reviews_body_holds_the_release(monkeypatch):
+    prs = [{"number": 1084, "author": {"login": "someone"}, "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD}]
+
+    def fake_run(cmd, gh=False):
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return 0, json.dumps(prs)
+        return 0, "<html>rate limited</html>"
+
+    monkeypatch.setattr(pf, "_run", fake_run)
+    ok, msg = pf.check_prs()
+    assert ok is False and "#1084" in msg

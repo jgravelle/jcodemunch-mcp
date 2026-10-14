@@ -26,7 +26,8 @@ Checks
   tag           `v<version>` exists neither locally nor on origin
   pypi          the version is not already on PyPI (network; --offline skips)
   prs           no open contributor PR is MERGEABLE + CLEAN (policy 3b: those
-                merge BEFORE our release commit)
+                merge BEFORE our release commit), unless the maintainer's latest
+                review requests changes on its current head (C-25: named, not held)
   lint          `ruff check src/` clean (CI runs it; a local pytest does not)
   harness       `python -m harness fast` PASS (--no-harness skips; ~50 s)
 
@@ -337,12 +338,18 @@ def check_prs() -> tuple[bool, str]:
     ready, held = [], []
     for label in mergeable_contributor_prs(prs):
         number, head = heads[label]
+        # Every page, one review per line: GitHub lists reviews oldest first, so a
+        # truncated read would miss the newest decision.
         rc, body = _run(
-            ["gh", "api", f"repos/{OWNER}/jcodemunch-mcp/pulls/{number}/reviews?per_page=100"],
+            ["gh", "api", f"repos/{SLUG}/pulls/{number}/reviews?per_page=100", "--paginate", "--jq", ".[]"],
             gh=True,
         )
+        try:
+            reviews = [json.loads(line) for line in body.splitlines() if line.strip()] if rc == 0 else None
+        except ValueError:
+            reviews = None
         # Could not read the reviews: the PR keeps holding, as it did before.
-        if rc == 0 and changes_requested_on_head(json.loads(body), head):
+        if reviews is not None and changes_requested_on_head(reviews, head):
             held.append(label)
         else:
             ready.append(label)
