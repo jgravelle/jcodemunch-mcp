@@ -33,6 +33,11 @@ def _surfaces() -> dict[str, str]:
         "skill": skills._build_skill_content(),
         "guide snippet": server._generate_claude_md_snippet(),
         "workflow prompt": server._WORKFLOW_PROMPT_TEXT,
+        # (2026-10-14, owner's ruling) The MCP `instructions` string reaches every
+        # session in every client, whatever policy is installed, and survives tool
+        # deferral, so its "Prefer them over Read/Grep" outlived the policy's rewording.
+        "full instructions": server._mcp_instructions("full"),
+        "front-door instructions": server._mcp_instructions("counter"),
     }
 
 
@@ -49,6 +54,8 @@ FORBIDDEN = {
     "a call demanded before any file is opened": re.compile(r"before opening any file", re.I),
     "an order to always pass a model id": re.compile(r"always include", re.I),
     "a blanket instead-of": re.compile(r"instead of (raw )?(Grep|Read|built-in)|for all code navigation", re.I),
+    "a blanket preference over the built-in tools": re.compile(r"\bPrefer (it|them|jcodemunch) over (Read|Grep)", re.I),
+    "a call demanded first": re.compile(r"\bCall it first\b", re.I),
     "a versioned model id": re.compile(r"\b(claude-(opus|sonnet|haiku)-\d|gpt-\d|gemini-\d)", re.I),
 }
 
@@ -67,7 +74,17 @@ def test_every_surface_names_the_built_in_tools_as_a_route(surface):
 
 
 @pytest.mark.parametrize(
-    "surface", ["full policy", "front-door policy", "skill", "windsurf rules", "cursor rules", "workflow prompt"]
+    "surface",
+    [
+        "full policy",
+        "front-door policy",
+        "skill",
+        "windsurf rules",
+        "cursor rules",
+        "workflow prompt",
+        "full instructions",
+        "front-door instructions",
+    ],
 )
 def test_the_policy_says_a_small_repository_favours_the_built_in_tools(surface):
     text = _surfaces()[surface]
