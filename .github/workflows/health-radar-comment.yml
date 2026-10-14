@@ -18,6 +18,10 @@ permissions:
   contents: read
   actions: read
 
+env:
+  # A runner is not a user: its tool calls must not be reported to the public savings total (cicd C-23).
+  JCODEMUNCH_SHARE_SAVINGS: "0"
+
 jobs:
   comment:
     name: Post health radar comment (informational)

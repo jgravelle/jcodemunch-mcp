@@ -1,6 +1,12 @@
 {
-  "current": "1.108.360",
+  "current": "1.108.361",
   "entries": [
+    {
+      "version": "1.108.361",
+      "date": "2026-10-14",
+      "title": "an installed agent policy can be brought up to date, and only when you ask",
+      "summary": "`init` writes the agent policy into CLAUDE.md once and never rewrites it, so the policy rewritten in 1.108.357 reached new installs only. `jcodemunch-mcp claude-md --refresh` replaces an installed block that differs: it shows the diff, asks before writing (`--yes` skips the question, `--dry-run` writes nothing), keeps a timestamped backup and changes nothing outside the block. The first `resolve_repo` answer of an existing install says once, for each policy text, that the command exists, and asks the agent to tell you rather than run it. SECURITY.md lists what the server reads for this and the marker it writes."
+    },
     {
       "version": "1.108.360",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "a Python import written over several lines records its names, and the surface offer reaches the user",
       "summary": "Two changes. A Python `from x import (...)` spread over several lines, or continued with a backslash, recorded only the names on its first line, so `find_references` and `check_references` missed every name on the lines after it. All of them are recorded now; indexes re-parse on their next run (parser generation 19). New behaviour, disclosed in SECURITY.md: an install serving the full tool list is told once, in its first successful `resolve_repo` answer, what the three-tool front door would save it per turn, with a line asking the agent to pass that on. It changes no setting, sends nothing, and writes one marker file, `surface_notice_state.json`, so it is not repeated. `jcodemunch-mcp config set surface_offer_seen true` silences it."
-    },
-    {
-      "version": "1.108.357",
-      "date": "2026-10-13",
-      "title": "the generated agent policy no longer orders the index for everything",
-      "summary": "The policy that `init` installs opened \"Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash\", and required two calls before any task. On a small repository that wording costs turns the built-in tools would not. The policy now says where each route is cheaper: the index for relationships, for a large repository and for a question with no known starting point; the built-in tools on a small repository and for a file about to be edited. `resolve_repo` and `plan_turn` are conditional. A policy installed before this release is not rewritten: `jcodemunch-mcp config --check` reports that it differs, and `jcodemunch-mcp claude-md --generate --format policy` prints the current text. This is an interim change; the CHANGELOG lists what still steers to the index."
     }
   ]
 }

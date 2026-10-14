@@ -54,6 +54,8 @@ from typing import Optional
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+import os  # noqa: E402
+
 try:
     import tiktoken
 except ImportError:
@@ -949,6 +951,11 @@ def render_markdown(results: list[dict], tokenizer: str) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
+    # A measurement run is not a user: its tool calls must not be reported to the
+    # public savings total, whoever runs this and wherever (cicd C-23). In main(),
+    # not at import: a test that imports this module must not inherit it (review,
+    # 2026-10-13). An explicit setting in the environment is kept.
+    os.environ.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repos", nargs="*", help="owner/repo to benchmark (default: all 3 canonical repos)")
     parser.add_argument("--out", metavar="FILE", help="write markdown results to FILE")

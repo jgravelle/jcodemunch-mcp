@@ -2551,3 +2551,13 @@ The 1.108.357 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.357 count, verbatim:
 
 - ⚠ Prior (1.108.357): 16711 passed, 25 skipped, **0 failed** (16736 total).
+
+## Current State rotation (2026-10-14, release 1.108.361)
+
+The 1.108.358 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.358):** **A multi-line Python import records its names** (L-176): `_py_from_clause` reads the whole `from x import (...)`. `PARSER_GENERATION` 19. **The surface offer reaches the user once** in the first `resolve_repo` answer (`surface_notice`, SECURITY.md). ⚠ Other languages' grouped imports: L-177. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.358 count, verbatim:
+
+- ⚠ Prior (1.108.358): 16772 passed, 25 skipped, **0 failed** (16797 total).

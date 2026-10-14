@@ -43,6 +43,7 @@ split and is not resolved by it.
 | `config` | Print effective configuration grouped by concern |
 | `config set <key> <value>` / `config unset <key>` | (v1.108.51) Write/clear a config key in the global config.jsonc (typed, comment-preserving, validated; `--json` for tooling) |
 | `config --check` | Also validate prerequisites (storage writable, AI pkg installed, HTTP pkgs present) |
+| `claude-md --refresh [--yes] [--dry-run]` | Replace an installed agent policy block that differs from this version's, in the global and the project CLAUDE.md. Prints the diff and asks before writing; keeps a `CLAUDE.md.jcodemunch-<time>.bak`; replaces only the block. `--generate --format policy` prints the current text without writing |
 | `config --upgrade` | Add missing keys from current template to existing config.jsonc, preserving user values |
 | `download-model` | Download bundled ONNX embedding model (all-MiniLM-L6-v2) for zero-config semantic search; `--target-dir` override |
 | `install-pack [id]` | Download and install a Starter Pack pre-built index; `--list` for catalog, `--license KEY` for premium |

@@ -82,20 +82,21 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Measured 2026-08-02 at jcodemunch-mcp 1.108.222:
+Captured on CI 2026-10-14 at jcodemunch-mcp 1.108.360 (the symbol counts move with the
+extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |
 |------|--------|------:|--------:|----------------:|
-| expressjs/express | `1faf228935aa` | 186 | 200 | 154,569 |
-| fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 6,841 | 825,326 |
-| gin-gonic/gin | `75ccf94d605a` | 98 | 1,260 | 151,842 |
+| expressjs/express | `1faf228935aa` | 186 | 989 | 154,569 |
+| fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 13,699 | 825,326 |
+| gin-gonic/gin | `75ccf94d605a` | 98 | 1,822 | 151,842 |
 
 Grand total across 15 task-runs, both baselines measured in the same run:
 
 | Baseline | Tokens | jCodeMunch | Reduction | Ratio |
 |---|--:|--:|--:|--:|
-| **Grep-top-3** (quote this) | **664,975** | 23,467 | **96.5%** | **28.3x** |
-| Read-all (ceiling) | 5,658,685 | 23,467 | 99.6% | 241.1x |
+| **Grep-top-3** (quote this) | **664,975** | 23,014 | **96.5%** | **28.9x** |
+| Read-all (ceiling) | 5,658,685 | 23,014 | 99.6% | 245.9x |
 
 Small differences in `file_count` are expected across installations and are not
 a bug in either run: what a machine can index depends on its grammar pack and
@@ -132,16 +133,30 @@ measuring it, and until v1.108.222 there was no way to.
 harness F-13). `benchmark.yml` dispatched with `reference=true` runs
 `--reference` on the ubuntu runner and uploads `jcm_reference.json`,
 `results.md` and `provenance/measured.json`; those are what get committed. A
-local run reproduces it to the token only under the same three conditions:
-an LF checkout, a fresh `CODE_INDEX_PATH`, and `~/.code-index/_savings.json`
-either absent or the same width (see the next two paragraphs).
+local run reproduces it to the token only ON THE SAME PLATFORM (the ubuntu
+runner) and under three conditions: an LF checkout, a fresh `CODE_INDEX_PATH`,
+and `~/.code-index/_savings.json` either absent or the same width (see the next
+two paragraphs).
+
+**On another operating system the total agrees and single rows do not.**
+An outside reproduction report (Benchmark Bot, 2026-10-13, Windows 11, version
+1.108.316, reported as run with an LF checkout, a fresh index and a fresh home
+directory; not in this repository) found 6 of 15 rows within 1 token of the
+published table, the rest off by up to 38, and the total within 0.13%. The likely
+cause, inferred from harness F-13 and not isolated in that run, is that ranking
+ties are broken by directory-walk order, which differs between Linux and Windows. This page said "to the token" without the platform until
+2026-10-13.
 
 **The published count includes the width of your lifetime savings counter.**
 `_meta.total_tokens_saved` is read from `~/.code-index/_savings.json` in the
 HOME directory, not from `CODE_INDEX_PATH`, and it rides inside every counted
 search and fetch payload. A box with a nine-digit ledger measures +1 search and
 +3 fetch tokens per query over a fresh runner, on every query, and each run
-adds to that ledger. `stable_tokens` pins it; the published figure does not.
+adds to that ledger. Repeating a run on one box can move the published-style
+counts too: the same outside report found three repeats differing by up to 6
+tokens on one query, with the three totals spread over 58 to 59 tokens, while
+`stable_tokens` did not move. The cause was not isolated there; a ledger that
+crosses a digit width between repeats is one that fits. `stable_tokens` pins it; the published figure does not.
 
 **Every query is measured cold.** `search_symbols` adds a `_meta.cache_hit`
 field once a query has been served in-process, which costs 5 more tokens

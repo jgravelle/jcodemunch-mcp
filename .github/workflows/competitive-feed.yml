@@ -29,6 +29,10 @@ concurrency:
   group: competitive-feed
   cancel-in-progress: false
 
+env:
+  # A runner is not a user: its tool calls must not be reported to the public savings total (cicd C-23).
+  JCODEMUNCH_SHARE_SAVINGS: "0"
+
 jobs:
   feed:
     runs-on: ubuntu-latest

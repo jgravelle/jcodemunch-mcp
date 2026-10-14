@@ -116,9 +116,13 @@ PyPI has the version and cannot be re-uploaded. Do not yank from a script.
 1. Read the P0 issue and the run. The failure is one of: install failed,
    handshake failed (version, instructions, tool list), fixture index or
    tool call failed, tool count moved.
-2. Reproduce by hand from a clean venv, pinned, never through bare `uvx`:
+2. Reproduce by hand from a clean venv, pinned, never through bare `uvx`.
+   Set `JCODEMUNCH_SHARE_SAVINGS=0` first: the smoke calls tools, and a box
+   with no config reports their savings to the public total (C-23). The
+   workflows and the harness set it themselves; a hand run does not.
 
    ```
+   set JCODEMUNCH_SHARE_SAVINGS=0
    uv venv %TEMP%\pp --python 3.12
    uv pip install --python %TEMP%\pp\Scripts\python.exe --refresh-package jcodemunch-mcp jcodemunch-mcp==X.Y.Z
    %TEMP%\pp\Scripts\python.exe scripts\handshake.py --expect-version X.Y.Z --command %TEMP%\pp\Scripts\jcodemunch-mcp.exe --fixture tests\fixtures\pkg_smoke --expect-languages python,typescript,javascript,go
