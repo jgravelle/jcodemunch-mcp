@@ -82,20 +82,21 @@ worth checking on your hardware rather than taking on faith.
 
 ## What you should get
 
-Measured 2026-08-02 at jcodemunch-mcp 1.108.222:
+Captured on CI 2026-10-14 at jcodemunch-mcp 1.108.360 (the symbol counts move with the
+extractor; the files and baseline tokens are fixed by the pins):
 
 | Repo | Commit | Files | Symbols | Baseline tokens |
 |------|--------|------:|--------:|----------------:|
-| expressjs/express | `1faf228935aa` | 186 | 200 | 154,569 |
-| fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 6,841 | 825,326 |
-| gin-gonic/gin | `75ccf94d605a` | 98 | 1,260 | 151,842 |
+| expressjs/express | `1faf228935aa` | 186 | 989 | 154,569 |
+| fastapi/fastapi | `a64dfbbd21a4` | 1,186 | 13,699 | 825,326 |
+| gin-gonic/gin | `75ccf94d605a` | 98 | 1,822 | 151,842 |
 
 Grand total across 15 task-runs, both baselines measured in the same run:
 
 | Baseline | Tokens | jCodeMunch | Reduction | Ratio |
 |---|--:|--:|--:|--:|
-| **Grep-top-3** (quote this) | **664,975** | 23,467 | **96.5%** | **28.3x** |
-| Read-all (ceiling) | 5,658,685 | 23,467 | 99.6% | 241.1x |
+| **Grep-top-3** (quote this) | **664,975** | 23,014 | **96.5%** | **28.9x** |
+| Read-all (ceiling) | 5,658,685 | 23,014 | 99.6% | 245.9x |
 
 Small differences in `file_count` are expected across installations and are not
 a bug in either run: what a machine can index depends on its grammar pack and
