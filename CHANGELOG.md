@@ -2,52 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
-
-ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
-value, and the Web Forms reader took only the first. An unquoted
-`runat=server` failed the server-control gate, so that control's `OnClick=`
-handler gave its codebehind method no reference, and a `CodeFile='Q.aspx.cs'`
-directive gave the page no edge to its codebehind. The directive and attribute
-patterns of `parser/imports.py` and `parser/extractor.py` now accept all three
-forms, and so do `plan_refactoring`'s Web Forms definition patterns. An
-unquoted value must end at a delimiter, so an empty `Title=` does not take the
-next attribute's name; in a tag it also stops at the `/` of `/>`, while a
-directive value may be a path. Each pattern stays linear on a long run of its
-own form.
-
-The `runat` gate and the `On*` pattern were searched over the raw tag, so text
-inside a quoted value counted as an attribute: `ToolTip='use OnClick="Evil_Click"'`
-named a codebehind handler, and `ToolTip='x runat="server"'` opened the gate for
-a tag with no `runat`. A tag's attributes are now read in one left-to-right pass
-that consumes each quoted value whole, in both readers, so attribute-shaped text
-inside a value is not read as an attribute of that tag. One case remains, and it
-errs toward keeping code alive: the import reader still splits tags at `<` and `>`
-without regard to quotes, so a whole tag written inside a value
-(`Text="<b runat=server onclick=X>"`) is read as a tag of its own and can name a
-handler. `runat` must be the whole
-attribute name and `server` the whole value, so `data-runat="server"` and
-`runat=server-x` do not open it either. Inline `<%...%>` blocks are blanked
-before that pass, because their quotes shifted it:
-`NavigateUrl="<%# "x.aspx?id=" + Eval("Id") %>"` read an attribute `id`,
-which replaced the control's real `ID` and published a control named
-` + Eval(`. `PARSER_GENERATION` 19 -> 20, so an existing index re-parses its
-pages instead of keeping the edges it missed.
-
-`.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
-every one was capped as `build_consumed`, so `check_delete_safe` gave a Java
-schema LoadControl and project-file advice that did not apply. They stay capped
-in every repository; .NET evidence in the index chooses only the kind and its
-advice. With .NET source (`.cs`, `.fs`), a .NET-only format (`.resx`, `.xaml`,
-`.props`, `.targets`, `.ascx`, `.master`) or a file IIS or MSBuild invokes (a
-project file, a page, `global.asax`), the kind stays `build_consumed`.
-Otherwise it is the new neutral kind `schema_consumer`, counted under
-`schema_consumer_withheld`, and the advice names a build or code generator
-outside the index. No verdict moves toward delete in either ecosystem. The
-roots and the .NET-only formats keep their extension rule. Both points raised
-by @jgravelle in the review of #1012, and the shape of the cap from the review
-of #1067. (@outoftheblue9)
-
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
@@ -129,6 +83,54 @@ T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
 `tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a
 synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
 regenerates the pinned counts.
+
+## [1.108.360] - 2026-10-13 - a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
+
+### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
+
+ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
+value, and the Web Forms reader took only the first. An unquoted
+`runat=server` failed the server-control gate, so that control's `OnClick=`
+handler gave its codebehind method no reference, and a `CodeFile='Q.aspx.cs'`
+directive gave the page no edge to its codebehind. The directive and attribute
+patterns of `parser/imports.py` and `parser/extractor.py` now accept all three
+forms, and so do `plan_refactoring`'s Web Forms definition patterns. An
+unquoted value must end at a delimiter, so an empty `Title=` does not take the
+next attribute's name; in a tag it also stops at the `/` of `/>`, while a
+directive value may be a path. Each pattern stays linear on a long run of its
+own form.
+
+The `runat` gate and the `On*` pattern were searched over the raw tag, so text
+inside a quoted value counted as an attribute: `ToolTip='use OnClick="Evil_Click"'`
+named a codebehind handler, and `ToolTip='x runat="server"'` opened the gate for
+a tag with no `runat`. A tag's attributes are now read in one left-to-right pass
+that consumes each quoted value whole, in both readers, so attribute-shaped text
+inside a value is not read as an attribute of that tag. One case remains, and it
+errs toward keeping code alive: the import reader still splits tags at `<` and `>`
+without regard to quotes, so a whole tag written inside a value
+(`Text="<b runat=server onclick=X>"`) is read as a tag of its own and can name a
+handler. `runat` must be the whole
+attribute name and `server` the whole value, so `data-runat="server"` and
+`runat=server-x` do not open it either. Inline `<%...%>` blocks are blanked
+before that pass, because their quotes shifted it:
+`NavigateUrl="<%# "x.aspx?id=" + Eval("Id") %>"` read an attribute `id`,
+which replaced the control's real `ID` and published a control named
+` + Eval(`. `PARSER_GENERATION` 19 -> 20, so an existing index re-parses its
+pages instead of keeping the edges it missed.
+
+`.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
+every one was capped as `build_consumed`, so `check_delete_safe` gave a Java
+schema LoadControl and project-file advice that did not apply. They stay capped
+in every repository; .NET evidence in the index chooses only the kind and its
+advice. With .NET source (`.cs`, `.fs`), a .NET-only format (`.resx`, `.xaml`,
+`.props`, `.targets`, `.ascx`, `.master`) or a file IIS or MSBuild invokes (a
+project file, a page, `global.asax`), the kind stays `build_consumed`.
+Otherwise it is the new neutral kind `schema_consumer`, counted under
+`schema_consumer_withheld`, and the advice names a build or code generator
+outside the index. No verdict moves toward delete in either ecosystem. The
+roots and the .NET-only formats keep their extension rule. Both points raised
+by @jgravelle in the review of #1012, and the shape of the cap from the review
+of #1067. (@outoftheblue9)
 
 ## [1.108.359] - 2026-10-13 - jcodemunch-mcp diagnose writes one local report with no path and no repository name
 

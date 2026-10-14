@@ -2541,3 +2541,13 @@ The 1.108.356 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.356 count, verbatim:
 
 - ⚠ Prior (1.108.356): 16607 passed, 25 skipped, **0 failed** (16632 total).
+
+## Current State rotation (2026-10-13, release 1.108.360)
+
+The 1.108.357 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.357):** **The generated agent policy no longer orders the index for everything** (L-175): `cli/policy.py` says where each route is cheaper; `resolve_repo` and `plan_turn` are conditional. ⚠ An installed policy is never rewritten; the start-up instructions and hooks still steer to the index: L-175. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.357 count, verbatim:
+
+- ⚠ Prior (1.108.357): 16711 passed, 25 skipped, **0 failed** (16736 total).

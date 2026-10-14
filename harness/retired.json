@@ -155,6 +155,13 @@
       "replacement": "tests/test_parse_budget_python_side.py::test_a_walk_past_the_deadline_is_stopped_and_the_file_named",
       "commit": "L-116",
       "date": "2026-10-05"
+    },
+    {
+      "path": "tests/test_sql_language.py::test_sql_table_as_type",
+      "lesson": "The test pinned the defect it was named after: every non-function SQL object (table, view, index) was stored as kind `type`, so `search_symbols(kind=\"table\")` found nothing and a table could not be told from a user-defined type. It asserted the mechanism, a table reads as `type`, rather than the outcome, a table is findable as a table (Practice 9). The same file's view and index tests asserted `type` too and were corrected in place; this one's name stated the defect, so it was renamed rather than left asserting the opposite of what it says.",
+      "replacement": "tests/test_sql_language.py::test_sql_table_kind",
+      "commit": "feat/sql-parser-v2",
+      "date": "2026-10-13"
     }
   ]
 }
