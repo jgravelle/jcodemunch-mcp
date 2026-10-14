@@ -452,6 +452,20 @@ class _IndexFilters:
     skip_generated_migrations: bool = True
 
 
+def _config_skip_flags(repo: str) -> dict:
+    """The skip switches a project's config sets, read once for one walk root.
+
+    The full walk and the watcher's fast path both take their switches from here,
+    so a switch added to one route cannot be missing from the other.
+    """
+    return {
+        "respect_cachedir_tag": get_respect_cachedir_tag(repo=repo),
+        "skip_msbuild_output": get_skip_msbuild_output(repo=repo),
+        "skip_nuget_packages": get_skip_nuget_packages(repo=repo),
+        "skip_generated_migrations": get_skip_generated_migrations(repo=repo),
+    }
+
+
 def _build_index_filters(
     root: Path,
     *,
@@ -1265,10 +1279,11 @@ def discover_local_files(
     _repo_key = str(root)
     max_size = get_max_file_size(max_size, repo=_repo_key)
     max_files = get_max_folder_files(max_files, repo=_repo_key)
-    respect_cachedir_tag = get_respect_cachedir_tag(repo=_repo_key)
-    skip_msbuild_output = get_skip_msbuild_output(repo=_repo_key)
-    skip_nuget_packages = get_skip_nuget_packages(repo=_repo_key)
-    skip_generated_migrations = get_skip_generated_migrations(repo=_repo_key)
+    _flags = _config_skip_flags(_repo_key)
+    respect_cachedir_tag = _flags["respect_cachedir_tag"]
+    skip_msbuild_output = _flags["skip_msbuild_output"]
+    skip_nuget_packages = _flags["skip_nuget_packages"]
+    skip_generated_migrations = _flags["skip_generated_migrations"]
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1936,18 +1951,7 @@ def index_folder(
                 ),
                 check_binary=False,
                 check_filename=True,
-                respect_cachedir_tag=get_respect_cachedir_tag(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_msbuild_output=get_skip_msbuild_output(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_nuget_packages=get_skip_nuget_packages(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_generated_migrations=get_skip_generated_migrations(
-                    repo=str(Path(walk_root).resolve())
-                ),
+                **_config_skip_flags(str(Path(walk_root).resolve())),
             )
 
             # Branch detection for watcher fast-path

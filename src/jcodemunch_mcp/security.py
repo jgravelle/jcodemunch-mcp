@@ -1,5 +1,6 @@
 """Security utilities for path validation, secret detection, and binary filtering."""
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Optional
 
 from . import config as _config
 
+logger = logging.getLogger(__name__)
 
 # --- Package Integrity Check ---
 
@@ -634,10 +636,23 @@ def get_skip_patterns(repo: Optional[str] = None) -> frozenset[str]:
 # timestamp, so the names are the writer's mark: django `0001_initial.py`,
 # laravel `2014_10_12_000000_x.php`, knex/sequelize/prisma `20200101120000_x`,
 # typeorm `1612345678901-X.ts`, golang-migrate `000001_x.up.sql`, diesel
-# `2020-01-01-000000_x/`, flyway `V1__x.sql` / `V1_2__x.sql` / `V1.2__x.sql`. A
-# hand-written module is not named that way.
+# `2020-01-01-000000_x/`, flyway `V1__x.sql` / `V1_2__x.sql` / `V1.2__x.sql`,
+# doctrine `Version20230101120000.php`, yii2 `m230101_120000_x.php`, mikro-orm
+# `Migration20230101120000.ts`. Alembic and Flask-Migrate keep theirs in
+# `versions/` and mark the directory with the template and config they write
+# (`script.py.mako`, `alembic.ini`). A hand-written module is not named that way.
+# ⚠ A tool that names its migrations some other way is indexed: the list is of
+# conventions, and a miss errs toward indexing.
 _MIGRATIONS_DIR_NAME = "migrations"
-_GENERATED_MIGRATION_NAME = re.compile(r"^(?:\d{3,}[_.\-]|V\d+(?:[._]\d+)*__)")
+_GENERATED_MIGRATION_NAME = re.compile(
+    r"^(?:\d{3,}[_.\-]"
+    r"|V\d+(?:[._]\d+)*__"
+    r"|Version\d{8,}"
+    r"|Migration\d{8,}"
+    r"|m\d{6}_\d{6}_"
+    r"|script\.py\.mako$"
+    r"|alembic\.ini$)"
+)
 
 
 def is_generated_migration_name(name: str) -> bool:
@@ -651,9 +666,9 @@ def is_generated_migrations_directory(dir_name: str, path) -> bool:
     One entry with a generated name is enough: an application's migrations
     directory holds nothing else, and a framework's package holds none.
 
-    ⚠ An unreadable or vanished directory answers True. Every `migrations`
-    directory was skipped before this rule existed, so a directory we cannot
-    list keeps that answer instead of being guessed into the corpus.
+    An unreadable or vanished directory answers False, the NuGet rule's answer:
+    the walk then reports it as `unreadable` rather than this rule claiming to
+    know what it holds.
 
     ⚠ Not a withheld exclusion: generated migrations are corpus definition, the
     same class as a build tree, so absence claims over the rest stay citable.
@@ -664,7 +679,8 @@ def is_generated_migrations_directory(dir_name: str, path) -> bool:
         with os.scandir(str(path)) as entries:
             return any(is_generated_migration_name(e.name) for e in entries)
     except (OSError, ValueError):
-        return True
+        logger.debug("could not list %s for the migrations rule", path, exc_info=True)
+        return False
 
 
 def get_skip_generated_migrations(repo: Optional[str] = None) -> bool:

@@ -56,7 +56,7 @@ jcodemunch-mcp config --check
 | `summarizer_concurrency` | int | `4` | Parallel batch requests to the AI summarizer. |
 | `allow_remote_summarizer` | bool | `false` | Allow remote AI summarizer even when local LLM is configured. |
 | `extra_ignore_patterns` | list | `[]` | Additional gitignore-style patterns to exclude from indexing. Merged with per-call patterns. |
-| `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. |
+| `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. `["migrations"]` also indexes generated migrations, which are otherwise skipped (counted as `generated_migrations`) while a hand-written `migrations` package is indexed. |
 | `exclude_secret_patterns` | list | `[]` | Remove entries from the built-in secret-file skip patterns. |
 | `extra_extensions` | dict | `{}` | Map file extensions to language names (e.g. `{".jsx": "javascript"}`). Extends the built-in extension map. |
 | `context_providers` | bool | `true` | Enable context providers (dbt model detection, etc.) during indexing. |

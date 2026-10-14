@@ -35,16 +35,27 @@ migration framework (`django/db/migrations/`, with the autodetector, executor,
 loader and operations) never entered the index, and the result counted it under
 the generic `skip_dir` with nothing naming the rule.
 
-A migration tool names what it writes by sequence or timestamp: `0001_initial.py`,
-`2014_10_12_000000_create_users_table.php`, `20230101120000_init/`,
-`1612345678901-Init.ts`, `000001_init.up.sql`, `V1__init.sql`. A `migrations`
-directory is now skipped only when it holds an entry named that way, and the
-skip is counted as `generated_migrations` in `discovery_skip_counts`. A
-directory holding none is source and is indexed. The full walk, the watcher's
-fast path and the GitHub tree listing all ask the one predicate in
-`security.py`. A directory that cannot be listed keeps the old answer and is
-skipped. `exclude_skip_directories: ["migrations"]` still indexes every
-migrations directory, generated or not.
+Most migration tools name what they write by sequence or timestamp:
+`0001_initial.py`, `2014_10_12_000000_create_users_table.php`,
+`20230101120000_init/`, `1612345678901-Init.ts`, `000001_init.up.sql`,
+`V1__init.sql`, `Version20230101120000.php`, `m230101_120000_x.php`,
+`Migration20230101120000.ts`. Alembic and Flask-Migrate put theirs in
+`versions/` and leave `script.py.mako` and `alembic.ini` in the directory. A
+`migrations` directory is now skipped only when it holds an entry named one of
+those ways, and the skip is counted as `generated_migrations` in
+`discovery_skip_counts`. A directory holding none is source and is indexed.
+The full walk, the watcher's fast path and the GitHub tree listing all ask the
+one predicate in `security.py`. The Django framework profile also ignored
+`migrations/` by name, a second copy of the rule, and no longer does. A
+directory that cannot be listed is reported as `unreadable`, as before.
+`exclude_skip_directories: ["migrations"]` still indexes every migrations
+directory, generated or not.
+
+The names are a list of tool conventions. A tool that names its migrations
+another way now has them indexed, where the old rule skipped them.
+`get_project_intel`'s `migration_files` counted every file under
+`migrations/` or `migrate/`, which would have counted a framework's own
+package; it counts files named the way a migration tool names them.
 
 Like a build tree, generated migrations are corpus definition rather than a
 withheld file, so absence claims over the rest of the index stay citable. An
