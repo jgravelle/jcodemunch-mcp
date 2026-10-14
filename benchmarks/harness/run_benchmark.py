@@ -54,6 +54,13 @@ from typing import Optional
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 
+# A measurement run is not a user: the tool calls below must not be reported
+# to the public savings total, whoever runs this and wherever (cicd C-23). An
+# explicit setting in the environment is kept.
+import os  # noqa: E402
+
+os.environ.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
+
 try:
     import tiktoken
 except ImportError:

@@ -18,6 +18,8 @@ import os
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 VAR = "JCODEMUNCH_SHARE_SAVINGS"
 
@@ -89,6 +91,40 @@ def test_the_harness_switches_it_off_for_every_tier_it_spawns(monkeypatch):
     monkeypatch.setenv(VAR, "1")
     h._run(["python", "-c", "pass"])
     assert seen[VAR] == "1"
+
+
+@pytest.mark.parametrize("value, posts", [("0", False), (None, True)], ids=["switched-off", "unset"])
+def test_the_variable_stops_the_post_not_just_the_spelling(tmp_path, monkeypatch, value, posts):
+    """Through the real config and a real flush: the YAML checks above pin a spelling, this pins its effect.
+
+    The variable is the fallback when no config file sets the key (a runner has none), and it is marked for
+    removal in 2.0. If that removal lands, this test is what says CI starts posting again.
+    """
+    from jcodemunch_mcp import config
+    from jcodemunch_mcp.storage import token_tracker
+
+    store = tmp_path / "store"
+    store.mkdir()
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    if value is None:
+        monkeypatch.delenv(VAR, raising=False)
+    else:
+        monkeypatch.setenv(VAR, value)
+    config.load_config(str(store), create_missing=False)
+    posted = []
+    monkeypatch.setattr(token_tracker, "_share_savings", lambda *a: posted.append(a))
+    monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
+    for _ in range(7):
+        token_tracker.record_savings(1000, base_path=str(store), tool_name="search_symbols")
+    token_tracker._state.flush()
+    assert bool(posted) is posts, posted
+
+
+def test_benchmark_entry_point_switches_it_off_for_a_hand_run():
+    """REPRODUCING.md tells a reader to run this script directly, outside the harness and CI."""
+    text = (ROOT / "benchmarks" / "harness" / "run_benchmark.py").read_text(encoding="utf-8")
+    first_tool_import = text.index("from jcodemunch_mcp")
+    assert 0 <= text.index('os.environ.setdefault("' + VAR + '", "0")') < first_tool_import
 
 
 def test_the_suite_still_sees_the_shipped_default():

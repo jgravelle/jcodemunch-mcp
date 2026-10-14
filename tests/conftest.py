@@ -52,9 +52,10 @@ def _shipped_sharing_default():
 
     CI and the harness export `JCODEMUNCH_SHARE_SAVINGS=0` so that benchmark and
     smoke steps, which run outside this suite, do not report to the public
-    savings total (cicd C-23). The variable overrides the config key, so left in
-    place every test of the default would read `False`. Nothing here can post:
-    `_no_network` refuses the connection.
+    savings total (cicd C-23). The variable is the fallback when no config file
+    sets `share_savings`, so left in place a test reading the effective setting
+    without a config file would read `False` where a user's box reads `True`.
+    Nothing here can post: `_no_network` refuses the connection.
     """
     previous = os.environ.pop("JCODEMUNCH_SHARE_SAVINGS", None)
     yield

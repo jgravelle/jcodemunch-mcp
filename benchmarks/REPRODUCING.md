@@ -138,11 +138,12 @@ and `~/.code-index/_savings.json` either absent or the same width (see the next
 two paragraphs).
 
 **On another operating system the total agrees and single rows do not.**
-Ranking ties are broken by directory-walk order, which differs between Linux
-and Windows, so a tied search can fetch a different symbol. Measured
-independently on Windows 11 at 1.108.316 with all three conditions met: 6 of 15
-rows within 1 token of the published table, the rest off by up to 38, the total
-within 0.13%. This page said "to the token" without the platform until
+An outside reproduction report (Benchmark Bot, 2026-10-13, Windows 11, version
+1.108.316, reported as run with an LF checkout, a fresh index and a fresh home
+directory; not in this repository) found 6 of 15 rows within 1 token of the
+published table, the rest off by up to 38, and the total within 0.13%. The likely
+cause, inferred from harness F-13 and not isolated in that run, is that ranking
+ties are broken by directory-walk order, which differs between Linux and Windows. This page said "to the token" without the platform until
 2026-10-13.
 
 **The published count includes the width of your lifetime savings counter.**
@@ -150,9 +151,11 @@ within 0.13%. This page said "to the token" without the platform until
 HOME directory, not from `CODE_INDEX_PATH`, and it rides inside every counted
 search and fetch payload. A box with a nine-digit ledger measures +1 search and
 +3 fetch tokens per query over a fresh runner, on every query, and each run
-adds to that ledger. Repeating a run on one box moves the published-style
-counts too: three repeats differed by up to 6 tokens on a query and 58 to 59
-in total (measured 2026-10-13), because the ledger grew between them. `stable_tokens` pins it; the published figure does not.
+adds to that ledger. Repeating a run on one box can move the published-style
+counts too: the same outside report found three repeats differing by up to 6
+tokens on one query, with the three totals spread over 58 to 59 tokens, while
+`stable_tokens` did not move. The cause was not isolated there; a ledger that
+crosses a digit width between repeats is one that fits. `stable_tokens` pins it; the published figure does not.
 
 **Every query is measured cold.** `search_symbols` adds a `_meta.cache_hit`
 field once a query has been served in-process, which costs 5 more tokens
