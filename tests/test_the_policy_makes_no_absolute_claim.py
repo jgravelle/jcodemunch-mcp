@@ -35,7 +35,7 @@ def _surfaces() -> dict[str, str]:
         "workflow prompt": server._WORKFLOW_PROMPT_TEXT,
         # (2026-10-14, owner's ruling) The MCP `instructions` string reaches every
         # session in every client, whatever policy is installed, and survives tool
-        # deferral; agents quoted its "Prefer them over Read/Grep" as their reason.
+        # deferral, so its "Prefer them over Read/Grep" outlived the policy's rewording.
         "full instructions": server._mcp_instructions("full"),
         "front-door instructions": server._mcp_instructions("counter"),
     }

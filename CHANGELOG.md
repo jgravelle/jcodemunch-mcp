@@ -11,16 +11,18 @@ to run `get_file_outline` "before opening any file". The agent policy stopped
 saying any of that in 1.108.357, because on a small repository it costs turns
 the built-in search would not. This string kept saying it, and it reaches every
 session in every client whatever policy is installed, including clients that
-defer the tool descriptions. Agents quoted it as their reason for going to the
-index first.
+defer the tool descriptions.
 
 It now says what the policy says: use the index for who uses a symbol, what a
 change breaks, call graphs, a large repository or a question with no known
 starting point; on a small repository, for a known name or for a file being
 edited, the built-in Grep and Read are often as cheap. `resolve_repo` is asked
 once, before the first index call, and `get_file_outline` is described by what
-it returns. The tool list, the six front-door descriptions and the one-lookup
-line for deferred tools are unchanged. The test that keeps absolute wording out
+it returns. To stay inside the string's character budget, the line telling a
+client with deferred tools to load them in one lookup is shorter, and two tool
+rows lost words: `get_ranked_context` no longer says "not chained hops", and the
+`find_references` row now says `check_references` answers where a name is used.
+The tool list and the six front-door descriptions are unchanged. The test that keeps absolute wording out
 of the policy, the rules files, the skill and the guide now reads both versions
 of this string too.
 
