@@ -637,10 +637,9 @@ _SURFACE_NOTICE_TOOL = "resolve_repo"
 
 def _surface_notice_state_path() -> "Path":
     """The once-per-install marker for the in-answer notice (see `_surface_offer_state_path`)."""
-    from pathlib import Path
+    from .surface_offer import notice_marker_path
 
-    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
-    return Path(base) / _SURFACE_NOTICE_STATE_FILE
+    return notice_marker_path(_SURFACE_NOTICE_STATE_FILE)
 
 
 def _surface_notice_for(name: str, result: object) -> "dict | None":

@@ -17,13 +17,22 @@ what this version installs, it prints the diff and asks before writing.
 `--yes` writes without asking, `--dry-run` writes nothing, and with no terminal
 and no `--yes` it writes nothing. Before a write it copies the file to a new
 `CLAUDE.md.jcodemunch-<time>.bak` beside it, never over an earlier backup. It
-replaces only the block: everything before and after it, a section of your own
-after it, the file's line endings and a missing final newline stay as they were.
-It refuses to write a file that changed after its diff was shown. The block's
-end is found by the same function the drift check uses (`policy_block_span`),
-so the check that says a block differs and the command that rewrites it can't
-disagree about where it ends. A block you edited on purpose can't be told from
-an old one, which is why the diff comes first.
+replaces only the block, which runs from its `## Code Exploration Policy`
+heading to the next heading of any level that isn't one of the policy's own
+sections. Everything before it, a section of your own after it under any
+heading, a byte-order mark, each part's line endings and a missing final
+newline stay as they were. Text added directly under the block with no heading
+of its own counts as part of it, and the diff shows that before anything is
+written. A symlinked CLAUDE.md is written through the link, so a dotfiles
+source gets the new text and the link stays a link. It refuses to write a file
+that changed after its diff was shown. The block's bounds come from the same
+function the drift check uses (`policy_block_span`), so the check that says a
+block differs and the command that rewrites it can't disagree about where it
+ends. That function now ends the block at any heading level, not only `## `,
+and starts it only at a heading line, so `config --check` no longer reads a
+user's `#` or `###` section, or a sentence naming the policy, as part of it. A
+block you edited on purpose can't be told from an old one, which is why the
+diff comes first.
 
 Existing installs are told the command exists. The first successful
 `resolve_repo` answer carries a `policy_notice` when either file holds a

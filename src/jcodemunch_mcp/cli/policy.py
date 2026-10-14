@@ -286,7 +286,8 @@ def installed_policy_block(text: str) -> list[str] | None:
     compares it and ``diagnose`` digests it, and a second copy of the boundary
     rule would let the two disagree about the same file.
     """
-    lines = text.splitlines()
+    # A byte-order mark is not part of the first line's text.
+    lines = text.removeprefix(chr(0xFEFF)).splitlines()
     span = policy_block_span(lines)
     if span is None:
         return None
@@ -301,21 +302,31 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
     lines: the check that says a block differs and the command that rewrites it
     cannot disagree about where the block ends.
 
-    Found the way `init` finds it: the first line CONTAINING the marker. It runs
-    to the first ``## `` heading that is not one of the policy's own sections,
-    or to the end of the file, so a user's own section after it is never part
-    of it.
+    It starts at the first HEADING line carrying the marker, so a sentence that
+    mentions the policy by name is not mistaken for it. It runs to the first
+    Markdown heading of any level that is not one of the policy's own ``## ``
+    sections, or to the end of the file. Every policy text ever shipped uses
+    only ``## `` headings, so a user's own ``#`` or ``###`` section after the
+    block ends it too (review, 2026-10-14: the refresh would otherwise have
+    deleted it).
     """
-    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("#") and POLICY_MARKER in ln),
+        None,
+    )
     if start is None:
         return None
     own = _policy_headings()
     end = len(lines)
     for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## ") and lines[i].strip() not in own:
+        stripped = lines[i].strip()
+        if _HEADING_RE.match(stripped) and stripped not in own:
             end = i
             break
     return start, end
+
+
+_HEADING_RE = re.compile(r"#{1,6}\s")
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:

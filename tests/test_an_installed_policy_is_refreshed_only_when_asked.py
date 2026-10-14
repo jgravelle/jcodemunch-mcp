@@ -251,6 +251,68 @@ def test_a_users_own_section_after_the_block_is_not_part_of_it(home, monkeypatch
     assert text.endswith("\n## Deploying\n\nAlways use the staging box.\n")
 
 
+@pytest.mark.parametrize("heading", ["# Deploying", "### Deploying", "#### Deploying"])
+def test_a_users_section_under_any_heading_level_is_kept(home, monkeypatch, heading):
+    """Every policy text ever shipped uses only `## ` headings; any other heading is the user's (review, 2026-10-14)."""
+    h, _, _ = home
+    path = _global(h)
+    tail = f"\n{heading}\n\nKeep me.\n"
+    _write(path, OLD_BLOCK + tail)
+    _refresh(monkeypatch, "--yes")
+    assert path.read_text(encoding="utf-8").endswith(tail)
+
+
+def test_a_sentence_naming_the_policy_is_not_the_block(home, monkeypatch):
+    h, _, _ = home
+    path = _global(h)
+    before = "# Me\nSee the ## Code Exploration Policy section below.\nMY OWN TEXT\n\n"
+    _write(path, before + OLD_BLOCK)
+    _refresh(monkeypatch, "--yes")
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith(before)
+    assert policy.installed_policy_drift(text) == {"state": "current"}
+
+
+def test_a_byte_order_mark_is_kept(home, monkeypatch):
+    h, _, _ = home
+    path = _global(h)
+    _write(path, chr(0xFEFF) + OLD_BLOCK)
+    _refresh(monkeypatch, "--yes")
+    raw = path.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf## Code Exploration Policy")
+    text = raw.decode("utf-8")
+    assert policy.installed_policy_drift(text) == {"state": "current"}, "it was found and refreshed, not skipped"
+    assert "Never fall back" not in text
+
+
+def test_a_mixed_file_keeps_each_parts_line_endings(home, monkeypatch):
+    h, _, _ = home
+    path = _global(h)
+    head = "# Mine\r\n\r\n"
+    path.write_bytes((head + OLD_BLOCK).encode("utf-8"))  # CRLF head, LF block
+    _refresh(monkeypatch, "--yes")
+    raw = path.read_bytes()
+    assert raw.startswith(head.encode())
+    assert b"\r\n" not in raw[len(head):], "the block was LF and stays LF"
+
+
+def test_a_symlinked_file_is_written_through_the_link(home, monkeypatch, tmp_path):
+    """A dotfiles manager links CLAUDE.md; the link stays a link and its source gets the text."""
+    h, _, _ = home
+    source = tmp_path / "dotfiles" / "CLAUDE.md"
+    source.parent.mkdir()
+    _write(source, OLD_BLOCK)
+    link = _global(h)
+    try:
+        link.symlink_to(source)
+    except OSError:
+        pytest.skip("this box cannot create a symlink without privileges")
+    _refresh(monkeypatch, "--yes")
+    assert link.is_symlink()
+    assert policy.installed_policy_drift(source.read_text(encoding="utf-8")) == {"state": "current"}
+    assert [b.read_text(encoding="utf-8") for b in _backups(source)] == [OLD_BLOCK]
+
+
 # -- the one boundary rule ------------------------------------------------------
 
 

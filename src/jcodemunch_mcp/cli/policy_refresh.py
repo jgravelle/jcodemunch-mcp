@@ -28,6 +28,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ from .policy import active_policy, installed_policy_drift, policy_block_span
 logger = logging.getLogger(__name__)
 
 COMMAND = "jcodemunch-mcp claude-md --refresh"
+_BOM = chr(0xFEFF)  # spelled by code point: a literal one is invisible in review
 SCOPES = ("global", "project")
 
 # Whether THIS PROCESS has already decided about the in-answer notice. In this
@@ -93,12 +95,18 @@ def plan_refresh(path: Path) -> dict:
     if drift["state"] == "current":
         return {"state": "current"}
 
-    newline = "\r\n" if "\r\n" in old_text else "\n"
-    raw = old_text.splitlines(keepends=True)
+    # A byte-order mark is not part of the first line: kept aside, put back.
+    bom = _BOM if old_text.startswith(_BOM) else ""
+    raw = old_text[len(bom):].splitlines(keepends=True)
     span = policy_block_span([ln.rstrip("\r\n") for ln in raw])
     assert span is not None  # the drift check found one through the same rule
     start, end = span
     block = raw[start:end]
+    # The block's own line ending, so a file mixing endings keeps each part's.
+    if block[0].endswith("\n"):
+        newline = "\r\n" if block[0].endswith("\r\n") else "\n"
+    else:  # a one-line block with no line ending: the file's
+        newline = "\r\n" if "\r\n" in old_text else "\n"
     # Blank lines closing the block are the gap before what follows; they stay.
     trailing: list[str] = []
     while block and not block[-1].strip():
@@ -110,7 +118,7 @@ def plan_refresh(path: Path) -> dict:
     at_eof = end == len(raw)
     if at_eof and not trailing and not old_text.endswith(("\n", "\r")):
         body = body[: -len(newline)]  # the file had no final newline; it still has none
-    new_text = "".join(raw[:start]) + body + "".join(trailing) + "".join(raw[end:])
+    new_text = bom + "".join(raw[:start]) + body + "".join(trailing) + "".join(raw[end:])
 
     after = installed_policy_drift(new_text)
     if after != {"state": "current"}:
@@ -144,16 +152,27 @@ def _backup_path(path: Path, now: datetime) -> Path:
 
 
 def apply_refresh(path: Path, plan: dict, *, now: datetime | None = None) -> Path:
-    """Write *plan* to *path* after copying the current bytes to a new backup. Returns the backup."""
+    """Write *plan* to *path* after copying the current bytes to a new backup. Returns the backup.
+
+    ⚠ A symlinked CLAUDE.md (a dotfiles manager) is written THROUGH: the link
+    stays a link and its target gets the new text, with the target's mode. A
+    replace of the link itself would leave the dotfiles source stale and the
+    link broken (review, 2026-10-14).
+    """
     now = now or datetime.now(timezone.utc)
-    current = path.read_bytes()
+    target = path.resolve()
+    current = target.read_bytes()
     if current.decode("utf-8") != plan["old_text"]:
         raise RuntimeError(f"{path} changed after its diff was shown; run the command again")
-    backup = _backup_path(path, now)
+    backup = _backup_path(target, now)
     backup.write_bytes(current)
-    tmp = path.with_name(path.name + ".jcodemunch-refresh.tmp")
+    tmp = target.with_name(target.name + ".jcodemunch-refresh.tmp")
     tmp.write_bytes(plan["new_text"].encode("utf-8"))
-    os.replace(tmp, path)
+    try:
+        shutil.copymode(target, tmp)
+    except OSError:
+        logger.debug("policy refresh could not copy the file mode", exc_info=True)
+    os.replace(tmp, target)
     return backup
 
 
@@ -205,8 +224,9 @@ def run_refresh(*, yes: bool = False, dry_run: bool = False, out=print) -> int:
 
 
 def _marker_path() -> Path:
-    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
-    return Path(base) / NOTICE_MARKER
+    from ..surface_offer import notice_marker_path
+
+    return notice_marker_path(NOTICE_MARKER)
 
 
 def _policy_digest() -> str:
