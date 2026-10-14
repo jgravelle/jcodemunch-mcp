@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.359] - 2026-10-13 - jcodemunch-mcp diagnose writes one local report with no path and no repository name
+
 ### Added - `jcodemunch-mcp diagnose`, and two local per-tool counters
 
 A user asked what the product did for them had nothing safe to hand over. `install-status`,

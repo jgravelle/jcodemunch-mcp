@@ -1,6 +1,12 @@
 {
-  "current": "1.108.358",
+  "current": "1.108.359",
   "entries": [
+    {
+      "version": "1.108.359",
+      "date": "2026-10-13",
+      "title": "jcodemunch-mcp diagnose writes one local report with no path and no repository name",
+      "summary": "New command: `jcodemunch-mcp diagnose` writes one JSON report to the storage directory's `diagnose` folder and prints its path. It holds server versions, each index as `index-1` with its sizes, the tool surface, the state of each installed policy, and per tool the calls, tokens returned and tokens saved. It is built from a fixed list of fields and of what each value may be, so no path or repository name can reach it; the `anon_id` is left out unless `--include-anon-id` is passed. It sends nothing. New background behaviour, disclosed in SECURITY.md: the server now keeps two local counts per tool (calls, tokens returned) in `_tool_counters.json`, on by default and sent nowhere. `\"tool_counters\": false` turns them off."
+    },
     {
       "version": "1.108.358",
       "date": "2026-10-13",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "a JavaScript method called through a string key is recorded as called",
       "summary": "JavaScript and TypeScript reach a member by a string as well as a dot: `t[\"m\"]()` calls what `t.m()` calls. The parser recorded the container `t` for it and nothing for the method, so a method called only that way read `no_callers` in `get_dead_code_v2`. A key that is a string holding a name is read as the name now. No function on the eight pinned repositories changes; the effect is on a method whose only call has this shape. A key that is a variable, a number or a string that is not a name still records the container; the CHANGELOG lists the limits. An existing index is re-parsed on upgrade."
-    },
-    {
-      "version": "1.108.355",
-      "date": "2026-10-13",
-      "title": "a Ruby method called by its bare name is recorded as called",
-      "summary": "Ruby writes a call of a method with no receiver and no arguments as a bare name (`settings`), and the parser recorded no call for it. A helper called only that way read `no_callers` in `get_dead_code_v2`. Each method is now read the way Ruby reads it: a bare name is a call unless the method has made a local variable of that name by then. On sinatra at a pinned commit the rows reported `no_callers` fall from 176 to 152 in the default call and none is newly reported. Code outside every method is still not read; the CHANGELOG lists that and the other limits. An existing index is re-parsed on upgrade."
     }
   ]
 }

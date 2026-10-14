@@ -2531,3 +2531,13 @@ The 1.108.355 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.355 count, verbatim:
 
 - ⚠ Prior (1.108.355): 16457 passed, 25 skipped, **0 failed** (16482 total).
+
+## Current State rotation (2026-10-13, release 1.108.359)
+
+The 1.108.356 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.356):** **A JavaScript call through a string key records the method** (L-173): `_js_string_key_name` reads `t["m"]()` as `m` in JS, TS and TSX. `PARSER_GENERATION` 18. ⚠ Any other key, and every other language's subscript, records the container: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.356 count, verbatim:
+
+- ⚠ Prior (1.108.356): 16607 passed, 25 skipped, **0 failed** (16632 total).
