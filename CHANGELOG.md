@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.361] - 2026-10-14 - an installed agent policy can be brought up to date, and only when you ask
+
 ### Added - an installed agent policy can be brought up to date, and only when you ask
 
 `init` appends the agent policy block to CLAUDE.md once, and every install path

@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.361](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.361)** (2026-10-14) — an installed agent policy can be brought up to date, and only when you ask
 - **[v1.108.360](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.360)** (2026-10-13) — a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
 - **[v1.108.359](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.359)** (2026-10-13) — jcodemunch-mcp diagnose writes one local report with no path and no repository name
 - **[v1.108.358](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.358)** (2026-10-13) — a Python import written over several lines records its names, and the surface offer reaches the user
-- **[v1.108.357](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.357)** (2026-10-13) — the generated agent policy no longer orders the index for everything
 <!-- WHATSNEW:END -->
 
 ---
