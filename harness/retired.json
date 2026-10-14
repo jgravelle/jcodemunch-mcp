@@ -155,6 +155,13 @@
       "replacement": "tests/test_parse_budget_python_side.py::test_a_walk_past_the_deadline_is_stopped_and_the_file_named",
       "commit": "L-116",
       "date": "2026-10-05"
+    },
+    {
+      "path": "tests/test_dotnet_fixtures.py::test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary",
+      "lesson": "A pinned weakness must be pinned where the weakness lives, or it outlives its fix (Practice 9). It asserted `<summary>` appeared in summary + docstring after `parse_file`, but `parse_file` sets no summary, so the docstring alone satisfied it: the docstring correctly keeps its XML, and the assertion stayed green on the tree that fixed the summary. The summary is built by the summarizer, so the replacement runs Tier 1 on the extracted field and asserts the sentence, while still asserting the docstring keeps its XML.",
+      "replacement": "tests/test_dotnet_fixtures.py::test_designer_control_fields_summarise_as_the_xml_doc_text",
+      "commit": "fix/xml-doc-summary",
+      "date": "2026-10-13"
     }
   ]
 }
