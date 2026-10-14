@@ -43,7 +43,9 @@ _INTERNAL_PATH_FRAGMENTS = ("_internal", "/internal/", "\\internal\\", "/private
 
 
 #: Behaviour and type kinds: part of a module's surface wherever declared.
-_BEHAVIOUR_CONTRACT_KINDS = frozenset({"function", "class", "method", "type"})
+_BEHAVIOUR_CONTRACT_KINDS = frozenset(
+    {"function", "class", "method", "type", "procedure", "trigger", "table", "view", "index"}
+)
 
 
 def _is_contract_kind(sym: dict) -> bool:

@@ -19,7 +19,7 @@ import time
 from typing import Optional
 
 from ..retrieval.verdict import symbol_not_found
-from ..parser.symbols import STATE_KINDS
+from ..parser.symbols import STATE_KINDS, is_callable_kind, is_type_like_kind
 from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
 from ._utils import symbol_span_bytes
 from ._utils import index_status_to_tool_error, resolve_repo
@@ -319,7 +319,7 @@ def find_implementations(
     # ── Channel 2: AST class hierarchy ─────────────────────────────────
     class_by_name, children_of = _build_class_maps(index.symbols)
 
-    if target_kind in ("class", "type") and include_subclasses:
+    if is_type_like_kind(target_kind) and include_subclasses:
         # BFS down the class tree
         from collections import deque  # noqa: PLC0415
         visited: set[str] = {target_name}
@@ -340,14 +340,14 @@ def find_implementations(
                     queue.append(grand)
 
     # ── Channel 3: subclass_override + duck_typed for methods ──────────
-    if target_kind == "method" or target_kind == "function":
+    if is_callable_kind(target_kind):
         # Find classes that have a method of the same name
         # First: subclass overrides where parent is the containing class of target
         parent_id = target.get("parent")
         parent_class_name = None
         if parent_id:
             for sym in index.symbols:
-                if sym.get("id") == parent_id and sym.get("kind") in ("class", "type"):
+                if sym.get("id") == parent_id and is_type_like_kind(sym.get("kind", "")):
                     parent_class_name = sym.get("name", "")
                     break
 
@@ -364,7 +364,7 @@ def find_implementations(
             cand_class_name = None
             if cand_parent_id:
                 for s in index.symbols:
-                    if s.get("id") == cand_parent_id and s.get("kind") in ("class", "type"):
+                    if s.get("id") == cand_parent_id and is_type_like_kind(s.get("kind", "")):
                         cand_class_name = s.get("name", "")
                         break
 
@@ -491,7 +491,7 @@ def find_implementations(
                         if n:
                             other_sym_by_name.setdefault(n, []).append(s)
                     # Class case: subclasses of target
-                    if target_kind in ("class", "type"):
+                    if is_type_like_kind(target_kind):
                         for cls_name, child_list in other_children.items():
                             if cls_name == target_name:
                                 for child in child_list:
@@ -513,9 +513,9 @@ def find_implementations(
                                         impls_by_id[csym["id"]] = rec
                                         cross_repo_count += 1
                     # Method case: same-named methods in subclasses (heuristic)
-                    if target_kind in ("method", "function"):
+                    if is_callable_kind(target_kind):
                         for sym in other_sym_by_name.get(target_name, []):
-                            if sym.get("kind") in ("method", "function"):
+                            if is_callable_kind(sym.get("kind", "")):
                                 rec = {
                                     "symbol_id": sym["id"],
                                     "name": sym.get("name", ""),
@@ -621,7 +621,7 @@ def find_implementations(
         result["_meta"]["scip"] = scip_block
     if cross_repo:
         result["cross_repo_count"] = cross_repo_count
-    if not dispatch_edges and target_kind in ("method", "function"):
+    if not dispatch_edges and is_callable_kind(target_kind):
         result["note"] = (
             "No LSP dispatch_edges available — implementations resolved via AST + duck-typed "
             "fallbacks. Enable the LSP bridge for 1.0-confidence interface dispatch."

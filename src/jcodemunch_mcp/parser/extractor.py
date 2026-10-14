@@ -4,6 +4,7 @@ import bisect
 import dataclasses
 import logging
 import re
+from dataclasses import replace
 from typing import Any, Callable, Optional
 from . import parse_budget
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
@@ -11648,6 +11649,296 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     return symbols
 
 
+def _split_sql_qualified_name(text: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    closer: Optional[str] = None
+    i = 0
+    n = len(text)
+    while i < n:
+        parse_budget.checkpoint()
+        ch = text[i]
+        if closer is not None:
+            if ch == closer:
+                if i + 1 < n and text[i + 1] == closer:
+                    buf.append(ch)
+                    i += 2
+                    continue
+                closer = None
+                i += 1
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "[":
+            closer = "]"
+            i += 1
+            continue
+        if ch in ('"', "'", "`"):
+            closer = ch
+            i += 1
+            continue
+        if ch == ".":
+            parts.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        if ch == "]":
+            # Grammar leaves stray closers.
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf).strip())
+    return [p for p in parts if p]
+
+
+def _clean_sql_name(text: str) -> str:
+    parts = _split_sql_qualified_name(text)
+    return ".".join(parts) if parts else text.strip()
+
+
+_SQL_MASK_OPENERS_RE = re.compile(rb"--|/\*|'")
+_SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*")
+_SQL_STRING_LITERAL_RE = re.compile(rb"'[^']*(?:''[^']*)*'?")
+_SQL_NOT_NEWLINE_RE = re.compile(rb"[^\n]")
+
+
+def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
+    """Length-preserving; offsets index the original."""
+    out = bytearray(src)
+    openers = _SQL_MASK_OPENERS_RE if mask_strings else _SQL_MASK_COMMENT_OPENERS_RE
+    i = 0
+    n = len(src)
+    while i < n:
+        parse_budget.checkpoint()
+        opener = openers.search(src, i)
+        if opener is None:
+            break
+        start = opener.start()
+        kind = opener.group()
+        if kind == b"--":
+            end = src.find(b"\n", start)
+            end = n if end < 0 else end
+        elif kind == b"/*":
+            close = src.find(b"*/", start + 2)
+            end = n if close < 0 else close + 2
+        else:
+            end = _SQL_STRING_LITERAL_RE.match(src, start).end()
+        out[start:end] = _SQL_NOT_NEWLINE_RE.sub(b" ", src[start:end])
+        i = end
+    return bytes(out)
+
+
+_SQL_IDENT_PART = rb"(?:\[[^\]]*\]|\"[^\"]*\"|'[^']*'|`[^`]*`|[A-Za-z_#][\w$#@]*)"
+_SQL_OBJECT_NAME_RE = re.compile(
+    rb"\s*(" + _SQL_IDENT_PART + rb"(?:\s*\.\s*" + _SQL_IDENT_PART + rb")*)"
+)
+# Whitespace runs stay unambiguous: linear.
+_SQL_DEFINER_PART = rb"(?:`[^`\r\n]*`|\"[^\"\r\n]*\"|'[^'\r\n]*'|[\w$.%-]+)"
+_SQL_DEFINER_VALUE = (
+    rb"(?:"
+    + _SQL_DEFINER_PART
+    + rb"(?:\s*@(?:\s*"
+    + _SQL_DEFINER_PART
+    + rb")?)?|@(?:\s*"
+    + _SQL_DEFINER_PART
+    + rb")?)(?:\s*\(\s*\))?"
+)
+_SQL_ROUTINE_HEADER_RE = re.compile(
+    rb"\b(?P<verb>CREATE|ALTER)\s+"
+    rb"(?:OR\s+(?:ALTER|REPLACE)\s+)?"
+    rb"(?:DEFINER\s*=\s*" + _SQL_DEFINER_VALUE + rb"\s+)?"
+    rb"(?:(?:NON)?EDITIONABLE\s+|CONSTRAINT\s+)?"
+    # PROCEDURE before PROC: longest wins.
+    # Single \s: runs eat masked names.
+    rb"(?P<kw>PROCEDURE|PROC|TRIGGER)\s"
+    rb"(?:\s*IF\s+NOT\s+EXISTS\s)?",
+    re.IGNORECASE,
+)
+_SQL_TRIGGER_EVENT = (
+    rb"(?:INSERT|DELETE|TRUNCATE|UPDATE(?:\s+OF\s+"
+    + _SQL_IDENT_PART
+    + rb"(?:\s*,\s*"
+    + _SQL_IDENT_PART
+    + rb")*)?)"
+)
+_SQL_TRIGGER_ON_RE = re.compile(
+    rb"\s*(?:(?:BEFORE|AFTER|INSTEAD\s+OF)\s+"
+    + _SQL_TRIGGER_EVENT
+    + rb"(?:\s+OR\s+"
+    + _SQL_TRIGGER_EVENT
+    + rb")*\s+)?ON\b",
+    re.IGNORECASE,
+)
+_SQL_PROC_NUMBER_RE = re.compile(rb"\s*;\s*\d+")
+_SQL_BATCH_SEPARATOR_RE = re.compile(
+    rb"^[ \t]*GO[ \t]*\r?$", re.IGNORECASE | re.MULTILINE
+)
+_SQL_BODY_START_RE = re.compile(rb"\bAS\b", re.IGNORECASE)
+_SQL_BANNER_RULE_RE = re.compile(r"^[=\-*_\s]*$")
+
+_SQL_SIGNATURE_SCAN_LIMIT = 2000
+_SQL_SIGNATURE_MAX_CHARS = 200
+
+
+def _sql_leading_comment(src: bytes, offset: int) -> str:
+    line_start = src.rfind(b"\n", 0, offset) + 1
+    if src[line_start:offset].strip():
+        return ""
+    collected: list[str] = []
+    end = line_start - 1
+    while end >= 0:
+        parse_budget.checkpoint()
+        prev_start = src.rfind(b"\n", 0, end) + 1
+        stripped = src[prev_start:end].strip()
+        if not stripped.startswith(b"--"):
+            break
+        end = prev_start - 1
+        text = stripped.lstrip(b"-").decode("utf-8", errors="replace").strip()
+        if _SQL_BANNER_RULE_RE.match(text):
+            continue
+        collected.append(text)
+    collected.reverse()
+    return "\n".join(collected)
+
+
+def _scan_sql_routines(
+    source_bytes: bytes,
+    filename: str,
+    table_ids: Optional[dict[str, str]] = None,
+) -> list[Symbol]:
+    """Trigger parent: same-file table id only."""
+    if not _SQL_ROUTINE_HEADER_RE.search(source_bytes):
+        return []
+
+    masked = _mask_sql_noise(source_bytes)
+    headers = [
+        (m.start(), m.group("verb").upper(), m.group("kw").upper(), m.end())
+        for m in _SQL_ROUTINE_HEADER_RE.finditer(masked)
+    ]
+    if not headers:
+        return []
+
+    # Keep quoted defaults in signatures.
+    uncommented = _mask_sql_noise(source_bytes, mask_strings=False)
+
+    # latin-1: one char per byte.
+    line_of = _line_numbers(source_bytes.decode("latin-1"))
+
+    symbols: list[Symbol] = []
+    for idx, (start, verb, keyword, after_kw) in enumerate(headers):
+        parse_budget.checkpoint()
+        # Original bytes: mask blanks quoted names.
+        name_match = _SQL_OBJECT_NAME_RE.match(source_bytes, after_kw - 1)
+        if not name_match:
+            continue
+        name = _clean_sql_name(name_match.group(1).decode("utf-8", errors="replace"))
+        if not name:
+            continue
+
+        kind = "trigger" if keyword == b"TRIGGER" else "procedure"
+        parent = None
+        if keyword == b"TRIGGER":
+            on_match = _SQL_TRIGGER_ON_RE.match(masked, name_match.end())
+            if on_match:
+                table_match = _SQL_OBJECT_NAME_RE.match(source_bytes, on_match.end())
+                if table_match and table_ids:
+                    parent = table_ids.get(
+                        _clean_sql_name(
+                            table_match.group(1).decode("utf-8", errors="replace")
+                        )
+                    )
+
+        end = headers[idx + 1][0] if idx + 1 < len(headers) else len(source_bytes)
+        sep = _SQL_BATCH_SEPARATOR_RE.search(masked, start, end)
+        if sep:
+            end = sep.start()
+
+        # ALTER without a body is maintenance.
+        if verb == b"ALTER":
+            lo = name_match.end()
+            num = _SQL_PROC_NUMBER_RE.match(masked, lo, end)
+            if num:
+                lo = num.end()
+            as_at = _SQL_BODY_START_RE.search(masked, lo, end)
+            if not as_at or masked.find(b";", lo, as_at.start()) != -1:
+                continue
+
+        scan_end = min(end, start + _SQL_SIGNATURE_SCAN_LIMIT)
+        body_as = _SQL_BODY_START_RE.search(masked, name_match.end(), scan_end)
+        header_end = body_as.start() if body_as else scan_end
+        signature = " ".join(
+            uncommented[start:header_end].decode("utf-8", errors="replace").split()
+        )
+        if len(signature) > _SQL_SIGNATURE_MAX_CHARS:
+            signature = signature[:_SQL_SIGNATURE_MAX_CHARS].rstrip() + "..."
+
+        body = source_bytes[start:end]
+        symbols.append(Symbol(
+            id=make_symbol_id(filename, name, kind),
+            file=filename,
+            name=name,
+            qualified_name=name,
+            kind=kind,
+            language="sql",
+            signature=signature,
+            docstring=_sql_leading_comment(source_bytes, start),
+            parent=parent,
+            line=line_of(start),
+            end_line=line_of(max(start, end - 1)),
+            byte_offset=start,
+            byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    return symbols
+
+
+# Grammar drops '#'; read raw bytes.
+_SQL_TEMP_MARKER_RE = re.compile(
+    rb"\bCREATE\s+(?:GLOBAL\s+|LOCAL\s+)?(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([#@])",
+    re.IGNORECASE,
+)
+
+_SQL_LOCAL_ONLY_KINDS: frozenset[str] = frozenset({"table"})
+
+
+def _resolve_nested_sql_symbols(
+    symbols: list[Symbol],
+    routines: list[Symbol],
+    source_bytes: bytes,
+) -> list[Symbol]:
+    """Containment, not ERROR ancestry, marks nesting."""
+    if not routines or not symbols:
+        return symbols
+
+    # Routines sorted, disjoint: bisect suffices.
+    starts = [r.byte_offset for r in routines]
+
+    resolved: list[Symbol] = []
+    for sym in symbols:
+        parse_budget.checkpoint()
+        idx = bisect.bisect_right(starts, sym.byte_offset) - 1
+        host = None
+        if idx >= 0:
+            routine = routines[idx]
+            if routine.byte_offset < sym.byte_offset < routine.byte_offset + routine.byte_length:
+                host = routine.id
+        if host is None:
+            resolved.append(sym)
+            continue
+
+        if sym.kind in _SQL_LOCAL_ONLY_KINDS and _SQL_TEMP_MARKER_RE.match(
+            source_bytes, sym.byte_offset
+        ):
+            continue
+
+        resolved.append(replace(sym, parent=host))
+
+    return resolved
+
+
 def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from SQL source files using tree-sitter.
 
@@ -11664,7 +11955,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             direct ``identifier`` child.
 
     ``CREATE PROCEDURE`` and ``CREATE TRIGGER`` produce ERROR nodes in this
-    grammar and are not extracted.
+    grammar; ``_scan_sql_routines`` recovers them.
 
     Jinja-templated SQL (dbt models) is pre-processed by ``sql_preprocessor``
     to replace ``{{ }}``, ``{% %}``, and ``{# #}`` tokens with ``__jinja__``
@@ -11726,10 +12017,10 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     # Node types we extract and their symbol kind
     NODE_KIND_MAP = {
-        "create_table": "type",
-        "create_view": "type",
+        "create_table": "table",
+        "create_view": "view",
         "create_function": "function",
-        "create_index": "type",
+        "create_index": "index",
         "create_schema": "type",
         "cte": "function",
     }
@@ -11748,7 +12039,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 if child.type == "object_reference":
                     # object_reference may contain schema.name (multiple identifiers)
                     # Take the full text as the name (e.g. "schema.table_name")
-                    return _node_text(child)
+                    return _clean_sql_name(_node_text(child)) or None
             return None
 
         # create_index, create_schema, cte: name is a direct identifier child
@@ -11756,7 +12047,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for child in node.children:
                 parse_budget.checkpoint()
                 if child.type == "identifier":
-                    return _node_text(child)
+                    return _clean_sql_name(_node_text(child)) or None
             return None
 
         return None
@@ -11799,12 +12090,18 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         if node_type == "create_index":
             name = _extract_name(node) or "?"
-            # Find the ON target
+            # Find the ON target; skip ERROR nodes.
             on_target = ""
             for i, child in enumerate(node.children):
                 parse_budget.checkpoint()
-                if child.type == "keyword_on" and i + 1 < len(node.children):
-                    on_target = f" ON {_node_text(node.children[i + 1])}"
+                if child.type != "keyword_on":
+                    continue
+                for following in node.children[i + 1:]:
+                    parse_budget.checkpoint()
+                    if following.type in ("object_reference", "identifier"):
+                        on_target = f" ON {_clean_sql_name(_node_text(following))}"
+                        break
+                break
             return f"CREATE INDEX {name}{on_target}"
 
         if node_type == "create_schema":
@@ -11870,8 +12167,17 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
     _walk(tree.root_node)
 
+    # Temp tables are not schema objects.
+    table_ids = {
+        s.name: s.id
+        for s in symbols
+        if s.kind == "table" and not _SQL_TEMP_MARKER_RE.match(source_bytes, s.byte_offset)
+    }
+    routine_symbols = _scan_sql_routines(source_bytes, filename, table_ids)
+    symbols = _resolve_nested_sql_symbols(symbols, routine_symbols, source_bytes)
+
     # Merge dbt directive symbols with tree-sitter SQL symbols
-    all_symbols = dbt_symbols + symbols
+    all_symbols = dbt_symbols + symbols + routine_symbols
     all_symbols.sort(key=lambda s: s.line)
     return all_symbols
 

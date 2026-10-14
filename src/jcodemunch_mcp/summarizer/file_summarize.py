@@ -6,6 +6,13 @@ from ..parser.symbols import STATE_KINDS, Symbol, plural_kind
 from ..parser.context.base import ContextProvider
 
 
+_DB_OBJECT_LABELS: dict[str, str] = {
+    "procedure": "procedures",
+    "trigger": "triggers",
+    "table": "tables",
+    "view": "views",
+    "index": "indexes",
+}
 # ⚠ `_ORDINAL_SUFFIX` was deleted in #821 with its only reader. It stripped the
 # `~1`/`~2` off a class id to compensate for children whose `parent` kept the
 # pre-renumbering id; the producer follows them now, so stripping here would
@@ -89,6 +96,14 @@ def _heuristic_summary(file_path: str, symbols: list[Symbol]) -> str:
         else:
             names = ", ".join(f.name for f in functions[:3])
             parts.append(f"Contains {len(functions)} functions: {names}, ...")
+    for kind, label in _DB_OBJECT_LABELS.items():
+        objects = [s for s in symbols if s.kind == kind]
+        if not objects:
+            continue
+        names = ", ".join(o.name for o in objects[:3])
+        suffix = ", ..." if len(objects) > 3 else ""
+        parts.append(f"Contains {len(objects)} {label}: {names}{suffix}")
+
     if types and not parts:
         names = ", ".join(t.name for t in types[:3])
         parts.append(f"Defines types: {names}")

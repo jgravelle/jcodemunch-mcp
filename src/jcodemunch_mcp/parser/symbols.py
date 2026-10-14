@@ -94,6 +94,12 @@ KIND_ORDER: tuple[str, ...] = (
     # existing position is bytes a client has already cached, and a reorder is
     # a full-rate schema rewrite for every user.
     "variable",   # Module-scope mutable bindings: JS/TS `let`/`var`, Go `var`
+    # Appended: positions are cached bytes.
+    "procedure",
+    "trigger",    # parent: same-file table id only
+    "table",
+    "view",
+    "index",
 )
 
 VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)
@@ -149,6 +155,22 @@ def plural_kind(kind: str, count: int) -> str:
     if count == 1:
         return kind
     return _IRREGULAR_PLURALS.get(kind, kind + "s")
+
+CALLABLE_KINDS: frozenset[str] = frozenset({
+    "function", "method", "procedure", "trigger",
+})
+
+TYPE_LIKE_KINDS: frozenset[str] = frozenset({
+    "type", "class", "table", "view",
+})
+
+
+def is_callable_kind(kind: str) -> bool:
+    return kind in CALLABLE_KINDS
+
+
+def is_type_like_kind(kind: str) -> bool:
+    return kind in TYPE_LIKE_KINDS
 
 
 def make_symbol_id(file_path: str, qualified_name: str, kind: str = "") -> str:

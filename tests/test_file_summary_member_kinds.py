@@ -323,7 +323,10 @@ def test_state_kinds_names_every_kind_that_is_not_behaviour_or_wiring():
     """
     from jcodemunch_mcp.parser.symbols import STATE_KINDS
 
-    not_state = {"function", "class", "method", "type", "template", "import"}
+    not_state = {
+        "function", "class", "method", "type", "template", "import",
+        "procedure", "trigger", "table", "view", "index",
+    }
     assert set(STATE_KINDS) | not_state == set(KIND_ORDER)
     assert not (set(STATE_KINDS) & not_state)
 

@@ -637,7 +637,12 @@ INDEX_VERSION = 17
 #   unquoted. A page whose directive or server control uses either form gains
 #   its codebehind and handler edges, its control symbols and its server-script
 #   symbols, on UNCHANGED content.
-PARSER_GENERATION = 20
+#
+# 21: a T-SQL/Sybase stored procedure or trigger is a symbol (recovered by
+#   source scan), a bracket-quoted name is `schema.name`, and a SQL table,
+#   view or index has its own kind instead of `type`. ⚠⚠ Symbol ids MOVE:
+#   `type` -> `table`/`view`/`index`, and `dbo].[X` -> `dbo.X`.
+PARSER_GENERATION = 21
 
 
 @dataclass(frozen=True)

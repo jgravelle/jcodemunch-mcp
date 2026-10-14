@@ -299,4 +299,10 @@ def test_the_kind_is_new_and_the_tuple_grew_at_the_end():
     anywhere but the end rewrites bytes every client already holds — a
     full-rate cache write for every user, for a reorder that buys nothing.
     """
-    assert KIND_ORDER[-1] == "variable"
+    # Extend the pin; never reorder it.
+    pinned = (
+        "function", "class", "method", "constant", "type", "template",
+        "import", "field", "property", "variable",
+    )
+    assert KIND_ORDER[: len(pinned)] == pinned
+    assert KIND_ORDER.count("variable") == 1
