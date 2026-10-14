@@ -61,7 +61,7 @@ Like a build tree, generated migrations are corpus definition rather than a
 withheld file, so absence claims over the rest of the index stay citable. An
 existing index picks up a framework's migrations package at its next full walk.
 
-### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
+### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
 NOTHING, and what was lost was the logic -- the stored procedures and
@@ -83,7 +83,14 @@ object had been stored as kind `type`; `procedure`, `trigger`, `table`,
 `view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
 published in the cached schema prefix, and `STATE_KINDS` classifies all five
 as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
-five entries, a one-time cache write for clients on the `full` surface.
+five entries, and every profile that serves `search_symbols` publishes it, not
+only `full`: `core_compact` moves 3,971 -> 3,981 tokens (the hard ceiling is
+4,000) and the `full` list 23,916 -> 23,926, measured on this tree and on
+upstream's with `benchmarks/harness/capture_schema_baseline.py`; only the
+`counter` front door (945) is unchanged. Each is a one-time cache write for a
+client on that profile. ⚠ `search_symbols(kind="type")` on a SQL file now
+returns schemas only, so a caller that filtered `type` to find tables, views or
+indexes must ask for `table`, `view` or `index`.
 `PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
 so every existing index re-parses once on the next `index_folder` /
 `index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
@@ -99,7 +106,23 @@ RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
 `CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
 `[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
 `IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
-<events>` clause as well as directly after the name. ⚠ The dead-code and
+<events>` clause as well as directly after the name. ⚠ A routine's span ends at its
+own terminator, so the objects written after it are top level and
+`get_symbol_source` on it returns the routine alone: a dollar-quoted body ends
+at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
+characteristics), a quoted body at the following `;`, a MySQL routine at the
+active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
+`BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
+and `END CASE`, and not counting `BEGIN TRANSACTION`), and a body-less trigger
+or routine at its `;`. Before, a file with no `GO` re-parented every table,
+view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
+Sybase have no reliable body terminator and keep running to `GO` or the next
+routine header; a body whose terminator cannot be told does the same. A
+bracketed T-SQL identifier is opaque to the comment and string masker, so
+`[it's]` no longer hides the routines after it. The file-representative rank
+(`get_repo_map`, `get_repo_outline`) puts `table`, `view` and `index` where
+`type` sat and a `procedure` or `trigger` with the callables, so a `CREATE
+SCHEMA` no longer represents the tables it creates. The dead-code and
 untested-symbol tools still judge only `function`/`method`, so they make no
 claim about procedures or triggers, whose callers sit outside the static
 graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
