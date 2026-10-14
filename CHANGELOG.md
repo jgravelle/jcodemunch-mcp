@@ -20,8 +20,12 @@ The `runat` gate and the `On*` pattern were searched over the raw tag, so text
 inside a quoted value counted as an attribute: `ToolTip='use OnClick="Evil_Click"'`
 named a codebehind handler, and `ToolTip='x runat="server"'` opened the gate for
 a tag with no `runat`. A tag's attributes are now read in one left-to-right pass
-that consumes each quoted value whole, in both readers, so text inside a value is
-never an attribute in any quote form. `runat` must be the whole
+that consumes each quoted value whole, in both readers, so attribute-shaped text
+inside a value is not read as an attribute of that tag. One case remains, and it
+errs toward keeping code alive: the import reader still splits tags at `<` and `>`
+without regard to quotes, so a whole tag written inside a value
+(`Text="<b runat=server onclick=X>"`) is read as a tag of its own and can name a
+handler. `runat` must be the whole
 attribute name and `server` the whole value, so `data-runat="server"` and
 `runat=server-x` do not open it either. Inline `<%...%>` blocks are blanked
 before that pass, because their quotes shifted it:
