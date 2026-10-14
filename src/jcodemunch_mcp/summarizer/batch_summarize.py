@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from .. import config as _config
 from ..parser.symbols import Symbol
+from .xml_doc import unwrap_xml_doc_summary
 
 logger = logging.getLogger(__name__)
 
@@ -122,11 +123,18 @@ def _resolve_extra_body(repo: Optional[str] = None) -> dict:
 def extract_summary_from_docstring(docstring: str) -> str:
     """Extract first sentence from docstring (Tier 1).
 
-    Takes the first line and truncates at first period.
-    Costs zero tokens.
+    Takes the first line and truncates at first period. Costs zero tokens.
+
+    ⚠ XML documentation comments are unwrapped FIRST (`summarizer/xml_doc.py`). They
+    put the summary element's opening tag on line 1, so without this every
+    `///`-documented C# and AL symbol got the literal tag as its summary.
+    Summaries are scored by BM25 in `search_symbols`, so this was retrieval
+    quality on every C# and AL codebase, not only display.
     """
     if not docstring:
         return ""
+
+    docstring = unwrap_xml_doc_summary(docstring)
 
     # Take first line, strip whitespace
     first_line = docstring.strip().split("\n")[0].strip()

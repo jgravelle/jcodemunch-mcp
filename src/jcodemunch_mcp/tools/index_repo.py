@@ -20,6 +20,7 @@ from ..storage.index_store import PARSER_GENERATION
 from ._indexing_pipeline import (
     parse_and_prepare_incremental,
     parse_and_prepare_full,
+    preservable_summaries,
 )
 from ._utils import (
     PARSER_UPGRADE_WARNING,
@@ -620,11 +621,9 @@ async def index_repo(
                 if existing_index.file_hashes.get(f) == h
             }
             if _unchanged_files:
-                _existing_summaries = {
-                    (s["file"], s["name"], s["kind"]): s["summary"]
-                    for s in existing_index.symbols
-                    if s.get("summary") and s.get("file") in _unchanged_files
-                }
+                _existing_summaries = preservable_summaries(
+                    existing_index.symbols, _unchanged_files
+                )
                 logger.info(
                     "index_repo full — %d/%d files unchanged, %d summaries preserved",
                     len(_unchanged_files), len(file_hashes),

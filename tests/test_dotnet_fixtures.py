@@ -159,8 +159,12 @@ def test_web_config_would_yield_real_wiring_if_it_were_mapped():
 # ---------------------------------------------------------------------------
 
 
-def test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary():
-    """Pins a defect: the summary is the literal `<summary>`, not the doc text."""
+def test_designer_control_fields_summarise_as_the_xml_doc_text():
+    """The pin moved: this was the literal `<summary>` until the summarizer
+    unwrapped XML doc comments (`summarizer/xml_doc.py`). The docstring keeps
+    its XML; the summary built from it is the sentence."""
+    from jcodemunch_mcp.summarizer.batch_summarize import summarize_symbols_simple
+
     source = _read("webforms_site.master.designer.cs")
     assert "/// <summary>" in source
     assert "/// HeadContent control." in source
@@ -168,16 +172,10 @@ def test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary():
     symbols = parse_file(source, "Site.Master.designer.cs", "csharp")
     fields = [s for s in symbols if s.name == "HeadContent"]
     assert fields, "the generated control field should be extracted"
+    assert "<summary>" in (fields[0].docstring or "")
 
-    summary = (fields[0].summary or "").strip()
-    docstring = (fields[0].docstring or "").strip()
-    blob = summary + " " + docstring
-    assert "<summary>" in blob, (
-        "the defect appears to be fixed -- if so, assert the real text instead"
-    )
-    assert "HeadContent control." not in summary, (
-        "summary now carries the real doc text; update this test, the bug is fixed"
-    )
+    (field,) = summarize_symbols_simple(fields[:1])
+    assert field.summary == "HeadContent control."
 
 
 def test_designer_files_are_mostly_generated_field_noise():
