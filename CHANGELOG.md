@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.360] - 2026-10-13 - a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
+
 ### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
 
 ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
