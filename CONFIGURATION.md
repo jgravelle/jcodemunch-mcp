@@ -583,6 +583,12 @@ Tool surface: full (91 tools, 26,943 schema tokens)
 
 The same offer is also added once per install to the first successful `resolve_repo` answer, as a `surface_notice` object the agent is asked to relay to you; a marker file, `surface_notice_state.json` in the storage directory, records that it was said. `surface_offer_seen` silences that too. See SECURITY.md, "Background behavior".
 
+### `tool_counters` and `jcodemunch-mcp diagnose`
+
+The server keeps two counts per tool in `_tool_counters.json` in the storage directory: calls, and tokens returned (the answer's bytes divided by 4; the file names that estimator). They are on by default and are sent nowhere. The file is written every 20 calls, or on the first call after 30 seconds, and when the server stops. A call relayed by the front door is counted under both names and its size under the tool that answered. Set `"tool_counters": false` to record nothing; no file is then written.
+
+`jcodemunch-mcp diagnose` joins those counts with the tokens saved per tool, the server versions, each index's sizes, the tool surface and the state of each installed policy, and writes one JSON report to `<storage>/diagnose/`. The report is built from a fixed list of fields and of what each value may be: an index appears as `index-1`, never by name or path, a tool name the server does not publish is added into `other`, and a `tool_profile` you named yourself appears as `custom`. `--include-anon-id` adds the anonymous savings id, which is otherwise left out; `--stdout` prints the report and writes no file. Things to know when reading one: tokens saved and the two counts began on different dates, given as `saved_since` and `counting_since`; counts a running server has not written yet are not in it; `source_bytes` is `null` for an index that stores no file sizes; a saved figure is `null` when the savings file could not be read; and a companion server reads `null` when it is not installed in the same Python environment.
+
 ⚠ The numbers above are this machine's. Yours differ if you have `disabled_tools` set or are on a narrower `tool_profile` — which is why the offer computes them rather than quoting ours.
 
 #### `disabled_tools` precedence

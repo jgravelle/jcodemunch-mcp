@@ -5748,6 +5748,56 @@ def _response_text_bytes(result: "list[TextContent] | CallToolResult") -> int:
     return total
 
 
+_COUNTED_TOOL_NAMES: "frozenset | None" = None
+
+
+def _counted_tool_names() -> frozenset:
+    """Every name a per-tool counter may be keyed by: the catalog and the front door."""
+    global _COUNTED_TOOL_NAMES
+    if _COUNTED_TOOL_NAMES is None:
+        _COUNTED_TOOL_NAMES = frozenset(_catalog_names() | set(_COUNTER_FRONT_DOOR))
+    return _COUNTED_TOOL_NAMES
+
+
+# The dispatcher frame a call is counted in. `order` re-dispatches through
+# `call_tool`, so one client request runs two frames; the inner one marks its
+# parent so the same bytes are not counted under two names.
+_COUNT_FRAME: "contextvars.ContextVar[Optional[dict]]" = contextvars.ContextVar(
+    "jcm_count_frame", default=None
+)
+
+
+def _count_tool_call(
+    name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
+) -> None:
+    """Add this call to the local per-tool counters (`storage/tool_counters.py`).
+
+    Called from every dispatcher frame with the value that frame returns, after
+    the response cap, so a refusal is counted at the size the client saw.
+    ⚠ **A call relayed by the front door is counted under both names and its
+    size under ONE**: the tool that answered. *relayed* is the outer frame
+    saying an inner frame already counted these bytes; without it every row on
+    the default surface was mirrored under `order` (review, 2026-10-13).
+    ⚠ A dispatch that raised is a call with no answer: *result* is None and
+    it adds a call and no tokens, so `calls` agrees with the latency rows.
+    ⚠ *name* is the client's string: only a name this server publishes is
+    counted, so nothing else can be written into a file the user may hand to
+    someone. ⚠ It never touches the disk (the counters module hands a due
+    write to a thread) and a failure here never reaches the answer.
+    """
+    try:
+        if not config_module.get("tool_counters", True):
+            return
+        if name not in _counted_tool_names():
+            return
+        from .storage import tool_counters
+
+        size = 0 if relayed or result is None else _response_text_bytes(result)
+        tool_counters.record(name, size)
+    except Exception:
+        logger.debug("tool counter not recorded for %s", name, exc_info=True)
+
+
 def _enforce_response_cap(
     name: str, result: "list[TextContent] | CallToolResult"
 ) -> "list[TextContent] | CallToolResult":
@@ -5841,11 +5891,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
     # cannot drift from what the client saw because it IS what the client saw.
     _t0_dispatch = time.perf_counter()
     _dispatch_ok = False
+    _count_parent = _COUNT_FRAME.get()
+    _count_frame: dict = {"inner": False}
+    _count_token = _COUNT_FRAME.set(_count_frame)
+    _counted_result: "list[TextContent] | CallToolResult | None" = None
     try:
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
         _dispatch_ok = not bool(getattr(result, "isError", False))
+        _counted_result = result
         return result
     finally:
+        _COUNT_FRAME.reset(_count_token)
+        _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
+        if _count_parent is not None:
+            _count_parent["inner"] = True
         try:
             from .storage.token_tracker import record_tool_latency
             _duration_ms = (time.perf_counter() - _t0_dispatch) * 1000.0
@@ -9989,6 +10048,21 @@ def main(argv: Optional[list[str]] = None):
         help="Emit JSON instead of pretty-printed output",
     )
 
+    # --- diagnose ---
+    diagnose_parser = subparsers.add_parser(
+        "diagnose",
+        help="Write one local report (versions, index sizes, tool surface, policy state, per-tool counts). "
+             "No paths or repository names; nothing is sent.",
+    )
+    diagnose_parser.add_argument(
+        "--stdout", action="store_true",
+        help="Print the report instead of writing a file",
+    )
+    diagnose_parser.add_argument(
+        "--include-anon-id", action="store_true", dest="include_anon_id",
+        help="Add the anonymous savings id (left out by default)",
+    )
+
     # --- uninstall ---
     uninstall_parser = subparsers.add_parser(
         "uninstall",
@@ -10464,7 +10538,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -10774,6 +10848,32 @@ def main(argv: Optional[list[str]] = None):
     if args.command == "install-status":
         from .cli.init import install_status as _install_status, print_status as _print_status
         _print_status(_install_status(), as_json=getattr(args, "as_json", False))
+        sys.exit(0)
+
+    if args.command == "diagnose":
+        # Above the shared load_config() call, like `surface`: the surface block
+        # is shaped by tool_surface / tool_profile / disabled_tools.
+        # ⚠ `create_missing=False`: this command reads, and `--stdout` is
+        # documented to write no file; the default would create config.jsonc.
+        config_module.load_config(create_missing=False)
+        from . import diagnose as _diagnose
+
+        _report = _diagnose.build_report(
+            surface_stats=_tool_surface_stats(),
+            known_tools=_counted_tool_names(),
+            include_anon_id=getattr(args, "include_anon_id", False),
+        )
+        if getattr(args, "stdout", False):
+            print(json.dumps(_report, indent=2))
+        else:
+            _path = _diagnose.write_report(_report)
+            print(f"Report written to {_path}")
+            print("Nothing was sent. It holds no path and no repository name; read it before you share it.")
+            from .storage import tool_counters as _tc
+
+            print(f"Counts a running server has not written yet are not in it (it writes every "
+                  f"{_tc._FLUSH_EVERY} calls, or on the first call after {_tc._FLUSH_SECONDS:g} seconds, "
+                  "and when it stops).")
         sys.exit(0)
 
     if args.command == "uninstall":

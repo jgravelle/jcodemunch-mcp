@@ -261,18 +261,9 @@ def installed_policy_drift(text: str) -> dict | None:
     edited on purpose; the caller must say so, and must never rewrite it
     (the ``surface_offer`` rule: a message, never a migration).
     """
-    lines = text.splitlines()
-    # Found the way `init` finds it: the first line CONTAINING the marker.
-    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
-    if start is None:
+    installed = installed_policy_block(text)
+    if installed is None:
         return None
-    own = _policy_headings()
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## ") and lines[i].strip() not in own:
-            end = i
-            break
-    installed = _normalise(lines[start:end])
     current = _normalise(active_policy().splitlines())
     if installed == current:
         return {"state": "current"}
@@ -286,6 +277,27 @@ def installed_policy_drift(text: str) -> dict | None:
         if tag != "equal"
     )
     return {"state": "differs", "lines_differing": changed}
+
+
+def installed_policy_block(text: str) -> list[str] | None:
+    """The policy block in *text*, normalised, or ``None`` when there is none.
+
+    THE one reader of where the block starts and ends: ``installed_policy_drift``
+    compares it and ``diagnose`` digests it, and a second copy of the boundary
+    rule would let the two disagree about the same file.
+    """
+    lines = text.splitlines()
+    # Found the way `init` finds it: the first line CONTAINING the marker.
+    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
+    if start is None:
+        return None
+    own = _policy_headings()
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("## ") and lines[i].strip() not in own:
+            end = i
+            break
+    return _normalise(lines[start:end])
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:

@@ -403,6 +403,10 @@ DEFAULTS = {
     # status commands re-asking. It exists so "no thanks" is a supported
     # permanent answer that does not require accepting the offer to silence it.
     "surface_offer_seen": False,
+    # Two local per-tool counters (calls, tokens returned) kept in
+    # `_tool_counters.json` for `jcodemunch-mcp diagnose`. Sent nowhere; false
+    # records nothing and writes no file (storage/tool_counters.py).
+    "tool_counters": True,
     "tool_tier_bundles": {
         "core": [
             "index_repo", "index_folder", "index_file",
@@ -570,6 +574,7 @@ CONFIG_TYPES = {
     "tool_profile": str,
     "tool_surface": str,
     "surface_offer_seen": bool,
+    "tool_counters": bool,
     "tool_tier_bundles": dict,
     "model_tier_map": dict,
     "adaptive_tiering": bool,
@@ -2377,6 +2382,12 @@ def generate_template() -> str:
   // move to the current default. Set true to stop being asked; it changes
   // nothing about which tools are served.
   // "surface_offer_seen": false,
+
+  // === Tool Counters ===
+  // Two local counts per tool (calls, tokens returned) kept in
+  // _tool_counters.json in the storage directory, for `jcodemunch-mcp
+  // diagnose`. Nothing is sent. Set false to record nothing.
+  // "tool_counters": true,
 
   // === Compact Schemas ===
   // When true, strips rarely-used advanced parameters (debug, fusion, semantic_*,
