@@ -157,6 +157,13 @@
       "date": "2026-10-05"
     },
     {
+      "path": "tests/test_dotnet_fixtures.py::test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary",
+      "lesson": "A pinned weakness must be pinned where the weakness lives, or it outlives its fix (Practice 9). It asserted `<summary>` appeared in summary + docstring after `parse_file`, but `parse_file` sets no summary, so the docstring alone satisfied it: the docstring correctly keeps its XML, and the assertion stayed green on the tree that fixed the summary. The summary is built by the summarizer, so the replacement runs Tier 1 on the extracted field and asserts the sentence, while still asserting the docstring keeps its XML.",
+      "replacement": "tests/test_dotnet_fixtures.py::test_designer_control_fields_summarise_as_the_xml_doc_text",
+      "commit": "#1075",
+      "date": "2026-10-13"
+    },
+    {
       "path": "tests/test_sql_language.py::test_sql_table_as_type",
       "lesson": "The test pinned the defect it was named after: every non-function SQL object (table, view, index) was stored as kind `type`, so `search_symbols(kind=\"table\")` found nothing and a table could not be told from a user-defined type. It asserted the mechanism, a table reads as `type`, rather than the outcome, a table is findable as a table (Practice 9). The same file's view and index tests asserted `type` too and were corrected in place; this one's name stated the defect, so it was renamed rather than left asserting the opposite of what it says.",
       "replacement": "tests/test_sql_language.py::test_sql_table_kind",

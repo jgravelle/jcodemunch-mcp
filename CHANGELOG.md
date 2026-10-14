@@ -2,6 +2,76 @@
 
 ## [Unreleased]
 
+### Fixed - a C# or AL symbol's summary is its sentence, not the literal `<summary>` tag (#1075, @outoftheblue9)
+
+`extract_summary_from_docstring` took the first line of a docstring as its
+first sentence, which is true for Python, JSDoc, Go and Rust and false for
+XML documentation comments: they put `<summary>` on line one, so every
+`///`-documented C# and AL symbol summarised as the literal tag (or as
+`"<summary>Saves the order."` in the one-line form, which reads as a
+formatting quirk rather than a defect). Summaries are BM25-scored in
+`search_symbols`, so this was retrieval quality on every C# and AL codebase,
+not only display. C# and AL are the indexed languages whose parsers keep
+these comments: VB.NET is not indexed, and the F# parser extracts no doc
+comment at all, so neither had the defect and neither gains anything here.
+
+The rule now lives in one place, `summarizer/xml_doc.py`. A docstring that OPENS
+with an XML element, and whose `<summary>` comes before anything but other
+documentation sections (`<remarks>` first is legal), has that `<summary>`
+unwrapped before the first-line rule runs: a reference keeps the name it points
+at (`<see cref="T:System.String"/>` reads `String`, `<paramref name="x"/>`
+reads `x`), other tags are dropped without fusing the words around them,
+entities are decoded, and a summary wrapped for width is joined; spacing the
+author wrote is left as written. A doc comment made only of documentation
+sections (`<inheritdoc/>`, `<remarks>` or `<remarks/>`, `<param>`s,
+`<returns/>`, `<exclude/>`, `<filterpriority>`, a top-level `<para>`) falls to
+the signature fallback instead of summarising as markup, and so does an empty
+`<summary/>`, which is not read as an unterminated `<summary>` (that made the
+`<param>` after it the summary). A `<summary>` with no closing tag ends at the
+next documentation section. Every other docstring reaches the old rule
+byte-for-byte: one that MENTIONS `<summary>` in prose after other text,
+including after a leading tag (`<p>Renders a <summary> element.</p>`; a guard
+on the substring alone had turned such docstrings into fragments, among them
+the summarizer's own), and prose that merely starts with another tag, such as
+`<b>Deprecated</b> use Foo` or `<code>null</code> if absent` in Javadoc, JSDoc
+or C. ⚠ Prose that OPENS with `<summary>` itself (`<summary> element toggles
+the widget.`) is read as an unterminated summary and loses the tag: nothing
+tells the two apart. Only the first 4,096 characters are examined: the section
+pattern is quadratic on unterminated openers and runs outside the per-file
+parse budget, so a hostile docstring could otherwise stall an index for tens
+of seconds. The AL parser's `.replace("<summary>", "")`, a second copy of the rule
+that missed `<Summary>`, attributes and references, is gone: an AL docstring
+keeps its XML as a C# one does and summarises through the same module, and an
+empty `<summary>` stub is still no docstring at all.
+
+An existing index is repaired by its next index run. `PARSER_GENERATION` moves
+to 21, but that re-parse REUSES the stored summaries of unchanged files, so on
+its own it would re-parse every file and keep every summary the old rule
+wrote. A summary stored beside a docstring is now recomputed instead of
+reused. Recomputing it is free: no AI summarizer is ever given a symbol that
+has a docstring, so such a summary is always the free docstring rule or the
+signature fallback. One subset is the exception: an AL `<Summary></Summary>`,
+`<summary/>` or attributed empty stub had a docstring under the old
+`.replace("<summary>", "")` and has none now, so with AI summaries enabled each such symbol is sent to the
+summarizer once on that re-parse, exactly as a fresh index would. A summary stored WITHOUT a docstring may be a paid AI
+summary and is still kept; the check reads the stored row, not the new parse,
+so a parser change that gives a symbol a docstring cannot discard what the
+symbol earned without one. It is keyed on that property, not on how a stale
+value is spelled: the old rule wrote `<summary>`, `<remarks>R.` and
+`Posts <see cref="SalesHeader"/> now.` alike, and only the first starts with
+the tag.
+
+`test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary`
+(`tests/test_dotnet_fixtures.py`) pinned this defect as a tracked weakness and
+is retired in `harness/retired.json`. It asserted `<summary>` appeared in
+summary plus docstring after `parse_file`, which sets no summary, so the
+docstring alone satisfied it and it stayed green on the fixed tree. Lesson: pin
+a weakness where the weakness lives. Its replacement,
+`test_designer_control_fields_summarise_as_the_xml_doc_text`, runs the
+docstring rule on the extracted field and asserts the sentence. Pinned against
+a vendored, MIT-licensed Microsoft `Site.Master.designer.cs`, where the
+parser's half was always correct and only the summarizer's half was wrong.
+
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
@@ -25,7 +95,7 @@ object had been stored as kind `type`; `procedure`, `trigger`, `table`,
 published in the cached schema prefix, and `STATE_KINDS` classifies all five
 as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
 five entries, a one-time cache write for clients on the `full` surface.
-`PARSER_GENERATION` 20 -> 21: the stored rows are wrong on UNCHANGED content,
+`PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
 so every existing index re-parses once on the next `index_folder` /
 `index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
 its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
@@ -77,7 +147,7 @@ parse it; a function the grammar parsed keeps the grammar's symbol. ⚠ The
 `compact_schemas` it is demoted to a described string like `language`,
 because the SQL kinds pushed `core_compact` past its 4,000-token ceiling;
 an unknown kind is still refused server-side with the valid list.
-`PARSER_GENERATION` 21 -> 22: the rows change on UNCHANGED content. Tested
+`PARSER_GENERATION` 22 -> 23: the rows change on UNCHANGED content. Tested
 against vendored public corpora (AdventureWorks, Chinook, Sakila, sqlfluff
 T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
 `tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a

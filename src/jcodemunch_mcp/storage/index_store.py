@@ -638,16 +638,29 @@ INDEX_VERSION = 17
 #   its codebehind and handler edges, its control symbols and its server-script
 #   symbols, on UNCHANGED content.
 #
-# 21: a T-SQL/Sybase stored procedure or trigger is a symbol (recovered by
+# 21: a `///` XML doc comment (C#, AL) summarises as the sentence
+#   inside its `<summary>`, not the literal tag. No symbol id moves; `summary`
+#   changes on UNCHANGED content, and an AL `docstring` keeps its XML as a C#
+#   one does (an empty stub stays no docstring); a doc comment of only
+#   sections such as `<inheritdoc/>` falls to the signature. ⚠⚠ The bump alone
+#   repairs nothing: a re-parse REUSES the stored summaries of unchanged files,
+#   so `_indexing_pipeline.preservable_summaries` no longer carries over one
+#   stored beside a docstring -- free to recompute, because no AI summarizer is
+#   ever given a symbol with a docstring. Paid AI summaries are still kept. ⚠ An
+#   AL `<Summary></Summary>` or `<summary/>` stub loses its docstring here, so
+#   with AI enabled it costs one summarizer call on this re-parse, as a fresh
+#   index would.
+#
+# 22: a T-SQL/Sybase stored procedure or trigger is a symbol (recovered by
 #   source scan), a bracket-quoted name is `schema.name`, and a SQL table,
 #   view or index has its own kind instead of `type`. ⚠⚠ Symbol ids MOVE:
 #   `type` -> `table`/`view`/`index`, and `dbo].[X` -> `dbo.X`.
 #
-# 22: a SQL file is parsed one batch (`GO` / `/`) at a time, so one
+# 23: a SQL file is parsed one batch (`GO` / `/`) at a time, so one
 #   unparseable statement no longer loses every object after it, and named
 #   constraints, Sybase rules, defaults and `sp_addtype` types are symbols.
 #   ⚠⚠ The rows change on UNCHANGED content: objects that were lost appear.
-PARSER_GENERATION = 22
+PARSER_GENERATION = 23
 
 
 @dataclass(frozen=True)

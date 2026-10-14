@@ -29,7 +29,7 @@ family rather than a fragment.
 | `webforms_default.aspx` | `Default.aspx` | `<%@ Page %>` with `CodeBehind=` + `Inherits=` + `MasterPageFile=` |
 | `webforms_default.aspx.cs` | `Default.aspx.cs` | the codebehind half of the page↔class edge |
 | `webforms_site.master` | `Site.Master` | master page, `ContentPlaceHolder`, `<%@ Master %>` |
-| `webforms_site.master.designer.cs` | `Site.Master.designer.cs` | **reproduces the `<summary>` docstring defect** in public code — generated control fields whose XML doc comment is extracted as the literal tag |
+| `webforms_site.master.designer.cs` | `Site.Master.designer.cs` | **pins the `<summary>` summary fix** in public code — generated control fields whose XML doc comment summarised as the literal tag before `summarizer/xml_doc.py` (`tests/test_xml_doc_summary.py`) |
 | `webforms_viewswitcher.ascx` | `ViewSwitcher.ascx` | `<%@ Control %>` user control, `<%: %>` expressions |
 | `webforms_viewswitcher.ascx.cs` | `ViewSwitcher.ascx.cs` | user-control codebehind |
 | `webforms_global.asax` | `Global.asax` | `<%@ Application %>`, app lifecycle entry points |

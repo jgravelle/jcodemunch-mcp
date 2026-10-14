@@ -3033,11 +3033,10 @@ def index_folder(
                     if existing_index.file_hashes.get(f) == h
                 }
                 if _folder_unchanged_files:
-                    _folder_existing_summaries = {
-                        (s["file"], s["name"], s["kind"]): s["summary"]
-                        for s in existing_index.symbols
-                        if s.get("summary") and s.get("file") in _folder_unchanged_files
-                    }
+                    from . import _indexing_pipeline
+                    _folder_existing_summaries = _indexing_pipeline.preservable_summaries(
+                        existing_index.symbols, _folder_unchanged_files
+                    )
                     logger.info(
                         "index_folder full — %d/%d files unchanged, %d summaries preserved",
                         len(_folder_unchanged_files), len(file_hashes),
