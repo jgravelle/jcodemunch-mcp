@@ -287,7 +287,25 @@ def installed_policy_block(text: str) -> list[str] | None:
     rule would let the two disagree about the same file.
     """
     lines = text.splitlines()
-    # Found the way `init` finds it: the first line CONTAINING the marker.
+    span = policy_block_span(lines)
+    if span is None:
+        return None
+    return _normalise(lines[span[0] : span[1]])
+
+
+def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
+    """``(start, end)`` line indexes of the policy block in *lines*, or ``None``.
+
+    THE boundary rule. ``installed_policy_block`` reads through it, and so does
+    ``claude-md --refresh`` (``policy_refresh``), which replaces exactly these
+    lines: the check that says a block differs and the command that rewrites it
+    cannot disagree about where the block ends.
+
+    Found the way `init` finds it: the first line CONTAINING the marker. It runs
+    to the first ``## `` heading that is not one of the policy's own sections,
+    or to the end of the file, so a user's own section after it is never part
+    of it.
+    """
     start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
     if start is None:
         return None
@@ -297,7 +315,7 @@ def installed_policy_block(text: str) -> list[str] | None:
         if lines[i].startswith("## ") and lines[i].strip() not in own:
             end = i
             break
-    return _normalise(lines[start:end])
+    return start, end
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:

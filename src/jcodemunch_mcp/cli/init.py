@@ -659,7 +659,7 @@ def install_claude_md(scope: str = "global", *, dry_run: bool = False, backup: b
             return (
                 f"  policy already present in {path}, but it differs from the policy this "
                 "version installs (outdated, or edited on purpose; this cannot tell which). "
-                "See `jcodemunch-mcp config --check`."
+                "`jcodemunch-mcp claude-md --refresh` shows the difference and replaces it after asking."
             )
         return f"  policy already present in {path}"
     if dry_run:

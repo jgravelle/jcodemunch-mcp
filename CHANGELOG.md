@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Added - an installed agent policy can be brought up to date, and only when you ask
+
+`init` appends the agent policy block to CLAUDE.md once, and every install path
+skips a file that already holds it. So the policy rewritten in 1.108.357, which
+no longer says "Always use" or "Never fall back" and no longer requires two
+calls before every task, reached new installs only. `config --check` could say
+an installed block differed; nothing could replace it, and a user who never
+ran the check was never told.
+
+`jcodemunch-mcp claude-md --refresh` replaces it. It reads the global and the
+project CLAUDE.md, the two files `init` writes. For each block that differs from
+what this version installs, it prints the diff and asks before writing.
+`--yes` writes without asking, `--dry-run` writes nothing, and with no terminal
+and no `--yes` it writes nothing. Before a write it copies the file to a new
+`CLAUDE.md.jcodemunch-<time>.bak` beside it, never over an earlier backup. It
+replaces only the block: everything before and after it, a section of your own
+after it, the file's line endings and a missing final newline stay as they were.
+It refuses to write a file that changed after its diff was shown. The block's
+end is found by the same function the drift check uses (`policy_block_span`),
+so the check that says a block differs and the command that rewrites it can't
+disagree about where it ends. A block you edited on purpose can't be told from
+an old one, which is why the diff comes first.
+
+Existing installs are told the command exists. The first successful
+`resolve_repo` answer carries a `policy_notice` when either file holds a
+differing block: the path, how many lines differ, the command, and a line asking
+the agent to tell you once and not run it. It's in the answer body, like the
+tool-surface notice, because a user inside an MCP client never sees the
+server's log. A marker records the digest of the policy it was about. The same
+policy is said once per install, and a later version that ships a different
+policy says it again. A current block or no block says nothing and writes no
+marker. `init` and `config --check` now name the command where they report a
+differing block. SECURITY.md lists the notice, its marker and what the server
+reads.
+
 ## [1.108.360] - 2026-10-13 - a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
 
 ### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
