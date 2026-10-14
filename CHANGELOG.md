@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH
+
+`init` wrote every hook command, the Codex server entry and the post-`upgrade`
+hook refresh with the executable `shutil.which("jcodemunch-mcp")` found: the
+first copy on PATH. Someone with an older install on PATH who installed a newer
+one in a venv or with `uv tool`, then ran its `init` by full path, got six hooks
+that call the older version. Nothing reported it, because the old version
+answers every hook. The reindex hook had a fourth answer of its own, its launch
+path.
+
+All four now ask `install_layout.own_executable()`. It returns the absolute
+path this process was launched from, or failing that the `jcodemunch-mcp` in
+the running interpreter's scripts directory. Only when neither exists does a
+caller fall back to PATH, and then to the bare name, as before. A relative
+launch path is never used, because a hook would resolve it inside the
+checked-out repository. An executable inside uv's cache, where `uvx` runs, is
+not written either: `uv cache clean` deletes it and every hook pointing there.
+A test fails if any other module resolves our executable from PATH directly.
+Existing hooks change only when `init` runs again.
+
 ## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
 
 ### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere

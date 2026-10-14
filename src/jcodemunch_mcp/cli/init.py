@@ -71,7 +71,9 @@ def _hook_invocation() -> str:
     Windows API that accepts a path and don't trigger bash escape
     parsing.
     """
-    resolved = shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    resolved = executable_for_commands()
     if not resolved:
         # Fall back to bare name; user will get a clear error if PATH is wrong.
         return "jcodemunch-mcp"
@@ -347,7 +349,9 @@ def _codex_command() -> Optional[str]:
     cannot resolve a real binary has to say so instead of writing a config
     that appears to work.
     """
-    return shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    return executable_for_commands()
 
 
 def _has_codex_entry(text: str) -> bool:

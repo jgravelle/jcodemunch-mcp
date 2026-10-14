@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 
@@ -93,7 +92,9 @@ def _refresh_hooks(*, yes: bool = True) -> int:
     Prefers the freshly-installed binary if it's on PATH, otherwise falls
     back to the in-process module entry so a venv shim isn't bypassed.
     """
-    exe = shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    exe = executable_for_commands()
     if exe:
         init_cmd = [exe, "init", "--hooks"]
     else:

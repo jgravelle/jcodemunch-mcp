@@ -25,6 +25,10 @@ we could not ask is the defect this project keeps finding in its own instruments
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import sys
+import sysconfig
 from pathlib import Path
 from typing import Optional
 
@@ -103,3 +107,70 @@ def running_source_changed_at() -> Optional[float]:
     if not is_source_layout(module_file):
         return None
     return newest_source_mtime(module_file.parent)
+
+
+#: The console script every install puts in its scripts directory.
+_EXECUTABLE_NAME = "jcodemunch-mcp"
+
+#: A path component uv uses for its cache; `uvx` runs from there and
+#: `uv cache clean` deletes it, so a hook written to that path breaks later.
+_EPHEMERAL_COMPONENTS = frozenset({"archive-v0"})
+
+
+def _scripts_dir() -> Optional[Path]:
+    """The scripts directory of the interpreter running this process."""
+    try:
+        return Path(sysconfig.get_path("scripts"))
+    except (KeyError, TypeError):
+        logger.debug("no scripts directory for this interpreter", exc_info=True)
+        return None
+
+
+def _existing(candidate: Path) -> Optional[Path]:
+    """`candidate` or `candidate.exe` when it is a file, else None."""
+    for p in (candidate, candidate.with_name(candidate.name + ".exe")):
+        try:
+            if p.is_file():
+                return p
+        except OSError:
+            logger.debug("could not stat %s", p, exc_info=True)
+    return None
+
+
+def _is_ephemeral(path: Path) -> bool:
+    return any(part.lower() in _EPHEMERAL_COMPONENTS for part in path.parts)
+
+
+def own_executable() -> Optional[str]:
+    """The `jcodemunch-mcp` executable of THIS install, or None.
+
+    ⚠⚠ Never `shutil.which`: PATH names the FIRST install, and a user who runs
+    a newer install by full path, from a venv or a `uv tool` environment, while
+    an older one sits on PATH, got hooks and server entries that call the older
+    version. Asked in order: the absolute path this process was launched by
+    (a `uv tool` shim stays the shim), then the running interpreter's scripts
+    directory. ⚠ A RELATIVE `argv[0]` is never used: a hook resolves it against
+    its cwd, the checked-out repository, where a file of that name must never
+    become what runs. ⚠ An executable in uv's cache (`uvx`) is not returned,
+    because `uv cache clean` removes it and every hook written to it.
+    """
+    argv0 = sys.argv[0] if sys.argv else ""
+    if (
+        argv0
+        and os.path.isabs(argv0)
+        and os.path.basename(argv0).lower().startswith(_EXECUTABLE_NAME)
+    ):
+        found = _existing(Path(argv0))
+        if found is not None:
+            return None if _is_ephemeral(found) else str(found)
+    scripts = _scripts_dir()
+    if scripts is not None:
+        found = _existing(scripts / _EXECUTABLE_NAME)
+        if found is not None and not _is_ephemeral(found):
+            return str(found)
+    return None
+
+
+def executable_for_commands() -> Optional[str]:
+    """What a written hook or server entry should run: this install, else PATH's."""
+    return own_executable() or shutil.which(_EXECUTABLE_NAME)

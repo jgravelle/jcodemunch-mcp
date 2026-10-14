@@ -18,14 +18,13 @@ def _self_invocation() -> list[str]:
     path. Prefer the path this process was launched with; fall back to
     ``python -m jcodemunch_mcp`` which needs no PATH lookup at all.
     """
-    argv0 = sys.argv[0] or ""
-    base = os.path.basename(argv0).lower()
-    # isabs is load-bearing: a RELATIVE argv0 would be re-resolved against the
-    # hook's cwd — the checked-out (untrusted) repo — where a file named
-    # jcodemunch-mcp must never become the thing we execute. init writes
-    # absolute paths, so absolute is the only legitimate shape.
-    if base.startswith("jcodemunch-mcp") and os.path.isabs(argv0) and os.path.exists(argv0):
-        return [argv0]
+    # `own_executable` never trusts a RELATIVE argv0: it would be re-resolved
+    # against the hook's cwd, the checked-out (untrusted) repo.
+    from ...install_layout import own_executable
+
+    exe = own_executable()
+    if exe:
+        return [exe]
     return [sys.executable, "-m", "jcodemunch_mcp"]
 
 
