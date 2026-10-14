@@ -1,8 +1,9 @@
-"""Tier-1 summaries must not return the `<summary>` tag for .NET doc comments.
+"""Tier-1 summaries must not return the `<summary>` tag for XML doc comments.
 
 `extract_summary_from_docstring` assumed "line 1 of a docstring is its first
 sentence" -- true for Python, JSDoc, Go and Rust, false for XML documentation
-comments, which are the standard in C#, VB.NET and F#:
+comments, the standard in C# and AL (VB.NET is not indexed, and the F# parser
+extracts no doc comment):
 
     /// <summary>          <- line 1 is markup
     /// Saves the order.   <- the actual sentence
@@ -11,10 +12,10 @@ comments, which are the standard in C#, VB.NET and F#:
 ⚠ Found while building the .NET fixtures, and NOT where it was first blamed. The
 parser captures the docstring correctly; only the summary derived from it was
 wrong, so the fix is in the summarizer and the blast radius is every
-`///`-documented .NET symbol rather than generated `.designer.cs` files.
+`///`-documented C# and AL symbol rather than generated `.designer.cs` files.
 
 ⚠ Summaries are scored by BM25 in `search_symbols`, so this was retrieval quality
-on .NET codebases, not merely display text.
+on C# and AL codebases, not merely display text.
 """
 
 import pytest

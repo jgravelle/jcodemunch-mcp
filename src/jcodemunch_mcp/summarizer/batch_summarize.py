@@ -125,11 +125,11 @@ def extract_summary_from_docstring(docstring: str) -> str:
 
     Takes the first line and truncates at first period. Costs zero tokens.
 
-    ⚠ XML documentation comments are unwrapped FIRST (`summarizer/xml_doc.py`). C#,
-    VB.NET, F# and AL put the summary element's opening tag on line 1, so without
-    this every `///`-documented symbol got the literal tag as its summary.
+    ⚠ XML documentation comments are unwrapped FIRST (`summarizer/xml_doc.py`). They
+    put the summary element's opening tag on line 1, so without this every
+    `///`-documented C# and AL symbol got the literal tag as its summary.
     Summaries are scored by BM25 in `search_symbols`, so this was retrieval
-    quality on every .NET codebase, not only display.
+    quality on every C# and AL codebase, not only display.
     """
     if not docstring:
         return ""

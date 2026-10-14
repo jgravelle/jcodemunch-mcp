@@ -1,9 +1,13 @@
-"""XML documentation comments (C#, VB.NET, F#, AL): the one place they are read.
+"""XML documentation comments (C# and AL): the one place they are read.
 
 These comments put MARKUP on their first line, so "the first line is the first
 sentence" -- true for Python, JSDoc, Go and Rust -- yields the literal string
 `<summary>` for every `///`-documented symbol. This module unwraps the
 `<summary>` element into the sentence it holds.
+
+C# and AL are the indexed languages whose parsers keep these comments. VB.NET
+is not indexed, and the F# parser extracts no doc comment; either would read
+through here once it does.
 
 ⚠⚠ **Gated on the docstring OPENING with an XML element, never on `<summary`
 appearing anywhere.** A substring guard sent every docstring that merely

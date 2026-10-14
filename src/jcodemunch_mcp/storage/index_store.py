@@ -638,7 +638,7 @@ INDEX_VERSION = 17
 #   its codebehind and handler edges, its control symbols and its server-script
 #   symbols, on UNCHANGED content.
 #
-# 21: a `///` XML doc comment (C#, VB.NET, F#, AL) summarises as the sentence
+# 21: a `///` XML doc comment (C#, AL) summarises as the sentence
 #   inside its `<summary>`, not the literal tag. No symbol id moves; `summary`
 #   changes on UNCHANGED content, and an AL `docstring` keeps its XML as a C#
 #   one does (an empty stub stays no docstring); a doc comment of only

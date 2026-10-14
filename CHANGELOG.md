@@ -2,16 +2,18 @@
 
 ## [Unreleased]
 
-### Fixed - a .NET symbol's summary is its sentence, not the literal `<summary>` tag (#1075, @outoftheblue9)
+### Fixed - a C# or AL symbol's summary is its sentence, not the literal `<summary>` tag (#1075, @outoftheblue9)
 
 `extract_summary_from_docstring` took the first line of a docstring as its
 first sentence, which is true for Python, JSDoc, Go and Rust and false for
-C#, VB.NET, F# and AL: their XML documentation comments put `<summary>` on
-line one, so every `///`-documented symbol summarised as the literal tag (or
-as `"<summary>Saves the order."` in the one-line form, which reads as a
+XML documentation comments: they put `<summary>` on line one, so every
+`///`-documented C# and AL symbol summarised as the literal tag (or as
+`"<summary>Saves the order."` in the one-line form, which reads as a
 formatting quirk rather than a defect). Summaries are BM25-scored in
-`search_symbols`, so this was retrieval quality on every .NET codebase, not
-only display.
+`search_symbols`, so this was retrieval quality on every C# and AL codebase,
+not only display. C# and AL are the indexed languages whose parsers keep
+these comments: VB.NET is not indexed, and the F# parser extracts no doc
+comment at all, so neither had the defect and neither gains anything here.
 
 The rule now lives in one place, `summarizer/xml_doc.py`. A docstring that OPENS
 with an XML element, and whose `<summary>` comes before anything but other
