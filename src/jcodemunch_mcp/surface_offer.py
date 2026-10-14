@@ -27,6 +27,7 @@ matters.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from .tier_switch_cost import SCHEMA_TOKENS_BASIS, SCHEMA_TOKENS_BASIS_NOTE
@@ -149,6 +150,18 @@ def render_offer_lines(offer: dict, *, indent: str = "  ") -> list[str]:
 # without importing the server (tests/conftest.py); the server owns the marker
 # file and every write.
 NOTICE_STATE = {"checked": False}
+
+
+def notice_marker_path(filename: str):
+    """Where a once-per-install notice keeps its marker: the store, `CODE_INDEX_PATH` or `~/.code-index`.
+
+    THE one rule for every in-answer notice's marker (the surface notice and the
+    policy refresh notice), so a third notice inherits it instead of copying it.
+    """
+    from pathlib import Path
+
+    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+    return Path(base) / filename
 
 RELAY_LINE = (
     "Tell the user this once, in a sentence or two, then carry on with their task. "

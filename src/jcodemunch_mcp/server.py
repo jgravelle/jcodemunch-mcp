@@ -637,10 +637,9 @@ _SURFACE_NOTICE_TOOL = "resolve_repo"
 
 def _surface_notice_state_path() -> "Path":
     """The once-per-install marker for the in-answer notice (see `_surface_offer_state_path`)."""
-    from pathlib import Path
+    from .surface_offer import notice_marker_path
 
-    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
-    return Path(base) / _SURFACE_NOTICE_STATE_FILE
+    return notice_marker_path(_SURFACE_NOTICE_STATE_FILE)
 
 
 def _surface_notice_for(name: str, result: object) -> "dict | None":
@@ -7642,6 +7641,18 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         except Exception:
             logger.debug("surface notice attach failed", exc_info=True)
 
+        # (2026-10-13) The policy refresh command, once per policy text, in the
+        # same answer and for the same reason: the log reaches nobody in a client.
+        try:
+            from .cli.policy_refresh import policy_notice_for as _policy_notice_for
+
+            _policy_notice = _policy_notice_for(name, result, tool=_SURFACE_NOTICE_TOOL, version=__version__)
+            if _policy_notice:
+                result = {**result, "policy_notice": _policy_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("policy notice attach failed", exc_info=True)
+
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that
         # return raw cached source (any "secret" found is the user's own
@@ -8585,8 +8596,17 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     return "\n".join(lines)
 
 
-def _run_claude_md(generate: bool = False, fmt: str = "full") -> None:
-    """Output the recommended CLAUDE.md snippet for the current tool set."""
+def _run_claude_md(generate: bool = False, fmt: str = "full", refresh: bool = False,
+                   yes: bool = False, dry_run: bool = False) -> int:
+    """Output the recommended CLAUDE.md snippet for the current tool set.
+
+    ``refresh`` replaces an installed policy block that differs from this
+    version's, after showing the diff and asking (cli/policy_refresh.py).
+    """
+    if refresh:
+        from .cli.policy_refresh import run_refresh
+
+        return run_refresh(yes=yes, dry_run=dry_run)
     if fmt == "policy":
         # (#871) The exact block `init` installs and `config --check` compares
         # against. `full` is a different generator's text, and replacing an
@@ -8597,14 +8617,15 @@ def _run_claude_md(generate: bool = False, fmt: str = "full") -> None:
         ensure_config_loaded()
         _policy_text = active_policy()
         print(_policy_text, end="" if _policy_text.endswith("\n") else "\n")
-        return
+        return 0
     missing_only = fmt == "append"
     snippet = _generate_claude_md_snippet(missing_only=missing_only)
     if missing_only and not snippet:
         import sys as _sys
         print("CLAUDE.md is already up to date — no new tools to add.", file=_sys.stderr)
-        return
+        return 0
     print(snippet, end="")
+    return 0
 
 
 def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) -> None:
@@ -9193,6 +9214,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                     )
                     print(f"  {dim('  It may be out of date, or you may have edited it on purpose; this check cannot tell which.')}")
                     print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate --format policy')}")
+                    print(f"  {dim('  To replace it (shows the diff, asks first, keeps a backup): jcodemunch-mcp claude-md --refresh')}")
                     # A warning, never an issue (review of #871): a block its
                     # owner edited on purpose must not fail the health check,
                     # whose exit status clients read as a broken install.
@@ -9709,6 +9731,16 @@ def main(argv: Optional[list[str]] = None):
         dest="fmt",
         help="'full' (default) — complete snippet; 'append' — only tools not yet in your CLAUDE.md; "
         "'policy' — the exact Code Exploration Policy `init` installs, which `config --check` compares against",
+    )
+    claude_md_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Replace an installed policy block that differs from this version's, in the global and the "
+        "project CLAUDE.md. Shows the diff and asks before writing; keeps a backup; touches nothing outside the block",
+    )
+    claude_md_parser.add_argument("--yes", action="store_true", help="With --refresh: write without asking")
+    claude_md_parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run", help="With --refresh: show the diff, write nothing"
     )
 
     # --- index-file ---
@@ -10771,10 +10803,15 @@ def main(argv: Optional[list[str]] = None):
         sys.exit(0 if result.get("success") else 1)
 
     if args.command == "claude-md":
-        _run_claude_md(
+        _rc = _run_claude_md(
             generate=getattr(args, "generate", False),
             fmt=getattr(args, "fmt", "full"),
+            refresh=getattr(args, "refresh", False),
+            yes=getattr(args, "yes", False),
+            dry_run=getattr(args, "dry_run", False),
         )
+        if _rc:
+            sys.exit(_rc)
         return
 
     if args.command == "init":

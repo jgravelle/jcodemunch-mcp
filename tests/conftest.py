@@ -138,6 +138,10 @@ def _fresh_session(monkeypatch):
     from jcodemunch_mcp import surface_offer
 
     monkeypatch.setitem(surface_offer.NOTICE_STATE, "checked", True)
+    # Same for the policy refresh notice, which reads the CLAUDE.md files.
+    from jcodemunch_mcp.cli import policy_refresh
+
+    monkeypatch.setitem(policy_refresh.NOTICE_STATE, "checked", True)
     # The per-tool counters hold counts not yet on disk and write every 20
     # calls: carried across tests, a write would arrive in whichever test made
     # the twentieth call. A fresh state per test, as a fresh process has.
