@@ -5,7 +5,7 @@
       "version": "1.108.361",
       "date": "2026-10-14",
       "title": "an installed agent policy can be brought up to date, and only when you ask",
-      "summary": "`init` writes the agent policy into CLAUDE.md once and never rewrites it, so the policy rewritten in 1.108.357 reached new installs only. `jcodemunch-mcp claude-md --refresh` replaces an installed block that differs: it shows the diff, asks before writing (`--yes` skips the question, `--dry-run` writes nothing), keeps a timestamped backup and changes nothing outside the block. The first `resolve_repo` answer of an existing install says once, for each policy text, that the command exists, and asks the agent to tell you rather than run it. SECURITY.md lists what the server reads for this and the marker it writes."
+      "summary": "`init` writes the agent policy into CLAUDE.md once and never rewrites it, so the policy rewritten in 1.108.357 reached new installs only. `jcodemunch-mcp claude-md --refresh` replaces an installed block that differs: it shows the diff, asks before writing (`--yes` skips the question, `--dry-run` writes nothing), keeps a timestamped backup and changes nothing outside the block. The first `resolve_repo` answer of an existing install says once, for each policy text, that the command exists, and asks the agent to tell you rather than run it. SECURITY.md lists what the server reads for this and the marker it writes. Also from @outoftheblue9 (#1075): a C# or AL symbol documented with `///` comments is summarised by its sentence, not by the literal `<summary>` tag, which also improves search on those codebases. Indexes re-parse on their next run (parser generation 21)."
     },
     {
       "version": "1.108.360",
