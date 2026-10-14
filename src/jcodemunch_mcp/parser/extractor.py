@@ -11705,8 +11705,12 @@ def _clean_sql_name(text: str) -> str:
     return ".".join(parts) if parts else text.strip()
 
 
-_SQL_MASK_OPENERS_RE = re.compile(rb"--|/\*|'")
-_SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*")
+_SQL_MASK_OPENERS_RE = re.compile(rb"--|/\*|'|\[")
+_SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*|\[")
+# T-SQL bracket identifier, `]]` escaping `]`. One line only: with no closer
+# on the line no later `[` on it has one either, so an unmatched `[` cannot
+# swallow the file.
+_SQL_BRACKET_IDENT_RE = re.compile(rb"\[(?:[^\]\r\n]|\]\])*\]")
 _SQL_STRING_LITERAL_RE = re.compile(rb"'[^']*(?:''[^']*)*'?")
 _SQL_NOT_NEWLINE_RE = re.compile(rb"[^\n]")
 
@@ -11730,8 +11734,21 @@ def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
         elif kind == b"/*":
             close = src.find(b"*/", start + 2)
             end = n if close < 0 else close + 2
+        elif kind == b"[":
+            ident = _SQL_BRACKET_IDENT_RE.match(src, start)
+            if ident is None:
+                newline = src.find(b"\n", start)
+                i = n if newline < 0 else newline
+                continue
+            # Opaque: an apostrophe or `--` inside brackets opens nothing. The
+            # brackets stay so a masked name still reads as an identifier.
+            if mask_strings:
+                out[start + 1:ident.end() - 1] = b"_" * (ident.end() - start - 2)
+            i = ident.end()
+            continue
         else:
-            end = _SQL_STRING_LITERAL_RE.match(src, start).end()
+            literal = _SQL_STRING_LITERAL_RE.match(src, start)
+            end = literal.end() if literal else start + 1
         out[start:end] = _SQL_NOT_NEWLINE_RE.sub(b" ", src[start:end])
         i = end
     return bytes(out)
@@ -11783,6 +11800,45 @@ _SQL_BATCH_SEPARATOR_RE = re.compile(
     rb"^[ \t]*GO[ \t]*\r?$", re.IGNORECASE | re.MULTILINE
 )
 _SQL_BODY_START_RE = re.compile(rb"\bAS\b", re.IGNORECASE)
+_SQL_DELIMITER_LINE_RE = re.compile(
+    rb"^[ \t]*DELIMITER[ \t]+(\S+)[ \t]*\r?$", re.IGNORECASE | re.MULTILINE
+)
+# The words that decide how a routine ends, read at parenthesis depth 0 so a
+# parameter list or a trigger's WHEN (...) cannot answer for the body.
+_SQL_HEADER_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))"
+    rb"|(?P<dollar>(?<![\w$])\$(?:[A-Za-z_]\w*)?\$)"
+    rb"|\b(?P<begin>BEGIN)\b"
+    rb"(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)"
+    rb"|\b(?P<decl>AS|IS|DECLARE)\b"
+    rb"|(?P<semi>;)",
+    re.IGNORECASE,
+)
+# Block depth. `END IF` / `END LOOP` / `END WHILE` / `END REPEAT` / `END FOR`
+# close constructs that were never counted as openers; `END CASE` closes the
+# CASE statement that was, read as ONE token so its CASE does not open a block
+# again. The qualifier must share the END's line: in T-SQL
+# `END` then `IF` on the next line is two statements.
+_SQL_BLOCK_TOKEN_RE = re.compile(
+    rb"\b(?:(?P<open>BEGIN(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)|CASE)"
+    rb"|(?P<end>END(?![ \t]+(?:IF|LOOP|WHILE|REPEAT|FOR)\b)(?:[ \t]+CASE\b)?))\b",
+    re.IGNORECASE,
+)
+# `END;` or `END name;`. T-SQL ends a block without a semicolon, and there the
+# routine keeps running to `GO` or the next header.
+_SQL_BLOCK_END_TAIL_RE = re.compile(
+    rb"[ \t]*(?:[A-Za-z_#][\w$#]*|\"[^\"\r\n]*\"|`[^`\r\n]*`)?[ \t]*;"
+)
+_SQL_STRING_BODY_RE = re.compile(rb"\s*[eE]?'")
+# What may sit between a dollar-quoted body and the `;` that ends the statement
+# (`LANGUAGE plpgsql`, `SECURITY DEFINER`, `SET search_path = a`): never a
+# parenthesis, a dollar quote, or the start of another statement.
+_SQL_NOT_A_TAIL_RE = re.compile(
+    rb"[()$]|\b(?:CREATE|ALTER|DROP|INSERT|SELECT|UPDATE|DELETE|GRANT|REVOKE"
+    rb"|COMMENT|WITH|CALL|DO|BEGIN|END)\b",
+    re.IGNORECASE,
+)
+_SQL_DOLLAR_TAIL_LIMIT = 500
 _SQL_BANNER_RULE_RE = re.compile(r"^[=\-*_\s]*$")
 
 _SQL_SIGNATURE_SCAN_LIMIT = 2000
@@ -11810,6 +11866,92 @@ def _sql_leading_comment(src: bytes, offset: int) -> str:
     return "\n".join(collected)
 
 
+def _sql_active_delimiter(
+    delimiters: list[tuple[int, bytes]], offset: int
+) -> bytes:
+    """MySQL client `DELIMITER x` in force at `offset`; `;` when none is."""
+    idx = bisect.bisect_right(delimiters, offset, key=lambda d: d[0]) - 1
+    return delimiters[idx][1] if idx >= 0 else b";"
+
+
+def _sql_block_end(masked: bytes, begin_end: int, limit: int) -> Optional[int]:
+    """End of the `BEGIN ... END;` whose BEGIN ends at `begin_end`."""
+    depth = 1
+    for tok in _SQL_BLOCK_TOKEN_RE.finditer(masked, begin_end, limit):
+        parse_budget.checkpoint()
+        if tok.lastgroup == "open":
+            depth += 1
+            continue
+        depth -= 1
+        if depth == 0:
+            tail = _SQL_BLOCK_END_TAIL_RE.match(masked, tok.end(), limit)
+            return tail.end() if tail else None
+    return None
+
+
+def _sql_dollar_end(masked: bytes, tag: re.Match[bytes], limit: int) -> Optional[int]:
+    """End of the statement whose body is quoted by the `$tag$` just read."""
+    close = masked.find(tag.group(), tag.end(), limit)
+    if close < 0:
+        return None
+    after = close + len(tag.group())
+    semi = masked.find(b";", after, min(limit, after + _SQL_DOLLAR_TAIL_LIMIT))
+    if semi >= 0 and not _SQL_NOT_A_TAIL_RE.search(masked, after, semi):
+        return semi + 1
+    return after
+
+
+def _sql_routine_terminator(
+    masked: bytes,
+    source_bytes: bytes,
+    start: int,
+    body_from: int,
+    limit: int,
+    delimiters: list[tuple[int, bytes]],
+) -> Optional[int]:
+    """Where the routine's own text ends, or None when it cannot be told.
+
+    Every scan stays inside `[body_from, limit)`, the span the routine already
+    had (next header or batch separator), so a failure to find a terminator
+    falls back to exactly that and the work is linear in the file. T-SQL and
+    Sybase have no reliable terminator (`AS` then statements to `GO`), so a
+    body those dialects write returns None.
+    """
+    delimiter = _sql_active_delimiter(delimiters, start)
+    if delimiter != b";":
+        at = masked.find(delimiter, body_from, limit)
+        return at + len(delimiter) if at >= 0 else None
+
+    depth = 0
+    last_decl: Optional[re.Match[bytes]] = None
+    for tok in _SQL_HEADER_TOKEN_RE.finditer(masked, body_from, limit):
+        parse_budget.checkpoint()
+        group = tok.lastgroup
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "dollar":
+            return _sql_dollar_end(masked, tok, limit)
+        elif group == "begin":
+            return _sql_block_end(masked, tok.end(), limit)
+        elif group == "decl":
+            last_decl = tok
+        elif group == "semi":
+            if last_decl is None:
+                return tok.end()
+            # `AS 'body'` is a string body; `AS` / `IS` / `DECLARE` then
+            # statements is T-SQL or a PL/SQL declare section.
+            if last_decl.group().upper() == b"AS" and _SQL_STRING_BODY_RE.match(
+                source_bytes, last_decl.end()
+            ):
+                return tok.end()
+            return None
+    return None
+
+
 def _scan_sql_routines(
     source_bytes: bytes,
     filename: str,
@@ -11832,6 +11974,10 @@ def _scan_sql_routines(
 
     # latin-1: one char per byte.
     line_of = _line_numbers(source_bytes.decode("latin-1"))
+
+    delimiters = [
+        (m.start(), m.group(1)) for m in _SQL_DELIMITER_LINE_RE.finditer(masked)
+    ]
 
     symbols: list[Symbol] = []
     for idx, (start, verb, keyword, after_kw) in enumerate(headers):
@@ -11871,6 +12017,18 @@ def _scan_sql_routines(
             as_at = _SQL_BODY_START_RE.search(masked, lo, end)
             if not as_at or masked.find(b";", lo, as_at.start()) != -1:
                 continue
+
+        # The routine ends at its own terminator when its dialect has one;
+        # everything else keeps running to `GO` or the next header.
+        body_from = name_match.end()
+        number = _SQL_PROC_NUMBER_RE.match(masked, body_from, end)
+        if number:
+            body_from = number.end()
+        terminated = _sql_routine_terminator(
+            masked, source_bytes, start, body_from, end, delimiters
+        )
+        if terminated is not None:
+            end = terminated
 
         scan_end = min(end, start + _SQL_SIGNATURE_SCAN_LIMIT)
         body_as = _SQL_BODY_START_RE.search(masked, name_match.end(), scan_end)
