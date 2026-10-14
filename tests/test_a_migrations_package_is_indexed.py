@@ -316,3 +316,43 @@ def test_a_django_project_indexes_its_migrations_package_end_to_end(tmp_path):
     assert "lib/migrations/executor.py" in files, files
     assert "app/migrations/0001_initial.py" not in files
     assert r["discovery_skip_counts"]["extra_ignore"] == 0
+
+
+@pytest.mark.parametrize("opt_out", [False, True])
+def test_index_folders_watcher_route_reads_the_switch(tmp_path, monkeypatch, opt_out):
+    """Through `index_folder`'s own fast path, not a hand-built filter: a watcher
+    event for a generated migration is refused by default and admitted under the
+    `exclude_skip_directories` opt-out."""
+    from jcodemunch_mcp.reindex_state import WatcherChange
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    src = tmp_path / "proj"
+    _write(src / "a.py", "def a():\n    return 1\n")
+    _write(src / "app" / "migrations" / "__init__.py")
+    store = tmp_path / ".code-index"
+    first = index_folder(path=str(src), use_ai_summaries=False, storage_path=str(store),
+                         incremental=False, context_providers=False)
+    assert first["success"], first
+
+    if opt_out:
+        monkeypatch.setitem(config_module._GLOBAL_CONFIG, "exclude_skip_directories", ["migrations"])
+    target = _write(src / "app" / "migrations" / "0001_initial.py", "def migrate():\n    return 1\n")
+    r = index_folder(
+        path=str(src), use_ai_summaries=False, storage_path=str(store),
+        incremental=True, context_providers=False,
+        changed_paths=[WatcherChange("added", str(target.resolve()), "__cache_miss__")],
+    )
+    assert r["success"], r
+    # Refused, the event leaves nothing to index; admitted, the fast path indexes it.
+    if opt_out:
+        assert r.get("fast_path") is True, "the fast path did not engage; the test proves nothing"
+    else:
+        assert r.get("message") == "No changes detected", r
+
+    from jcodemunch_mcp.storage.index_store import IndexStore
+
+    repo = r["repo"]
+    owner, name = repo.split("/", 1)
+    index = IndexStore(base_path=str(store)).load_index(owner, name)
+    files = {f.replace("\\", "/") for f in index.source_files}
+    assert ("app/migrations/0001_initial.py" in files) is opt_out, files

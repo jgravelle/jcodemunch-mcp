@@ -47,7 +47,7 @@ those ways, and the skip is counted as `generated_migrations` in
 The full walk, the watcher's fast path and the GitHub tree listing all ask the
 one predicate in `security.py`. The Django framework profile also ignored
 `migrations/` by name, a second copy of the rule, and no longer does. A
-directory that cannot be listed is reported as `unreadable`, as before.
+directory that cannot be listed is reported as `unreadable`.
 `exclude_skip_directories: ["migrations"]` still indexes every migrations
 directory, generated or not.
 
