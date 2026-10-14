@@ -2,6 +2,53 @@
 
 ## [Unreleased]
 
+### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
+
+On a real T-SQL and Sybase codebase a large share of files indexed to
+NOTHING, and what was lost was the logic -- the stored procedures and
+triggers -- so symbol search, `find_references` and `get_blast_radius` were
+blind to exactly the part that matters. The
+derekstride grammar collapses `CREATE PROCEDURE`/`CREATE TRIGGER` into ONE
+`ERROR` node with loose-punctuation children, so there is no AST to walk;
+`_scan_sql_routines` recovers them by source scan over a comment- and
+string-MASKED copy (length-preserving, so offsets stay valid) while reading
+names from the ORIGINAL bytes. Bracket-quoted `[dbo].[X]` was stored as
+`dbo].[X`; every name is re-tokenised and both dialects land on
+`schema.name`. Temp tables declared inside a routine were published as
+top-level objects named after an unrelated column (the `#` never reaches the
+name, so the marker is read from the raw bytes) and are now dropped, while
+nested CTEs are kept and re-parented. ⚠ Rejecting nodes under an `ERROR`
+ancestor is WRONG -- a real `CREATE VIEW` parses under one -- so byte-range
+containment in a recovered routine is the discriminator. Every non-function
+object had been stored as kind `type`; `procedure`, `trigger`, `table`,
+`view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
+published in the cached schema prefix, and `STATE_KINDS` classifies all five
+as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
+five entries, a one-time cache write for clients on the `full` surface.
+`PARSER_GENERATION` 20 -> 21: the stored rows are wrong on UNCHANGED content,
+so every existing index re-parses once on the next `index_folder` /
+`index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
+its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
+loses the mangling (`dbo].[X` -> `dbo.X`). A nested CTE or table's `parent`
+is its routine's symbol id; a trigger's `parent` is its table's id when that
+table is defined in the same file, else `None`, and the table stays named in
+the signature. A routine name repeated in one file is kept and numbered
+`~1`/`~2` by the existing ordinal rule. Recognition follows the property "a
+statement that defines or redefines a procedure or trigger": T-SQL
+`ALTER PROCEDURE|PROC|TRIGGER` (only with a body, so `ALTER ... COMPILE|
+RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
+`CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
+`[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
+`IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
+<events>` clause as well as directly after the name. ⚠ The dead-code and
+untested-symbol tools still judge only `function`/`method`, so they make no
+claim about procedures or triggers, whose callers sit outside the static
+graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
+pre-existing prefix, because pinning the tail of an append-only tuple fails
+the next correct append, while a prefix pin still catches a reorder.
+
+## [1.108.360] - 2026-10-13 - a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
+
 ### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
 
 ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
@@ -47,51 +94,6 @@ outside the index. No verdict moves toward delete in either ecosystem. The
 roots and the .NET-only formats keep their extension rule. Both points raised
 by @jgravelle in the review of #1012, and the shape of the cap from the review
 of #1067. (@outoftheblue9)
-
-### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
-
-On a real T-SQL and Sybase codebase a large share of files indexed to
-NOTHING, and what was lost was the logic -- the stored procedures and
-triggers -- so symbol search, `find_references` and `get_blast_radius` were
-blind to exactly the part that matters. The
-derekstride grammar collapses `CREATE PROCEDURE`/`CREATE TRIGGER` into ONE
-`ERROR` node with loose-punctuation children, so there is no AST to walk;
-`_scan_sql_routines` recovers them by source scan over a comment- and
-string-MASKED copy (length-preserving, so offsets stay valid) while reading
-names from the ORIGINAL bytes. Bracket-quoted `[dbo].[X]` was stored as
-`dbo].[X`; every name is re-tokenised and both dialects land on
-`schema.name`. Temp tables declared inside a routine were published as
-top-level objects named after an unrelated column (the `#` never reaches the
-name, so the marker is read from the raw bytes) and are now dropped, while
-nested CTEs are kept and re-parented. ⚠ Rejecting nodes under an `ERROR`
-ancestor is WRONG -- a real `CREATE VIEW` parses under one -- so byte-range
-containment in a recovered routine is the discriminator. Every non-function
-object had been stored as kind `type`; `procedure`, `trigger`, `table`,
-`view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
-published in the cached schema prefix, and `STATE_KINDS` classifies all five
-as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
-five entries, a one-time cache write for clients on the `full` surface.
-`PARSER_GENERATION` 20 -> 21: the stored rows are wrong on UNCHANGED content,
-so every existing index re-parses once on the next `index_folder` /
-`index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
-its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
-loses the mangling (`dbo].[X` -> `dbo.X`). A nested CTE or table's `parent`
-is its routine's symbol id; a trigger's `parent` is its table's id when that
-table is defined in the same file, else `None`, and the table stays named in
-the signature. A routine name repeated in one file is kept and numbered
-`~1`/`~2` by the existing ordinal rule. Recognition follows the property "a
-statement that defines or redefines a procedure or trigger": T-SQL
-`ALTER PROCEDURE|PROC|TRIGGER` (only with a body, so `ALTER ... COMPILE|
-RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
-`CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
-`[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
-`IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
-<events>` clause as well as directly after the name. ⚠ The dead-code and
-untested-symbol tools still judge only `function`/`method`, so they make no
-claim about procedures or triggers, whose callers sit outside the static
-graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
-pre-existing prefix, because pinning the tail of an append-only tuple fails
-the next correct append, while a prefix pin still catches a reorder.
 
 ## [1.108.359] - 2026-10-13 - jcodemunch-mcp diagnose writes one local report with no path and no repository name
 
