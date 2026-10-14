@@ -100,6 +100,7 @@ KIND_ORDER: tuple[str, ...] = (
     "table",
     "view",
     "index",
+    "constraint", # parent: the constrained table's id
 )
 
 VALID_KINDS: frozenset[str] = frozenset(KIND_ORDER)

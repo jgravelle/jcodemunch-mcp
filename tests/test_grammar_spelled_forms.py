@@ -1165,12 +1165,20 @@ _HELPER_LITERAL_EXCEPTIONS = {
         "derivation the 08-19 standing lesson names",
     ),
     "sql": (
-        {"function_declaration", "function_body"},
+        {"function_declaration", "function_body", "constraint"},
         "reached through the SHARED `_extract_name` and `_build_signature`, which "
         "NAME and SIGN a node rather than decide whether it is a symbol: "
         "`_parse_sql_symbols` recognises `create_function`, and "
         "`CREATE FUNCTION add_one(...)` yields ('add_one', 'function'), so the "
-        "inventory row is honest",
+        "inventory row is honest. `constraint` is reached through "
+        "`_scan_sybase_objects` and `_scan_sql_constraints`, where it is the "
+        "symbol KIND those source scans emit, never a node type matched: "
+        "constraints are recovered from the masked source, not the tree. "
+        "MEASURED against the inventory fixture: `constraint` is in no "
+        "language's rows (sql's are `array_size_definition`, "
+        "`frame_definition`, `function_declaration`, `var_declaration`), and "
+        "it carries none of the four declaration suffixes, so it cannot enter "
+        "them",
     ),
 }
 

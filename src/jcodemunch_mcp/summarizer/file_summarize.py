@@ -9,6 +9,7 @@ from ..parser.context.base import ContextProvider
 _DB_OBJECT_LABELS: dict[str, str] = {
     "procedure": "procedures",
     "trigger": "triggers",
+    "constraint": "constraints",
     "table": "tables",
     "view": "views",
     "index": "indexes",

@@ -11698,18 +11698,38 @@ def _clean_sql_name(text: str) -> str:
     return ".".join(parts) if parts else text.strip()
 
 
-_SQL_MASK_OPENERS_RE = re.compile(rb"--|/\*|'")
 _SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*")
 _SQL_STRING_LITERAL_RE = re.compile(rb"'[^']*(?:''[^']*)*'?")
 _SQL_NOT_NEWLINE_RE = re.compile(rb"[^\n]")
+# `SET QUOTED_IDENTIFIER OFF` makes "..." a STRING LITERAL rather than a quoted
+# identifier -- the Sybase ASE default, and emitted verbatim at the top of most
+# SSMS scripts.  Without tracking it, a double-quoted string containing the
+# words CREATE PROCEDURE was scanned as real source and became a phantom symbol.
+_SQL_MASK_OPENERS_RE = re.compile(
+    rb"--|/\*|'|\"|\bSET\s+QUOTED_IDENTIFIER\s+(?:ON|OFF)\b", re.IGNORECASE
+)
+_SQL_DOUBLE_QUOTED_LITERAL_RE = re.compile(rb'"[^"]*(?:""[^"]*)*"?')
+
+
+def _sql_blank(out: bytearray, lo: int, hi: int) -> None:
+    """Blank ``out[lo:hi]`` to spaces, keeping newlines so line numbers hold."""
+    out[lo:hi] = _SQL_NOT_NEWLINE_RE.sub(b" ", bytes(out[lo:hi]))
 
 
 def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
-    """Length-preserving; offsets index the original."""
+    """Length-preserving; offsets index the original.
+
+    ⚠ Double quotes are masked only while ``SET QUOTED_IDENTIFIER OFF`` is in
+    effect, because that setting is precisely what decides whether ``"..."`` is
+    a string or an identifier.  The scan starts in the ON state: assuming OFF
+    would mask ``"dbo"."Name"`` -- a real object -- out of existence, which is a
+    worse failure than the phantom symbol this prevents.
+    """
     out = bytearray(src)
     openers = _SQL_MASK_OPENERS_RE if mask_strings else _SQL_MASK_COMMENT_OPENERS_RE
     i = 0
     n = len(src)
+    quoted_identifier_on = True
     while i < n:
         parse_budget.checkpoint()
         opener = openers.search(src, i)
@@ -11723,8 +11743,17 @@ def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
         elif kind == b"/*":
             close = src.find(b"*/", start + 2)
             end = n if close < 0 else close + 2
-        else:
+        elif kind == b"'":
             end = _SQL_STRING_LITERAL_RE.match(src, start).end()
+        elif kind == b'"':
+            if quoted_identifier_on:
+                i = start + 1
+                continue
+            end = _SQL_DOUBLE_QUOTED_LITERAL_RE.match(src, start).end()
+        else:  # SET QUOTED_IDENTIFIER ON|OFF
+            quoted_identifier_on = kind.split()[-1].upper() == b"ON"
+            i = opener.end()
+            continue
         out[start:end] = _SQL_NOT_NEWLINE_RE.sub(b" ", src[start:end])
         i = end
     return bytes(out)
@@ -11745,14 +11774,22 @@ _SQL_DEFINER_VALUE = (
     + _SQL_DEFINER_PART
     + rb")?)(?:\s*\(\s*\))?"
 )
+# ⚠ Both re-definition spellings: T-SQL says OR ALTER, PostgreSQL and Oracle say
+# OR REPLACE.
+_SQL_REDEFINE = rb"(?:OR\s+(?:ALTER|REPLACE)\s+)?"
+# ⚠ FUNCTION is in here as a FALLBACK, not a replacement.  The grammar parses
+# plain scalar UDFs and gives a richer signature (parameters, RETURNS type), and
+# `_parse_sql_symbols` keeps whatever the grammar already produced.  What it
+# cannot parse is a T-SQL function with a BEGIN...END body -- including the
+# table-valued `RETURNS @r TABLE` form -- and those are what the scan recovers.
 _SQL_ROUTINE_HEADER_RE = re.compile(
     rb"\b(?P<verb>CREATE|ALTER)\s+"
-    rb"(?:OR\s+(?:ALTER|REPLACE)\s+)?"
-    rb"(?:DEFINER\s*=\s*" + _SQL_DEFINER_VALUE + rb"\s+)?"
+    + _SQL_REDEFINE
+    + rb"(?:DEFINER\s*=\s*" + _SQL_DEFINER_VALUE + rb"\s+)?"
     rb"(?:(?:NON)?EDITIONABLE\s+|CONSTRAINT\s+)?"
     # PROCEDURE before PROC: longest wins.
     # Single \s: runs eat masked names.
-    rb"(?P<kw>PROCEDURE|PROC|TRIGGER)\s"
+    rb"(?P<kw>PROCEDURE|PROC|TRIGGER|FUNCTION)\s"
     rb"(?:\s*IF\s+NOT\s+EXISTS\s)?",
     re.IGNORECASE,
 )
@@ -11772,10 +11809,220 @@ _SQL_TRIGGER_ON_RE = re.compile(
     re.IGNORECASE,
 )
 _SQL_PROC_NUMBER_RE = re.compile(rb"\s*;\s*\d+")
+# `GO N` repeats the batch N times and `GO;` is accepted by every client that
+# accepts `GO`; both are separators.  Matching only bare `GO` left the previous
+# batch's byte range running on into the separator line.
+# A lone `/` is Oracle/PL-SQL's batch terminator and behaves exactly like GO:
+# no grammar rule, so an unhandled one swallowed the rest of the file.  Measured
+# on sakila's Oracle schema: 1 table of 16 before, because everything after the
+# first `/` was inside one ERROR node.
 _SQL_BATCH_SEPARATOR_RE = re.compile(
-    rb"^[ \t]*GO[ \t]*\r?$", re.IGNORECASE | re.MULTILINE
+    rb"^[ \t]*(?:GO(?:[ \t]+\d+)?[ \t]*;?|/)[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
 )
 _SQL_BODY_START_RE = re.compile(rb"\bAS\b", re.IGNORECASE)
+# Statements that cannot legally be nested inside a routine body: each must be
+# the first statement of its batch.  CREATE TABLE and CREATE INDEX are absent
+# ON PURPOSE -- both appear inside real procedure bodies in the wild (a
+# `CREATE TABLE #Temp` at column 0 is common), so treating either as a
+# top-level boundary would truncate real routines.
+_SQL_NON_NESTABLE_CREATE_RE = re.compile(
+    rb"\bCREATE\s+" + _SQL_REDEFINE
+    + rb"(?:PROCEDURE|PROC|TRIGGER|VIEW|FUNCTION|SCHEMA)\b",
+    re.IGNORECASE,
+)
+_SQL_PAREN_RE = re.compile(rb"[()]")
+
+
+def _sql_paren_group_end(masked: bytes, open_at: int) -> Optional[int]:
+    """End offset of the parenthesised group opened at ``open_at``, or None."""
+    depth = 0
+    for p in _SQL_PAREN_RE.finditer(masked, open_at):
+        parse_budget.checkpoint()
+        depth += 1 if p.group() == b"(" else -1
+        if depth == 0:
+            return p.end()
+    return None
+
+
+_SQL_TABLE_CHECK_RE = re.compile(
+    rb"\bCONSTRAINT\s+" + _SQL_IDENT_PART + rb"\s+CHECK\s*\(", re.IGNORECASE
+)
+_SQL_TRAILING_SPACE_COMMA_RE = re.compile(rb",?[ \t\r\n]*\Z")
+
+
+def _neutralize_sql_check_constraints(buf: bytes, masked: bytes) -> bytes:
+    """Blank table-level ``CONSTRAINT x CHECK (...)`` out of the grammar's copy.
+
+    ⚠ The grammar loses the WHOLE ``CREATE TABLE`` over the expression inside,
+    and the trigger is narrow: measured, ``CHECK (a BETWEEN 1 AND 5)`` costs the
+    table while ``CHECK (a IN (1, 2))`` and ``CHECK (a > 0)`` do not.  That is
+    AdventureWorks' last three tables -- EmployeePayHistory, ProductInventory
+    and Vendor -- each of which has a BETWEEN in a table-level CHECK.
+
+    Blanking loses nothing: ``_scan_sql_constraints`` reads these from the
+    ORIGINAL bytes, exactly as it does for ``ALTER TABLE``.
+
+    ⚠ The separating comma goes too.  Leaving ``[a] int NOT NULL,`` followed by
+    a blank run and then ``)`` is a trailing comma, which is its own parse
+    error -- the fix would otherwise trade one failure for another.
+    """
+    if not _SQL_TABLE_CHECK_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    prev_end = 0
+    for m in _SQL_TABLE_CHECK_RE.finditer(masked):
+        parse_budget.checkpoint()
+        if m.start() < prev_end:
+            continue  # inside a group already blanked
+        end = _sql_paren_group_end(masked, m.end() - 1)
+        if end is None:
+            continue  # unbalanced -- leave it alone
+        # Whitespace and one comma before the CONSTRAINT, searched only back
+        # to the previous blanked group so the walk stays linear.
+        lead = _SQL_TRAILING_SPACE_COMMA_RE.search(masked, prev_end, m.start())
+        start = lead.start() if lead else m.start()
+        _sql_blank(out, start, end)
+        prev_end = end
+    return bytes(out)
+
+
+_SQL_BRACKET_IDENT_RE = re.compile(rb"\[(\w+)\]")
+
+
+def _neutralize_sql_bracket_identifiers(buf: bytes, masked: bytes) -> bytes:
+    """Rewrite ``[Ident]`` to a plain identifier for the grammar's copy.
+
+    ⚠⚠ The grammar mishandles bracket-quoted identifiers badly enough to lose
+    the whole statement when one collides with a keyword.  Measured on Chinook's
+    SQLite schema: a column named ``[Name]`` costs its entire ``CREATE TABLE``,
+    and 4 of 11 tables were lost to exactly that.  The same table parses when
+    the column is written ``Name`` without brackets, which is what this does.
+
+    ⚠ Only ``[\\w+]`` is rewritten.  ``[Column 0]`` (a name containing a space)
+    and anything else with punctuation inside are left alone deliberately --
+    unbracketing those would change what the text MEANS, where unbracketing a
+    plain word only changes how it is spelled.
+
+    Length-preserving, like the other rewrites: the word plus the two spaces
+    that replace the brackets.  Names are read back out of this buffer and go
+    through ``_clean_sql_name``, which already collapses ``dbo  .  X`` to
+    ``dbo.X``.
+    """
+    if not _SQL_BRACKET_IDENT_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    for m in _SQL_BRACKET_IDENT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        out[m.start():m.end()] = m.group(1) + b"  "
+    return bytes(out)
+
+
+_SQL_CONDITIONAL_GUARD_RE = re.compile(
+    rb"\bIF\s+(?:NOT\s+)?EXISTS\s*\(", re.IGNORECASE
+)
+
+
+def _neutralize_sql_conditional_guards(buf: bytes, masked: bytes) -> bytes:
+    """Blank ``IF [NOT] EXISTS (...)`` guards out of the grammar's copy.
+
+    Guarded DDL -- ``IF NOT EXISTS (SELECT ... ) CREATE INDEX ...`` -- is the
+    house style of every migration script, and the grammar cannot parse the
+    guard, so the CREATE it protects was lost with it.  Found twice
+    independently: an indented ``CREATE UNIQUE INDEX`` in a migration, and ten
+    of ten indexes in the reference dialect fixture ``add_index.sql``.
+
+    Only the guard is blanked; the statement it guards is left untouched and
+    parses on its own.  Length-preserving, for the reason given on the ``GO``
+    rewrite.
+    """
+    if not _SQL_CONDITIONAL_GUARD_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    prev_end = 0
+    for m in _SQL_CONDITIONAL_GUARD_RE.finditer(masked):
+        parse_budget.checkpoint()
+        if m.start() < prev_end:
+            continue  # nested inside a guard already blanked
+        end = _sql_paren_group_end(masked, m.end() - 1)
+        if end is None:
+            continue  # unbalanced -- leave the source alone
+        _sql_blank(out, m.start(), end)
+        prev_end = end
+    return bytes(out)
+
+
+def _neutralize_sql_alter_statements(buf: bytes, masked: bytes) -> bytes:
+    """Blank ``ALTER TABLE`` statements out of the copy handed to the grammar.
+
+    The grammar has no rule for ``ALTER TABLE`` either, and an unparsed one does
+    not fail quietly: it opens an ERROR node that swallows every statement after
+    it.  Measured on the SSMS "Script Table as CREATE" layout -- table, three
+    ALTERs, one index -- the index was lost even once ``GO`` was handled.
+
+    Blanking is safe here in a way it would not be for any other statement:
+    ``_scan_sql_constraints`` reads these from the ORIGINAL bytes, so nothing
+    the grammar could have produced is thrown away.  Length is preserved for
+    the same reason as the ``GO`` rewrite.
+
+    ⚠ A statement ends at the next ``;`` or non-nestable CREATE, both located
+    in ``masked`` once, up front, so many ALTERs stay linear in the batch.
+    """
+    if not _SQL_ALTER_TABLE_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    n = len(buf)
+    semis = [m.start() for m in _SQL_SEMICOLON_RE.finditer(masked)]
+    creates = [m.start() for m in _SQL_NON_NESTABLE_CREATE_RE.finditer(masked)]
+    for m in _SQL_ALTER_TABLE_RE.finditer(masked):
+        parse_budget.checkpoint()
+        stop = n
+        k = bisect.bisect_left(semis, m.end())
+        if k < len(semis):
+            stop = semis[k]
+        k = bisect.bisect_left(creates, m.end())
+        if k < len(creates):
+            stop = min(stop, creates[k])
+        _sql_blank(out, m.start(), stop)
+    return bytes(out)
+
+
+_SQL_SEMICOLON_RE = re.compile(rb";")
+
+
+def _sql_batch_spans(masked: bytes, total: int) -> list[tuple[int, int]]:
+    """Byte spans of the batches a script is divided into by ``GO`` / ``/``.
+
+    ⚠⚠ **Batches are parsed SEPARATELY, and that is the whole point.** The
+    grammar does not skip what it cannot parse -- it opens an ERROR node that
+    swallows everything after it -- so within ONE parse tree a single
+    unsupported construct costs the rest of the file no matter what is
+    rewritten around it. Rewriting ``GO`` to ``;`` was measured and is NOT
+    enough: on AdventureWorks' own instawdb.sql one SQLCMD ``$(DatabaseName)``
+    still cost all 71 CREATE TABLEs below it, because an ERROR node spans the
+    substituted terminator happily. Parsing each batch on its own makes the
+    blast radius exactly one batch -- the only bound that holds against
+    constructs nobody has thought of yet.
+
+    ⚠ Splitting is safe by construction: a batch separator cannot appear inside
+    a statement, which is what makes it a separator.
+
+    ⚠ Slices, not masked full-length buffers. Both were measured on
+    instawdb.sql and give identical symbols; slicing costs 0.23s where blanking
+    all-but-one-batch of a full copy costs 3.99s and grows as O(n^2).
+
+    Spans come from ``masked``, so a ``GO`` in a comment or string is not one.
+    """
+    bounds = [0]
+    for m in _SQL_BATCH_SEPARATOR_RE.finditer(masked):
+        parse_budget.checkpoint()
+        bounds += [m.start(), m.end()]
+    bounds.append(total)
+    return [
+        (bounds[i], bounds[i + 1])
+        for i in range(0, len(bounds) - 1, 2)
+        if bounds[i + 1] > bounds[i]
+    ]
 _SQL_BANNER_RULE_RE = re.compile(r"^[=\-*_\s]*$")
 
 _SQL_SIGNATURE_SCAN_LIMIT = 2000
@@ -11803,16 +12050,47 @@ def _sql_leading_comment(src: bytes, offset: int) -> str:
     return "\n".join(collected)
 
 
+_SQL_CREATE_TABLE_RE = re.compile(rb"\bCREATE\s+TABLE\b", re.IGNORECASE)
+
+
+def _next_permanent_table(
+    source_bytes: bytes, masked: bytes, lo: int, hi: int
+) -> Optional[int]:
+    """Offset of the next NON-TEMP ``CREATE TABLE`` in ``[lo, hi)``, if any.
+
+    A routine body legitimately contains ``CREATE TABLE #Temp``, often at
+    column 0, so CREATE TABLE cannot be a routine boundary outright.  A table that is NOT temp is a
+    different matter: nothing declares a permanent table inside a trigger or a
+    procedure body in any corpus here.
+
+    ⚠ This is what a dialect with no batch separator depends on.  DB2's sakila
+    schema is one long ``;``-terminated batch alternating triggers and tables,
+    so without this every trigger's range ran to the NEXT trigger and swallowed
+    the tables between them: 1 table of 16.
+
+    ⚠ Temp-ness is read from the RAW bytes at the match offset, the same way
+    ``_SQL_TEMP_MARKER_RE`` is used elsewhere, because the ``#`` never survives
+    into an extracted name.
+    """
+    for m in _SQL_CREATE_TABLE_RE.finditer(masked, lo, hi):
+        parse_budget.checkpoint()
+        if not _SQL_TEMP_MARKER_RE.match(source_bytes, m.start()):
+            return m.start()
+    return None
+
+
 def _scan_sql_routines(
     source_bytes: bytes,
     filename: str,
     table_ids: Optional[dict[str, str]] = None,
+    masked: Optional[bytes] = None,
 ) -> list[Symbol]:
-    """Trigger parent: same-file table id only."""
+    """Trigger parent: same-file table id only. ``masked``: reuse the caller's."""
     if not _SQL_ROUTINE_HEADER_RE.search(source_bytes):
         return []
 
-    masked = _mask_sql_noise(source_bytes)
+    if masked is None:
+        masked = _mask_sql_noise(source_bytes)
     headers = [
         (m.start(), m.group("verb").upper(), m.group("kw").upper(), m.end())
         for m in _SQL_ROUTINE_HEADER_RE.finditer(masked)
@@ -11837,7 +12115,9 @@ def _scan_sql_routines(
         if not name:
             continue
 
-        kind = "trigger" if keyword == b"TRIGGER" else "procedure"
+        kind = {b"TRIGGER": "trigger", b"FUNCTION": "function"}.get(
+            keyword, "procedure"
+        )
         parent = None
         if keyword == b"TRIGGER":
             on_match = _SQL_TRIGGER_ON_RE.match(masked, name_match.end())
@@ -11850,7 +12130,17 @@ def _scan_sql_routines(
                         )
                     )
 
+        # A routine ends at the next batch separator, the next routine header,
+        # the next statement that cannot legally be nested in a body, or end of
+        # file -- whichever comes first.
+        #
+        # ⚠ The non-nestable check is what stops a GO-less script from running
+        # the last routine to EOF: everything after it was being swallowed into
+        # that routine's byte range and re-parented as its child.
         end = headers[idx + 1][0] if idx + 1 < len(headers) else len(source_bytes)
+        boundary = _SQL_NON_NESTABLE_CREATE_RE.search(masked, after_kw, end)
+        if boundary:
+            end = boundary.start()
         sep = _SQL_BATCH_SEPARATOR_RE.search(masked, start, end)
         if sep:
             end = sep.start()
@@ -11895,9 +12185,246 @@ def _scan_sql_routines(
     return symbols
 
 
+_SQL_ALTER_TABLE_RE = re.compile(rb"\bALTER\s+TABLE\s", re.IGNORECASE)
+# WITH CHECK / WITH NOCHECK sit between the table name and ADD in SSMS output.
+_SQL_CONSTRAINT_RE = re.compile(
+    rb"\bCONSTRAINT\s+(" + _SQL_IDENT_PART + rb")\s*"
+    rb"(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|DEFAULT)\b",
+    re.IGNORECASE,
+)
+# An UNNAMED foreign key still states the one thing a foreign key exists to
+# state -- that these two tables are related -- so it is recovered too, under a
+# name derived from both ends.  Chinook's SQLite and SQLAlchemy-generated DDL
+# both emit FKs this way, and a nameless edge is not a missing edge.
+_SQL_ANON_FK_RE = re.compile(
+    rb"\bFOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s+(" + _SQL_IDENT_PART + rb")",
+    re.IGNORECASE,
+)
+_SQL_CONSTRAINT_TYPE_LABELS = {
+    b"PRIMARYKEY": "PRIMARY KEY",
+    b"FOREIGNKEY": "FOREIGN KEY",
+    b"UNIQUE": "UNIQUE",
+    b"CHECK": "CHECK",
+    b"DEFAULT": "DEFAULT",
+}
+
+
+# Sybase ASE keeps a RULE and a DEFAULT as FREE-STANDING schema objects, bound
+# to columns afterwards with sp_bindrule / sp_bindefault.  A rule is a reusable
+# CHECK and a default is a reusable DEFAULT, so both are `constraint` -- naming
+# them anything else would need a kind whose only members are these two.
+_SQL_SYBASE_RULE_DEFAULT_RE = re.compile(
+    rb"\bCREATE\s+(RULE|DEFAULT)\s+(" + _SQL_IDENT_PART
+    + rb"(?:\s*\.\s*" + _SQL_IDENT_PART + rb")*)",
+    re.IGNORECASE,
+)
+# `EXEC sp_addtype 'name', ...` is how a user-defined datatype is DECLARED in
+# Sybase -- there is no CREATE TYPE.  Those names are then used as column types
+# across the schema, so "where is u_currency defined" is a real question that
+# had no answer.
+_SQL_ADDTYPE_KEYWORD_RE = re.compile(rb"\bsp_addtype\b", re.IGNORECASE)
+_SQL_ADDTYPE_ARG_RE = re.compile(
+    rb"\s*\(?\s*(?:@typename\s*=\s*)?(?:N?'([^']*)'|\"([^\"]*)\"|(\w+))",
+    re.IGNORECASE,
+)
+
+
+def _scan_sybase_objects(
+    source_bytes: bytes,
+    filename: str,
+    masked: bytes,
+    line_of: Callable[[int], int],
+) -> list[Symbol]:
+    """Recover Sybase objects that have no CREATE the grammar understands."""
+    symbols: list[Symbol] = []
+    emitted: set[str] = set()
+
+    def _emit(name: str, kind: str, sig: str, start: int, stop: int) -> None:
+        if not name:
+            return
+        sym_id = make_symbol_id(filename, name, kind)
+        if sym_id in emitted:
+            return
+        emitted.add(sym_id)
+        body = source_bytes[start:stop]
+        symbols.append(Symbol(
+            id=sym_id, file=filename, name=name, qualified_name=name, kind=kind,
+            language="sql", signature=sig, docstring="",
+            line=line_of(start),
+            end_line=line_of(stop),
+            byte_offset=start, byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    for m in _SQL_SYBASE_RULE_DEFAULT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        keyword = m.group(1).upper().decode()
+        name = _clean_sql_name(
+            source_bytes[m.start(2):m.end(2)].decode("utf-8", errors="replace")
+        )
+        _emit(name, "constraint", f"CREATE {keyword} {name}", m.start(), m.end())
+
+    for m in _SQL_ADDTYPE_KEYWORD_RE.finditer(masked):
+        parse_budget.checkpoint()
+        # ⚠ Keyword found in the MASK (so a commented-out call is not a type),
+        # argument read from the ORIGINAL bytes -- sp_addtype's arguments are
+        # single-quoted and the mask blanks single-quoted strings, so matching
+        # the whole call against the mask finds a name that is all spaces.
+        arg = _SQL_ADDTYPE_ARG_RE.match(source_bytes, m.end())
+        if not arg:
+            continue
+        raw = next(
+            (arg.group(g) for g in (1, 2, 3) if arg.group(g) is not None), b""
+        )
+        name = _clean_sql_name(raw.decode("utf-8", errors="replace"))
+        _emit(name, "type", f"sp_addtype {name}", m.start(), arg.end())
+
+    return symbols
+
+
+def _scan_sql_constraints(
+    source_bytes: bytes,
+    filename: str,
+    masked: bytes,
+    table_ranges: list[tuple[int, int, str]],
+    line_of: Callable[[int], int],
+    table_ids: Optional[dict[str, str]] = None,
+) -> list[Symbol]:
+    """Recover named constraints -- PK, FK, UNIQUE, CHECK, DEFAULT.
+
+    ``ALTER TABLE ... ADD CONSTRAINT`` produced NOTHING at any file layout
+    before this existed, in the grammar path or the scan: measured, all three of
+    PRIMARY KEY / FOREIGN KEY / DEFAULT returned an empty symbol list even when
+    they were the only statement in the file.  That made a foreign key -- the one
+    piece of DDL that states a relationship BETWEEN two tables -- unsearchable.
+
+    Both spellings are recovered from one pattern:
+
+    - ``ALTER TABLE T ADD CONSTRAINT c ...`` -- parent read from the ALTER header.
+    - ``CREATE TABLE T ( ..., CONSTRAINT c PRIMARY KEY (...) )`` -- parent read
+      from the enclosing table's byte range, which the grammar already resolved.
+
+    ⚠ Keywords are located in ``masked`` and names are read from the ORIGINAL
+    bytes, the same split ``_scan_sql_routines`` uses: a commented-out or quoted
+    constraint is not a constraint, but a bracket-quoted name must survive.
+
+    ``parent`` is the constrained table's symbol id when that table is defined
+    in the same file, else None -- the rule triggers follow -- and the table is
+    always named in the signature.
+
+    ⚠ Every lookup below is a bisect over a list built once, so the scan stays
+    linear in the file however many constraints and tables it holds.
+    """
+    if not _SQL_CONSTRAINT_RE.search(masked):
+        return []
+
+    alter_starts: list[int] = []
+    alter_ends: list[int] = []
+    for m in _SQL_ALTER_TABLE_RE.finditer(masked):
+        parse_budget.checkpoint()
+        alter_starts.append(m.start())
+        alter_ends.append(m.end())
+
+    tables = sorted(table_ranges)
+    table_starts = [lo for lo, _hi, _nm in tables]
+    separators = [m.start() for m in _SQL_BATCH_SEPARATOR_RE.finditer(masked)]
+
+    # (start, stop, name, type-label) for both spellings, in file order.
+    found: list[tuple[int, int, str, str]] = []
+    named_spans: list[tuple[int, int]] = []
+    for m in _SQL_CONSTRAINT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        named_spans.append((m.start(), m.end()))
+        found.append((
+            m.start(),
+            m.end(),
+            _clean_sql_name(m.group(1).decode("utf-8", errors="replace")),
+            _SQL_CONSTRAINT_TYPE_LABELS.get(
+                b"".join(m.group(2).upper().split()), "CONSTRAINT"
+            ),
+        ))
+    named_starts = [lo for lo, _hi in named_spans]
+    for m in _SQL_ANON_FK_RE.finditer(masked):
+        parse_budget.checkpoint()
+        k = bisect.bisect_right(named_starts, m.start()) - 1
+        if k >= 0 and m.start() < named_spans[k][1]:
+            continue  # already covered by its CONSTRAINT <name> prefix
+        target = _clean_sql_name(m.group(1).decode("utf-8", errors="replace"))
+        found.append((m.start(), m.end(), "", f"FOREIGN KEY REFERENCES {target}"))
+    found.sort()
+
+    symbols: list[Symbol] = []
+    emitted_ids: set[str] = set()
+    for start, stop, name, ctype in found:
+        parse_budget.checkpoint()
+
+        # Parent: the nearest ALTER TABLE before it, else the table whose byte
+        # range contains it.  An ALTER wins because a CREATE TABLE body cannot
+        # contain an ALTER, so the nearer statement is always the right one.
+        parent = None
+        k = bisect.bisect_left(alter_starts, start) - 1
+        if k >= 0:
+            tbl = _SQL_OBJECT_NAME_RE.match(source_bytes, alter_ends[k] - 1)
+            if tbl:
+                parent = _clean_sql_name(
+                    tbl.group(1).decode("utf-8", errors="replace")
+                ) or None
+        t = bisect.bisect_right(table_starts, start) - 1
+        if parent is None and t >= 0 and start < tables[t][1]:
+            parent = tables[t][2]
+        t = bisect.bisect_left(table_starts, start) - 1
+        if parent is None and t >= 0:
+            # The table's byte range can END EARLY when the grammar trips over
+            # something in the column list -- a Sybase MATERIALIZED computed
+            # column does exactly that -- leaving an inline constraint sitting
+            # just past its own table.  Fall back to the nearest table opened
+            # before it, but ONLY when no batch separator intervenes: same
+            # batch means same statement, and that is what makes this safe
+            # rather than a guess.
+            lo = tables[t][0]
+            s = bisect.bisect_left(separators, lo)
+            if s == len(separators) or separators[s] >= start:
+                parent = tables[t][2]
+
+        if not name:
+            # Unnamed FK: derive one from both ends so it is addressable at all.
+            target = ctype.rsplit(" ", 1)[-1]
+            name = f"FK_{(parent or 'table').split('.')[-1]}_{target.split('.')[-1]}"
+            ctype = "FOREIGN KEY"
+
+        symbol_id = make_symbol_id(filename, name, "constraint")
+        if symbol_id in emitted_ids:
+            continue
+        emitted_ids.add(symbol_id)
+
+        body = source_bytes[start:stop]
+        on_target = f" ON {parent}" if parent else ""
+        parent = (table_ids or {}).get(parent) if parent else None
+        symbols.append(Symbol(
+            id=symbol_id,
+            file=filename,
+            name=name,
+            qualified_name=name,
+            kind="constraint",
+            language="sql",
+            signature=f"CONSTRAINT {name} {ctype}{on_target}",
+            docstring="",
+            parent=parent,
+            line=line_of(start),
+            end_line=line_of(stop),
+            byte_offset=start,
+            byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    return symbols
+
+
 # Grammar drops '#'; read raw bytes.
 _SQL_TEMP_MARKER_RE = re.compile(
-    rb"\bCREATE\s+(?:GLOBAL\s+|LOCAL\s+)?(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([#@])",
+    rb"\bCREATE\s+(?:GLOBAL\s+|LOCAL\s+)?"
+    rb"(?:TEMP(?:ORARY)?\s+TABLE\b"
+    rb"|TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[#@])",
     re.IGNORECASE,
 )
 
@@ -12007,13 +12534,23 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         source_bytes = strip_jinja(source_bytes)
 
+    # One mask serves three consumers: the GO rewrite below, the routine scan,
+    # and the constraint scan.  It is the expensive step, so it is built once.
+    masked = _mask_sql_noise(source_bytes)
+
     try:
         parser = _get_parser("sql")
-        tree = parser.parse(source_bytes)
+        batches = _sql_batch_spans(masked, len(source_bytes))
     except Exception:
         return []
 
     symbols: list[Symbol] = []
+
+    # The walk below reads node text out of whichever batch is being parsed and
+    # stamps WHOLE-FILE coordinates onto the symbols it builds.  Cells rather
+    # than parameters because the readers are closures shared by every batch.
+    _active: list[bytes] = [source_bytes]
+    _base = [0, 0]  # byte offset, 0-based line offset of the active batch
 
     # Node types we extract and their symbol kind
     NODE_KIND_MAP = {
@@ -12026,7 +12563,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     }
 
     def _node_text(node) -> str:
-        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+        return _active[0][node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
     def _extract_name(node) -> str | None:
         """Extract the name from a SQL DDL node."""
@@ -12125,12 +12662,19 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             prev = prev.prev_named_sibling
         return "\n".join(lines) if lines else ""
 
+    # A batch may be walked twice (see the loop below).  Coordinates, not ids,
+    # decide whether a hit is the same object: the ordinal rule would happily
+    # number the SECOND sighting of one table `~2`.
+    seen_coords: set[tuple[str, str, int]] = set()
+
     def _walk(node) -> None:
         """Recursively walk the AST to find extractable nodes."""
         if node.type in NODE_KIND_MAP:
             name = _extract_name(node)
-            if name:
-                kind = NODE_KIND_MAP[node.type]
+            kind = NODE_KIND_MAP[node.type]
+            coord = (kind, name, node.start_point[0] + 1 + _base[1])
+            if name and coord not in seen_coords:
+                seen_coords.add(coord)
                 signature = _build_signature(node)
 
                 # Collect docstring from preceding comment sibling
@@ -12141,9 +12685,10 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 docstring = _collect_docstring(doc_node)
 
                 c_hash = compute_content_hash(
-                    source_bytes[node.start_byte:node.end_byte]
+                    _active[0][node.start_byte:node.end_byte]
                 )
 
+                line_no = node.start_point[0] + 1 + _base[1]
                 sym = Symbol(
                     id=make_symbol_id(filename, name, kind),
                     file=filename,
@@ -12153,9 +12698,9 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     language="sql",
                     signature=signature,
                     docstring=docstring,
-                    line=node.start_point[0] + 1,
-                    end_line=node.end_point[0] + 1,
-                    byte_offset=node.start_byte,
+                    line=line_no,
+                    end_line=node.end_point[0] + 1 + _base[1],
+                    byte_offset=node.start_byte + _base[0],
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=c_hash,
                 )
@@ -12165,7 +12710,103 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             parse_budget.checkpoint()
             _walk(child)
 
-    _walk(tree.root_node)
+    # Scanned up front because the grammar loop needs the ranges: a routine body
+    # is exactly the thing the grammar cannot parse, and knowing where one sits
+    # is what lets the second pass below step over it.
+    scanned_routines = _scan_sql_routines(source_bytes, filename, masked=masked)
+
+    # ⚠⚠ The range a routine is BLANKED over is NOT the routine's extent, and
+    # conflating them broke a standing contract: a permanent table declared
+    # inside a deploy procedure is real, and is re-parented onto that procedure
+    # rather than dropped (see test_real_table_inside_routine_is_reparented).
+    # That re-parenting needs the FULL extent, so the extent stays permissive.
+    # Blanking wants the opposite -- it must stop before any permanent table, or
+    # a dialect with no batch separator blanks its own tables away. Two
+    # purposes, two ranges.
+    routine_ranges = []
+    for r in scanned_routines:
+        parse_budget.checkpoint()
+        rlo = r.byte_offset
+        rhi = rlo + r.byte_length
+        perm = _next_permanent_table(source_bytes, masked, rlo, rhi)
+        routine_ranges.append((rlo, perm if perm is not None else rhi))
+
+    # latin-1: one char per byte.
+    line_of = _line_numbers(source_bytes.decode("latin-1"))
+    # Routines are disjoint and in file order, as are batches, so one cursor
+    # finds every routine a batch overlaps without rescanning the list.
+    next_routine = 0
+    for _lo, _hi in batches:
+        parse_budget.checkpoint()
+        chunk = source_bytes[_lo:_hi]
+        if not chunk.strip():
+            continue
+        # ⚠ Both rewrites run PER BATCH, and that is not a tidy-up.
+        # `_neutralize_sql_alter_statements` blanks from ALTER TABLE to the next
+        # `;`, and with no batch boundary to stop it, it blanked the entire rest
+        # of the file.  Measured when it was hoisted out of this loop: sakila's
+        # SQL Server schema fell from 84 symbols to 46, losing 14 of 15 tables
+        # and all 24 indexes.  A batch is the unit that bounds it.
+        chunk_masked = masked[_lo:_hi]
+        chunk = _neutralize_sql_alter_statements(chunk, chunk_masked)
+        chunk = _neutralize_sql_conditional_guards(chunk, chunk_masked)
+        chunk = _neutralize_sql_bracket_identifiers(chunk, chunk_masked)
+        chunk = _neutralize_sql_check_constraints(chunk, chunk_masked)
+        _active[0] = chunk
+        _base[0] = _lo
+        _base[1] = line_of(_lo) - 1
+        try:
+            _walk(parser.parse(chunk).root_node)
+        except Exception:
+            logger.debug(
+                "sql: batch at byte %d of %s failed to parse", _lo, filename,
+                exc_info=True,
+            )
+
+        # ⚠⚠ Second pass, with this batch's routine bodies blanked out.  It is a
+        # UNION with the first pass, never a replacement, and that is the whole
+        # design: blanking ALONE was measured and trades losses -- DB2's sakila
+        # goes 1 table to 16, but PostgreSQL's loses one -- so neither pass is
+        # right on its own.  Running both and keeping everything either finds
+        # costs one extra parse of the batches that contain a routine.
+        #
+        # Blanking throws nothing away: a routine body is exactly what the scan
+        # above already owns, and what the grammar turns into an ERROR node that
+        # swallows every statement after it.  DB2 needs this and cannot use
+        # batch isolation instead -- its schema is one long `;`-terminated batch
+        # alternating triggers and tables, with no separator anywhere.
+        while (
+            next_routine < len(routine_ranges)
+            and routine_ranges[next_routine][1] <= _lo
+        ):
+            parse_budget.checkpoint()
+            next_routine += 1
+        overlapping = []
+        k = next_routine
+        while k < len(routine_ranges) and routine_ranges[k][0] < _hi:
+            parse_budget.checkpoint()
+            rlo, rhi = routine_ranges[k]
+            if rhi > _lo:
+                overlapping.append((max(rlo, _lo), min(rhi, _hi)))
+            k += 1
+        if not overlapping:
+            continue
+        masked_chunk = bytearray(chunk)
+        for rlo, rhi in overlapping:
+            parse_budget.checkpoint()
+            _sql_blank(masked_chunk, rlo - _lo, rhi - _lo)
+        if not masked_chunk.strip():
+            continue
+        _active[0] = bytes(masked_chunk)
+        try:
+            _walk(parser.parse(bytes(masked_chunk)).root_node)
+        except Exception:
+            logger.debug(
+                "sql: routine-blanked batch at byte %d of %s failed to parse",
+                _lo, filename, exc_info=True,
+            )
+    _active[0] = source_bytes
+    _base[0] = _base[1] = 0
 
     # Temp tables are not schema objects.
     table_ids = {
@@ -12173,11 +12814,40 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         for s in symbols
         if s.kind == "table" and not _SQL_TEMP_MARKER_RE.match(source_bytes, s.byte_offset)
     }
-    routine_symbols = _scan_sql_routines(source_bytes, filename, table_ids)
+    routine_symbols = _scan_sql_routines(source_bytes, filename, table_ids, masked)
+    # A FUNCTION the grammar parsed wins over the scan's fallback for it: the
+    # AST gives the better signature.
+    seen_ids = {s.id for s in dbt_symbols} | {s.id for s in symbols}
+    routine_symbols = [
+        s for s in routine_symbols if s.kind != "function" or s.id not in seen_ids
+    ]
     symbols = _resolve_nested_sql_symbols(symbols, routine_symbols, source_bytes)
 
+    # Named constraints are invisible to the grammar in both spellings, so they
+    # are scanned too.  The table byte ranges come from the walk above, which is
+    # what lets an inline `CONSTRAINT ... PRIMARY KEY` name its own table.
+    table_ranges = [
+        (t.byte_offset, t.byte_offset + t.byte_length, t.qualified_name)
+        for t in symbols if t.kind == "table"
+    ]
+    seen_ids |= {s.id for s in symbols} | {s.id for s in routine_symbols}
+    constraint_symbols = [
+        c for c in _scan_sql_constraints(
+            source_bytes, filename, masked, table_ranges, line_of, table_ids
+        )
+        if c.id not in seen_ids
+    ]
+
+    sybase_symbols = [
+        c for c in _scan_sybase_objects(source_bytes, filename, masked, line_of)
+        if c.id not in seen_ids
+    ]
+
     # Merge dbt directive symbols with tree-sitter SQL symbols
-    all_symbols = dbt_symbols + symbols + routine_symbols
+    all_symbols = (
+        dbt_symbols + symbols + routine_symbols
+        + constraint_symbols + sybase_symbols
+    )
     all_symbols.sort(key=lambda s: s.line)
     return all_symbols
 

@@ -1197,7 +1197,15 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
 # fully usable as a free-string filter (the tool tolerates any language string)
 # while reclaiming the tokens. Keyed by param name so every tool that exposes a
 # `language` enum (search_symbols, search_ast, ...) benefits across all tiers.
-_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language"})
+#
+# `kind` joins it for the same reason and with the same safety: the values are
+# short mechanical names, and an unknown one is REFUSED server-side against
+# VALID_KINDS with the valid list in the error, so demoting the schema enum
+# costs a caller nothing it cannot recover at the point of failure.
+# ⚠ It is here because the SQL object kinds pushed core_compact to 4002 against
+# the <=4000 ceiling. Demoting is the lever that test names; regenerating the
+# baseline would have papered over it, which that test says in as many words.
+_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language", "kind"})
 
 # Tools eligible for Agent Selector complexity scoring
 _AGENT_SELECTOR_TOOLS = frozenset({

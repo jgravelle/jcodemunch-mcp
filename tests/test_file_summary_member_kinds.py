@@ -325,7 +325,7 @@ def test_state_kinds_names_every_kind_that_is_not_behaviour_or_wiring():
 
     not_state = {
         "function", "class", "method", "type", "template", "import",
-        "procedure", "trigger", "table", "view", "index",
+        "procedure", "trigger", "table", "view", "index", "constraint",
     }
     assert set(STATE_KINDS) | not_state == set(KIND_ORDER)
     assert not (set(STATE_KINDS) & not_state)
