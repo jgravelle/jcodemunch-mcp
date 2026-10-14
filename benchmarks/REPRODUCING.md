@@ -132,16 +132,27 @@ measuring it, and until v1.108.222 there was no way to.
 harness F-13). `benchmark.yml` dispatched with `reference=true` runs
 `--reference` on the ubuntu runner and uploads `jcm_reference.json`,
 `results.md` and `provenance/measured.json`; those are what get committed. A
-local run reproduces it to the token only under the same three conditions:
-an LF checkout, a fresh `CODE_INDEX_PATH`, and `~/.code-index/_savings.json`
-either absent or the same width (see the next two paragraphs).
+local run reproduces it to the token only ON THE SAME PLATFORM (the ubuntu
+runner) and under three conditions: an LF checkout, a fresh `CODE_INDEX_PATH`,
+and `~/.code-index/_savings.json` either absent or the same width (see the next
+two paragraphs).
+
+**On another operating system the total agrees and single rows do not.**
+Ranking ties are broken by directory-walk order, which differs between Linux
+and Windows, so a tied search can fetch a different symbol. Measured
+independently on Windows 11 at 1.108.316 with all three conditions met: 6 of 15
+rows within 1 token of the published table, the rest off by up to 38, the total
+within 0.13%. This page said "to the token" without the platform until
+2026-10-13.
 
 **The published count includes the width of your lifetime savings counter.**
 `_meta.total_tokens_saved` is read from `~/.code-index/_savings.json` in the
 HOME directory, not from `CODE_INDEX_PATH`, and it rides inside every counted
 search and fetch payload. A box with a nine-digit ledger measures +1 search and
 +3 fetch tokens per query over a fresh runner, on every query, and each run
-adds to that ledger. `stable_tokens` pins it; the published figure does not.
+adds to that ledger. Repeating a run on one box moves the published-style
+counts too: three repeats differed by up to 6 tokens on a query and 58 to 59
+in total (measured 2026-10-13), because the ledger grew between them. `stable_tokens` pins it; the published figure does not.
 
 **Every query is measured cold.** `search_symbols` adds a `_meta.cache_hit`
 field once a query has been served in-process, which costs 5 more tokens

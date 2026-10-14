@@ -47,6 +47,22 @@ def _no_network():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _shipped_sharing_default():
+    """Tests see the SHIPPED `share_savings` default, whatever the runner sets.
+
+    CI and the harness export `JCODEMUNCH_SHARE_SAVINGS=0` so that benchmark and
+    smoke steps, which run outside this suite, do not report to the public
+    savings total (cicd C-23). The variable overrides the config key, so left in
+    place every test of the default would read `False`. Nothing here can post:
+    `_no_network` refuses the connection.
+    """
+    previous = os.environ.pop("JCODEMUNCH_SHARE_SAVINGS", None)
+    yield
+    if previous is not None:
+        os.environ["JCODEMUNCH_SHARE_SAVINGS"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _pin_code_index_path(tmp_path_factory):
     """Point `CODE_INDEX_PATH` at a per-worker temp store for the whole run.
 

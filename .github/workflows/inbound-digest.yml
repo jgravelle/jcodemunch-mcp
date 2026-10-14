@@ -33,6 +33,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # A runner is not a user: its tool calls must not be reported to the public savings total (cicd C-23).
+  JCODEMUNCH_SHARE_SAVINGS: "0"
   ACTION_SHA: ef8bb1e43bf303cff727a1dd0b8837029fe982a2
   MODEL: claude-sonnet-5
 
