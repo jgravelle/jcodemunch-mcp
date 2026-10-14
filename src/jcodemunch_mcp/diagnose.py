@@ -48,7 +48,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Optional
+from typing import Callable, Iterable, Mapping, NoReturn, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ _LEAVES = {
 _BLOCKS = ("versions", "surface", "indexes", "policies", "tools")
 
 
-def _fail(what: str) -> None:
+def _fail(what: str) -> NoReturn:
     raise ValueError(f"diagnose: {what} is not on the list of what a report may carry")
 
 
