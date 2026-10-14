@@ -122,13 +122,32 @@ def test_the_variable_stops_the_post_not_just_the_spelling(tmp_path, monkeypatch
 
 def test_benchmark_entry_point_switches_it_off_for_a_hand_run():
     """REPRODUCING.md tells a reader to run this script directly, outside the harness and CI."""
-    text = (ROOT / "benchmarks" / "harness" / "run_benchmark.py").read_text(encoding="utf-8")
-    first_tool_import = text.index("from jcodemunch_mcp")
-    assert 0 <= text.index('os.environ.setdefault("' + VAR + '", "0")') < first_tool_import
+    import ast
+
+    tree = ast.parse((ROOT / "benchmarks" / "harness" / "run_benchmark.py").read_text(encoding="utf-8"))
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    first = main.body[0]
+    assert isinstance(first, ast.Expr) and isinstance(first.value, ast.Call), "the first statement of main()"
+    assert ast.unparse(first) == "os.environ.setdefault('" + VAR + "', '0')"
+    # And not at import time: a test that imports the module must not inherit it.
+    module_level = [ast.unparse(n) for n in tree.body if isinstance(n, ast.Expr)]
+    assert not [s for s in module_level if VAR in s]
+
+
+def test_importing_the_benchmark_module_leaves_the_environment_alone(monkeypatch):
+    import importlib.util
+
+    monkeypatch.delenv(VAR, raising=False)
+    path = ROOT / "benchmarks" / "harness" / "run_benchmark.py"
+    spec = importlib.util.spec_from_file_location("_rb_probe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert VAR not in os.environ
 
 
 def test_the_suite_still_sees_the_shipped_default():
-    """The variable overrides the config key, so the session removes it (conftest `_shipped_sharing_default`)."""
+    """The variable is the fallback when no config file sets the key, so the session removes it
+    (conftest `_shipped_sharing_default`)."""
     from jcodemunch_mcp import config
 
     assert VAR not in os.environ
