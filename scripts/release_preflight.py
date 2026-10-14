@@ -183,7 +183,10 @@ def changes_requested_on_head(reviews: list[dict], head_sha: str) -> bool:
     if not deciding:
         return False
     latest = deciding[-1]
-    return latest.get("state") == "CHANGES_REQUESTED" and latest.get("commit_id") == head_sha
+    return (
+        latest.get("state") == "CHANGES_REQUESTED"
+        and latest.get("commit_id") == head_sha
+    )
 
 
 # ------------------------------------------------------------------ live runs
@@ -334,18 +337,32 @@ def check_prs() -> tuple[bool, str]:
     if rc != 0:
         return False, "gh pr list failed: " + out.strip()[-200:]
     prs = json.loads(out)
-    heads = {f"#{p['number']} {p['author']['login']}": (p["number"], p.get("headRefOid", "")) for p in prs}
+    heads = {
+        f"#{p['number']} {p['author']['login']}": (p["number"], p.get("headRefOid", ""))
+        for p in prs
+    }
     ready, held = [], []
     for label in mergeable_contributor_prs(prs):
         number, head = heads[label]
         # Every page, one review per line: GitHub lists reviews oldest first, so a
         # truncated read would miss the newest decision.
         rc, body = _run(
-            ["gh", "api", f"repos/{SLUG}/pulls/{number}/reviews?per_page=100", "--paginate", "--jq", ".[]"],
+            [
+                "gh",
+                "api",
+                f"repos/{SLUG}/pulls/{number}/reviews?per_page=100",
+                "--paginate",
+                "--jq",
+                ".[]",
+            ],
             gh=True,
         )
         try:
-            reviews = [json.loads(line) for line in body.splitlines() if line.strip()] if rc == 0 else None
+            reviews = (
+                [json.loads(line) for line in body.splitlines() if line.strip()]
+                if rc == 0
+                else None
+            )
         except ValueError:
             reviews = None
         # Could not read the reviews: the PR keeps holding, as it did before.
@@ -353,7 +370,9 @@ def check_prs() -> tuple[bool, str]:
             held.append(label)
         else:
             ready.append(label)
-    note = f" ({', '.join(held)}: changes requested on the current head)" if held else ""
+    note = (
+        f" ({', '.join(held)}: changes requested on the current head)" if held else ""
+    )
     if ready:
         return (
             False,
