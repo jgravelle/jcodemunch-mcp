@@ -286,18 +286,52 @@ def installed_policy_block(text: str) -> list[str] | None:
     compares it and ``diagnose`` digests it, and a second copy of the boundary
     rule would let the two disagree about the same file.
     """
-    lines = text.splitlines()
-    # Found the way `init` finds it: the first line CONTAINING the marker.
-    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
+    # A byte-order mark is not part of the first line's text.
+    lines = text.removeprefix(chr(0xFEFF)).splitlines()
+    span = policy_block_span(lines)
+    if span is None:
+        return None
+    return _normalise(lines[span[0] : span[1]])
+
+
+def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
+    """``(start, end)`` line indexes of the policy block in *lines*, or ``None``.
+
+    THE boundary rule. ``installed_policy_block`` reads through it, and so does
+    ``claude-md --refresh`` (``policy_refresh``), which replaces exactly these
+    lines: the check that says a block differs and the command that rewrites it
+    cannot disagree about where the block ends.
+
+    It starts at the first HEADING line carrying the marker, so a sentence that
+    mentions the policy by name is not mistaken for it. It runs to the first
+    Markdown heading of any level that is not one of the policy's own ``## ``
+    sections, or to the end of the file. The policy text at every release tag
+    uses only ``## `` headings and holds no code fence (read from all 686 tags
+    on 2026-10-14), so a user's own ``#`` or ``###`` section after the block
+    ends it too (review, 2026-10-14: the refresh would otherwise have deleted
+    it). A ``#`` line inside a fenced code block is not a heading.
+    """
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("#") and POLICY_MARKER in ln),
+        None,
+    )
     if start is None:
         return None
     own = _policy_headings()
     end = len(lines)
+    in_fence = False
     for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## ") and lines[i].strip() not in own:
+        stripped = lines[i].strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and _HEADING_RE.match(stripped) and stripped not in own:
             end = i
             break
-    return _normalise(lines[start:end])
+    return start, end
+
+
+_HEADING_RE = re.compile(r"#{1,6}\s")
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:
