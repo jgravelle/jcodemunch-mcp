@@ -37,11 +37,13 @@ from ..security import (
     get_skip_directories,
     get_skip_msbuild_output,
     get_skip_nuget_packages,
+    get_skip_generated_migrations,
     is_cache_directory,
     is_dotnet_project_dir,
     is_msbuild_output_directory,
     is_msbuild_output_path,
     is_nuget_packages_directory,
+    is_generated_migrations_directory,
     SKIP_FILES
 )
 from ..storage import IndexStore
@@ -246,6 +248,7 @@ def _maybe_apply_adaptive(folder_path: str, result: dict) -> None:
 def get_filtered_files(path: str) -> Generator[str, None, None]:
     """Generator function to filter directories and files"""
     skip_dirs_regex = _build_skip_dirs_regex(repo=path)
+    skip_migrations = get_skip_generated_migrations(repo=path)
     # Use os.walk with followlinks=False to avoid infinite loops caused by
     # NTFS junctions or symlinks pointing back to ancestor directories.
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
@@ -257,6 +260,7 @@ def get_filtered_files(path: str) -> Generator[str, None, None]:
             dir for dir in dirnames
             if not skip_dirs_regex.match(dir)
             and not is_linked_worktree(dpath / dir)
+            and not (skip_migrations and is_generated_migrations_directory(dir, dpath / dir))
         ]
         for file in filenames:
             if not SKIP_FILES_REGEX.search(file):
@@ -445,6 +449,21 @@ class _IndexFilters:
     respect_cachedir_tag: bool = True
     skip_msbuild_output: bool = True
     skip_nuget_packages: bool = True
+    skip_generated_migrations: bool = True
+
+
+def _config_skip_flags(repo: str) -> dict:
+    """The skip switches a project's config sets, read once for one walk root.
+
+    The full walk and the watcher's fast path both take their switches from here,
+    so a switch added to one route cannot be missing from the other.
+    """
+    return {
+        "respect_cachedir_tag": get_respect_cachedir_tag(repo=repo),
+        "skip_msbuild_output": get_skip_msbuild_output(repo=repo),
+        "skip_nuget_packages": get_skip_nuget_packages(repo=repo),
+        "skip_generated_migrations": get_skip_generated_migrations(repo=repo),
+    }
 
 
 def _build_index_filters(
@@ -460,6 +479,7 @@ def _build_index_filters(
     respect_cachedir_tag: bool = True,
     skip_msbuild_output: bool = True,
     skip_nuget_packages: bool = True,
+    skip_generated_migrations: bool = True,
 ) -> _IndexFilters:
     """Bundle pre-computed filter config for ``_should_index_file``.
 
@@ -482,6 +502,7 @@ def _build_index_filters(
         respect_cachedir_tag=respect_cachedir_tag,
         skip_msbuild_output=skip_msbuild_output,
         skip_nuget_packages=skip_nuget_packages,
+        skip_generated_migrations=skip_generated_migrations,
     )
 
 
@@ -505,7 +526,7 @@ def _should_index_file(
         ``skip_counts`` keys (``skip_file``, ``symlink``,
         ``symlink_escape``, ``path_traversal``, ``skip_dir``,
         ``nested_worktree``, ``cache_dir``, ``msbuild_output``,
-        ``nuget_packages``, ``gitignore``, ``extra_ignore``, ``secret``,
+        ``nuget_packages``, ``generated_migrations``, ``gitignore``, ``extra_ignore``, ``secret``,
         ``wrong_extension``, ``too_large``, ``unreadable``, ``binary``).
         ``rel_path`` may
         be empty if rejection happened before path resolution.
@@ -593,6 +614,10 @@ def _should_index_file(
                 ancestor.name, ancestor
             ):
                 return False, "nuget_packages", rel_path, None
+            if cfg.skip_generated_migrations and is_generated_migrations_directory(
+                ancestor.name, ancestor
+            ):
+                return False, "generated_migrations", rel_path, None
 
     # 8. Gitignore (string-prefix specs, walk-order)
     if gitignore_specs and _is_gitignored_fast(resolved_str, gitignore_specs):
@@ -1254,9 +1279,11 @@ def discover_local_files(
     _repo_key = str(root)
     max_size = get_max_file_size(max_size, repo=_repo_key)
     max_files = get_max_folder_files(max_files, repo=_repo_key)
-    respect_cachedir_tag = get_respect_cachedir_tag(repo=_repo_key)
-    skip_msbuild_output = get_skip_msbuild_output(repo=_repo_key)
-    skip_nuget_packages = get_skip_nuget_packages(repo=_repo_key)
+    _flags = _config_skip_flags(_repo_key)
+    respect_cachedir_tag = _flags["respect_cachedir_tag"]
+    skip_msbuild_output = _flags["skip_msbuild_output"]
+    skip_nuget_packages = _flags["skip_nuget_packages"]
+    skip_generated_migrations = _flags["skip_generated_migrations"]
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1266,6 +1293,7 @@ def discover_local_files(
         "nested_worktree": 0,
         "msbuild_output": 0,
         "nuget_packages": 0,
+        "generated_migrations": 0,
         "skip_file": 0,
         "symlink": 0,
         "symlink_escape": 0,
@@ -1345,6 +1373,7 @@ def discover_local_files(
         caches = []
         msbuild = []
         nuget = []
+        migrations = []
         kept = []
         # `filenames` is this directory's entries, already walked, so the .NET
         # project-file marker `is_msbuild_output_directory` needs costs no IO.
@@ -1375,9 +1404,13 @@ def discover_local_files(
             # either way.
             elif skip_nuget_packages and is_nuget_packages_directory(d, dpath / d):
                 nuget.append(d)
+            # Generated migrations: name-gated, so every other directory pays one
+            # string compare; a `migrations` directory costs one listing.
+            elif skip_generated_migrations and is_generated_migrations_directory(d, dpath / d):
+                migrations.append(d)
             else:
                 kept.append(d)
-        if pruned or worktrees or caches or msbuild or nuget:
+        if pruned or worktrees or caches or msbuild or nuget or migrations:
             rel_dir = os.path.relpath(dirpath, root_str)
             for d in pruned:
                 skip_counts["skip_dir"] += 1
@@ -1396,6 +1429,9 @@ def discover_local_files(
             for d in nuget:
                 skip_counts["nuget_packages"] += 1
                 logger.debug("SKIP nuget_packages: %s", os.path.join(rel_dir, d))
+            for d in migrations:
+                skip_counts["generated_migrations"] += 1
+                logger.debug("SKIP generated_migrations: %s", os.path.join(rel_dir, d))
         dirnames[:] = kept
 
         # Load .gitignore for this directory BEFORE filtering its files so
@@ -1915,15 +1951,7 @@ def index_folder(
                 ),
                 check_binary=False,
                 check_filename=True,
-                respect_cachedir_tag=get_respect_cachedir_tag(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_msbuild_output=get_skip_msbuild_output(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_nuget_packages=get_skip_nuget_packages(
-                    repo=str(Path(walk_root).resolve())
-                ),
+                **_config_skip_flags(str(Path(walk_root).resolve())),
             )
 
             # Branch detection for watcher fast-path

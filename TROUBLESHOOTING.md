@@ -117,7 +117,7 @@ Two things do dilute, and neither is an extension problem:
    ```
 3. **Read `discovery_skip_counts` in the index response.** It reports which rule
    dropped what — `extra_ignore`, `gitignore`, `wrong_extension`, `too_large`,
-   `secret`, `binary`. If the count you expect is zero, the rule you assumed was
+   `secret`, `binary`, `generated_migrations`. If the count you expect is zero, the rule you assumed was
    filtering is not the one doing the work.
 4. `.gitignore` is already honoured; a tree ignored by git is not indexed.
 
