@@ -1,11 +1,14 @@
 """Security utilities for path validation, secret detection, and binary filtering."""
 
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
 from . import config as _config
 
+logger = logging.getLogger(__name__)
 
 # --- Package Integrity Check ---
 
@@ -270,7 +273,10 @@ _SKIP_DIRECTORY_NAMES: list[str] = [
     "node_modules", "vendor", "venv", ".venv", "__pycache__",
     "dist", "build", ".git", ".tox", ".mypy_cache", "target",
     ".gradle", "test_data", "testdata", "fixtures", "snapshots",
-    "migrations", "generated", "proto", "DerivedData", ".build",
+    # ⚠ `migrations` is NOT here: a directory with that name is skipped only
+    # when it holds generated migrations (`is_generated_migrations_directory`).
+    # As a bare name it hid django's migration framework.
+    "generated", "proto", "DerivedData", ".build",
     # v1.108.234: duplicate source trees. A `backup/`, `old/` or `archive/`
     # directory holding real source files indexes the SAME symbols twice, and
     # the copies then compete with the originals in ranking. Reported by a user
@@ -617,6 +623,89 @@ def get_skip_patterns(repo: Optional[str] = None) -> frozenset[str]:
         return SKIP_PATTERNS
     excluded_with_slash = {d + "/" for d in excluded}
     return frozenset(p for p in SKIP_PATTERNS if p not in excluded_with_slash)
+
+
+# ── Generated migrations ──────────────────────────────────────────────────────
+#
+# `migrations` was a bare skip-list name, so a library whose own code lives in a
+# package of that name lost it: django's migration framework
+# (`django/db/migrations/`, the autodetector, executor, loader and operations) was
+# never indexed, and nothing in the result named the rule.
+#
+# A migration tool names each file or directory it writes by sequence or
+# timestamp, so the names are the writer's mark: django `0001_initial.py`,
+# laravel `2014_10_12_000000_x.php`, knex/sequelize/prisma `20200101120000_x`,
+# typeorm `1612345678901-X.ts`, golang-migrate `000001_x.up.sql`, diesel
+# `2020-01-01-000000_x/`, flyway `V1__x.sql` / `V1_2__x.sql` / `V1.2__x.sql`,
+# doctrine `Version20230101120000.php`, yii2 `m230101_120000_x.php`, mikro-orm
+# `Migration20230101120000.ts`. Alembic and Flask-Migrate keep theirs in
+# `versions/` and mark the directory with the template and config they write
+# (`script.py.mako`, `alembic.ini`). A hand-written module is not named that way.
+# ⚠ A tool that names its migrations some other way is indexed: the list is of
+# conventions, and a miss errs toward indexing.
+_MIGRATIONS_DIR_NAME = "migrations"
+_GENERATED_MIGRATION_NAME = re.compile(
+    r"^(?:\d{3,}[_.\-]"
+    r"|V\d+(?:[._]\d+)*__"
+    r"|Version\d{8,}"
+    r"|Migration\d{8,}"
+    r"|m\d{6}_\d{6}_"
+    r"|script\.py\.mako$"
+    r"|alembic\.ini$)"
+)
+
+
+def is_generated_migration_name(name: str) -> bool:
+    """True when ``name`` is how a migration tool names what it writes."""
+    return bool(_GENERATED_MIGRATION_NAME.match(name))
+
+
+def is_generated_migrations_directory(dir_name: str, path) -> bool:
+    """True when ``path``, named ``migrations``, holds generated migrations.
+
+    One entry with a generated name is enough: an application's migrations
+    directory holds nothing else, and a framework's package holds none.
+
+    An unreadable or vanished directory answers False, the NuGet rule's answer:
+    the walk then reports it as `unreadable` rather than this rule claiming to
+    know what it holds.
+
+    ⚠ Not a withheld exclusion: generated migrations are corpus definition, the
+    same class as a build tree, so absence claims over the rest stay citable.
+    """
+    if dir_name != _MIGRATIONS_DIR_NAME:
+        return False
+    try:
+        with os.scandir(str(path)) as entries:
+            return any(is_generated_migration_name(e.name) for e in entries)
+    except (OSError, ValueError):
+        logger.debug("could not list %s for the migrations rule", path, exc_info=True)
+        return False
+
+
+def get_skip_generated_migrations(repo: Optional[str] = None) -> bool:
+    """Whether generated `migrations` directories are skipped.
+
+    ``exclude_skip_directories: ["migrations"]`` un-skipped every migrations
+    directory while the name was on the skip list, and still does.
+    """
+    return _MIGRATIONS_DIR_NAME not in _excluded_skip_directories(repo=repo)
+
+
+def generated_migrations_prefixes(paths) -> set[str]:
+    """``migrations/`` directory prefixes in a path listing that hold generated
+    migrations, each ending in ``/``.
+
+    The GitHub tree listing has no directory to scan, so the same question is
+    asked of the entries the listing names under each `migrations` directory.
+    """
+    prefixes: set[str] = set()
+    for path in paths:
+        parts = path.replace("\\", "/").split("/")
+        for i, part in enumerate(parts[:-1]):
+            if part == _MIGRATIONS_DIR_NAME and is_generated_migration_name(parts[i + 1]):
+                prefixes.add("/".join(parts[: i + 1]) + "/")
+    return prefixes
 
 BINARY_EXTENSIONS = frozenset([
     # Executables

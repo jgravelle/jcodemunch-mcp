@@ -237,7 +237,7 @@ _FASTAPI = FrameworkProfile(
 # Django profile
 _DJANGO = FrameworkProfile(
     name="django",
-    ignore_patterns=["venv/", ".venv/", "env/", "__pycache__/", "*.pyc", ".git/", "migrations/"],
+    ignore_patterns=["venv/", ".venv/", "env/", "__pycache__/", "*.pyc", ".git/"],
     entry_point_patterns=["manage.py", "settings.py", "urls.py", "wsgi.py", "asgi.py"],
     layer_definitions=[
         Layer("views",     ["*/views.py"]),

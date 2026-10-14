@@ -817,11 +817,20 @@ def _collect_data_intel(index) -> dict:
                     "columns": col_count,
                 })
 
-    # Count migration files
-    migration_files = sum(
-        1 for f in index.source_files
-        if "/migrations/" in f.replace("\\", "/") or "/migrate/" in f.replace("\\", "/")
-    )
+    # Count migration files: a file a migration tool named, in a `migrations/` or
+    # `migrate/` directory. A path test alone counted a framework's own
+    # `migrations` package (django's autodetector, executor) once it was indexed.
+    from ..security import is_generated_migration_name
+
+    def _is_migration_file(path: str) -> bool:
+        parts = path.replace("\\", "/").split("/")
+        return (
+            len(parts) >= 2
+            and parts[-2] in ("migrations", "migrate")
+            and is_generated_migration_name(parts[-1])
+        )
+
+    migration_files = sum(1 for f in index.source_files if _is_migration_file(f))
 
     return {
         "models": models[:_MAX_ITEMS_PER_CATEGORY],

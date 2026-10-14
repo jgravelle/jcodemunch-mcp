@@ -2151,6 +2151,9 @@ _ALIAS_MAP_LOCK = threading.Lock()
 # walk cheaper.
 _TSCONFIG_EXTRA_SKIP_DIRS = frozenset({
     "out", ".cache", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vercel",
+    # Left the authority when the index rule became content-aware; no
+    # migrations directory holds a tsconfig, so the walk keeps skipping it.
+    "migrations",
 })
 
 
