@@ -65,7 +65,7 @@ GENERATED = [
 ]
 
 # Hand-written names that must not read as generated.
-NOT_GENERATED = ["__init__.py", "autodetector.py", "v2_compat.py", "Versioning.php", "migration.py", "12_factor.py"]
+HAND_WRITTEN_NAMES = ["__init__.py", "autodetector.py", "v2_compat.py", "Versioning.php", "migration.py", "12_factor.py"]
 
 # What a framework's own migrations package holds.
 SOURCE = ["__init__.py", "autodetector.py", "executor.py", "loader.py", "state.py", "utils.py"]
@@ -100,7 +100,7 @@ def test_a_framework_migrations_package_is_source(tmp_path):
     assert is_generated_migrations_directory("migrations", d) is False
 
 
-@pytest.mark.parametrize("name", NOT_GENERATED)
+@pytest.mark.parametrize("name", HAND_WRITTEN_NAMES)
 def test_a_hand_written_name_is_not_generated(name):
     assert is_generated_migration_name(name) is False
 
