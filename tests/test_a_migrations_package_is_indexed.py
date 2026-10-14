@@ -1,0 +1,213 @@
+"""A `migrations` directory is skipped only when it holds generated migrations.
+
+`migrations` sat in the built-in skip list, so every directory with that name was
+pruned. That is right for an application's generated migration files and wrong
+for a library whose own code lives in a package called `migrations`: django's
+migration framework (`django/db/migrations/`: the autodetector, the executor, the
+loader, the operations) was invisible, and nothing in the index result said which
+rule dropped it.
+
+The rule now asks what the directory holds. A migration tool names what it writes
+by sequence or timestamp (`0001_initial.py`, `2014_10_12_000000_create_users.php`,
+`20230101120000_init/`, `V1__init.sql`, `1612345678901-Init.ts`), so a directory
+holding one such entry is generated and is skipped, counted as
+`generated_migrations`. A directory holding none is source and is indexed.
+
+⚠ Every entry point applies the one predicate: the full walk, the watcher fast
+path and the GitHub tree listing. ⚠ `exclude_skip_directories: ["migrations"]`
+still indexes every migrations directory, generated or not, as it did before.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from jcodemunch_mcp import config as config_module
+from jcodemunch_mcp.security import (
+    generated_migrations_prefixes,
+    get_skip_generated_migrations,
+    is_generated_migrations_directory,
+)
+from jcodemunch_mcp.tools.index_folder import (
+    WITHHELD_SKIP_REASONS,
+    _build_index_filters,
+    _build_skip_dirs_regex,
+    _should_index_file,
+    discover_local_files,
+)
+from jcodemunch_mcp.tools.index_repo import discover_source_files
+
+
+def _write(path: Path, text: str = "x = 1\n") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# Names migration tools write, one per tool family.
+GENERATED = [
+    "0001_initial.py",                                # django
+    "2014_10_12_000000_create_users_table.php",       # laravel
+    "20200101120000_create_users.js",                 # knex, sequelize
+    "1612345678901-Init.ts",                          # typeorm
+    "000001_init.up.sql",                             # golang-migrate
+    "V1__init.sql",                                   # flyway
+    "V1_2__add_column.sql",                           # flyway, underscored version
+    "V1.2__add_column.sql",                           # flyway, dotted version
+]
+
+# What a framework's own migrations package holds.
+SOURCE = ["__init__.py", "autodetector.py", "executor.py", "loader.py", "state.py", "utils.py"]
+
+
+# ---------------------------------------------------------------------------
+# The predicate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", GENERATED)
+def test_a_directory_holding_a_generated_migration_is_generated(tmp_path, name):
+    d = tmp_path / "migrations"
+    _write(d / "__init__.py")
+    _write(d / name)
+    assert is_generated_migrations_directory("migrations", d) is True
+
+
+def test_timestamped_subdirectories_are_generated(tmp_path):
+    """prisma and diesel write one directory per migration."""
+    for sub in ("20230101120000_init", "2020-01-01-000000_create_users"):
+        d = tmp_path / sub / "migrations"
+        _write(d / sub / "migration.sql", "CREATE TABLE t (id int);")
+        assert is_generated_migrations_directory("migrations", d) is True, sub
+
+
+def test_a_framework_migrations_package_is_source(tmp_path):
+    d = tmp_path / "migrations"
+    for name in SOURCE:
+        _write(d / name)
+    _write(d / "operations" / "base.py")
+    assert is_generated_migrations_directory("migrations", d) is False
+
+
+def test_only_the_name_migrations_is_considered(tmp_path):
+    d = tmp_path / "versions"
+    _write(d / "0001_initial.py")
+    assert is_generated_migrations_directory("versions", d) is False
+
+
+def test_an_unreadable_directory_keeps_the_old_skip(tmp_path):
+    """Before this rule every `migrations` directory was skipped; a directory we
+    cannot list keeps that answer rather than guessing it is source."""
+    assert is_generated_migrations_directory("migrations", tmp_path / "gone") is True
+
+
+# ---------------------------------------------------------------------------
+# The full walk
+# ---------------------------------------------------------------------------
+
+
+def _mixed_repo(root: Path) -> Path:
+    for name in SOURCE:
+        _write(root / "framework" / "db" / "migrations" / name)
+    _write(root / "framework" / "db" / "migrations" / "operations" / "base.py")
+    _write(root / "app" / "migrations" / "__init__.py")
+    _write(root / "app" / "migrations" / "0001_initial.py")
+    _write(root / "app" / "models.py")
+    return root
+
+
+def test_the_walk_indexes_the_framework_and_skips_generated_migrations(tmp_path):
+    files, warnings, skip_counts = discover_local_files(_mixed_repo(tmp_path))
+    rel = {Path(f).relative_to(tmp_path).as_posix() for f in files}
+
+    assert "framework/db/migrations/autodetector.py" in rel
+    assert "framework/db/migrations/operations/base.py" in rel
+    assert "app/models.py" in rel
+    assert not any(r.startswith("app/migrations/") for r in rel), rel
+    assert skip_counts["generated_migrations"] == 1
+    assert warnings == []
+
+
+def test_un_skipping_migrations_still_indexes_every_one(tmp_path, monkeypatch):
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "exclude_skip_directories", ["migrations"])
+    assert get_skip_generated_migrations() is False
+
+    files, _, skip_counts = discover_local_files(_mixed_repo(tmp_path))
+    rel = {Path(f).relative_to(tmp_path).as_posix() for f in files}
+
+    assert "app/migrations/0001_initial.py" in rel
+    assert "framework/db/migrations/autodetector.py" in rel
+    assert skip_counts["generated_migrations"] == 0
+
+
+def test_generated_migrations_is_not_a_withheld_reason():
+    """Generated migrations are corpus definition, like a build tree: absence
+    claims over what remains stay citable, as they did under the name rule."""
+    assert "generated_migrations" not in WITHHELD_SKIP_REASONS
+
+
+# ---------------------------------------------------------------------------
+# The watcher fast path
+# ---------------------------------------------------------------------------
+
+
+def _fast_cfg(root: Path):
+    return _build_index_filters(root=root.resolve(), skip_dirs_regex=_build_skip_dirs_regex())
+
+
+def test_the_fast_path_refuses_a_generated_migration(tmp_path):
+    root = _mixed_repo(tmp_path)
+    ok, reason, _rel, _warning = _should_index_file(
+        root / "app" / "migrations" / "0001_initial.py", _fast_cfg(root)
+    )
+    assert (ok, reason) == (False, "generated_migrations")
+
+
+def test_the_fast_path_keeps_a_framework_module(tmp_path):
+    root = _mixed_repo(tmp_path)
+    ok, _reason, _rel, _warning = _should_index_file(
+        root / "framework" / "db" / "migrations" / "autodetector.py", _fast_cfg(root)
+    )
+    assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# The GitHub tree listing
+# ---------------------------------------------------------------------------
+
+
+def _tree(paths: list[str]) -> list[dict]:
+    return [{"type": "blob", "path": p, "size": 10, "sha": "0" * 40} for p in paths]
+
+
+def test_the_remote_listing_uses_the_same_rule():
+    paths = [
+        "django/db/migrations/__init__.py",
+        "django/db/migrations/autodetector.py",
+        "django/db/migrations/operations/base.py",
+        "django/contrib/auth/migrations/__init__.py",
+        "django/contrib/auth/migrations/0001_initial.py",
+        "prisma/migrations/20230101120000_init/migration.sql",
+        "migrations/0002_more.py",
+    ]
+    assert generated_migrations_prefixes(paths) == {
+        "django/contrib/auth/migrations/",
+        "prisma/migrations/",
+        "migrations/",
+    }
+
+    result = discover_source_files(_tree(paths))
+    files = result[0] if isinstance(result, tuple) else result
+    assert "django/db/migrations/autodetector.py" in files
+    assert "django/db/migrations/operations/base.py" in files
+    assert not any("contrib/auth/migrations" in f for f in files), files
+    assert "migrations/0002_more.py" not in files
+
+
+def test_get_filtered_files_prunes_the_same_way(tmp_path):
+    from jcodemunch_mcp.tools.index_folder import get_filtered_files
+
+    root = _mixed_repo(tmp_path)
+    rel = {Path(p).relative_to(root).as_posix() for p in get_filtered_files(str(root))}
+    assert "framework/db/migrations/autodetector.py" in rel
+    assert "app/migrations/0001_initial.py" not in rel
