@@ -591,3 +591,91 @@ def test_temp_tables_are_recognised_by_marker_or_by_keyword(ddl):
         f"{ddl}\nSELECT 1\nEND\nGO\n"
     )
     assert [s.kind for s in _parse(sql)] == ["procedure"]
+
+
+# --------------------------------------------------------------------------
+# A routine ends at its own terminator (#1080) -- and the batch passes
+# --------------------------------------------------------------------------
+
+def test_a_terminated_routine_leaves_the_objects_after_it_found_once_and_top_level():
+    """The second pass blanks the routine's extent. With a PostgreSQL body that
+    ends at `$$;` the extent is one statement, so the table, view and index
+    after it come out of the first pass AND the second and are merged on
+    coordinates: once each, with no parent."""
+    sql = (
+        "CREATE OR REPLACE PROCEDURE p_one() LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$;\n"
+        "CREATE TABLE orders (id int primary key);\n"
+        "CREATE VIEW v_orders AS SELECT id FROM orders;\n"
+        "CREATE INDEX ix_orders ON orders (id);\n"
+    )
+    syms = _parse(sql)
+    by_kind = {}
+    for s in syms:
+        by_kind.setdefault(s.kind, []).append(s)
+    assert [s.name for s in by_kind["table"]] == ["orders"]
+    assert [s.name for s in by_kind["view"]] == ["v_orders"]
+    assert [s.name for s in by_kind["index"]] == ["ix_orders"]
+    assert [(s.name, s.line, s.end_line) for s in by_kind["procedure"]] == [("p_one", 1, 1)]
+    assert all(s.parent is None for k in ("table", "view", "index") for s in by_kind[k])
+
+
+def test_a_batch_holding_a_mysql_delimiter_routine_keeps_the_next_batch_top_level():
+    sql = (
+        "DELIMITER ;;\n"
+        "CREATE PROCEDURE p_one()\n"
+        "BEGIN\n"
+        "  SELECT 1;\n"
+        "END ;;\n"
+        "DELIMITER ;\n"
+        "CREATE TABLE orders (id INT);\n"
+        "GO\n"
+        "CREATE TABLE items (id INT);\n"
+    )
+    syms = {s.name: s for s in _parse(sql)}
+    assert (syms["p_one"].line, syms["p_one"].end_line) == (2, 5)
+    assert syms["orders"].parent is None
+    assert syms["items"].parent is None
+
+
+def test_a_bracketed_constraint_name_is_read_from_the_source_not_the_mask():
+    """The mask fills a bracketed name with underscores so an apostrophe or a
+    keyword inside it opens and closes nothing; the scans that read names must
+    take them from the original bytes."""
+    sql = (
+        "CREATE TABLE [dbo].[Orders] ([Id] int NOT NULL)\n"
+        "GO\n"
+        "ALTER TABLE [dbo].[Orders] ADD CONSTRAINT [PK_it's] PRIMARY KEY ([Id])\n"
+        "GO\n"
+        "ALTER TABLE [dbo].[Orders] ADD CONSTRAINT [FK_Orders_Cust] FOREIGN KEY ([Id])"
+        " REFERENCES [dbo].[Customers] ([Id])\n"
+        "GO\n"
+        "CREATE VIEW [dbo].[V_After] AS SELECT 1\n"
+    )
+    syms = _parse(sql)
+    assert {s.name for s in syms if s.kind == "constraint"} == {"PK_it's", "FK_Orders_Cust"}
+    assert "dbo.V_After" in {s.name for s in syms}
+
+
+def test_a_bracketed_anonymous_foreign_key_target_keeps_its_name():
+    sql = (
+        "CREATE TABLE a (id int, c_id int, CONSTRAINT [PK_a] PRIMARY KEY (id),"
+        " FOREIGN KEY (c_id) REFERENCES [Customers] (id))\n"
+    )
+    names = {s.name for s in _parse(sql) if s.kind == "constraint"}
+    assert names == {"PK_a", "FK_a_Customers"}
+
+
+def test_only_a_plain_word_is_unbracketed_for_the_grammar():
+    from jcodemunch_mcp.parser.extractor import _neutralize_sql_bracket_identifiers
+
+    buf = b"SELECT [Name], [Column 0], [it's] FROM [T]"
+    out = _neutralize_sql_bracket_identifiers(buf, _mask_sql_noise(buf))
+    assert out == b"SELECT Name  , [Column 0], [it's] FROM T  "
+
+
+def test_parser_generation_advanced_for_the_batch_parse():
+    """The rows change on unchanged content (objects that were lost appear),
+    so an index stamped with the previous generation must be re-parsed."""
+    from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
+
+    assert PARSER_GENERATION >= 23

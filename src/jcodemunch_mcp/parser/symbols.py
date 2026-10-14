@@ -143,6 +143,15 @@ REPRESENTATIVE_KIND_RANK: dict[str, int] = {
     "function": 1,
     "method": 2,
     "type": 3,
+    # SQL (#1080): a routine is a callable, so it ranks with them; a table, view
+    # or index ranks where `type` did, which is where every SQL object ranked
+    # before it had its own word. Without these a schema (still `type`)
+    # represented a file over the tables it creates.
+    "procedure": 1,
+    "trigger": 2,
+    "table": 3,
+    "view": 3,
+    "index": 3,
     **{kind: 4 for kind in STATE_KINDS},
 }
 

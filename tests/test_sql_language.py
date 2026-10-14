@@ -748,8 +748,10 @@ def test_real_table_inside_routine_is_reparented_not_dropped():
 
 
 def test_parser_generation_advanced_for_the_sql_changes():
+    """The stored SQL rows changed on unchanged content, so an index stamped
+    with the previous generation must be re-parsed."""
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
-    assert PARSER_GENERATION >= 12
+    assert PARSER_GENERATION >= 22
 
 
 _ROUTINE_SPELLINGS = [
@@ -930,18 +932,337 @@ def test_create_or_replace_trigger_execute_function_makes_no_function_symbol():
 
 
 def test_routine_header_scan_is_linear_in_whitespace_runs():
+    """Compare two input sizes against each other instead of a wall-clock
+    bound: 4x the whitespace should cost about 4x, a quadratic scan about 16x."""
     import time
-    n = 100_000
-    hostile = [
-        b"CREATE DEFINER=" + b" " * n + b"x",
-        b"CREATE DEFINER=a@" + b" " * n + b"x",
-        b"CREATE DEFINER=`a`@" + b"\t" * n + b"PROCEDURE" + b" " * n + b"IF NOT" + b" " * n + b"x",
-        b"CREATE OR" + b" " * n + b"x",
-        b"ALTER" + b" " * n + b"x",
-    ]
     from jcodemunch_mcp.parser.extractor import _SQL_ROUTINE_HEADER_RE, _SQL_TRIGGER_ON_RE
-    t0 = time.perf_counter()
-    for src in hostile:
-        _SQL_ROUTINE_HEADER_RE.search(src)
-    _SQL_TRIGGER_ON_RE.match(b" " * n + b"BEFORE INSERT OR " * (n // 20) + b"x", 0)
-    assert time.perf_counter() - t0 < 2.0
+
+    def cost(n):
+        hostile = [
+            b"CREATE DEFINER=" + b" " * n + b"x",
+            b"CREATE DEFINER=a@" + b" " * n + b"x",
+            b"CREATE DEFINER=`a`@" + b"\t" * n + b"PROCEDURE" + b" " * n + b"IF NOT" + b" " * n + b"x",
+            b"CREATE OR" + b" " * n + b"x",
+            b"ALTER" + b" " * n + b"x",
+        ]
+        trigger = b" " * n + b"BEFORE INSERT OR " * (n // 20) + b"x"
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            for src in hostile:
+                _SQL_ROUTINE_HEADER_RE.search(src)
+            _SQL_TRIGGER_ON_RE.match(trigger, 0)
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    small, large = cost(5_000), cost(20_000)
+    assert large / max(small, 1e-4) < 10, (small, large)
+# ---------------------------------------------------------------------------
+# A routine's span ends at its own terminator (#1080 review).
+# ---------------------------------------------------------------------------
+
+def _body(src, sym):
+    raw = src.encode("utf-8")
+    return raw[sym.byte_offset:sym.byte_offset + sym.byte_length].decode("utf-8")
+
+
+def _by_name(symbols):
+    return {s.name: s for s in symbols}
+
+
+PG_PROCEDURE_THEN_DDL = """\
+CREATE OR REPLACE PROCEDURE p_one() LANGUAGE plpgsql AS $$ BEGIN NULL; END; $$;
+CREATE TABLE orders (id int primary key);
+CREATE VIEW v_orders AS SELECT id FROM orders;
+CREATE INDEX ix_orders ON orders (id);
+"""
+
+
+def test_objects_after_a_dollar_quoted_procedure_are_top_level():
+    symbols = _by_name(parse_file(PG_PROCEDURE_THEN_DDL, "pg.sql", "sql"))
+    proc = symbols["p_one"]
+    assert (proc.line, proc.end_line) == (1, 1)
+    assert _body(PG_PROCEDURE_THEN_DDL, proc).rstrip().endswith("$$;")
+    for name in ("orders", "v_orders", "ix_orders"):
+        assert symbols[name].parent is None, name
+
+
+def test_a_tagged_dollar_quote_ends_at_its_own_tag_not_at_an_inner_dollar_quote():
+    src = (
+        "CREATE PROCEDURE p_one() LANGUAGE plpgsql AS $body$\n"
+        "BEGIN\n"
+        "  EXECUTE $q$ SELECT 1; $q$;\n"
+        "  NULL;\n"
+        "END;\n"
+        "$body$;\n"
+        "CREATE TABLE orders (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "pg_tag.sql", "sql"))
+    proc = symbols["p_one"]
+    assert (proc.line, proc.end_line) == (1, 6)
+    assert symbols["orders"].parent is None
+
+
+def test_a_dollar_quoted_procedure_with_trailing_characteristics_ends_at_the_semicolon():
+    src = (
+        "CREATE PROCEDURE p_one()\n"
+        "AS $$ BEGIN NULL; END; $$\n"
+        "LANGUAGE plpgsql;\n"
+        "CREATE TABLE orders (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "pg_lang.sql", "sql"))
+    assert (symbols["p_one"].line, symbols["p_one"].end_line) == (1, 3)
+    assert symbols["orders"].parent is None
+
+
+def test_a_single_quoted_procedure_body_ends_at_the_semicolon_after_it():
+    src = (
+        "CREATE PROCEDURE p_one() LANGUAGE sql AS 'SELECT 1; SELECT 2';\n"
+        "CREATE TABLE orders (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "pg_str.sql", "sql"))
+    assert symbols["p_one"].end_line == 1
+    assert symbols["orders"].parent is None
+
+
+MYSQL_PROCEDURE_THEN_DDL = """\
+DELIMITER ;;
+CREATE PROCEDURE p_one()
+BEGIN
+  SELECT 1;
+  SELECT 2;
+END ;;
+DELIMITER ;
+CREATE TABLE orders (id INT PRIMARY KEY);
+CREATE VIEW v_orders AS SELECT id FROM orders;
+"""
+
+
+def test_objects_after_a_mysql_delimiter_procedure_are_top_level():
+    symbols = _by_name(parse_file(MYSQL_PROCEDURE_THEN_DDL, "my.sql", "sql"))
+    proc = symbols["p_one"]
+    assert (proc.line, proc.end_line) == (2, 6)
+    assert _body(MYSQL_PROCEDURE_THEN_DDL, proc).rstrip().endswith(";;")
+    assert symbols["orders"].parent is None
+    assert symbols["v_orders"].parent is None
+
+
+def test_a_mysql_delimiter_that_is_dollars_is_not_a_dollar_quote():
+    src = (
+        "DELIMITER $$\n"
+        "CREATE PROCEDURE p_one()\n"
+        "BEGIN\n"
+        "  SELECT 1;\n"
+        "END$$\n"
+        "DELIMITER ;\n"
+        "CREATE TABLE orders (id INT);\n"
+    )
+    symbols = _by_name(parse_file(src, "my_dollar.sql", "sql"))
+    assert (symbols["p_one"].line, symbols["p_one"].end_line) == (2, 5)
+    assert symbols["orders"].parent is None
+
+
+def test_a_mysql_trigger_under_a_custom_delimiter_ends_at_the_delimiter():
+    src = (
+        "DELIMITER //\n"
+        "CREATE TRIGGER trg_one BEFORE INSERT ON orders FOR EACH ROW\n"
+        "BEGIN\n"
+        "  SET NEW.id = 1;\n"
+        "END//\n"
+        "DELIMITER ;\n"
+        "CREATE TABLE orders (id INT);\n"
+    )
+    symbols = _by_name(parse_file(src, "my_trg.sql", "sql"))
+    assert symbols["trg_one"].end_line == 5
+    assert symbols["orders"].parent is None
+
+
+PLAIN_BEGIN_END = """\
+CREATE PROCEDURE p_one()
+BEGIN
+  DECLARE n INT DEFAULT 0;
+  IF n = 0 THEN
+    SELECT CASE WHEN n = 0 THEN 'zero' ELSE 'other' END;
+  END IF;
+  WHILE n < 3 DO
+    SET n = n + 1;
+  END WHILE;
+  CASE n
+    WHEN 3 THEN SELECT 3;
+    ELSE SELECT 0;
+  END CASE;
+END;
+CREATE TABLE orders (id INT PRIMARY KEY);
+CREATE INDEX ix_orders ON orders (id);
+"""
+
+
+def test_objects_after_a_plain_begin_end_procedure_are_top_level():
+    symbols = _by_name(parse_file(PLAIN_BEGIN_END, "plain.sql", "sql"))
+    proc = symbols["p_one"]
+    assert (proc.line, proc.end_line) == (1, 14)
+    assert symbols["orders"].parent is None
+    assert symbols["ix_orders"].parent is None
+
+
+def test_an_oracle_style_is_begin_end_name_procedure_ends_at_its_semicolon():
+    src = (
+        "CREATE OR REPLACE PROCEDURE p_one IS\n"
+        "BEGIN\n"
+        "  NULL;\n"
+        "END p_one;\n"
+        "CREATE TABLE orders (id INT);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora.sql", "sql"))
+    assert symbols["p_one"].end_line == 4
+    assert symbols["orders"].parent is None
+
+
+def test_a_semicolon_trigger_without_a_body_ends_at_its_semicolon():
+    src = (
+        "CREATE TRIGGER trg_one BEFORE INSERT ON orders\n"
+        "FOR EACH ROW WHEN (NEW.id IS NOT NULL) EXECUTE FUNCTION audit_fn();\n"
+        "CREATE VIEW v_orders AS SELECT 1;\n"
+    )
+    symbols = _by_name(parse_file(src, "pg_trg.sql", "sql"))
+    assert symbols["trg_one"].end_line == 2
+    assert symbols["v_orders"].parent is None
+
+
+def test_two_adjacent_procedures_each_end_at_their_own_terminator():
+    src = (
+        "CREATE PROCEDURE p_one() LANGUAGE sql AS $$ SELECT 1 $$;\n"
+        "CREATE TABLE orders (id int);\n"
+        "CREATE PROCEDURE p_two() LANGUAGE sql AS $$ SELECT 2 $$;\n"
+        "CREATE TABLE items (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "two.sql", "sql"))
+    assert symbols["p_one"].end_line == 1
+    assert symbols["p_two"].end_line == 3
+    assert symbols["orders"].parent is None
+    assert symbols["items"].parent is None
+
+
+# T-SQL has no reliable body terminator: its span keeps running to `GO` or the
+# next routine header, so these must NOT end at an inner semicolon.
+def test_a_tsql_body_without_begin_keeps_running_past_semicolons_to_go():
+    src = (
+        "CREATE PROCEDURE dbo.usp_One\n"
+        "AS\n"
+        "  UPDATE a SET x = 1;\n"
+        "  UPDATE b SET y = 2;\n"
+        "GO\n"
+    )
+    proc = _by_name(parse_file(src, "t.sql", "sql"))["dbo.usp_One"]
+    assert (proc.line, proc.end_line) == (1, 4)
+
+
+def test_a_tsql_begin_end_body_without_a_semicolon_runs_to_go():
+    src = (
+        "CREATE PROCEDURE dbo.usp_One\n"
+        "AS\n"
+        "BEGIN\n"
+        "  SELECT 1\n"
+        "END\n"
+        "SELECT 2\n"
+        "GO\n"
+    )
+    proc = _by_name(parse_file(src, "t.sql", "sql"))["dbo.usp_One"]
+    assert proc.end_line == 6
+
+
+def test_begin_transaction_is_not_a_block_opener():
+    src = (
+        "CREATE PROCEDURE p_one()\n"
+        "BEGIN\n"
+        "  BEGIN TRANSACTION;\n"
+        "  BEGIN TRY\n"
+        "    SELECT 1;\n"
+        "  END TRY\n"
+        "END;\n"
+        "CREATE TABLE orders (id INT);\n"
+    )
+    symbols = _by_name(parse_file(src, "tx.sql", "sql"))
+    assert symbols["p_one"].end_line == 7
+    assert symbols["orders"].parent is None
+
+
+def test_an_unterminated_dollar_quote_falls_back_to_the_old_span():
+    src = (
+        "CREATE PROCEDURE p_one() LANGUAGE sql AS $$ SELECT 1;\n"
+        "CREATE TABLE orders (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "open.sql", "sql"))
+    assert symbols["p_one"].end_line == 2
+    assert symbols["orders"].parent == symbols["p_one"].id
+
+
+def test_a_bracket_identifier_with_an_apostrophe_does_not_hide_later_routines():
+    src = (
+        "CREATE VIEW [it's] AS SELECT 1\n"
+        "GO\n"
+        "CREATE PROCEDURE dbo.after_apostrophe\n"
+        "AS\n"
+        "SELECT 1\n"
+        "GO\n"
+    )
+    names = [s.name for s in parse_file(src, "br.sql", "sql")]
+    assert "dbo.after_apostrophe" in names
+
+
+def test_a_bracket_identifier_keeps_its_comment_markers_opaque():
+    from jcodemunch_mcp.parser.extractor import _mask_sql_noise
+    masked = _mask_sql_noise(b"[a--b] [it's] x")
+    assert len(masked) == len(b"[a--b] [it's] x")
+    assert b"'" not in masked
+    assert masked.endswith(b" x")
+    assert masked.count(b"[") == 2 and masked.count(b"]") == 2
+
+
+def test_a_schema_does_not_outrank_its_tables_as_the_file_representative(tmp_path):
+    from jcodemunch_mcp.parser.symbols import REPRESENTATIVE_KIND_RANK as RANK
+    from jcodemunch_mcp.tools.get_repo_map import get_repo_map
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    for kind in ("table", "view", "index"):
+        assert RANK[kind] == RANK["type"], kind
+    for kind in ("procedure", "trigger"):
+        assert RANK[kind] < RANK["type"], kind
+
+    (tmp_path / "schema.sql").write_text(
+        "CREATE SCHEMA app;\n"
+        "CREATE TABLE app.orders (id INT PRIMARY KEY, total INT, note TEXT);\n"
+        "CREATE TABLE app.items (id INT PRIMARY KEY, order_id INT, sku TEXT);\n",
+        encoding="utf-8",
+    )
+    storage = str(tmp_path / ".index")
+    repo = index_folder(str(tmp_path), use_ai_summaries=False, storage_path=storage)["repo"]
+    files = {f["path"]: f for f in get_repo_map(repo, max_per_file=1, storage_path=storage)["files"]}
+    (shown,) = files["schema.sql"]["symbols"]
+    assert shown["kind"] == "table"
+
+
+def test_the_routine_scans_cost_grows_linearly_with_input_size():
+    """Ratio of two input sizes, not a wall-clock bound: 4x the input should
+    cost about 4x; a quadratic scan costs about 16x."""
+    import time
+    from jcodemunch_mcp.parser.extractor import _scan_sql_routines
+
+    def cost(n):
+        sources = [
+            b"CREATE PROCEDURE p_one() LANGUAGE sql AS $a$" + b" " * n + b"x",
+            b"DELIMITER ;;\nCREATE PROCEDURE p_one()\nBEGIN\n" + b"BEGIN\n" * (n // 6),
+            b"CREATE PROCEDURE p_one() BEGIN " + b"CASE " * (n // 5),
+            b"CREATE PROCEDURE p_one() " + b"AS " * (n // 3),
+            b"".join(b"CREATE PROCEDURE p%d() LANGUAGE sql AS $$ x\n" % i for i in range(n // 40)),
+        ]
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            for src in sources:
+                _scan_sql_routines(src, "x.sql")
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    small, large = cost(20_000), cost(80_000)
+    assert large / max(small, 1e-4) < 10, (small, large)

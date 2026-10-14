@@ -26,7 +26,42 @@ The tool list and the six front-door descriptions are unchanged. The test that k
 of the policy, the rules files, the skill and the guide now reads both versions
 of this string too.
 
-### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type`
+### Fixed - a package named `migrations` is indexed; only generated migrations are skipped
+
+`migrations` was a name on the built-in skip list, so every directory called
+that was pruned. That is right for an application's generated migration files
+and wrong for a library whose own code lives in a package of that name: django's
+migration framework (`django/db/migrations/`, with the autodetector, executor,
+loader and operations) never entered the index, and the result counted it under
+the generic `skip_dir` with nothing naming the rule.
+
+Most migration tools name what they write by sequence or timestamp:
+`0001_initial.py`, `2014_10_12_000000_create_users_table.php`,
+`20230101120000_init/`, `1612345678901-Init.ts`, `000001_init.up.sql`,
+`V1__init.sql`, `Version20230101120000.php`, `m230101_120000_x.php`,
+`Migration20230101120000.ts`. Alembic and Flask-Migrate put theirs in
+`versions/` and leave `script.py.mako` and `alembic.ini` in the directory. A
+`migrations` directory is now skipped only when it holds an entry named one of
+those ways, and the skip is counted as `generated_migrations` in
+`discovery_skip_counts`. A directory holding none is source and is indexed.
+The full walk, the watcher's fast path and the GitHub tree listing all ask the
+one predicate in `security.py`. The Django framework profile also ignored
+`migrations/` by name, a second copy of the rule, and no longer does. A
+directory that cannot be listed is reported as `unreadable`.
+`exclude_skip_directories: ["migrations"]` still indexes every migrations
+directory, generated or not.
+
+The names are a list of tool conventions. A tool that names its migrations
+another way now has them indexed, where the old rule skipped them.
+`get_project_intel`'s `migration_files` counted every file under
+`migrations/` or `migrate/`, which would have counted a framework's own
+package; it counts files named the way a migration tool names them.
+
+Like a build tree, generated migrations are corpus definition rather than a
+withheld file, so absence claims over the rest of the index stay citable. An
+existing index picks up a framework's migrations package at its next full walk.
+
+### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
 NOTHING, and what was lost was the logic -- the stored procedures and
@@ -48,7 +83,14 @@ object had been stored as kind `type`; `procedure`, `trigger`, `table`,
 `view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
 published in the cached schema prefix, and `STATE_KINDS` classifies all five
 as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
-five entries, a one-time cache write for clients on the `full` surface.
+five entries, and every profile that serves `search_symbols` publishes it, not
+only `full`: `core_compact` moves 3,971 -> 3,981 tokens (the hard ceiling is
+4,000) and the `full` list 23,916 -> 23,926, measured on this tree and on
+upstream's with `benchmarks/harness/capture_schema_baseline.py`; only the
+`counter` front door (945) is unchanged. Each is a one-time cache write for a
+client on that profile. ⚠ `search_symbols(kind="type")` on a SQL file now
+returns schemas only, so a caller that filtered `type` to find tables, views or
+indexes must ask for `table`, `view` or `index`.
 `PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
 so every existing index re-parses once on the next `index_folder` /
 `index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
@@ -64,14 +106,30 @@ RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
 `CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
 `[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
 `IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
-<events>` clause as well as directly after the name. ⚠ The dead-code and
+<events>` clause as well as directly after the name. ⚠ A routine's span ends at its
+own terminator, so the objects written after it are top level and
+`get_symbol_source` on it returns the routine alone: a dollar-quoted body ends
+at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
+characteristics), a quoted body at the following `;`, a MySQL routine at the
+active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
+`BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
+and `END CASE`, and not counting `BEGIN TRANSACTION`), and a body-less trigger
+or routine at its `;`. Before, a file with no `GO` re-parented every table,
+view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
+Sybase have no reliable body terminator and keep running to `GO` or the next
+routine header; a body whose terminator cannot be told does the same. A
+bracketed T-SQL identifier is opaque to the comment and string masker, so
+`[it's]` no longer hides the routines after it. The file-representative rank
+(`get_repo_map`, `get_repo_outline`) puts `table`, `view` and `index` where
+`type` sat and a `procedure` or `trigger` with the callables, so a `CREATE
+SCHEMA` no longer represents the tables it creates. The dead-code and
 untested-symbol tools still judge only `function`/`method`, so they make no
 claim about procedures or triggers, whose callers sit outside the static
 graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
 pre-existing prefix, because pinning the tail of an append-only tuple fails
 the next correct append, while a prefix pin still catches a reorder.
 
-### Fixed - one SQL statement the grammar could not parse lost every object after it, and a named constraint was no symbol
+### Fixed - one SQL statement the grammar could not parse lost every object after it, and a named constraint was no symbol (#1081, @outoftheblue9)
 
 The derekstride grammar does not skip what it cannot parse: it opens an
 `ERROR` node that swallows every statement after it, so one SQLCMD
@@ -99,8 +157,10 @@ double-quoted string is no longer read as source. `CREATE FUNCTION` with a
 parse it; a function the grammar parsed keeps the grammar's symbol. ⚠ The
 `kind` enum in `search_symbols`' input schema grows by one entry, and under
 `compact_schemas` it is demoted to a described string like `language`,
-because the SQL kinds pushed `core_compact` past its 4,000-token ceiling;
-an unknown kind is still refused server-side with the valid list.
+because the SQL kinds pushed `core_compact` past its 4,000-token ceiling
+(4,002 with the enum kept). With the demotion `core_compact` measures 3,948
+tokens and the `full` list 23,928, from `benchmarks/harness/capture_schema_baseline.py`
+on this branch; an unknown kind is still refused server-side with the valid list.
 `PARSER_GENERATION` 22 -> 23: the rows change on UNCHANGED content. Tested
 against vendored public corpora (AdventureWorks, Chinook, Sakila, sqlfluff
 T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
