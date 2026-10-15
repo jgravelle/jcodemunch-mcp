@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed - environment variables stay supported, and no longer warn that 2.0 removes them
+
+The config loader logged "Deprecated: Using <VAR> environment variable. This
+will be removed in v2.0. Use config.jsonc instead." the first time a process
+read each `JCODEMUNCH_*` variable, and CONFIGURATION.md said the same. No 2.0
+is planned, and the promise wasn't harmless. `JCODEMUNCH_SHARE_SAVINGS=0` is
+the opt-out from anonymous savings sharing that SECURITY.md and five user docs
+give, so announcing its removal said that opting out that way would stop
+working. Every hook process printed the line to stderr, too. The warning is
+gone, CONFIGURATION.md documents env vars as a supported fallback (a config
+file value still wins), and a test fails if a loader message or a tracked doc
+promises a 2.0 removal again. LEDGER L-193.
+
 ## [1.108.365] - 2026-10-15 - git blame is off by default, and it no longer adds "2 properties" to a file summary
 
 ### Changed - git blame is off by default, and it no longer adds "2 properties" to a file summary

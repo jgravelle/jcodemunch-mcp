@@ -169,6 +169,13 @@
       "replacement": "tests/test_sql_language.py::test_sql_table_kind",
       "commit": "#1080",
       "date": "2026-10-13"
+    },
+    {
+      "path": "tests/test_config.py::test_warning_logged_once_per_deprecated_var",
+      "lesson": "The test required one WARNING per env var naming a v2.0 removal, so it pinned a promise rather than a property: no 2.0 is planned and env vars stay supported (jjg, 2026-10-15, LEDGER L-193). It could pass only while the loader told users that `JCODEMUNCH_SHARE_SAVINGS=0`, the documented savings opt-out, would stop working (Practice 9: the old test was the defect's witness). Renamed and inverted in place rather than deleted.",
+      "replacement": "tests/test_config.py::test_env_vars_log_no_deprecation_warning",
+      "commit": "L-193",
+      "date": "2026-10-15"
     }
   ]
 }

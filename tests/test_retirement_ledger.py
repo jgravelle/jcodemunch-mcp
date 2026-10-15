@@ -193,10 +193,13 @@ def test_every_ledger_entry_names_a_test_that_actually_left_this_branch():
     else:
         prior_paths = {r["path"] for r in json.loads(prior)["retired"]}
     _rc, diff = _git("diff", base, "--", "tests/")
+    # ⚠ A test METHOD is a retirement too: `dod_checklist.py` row 11 demands a
+    # ledger row for a removed `    def test_x` inside a class, and a
+    # top-level-only match here refused the row it demanded (L-193's rename of
+    # `TestEnvVarFallback.test_warning_logged_once_per_deprecated_var`).
     removed = {
-        ln[len("-def "):].split("(")[0]
-        for ln in diff.splitlines()
-        if ln.startswith("-def test_")
+        m.group(1)
+        for m in re.finditer(r"^-[ \t]*(?:async[ \t]+)?def (test_\w+)", diff, re.MULTILINE)
     }
     missing = []
     for r in _ledger():
