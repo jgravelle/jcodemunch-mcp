@@ -1,6 +1,12 @@
 {
-  "current": "1.108.366",
+  "current": "1.108.367",
   "entries": [
+    {
+      "version": "1.108.367",
+      "date": "2026-10-15",
+      "title": "a session lists only its own workspace's indexes by default",
+      "summary": "`list_repos` shows the indexes whose folder is the server's working directory, inside it, or containing it, and says how many it hid. A bare name that matches several indexes picks the one in the workspace. An exact `owner/name` or a path still loads any index, and the `cross_repo` tools are unchanged. A server started in the home folder, above it, at a filesystem root, or where no index lives lists everything and says so. `\"repo_visibility\": \"all\"` restores the old listing. It scopes what a session is shown, not who can read."
+    },
     {
       "version": "1.108.366",
       "date": "2026-10-15",
@@ -18,12 +24,6 @@
       "date": "2026-10-15",
       "title": "SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file",
       "summary": "T-SQL and Sybase stored procedures and triggers are symbols, a bracket-quoted name reads as `schema.name`, and tables, views and indexes have their own kinds (#1080, @outoftheblue9). A SQL script is parsed one batch at a time, so a statement the grammar cannot parse costs only its own batch, and named constraints are symbols (#1081, @outoftheblue9). Search ranking no longer depends on whether git blame finished inside its time budget, or on today's date. Existing indexes are re-parsed once."
-    },
-    {
-      "version": "1.108.363",
-      "date": "2026-10-14",
-      "title": "init writes hooks that run the install you ran, not the first one on PATH",
-      "summary": "`init` wrote every hook, the Codex server entry and the post-upgrade hook refresh with the first `jcodemunch-mcp` on PATH, so running a newer install's `init` from a venv or a `uv tool` environment, with an older install on PATH, gave hooks that call the older version. They now name the install that ran. Under `uvx`, whose cache `uv cache clean` deletes, `init` writes the next install on PATH and prints which, with the command that makes the hooks call the version you ran."
     }
   ]
 }

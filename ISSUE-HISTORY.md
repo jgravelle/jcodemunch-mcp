@@ -2611,3 +2611,13 @@ The 1.108.363 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.363 count, verbatim:
 
 - ⚠ Prior (1.108.363): 17197 passed, 25 skipped, **0 failed** (17222 total).
+
+## Current State rotation (2026-10-15, release 1.108.367)
+
+The 1.108.364 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.364):** **SQL procedures, triggers and constraints are symbols; a script parses one batch at a time** (#1080, #1081, @outoftheblue9). Ranking ignores git blame (`properties_are_search_terms`), `PARSER_GENERATION` 24. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.364 count, verbatim:
+
+- ⚠ Prior (1.108.364): 17423 passed, 25 skipped, **0 failed** (17448 total).

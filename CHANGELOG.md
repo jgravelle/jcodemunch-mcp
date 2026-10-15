@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
+
 ### Changed - a session lists only its own workspace's indexes by default
 
 Every session sharing an index store saw every repository indexed on the
