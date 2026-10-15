@@ -84,6 +84,18 @@ def _arms() -> list[tuple[str, dict]]:
 
 
 def capture(out_path: Path) -> dict:
+    results = measure()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    return results
+
+
+def measure() -> dict:
+    """Every arm's token count, written nowhere.
+
+    `tests/test_schema_baseline_is_current.py` compares this with the committed
+    file, so the file cannot disagree with the code (L-187).
+    """
     encoding = tiktoken.get_encoding("cl100k_base")
     results: dict[str, int] = {}
     cfg = config_module._GLOBAL_CONFIG  # type: ignore[attr-defined]
@@ -100,9 +112,6 @@ def capture(out_path: Path) -> dict:
                 cfg.pop(k, None)
             else:
                 cfg[k] = v
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     return results
 
 
