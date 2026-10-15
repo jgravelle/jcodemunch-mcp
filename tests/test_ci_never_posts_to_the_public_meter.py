@@ -97,8 +97,8 @@ def test_the_harness_switches_it_off_for_every_tier_it_spawns(monkeypatch):
 def test_the_variable_stops_the_post_not_just_the_spelling(tmp_path, monkeypatch, value, posts):
     """Through the real config and a real flush: the YAML checks above pin a spelling, this pins its effect.
 
-    The variable is the fallback when no config file sets the key (a runner has none), and it is marked for
-    removal in 2.0. If that removal lands, this test is what says CI starts posting again.
+    The variable is the fallback when no config file sets the key (a runner has none). If the fallback ever
+    stops applying, this test is what says CI starts posting again.
     """
     from jcodemunch_mcp import config
     from jcodemunch_mcp.storage import token_tracker

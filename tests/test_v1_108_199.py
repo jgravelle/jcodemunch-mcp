@@ -294,7 +294,7 @@ def test_config_check_disabled_banner_follows_the_config(tmp_path):
 
 def test_config_check_env_still_wins_when_config_is_silent(tmp_path):
     """Reading _cfg must not cost the env-var path. `config.jsonc` omits the
-    keys here, so the deprecated env fallback is the effective source."""
+    keys here, so the env fallback is the effective source."""
     out = _run_config_check(
         tmp_path,
         "{\n}\n",

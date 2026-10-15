@@ -29,7 +29,7 @@ Settings are resolved from lowest to highest priority:
 
 **Why env vars are fallback, not override:** If env vars overrode project config, a global `JCODEMUNCH_MAX_FOLDER_FILES=10000` in your shell profile would silently break every project's tuned settings. With fallback semantics, config file values always win. Env vars only apply when the config key is absent.
 
-Env vars emit a one-time deprecation warning when used, pointing to config.jsonc.
+Env vars are supported and log nothing when used.
 
 ## CLI commands
 
@@ -400,7 +400,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 4. Remove the env vars from your shell profile
 5. Verify with `jcodemunch-mcp config` — source column should show "config" instead of "env"
 
-Env vars continue to work as fallback (they fill in keys not set in the config file) and emit a one-time deprecation warning per variable. They will be removed in v2.0.
+Env vars keep working as a fallback: they fill in keys the config file doesn't set, and a config file value wins. They are supported, not deprecated, and nothing removes them. Moving to the config file is a convenience, not a requirement.
 
 ## Keyring-loaded credentials
 
@@ -620,9 +620,9 @@ Place a `.jcodemunch.jsonc` file at your project root to declare the layers your
 
 Call `get_layer_violations(rules=[...])` directly to pass rules inline — the config file is optional and used as a fallback. When no config is present, `get_layer_violations` infers layers from top-level directory structure.
 
-### Deprecated env vars (v2.0 will remove)
+### Env vars
 
-The following env vars still work but are deprecated. Config file values take priority:
+The following env vars work as a fallback for their config keys. Config file values take priority:
 
 | Variable | Config key | Default |
 |----------|-----------|---------|

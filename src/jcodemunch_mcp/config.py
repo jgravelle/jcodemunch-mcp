@@ -27,7 +27,6 @@ _PROJECT_CONFIG_HASHES: dict[str, str] = {}
 # refreshed from global — an entry installed by anyone else is theirs, and
 # overwriting it is data loss, not cache maintenance.
 _PROJECT_CONFIG_MIRRORS: set[str] = set()
-_DEPRECATED_ENV_VARS_LOGGED: set[str] = set()
 _CONFIG_LOCK = threading.Lock()
 _REPO_PATH_CACHE: dict[str, str] = {}
 # Identifiers `_resolve_repo_key` looked up and did not find, with the
@@ -933,7 +932,12 @@ def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = 
 
 
 def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
-    """Apply deprecated env var fallback for keys not explicitly set in config."""
+    """Apply env var fallback for keys not explicitly set in config.
+
+    Env vars are supported, not deprecated: no 2.0 is planned and none will be
+    removed (jjg, 2026-10-15, L-193). `JCODEMUNCH_SHARE_SAVINGS=0` is the
+    documented opt-out from savings sharing, so a removal would undo opt-outs.
+    """
     global _GLOBAL_CONFIG
 
     if explicit_keys is None:
@@ -946,14 +950,6 @@ def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
 
         env_value = os.environ.get(env_var)
         if env_value is not None:
-            # Log warning once per var
-            if env_var not in _DEPRECATED_ENV_VARS_LOGGED:
-                logger.warning(
-                    f"Deprecated: Using {env_var} environment variable. "
-                    f"This will be removed in v2.0. Use config.jsonc instead."
-                )
-                _DEPRECATED_ENV_VARS_LOGGED.add(env_var)
-
             # Parse and apply value
             expected_type = CONFIG_TYPES.get(config_key)
             if expected_type is None:
@@ -2160,7 +2156,7 @@ def generate_template() -> str:
 // Project: {{project_root}}/.jcodemunch.jsonc (optional, overrides global)
 //
 // All values below show defaults. Uncomment to override.
-// Env vars still work as fallback but are deprecated.
+// Env vars work as a fallback for keys this file doesn't set.
 {{
   // Config version - do not edit. Used for additive migrations.
   "version": "{__version__}",
