@@ -17,6 +17,7 @@ Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**
 ![Local-first](https://img.shields.io/badge/local--first-yes-brightgreen)
 [![Issues closed](https://img.shields.io/github/issues-closed/jgravelle/jcodemunch-mcp?label=issues%20closed&color=brightgreen)](https://github.com/jgravelle/jcodemunch-mcp/issues?q=is%3Aissue+is%3Aclosed)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20102349.svg)](https://doi.org/10.5281/zenodo.20102349)
+[![mcp.market](https://mcp.market/badge/jgravelle-jcodemunch-mcp.svg)](https://mcp.market/server/jgravelle-jcodemunch-mcp)
 
 <!-- mcp-name: io.github.jgravelle/jcodemunch-mcp -->
 
