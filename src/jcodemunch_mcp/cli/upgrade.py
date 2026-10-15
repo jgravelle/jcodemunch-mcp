@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
 import subprocess
 import sys
 
@@ -90,10 +89,13 @@ def watch_extra_install_command() -> str:
 def _refresh_hooks(*, yes: bool = True) -> int:
     """Refresh hook templates/config via ``init --hooks`` (no pip required).
 
-    Prefers the freshly-installed binary if it's on PATH, otherwise falls
-    back to the in-process module entry so a venv shim isn't bypassed.
+    Runs this install's own executable (`install_layout`), which the upgrade
+    just replaced in place; otherwise PATH's; otherwise the in-process module
+    entry so a venv shim isn't bypassed.
     """
-    exe = shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    exe = executable_for_commands()
     if exe:
         init_cmd = [exe, "init", "--hooks"]
     else:

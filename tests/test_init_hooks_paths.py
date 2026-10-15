@@ -26,9 +26,12 @@ patches.
 from __future__ import annotations
 
 import platform
+import sys
 from unittest import mock
 
 import pytest
+
+from jcodemunch_mcp import install_layout
 
 from jcodemunch_mcp.cli.init import (
     _extract_jcm_subcommand,
@@ -38,6 +41,15 @@ from jcodemunch_mcp.cli.init import (
 
 
 # ── _hook_invocation ──────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _no_own_executable(monkeypatch):
+    # These tests feed a path through PATH; the running install's own
+    # executable is asked first since `install_layout.own_executable`, so
+    # this box's venv would answer instead. Take it out of the question.
+    monkeypatch.setattr(sys, "argv", ["pytest"])
+    monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
+
 
 def test_hook_invocation_uses_forward_slashes_on_windows():
     with mock.patch("jcodemunch_mcp.cli.init.platform.system", return_value="Windows"), \

@@ -8,6 +8,18 @@ import pytest
 class TestEnforcementHooksConstant:
     """Tests for _enforcement_hooks() builder (upstream v1.21.27; absolute-path fix v1.80.5)."""
 
+    @pytest.fixture(autouse=True)
+    def _no_own_executable(self, monkeypatch):
+        # These tests feed a path through PATH; the running install's own
+        # executable is asked first since `install_layout.own_executable`, so
+        # this box's venv would answer instead. Take it out of the question.
+        import sys
+
+        from jcodemunch_mcp import install_layout
+
+        monkeypatch.setattr(sys, "argv", ["pytest"])
+        monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
+
     def test_enforcement_hooks_has_post_tool_use(self):
         """_enforcement_hooks() must contain PostToolUse with Edit|Write matcher."""
         from jcodemunch_mcp.cli.init import _enforcement_hooks
