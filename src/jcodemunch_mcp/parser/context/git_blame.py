@@ -16,8 +16,8 @@ History bound:
     behaviour as files outside a git working tree.
 
 Opt-in (L-189):
-    Off unless ``git_blame_enabled = true`` in the project or global config
-    (or ``JCODEMUNCH_GIT_BLAME_ENABLED=1``); ``detect()`` returns False
+    Off unless ``git_blame_enabled = true`` in the project or global config;
+    ``detect()`` returns False
     otherwise, so no ``git log`` runs. Since L-188 its output reaches neither
     search ranking nor file summaries, only an AI summarizer's prompt, so the
     walk is not worth running unasked.

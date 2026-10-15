@@ -10,11 +10,11 @@ the summary of every file it covered, a count that names nothing. The other was
 the AI summarizer's prompt, when AI summaries are on. Both still depended on
 whether one timed `git log` finished, and indexing ran that `git log` (up to
 10 seconds) on every git repository to produce them. `git_blame_enabled` now
-defaults to `false`. With it `true` (or `JCODEMUNCH_GIT_BLAME_ENABLED=1`) the
-provider runs as before, minus the suffix: a provider whose properties aren't
+defaults to `false`. With it `true` in `config.jsonc` the provider runs as
+before, minus the suffix: a provider whose properties aren't
 vocabulary (`properties_are_search_terms = False`) no longer has them counted
 in a file summary either. An existing config that sets the key keeps its
-value. SECURITY.md now lists the provider, since it stores committer names in
+value. SECURITY.md now lists the provider, since it stores commit authors' names in
 the index and, with AI summaries on, sends them to the summarizer. Search
 ranking doesn't move. `PARSER_GENERATION` is not bumped: an existing index
 keeps the suffix on a file's summary until that file is re-indexed, and

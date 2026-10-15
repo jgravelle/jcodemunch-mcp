@@ -114,3 +114,22 @@ def test_a_full_reindex_clears_the_suffix_an_older_index_kept(tmp_path, monkeypa
     assert "2 properties" in summary(), "the old index must carry the suffix"
     index_folder(str(repo), use_ai_summaries=False, storage_path=str(store), identity_mode="local", incremental=False)
     assert "properties" not in summary()
+
+
+def test_every_file_summary_caller_passes_the_providers_flag():
+    """`file_summary()` defaults to counting properties, which is right for a
+    provider whose properties are vocabulary. A caller that omits the flag
+    brings "2 properties" back for blame, so every call in src/ must pass it."""
+    import ast
+
+    src = Path(__file__).resolve().parent.parent / "src" / "jcodemunch_mcp"
+    calls, missing = 0, []
+    for path in src.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "file_summary":
+                calls += 1
+                if not any(k.arg == "include_properties" for k in node.keywords):
+                    missing.append(f"{path.relative_to(src)}:{node.lineno}")
+    assert calls >= 2, "the scan found no callers; it is measuring nothing"
+    assert missing == [], f"file_summary() called without include_properties: {missing}"

@@ -2632,7 +2632,7 @@ def generate_template() -> str:
   //   (v1.108.2: the git-root probe is now properly skipped when this
   //   is false — prior versions still paid the probe cost.)
   // "git_blame_enabled": false,
-  //   Off by default since 1.108.365 (L-189). Set true to run the
+  //   Off by default (L-189). Set true to run the
   //   git_blame context provider during indexing, which attaches
   //   `last_author` and `last_modified` to each file's context. It runs
   //   one bounded `git log` per index (latest 20k commits or 2 years
