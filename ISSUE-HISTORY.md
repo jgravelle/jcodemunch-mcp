@@ -2581,3 +2581,13 @@ The 1.108.360 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.360 count, verbatim:
 
 - ⚠ Prior (1.108.360): 16926 passed, 25 skipped, **0 failed** (16951 total).
+
+## Current State rotation (2026-10-15, release 1.108.364)
+
+The 1.108.361 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.361):** **An installed policy is refreshed only when asked** (`cli/policy_refresh.py`): `claude-md --refresh` shows the diff, asks, keeps a backup and replaces only the block (`policy_block_span`, shared with `init` and the drift check). `policy_notice` once per policy text (SECURITY.md). ⚠ `uninstall` keeps its own boundary: L-186. `///` summaries unwrapped (#1075, @outoftheblue9), `PARSER_GENERATION` 21. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.361 count, verbatim:
+
+- ⚠ Prior (1.108.361): 16978 passed, 25 skipped, **0 failed** (17003 total).

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.364] - 2026-10-15 - SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file
+
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
 
 On a real T-SQL and Sybase codebase a large share of files indexed to

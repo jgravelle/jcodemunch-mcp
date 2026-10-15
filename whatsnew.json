@@ -1,6 +1,12 @@
 {
-  "current": "1.108.363",
+  "current": "1.108.364",
   "entries": [
+    {
+      "version": "1.108.364",
+      "date": "2026-10-15",
+      "title": "SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file",
+      "summary": "T-SQL and Sybase stored procedures and triggers are symbols, a bracket-quoted name reads as `schema.name`, and tables, views and indexes have their own kinds (#1080, @outoftheblue9). A SQL script is parsed one batch at a time, so a statement the grammar cannot parse costs only its own batch, and named constraints are symbols (#1081, @outoftheblue9). Search ranking no longer depends on whether git blame finished inside its time budget, or on today's date. Existing indexes are re-parsed once."
+    },
     {
       "version": "1.108.363",
       "date": "2026-10-14",
@@ -18,12 +24,6 @@
       "date": "2026-10-14",
       "title": "an installed agent policy can be brought up to date, and only when you ask",
       "summary": "`init` writes the agent policy into CLAUDE.md once and never rewrites it, so the policy rewritten in 1.108.357 reached new installs only. `jcodemunch-mcp claude-md --refresh` replaces an installed block that differs: it shows the diff, asks before writing (`--yes` skips the question, `--dry-run` writes nothing), keeps a timestamped backup and changes nothing outside the block. The first `resolve_repo` answer of an existing install says once, for each policy text, that the command exists, and asks the agent to tell you rather than run it. SECURITY.md lists what the server reads for this and the marker it writes. Also from @outoftheblue9 (#1075): a C# or AL symbol documented with `///` comments is summarised by its sentence, not by the literal `<summary>` tag, which also improves search on those codebases. Indexes re-parse on their next run (parser generation 21)."
-    },
-    {
-      "version": "1.108.360",
-      "date": "2026-10-13",
-      "title": "a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository",
-      "summary": "From @outoftheblue9 (#1067). The Web Forms reader took only double-quoted attribute values, so an unquoted `runat=server` or a single-quoted `CodeFile='Q.aspx.cs'` gave a control's handler no reference and a page no edge to its codebehind; live code could read as unused. Directives, `runat`, `ID`, `On*` handlers and `<script runat>` are now read double-quoted, single-quoted and unquoted, in one pass that takes each quoted value whole. `.xsd` and `.wsdl` files stay capped in every repository: `build_consumed` with project-file advice where the index holds .NET evidence, and the new neutral kind `schema_consumer` (counted as `schema_consumer_withheld`) elsewhere, so a Java repository no longer gets .NET advice. Indexes re-parse on their next run (parser generation 20)."
     }
   ]
 }
