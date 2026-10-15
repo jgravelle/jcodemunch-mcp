@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed - a session lists only its own workspace's indexes by default
+
+Every session sharing an index store saw every repository indexed on the
+machine: `list_repos` returned all of them, and a bare repo name was resolved
+across all of them. One store holds a user's own code beside a customer's, a
+demo's and a pack's, so an agent working in one project was handed the names
+and paths of the rest. `list_repos` now shows the indexes whose folder is the
+server's working directory, inside it, or containing it. It says how many it
+left out under a top-level `visibility` key, since a default install strips
+`_meta`, and a scoped list that didn't say so would read as the whole store.
+A bare name that matches several indexes picks the one in the workspace, where
+it used to refuse as ambiguous. An exact `owner/name` or a path still loads
+any index. The `cross_repo` tools are unchanged. A server started outside every
+indexed folder (Claude Desktop starts in your home or a system folder) lists
+everything, as before, and says the listing is unscoped. An index built from
+GitHub has no folder, so the default leaves it off the list.
+`"repo_visibility": "all"` (or `JCODEMUNCH_REPO_VISIBILITY=all`) restores the
+old listing. This scopes what a session is shown, not who can read the store,
+and SECURITY.md says so.
+
 ## [1.108.366] - 2026-10-15 - environment variables stay supported, and no longer warn that 2.0 removes them
 
 ### Changed - environment variables stay supported, and no longer warn that 2.0 removes them

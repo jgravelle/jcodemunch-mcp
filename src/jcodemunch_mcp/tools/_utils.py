@@ -165,6 +165,10 @@ def resolve_repo(repo: str, storage_path: Optional[str] = None) -> tuple[str, st
     store = IndexStore(base_path=storage_path)
     mapping = _get_bare_name_map(store)
     candidates = mapping.get(repo, [])
+    if len(candidates) > 1:
+        from ._visibility import prefer_workspace  # noqa: PLC0415
+
+        candidates = prefer_workspace(candidates, store.list_repos())
 
     if not candidates:
         raise ValueError(f"Repository not found: {repo}")

@@ -97,6 +97,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_PATH_MAP": "path_map",
     "JCODEMUNCH_TRUSTED_FOLDERS_ENV": "trusted_folders",
     "JCODEMUNCH_CROSS_REPO_DEFAULT": "cross_repo_default",
+    "JCODEMUNCH_REPO_VISIBILITY": "repo_visibility",
     "JCODEMUNCH_DEFAULT_FORMAT": "server_output",
     "JCODEMUNCH_ENCODING_THRESHOLD": "server_output_threshold",
 }
@@ -521,6 +522,7 @@ DEFAULTS = {
     "openai_extra_body": {},
     "path_map": "",
     "cross_repo_default": False,
+    "repo_visibility": "workspace",  # "workspace" or "all" (ruling 5, 2026-10-13)
     "discovery_hint": True,
     "cache_mode": "full",
     "summarize_from_docstrings": True,
@@ -625,6 +627,7 @@ CONFIG_TYPES = {
     "openai_extra_body": dict,
     "path_map": str,
     "cross_repo_default": bool,
+    "repo_visibility": str,
     "discovery_hint": bool,
     "cache_mode": str,
     "summarize_from_docstrings": bool,
@@ -2641,6 +2644,12 @@ def generate_template() -> str:
   //   traverse OTHER indexed repos by default, not just the focal one. A
   //   per-call `cross_repo` argument still overrides this. Default false
   //   keeps results scoped to the repo you asked about.
+  // "repo_visibility": "workspace",
+  //   Which indexes list_repos shows and a bare repo name can pick.
+  //   "workspace" (default): only indexes whose folder is the server's
+  //   working directory, inside it, or containing it; the answer says how
+  //   many it hid. "all": every index in the store. An exact repo id or a
+  //   path still works under either setting.
   // "discovery_hint": true,
   //   Append a short "next tools to try" hint to certain results so an
   //   agent can chain follow-up queries. Set false to suppress the hint.
