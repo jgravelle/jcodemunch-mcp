@@ -2,6 +2,120 @@
 
 ## [Unreleased]
 
+### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
+
+On a real T-SQL and Sybase codebase a large share of files indexed to
+NOTHING, and what was lost was the logic -- the stored procedures and
+triggers -- so symbol search, `find_references` and `get_blast_radius` were
+blind to exactly the part that matters. The
+derekstride grammar collapses `CREATE PROCEDURE`/`CREATE TRIGGER` into ONE
+`ERROR` node with loose-punctuation children, so there is no AST to walk;
+`_scan_sql_routines` recovers them by source scan over a comment- and
+string-MASKED copy (length-preserving, so offsets stay valid) while reading
+names from the ORIGINAL bytes. Bracket-quoted `[dbo].[X]` was stored as
+`dbo].[X`; every name is re-tokenised and both dialects land on
+`schema.name`. Temp tables declared inside a routine were published as
+top-level objects named after an unrelated column (the `#` never reaches the
+name, so the marker is read from the raw bytes) and are now dropped, while
+nested CTEs are kept and re-parented. ⚠ Rejecting nodes under an `ERROR`
+ancestor is WRONG -- a real `CREATE VIEW` parses under one -- so byte-range
+containment in a recovered routine is the discriminator. Every non-function
+object had been stored as kind `type`; `procedure`, `trigger`, `table`,
+`view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
+published in the cached schema prefix, and `STATE_KINDS` classifies all five
+as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
+five entries, and every profile that serves `search_symbols` publishes it, not
+only `full`: `core_compact` moves 3,971 -> 3,981 tokens (the hard ceiling is
+4,000) and the `full` list 23,916 -> 23,926, measured on this tree and on
+upstream's with `benchmarks/harness/capture_schema_baseline.py`; only the
+`counter` front door (945) is unchanged. Each is a one-time cache write for a
+client on that profile. ⚠ `search_symbols(kind="type")` on a SQL file now
+returns schemas only, so a caller that filtered `type` to find tables, views or
+indexes must ask for `table`, `view` or `index`.
+`PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
+so every existing index re-parses once on the next `index_folder` /
+`index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
+its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
+loses the mangling (`dbo].[X` -> `dbo.X`). A nested CTE or table's `parent`
+is its routine's symbol id; a trigger's `parent` is its table's id when that
+table is defined in the same file, else `None`, and the table stays named in
+the signature. A routine name repeated in one file is kept and numbered
+`~1`/`~2` by the existing ordinal rule. Recognition follows the property "a
+statement that defines or redefines a procedure or trigger": T-SQL
+`ALTER PROCEDURE|PROC|TRIGGER` (only with a body, so `ALTER ... COMPILE|
+RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
+`CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
+`[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
+`IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
+<events>` clause as well as directly after the name. ⚠ A routine's span ends at its
+own terminator, so the objects written after it are top level and
+`get_symbol_source` on it returns the routine alone: a dollar-quoted body ends
+at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
+characteristics), a quoted body at the following `;`, a MySQL routine at the
+active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
+`BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
+and `END CASE`, and not counting `BEGIN TRANSACTION`), an Oracle body at the
+`END [name];` of the BEGIN after its `IS` / `AS` / `DECLARE` declaration
+section (declarations, cursors, types, pragmas and local subprograms are
+skipped), and a body-less trigger or routine at its `;`. `IS` before anything
+else is PL/SQL; an `AS` or `DECLARE` section counts only when it opens with a
+declaration (`name type`, `CURSOR`, `TYPE`, `PRAGMA`, a local subprogram), so a
+T-SQL `AS SET NOCOUNT ON; SELECT 1;` is unchanged. Before, a file with no `GO` re-parented every table,
+view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
+Sybase have no reliable body terminator and keep running to `GO` or the next
+routine header; a body whose terminator cannot be told does the same. A
+bracketed T-SQL identifier is opaque to the comment and string masker, so
+`[it's]` no longer hides the routines after it. The file-representative rank
+(`get_repo_map`, `get_repo_outline`) puts `table`, `view` and `index` where
+`type` sat and a `procedure` or `trigger` with the callables, so a `CREATE
+SCHEMA` no longer represents the tables it creates. The dead-code and
+untested-symbol tools still judge only `function`/`method`, so they make no
+claim about procedures or triggers, whose callers sit outside the static
+graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
+pre-existing prefix, because pinning the tail of an append-only tuple fails
+the next correct append, while a prefix pin still catches a reorder.
+
+### Fixed - one SQL statement the grammar could not parse lost every object after it, and a named constraint was no symbol (#1081, @outoftheblue9)
+
+The derekstride grammar does not skip what it cannot parse: it opens an
+`ERROR` node that swallows every statement after it, so one SQLCMD
+`$(Var)`, `ALTER TABLE`, `IF NOT EXISTS (...)` guard or BETWEEN in a
+table-level CHECK cost the rest of the file. A script is now parsed one
+batch at a time (`GO`, `GO N`, `GO;`, and Oracle's lone `/`), so an
+unparseable statement costs exactly its own batch; coordinates are stamped
+back into whole-file space. ⚠ Rewriting `GO` to `;` is NOT enough, because
+an ERROR node spans a substituted terminator. A dialect with no separator
+(DB2) gets a second pass per batch with routine bodies blanked, UNIONed
+with the first, because either pass alone loses objects the other finds;
+the two are merged on coordinates, not ids. Within a batch, `ALTER TABLE`,
+`IF [NOT] EXISTS (...)`, `CONSTRAINT x CHECK (...)` and `[Ident]` are
+blanked or rewritten in a LENGTH-PRESERVING copy handed only to the
+grammar, so every offset still slices the original source. `constraint`
+joins `KIND_ORDER` (appended): PK, FK, UNIQUE, CHECK and DEFAULT, from
+`ALTER TABLE ... ADD CONSTRAINT` and inline in `CREATE TABLE`, with an
+unnamed FK recovered as `FK_<table>_<target>`. A constraint's `parent` is
+its table's symbol id when the table is defined in the same file, else
+`None`, the rule triggers follow, and the table is named in the signature.
+Sybase ASE `CREATE RULE`/`CREATE DEFAULT` are `constraint`s and
+`sp_addtype` names are `type`s. `SET QUOTED_IDENTIFIER OFF` is tracked, so a
+double-quoted string is no longer read as source. `CREATE FUNCTION` with a
+`BEGIN...END` body is recovered by the routine scan when the grammar cannot
+parse it; a function the grammar parsed keeps the grammar's symbol. ⚠ The
+`kind` enum in `search_symbols`' input schema grows by one entry, and under
+`compact_schemas` it is demoted to a described string like `language`,
+because the SQL kinds pushed `core_compact` past its 4,000-token ceiling
+(4,002 with the enum kept). With the demotion `core_compact` measures 3,948
+tokens and the `full` list 23,928, from `benchmarks/harness/capture_schema_baseline.py`
+on this branch; an unknown kind is still refused server-side with the valid list.
+`PARSER_GENERATION` 22 -> 23: the rows change on UNCHANGED content. Tested
+against vendored public corpora (AdventureWorks, Chinook, Sakila, sqlfluff
+T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
+`tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a
+synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
+regenerates the pinned counts.
+
+## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
+
 ### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere
 
 The `instructions` string the server sends when a session starts told agents to
@@ -60,113 +174,6 @@ package; it counts files named the way a migration tool names them.
 Like a build tree, generated migrations are corpus definition rather than a
 withheld file, so absence claims over the rest of the index stay citable. An
 existing index picks up a framework's migrations package at its next full walk.
-
-### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
-
-On a real T-SQL and Sybase codebase a large share of files indexed to
-NOTHING, and what was lost was the logic -- the stored procedures and
-triggers -- so symbol search, `find_references` and `get_blast_radius` were
-blind to exactly the part that matters. The
-derekstride grammar collapses `CREATE PROCEDURE`/`CREATE TRIGGER` into ONE
-`ERROR` node with loose-punctuation children, so there is no AST to walk;
-`_scan_sql_routines` recovers them by source scan over a comment- and
-string-MASKED copy (length-preserving, so offsets stay valid) while reading
-names from the ORIGINAL bytes. Bracket-quoted `[dbo].[X]` was stored as
-`dbo].[X`; every name is re-tokenised and both dialects land on
-`schema.name`. Temp tables declared inside a routine were published as
-top-level objects named after an unrelated column (the `#` never reaches the
-name, so the marker is read from the raw bytes) and are now dropped, while
-nested CTEs are kept and re-parented. ⚠ Rejecting nodes under an `ERROR`
-ancestor is WRONG -- a real `CREATE VIEW` parses under one -- so byte-range
-containment in a recovered routine is the discriminator. Every non-function
-object had been stored as kind `type`; `procedure`, `trigger`, `table`,
-`view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
-published in the cached schema prefix, and `STATE_KINDS` classifies all five
-as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
-five entries, and every profile that serves `search_symbols` publishes it, not
-only `full`: `core_compact` moves 3,971 -> 3,981 tokens (the hard ceiling is
-4,000) and the `full` list 23,916 -> 23,926, measured on this tree and on
-upstream's with `benchmarks/harness/capture_schema_baseline.py`; only the
-`counter` front door (945) is unchanged. Each is a one-time cache write for a
-client on that profile. ⚠ `search_symbols(kind="type")` on a SQL file now
-returns schemas only, so a caller that filtered `type` to find tables, views or
-indexes must ask for `table`, `view` or `index`.
-`PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
-so every existing index re-parses once on the next `index_folder` /
-`index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
-its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
-loses the mangling (`dbo].[X` -> `dbo.X`). A nested CTE or table's `parent`
-is its routine's symbol id; a trigger's `parent` is its table's id when that
-table is defined in the same file, else `None`, and the table stays named in
-the signature. A routine name repeated in one file is kept and numbered
-`~1`/`~2` by the existing ordinal rule. Recognition follows the property "a
-statement that defines or redefines a procedure or trigger": T-SQL
-`ALTER PROCEDURE|PROC|TRIGGER` (only with a body, so `ALTER ... COMPILE|
-RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
-`CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
-`[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
-`IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
-<events>` clause as well as directly after the name. ⚠ A routine's span ends at its
-own terminator, so the objects written after it are top level and
-`get_symbol_source` on it returns the routine alone: a dollar-quoted body ends
-at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
-characteristics), a quoted body at the following `;`, a MySQL routine at the
-active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
-`BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
-and `END CASE`, and not counting `BEGIN TRANSACTION`), and a body-less trigger
-or routine at its `;`. Before, a file with no `GO` re-parented every table,
-view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
-Sybase have no reliable body terminator and keep running to `GO` or the next
-routine header; a body whose terminator cannot be told does the same. A
-bracketed T-SQL identifier is opaque to the comment and string masker, so
-`[it's]` no longer hides the routines after it. The file-representative rank
-(`get_repo_map`, `get_repo_outline`) puts `table`, `view` and `index` where
-`type` sat and a `procedure` or `trigger` with the callables, so a `CREATE
-SCHEMA` no longer represents the tables it creates. The dead-code and
-untested-symbol tools still judge only `function`/`method`, so they make no
-claim about procedures or triggers, whose callers sit outside the static
-graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
-pre-existing prefix, because pinning the tail of an append-only tuple fails
-the next correct append, while a prefix pin still catches a reorder.
-
-### Fixed - one SQL statement the grammar could not parse lost every object after it, and a named constraint was no symbol (#1081, @outoftheblue9)
-
-The derekstride grammar does not skip what it cannot parse: it opens an
-`ERROR` node that swallows every statement after it, so one SQLCMD
-`$(Var)`, `ALTER TABLE`, `IF NOT EXISTS (...)` guard or BETWEEN in a
-table-level CHECK cost the rest of the file. A script is now parsed one
-batch at a time (`GO`, `GO N`, `GO;`, and Oracle's lone `/`), so an
-unparseable statement costs exactly its own batch; coordinates are stamped
-back into whole-file space. ⚠ Rewriting `GO` to `;` is NOT enough, because
-an ERROR node spans a substituted terminator. A dialect with no separator
-(DB2) gets a second pass per batch with routine bodies blanked, UNIONed
-with the first, because either pass alone loses objects the other finds;
-the two are merged on coordinates, not ids. Within a batch, `ALTER TABLE`,
-`IF [NOT] EXISTS (...)`, `CONSTRAINT x CHECK (...)` and `[Ident]` are
-blanked or rewritten in a LENGTH-PRESERVING copy handed only to the
-grammar, so every offset still slices the original source. `constraint`
-joins `KIND_ORDER` (appended): PK, FK, UNIQUE, CHECK and DEFAULT, from
-`ALTER TABLE ... ADD CONSTRAINT` and inline in `CREATE TABLE`, with an
-unnamed FK recovered as `FK_<table>_<target>`. A constraint's `parent` is
-its table's symbol id when the table is defined in the same file, else
-`None`, the rule triggers follow, and the table is named in the signature.
-Sybase ASE `CREATE RULE`/`CREATE DEFAULT` are `constraint`s and
-`sp_addtype` names are `type`s. `SET QUOTED_IDENTIFIER OFF` is tracked, so a
-double-quoted string is no longer read as source. `CREATE FUNCTION` with a
-`BEGIN...END` body is recovered by the routine scan when the grammar cannot
-parse it; a function the grammar parsed keeps the grammar's symbol. ⚠ The
-`kind` enum in `search_symbols`' input schema grows by one entry, and under
-`compact_schemas` it is demoted to a described string like `language`,
-because the SQL kinds pushed `core_compact` past its 4,000-token ceiling
-(4,002 with the enum kept). With the demotion `core_compact` measures 3,948
-tokens and the `full` list 23,928, from `benchmarks/harness/capture_schema_baseline.py`
-on this branch; an unknown kind is still refused server-side with the valid list.
-`PARSER_GENERATION` 22 -> 23: the rows change on UNCHANGED content. Tested
-against vendored public corpora (AdventureWorks, Chinook, Sakila, sqlfluff
-T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
-`tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a
-synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
-regenerates the pinned counts.
 
 ## [1.108.361] - 2026-10-14 - an installed agent policy can be brought up to date, and only when you ask
 

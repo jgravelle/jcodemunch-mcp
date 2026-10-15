@@ -679,3 +679,53 @@ def test_parser_generation_advanced_for_the_batch_parse():
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
 
     assert PARSER_GENERATION >= 23
+
+
+def test_an_oracle_declaration_section_routine_meets_the_two_passes():
+    """`IS v NUMBER; BEGIN ... END p;` ends at its own END, so the table and
+    index after it come out of both passes once each and with no parent."""
+    sql = (
+        "CREATE OR REPLACE PROCEDURE p_o IS\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  v := 1;\n"
+        "END p_o;\n"
+        "CREATE TABLE t8 (id int);\n"
+        "CREATE INDEX ix8 ON t8 (id);\n"
+    )
+    syms = _parse(sql)
+    proc = next(s for s in syms if s.name == "p_o")
+    assert (proc.line, proc.end_line) == (1, 5)
+    assert [s.name for s in syms if s.kind == "table"] == ["t8"]
+    assert [s.name for s in syms if s.kind == "index"] == ["ix8"]
+    assert all(s.parent is None for s in syms if s.kind in ("table", "index"))
+
+
+def test_an_oracle_trigger_with_a_declare_section_leaves_the_table_after_it_found():
+    sql = (
+        "CREATE OR REPLACE TRIGGER trg_o BEFORE INSERT ON t8 FOR EACH ROW\n"
+        "DECLARE\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  v := 1;\n"
+        "END;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    syms = {s.name: s for s in _parse(sql)}
+    assert syms["trg_o"].end_line == 6
+    assert syms["t8"].parent is None
+
+
+def test_an_oracle_function_with_a_declaration_section_ends_at_its_own_end():
+    sql = (
+        "CREATE OR REPLACE FUNCTION f_o(a NUMBER) RETURN NUMBER IS\n"
+        "  CURSOR c IS SELECT 1 FROM dual;\n"
+        "  PROCEDURE local_p IS BEGIN NULL; END local_p;\n"
+        "BEGIN\n"
+        "  RETURN a;\n"
+        "END f_o;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    syms = {s.name: s for s in _parse(sql)}
+    assert (syms["f_o"].kind, syms["f_o"].line, syms["f_o"].end_line) == ("function", 1, 6)
+    assert syms["t8"].parent is None

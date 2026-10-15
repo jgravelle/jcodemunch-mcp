@@ -2561,3 +2561,13 @@ The 1.108.358 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.358 count, verbatim:
 
 - ⚠ Prior (1.108.358): 16772 passed, 25 skipped, **0 failed** (16797 total).
+
+## Current State rotation (2026-10-14, release 1.108.362)
+
+The 1.108.359 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.359):** **`diagnose` writes one local report** (`diagnose.py`): a fixed list of keys AND values, no path or repo name. Two local per-tool counters (`storage/tool_counters.py`, `_tool_counters.json`, SECURITY.md). ⚠ Residue: L-179, L-181. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.359 count, verbatim:
+
+- ⚠ Prior (1.108.359): 16844 passed, 25 skipped, **0 failed** (16869 total).

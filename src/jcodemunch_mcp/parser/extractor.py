@@ -12094,6 +12094,37 @@ _SQL_NOT_A_TAIL_RE = re.compile(
     re.IGNORECASE,
 )
 _SQL_DOLLAR_TAIL_LIMIT = 500
+# A PL/SQL declaration section: what follows `IS` / `AS` / `DECLARE` when the
+# routine declares before its BEGIN. The shape is `name [CONSTANT] type` then
+# `:=`, `DEFAULT`, `NOT NULL` or `;`, or one of the declaration keywords. T-SQL
+# writes `AS` then statements, and a statement is not that shape: the first
+# word of every T-SQL statement that could pass for `name type;` is listed.
+_SQL_PLSQL_NOT_A_NAME = (
+    rb"SELECT|EXEC|EXECUTE|SET|PRINT|UPDATE|INSERT|DELETE|IF|WHILE|RETURN|USE"
+    rb"|TRUNCATE|DROP|CREATE|ALTER|WITH|MERGE|DECLARE|GOTO|THROW|COMMIT|ROLLBACK"
+    rb"|FETCH|OPEN|CLOSE|DEALLOCATE|WAITFOR|RAISERROR|GRANT|REVOKE|BEGIN|END|SAVE"
+    rb"|KILL|CHECKPOINT|DBCC"
+)
+_SQL_PLSQL_DECLARATION_RE = re.compile(
+    rb"\s*(?:(?:CURSOR|TYPE|SUBTYPE|PRAGMA|PROCEDURE|FUNCTION)\b"
+    rb"|(?!(?:" + _SQL_PLSQL_NOT_A_NAME + rb")\b)[A-Za-z_]\w*\s+(?:CONSTANT\s+)?"
+    rb"[A-Za-z_][\w.%$#]*(?:\s*\([^()]*\))?\s*(?::=|;|DEFAULT\b|NOT\s+NULL\b))",
+    re.IGNORECASE,
+)
+# Inside a declaration section only these matter: a BEGIN opens the body, a
+# PROCEDURE / FUNCTION opens a local subprogram that has a body of its own.
+_SQL_PLSQL_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))"
+    rb"|\b(?P<begin>BEGIN)\b"
+    rb"(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)"
+    rb"|\b(?P<sub>PROCEDURE|FUNCTION)\b",
+    re.IGNORECASE,
+)
+_SQL_PLSQL_SUB_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))|\b(?P<kw>IS|AS)\b|(?P<semi>;)", re.IGNORECASE
+)
+_SQL_PLSQL_EXTERNAL_RE = re.compile(rb"\s*(?:LANGUAGE|EXTERNAL)\b", re.IGNORECASE)
+_SQL_PLSQL_MAX_NESTING = 8
 _SQL_BANNER_RULE_RE = re.compile(r"^[=\-*_\s]*$")
 
 _SQL_SIGNATURE_SCAN_LIMIT = 2000
@@ -12185,6 +12216,70 @@ def _sql_dollar_end(masked: bytes, tag: re.Match[bytes], limit: int) -> Optional
     return after
 
 
+def _sql_plsql_subprogram_end(
+    masked: bytes, after_kw: int, limit: int, nesting: int
+) -> Optional[int]:
+    """End of a local PROCEDURE / FUNCTION whose keyword ends at `after_kw`."""
+    depth = 0
+    cur = after_kw
+    while True:
+        parse_budget.checkpoint()
+        tok = _SQL_PLSQL_SUB_TOKEN_RE.search(masked, cur, limit)
+        if tok is None:
+            return None
+        group = tok.lastgroup
+        cur = tok.end()
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "semi":
+            return cur  # a forward declaration
+        elif _SQL_PLSQL_EXTERNAL_RE.match(masked, cur, limit):
+            semi = masked.find(b";", cur, limit)
+            return semi + 1 if semi >= 0 else None
+        else:
+            return _sql_plsql_end(masked, cur, limit, nesting)
+
+
+def _sql_plsql_end(
+    masked: bytes, body_from: int, limit: int, nesting: int = 0
+) -> Optional[int]:
+    """End of a PL/SQL block whose `IS` / `AS` / `DECLARE` ends at `body_from`.
+
+    The declaration section is skipped (its `;`-terminated declarations,
+    cursors, types and pragmas hold no BEGIN, and a local subprogram is skipped
+    whole through its own END), then the first BEGIN opens the body and its
+    matching `END [name];` ends the block. None when that cannot be told.
+    """
+    if nesting > _SQL_PLSQL_MAX_NESTING:
+        return None
+    depth = 0
+    cur = body_from
+    while True:
+        parse_budget.checkpoint()
+        tok = _SQL_PLSQL_TOKEN_RE.search(masked, cur, limit)
+        if tok is None:
+            return None
+        group = tok.lastgroup
+        cur = tok.end()
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "begin":
+            return _sql_block_end(masked, cur, limit)
+        else:
+            sub_end = _sql_plsql_subprogram_end(masked, cur, limit, nesting + 1)
+            if sub_end is None:
+                return None
+            cur = sub_end
+
+
 def _sql_routine_terminator(
     masked: bytes,
     source_bytes: bytes,
@@ -12222,6 +12317,14 @@ def _sql_routine_terminator(
         elif group == "begin":
             return _sql_block_end(masked, tok.end(), limit)
         elif group == "decl":
+            # An Oracle declaration section: `IS` before anything else is
+            # PL/SQL (T-SQL never writes it in a header); `AS` / `DECLARE`
+            # count only when what follows is shaped like a declaration.
+            word = tok.group().upper()
+            if (word == b"IS" and last_decl is None) or (
+                word != b"IS" and _SQL_PLSQL_DECLARATION_RE.match(masked, tok.end(), limit)
+            ):
+                return _sql_plsql_end(masked, tok.end(), limit)
             last_decl = tok
         elif group == "semi":
             if last_decl is None:
