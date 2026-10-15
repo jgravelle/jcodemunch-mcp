@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.365] - 2026-10-15 - git blame is off by default, and it no longer adds "2 properties" to a file summary
+
 ### Changed - git blame is off by default, and it no longer adds "2 properties" to a file summary
 
 Since 1.108.364 git blame's names and dates no longer reach search ranking, so
