@@ -538,7 +538,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Config without max_folder_files
             config_path = Path(tmpdir) / "config.jsonc"
@@ -560,7 +560,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
             config_path.write_text('{}')  # Empty config
@@ -580,7 +580,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
             config_path.write_text('{"max_folder_files": 3000}')
@@ -609,7 +609,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
             config_path.write_text('{"use_ai_summaries": false}')
@@ -631,7 +631,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
             config_work = _platform_path_str("/config/work")
@@ -664,7 +664,7 @@ class TestEnvVarFallback:
         import logging
 
         _GLOBAL_CONFIG.clear()
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "config.jsonc"
             config_path.write_text("{}")
