@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "benchmarks" / "schema_baseline.json"
 SCRIPT = REPO_ROOT / "benchmarks" / "harness" / "capture_schema_baseline.py"
 
-tiktoken = pytest.importorskip("tiktoken")
+_HAS_TIKTOKEN = importlib.util.find_spec("tiktoken") is not None
 
 
 def _capture_module():
@@ -37,6 +37,7 @@ def _capture_module():
     return mod
 
 
+@pytest.mark.skipif(not _HAS_TIKTOKEN, reason="tiktoken not installed")
 def test_the_committed_baseline_equals_a_live_capture():
     live = _capture_module().measure()  # restores the config keys it sets
     committed = json.loads(BASELINE.read_text(encoding="utf-8"))
