@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.365](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.365)** (2026-10-15) — git blame is off by default, and it no longer adds "2 properties" to a file summary
 - **[v1.108.364](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.364)** (2026-10-15) — SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file
 - **[v1.108.363](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.363)** (2026-10-14) — init writes hooks that run the install you ran, not the first one on PATH
 - **[v1.108.362](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.362)** (2026-10-14) — a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
-- **[v1.108.361](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.361)** (2026-10-14) — an installed agent policy can be brought up to date, and only when you ask
 <!-- WHATSNEW:END -->
 
 ---

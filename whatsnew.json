@@ -1,6 +1,12 @@
 {
-  "current": "1.108.364",
+  "current": "1.108.365",
   "entries": [
+    {
+      "version": "1.108.365",
+      "date": "2026-10-15",
+      "title": "git blame is off by default, and it no longer adds \"2 properties\" to a file summary",
+      "summary": "Indexing no longer runs a timed `git log` on every git repository by default: `git_blame_enabled` defaults to `false`, and an existing config that sets the key keeps its value. With it on, the provider runs as before minus the \"2 properties\" suffix it added to every file summary it covered. SECURITY.md now lists it, since it stores commit authors' names in the index and, with AI summaries on, sends them to the summarizer. Search ranking doesn't move."
+    },
     {
       "version": "1.108.364",
       "date": "2026-10-15",
@@ -18,12 +24,6 @@
       "date": "2026-10-14",
       "title": "a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere",
       "summary": "`migrations` was on the built-in skip list, so a library whose own code lives in a package of that name, such as django's migration framework, never entered the index. A `migrations` directory is now skipped only when it holds files named the way a migration tool names what it writes (`0001_initial.py`, `V1__init.sql`, a timestamp), and the skip is counted as `generated_migrations`. The `instructions` string the server sends at session start no longer tells agents to prefer the index over Read and Grep or to call `resolve_repo` first; it says what the agent policy says: the index for relationships, a large repository or an open question, and the built-in tools for a known name in a small one."
-    },
-    {
-      "version": "1.108.361",
-      "date": "2026-10-14",
-      "title": "an installed agent policy can be brought up to date, and only when you ask",
-      "summary": "`init` writes the agent policy into CLAUDE.md once and never rewrites it, so the policy rewritten in 1.108.357 reached new installs only. `jcodemunch-mcp claude-md --refresh` replaces an installed block that differs: it shows the diff, asks before writing (`--yes` skips the question, `--dry-run` writes nothing), keeps a timestamped backup and changes nothing outside the block. The first `resolve_repo` answer of an existing install says once, for each policy text, that the command exists, and asks the agent to tell you rather than run it. SECURITY.md lists what the server reads for this and the marker it writes. Also from @outoftheblue9 (#1075): a C# or AL symbol documented with `///` comments is summarised by its sentence, not by the literal `<summary>` tag, which also improves search on those codebases. Indexes re-parse on their next run (parser generation 21)."
     }
   ]
 }
