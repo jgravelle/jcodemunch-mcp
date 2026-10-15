@@ -51,6 +51,27 @@ def workspace_root() -> Optional[Path]:
         return None
 
 
+def is_project_folder(workspace: Optional[Path]) -> bool:
+    """False for a folder too broad to be one project: the home folder, anything
+    above it, or a filesystem root.
+
+    Claude Desktop starts the server in the home folder (or `/` on macOS), and
+    "the indexes under it" would then be nearly every index on the machine while
+    reading as a scoped list. jjg ruled (2026-10-15) that such a launch lists
+    everything and says it is unscoped.
+    """
+    if workspace is None:
+        return False
+    if workspace == Path(workspace.anchor):
+        return False
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):
+        logger.debug("is_project_folder: home unresolvable", exc_info=True)
+        return True
+    return not (workspace == home or workspace in home.parents)
+
+
 def in_workspace(entry: dict, workspace: Optional[Path]) -> bool:
     """True when the index's folder is the workspace, inside it, or contains it."""
     root = entry.get("source_root") or ""
@@ -81,6 +102,16 @@ def scope_repos(
         return repos, None
     if workspace is None:
         workspace = workspace_root()
+    if not is_project_folder(workspace):
+        return repos, {
+            "mode": ALL,
+            "reason": "workspace_is_not_a_project",
+            "hint": (
+                "This server was started in the home folder or a filesystem root, "
+                "which is not one project, so every index is listed. Start the "
+                "server in a project folder to scope the list."
+            ),
+        }
     visible = [r for r in repos if in_workspace(r, workspace)]
     if not visible:
         return repos, {
@@ -102,6 +133,8 @@ def prefer_workspace(candidates: list[str], entries: list[dict]) -> list[str]:
     if len(candidates) < 2 or visibility_mode() == ALL:
         return candidates
     ws = workspace_root()
+    if not is_project_folder(ws):
+        return candidates
     roots = {e.get("repo"): e for e in entries}
     mine = [c for c in candidates if c in roots and in_workspace(roots[c], ws)]
     return mine if len(mine) == 1 else candidates

@@ -14,9 +14,11 @@ left out under a top-level `visibility` key, since a default install strips
 `_meta`, and a scoped list that didn't say so would read as the whole store.
 A bare name that matches several indexes picks the one in the workspace, where
 it used to refuse as ambiguous. An exact `owner/name` or a path still loads
-any index. The `cross_repo` tools are unchanged. A server started outside every
-indexed folder (Claude Desktop starts in your home or a system folder) lists
-everything, as before, and says the listing is unscoped. An index built from
+any index. The `cross_repo` tools are unchanged. A server started in the home
+folder, a folder above it or a filesystem root (where Claude Desktop starts), or
+in a folder that holds no index, lists everything, as before, and says the
+listing is unscoped. A bare name that stays ambiguous still names every
+matching id in its error. An index built from
 GitHub has no folder, so the default leaves it off the list.
 `"repo_visibility": "all"` (or `JCODEMUNCH_REPO_VISIBILITY=all`) restores the
 old listing. This scopes what a session is shown, not who can read the store,
