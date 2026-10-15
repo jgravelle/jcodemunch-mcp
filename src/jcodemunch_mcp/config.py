@@ -2634,8 +2634,10 @@ def generate_template() -> str:
   // "git_blame_enabled": true,
   //   Run the git_blame context provider during indexing to attach
   //   `last_author` and `last_modified` to each file's context. The
-  //   walk is bounded (latest 20k commits or 2 years, whichever fires
-  //   first; 10s wall-clock cap). On legacy repos with very deep
+  //   walk is bounded (latest 20k commits or 2 years before the latest
+  //   commit, whichever fires first; 10s wall-clock cap). The metadata
+  //   annotates files and is not used for search ranking. On legacy
+  //   repos with very deep
   //   history those bounds may still not be enough — set false to
   //   skip the probe entirely. Index still builds; only the blame
   //   metadata is omitted.

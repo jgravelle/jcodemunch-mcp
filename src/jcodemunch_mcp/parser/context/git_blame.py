@@ -7,7 +7,7 @@ History bound:
     MCP client's request-timeout budget. We bound the work two ways:
 
       * ``-n GIT_BLAME_COMMIT_LIMIT`` caps the commit count
-      * ``--since=GIT_BLAME_SINCE`` bounds the time window
+      * ``--since`` bounds the time window to ``GIT_BLAME_WINDOW_DAYS`` before HEAD
 
     Together these mean blame data covers recent activity (where it matters
     for `last_author` / `last_modified` queries) without paying for ancient
@@ -23,6 +23,7 @@ Operator override:
 
 import logging
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -38,10 +39,15 @@ logger = logging.getLogger(__name__)
 # team committing a couple dozen times a day.
 GIT_BLAME_COMMIT_LIMIT = 20_000
 
-# Time window for the blame walk. ``git log --since`` accepts approximate
-# strings ("2.years.ago", "6 months ago"). Two years catches the
-# overwhelming majority of files an agent will ask about; older files
-# silently fall off the map and report no blame.
+# Time window for the blame walk, measured back from the corpus's HEAD commit
+# (L-188): measured from today, a pinned corpus lost files from the map as the
+# calendar moved, so two indexes of the same commit disagreed. Two years catches
+# the overwhelming majority of files an agent will ask about; older files fall
+# off the map and report no blame.
+GIT_BLAME_WINDOW_DAYS = 730
+
+# The window when HEAD's commit time cannot be read (`git log --since` accepts
+# approximate strings).
 GIT_BLAME_SINCE = "2.years.ago"
 
 # Hard wall-clock bound on the subprocess. Tight enough that we don't blow
@@ -65,9 +71,33 @@ class GitBlameProvider(ContextProvider):
       - ``last_modified``: ISO-8601 date of the most recent commit
     """
 
+    # Blame annotates a file; it is not vocabulary. Its coverage depends on a
+    # timed `git log`, so its property names must not reach BM25 (L-188).
+    properties_are_search_terms = False
+
     def __init__(self) -> None:
         self._blame: dict[str, tuple[str, str]] = {}  # path -> (author, date)
         self._folder: Optional[Path] = None
+
+    def _since(self, folder_path: Path) -> str:
+        """The `--since` bound: ``GIT_BLAME_WINDOW_DAYS`` before HEAD's commit time."""
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%ct"],
+                cwd=str(folder_path),
+                capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+                timeout=5,
+                stdin=subprocess.DEVNULL,
+            )
+            head = int(result.stdout.strip()) if result.returncode == 0 else None
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            logger.debug("GitBlameProvider: could not read HEAD's commit time", exc_info=True)
+            head = None
+        if head is None:
+            return GIT_BLAME_SINCE
+        start = datetime.fromtimestamp(head, tz=timezone.utc) - timedelta(days=GIT_BLAME_WINDOW_DAYS)
+        return start.strftime("%Y-%m-%d %H:%M:%S +0000")
 
     @property
     def name(self) -> str:
@@ -117,7 +147,7 @@ class GitBlameProvider(ContextProvider):
                     "--diff-filter=AM",
                     "--no-merges",
                     "-n", str(GIT_BLAME_COMMIT_LIMIT),
-                    f"--since={GIT_BLAME_SINCE}",
+                    f"--since={self._since(folder_path)}",
                     "--",
                     # `.` spends `-n` on commits under the index root, not on
                     # the whole monorepo (#685).

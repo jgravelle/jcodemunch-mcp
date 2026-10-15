@@ -57,9 +57,10 @@ def test_full_index_populates_provider_cache_and_enriches(tmp_path):
     r = index_folder(path=str(tmp_path), use_ai_summaries=False,
                      storage_path=store_path, incremental=False)
     assert r["success"]
-    # git-blame provider ran → symbols carry its keywords
+    # git-blame provider ran → symbols carry its annotation. (Its property names
+    # stopped being search keywords in L-188, so the annotation is the witness.)
     syms = _load(store_path)
-    assert "last_author" in syms["alpha"]["keywords"]
+    assert "git_blame" in syms["alpha"]["ecosystem_context"]
     # and the discovered providers are cached for the fast path
     assert str(tmp_path) in _if._PROVIDER_CACHE
     assert any(p.name == "git_blame" for p in _if._PROVIDER_CACHE[str(tmp_path)])
@@ -83,8 +84,8 @@ def test_watched_edit_preserves_git_blame_enrichment(tmp_path):
     # The freshly re-parsed symbols must still carry git-blame enrichment, not
     # lose it on the fast path (the W1 regression).
     assert "beta" in syms, syms.keys()
-    assert "last_author" in syms["beta"]["keywords"], syms["beta"]["keywords"]
-    assert "last_author" in syms["alpha"]["keywords"], syms["alpha"]["keywords"]
+    assert "git_blame" in syms["beta"]["ecosystem_context"], syms["beta"]["ecosystem_context"]
+    assert "git_blame" in syms["alpha"]["ecosystem_context"], syms["alpha"]["ecosystem_context"]
 
 
 def test_fast_path_providers_discovers_once_on_cache_miss(tmp_path, monkeypatch):

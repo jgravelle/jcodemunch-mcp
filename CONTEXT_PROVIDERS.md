@@ -26,7 +26,7 @@ Context enrichment is **automatic** — no configuration required. Providers sel
 | nextjs / nuxt | `next.config.*` / Nuxt conventions | App-Router / file-based routing | Route metadata on page and API components |
 | go_routers | Gin / Chi / Echo / Fiber | Call-expression routing (`r.GET("/path", handler)`) | Routes + middleware on handler symbols |
 | decorator_routes | Flask / FastAPI / Spring Boot / NestJS / ASP.NET | Route decorators and annotations | HTTP method + path on decorated handlers |
-| git_blame  | Any git repository   | Commit history (bounded walk)       | `last_author` / `last_modified` on files       |
+| git_blame  | Any git repository   | Commit history (bounded walk, 2 years before the latest commit) | `last_author` / `last_modified` on files; an annotation, never a search term |
 
 The exact provider list grows over time; `src/jcodemunch_mcp/parser/context/` is authoritative. The dbt provider below is documented in depth as the reference example — the others follow the same lifecycle.
 

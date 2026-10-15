@@ -114,6 +114,32 @@ T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
 synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
 regenerates the pinned counts.
 
+### Fixed - search ranking no longer depends on whether git blame finished, or on today's date
+
+The git blame provider gave every symbol of a file it covered two extra search
+keywords, `last_author` and `last_modified`: the property names, added through
+`FileContext.search_keywords`. Search scores them. Which files it covered
+depended on two things an unchanged repository does not fix. One `git log` had
+to finish inside a 10-second budget, and a timeout kept no blame at all. The
+window was "2 years ago", measured from the day of indexing, so files left it as
+the calendar moved. Two fresh indexes of the same commit could rank the same
+query differently. On fastapi, at the commit the published benchmark pins, a
+cold clone hit the timeout and a warm one did not. Two of the five benchmark
+queries changed their top 3 (`error exception` 1,167 to 1,232 tokens, `context
+bind` 1,191 to 1,367), and the other three fastapi queries did not move. A
+reproduction attributed the change to a release that touched nothing on that
+path.
+
+Blame now annotates a file without adding search terms. A provider declares
+whether its property names are vocabulary (`properties_are_search_terms`). The
+framework and data providers keep theirs, and git blame opts out. The window is
+measured back from the repository's latest commit, so a pinned checkout covers
+the same files on any day; `2.years.ago` remains the fallback when that commit's
+time cannot be read. A test indexes one repository twice, once with blame and
+once with it timed out, and requires identical scores. Existing indexes keep
+the old keywords until a file is re-indexed. The published benchmark is
+re-measured after this release.
+
 ## [1.108.363] - 2026-10-14 - init writes hooks that run the install you ran, not the first one on PATH
 
 ### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH

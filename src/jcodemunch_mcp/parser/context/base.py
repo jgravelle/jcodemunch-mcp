@@ -88,12 +88,16 @@ class FileContext:
             parts.append(f"{len(self.properties)} properties")
         return ". ".join(parts)
 
-    def search_keywords(self) -> list[str]:
-        """Extract keywords for search indexing."""
+    def search_keywords(self, include_properties: bool = True) -> list[str]:
+        """Extract keywords for search indexing.
+
+        ``include_properties=False`` for a provider whose property names are
+        not vocabulary (see ``ContextProvider.properties_are_search_terms``).
+        """
         keywords = []
         if self.tags:
             keywords.extend(self.tags)
-        if self.properties:
+        if self.properties and include_properties:
             keywords.extend(self.properties.keys())
         return keywords
 
@@ -113,6 +117,14 @@ class ContextProvider(ABC):
     # watchdog only stops the CALLER waiting — it cannot stop the work. Loops
     # that poll this actually stop burning CPU, so poll it wherever you walk.
     _deadline: Optional[float] = None
+
+    # Whether this provider's property NAMES become search keywords on every
+    # symbol of a file it covers. True for a framework or data provider, whose
+    # property names describe the code (`materialized`, a route verb). False for
+    # one whose coverage depends on something outside the corpus: git blame
+    # covers a file only when a timed `git log` finished, and BM25 scores the
+    # keywords, so a timeout reordered search results on unchanged code (L-188).
+    properties_are_search_terms: bool = True
 
     def budget_expired(self) -> bool:
         """True once this provider has overrun its discovery budget."""
@@ -330,7 +342,7 @@ def enrich_symbols(symbols: list, providers: list[ContextProvider]) -> None:
             ctx = provider.get_file_context(fpath)
             if ctx is not None:
                 summary = ctx.summary_context(max_properties=8)
-                kw = ctx.search_keywords()
+                kw = ctx.search_keywords(include_properties=provider.properties_are_search_terms)
                 if summary or kw:
                     file_ctx_cache[(pname, fpath)] = (summary, kw)
 
