@@ -1073,4 +1073,4 @@ and exits 0. [[pipes-and-missing-xdist-both-report-exit-zero]]
    `PYTHONPATH=src` rather than through the server, and nobody decided that.
    ⚠ `install-status` reports `source_drift` now (tri-state; UNKNOWN never
    `False`), and all five packages are EDITABLE, so only the restart can drift.
-   `scripts/repair-munch-installs.ps1` repairs it and refuses while a server runs.
+   `scripts/repair-munch-installs.ps1` repairs it; `-Apply` stops every j*munch server first.
