@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.363] - 2026-10-14 - init writes hooks that run the install you ran, not the first one on PATH
+
 ### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH
 
 `init` wrote every hook command, the Codex server entry and the post-`upgrade`
