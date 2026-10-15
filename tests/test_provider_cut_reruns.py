@@ -18,6 +18,7 @@ corpus, so they keep the stored cut rather than claim it healed.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
 
@@ -191,3 +192,79 @@ def test_a_watched_edit_keeps_the_cut(slowable, project):
 
     assert r.get("rebuild_reason") != "context_provider_cut"
     assert _stored_cut(r, store) == ["slowable"]
+
+
+def test_a_hook_driven_single_file_reindex_keeps_the_cut(slowable, project):
+    """`index_file` (the PostToolUse hook's writer) hands `incremental_save` a
+    metadata dict built from the active providers alone, which REPLACES the
+    stored one; the store carries the record so this writer, and the next one,
+    cannot erase it."""
+    from jcodemunch_mcp.tools.index_file import index_file
+
+    src, store = project
+    slowable.SLOW = True
+    first = _index(src, store)
+
+    slowable.SLOW = False
+    target = src / "a.py"
+    target.write_text("def alpha():\n    return 6\n", encoding="utf-8")
+    r = index_file(str(target), use_ai_summaries=False, storage_path=str(store))
+    assert r.get("success") is True, r
+
+    assert _stored_cut(first, store) == ["slowable"]
+
+
+def test_incremental_save_keeps_a_stored_cut_its_caller_did_not_name(tmp_path):
+    """The rule one layer down: any delta writer, including one written later."""
+    store = IndexStore(str(tmp_path))
+    store.save_index(
+        owner="local", name="r", source_files=["a.py"], symbols=[], raw_files={"a.py": "x = 1\n"},
+        context_metadata={_KEY: ["express"], "other": 1},
+    )
+    store.incremental_save(
+        owner="local", name="r", changed_files=["a.py"], new_files=[], deleted_files=[],
+        new_symbols=[], raw_files={"a.py": "x = 2\n"}, context_metadata={"other": 2},
+    )
+    meta = IndexStore(str(tmp_path)).load_index("local", "r").context_metadata
+    assert meta == {_KEY: ["express"], "other": 2}
+
+    store.incremental_save(
+        owner="local", name="r", changed_files=["a.py"], new_files=[], deleted_files=[],
+        new_symbols=[], raw_files={"a.py": "x = 3\n"}, context_metadata={"other": 3, _KEY: []},
+    )
+    meta = IndexStore(str(tmp_path)).load_index("local", "r").context_metadata
+    assert meta == {"other": 3, _KEY: []}, "a caller that names the key decides it"
+
+
+def _git(*args, cwd):
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", *args],
+        cwd=str(cwd), check=True, capture_output=True,
+    )
+
+
+def _git_repo(tmp_path):
+    repo = tmp_path / "repo"
+    sub = repo / "pkg"
+    sub.mkdir(parents=True)
+    (repo / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    (sub / "b.py").write_text("def beta():\n    return 2\n", encoding="utf-8")
+    _git("init", "-b", "main", cwd=repo)
+    _git("add", ".", cwd=repo)
+    _git("commit", "-m", "init", cwd=repo)
+    return repo, sub, tmp_path / "store"
+
+
+def test_a_subdir_walk_keeps_the_cut(slowable, tmp_path):
+    """A subdir walk re-reads only its prefix and carries the rest, so it must
+    not escalate (it could not heal anything) or clear the record."""
+    repo, sub, store = _git_repo(tmp_path)
+    slowable.SLOW = True
+    first = _index(repo, store, identity_mode="git")
+    assert _stored_cut(first, store) == ["slowable"]
+
+    slowable.SLOW = False
+    r = _index(sub, store, identity_mode="git")
+
+    assert r.get("rebuild_reason") != "context_provider_cut"
+    assert _stored_cut(first, store) == ["slowable"]

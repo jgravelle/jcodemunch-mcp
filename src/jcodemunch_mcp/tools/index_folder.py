@@ -47,6 +47,7 @@ from ..security import (
     SKIP_FILES
 )
 from ..storage import IndexStore
+from ..storage.sqlite_store import PROVIDERS_CUT_KEY
 from ..storage.git_root import (
     IdentityModeAmbiguous,
     IdentityModeConflict,
@@ -856,11 +857,12 @@ def _resolve_active_providers(folder_path: Path, context_providers: bool) -> lis
     return active
 
 
-# The `context_metadata` key naming the providers a budget cut (L-190). A cut
-# provider's context is missing from the stored symbols, so the next explicit
-# index pass re-parses every file to run it again; a targeted pass or a watched
-# edit re-reads only some files and so keeps the record.
-PROVIDERS_CUT_KEY = "providers_cut"
+# L-190: a provider the budget cut leaves its context off the stored symbols.
+# The index records it under PROVIDERS_CUT_KEY, and the next full pass over the
+# whole tree re-parses every file to run it again. A pass that re-reads only
+# part of the tree (`paths=`, a watched edit, `index_file`, a subdir walk, a
+# branch delta) keeps the record; `incremental_save` carries it for every
+# delta writer.
 
 
 def _provider_cut_names(folder_path: Path) -> list[str]:
@@ -2261,9 +2263,11 @@ def index_folder(
                 _fast_phase("parse")
                 git_head = _get_git_head(folder_path) or ""
                 incr_context_metadata = collect_metadata(active_providers) if active_providers else None
-                # No discovery ran on this path, so the stored cut still holds (L-190).
+                # A delta keeps the stored cut; a discovery run on a cache miss
+                # may add one of its own (L-190).
                 incr_context_metadata = _stamp_provider_cut(
-                    incr_context_metadata, _stored_provider_cut(existing_index),
+                    incr_context_metadata,
+                    sorted(set(_stored_provider_cut(existing_index)) | set(_provider_cut_names(folder_path))),
                     existing_index, carry_existing=True,
                 )
                 _fast_phase("git_head")
@@ -2680,13 +2684,19 @@ def index_folder(
                     "Racket config (racket_definition_forms / racket_langs) changed since this "
                     "index was built; every file was re-parsed once so the declarations apply."
                 )
-        elif (_cut_before := _stored_provider_cut(existing_index)) and paths is None:
+        elif (
+            (_cut_before := _stored_provider_cut(existing_index))
+            and paths is None
+            and not _is_branch_delta
+            and _merge_with_existing is None
+        ):
             # L-190: a provider the budget cut on an earlier pass left its
             # context off every file, and an incremental pass re-reads only the
             # changed ones, so the gap would outlive the slow moment that made
-            # it. Re-parse everything once so the provider runs again. A
-            # targeted pass (`paths=`) asked for bounded work and keeps the
-            # record instead; the watcher's fast path never reaches here.
+            # it. Re-parse everything once so the provider runs again. Only a
+            # pass over the whole tree can clear the record, so a targeted pass
+            # (`paths=`), a subdir walk and a branch delta (whose index inherits
+            # the base's metadata and cannot save its own) keep it instead.
             incremental = False
             rebuild_reason = "context_provider_cut"
             logger.warning(
@@ -2697,7 +2707,9 @@ def index_folder(
             warnings.append(
                 f"Context provider(s) {', '.join(_cut_before)} ran out of time on the last "
                 f"index pass, so their context was missing from this index; every file was "
-                f"re-parsed so they run again."
+                f"re-parsed so they run again. A provider that runs out of time on every pass "
+                f"makes every index_folder a full re-parse: raise "
+                f"JCODEMUNCH_PROVIDER_BUDGET_SECONDS or set context_providers=false."
             )
 
         # Discovery pass — resolve rel_paths and collect mtimes without
@@ -3178,10 +3190,15 @@ def index_folder(
             else:
                 full_context_metadata = profile_meta
 
-        # A full pass re-ran every provider over every file, so this pass's
-        # cuts replace the stored record (L-190).
+        # A full pass over the whole tree re-ran every provider over every
+        # file, so its cuts replace the stored record. A subdir walk carries
+        # files it never re-read and a branch delta saves no metadata of its
+        # own, so those keep the record and add to it (L-190).
+        _cut_now = set(_provider_cut_names(folder_path))
+        if _merge_with_existing is not None or _is_branch_delta:
+            _cut_now |= set(_stored_provider_cut(existing_index))
         full_context_metadata = _stamp_provider_cut(
-            full_context_metadata, _provider_cut_names(folder_path),
+            full_context_metadata, sorted(_cut_now),
             existing_index, carry_existing=False,
         )
 
