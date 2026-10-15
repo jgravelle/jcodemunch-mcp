@@ -1,7 +1,7 @@
 # jcodemunch-mcp — Project Brief
 
 ## Current State
-- **Version:** 1.108.365 — **git blame is off by default** (`git_blame_enabled: false`); with it on, a provider whose properties aren't vocabulary (`properties_are_search_terms`) adds nothing to a file summary. SECURITY.md lists it. No `PARSER_GENERATION` bump. Full text: `CHANGELOG.md`.
+- **Version:** 1.108.365 — **git blame is off by default** (L-189); with it on, a provider whose properties aren't vocabulary (`properties_are_search_terms`) adds nothing to a file summary. SECURITY.md lists it. No `PARSER_GENERATION` bump. Full text: `CHANGELOG.md`.
 - **Prior (1.108.364):** **SQL procedures, triggers and constraints are symbols; a script parses one batch at a time** (#1080, #1081, @outoftheblue9). Ranking ignores git blame (`properties_are_search_terms`), `PARSER_GENERATION` 24. Full text: `CHANGELOG.md`.
 - **Prior (1.108.363):** **Hooks name the install that ran** (`install_layout.own_executable`): never PATH first, never a relative launch path, never uv's cache (`init` says which). Full text: `CHANGELOG.md`.
 - **Older releases (1.108.362 and earlier):** see `CHANGELOG.md` (1.108.303-.310, 1.108.314-.315, 1.108.316 through 1.108.362 in `ISSUE-HISTORY.md`). The 1.108.182 entry ("a stall has a name and a ceiling", #375) and the 1.108.177-.181 #377 hardening arc are there in full.
