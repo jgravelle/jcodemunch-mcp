@@ -1,6 +1,12 @@
 {
-  "current": "1.108.361",
+  "current": "1.108.362",
   "entries": [
+    {
+      "version": "1.108.362",
+      "date": "2026-10-14",
+      "title": "a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere",
+      "summary": "`migrations` was on the built-in skip list, so a library whose own code lives in a package of that name, such as django's migration framework, never entered the index. A `migrations` directory is now skipped only when it holds files named the way a migration tool names what it writes (`0001_initial.py`, `V1__init.sql`, a timestamp), and the skip is counted as `generated_migrations`. The `instructions` string the server sends at session start no longer tells agents to prefer the index over Read and Grep or to call `resolve_repo` first; it says what the agent policy says: the index for relationships, a large repository or an open question, and the built-in tools for a known name in a small one."
+    },
     {
       "version": "1.108.361",
       "date": "2026-10-14",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "jcodemunch-mcp diagnose writes one local report with no path and no repository name",
       "summary": "New command: `jcodemunch-mcp diagnose` writes one JSON report to the storage directory's `diagnose` folder and prints its path. It holds server versions, each index as `index-1` with its sizes, the tool surface, the state of each installed policy, and per tool the calls, tokens returned and tokens saved. It is built from a fixed list of fields and of what each value may be, so no path or repository name can reach it; the `anon_id` is left out unless `--include-anon-id` is passed. It sends nothing. New background behaviour, disclosed in SECURITY.md: the server now keeps two local counts per tool (calls, tokens returned) in `_tool_counters.json`, on by default and sent nowhere. `\"tool_counters\": false` turns them off."
-    },
-    {
-      "version": "1.108.358",
-      "date": "2026-10-13",
-      "title": "a Python import written over several lines records its names, and the surface offer reaches the user",
-      "summary": "Two changes. A Python `from x import (...)` spread over several lines, or continued with a backslash, recorded only the names on its first line, so `find_references` and `check_references` missed every name on the lines after it. All of them are recorded now; indexes re-parse on their next run (parser generation 19). New behaviour, disclosed in SECURITY.md: an install serving the full tool list is told once, in its first successful `resolve_repo` answer, what the three-tool front door would save it per turn, with a line asking the agent to pass that on. It changes no setting, sends nothing, and writes one marker file, `surface_notice_state.json`, so it is not repeated. `jcodemunch-mcp config set surface_offer_seen true` silences it."
     }
   ]
 }

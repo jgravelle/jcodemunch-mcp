@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
+
 ### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere
 
 The `instructions` string the server sends when a session starts told agents to
