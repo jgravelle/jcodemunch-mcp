@@ -1,6 +1,6 @@
 # jcodemunch-mcp — Token Efficiency Benchmark
 
-**Result: 96.5% average token reduction (28.9x) vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
+**Result: 96.6% average token reduction (29.2x) vs a grep-and-read agent · tiktoken cl100k_base · 15 task-runs · 3 repos**
 
 ## What this measures
 
@@ -49,12 +49,12 @@ Full per-task tables are in [`results.md`](results.md).
 
 | Repo | Files | Grep-top-3 baseline | Read-all baseline | jCodeMunch | vs grep | vs read-all |
 |------|------:|--------------------:|------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 15,724 avg | 154,569 | 972 avg | **16.2x** | 159.0x |
-| fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,147 avg | **39.7x** | 384.4x |
+| expressjs/express | 186 | 15,724 avg | 154,569 | 967 avg | **16.3x** | 159.8x |
+| fastapi/fastapi | 1,186 | 85,296 avg | 825,326 | 2,097 avg | **40.7x** | 393.6x |
 | gin-gonic/gin | 98 | 31,975 avg | 151,842 | 1,484 avg | **21.5x** | 102.3x |
-| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **23,014** | **28.9x** | **245.9x** |
+| **Grand total (15 task-runs)** | — | **664,975** | **5,658,685** | **22,741** | **29.2x** | **248.8x** |
 
-**96.5% average token reduction · 28.9x** against grep-and-read; 99.6% · 245.9x
+**96.6% average token reduction · 29.2x** against grep-and-read; 99.6% · 248.8x
 against read-all. tiktoken cl100k_base.
 
 ⚠ **This table was stale until 2026-08-03** — it carried a pre-v1.108.222 corpus

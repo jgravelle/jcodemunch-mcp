@@ -58,7 +58,7 @@ the same file reader**. Neither is a stored constant.
 
 **Baseline A — read-all.** All indexed source files concatenated and tokenized.
 This is the **minimum** cost for a "read everything first" agent. It is a
-ceiling nobody pays, and it is the basis of the historical 99.6% / 245.9x
+ceiling nobody pays, and it is the basis of the historical 99.6% / 248.8x
 figures.
 
 **Baseline B — grep-top-3.** What a competent agent *without* this tool actually
@@ -256,20 +256,20 @@ details.
 ## Common Misreadings
 
 **"The claim is up to 99%."**
-The primary claim is **96.5% average (28.9x)** across all 15 task-runs, measured
+The primary claim is **96.6% average (29.2x)** across all 15 task-runs, measured
 against Baseline B — an agent that greps and opens the top 3 files (664,975 →
-23,014 tokens). Against Baseline A, the read-everything ceiling, the same run
-gives 99.6% / 245.9x (5,658,685 → 23,014). Both are published; B is the one to
+22,741 tokens). Against Baseline A, the read-everything ceiling, the same run
+gives 99.6% / 248.8x (5,658,685 → 22,741). Both are published; B is the one to
 quote.
 
-⚠ **Per-query results span 7.6x to 81.2x** (median 26.1x). No single multiple
+⚠ **Per-query results span 7.6x to 85.7x** (median 26.1x). No single multiple
 describes every query, and the floor — `middleware` on gin — is a number a real
 user can hit.
 
 ⚠ The read-all aggregate is dominated by one repo: fastapi contributes 72.9% of
-its baseline tokens, so 245.9x is largely a statement about fastapi (aggregate
-245.9x vs median 138.7x). **That objection is much weaker for Baseline B**, whose
-aggregate and median nearly agree (28.9x vs 26.1x, fastapi share 64.1%), because
+its baseline tokens, so 248.8x is largely a statement about fastapi (aggregate
+248.8x vs median 138.7x). **That objection is much weaker for Baseline B**, whose
+aggregate and median nearly agree (29.2x vs 26.1x, fastapi share 64.1%), because
 grep cost tracks matches rather than repository size. Choosing B settles the
 aggregate-vs-median question rather than inheriting it.
 
@@ -298,20 +298,20 @@ measures that agent**, on the same corpus in the same run:
 
 | Against | Baseline tokens | Ratio | Reduction |
 |---|--:|--:|--:|
-| Read-all (Baseline A) | 5,658,685 | 245.9x | 99.6% |
-| **Grep-top-3 (Baseline B)** | **664,975** | **28.9x** | **96.5%** |
+| Read-all (Baseline A) | 5,658,685 | 248.8x | 99.6% |
+| **Grep-top-3 (Baseline B)** | **664,975** | **29.2x** | **96.6%** |
 
 **Baseline B is 11.8% of Baseline A, so measuring against read-all overstates the
 advantage by roughly 8.5x.** Quote the Baseline B figure.
 
-⚠ **The per-query spread on B is 7.6x to 81.2x** (median 26.1x), so no single
+⚠ **The per-query spread on B is 7.6x to 85.7x** (median 26.1x), so no single
 multiple describes every query. The floor — `middleware` on gin at **7.6x** — is
 the honest worst case and is published here rather than left in the JSON.
 
 ⚠ One thing that improved under the realistic baseline, and it is worth saying
 because it cuts our way: the read-all aggregate is badly distorted by the largest
-repo (aggregate 245.9x vs median 138.7x, with fastapi contributing 72.9% of
-baseline tokens). Baseline B's aggregate and median nearly agree (**28.9x vs
+repo (aggregate 248.8x vs median 138.7x, with fastapi contributing 72.9% of
+baseline tokens). Baseline B's aggregate and median nearly agree (**29.2x vs
 26.1x**, fastapi share 64.1%), because grep cost tracks *matches* rather than
 repository size. **The realistic baseline is not merely smaller — it is a
 better-behaved statistic.**
@@ -319,7 +319,7 @@ better-behaved statistic.**
 So 99.6% measures **what symbol-level retrieval avoids relative to loading the
 corpus** — a ceiling on removable waste, and the right answer to "how much of a
 repository does an agent actually need in context." It is not a prediction of
-anyone's bill. 96.5% / 28.9x is the closer thing to that, and it still does not
+anyone's bill. 96.6% / 29.2x is the closer thing to that, and it still does not
 model an agent that was already retrieving selectively.
 
 Against comparators that *do* retrieve selectively, the margins are single-digit

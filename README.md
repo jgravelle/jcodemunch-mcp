@@ -1,6 +1,6 @@
 # jCodeMunch MCP
 
-**The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 28.9x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
+**The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 29.2x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
 
 > **Real results, live from production**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
@@ -46,19 +46,19 @@ Index once. Query cheaply. Keep moving. **Precision context beats brute-force co
 
 ### Reproducible token efficiency benchmark
 
-Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-10-14 on v1.108.360. Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
+Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-10-15 on v1.108.364. Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
 
 - **Grep-top-3**: `rg -l` the query terms, rank files by match count, open the top 3 whole. This is what a competent agent without the tool actually does, and it is the number to quote.
 - **Read-all**: every indexed source file concatenated. A ceiling nobody pays; retained for continuity with previously published figures.
 
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 989 | 15,724 avg | 972 avg | **16.2x** | 159.0x |
-| fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,147 avg | **39.7x** | 384.4x |
+| expressjs/express | 186 | 989 | 15,724 avg | 967 avg | **16.3x** | 159.8x |
+| fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,097 avg | **40.7x** | 393.6x |
 | gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,484 avg | **21.5x** | 102.3x |
-| **Grand total (15 task-runs)** | | | **664,975** | **23,014** | **28.9x** | 245.9x |
+| **Grand total (15 task-runs)** | | | **664,975** | **22,741** | **29.2x** | 248.8x |
 
-**Against a grep-and-read agent: 96.5% reduction, 28.9x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 96.6% reduction, 29.2x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 
@@ -317,7 +317,7 @@ Conditions on all uses: retain the copyright notice, clearly mark modifications 
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.5% average (28.9x) against a grep-and-read agent across 15 tasks and 3 repositories. Per-query results span 7.6x to 81.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.6% average (29.2x) against a grep-and-read agent across 15 tasks and 3 repositories. Per-query results span 7.6x to 85.7x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.
