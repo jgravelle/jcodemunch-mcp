@@ -35,7 +35,8 @@ _REGENERATE = (
     "`set CODE_INDEX_PATH=C:\\temp\\empty-index` then "
     "`set PYTHONPATH=src` then `python benchmarks/harness/capture_schema_baseline.py`; bash: "
     "`CODE_INDEX_PATH=$(mktemp -d) PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py`), "
-    "because a configured box writes values this test rejects. State the token delta in the CHANGELOG "
+    "because a configured box writes values this test rejects. Then repin its checksum with "
+    "`python -m harness corpora --pin` (the fast tier compares it). State the token delta in the CHANGELOG "
     "(DoD 4), and stage the file before running `harness bench`, which restores it with `git checkout`."
 )
 

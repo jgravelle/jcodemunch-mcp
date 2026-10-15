@@ -9,7 +9,8 @@ Run from the repo root, with CODE_INDEX_PATH naming an EMPTY directory:
 
 ⚠ The counts go through the global config, so a config that disables tools or
 overrides descriptions changes them; `tests/test_schema_baseline_is_current.py`
-runs under a reset config and rejects such a file (L-187).
+runs under a reset config and rejects such a file (L-187). The file's sha256 is
+pinned in `harness/corpora.json`; repin with `python -m harness corpora --pin`.
 
 Output: benchmarks/schema_baseline.json
 
