@@ -231,10 +231,14 @@ def test_processes_that_stop_together_lose_no_count(store):
     (store / tool_counters.FILE).write_text(json.dumps(
         {"version": 1, "since": "2026-01-01", "estimator": "bytes/4",
          "tools": {"list_repos": {"calls": 1000, "tokens_returned": 5}}}), encoding="utf-8")
-    code = ("import sys, time; from jcodemunch_mcp.storage import tool_counters as t; "
-            "[t.record('list_repos', 400, sys.argv[1]) for _ in range(5)]; "
-            "time.sleep(max(0.0, float(sys.argv[2]) - time.time() - 0.2)); "
-            "exec('while time.time() < float(sys.argv[2]): pass')")  # busy-wait to the same instant
+    code = "\n".join([
+        "import sys, time",
+        "from jcodemunch_mcp.storage import tool_counters as t",
+        "[t.record('list_repos', 400, sys.argv[1]) for _ in range(5)]",
+        "time.sleep(max(0.0, float(sys.argv[2]) - time.time() - 0.2))",
+        "while time.time() < float(sys.argv[2]):  # busy-wait to the same instant",
+        "    pass",
+    ])
     import os
     import time
 

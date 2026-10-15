@@ -151,6 +151,27 @@ Binary files are excluded using a two-stage check:
 
 ---
 
+## Indexed Code Is Never Run
+
+jcodemunch reads the files it indexes as text and parses them with tree-sitter
+and regular expressions. It never imports, evaluates or executes them. No
+shipped module calls `eval` or `exec`, and the package carries no JavaScript
+that calls `new Function`. A text scan of the package still finds those words
+in three places, none of them a call:
+
+* `search_ast`'s security detector lists the names it looks for in *your*
+  code, such as `eval` and `exec`.
+* The Tcl parser recognises Tcl's own `namespace eval` keyword.
+* Development scripts and tests in the sdist call `ast.literal_eval`, which
+  parses Python literals and runs nothing.
+
+The programs jcodemunch starts are `git`, plus three that run only when you
+turn on the feature that needs them: a language server for LSP enrichment,
+`ffmpeg` for rendered explainers, and the viewer you configure for Mermaid
+diagrams.
+
+---
+
 ## Storage Safety
 
 * Index storage defaults to `~/.code-index/`.

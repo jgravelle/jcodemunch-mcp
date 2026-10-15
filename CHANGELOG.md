@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - the steering hooks recognise a search over a whole drive
+
+`_path_overlaps`, the hooks' rule for "is this path an indexed repository,
+inside one, or above one", added a separator to the folder before comparing.
+A filesystem root (`C:\`, `/`) already ends in one, so the ancestor test never
+matched there, and a search over a whole drive holding an indexed repository
+got no steering. A new test now holds this rule and the workspace listing's
+rule (`tools/_visibility.in_workspace`) to the same answer for every project
+folder. They still differ for the home folder and a root, deliberately: the
+listing treats those as no project, while the hooks still serve the search
+(L-195).
+
+### Changed - the published package names no code-execution call it doesn't make
+
+A registry scanner reading the sdist counts `eval`/`exec` text as calls. Our
+package makes none, but four places carried the text: an MCP prompt sentence,
+a test fixture, a test's busy-wait, and recorded munch-bench model answers
+quoting Flask. The prompt now says "dynamic code execution", the fixture joins
+the name at run time, the busy-wait is a plain loop, and `munch-bench/results/`
+leaves the sdist (nothing installed reads it). SECURITY.md gains "Indexed Code
+Is Never Run", which names the remaining word matches and the programs
+jcodemunch starts.
+
 ## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
 
 ### Changed - a session lists only its own workspace's indexes by default

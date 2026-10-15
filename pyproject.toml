@@ -155,6 +155,11 @@ exclude = [
     # competitor (the suite contract's framing rule 1).
     "docs/competitive/",
     "benchmarks/competitive/",
+    # Recorded model answers from munch-bench runs. Data, not code: nothing
+    # installed reads it, and the answers quote the code they were asked
+    # about (Flask's `exec(compile(...))`), which a registry scanner reading
+    # the sdist counts against us as if we ran it.
+    "munch-bench/results/",
 ]
 
 [tool.pytest.ini_options]

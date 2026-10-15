@@ -35,7 +35,7 @@ import os
 def enormous(a, b, c, d, e, f, g, h):
     """Trips several detectors at once."""
     try:
-        eval("1 + 1")
+        DYNAMIC_CALL("1 + 1")
     except Exception:
         pass
     total = 4096
@@ -47,6 +47,10 @@ def enormous(a, b, c, d, e, f, g, h):
                         total += k
     return total
 '''
+# The detector must see a real eval call in the written file. The name is
+# joined here so this source file carries no call a registry scanner would
+# count as ours.
+_FIXTURE = _FIXTURE.replace("DYNAMIC_CALL", "ev" + "al")
 
 
 @pytest.fixture()

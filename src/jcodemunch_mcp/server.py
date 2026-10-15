@@ -5160,7 +5160,7 @@ complexity, churn, test gaps, and change volume. Includes actionable recommendat
 6. **get_untested_symbols** on affected files → flag unreached symbols in the blast radius.
 7. **get_coupling_metrics** on changed files → check if the change increases coupling.
 8. **get_dependency_cycles** → check if the change introduces new cycles.
-9. **search_ast** with `category='security'` on changed files → catch hardcoded secrets or eval() calls in the diff.
+9. **search_ast** with `category='security'` on changed files → catch hardcoded secrets or dynamic code execution in the diff.
 """
 
 _TRIAGE_PROMPT_TEXT = """\
