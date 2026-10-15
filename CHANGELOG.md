@@ -15,6 +15,8 @@ gone, CONFIGURATION.md documents env vars as a supported fallback (a config
 file value still wins), and a test fails if a loader message or a tracked doc
 promises a 2.0 removal again. LEDGER L-193.
 
+## [1.108.365] - 2026-10-15 - git blame is off by default, and it no longer adds "2 properties" to a file summary
+
 ### Changed - git blame is off by default, and it no longer adds "2 properties" to a file summary
 
 Since 1.108.364 git blame's names and dates no longer reach search ranking, so

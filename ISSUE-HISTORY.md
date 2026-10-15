@@ -2591,3 +2591,13 @@ The 1.108.361 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.361 count, verbatim:
 
 - ⚠ Prior (1.108.361): 16978 passed, 25 skipped, **0 failed** (17003 total).
+
+## Current State rotation (2026-10-15, release 1.108.365)
+
+The 1.108.362 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.362):** **A `migrations` package is indexed** (`security.is_generated_migrations_directory`): only a dir holding a generated-named entry is skipped (`generated_migrations`). Start-up `instructions` match the policy (#1079). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.362 count, verbatim:
+
+- ⚠ Prior (1.108.362): 17169 passed, 25 skipped, **0 failed** (17194 total).
