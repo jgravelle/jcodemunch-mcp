@@ -15,7 +15,8 @@ def _self_invocation() -> list[str]:
     reason ``init``'s ``_hook_invocation`` writes an absolute path into
     settings.json — so a bare-name child spawn dies silently on exactly the
     installs (pipx, pip --user, framework Python) that needed the absolute
-    path. Prefer the path this process was launched with; fall back to
+    path. Ask `install_layout.own_executable` (the absolute launch path, then
+    the interpreter's scripts directory); fall back to
     ``python -m jcodemunch_mcp`` which needs no PATH lookup at all.
     """
     # `own_executable` never trusts a RELATIVE argv0: it would be re-resolved

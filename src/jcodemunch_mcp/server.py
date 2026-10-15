@@ -9257,7 +9257,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             for _hook_cmd, (_event, _matcher) in _expected_hooks.items():
                 # Compare SUBCOMMANDS, not a `jcodemunch-mcp <sub>` substring.
                 # `_hook_invocation()` writes an absolute path whenever
-                # `shutil.which` resolves, so the substring never matched an
+                # it resolves an executable, so the substring never matched an
                 # `C:/.../jcodemunch-mcp.EXE hook-pretooluse` install and the
                 # check reported every hook missing on a correctly-installed box.
                 _present = False

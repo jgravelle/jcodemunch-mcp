@@ -166,11 +166,34 @@ def own_executable() -> Optional[str]:
     scripts = _scripts_dir()
     if scripts is not None:
         found = _existing(scripts / _EXECUTABLE_NAME)
-        if found is not None and not _is_ephemeral(found):
+        if found is not None and found.is_absolute() and not _is_ephemeral(found):
             return str(found)
     return None
 
 
+def _first_lasting_on_path() -> Optional[str]:
+    """The first `jcodemunch-mcp` on PATH that is not inside uv's cache.
+
+    ⚠ `uvx` puts its cached environment's scripts directory FIRST on PATH, so a
+    plain `shutil.which` under uvx answers with the very executable
+    `own_executable` declined.
+    """
+    first = shutil.which(_EXECUTABLE_NAME)
+    if first is None or (os.path.isabs(first) and not _is_ephemeral(Path(first))):
+        return first
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        found = shutil.which(_EXECUTABLE_NAME, path=entry)
+        if found and os.path.isabs(found) and not _is_ephemeral(Path(found)):
+            return found
+    return None
+
+
 def executable_for_commands() -> Optional[str]:
-    """What a written hook or server entry should run: this install, else PATH's."""
-    return own_executable() or shutil.which(_EXECUTABLE_NAME)
+    """What a written hook or server entry should run: this install, else PATH's.
+
+    Never an executable in uv's cache, from either source. ``None`` when there
+    is none; each caller has its own fallback.
+    """
+    return own_executable() or _first_lasting_on_path()

@@ -12,15 +12,17 @@ that call the older version. Nothing reported it, because the old version
 answers every hook. The reindex hook had a fourth answer of its own, its launch
 path.
 
-All four now ask `install_layout.own_executable()`. It returns the absolute
-path this process was launched from, or failing that the `jcodemunch-mcp` in
-the running interpreter's scripts directory. Only when neither exists does a
-caller fall back to PATH, and then to the bare name, as before. A relative
+All four now ask `install_layout`. It returns the absolute path this process
+was launched from, or failing that the `jcodemunch-mcp` in the running
+interpreter's scripts directory. Only when neither exists do `init` and
+`upgrade` take the first one on PATH, and then the bare name, as before; the
+reindex hook falls back to `python -m jcodemunch_mcp`, as before. A relative
 launch path is never used, because a hook would resolve it inside the
 checked-out repository. An executable inside uv's cache, where `uvx` runs, is
-not written either: `uv cache clean` deletes it and every hook pointing there.
-A test fails if any other module resolves our executable from PATH directly.
-Existing hooks change only when `init` runs again.
+never written, from either source: `uvx` puts that directory first on PATH,
+and `uv cache clean` deletes it and every hook pointing there. A test fails if
+any other module looks our executable up on PATH, whichever way the call is
+spelled. Existing hooks change only when `init` runs again.
 
 ## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
 

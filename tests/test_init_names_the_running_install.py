@@ -10,6 +10,8 @@ the older version. The fourth reader, the reindex hook's re-invocation, used
 
 from __future__ import annotations
 
+import ast
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -28,6 +30,7 @@ def _make_install(root: Path) -> Path:
     scripts.mkdir(parents=True)
     exe = scripts / _EXE
     exe.write_text("")
+    exe.chmod(0o755)
     return exe
 
 
@@ -112,16 +115,36 @@ def test_a_relative_launch_path_is_never_trusted(tmp_path, monkeypatch):
 
 
 def test_an_ephemeral_uvx_environment_is_not_written_into_hooks(tmp_path, monkeypatch):
-    """uvx runs from uv's cache, which `uv cache clean` deletes; hooks there would break later."""
+    """uvx runs from uv's cache, which `uv cache clean` deletes; hooks there would break later.
+
+    uvx also puts that cache directory FIRST on PATH, so the PATH lookup is
+    real here: a mocked `which` would supply the lasting install the real
+    one does not return.
+    """
     cached = _make_install(tmp_path / "uv" / "cache" / "archive-v0" / "abc123")
-    on_path = _make_install(tmp_path / "old")
+    lasting = _make_install(tmp_path / "old")
     monkeypatch.setattr(
         install_layout, "_scripts_dir", lambda: cached.parent, raising=False
     )
     monkeypatch.setattr(sys, "argv", [str(cached)])
-    monkeypatch.setattr(shutil, "which", lambda name: str(on_path))
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(cached.parent), str(lasting.parent)])
+    )
+    assert _norm(shutil.which("jcodemunch-mcp")) == _norm(str(cached)), "uvx's order"
     assert install_layout.own_executable() is None
-    assert _norm(init._hook_invocation()) == _norm(str(on_path))
+    assert _norm(init._hook_invocation()) == _norm(str(lasting))
+    assert _norm(init._codex_command()) == _norm(str(lasting))
+
+
+def test_only_uvx_on_path_writes_no_cached_path(tmp_path, monkeypatch):
+    cached = _make_install(tmp_path / "uv" / "cache" / "archive-v0" / "abc123")
+    monkeypatch.setattr(
+        install_layout, "_scripts_dir", lambda: cached.parent, raising=False
+    )
+    monkeypatch.setattr(sys, "argv", [str(cached)])
+    monkeypatch.setenv("PATH", str(cached.parent))
+    assert init._hook_invocation() == "jcodemunch-mcp"
+    assert init._codex_command() is None
 
 
 def test_no_executable_of_our_own_falls_back_as_before(tmp_path, monkeypatch):
@@ -137,23 +160,63 @@ def test_no_executable_of_our_own_falls_back_as_before(tmp_path, monkeypatch):
     assert reindex._self_invocation()[1:] == ["-m", "jcodemunch_mcp"]
 
 
-def test_no_reader_resolves_our_executable_from_path_directly():
-    """A fifth reader would reproduce the defect; the authority is `own_executable`."""
-    import re
+_LOOKUPS = {"which", "_find_executable"}
 
+
+def _names_our_executable(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return "jcodemunch-mcp" in node.value
+    if isinstance(node, ast.JoinedStr):
+        return any(_names_our_executable(v) for v in node.values)
+    if isinstance(node, ast.Name):
+        return node.id == "_EXECUTABLE_NAME"
+    return False
+
+
+def _path_lookups_of_our_executable(source: str) -> list[int]:
+    """Lines calling a PATH lookup (`shutil.which`, a bare `which`, a wrapper) for our name."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func = node.func
+        name = (
+            func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        )
+        if name in _LOOKUPS and _names_our_executable(node.args[0]):
+            lines.append(node.lineno)
+    return lines
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        'shutil.which("jcodemunch-mcp")',
+        'shutil.which(\n    "jcodemunch-mcp"\n)',
+        'which("jcodemunch-mcp")',
+        'shutil.which("jcodemunch-mcp.exe")',
+        'shutil.which(f"jcodemunch-mcp")',
+        "shutil.which(_EXECUTABLE_NAME)",
+        '_find_executable("jcodemunch-mcp")',
+    ],
+)
+def test_the_scan_sees_every_spelling_of_the_lookup(spelling):
+    assert _path_lookups_of_our_executable(f"x = {spelling}\n"), spelling
+
+
+def test_the_scan_ignores_lookups_of_other_programs():
+    assert not _path_lookups_of_our_executable(
+        'shutil.which("claude")\n_find_executable("codex")\n'
+    )
+
+
+def test_no_reader_resolves_our_executable_from_path_directly():
+    """A fifth reader would reproduce the defect; the authority is `install_layout`."""
     root = Path(init.__file__).resolve().parents[1]
-    offenders = []
-    for py in root.rglob("*.py"):
-        text = py.read_text(encoding="utf-8")
-        for m in re.finditer(
-            r"""shutil\.which\(\s*["']jcodemunch-mcp["']\s*\)""", text
-        ):
-            line = text[: m.start()].count("\n") + 1
-            offenders.append(f"{py.relative_to(root)}:{line}")
-    allowed = {"install_layout.py"}
     offenders = [
-        o
-        for o in offenders
-        if o.split(":")[0].replace("\\", "/").split("/")[-1] not in allowed
+        f"{py.relative_to(root)}:{line}"
+        for py in root.rglob("*.py")
+        if py.name != "install_layout.py"
+        for line in _path_lookups_of_our_executable(py.read_text(encoding="utf-8"))
     ]
     assert not offenders, offenders
