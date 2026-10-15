@@ -1254,6 +1254,9 @@ def test_the_routine_scans_cost_grows_linearly_with_input_size():
             b"DELIMITER ;;\nCREATE PROCEDURE p_one()\nBEGIN\n" + b"BEGIN\n" * (n // 6),
             b"CREATE PROCEDURE p_one() BEGIN " + b"CASE " * (n // 5),
             b"CREATE PROCEDURE p_one() " + b"AS " * (n // 3),
+            b"CREATE PROCEDURE p_one IS " + b"PROCEDURE a; " * (n // 13),
+            b"CREATE PROCEDURE p_one IS " + b"v NUMBER; " * (n // 10),
+            b"CREATE PROCEDURE p_one IS " + b"PROCEDURE a IS " * (n // 15),
             b"".join(b"CREATE PROCEDURE p%d() LANGUAGE sql AS $$ x\n" % i for i in range(n // 40)),
         ]
         best = float("inf")
@@ -1266,3 +1269,137 @@ def test_the_routine_scans_cost_grows_linearly_with_input_size():
 
     small, large = cost(20_000), cost(80_000)
     assert large / max(small, 1e-4) < 10, (small, large)
+
+
+# ---------------------------------------------------------------------------
+# An Oracle routine with a declaration section ends at its own END; (round 2).
+# ---------------------------------------------------------------------------
+
+ORACLE_IS_DECLARATION = """\
+CREATE OR REPLACE PROCEDURE p_o IS
+  v NUMBER;
+BEGIN
+  v := 1;
+END p_o;
+CREATE TABLE t8 (id int);
+CREATE INDEX ix8 ON t8 (id);
+"""
+
+
+def test_objects_after_an_oracle_procedure_with_a_declaration_section_are_top_level():
+    symbols = _by_name(parse_file(ORACLE_IS_DECLARATION, "ora.sql", "sql"))
+    proc = symbols["p_o"]
+    assert (proc.line, proc.end_line) == (1, 5)
+    assert _body(ORACLE_IS_DECLARATION, proc).rstrip().endswith("END p_o;")
+    assert symbols["t8"].parent is None
+    assert symbols["ix8"].parent is None
+
+
+def test_an_oracle_as_declaration_with_an_initialiser_ends_at_its_end():
+    src = (
+        "CREATE OR REPLACE PROCEDURE p_o(a IN NUMBER) AS\n"
+        "  v NUMBER := 0;\n"
+        "  w CONSTANT VARCHAR2(10) := 'x;y';\n"
+        "BEGIN\n"
+        "  v := a;\n"
+        "END;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora_as.sql", "sql"))
+    assert (symbols["p_o"].line, symbols["p_o"].end_line) == (1, 6)
+    assert symbols["t8"].parent is None
+
+
+def test_an_oracle_declare_section_with_a_cursor_and_a_local_procedure():
+    src = (
+        "CREATE OR REPLACE PROCEDURE p_o IS\n"
+        "  CURSOR c IS SELECT id FROM t8;\n"
+        "  TYPE rec IS RECORD (a NUMBER, b VARCHAR2(5));\n"
+        "  PRAGMA AUTONOMOUS_TRANSACTION;\n"
+        "  PROCEDURE fwd(x NUMBER);\n"
+        "  PROCEDURE local_p(x NUMBER) IS\n"
+        "    n NUMBER;\n"
+        "  BEGIN\n"
+        "    n := x;\n"
+        "  END local_p;\n"
+        "BEGIN\n"
+        "  local_p(1);\n"
+        "END p_o;\n"
+        "CREATE TABLE t8 (id int);\n"
+        "CREATE INDEX ix8 ON t8 (id);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora_cur.sql", "sql"))
+    assert (symbols["p_o"].line, symbols["p_o"].end_line) == (1, 13)
+    assert symbols["t8"].parent is None
+    assert symbols["ix8"].parent is None
+
+
+def test_an_oracle_local_function_with_return_is_skipped_as_a_declaration():
+    src = (
+        "CREATE OR REPLACE PROCEDURE p_o IS\n"
+        "  FUNCTION f(x NUMBER) RETURN NUMBER IS\n"
+        "  BEGIN\n"
+        "    RETURN CASE WHEN x > 0 THEN 1 ELSE 0 END;\n"
+        "  END f;\n"
+        "BEGIN\n"
+        "  NULL;\n"
+        "END;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora_fn.sql", "sql"))
+    assert (symbols["p_o"].line, symbols["p_o"].end_line) == (1, 8)
+    assert symbols["t8"].parent is None
+
+
+def test_an_oracle_trigger_with_a_declare_section_ends_at_its_end():
+    src = (
+        "CREATE OR REPLACE TRIGGER trg_o BEFORE INSERT ON t8 FOR EACH ROW\n"
+        "DECLARE\n"
+        "  v NUMBER;\n"
+        "BEGIN\n"
+        "  v := 1;\n"
+        "END;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora_trg.sql", "sql"))
+    assert symbols["trg_o"].end_line == 6
+
+
+def test_an_oracle_declaration_section_with_no_begin_falls_back_to_the_old_span():
+    src = (
+        "CREATE OR REPLACE PROCEDURE p_o IS\n"
+        "  v NUMBER;\n"
+        "CREATE TABLE t8 (id int);\n"
+    )
+    symbols = _by_name(parse_file(src, "ora_open.sql", "sql"))
+    assert symbols["p_o"].end_line == 3
+
+
+def test_a_tsql_as_body_of_semicolon_statements_still_runs_to_go():
+    src = (
+        "CREATE PROC dbo.usp_One AS SET NOCOUNT ON; SELECT 1;\n"
+        "UPDATE a SET x = 1;\n"
+        "BEGIN\n"
+        "  SELECT 2;\n"
+        "END;\n"
+        "SELECT 3;\n"
+        "GO\n"
+    )
+    proc = _by_name(parse_file(src, "t.sql", "sql"))["dbo.usp_One"]
+    assert (proc.line, proc.end_line) == (1, 6)
+
+
+def test_a_tsql_as_body_shaped_like_a_declaration_still_runs_to_go():
+    src = (
+        "CREATE PROCEDURE dbo.usp_Two\n"
+        "AS\n"
+        "  EXEC dbo.usp_Other;\n"
+        "  IF @x IS NULL SELECT 1;\n"
+        "BEGIN\n"
+        "  SELECT 2;\n"
+        "END;\n"
+        "SELECT 3;\n"
+        "GO\n"
+    )
+    proc = _by_name(parse_file(src, "t.sql", "sql"))["dbo.usp_Two"]
+    assert (proc.line, proc.end_line) == (1, 8)

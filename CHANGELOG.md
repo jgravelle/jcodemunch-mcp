@@ -115,8 +115,13 @@ at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
 characteristics), a quoted body at the following `;`, a MySQL routine at the
 active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
 `BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
-and `END CASE`, and not counting `BEGIN TRANSACTION`), and a body-less trigger
-or routine at its `;`. Before, a file with no `GO` re-parented every table,
+and `END CASE`, and not counting `BEGIN TRANSACTION`), an Oracle body at the
+`END [name];` of the BEGIN after its `IS` / `AS` / `DECLARE` declaration
+section (declarations, cursors, types, pragmas and local subprograms are
+skipped), and a body-less trigger or routine at its `;`. `IS` before anything
+else is PL/SQL; an `AS` or `DECLARE` section counts only when it opens with a
+declaration (`name type`, `CURSOR`, `TYPE`, `PRAGMA`, a local subprogram), so a
+T-SQL `AS SET NOCOUNT ON; SELECT 1;` is unchanged. Before, a file with no `GO` re-parented every table,
 view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
 Sybase have no reliable body terminator and keep running to `GO` or the next
 routine header; a body whose terminator cannot be told does the same. A
