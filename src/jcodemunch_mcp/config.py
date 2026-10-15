@@ -504,7 +504,7 @@ DEFAULTS = {
     "redact_source_root": False,
     "git_root_identity": True,
     "identity_mode": None,
-    "git_blame_enabled": True,
+    "git_blame_enabled": False,
     "stats_file_interval": 3,
     "share_savings": True,
     "perf_telemetry_enabled": False,
@@ -2631,16 +2631,15 @@ def generate_template() -> str:
   //   independent index, separate from any enclosing git repo.
   //   (v1.108.2: the git-root probe is now properly skipped when this
   //   is false — prior versions still paid the probe cost.)
-  // "git_blame_enabled": true,
-  //   Run the git_blame context provider during indexing to attach
-  //   `last_author` and `last_modified` to each file's context. The
-  //   walk is bounded (latest 20k commits or 2 years before the latest
-  //   commit, whichever fires first; 10s wall-clock cap). The metadata
-  //   annotates files and is not used for search ranking. On legacy
-  //   repos with very deep
-  //   history those bounds may still not be enough — set false to
-  //   skip the probe entirely. Index still builds; only the blame
-  //   metadata is omitted.
+  // "git_blame_enabled": false,
+  //   Off by default (L-189). Set true to run the
+  //   git_blame context provider during indexing, which attaches
+  //   `last_author` and `last_modified` to each file's context. It runs
+  //   one bounded `git log` per index (latest 20k commits or 2 years
+  //   before the latest commit, whichever fires first; 10s wall-clock
+  //   cap). The metadata is not used for search ranking or file
+  //   summaries; with AI summaries on, it is given to the summarizer as
+  //   context.
   // "cross_repo_default": false,
   //   When true, find_importers / get_blast_radius / get_dependency_graph
   //   traverse OTHER indexed repos by default, not just the focal one. A

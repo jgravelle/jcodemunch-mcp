@@ -300,7 +300,7 @@ Providers are auto-detected, load metadata from project files or repository stat
 ### Known provider examples
 
 * **dbt provider**: detects `dbt_project.yml`, parses docs blocks and schema files, and enriches models and symbols with descriptions, tags, and column metadata
-* **Git blame provider**: auto-activates when a `.git` directory is present and enriches files with author and modification metadata derived from repository history
+* **Git blame provider**: off by default (`git_blame_enabled: true` turns it on, L-189); when on, it activates where a `.git` directory is present and annotates files with author and modification metadata derived from repository history, used neither for search ranking nor for file summaries
 
 ### Architectural role
 
