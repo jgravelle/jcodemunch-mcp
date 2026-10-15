@@ -168,6 +168,42 @@ def test_an_unreadable_head_falls_back_to_the_relative_window(tmp_path, monkeypa
     assert f"--since={git_blame.GIT_BLAME_SINCE}" in log
 
 
+# --- an existing index loses the old keywords ------------------------------------ #
+
+
+def _keywords(store: Path, repo_id: str) -> dict[str, list[str]]:
+    from jcodemunch_mcp.storage import IndexStore
+
+    owner, name = repo_id.split("/", 1)
+    idx = IndexStore(base_path=str(store)).load_index(owner, name)
+    return {s["name"]: list(s.get("keywords") or []) for s in idx.symbols}
+
+
+def test_an_index_written_by_the_old_release_is_reparsed_without_the_keywords(tmp_path, monkeypatch):
+    """Re-enrichment runs only on re-parsed files, so without a generation bump an
+    edited file would lose the keywords while untouched ones kept them: one index
+    in both states, the same skew. 21 is the generation the old keywords shipped at.
+    """
+    from jcodemunch_mcp.storage import sqlite_store
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    repo = tmp_path / "svc"
+    repo.mkdir()
+    _git(["init", "-q"], repo)
+    _commit(repo, "errors.py", "def error_handler(e):\n    return str(e)\n", datetime.now(timezone.utc))
+    store = tmp_path / "store"
+
+    sqlite_store._ensure_index_store_deps()
+    with monkeypatch.context() as old_release:
+        old_release.setattr(sqlite_store, "_PARSER_GENERATION", 21)
+        old_release.setattr(GitBlameProvider, "properties_are_search_terms", True)
+        res = index_folder(str(repo), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert "last_author" in _keywords(store, res["repo"])["error_handler"], "the old index must carry them"
+
+    index_folder(str(repo), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert "last_author" not in _keywords(store, res["repo"])["error_handler"]
+
+
 # --- at the user's entry point ---------------------------------------------------- #
 
 

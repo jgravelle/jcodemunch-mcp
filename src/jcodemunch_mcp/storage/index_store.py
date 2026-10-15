@@ -660,7 +660,13 @@ INDEX_VERSION = 17
 #   unparseable statement no longer loses every object after it, and named
 #   constraints, Sybase rules, defaults and `sp_addtype` types are symbols.
 #   ⚠⚠ The rows change on UNCHANGED content: objects that were lost appear.
-PARSER_GENERATION = 23
+#
+# 24 (L-188): git blame's property names (`last_author`, `last_modified`) are
+#   no longer search keywords. `keywords` changes on UNCHANGED content, and
+#   enrichment runs only on re-parsed files, so without this bump an edited file
+#   would drop them while untouched files kept them: one index holding both
+#   states, the ranking skew the fix removes.
+PARSER_GENERATION = 24
 
 
 @dataclass(frozen=True)

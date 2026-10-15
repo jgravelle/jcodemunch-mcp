@@ -136,9 +136,13 @@ framework and data providers keep theirs, and git blame opts out. The window is
 measured back from the repository's latest commit, so a pinned checkout covers
 the same files on any day; `2.years.ago` remains the fallback when that commit's
 time cannot be read. A test indexes one repository twice, once with blame and
-once with it timed out, and requires identical scores. Existing indexes keep
-the old keywords until a file is re-indexed. The published benchmark is
-re-measured after this release.
+once with it timed out, and requires identical scores. `PARSER_GENERATION` is
+24, so an existing index is re-parsed once and drops the old keywords
+everywhere. Without it, editing a file would re-enrich only that file, and one
+index would hold both states. With AI summaries on, blame's text still reaches
+the summarizer's prompt, and the summary it writes is searched; that path and
+blame's file summaries are recorded as open (L-189). The published benchmark
+runs with AI summaries off, and it is re-measured after this release.
 
 ## [1.108.363] - 2026-10-14 - init writes hooks that run the install you ran, not the first one on PATH
 
