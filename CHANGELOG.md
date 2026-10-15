@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.366] - 2026-10-15 - environment variables stay supported, and no longer warn that 2.0 removes them
+
 ### Changed - environment variables stay supported, and no longer warn that 2.0 removes them
 
 The config loader logged "Deprecated: Using <VAR> environment variable. This

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.365",
+  "current": "1.108.366",
   "entries": [
+    {
+      "version": "1.108.366",
+      "date": "2026-10-15",
+      "title": "environment variables stay supported, and no longer warn that 2.0 removes them",
+      "summary": "The config loader no longer logs \"Deprecated: ... will be removed in v2.0\" when a `JCODEMUNCH_*` variable fills a key the config file leaves unset, and CONFIGURATION.md documents env vars as a supported fallback (a config file value still wins). No 2.0 is planned. `JCODEMUNCH_SHARE_SAVINGS=0`, the documented opt-out from anonymous savings sharing, keeps working. A test fails if a loader message or a tracked doc promises a 2.0 removal again."
+    },
     {
       "version": "1.108.365",
       "date": "2026-10-15",
@@ -18,12 +24,6 @@
       "date": "2026-10-14",
       "title": "init writes hooks that run the install you ran, not the first one on PATH",
       "summary": "`init` wrote every hook, the Codex server entry and the post-upgrade hook refresh with the first `jcodemunch-mcp` on PATH, so running a newer install's `init` from a venv or a `uv tool` environment, with an older install on PATH, gave hooks that call the older version. They now name the install that ran. Under `uvx`, whose cache `uv cache clean` deletes, `init` writes the next install on PATH and prints which, with the command that makes the hooks call the version you ran."
-    },
-    {
-      "version": "1.108.362",
-      "date": "2026-10-14",
-      "title": "a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere",
-      "summary": "`migrations` was on the built-in skip list, so a library whose own code lives in a package of that name, such as django's migration framework, never entered the index. A `migrations` directory is now skipped only when it holds files named the way a migration tool names what it writes (`0001_initial.py`, `V1__init.sql`, a timestamp), and the skip is counted as `generated_migrations`. The `instructions` string the server sends at session start no longer tells agents to prefer the index over Read and Grep or to call `resolve_repo` first; it says what the agent policy says: the index for relationships, a large repository or an open question, and the built-in tools for a known name in a small one."
     }
   ]
 }

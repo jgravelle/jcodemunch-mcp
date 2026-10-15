@@ -2601,3 +2601,13 @@ The 1.108.362 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.362 count, verbatim:
 
 - ⚠ Prior (1.108.362): 17169 passed, 25 skipped, **0 failed** (17194 total).
+
+## Current State rotation (2026-10-15, release 1.108.366)
+
+The 1.108.363 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.363):** **Hooks name the install that ran** (`install_layout.own_executable`): never PATH first, never a relative launch path, never uv's cache (`init` says which). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.363 count, verbatim:
+
+- ⚠ Prior (1.108.363): 17197 passed, 25 skipped, **0 failed** (17222 total).
