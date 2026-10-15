@@ -259,3 +259,19 @@ def test_a_copy_in_the_current_directory_never_shadows_path(tmp_path, monkeypatc
         "PATH", os.pathsep.join([str(cached.parent), str(lasting.parent)])
     )
     assert _norm(install_layout.executable_for_commands()) == _norm(str(lasting))
+
+
+@pytest.mark.parametrize(
+    "path,absolute",
+    [
+        ("/usr/local/bin/jcodemunch-mcp", True),
+        ("C:" + chr(92) + "Program Files" + chr(92) + "jcodemunch-mcp.exe", True),
+        ("C:/Python314/Scripts/jcodemunch-mcp.EXE", True),
+        ("." + chr(92) + "jcodemunch-mcp.EXE", False),
+        ("./jcodemunch-mcp", False),
+        ("jcodemunch-mcp", False),
+    ],
+)
+def test_a_cwd_hit_is_refused_and_a_drive_path_is_not_on_any_host(path, absolute):
+    """The same answer on Linux CI and on Windows: the flavour is the path's, not the host's."""
+    assert install_layout._is_absolute(path) is absolute

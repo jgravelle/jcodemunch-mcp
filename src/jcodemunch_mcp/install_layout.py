@@ -25,7 +25,9 @@ we could not ask is the defect this project keeps finding in its own instruments
 from __future__ import annotations
 
 import logging
+import ntpath
 import os
+import posixpath
 import shutil
 import sys
 import sysconfig
@@ -171,6 +173,16 @@ def own_executable() -> Optional[str]:
     return None
 
 
+def _is_absolute(path: str) -> bool:
+    """Absolute in either path flavour: a drive-letter path is never a cwd hit.
+
+    The check exists to refuse what Windows `which` returns from the current
+    directory (``.\\jcodemunch-mcp.EXE``); `os.path.isabs` alone also refuses
+    a Windows path on a POSIX host, which no lookup there returns.
+    """
+    return posixpath.isabs(path) or ntpath.isabs(path)
+
+
 def _first_lasting_on_path() -> Optional[str]:
     """The first `jcodemunch-mcp` on PATH that is not inside uv's cache.
 
@@ -179,7 +191,7 @@ def _first_lasting_on_path() -> Optional[str]:
     `own_executable` declined.
     """
     first = shutil.which(_EXECUTABLE_NAME)
-    if first is None or (os.path.isabs(first) and not _is_ephemeral(Path(first))):
+    if first is None or (_is_absolute(first) and not _is_ephemeral(Path(first))):
         return first
     # Each entry is checked directly: on Windows before Python 3.12,
     # `shutil.which(path=...)` looks in the current directory first.
