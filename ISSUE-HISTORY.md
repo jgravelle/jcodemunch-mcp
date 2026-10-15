@@ -2571,3 +2571,13 @@ The 1.108.359 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.359 count, verbatim:
 
 - ⚠ Prior (1.108.359): 16844 passed, 25 skipped, **0 failed** (16869 total).
+
+## Current State rotation (2026-10-14, release 1.108.363)
+
+The 1.108.360 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.360):** **A Web Forms attribute is read in every value form** (#1067, @outoftheblue9): one quote-aware pass per tag in both readers. `.xsd`/`.wsdl` stay capped everywhere, as `build_consumed` or the neutral `schema_consumer`. `PARSER_GENERATION` 20. ⚠ Tags are still split quote-blind: L-182. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.360 count, verbatim:
+
+- ⚠ Prior (1.108.360): 16926 passed, 25 skipped, **0 failed** (16951 total).

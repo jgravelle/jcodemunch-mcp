@@ -1,6 +1,12 @@
 {
-  "current": "1.108.362",
+  "current": "1.108.363",
   "entries": [
+    {
+      "version": "1.108.363",
+      "date": "2026-10-14",
+      "title": "init writes hooks that run the install you ran, not the first one on PATH",
+      "summary": "`init` wrote every hook, the Codex server entry and the post-upgrade hook refresh with the first `jcodemunch-mcp` on PATH, so running a newer install's `init` from a venv or a `uv tool` environment, with an older install on PATH, gave hooks that call the older version. They now name the install that ran. Under `uvx`, whose cache `uv cache clean` deletes, `init` writes the next install on PATH and prints which, with the command that makes the hooks call the version you ran."
+    },
     {
       "version": "1.108.362",
       "date": "2026-10-14",
@@ -18,12 +24,6 @@
       "date": "2026-10-13",
       "title": "a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository",
       "summary": "From @outoftheblue9 (#1067). The Web Forms reader took only double-quoted attribute values, so an unquoted `runat=server` or a single-quoted `CodeFile='Q.aspx.cs'` gave a control's handler no reference and a page no edge to its codebehind; live code could read as unused. Directives, `runat`, `ID`, `On*` handlers and `<script runat>` are now read double-quoted, single-quoted and unquoted, in one pass that takes each quoted value whole. `.xsd` and `.wsdl` files stay capped in every repository: `build_consumed` with project-file advice where the index holds .NET evidence, and the new neutral kind `schema_consumer` (counted as `schema_consumer_withheld`) elsewhere, so a Java repository no longer gets .NET advice. Indexes re-parse on their next run (parser generation 20)."
-    },
-    {
-      "version": "1.108.359",
-      "date": "2026-10-13",
-      "title": "jcodemunch-mcp diagnose writes one local report with no path and no repository name",
-      "summary": "New command: `jcodemunch-mcp diagnose` writes one JSON report to the storage directory's `diagnose` folder and prints its path. It holds server versions, each index as `index-1` with its sizes, the tool surface, the state of each installed policy, and per tool the calls, tokens returned and tokens saved. It is built from a fixed list of fields and of what each value may be, so no path or repository name can reach it; the `anon_id` is left out unless `--include-anon-id` is passed. It sends nothing. New background behaviour, disclosed in SECURITY.md: the server now keeps two local counts per tool (calls, tokens returned) in `_tool_counters.json`, on by default and sent nowhere. `\"tool_counters\": false` turns them off."
     }
   ]
 }

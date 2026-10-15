@@ -2,32 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH
-
-`init` wrote every hook command, the Codex server entry and the post-`upgrade`
-hook refresh with the executable `shutil.which("jcodemunch-mcp")` found: the
-first copy on PATH. Someone with an older install on PATH who installed a newer
-one in a venv or with `uv tool`, then ran its `init` by full path, got six hooks
-that call the older version. Nothing reported it, because the old version
-answers every hook. The reindex hook had a fourth answer of its own, its launch
-path.
-
-All four now ask `install_layout`. It returns the absolute path this process
-was launched from, or failing that the `jcodemunch-mcp` in the running
-interpreter's scripts directory. Only when neither exists do `init` and
-`upgrade` take the first one on PATH, and then the bare name, as before; the
-reindex hook falls back to `python -m jcodemunch_mcp`, as before. A relative
-launch path is never used, because a hook would resolve it inside the
-checked-out repository. An executable inside uv's cache, where `uvx` runs, is
-never written, from either source: `uvx` puts that directory first on PATH,
-and `uv cache clean` deletes it and every hook pointing there. So `init` run
-through `uvx` cannot write the install it ran. Its hooks call the next
-`jcodemunch-mcp` on PATH, which may be another version, or the bare name, and
-`init` now prints which, with the command that makes them call the version
-you ran. A test fails if
-any other module looks our executable up on PATH, whichever way the call is
-spelled. Existing hooks change only when `init` runs again.
-
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
@@ -139,6 +113,34 @@ T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
 `tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a
 synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
 regenerates the pinned counts.
+
+## [1.108.363] - 2026-10-14 - init writes hooks that run the install you ran, not the first one on PATH
+
+### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH
+
+`init` wrote every hook command, the Codex server entry and the post-`upgrade`
+hook refresh with the executable `shutil.which("jcodemunch-mcp")` found: the
+first copy on PATH. Someone with an older install on PATH who installed a newer
+one in a venv or with `uv tool`, then ran its `init` by full path, got six hooks
+that call the older version. Nothing reported it, because the old version
+answers every hook. The reindex hook had a fourth answer of its own, its launch
+path.
+
+All four now ask `install_layout`. It returns the absolute path this process
+was launched from, or failing that the `jcodemunch-mcp` in the running
+interpreter's scripts directory. Only when neither exists do `init` and
+`upgrade` take the first one on PATH, and then the bare name, as before; the
+reindex hook falls back to `python -m jcodemunch_mcp`, as before. A relative
+launch path is never used, because a hook would resolve it inside the
+checked-out repository. An executable inside uv's cache, where `uvx` runs, is
+never written, from either source: `uvx` puts that directory first on PATH,
+and `uv cache clean` deletes it and every hook pointing there. So `init` run
+through `uvx` cannot write the install it ran. Its hooks call the next
+`jcodemunch-mcp` on PATH, which may be another version, or the bare name, and
+`init` now prints which, with the command that makes them call the version
+you ran. A test fails if
+any other module looks our executable up on PATH, whichever way the call is
+spelled. Existing hooks change only when `init` runs again.
 
 ## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
 
