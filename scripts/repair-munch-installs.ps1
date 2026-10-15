@@ -21,25 +21,40 @@
   behind. That is exactly how the mess this script repairs was created, most
   recently on 2026-08-29.
 
-  So: STOP EVERY MCP SERVER FIRST. Close Claude Code / Claude Desktop / any
-  editor with an MCP connection. The pre-flight below refuses to run
-  otherwise, and that refusal is the most valuable line in the file.
+  So every MCP server has to be stopped first. Step 1 does it: with -Apply
+  it stops every running j*munch process (the jcodemunch, jdocmunch and
+  jdatamunch servers, and any hook they spawned), waits until they are gone,
+  and refuses if one survives. It stops them again before each uninstall,
+  because a client can restart a server while the script runs. Your MCP
+  clients lose those servers until you restart the clients, which you need to
+  do after the reinstall anyway.
 
 .PARAMETER Apply
-  Actually make changes. Without it the script only reports (dry run).
+  Actually make changes, including stopping the servers. Without it the
+  script only reports (dry run), and names the processes it would stop.
 
 .PARAMETER Python
   Interpreter to repair. Defaults to the one the MCP servers launch from.
 
+.PARAMETER StopServersOnly
+  Run step 1 alone (with -Apply, stop the servers) and exit.
+
+.PARAMETER ProcessPattern
+  Regex over process names that step 1 stops. The default matches the
+  suite's console scripts; tests pass a narrower one.
+
 .EXAMPLE
-  pwsh -File C:\MCPs\repair-munch-installs.ps1
-  pwsh -File C:\MCPs\repair-munch-installs.ps1 -Apply
+  pwsh -File C:\MCPs\jcodemunch-mcp\scripts\repair-munch-installs.ps1
+  pwsh -File C:\MCPs\jcodemunch-mcp\scripts\repair-munch-installs.ps1 -Apply
+  pwsh -File C:\MCPs\jcodemunch-mcp\scripts\repair-munch-installs.ps1 -StopServersOnly -Apply
 #>
 
 [CmdletBinding()]
 param(
     [switch]$Apply,
-    [string]$Python = 'C:\Program Files\Python310\python.exe'
+    [string]$Python = 'C:\Program Files\Python310\python.exe',
+    [switch]$StopServersOnly,
+    [string]$ProcessPattern = '^j[a-z]*munch'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,30 +96,69 @@ function Invoke-Py {
 }
 
 # --------------------------------------------------------------------------
-# Pre-flight: refuse while any MCP server holds its console script open.
+# Step 1: stop every j*munch server, because a running one holds its .exe.
+# ⚠⚠ The refusal stays. If a process survives Stop-Process (access denied, a
+#    client that restarts it at once), uninstalling would still remove the
+#    .pth and dist-info and then fail on the locked .exe -- the exact damage
+#    this script repairs. Stopping first only removes the hand-work.
 # --------------------------------------------------------------------------
-Write-Head 'Pre-flight'
+function Get-MunchServers {
+    @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match $ProcessPattern })
+}
 
-if (-not (Test-Path $Python)) { throw "Interpreter not found: $Python" }
-Write-Host "Interpreter : $Python"
-Write-Host "Mode        : $(if ($Apply) { 'APPLY (will modify)' } else { 'DRY RUN (no changes)' })"
+function Stop-MunchServers {
+    param([string]$When)
+    $procs = Get-MunchServers
+    if ($procs.Count -eq 0) { return }
+    Write-Host "  stopping $($procs.Count) process(es) $When" -ForegroundColor Yellow
+    $procs | Select-Object Id, ProcessName, Path | Format-Table -AutoSize | Out-String | Write-Host
+    foreach ($p in $procs) {
+        try { Stop-Process -Id $p.Id -Force -ErrorAction Stop }
+        catch { Write-Host "  could not stop $($p.ProcessName) ($($p.Id)): $($_.Exception.Message)" -ForegroundColor Red }
+    }
+    # Stop-Process returns before the process has exited and released its .exe.
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-MunchServers).Count -gt 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+}
 
-$live = Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProcessName -match 'munch' }
-
-if ($live) {
-    Write-Host "`nREFUSING TO RUN. These processes hold their .exe open:" -ForegroundColor Red
-    $live | Select-Object Id, ProcessName | Format-Table -AutoSize | Out-String | Write-Host
+function Assert-NoMunchServers {
+    $left = Get-MunchServers
+    if ($left.Count -eq 0) { return }
+    Write-Host "`nREFUSING TO CONTINUE. These processes still hold their .exe open:" -ForegroundColor Red
+    $left | Select-Object Id, ProcessName, Path | Format-Table -AutoSize | Out-String | Write-Host
     Write-Host @'
 Uninstalling now would remove each package's .pth and dist-info, then fail on
 the locked .exe -- leaving the package unimportable and a "~" turd behind.
 That is the exact damage this script repairs.
 
-Close Claude Code / Claude Desktop / any MCP-connected editor, then re-run.
+Close the client that keeps restarting them (Claude Code / Claude Desktop /
+an MCP-connected editor), then re-run.
 '@ -ForegroundColor Yellow
     exit 1
 }
-Write-Host 'No *munch* processes running.' -ForegroundColor Green
+
+Write-Head 'Step 1: stop the servers'
+Write-Host "Mode        : $(if ($Apply) { 'APPLY (will modify)' } else { 'DRY RUN (no changes)' })"
+$running = Get-MunchServers
+if ($running.Count -eq 0) {
+    Write-Host 'No j*munch processes running.' -ForegroundColor Green
+} elseif ($Apply) {
+    Stop-MunchServers 'before the repair'
+    Assert-NoMunchServers
+    Write-Host 'All j*munch processes stopped.' -ForegroundColor Green
+} else {
+    Write-Host "Would stop $($running.Count) process(es):" -ForegroundColor Yellow
+    $running | Select-Object Id, ProcessName, Path | Format-Table -AutoSize | Out-String | Write-Host
+}
+if ($StopServersOnly) { exit 0 }
+
+# --------------------------------------------------------------------------
+# Pre-flight
+# --------------------------------------------------------------------------
+Write-Head 'Pre-flight'
+
+if (-not (Test-Path $Python)) { throw "Interpreter not found: $Python" }
+Write-Host "Interpreter : $Python"
 
 # --------------------------------------------------------------------------
 # Report current state
@@ -230,6 +284,11 @@ foreach ($t in $Targets) {
         Write-Host "  would: uninstall x$($have.Count), then 'pip install -e' from the tree"
         continue
     }
+
+    # A client may have restarted a server since step 1; its .exe would be
+    # locked again, and this uninstall is the one that would half-remove it.
+    Stop-MunchServers "before uninstalling $dist"
+    Assert-NoMunchServers
 
     # Uninstall every copy. pip removes ONE distribution per invocation, so
     # loop until the probe reports none. Bounded so a stuck state cannot spin.

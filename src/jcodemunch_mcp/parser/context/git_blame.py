@@ -15,10 +15,12 @@ History bound:
     map, and ``get_file_context`` will return ``None`` for them — the same
     behaviour as files outside a git working tree.
 
-Operator override:
-    Setting ``git_blame_enabled = false`` in the project or global config
-    short-circuits ``detect()`` so the provider never runs. Useful for huge
-    histories where even the bounded walk is too slow.
+Opt-in (L-189):
+    Off unless ``git_blame_enabled = true`` in the project or global config;
+    ``detect()`` returns False
+    otherwise, so no ``git log`` runs. Since L-188 its output reaches neither
+    search ranking nor file summaries, only an AI summarizer's prompt, so the
+    walk is not worth running unasked.
 """
 
 import logging
@@ -61,7 +63,7 @@ class GitBlameProvider(ContextProvider):
     """Context provider that reads per-file last-commit metadata from git.
 
     Detected automatically when a ``.git`` directory is present in the indexed
-    folder and ``git_blame_enabled`` config is true (default). Runs a single
+    folder and ``git_blame_enabled`` config is true (default false, L-189). Runs a single
     bounded ``git log`` command during ``load()`` to build a
     {relative_path: (author, iso_date)} map; subsequent ``get_file_context``
     calls are O(1) dict lookups.
@@ -72,7 +74,8 @@ class GitBlameProvider(ContextProvider):
     """
 
     # Blame annotates a file; it is not vocabulary. Its coverage depends on a
-    # timed `git log`, so its property names must not reach BM25 (L-188).
+    # timed `git log`, so its property names must not reach BM25 (L-188), nor
+    # a file summary as a bare "2 properties" (L-189).
     properties_are_search_terms = False
 
     def __init__(self) -> None:
@@ -105,7 +108,7 @@ class GitBlameProvider(ContextProvider):
 
     def detect(self, folder_path: Path) -> bool:
         """Return True if the folder is inside a git repository and blame is enabled."""
-        if not _config.get("git_blame_enabled", True, repo=str(folder_path)):
+        if not _config.get("git_blame_enabled", False, repo=str(folder_path)):
             return False
         return (folder_path / ".git").exists() or self._find_git_root(folder_path) is not None
 

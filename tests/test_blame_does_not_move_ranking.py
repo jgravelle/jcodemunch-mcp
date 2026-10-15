@@ -56,6 +56,16 @@ def _symbol(file: str, name: str) -> Symbol:
                   kind="function", language="python", signature=f"def {name}():")
 
 
+@pytest.fixture(autouse=True)
+def _blame_opted_in(monkeypatch):
+    # Every test here is about what blame does when it runs; it is off by
+    # default since L-189, and a test indexing with the default would compare
+    # two blame-free runs and pass for nothing.
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "git_blame_enabled", True)  # type: ignore[attr-defined]
+
+
 def _blame_for(file: str) -> GitBlameProvider:
     prov = GitBlameProvider()
     prov._blame = {file: ("Ada Author", "2026-05-05")}

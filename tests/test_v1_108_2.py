@@ -138,7 +138,8 @@ class TestGitBlameBounds:
         original = dict(_config_module._GLOBAL_CONFIG)
         try:
             provider = GitBlameProvider()
-            # Default-on detects
+            # Opted in, it detects (off by default since L-189).
+            _config_module._GLOBAL_CONFIG["git_blame_enabled"] = True
             assert provider.detect(tmp_path) is True
 
             # Flipped to false → detect returns False without spawning git
@@ -156,7 +157,9 @@ class TestGitBlameBounds:
 class TestConfigPlumbing:
     def test_git_blame_enabled_in_defaults(self):
         from jcodemunch_mcp.config import DEFAULTS
-        assert DEFAULTS.get("git_blame_enabled") is True
+        # Off by default since L-189 (jjg, 2026-10-15): blame's output reaches
+        # neither ranking nor file summaries, so its `git log` runs only on request.
+        assert DEFAULTS.get("git_blame_enabled") is False
 
     def test_git_blame_enabled_in_template(self):
         from jcodemunch_mcp.config import generate_template

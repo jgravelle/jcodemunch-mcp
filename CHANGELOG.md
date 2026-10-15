@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed - git blame is off by default, and it no longer adds "2 properties" to a file summary
+
+Since 1.108.364 git blame's names and dates no longer reach search ranking, so
+what was left of its output went two places. One was a "2 properties" suffix on
+the summary of every file it covered, a count that names nothing. The other was
+the AI summarizer's prompt, when AI summaries are on. Both still depended on
+whether one timed `git log` finished, and indexing ran that `git log` (up to
+10 seconds) on every git repository to produce them. `git_blame_enabled` now
+defaults to `false`. With it `true` in `config.jsonc` the provider runs as
+before, minus the suffix: a provider whose properties aren't
+vocabulary (`properties_are_search_terms = False`) no longer has them counted
+in a file summary either. An existing config that sets the key keeps its
+value. SECURITY.md now lists the provider, since it stores commit authors' names in
+the index and, with AI summaries on, sends them to the summarizer. Search
+ranking doesn't move. `PARSER_GENERATION` is not bumped: an existing index
+keeps the suffix on a file's summary until that file is re-indexed, and
+`index_folder` with `incremental: false` clears it at once. A second
+whole-index re-parse a release after 1.108.364's would cost every user more
+than a count in a summary is worth, and nothing ranks on it. LEDGER L-189.
+
 ## [1.108.364] - 2026-10-15 - SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file
 
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)

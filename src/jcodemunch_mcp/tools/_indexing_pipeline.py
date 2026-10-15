@@ -78,7 +78,7 @@ def complete_file_summaries(
                 for provider in providers:
                     ctx = provider.get_file_context(file_path)
                     if ctx is not None:
-                        summary = ctx.file_summary()
+                        summary = ctx.file_summary(include_properties=provider.properties_are_search_terms)
                         if summary:
                             generated[file_path] = summary
                             break

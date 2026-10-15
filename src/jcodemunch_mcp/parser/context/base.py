@@ -74,8 +74,12 @@ class FileContext:
             parts.append(f"Properties: {', '.join(prop_strs)}")
         return ". ".join(parts)
 
-    def file_summary(self) -> str:
-        """Build an enriched file-level summary."""
+    def file_summary(self, include_properties: bool = True) -> str:
+        """Build an enriched file-level summary.
+
+        ``include_properties=False`` drops the "N properties" count, for a
+        provider whose properties are not vocabulary (L-189).
+        """
         parts = []
         if self.description:
             desc = self.description.strip()
@@ -84,7 +88,7 @@ class FileContext:
             parts.append(desc)
         if self.tags:
             parts.append(f"Tags: {', '.join(self.tags)}")
-        if self.properties:
+        if self.properties and include_properties:
             parts.append(f"{len(self.properties)} properties")
         return ". ".join(parts)
 
@@ -124,6 +128,8 @@ class ContextProvider(ABC):
     # one whose coverage depends on something outside the corpus: git blame
     # covers a file only when a timed `git log` finished, and BM25 scores the
     # keywords, so a timeout reordered search results on unchanged code (L-188).
+    # The same flag keeps the bare "N properties" count out of a file summary
+    # (`FileContext.file_summary`), which names nothing for such a provider (L-189).
     properties_are_search_terms: bool = True
 
     def budget_expired(self) -> bool:
