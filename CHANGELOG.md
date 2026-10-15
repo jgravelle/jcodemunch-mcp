@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - a context provider that runs out of time runs again on the next index
+
+Every context provider runs under a 30-second budget
+(`JCODEMUNCH_PROVIDER_BUDGET_SECONDS`), and its tags and property names become
+search keywords, so what an index held depended on how busy the machine was
+when it was built (L-190, the L-188 class at a higher threshold). A provider
+past the budget was skipped for that pass and never ran again for the files
+an incremental pass leaves alone. The Express provider, which checks the
+clock between files, could return first with part of its routes and be kept.
+Now an overrun is a cut however the provider stopped, the index records it as
+`context_metadata.providers_cut`, and the next `index_folder` re-parses every
+file so the provider runs again (`rebuild_reason: "context_provider_cut"`). A
+pass with `paths=` and a watched edit read only some files, so they keep the
+record. The budget is unchanged: an index built on a slow pass still ranks
+differently until the next one.
+
 ## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
 
 ### Changed - a session lists only its own workspace's indexes by default
