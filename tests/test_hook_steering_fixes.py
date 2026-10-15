@@ -384,7 +384,11 @@ class TestSelfInvocation:
         assert os.path.isabs(inv[0])
 
     def test_fallback_is_python_dash_m(self, monkeypatch):
+        from jcodemunch_mcp import install_layout
+
         monkeypatch.setattr(sys, "argv", ["/nonexistent/whatever"])
+        # No console script in this interpreter's scripts directory either.
+        monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
         assert _self_invocation() == [sys.executable, "-m", "jcodemunch_mcp"]
 
     def test_prefers_own_executable_when_it_exists(self, tmp_path, monkeypatch):

@@ -29,7 +29,17 @@ import sys
 
 import pytest
 
+from jcodemunch_mcp import install_layout
 from jcodemunch_mcp.cli import init as init_mod
+
+
+@pytest.fixture(autouse=True)
+def _no_own_executable(monkeypatch):
+    # These tests feed the binary through PATH; the running install's own
+    # executable is asked first since `install_layout.own_executable`, so
+    # this box's venv would answer instead. Take it out of the question.
+    monkeypatch.setattr(sys, "argv", ["pytest"])
+    monkeypatch.setattr(install_layout, "_scripts_dir", lambda: None)
 
 
 # ---------------------------------------------------------------------------
