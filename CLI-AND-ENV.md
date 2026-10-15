@@ -83,6 +83,7 @@ split and is not resolved by it.
 | `JCODEMUNCH_RATE_LIMIT` | 0 | Max requests/minute per client IP in HTTP transport (0 = disabled) |
 | `JCODEMUNCH_REDACT_SOURCE_ROOT` | 0 | Set 1 to replace source_root with display_name in responses |
 | `JCODEMUNCH_SHARE_SAVINGS` | 1 | Set 0 to disable anonymous token savings telemetry |
+| `JCODEMUNCH_ENFORCE` | advisory | How the PreToolUse hook treats a native search or read inside an indexed repo. `advisory` suggests the jcm route and lets the call run; `strict` (set by `init --strict`) denies it; `off` says nothing. Under `strict` a targeted or small Read and a path outside every indexed repo still pass. A shell search is denied only as a single command (`grep -rn x src`): a pipeline or chained line (`grep ... \| head`, `&&`, `;`) and a path the hook cannot resolve get advice only, because the rest of the line is usually real work. `find` is never denied. An unknown value means `advisory`. |
 | `JCODEMUNCH_REDACT_RESPONSE_SECRETS` | 1 | Set 0 to disable response-level secret redaction (AWS/GCP/Azure/JWT/etc.) |
 | `JCODEMUNCH_STATS_FILE_INTERVAL` | 3 | Calls between session_stats.json writes; 0 = disable |
 | `JCODEMUNCH_PERF_TELEMETRY_MAX_ROWS` | 100000 | Rolling cap on persisted perf rows; oldest rows trimmed in 1k-row batches once exceeded. |
