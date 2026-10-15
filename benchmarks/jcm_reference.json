@@ -1,19 +1,19 @@
 {
   "schema": "jcm-benchmark-reference/v2",
-  "captured_at": "2026-10-14T04:02:59+0000",
-  "jcodemunch_version": "1.108.360",
+  "captured_at": "2026-10-15T08:12:12+0000",
+  "jcodemunch_version": "1.108.364",
   "tokenizer": "cl100k_base",
   "workflow": "search_symbols(max_results=5) + get_symbol_source x3",
   "baseline_definition": "all indexed source files concatenated",
   "grand": {
     "baseline_tokens": 5658685,
-    "jmunch_tokens": 23014,
+    "jmunch_tokens": 22741,
     "task_runs": 15
   },
   "repos": {
     "expressjs/express": {
-      "avg_tokens_per_query": 972,
-      "jmunch_total_tokens": 4859,
+      "avg_tokens_per_query": 967,
+      "jmunch_total_tokens": 4833,
       "queries": 5,
       "baseline_tokens": 154569,
       "file_count": 186,
@@ -27,8 +27,8 @@
       }
     },
     "fastapi/fastapi": {
-      "avg_tokens_per_query": 2147,
-      "jmunch_total_tokens": 10733,
+      "avg_tokens_per_query": 2097,
+      "jmunch_total_tokens": 10486,
       "queries": 5,
       "baseline_tokens": 825326,
       "file_count": 1186,

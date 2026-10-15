@@ -17,22 +17,22 @@
 
 | Query | Read-all&nbsp;tokens | Grep-top-3&nbsp;tokens | jMunch&nbsp;tokens | Ratio&nbsp;vs&nbsp;read-all | **Ratio&nbsp;vs&nbsp;grep** |
 |-------|---------------------:|----------------------:|-------------------:|--------------------------:|--------------------------:|
-| `router route handler` | 154,569 | 9,890 | 1,106 | 139.8x | **8.94x** |
+| `router route handler` | 154,569 | 9,890 | 1,080 | 143.1x | **9.16x** |
 | `middleware` | 154,569 | 11,777 | 1,159 | 133.4x | **10.16x** |
 | `error exception` | 154,569 | 18,961 | 1,139 | 135.7x | **16.65x** |
 | `request response` | 154,569 | 21,620 | 1,158 | 133.5x | **18.67x** |
 | `context bind` | 154,569 | 16,371 | 297 | 520.4x | **55.12x** |
-| **Average** | — | — | — | 212.6x | **21.9x** |
+| **Average** | — | — | — | 213.2x | **22.0x** |
 
 <details><summary>Query detail (search + fetch tokens, latency)</summary>
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 468 | 638 | 3 | 60.2 |
-| `middleware` | 464 | 695 | 3 | 1.5 |
-| `error exception` | 474 | 665 | 3 | 2.3 |
-| `request response` | 466 | 692 | 3 | 2.5 |
-| `context bind` | 297 | 0 | 0 | 37.1 |
+| `router route handler` | 468 | 612 | 3 | 47.3 |
+| `middleware` | 464 | 695 | 3 | 1.3 |
+| `error exception` | 474 | 665 | 3 | 2.1 |
+| `request response` | 466 | 692 | 3 | 2.2 |
+| `context bind` | 297 | 0 | 0 | 27.7 |
 
 </details>
 
@@ -48,22 +48,22 @@
 
 | Query | Read-all&nbsp;tokens | Grep-top-3&nbsp;tokens | jMunch&nbsp;tokens | Ratio&nbsp;vs&nbsp;read-all | **Ratio&nbsp;vs&nbsp;grep** |
 |-------|---------------------:|----------------------:|-------------------:|--------------------------:|--------------------------:|
-| `router route handler` | 825,326 | 97,495 | 1,577 | 523.4x | **61.82x** |
+| `router route handler` | 825,326 | 97,495 | 1,576 | 523.7x | **61.86x** |
 | `middleware` | 825,326 | 36,575 | 1,844 | 447.6x | **19.83x** |
-| `error exception` | 825,326 | 100,987 | 1,244 | 663.4x | **81.18x** |
-| `request response` | 825,326 | 130,461 | 4,685 | 176.2x | **27.85x** |
-| `context bind` | 825,326 | 60,963 | 1,383 | 596.8x | **44.08x** |
-| **Average** | — | — | — | 481.5x | **47.0x** |
+| `error exception` | 825,326 | 100,987 | 1,179 | 700.0x | **85.65x** |
+| `request response` | 825,326 | 130,461 | 4,682 | 176.3x | **27.86x** |
+| `context bind` | 825,326 | 60,963 | 1,205 | 684.9x | **50.59x** |
+| **Average** | — | — | — | 506.5x | **49.2x** |
 
 <details><summary>Query detail (search + fetch tokens, latency)</summary>
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 609 | 968 | 3 | 1245.9 |
-| `middleware` | 557 | 1,287 | 3 | 2.6 |
-| `error exception` | 521 | 723 | 3 | 3.7 |
-| `request response` | 535 | 4,150 | 3 | 8.7 |
-| `context bind` | 566 | 817 | 3 | 4.0 |
+| `router route handler` | 608 | 968 | 3 | 949.0 |
+| `middleware` | 557 | 1,287 | 3 | 2.1 |
+| `error exception` | 521 | 658 | 3 | 3.0 |
+| `request response` | 535 | 4,147 | 3 | 7.0 |
+| `context bind` | 562 | 643 | 3 | 3.1 |
 
 </details>
 
@@ -90,11 +90,11 @@
 
 | Query | Search&nbsp;tokens | Fetch&nbsp;tokens | Hits&nbsp;fetched | Search&nbsp;ms |
 |-------|-----------------:|------------------:|------------------:|---------------:|
-| `router route handler` | 547 | 994 | 3 | 131.5 |
-| `middleware` | 445 | 1,288 | 3 | 2.0 |
-| `error exception` | 463 | 632 | 3 | 2.7 |
-| `request response` | 492 | 874 | 3 | 3.0 |
-| `context bind` | 495 | 1,192 | 3 | 5.7 |
+| `router route handler` | 547 | 994 | 3 | 101.8 |
+| `middleware` | 445 | 1,288 | 3 | 1.6 |
+| `error exception` | 463 | 632 | 3 | 2.1 |
+| `request response` | 492 | 874 | 3 | 2.3 |
+| `context bind` | 495 | 1,192 | 3 | 4.6 |
 
 </details>
 
@@ -106,11 +106,11 @@
 |--|-------:|
 | Baseline A total, read-all (15 task-runs) | 5,658,685 |
 | Baseline B total, grep-top-3 | 664,975 |
-| jMunch total | 23,014 |
+| jMunch total | 22,741 |
 | Reduction vs read-all | 99.6% |
-| Ratio vs read-all | 245.9x |
-| **Reduction vs grep-top-3** | **96.5%** |
-| **Ratio vs grep-top-3** | **28.9x** |
+| Ratio vs read-all | 248.8x |
+| **Reduction vs grep-top-3** | **96.6%** |
+| **Ratio vs grep-top-3** | **29.2x** |
 
 > **Baseline B is the number to quote.** Read-all is a ceiling nobody pays: it assumes an agent opens every file in the repository before acting. Grep-then-read is what a competent agent without this tool actually does, and it is 11.8% of the read-all figure — so measuring against read-all overstates the advantage by about 9x.
 
