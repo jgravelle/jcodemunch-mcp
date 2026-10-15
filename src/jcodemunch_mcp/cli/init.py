@@ -1567,6 +1567,13 @@ def run_init(
                 "eliminating staleness anxiety and enforcing token-efficient navigation",
             ))
 
+    if do_hooks or do_enforce:
+        from ..install_layout import substitution_note
+
+        _note = substitution_note()
+        if _note:
+            print(f"  Note: {_note}")
+
     # ----- Step 3c: Copilot hooks (.github/hooks/hooks.json) -----
     if copilot_hooks:
         msg = install_copilot_hooks(dry_run=dry_run, backup=backup)

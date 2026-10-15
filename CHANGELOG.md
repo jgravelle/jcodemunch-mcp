@@ -20,7 +20,11 @@ reindex hook falls back to `python -m jcodemunch_mcp`, as before. A relative
 launch path is never used, because a hook would resolve it inside the
 checked-out repository. An executable inside uv's cache, where `uvx` runs, is
 never written, from either source: `uvx` puts that directory first on PATH,
-and `uv cache clean` deletes it and every hook pointing there. A test fails if
+and `uv cache clean` deletes it and every hook pointing there. So `init` run
+through `uvx` cannot write the install it ran. Its hooks call the next
+`jcodemunch-mcp` on PATH, which may be another version, or the bare name, and
+`init` now prints which, with the command that makes them call the version
+you ran. A test fails if
 any other module looks our executable up on PATH, whichever way the call is
 spelled. Existing hooks change only when `init` runs again.
 

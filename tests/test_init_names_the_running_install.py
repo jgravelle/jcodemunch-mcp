@@ -220,3 +220,42 @@ def test_no_reader_resolves_our_executable_from_path_directly():
         for line in _path_lookups_of_our_executable(py.read_text(encoding="utf-8"))
     ]
     assert not offenders, offenders
+
+
+def test_init_says_which_install_the_hooks_call_under_uvx(tmp_path, monkeypatch):
+    """The substitute may be another version; saying nothing would hide that."""
+    cached = _make_install(tmp_path / "uv" / "cache" / "archive-v0" / "abc123")
+    lasting = _make_install(tmp_path / "old")
+    monkeypatch.setattr(
+        install_layout, "_scripts_dir", lambda: cached.parent, raising=False
+    )
+    monkeypatch.setattr(sys, "argv", [str(cached)])
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(cached.parent), str(lasting.parent)])
+    )
+    note = install_layout.substitution_note()
+    assert note and str(lasting) in note and "uv tool install" in note
+    monkeypatch.setenv("PATH", str(cached.parent))
+    assert "bare name" in install_layout.substitution_note()
+
+
+def test_no_note_when_the_hooks_call_the_install_that_ran(two_installs):
+    assert install_layout.substitution_note() is None
+
+
+def test_a_copy_in_the_current_directory_never_shadows_path(tmp_path, monkeypatch):
+    """Windows `which` before 3.12 looks in the cwd first; the cwd is an untrusted checkout."""
+    cached = _make_install(tmp_path / "uv" / "cache" / "archive-v0" / "abc123")
+    lasting = _make_install(tmp_path / "old")
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / _EXE).write_text("")
+    monkeypatch.chdir(checkout)
+    monkeypatch.setattr(
+        install_layout, "_scripts_dir", lambda: cached.parent, raising=False
+    )
+    monkeypatch.setattr(sys, "argv", [str(cached)])
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([str(cached.parent), str(lasting.parent)])
+    )
+    assert _norm(install_layout.executable_for_commands()) == _norm(str(lasting))

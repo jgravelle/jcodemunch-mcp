@@ -181,13 +181,47 @@ def _first_lasting_on_path() -> Optional[str]:
     first = shutil.which(_EXECUTABLE_NAME)
     if first is None or (os.path.isabs(first) and not _is_ephemeral(Path(first))):
         return first
+    # Each entry is checked directly: on Windows before Python 3.12,
+    # `shutil.which(path=...)` looks in the current directory first.
     for entry in os.environ.get("PATH", "").split(os.pathsep):
-        if not entry:
+        if not entry or not os.path.isabs(entry):
             continue
-        found = shutil.which(_EXECUTABLE_NAME, path=entry)
-        if found and os.path.isabs(found) and not _is_ephemeral(Path(found)):
-            return found
+        found = _existing(Path(entry) / _EXECUTABLE_NAME)
+        if found is not None and os.access(found, os.X_OK) and not _is_ephemeral(found):
+            return str(found)
     return None
+
+
+def running_from_uv_cache() -> bool:
+    """True when this process runs from uv's cache (`uvx`)."""
+    argv0 = sys.argv[0] if sys.argv else ""
+    if argv0 and os.path.isabs(argv0) and _is_ephemeral(Path(argv0)):
+        return True
+    scripts = _scripts_dir()
+    return scripts is not None and _is_ephemeral(scripts)
+
+
+def substitution_note() -> Optional[str]:
+    """What a written command runs instead of this install, or None when it runs this one.
+
+    Under `uvx` the running executable sits in uv's cache, so a written command
+    calls another install from PATH, or the bare name. That install may be a
+    different version, and `init` must say so rather than leave the user to
+    find out from a hook's behaviour.
+    """
+    if own_executable() is not None or not running_from_uv_cache():
+        return None
+    chosen = _first_lasting_on_path()
+    target = (
+        f"`{chosen}`"
+        if chosen
+        else "the bare name `jcodemunch-mcp`, looked up on PATH when a hook runs"
+    )
+    return (
+        "this run comes from uv's cache (uvx), which `uv cache clean` deletes, so the hooks call "
+        f"{target} instead. That may be a different version. To have them call this version, "
+        "install it (`uv tool install jcodemunch-mcp`) and run that install's `init`."
+    )
 
 
 def executable_for_commands() -> Optional[str]:
