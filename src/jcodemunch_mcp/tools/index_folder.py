@@ -856,6 +856,51 @@ def _resolve_active_providers(folder_path: Path, context_providers: bool) -> lis
     return active
 
 
+# The `context_metadata` key naming the providers a budget cut (L-190). A cut
+# provider's context is missing from the stored symbols, so the next explicit
+# index pass re-parses every file to run it again; a targeted pass or a watched
+# edit re-reads only some files and so keeps the record.
+PROVIDERS_CUT_KEY = "providers_cut"
+
+
+def _provider_cut_names(folder_path: Path) -> list[str]:
+    """Providers the budget cut on this process's latest discovery for the folder."""
+    skips = _PROVIDER_SKIPS.get(str(folder_path)) or []
+    return sorted({
+        str(s["provider"]) for s in skips
+        if s.get("reason") == "budget_exceeded" and s.get("provider")
+    })
+
+
+def _stored_provider_cut(index) -> list[str]:
+    """Providers an index records as cut; [] for none or an unreadable value."""
+    meta = getattr(index, "context_metadata", None) or {}
+    value = meta.get(PROVIDERS_CUT_KEY) if isinstance(meta, dict) else None
+    return sorted({str(v) for v in value}) if isinstance(value, list) else []
+
+
+def _stamp_provider_cut(
+    meta: Optional[dict], cut: list[str], existing, *, carry_existing: bool
+) -> Optional[dict]:
+    """Return context metadata that records `cut`, clearing a stored cut it ends.
+
+    An incremental save REPLACES `context_metadata` when given a dict and keeps
+    the stored one when given None, so a pass with no provider metadata of its
+    own starts from the stored dict (`carry_existing`) rather than wiping it. A
+    full save starts from nothing, as it always has.
+    """
+    if not cut and not _stored_provider_cut(existing):
+        return meta
+    if meta is not None:
+        out = dict(meta)
+    elif carry_existing:
+        out = dict(getattr(existing, "context_metadata", None) or {})
+    else:
+        out = {}
+    out[PROVIDERS_CUT_KEY] = sorted(cut)
+    return out
+
+
 def _attach_provider_skips(result: dict, folder_path: Path) -> None:
     """Surface budget-skipped / failed context providers on an index result."""
     skips = _PROVIDER_SKIPS.get(str(folder_path)) or []
@@ -870,6 +915,8 @@ def _attach_provider_skips(result: dict, folder_path: Path) -> None:
                 f"{skip.get('seconds')}s and was skipped. Symbols are indexed but "
                 f"carry no {skip['provider']} context, and its import edges "
                 f"(route mounts, template renders) are missing from the graph. "
+                f"The index records the cut, and the next index_folder re-parses "
+                f"every file so the provider runs again. "
                 f"Raise JCODEMUNCH_PROVIDER_BUDGET_SECONDS to let it finish, or "
                 f"set context_providers=false to stop paying for it."
             )
@@ -2214,6 +2261,11 @@ def index_folder(
                 _fast_phase("parse")
                 git_head = _get_git_head(folder_path) or ""
                 incr_context_metadata = collect_metadata(active_providers) if active_providers else None
+                # No discovery ran on this path, so the stored cut still holds (L-190).
+                incr_context_metadata = _stamp_provider_cut(
+                    incr_context_metadata, _stored_provider_cut(existing_index),
+                    existing_index, carry_existing=True,
+                )
                 _fast_phase("git_head")
 
                 # Merge mtime-only updates so they're persisted alongside real changes
@@ -2628,6 +2680,25 @@ def index_folder(
                     "Racket config (racket_definition_forms / racket_langs) changed since this "
                     "index was built; every file was re-parsed once so the declarations apply."
                 )
+        elif (_cut_before := _stored_provider_cut(existing_index)) and paths is None:
+            # L-190: a provider the budget cut on an earlier pass left its
+            # context off every file, and an incremental pass re-reads only the
+            # changed ones, so the gap would outlive the slow moment that made
+            # it. Re-parse everything once so the provider runs again. A
+            # targeted pass (`paths=`) asked for bounded work and keeps the
+            # record instead; the watcher's fast path never reaches here.
+            incremental = False
+            rebuild_reason = "context_provider_cut"
+            logger.warning(
+                "index_folder context_provider_cut — %s/%s: %s cut by the provider "
+                "budget on the last pass; re-parsing every file so it runs again",
+                owner, repo_name, ", ".join(_cut_before),
+            )
+            warnings.append(
+                f"Context provider(s) {', '.join(_cut_before)} ran out of time on the last "
+                f"index pass, so their context was missing from this index; every file was "
+                f"re-parsed so they run again."
+            )
 
         # Discovery pass — resolve rel_paths and collect mtimes without
         # reading file contents (P2-5: avoids 200MB-1GB allocation
@@ -2842,6 +2913,13 @@ def index_folder(
 
             git_head = _get_git_head(folder_path) or ""
             incr_context_metadata = collect_metadata(active_providers) if active_providers else None
+            # An incremental pass re-reads only changed files, so a stored cut
+            # stays until a full pass clears it; a new cut joins it (L-190).
+            incr_context_metadata = _stamp_provider_cut(
+                incr_context_metadata,
+                sorted(set(_stored_provider_cut(existing_index)) | set(_provider_cut_names(folder_path))),
+                existing_index, carry_existing=True,
+            )
 
             # ── Optional LSP enrichment (incremental path) ──
             try:
@@ -3099,6 +3177,13 @@ def index_folder(
                 full_context_metadata.update(profile_meta)
             else:
                 full_context_metadata = profile_meta
+
+        # A full pass re-ran every provider over every file, so this pass's
+        # cuts replace the stored record (L-190).
+        full_context_metadata = _stamp_provider_cut(
+            full_context_metadata, _provider_cut_names(folder_path),
+            existing_index, carry_existing=False,
+        )
 
         # Extract package names from manifest files
         _pkg_names: list[str] = []

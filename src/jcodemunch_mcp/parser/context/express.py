@@ -144,8 +144,8 @@ class ExpressProvider(ContextProvider):
 
         if abandoned:
             logger.warning(
-                "Express provider: budget expired after %d files; route context "
-                "for this repo is incomplete", scanned,
+                "Express provider: budget expired after %d files; the provider is "
+                "skipped for this pass and re-runs on the next index (L-190)", scanned,
             )
         logger.info(
             "Express provider: found %d routes in %d files (%s)",
