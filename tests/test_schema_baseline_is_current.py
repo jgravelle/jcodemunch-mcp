@@ -31,7 +31,8 @@ BASELINE = REPO_ROOT / "benchmarks" / "schema_baseline.json"
 SCRIPT = REPO_ROOT / "benchmarks" / "harness" / "capture_schema_baseline.py"
 
 _REGENERATE = (
-    "Regenerate from an empty config dir (cmd.exe: `set CODE_INDEX_PATH=<empty dir>` then "
+    "Regenerate from an empty config dir (cmd.exe, with your own empty directory's absolute path: "
+    "`set CODE_INDEX_PATH=C:\\temp\\empty-index` then "
     "`set PYTHONPATH=src` then `python benchmarks/harness/capture_schema_baseline.py`; bash: "
     "`CODE_INDEX_PATH=$(mktemp -d) PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py`), "
     "because a configured box writes values this test rejects. State the token delta in the CHANGELOG "
