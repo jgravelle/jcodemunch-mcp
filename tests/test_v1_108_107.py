@@ -51,6 +51,15 @@ def _clear_provider_cache():
     _if._PROVIDER_CACHE.clear()
 
 
+@pytest.fixture(autouse=True)
+def _blame_opted_in(monkeypatch):
+    # These tests use git blame as the provider whose enrichment the fast path
+    # must keep; it is off by default since L-189, so they opt in.
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "git_blame_enabled", True)  # type: ignore[attr-defined]
+
+
 def test_full_index_populates_provider_cache_and_enriches(tmp_path):
     _git_repo(tmp_path)
     store_path = str(tmp_path / ".code-index")
