@@ -2,67 +2,6 @@
 
 ## [Unreleased]
 
-## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
-
-### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere
-
-The `instructions` string the server sends when a session starts told agents to
-"Prefer them over Read/Grep/Glob/Bash" (or, on the front door, "Prefer it over
-Read/Grep/Glob/Bash for code navigation"), to call `resolve_repo` "first", and
-to run `get_file_outline` "before opening any file". The agent policy stopped
-saying any of that in 1.108.357, because on a small repository it costs turns
-the built-in search would not. This string kept saying it, and it reaches every
-session in every client whatever policy is installed, including clients that
-defer the tool descriptions.
-
-It now says what the policy says: use the index for who uses a symbol, what a
-change breaks, call graphs, a large repository or a question with no known
-starting point; on a small repository, for a known name or for a file being
-edited, the built-in Grep and Read are often as cheap. `resolve_repo` is asked
-once, before the first index call, and `get_file_outline` is described by what
-it returns. To stay inside the string's character budget, the line telling a
-client with deferred tools to load them in one lookup is shorter, and two tool
-rows lost words: `get_ranked_context` no longer says "not chained hops", and the
-`find_references` row now says `check_references` answers where a name is used.
-The tool list and the six front-door descriptions are unchanged. The test that keeps absolute wording out
-of the policy, the rules files, the skill and the guide now reads both versions
-of this string too.
-
-### Fixed - a package named `migrations` is indexed; only generated migrations are skipped
-
-`migrations` was a name on the built-in skip list, so every directory called
-that was pruned. That is right for an application's generated migration files
-and wrong for a library whose own code lives in a package of that name: django's
-migration framework (`django/db/migrations/`, with the autodetector, executor,
-loader and operations) never entered the index, and the result counted it under
-the generic `skip_dir` with nothing naming the rule.
-
-Most migration tools name what they write by sequence or timestamp:
-`0001_initial.py`, `2014_10_12_000000_create_users_table.php`,
-`20230101120000_init/`, `1612345678901-Init.ts`, `000001_init.up.sql`,
-`V1__init.sql`, `Version20230101120000.php`, `m230101_120000_x.php`,
-`Migration20230101120000.ts`. Alembic and Flask-Migrate put theirs in
-`versions/` and leave `script.py.mako` and `alembic.ini` in the directory. A
-`migrations` directory is now skipped only when it holds an entry named one of
-those ways, and the skip is counted as `generated_migrations` in
-`discovery_skip_counts`. A directory holding none is source and is indexed.
-The full walk, the watcher's fast path and the GitHub tree listing all ask the
-one predicate in `security.py`. The Django framework profile also ignored
-`migrations/` by name, a second copy of the rule, and no longer does. A
-directory that cannot be listed is reported as `unreadable`.
-`exclude_skip_directories: ["migrations"]` still indexes every migrations
-directory, generated or not.
-
-The names are a list of tool conventions. A tool that names its migrations
-another way now has them indexed, where the old rule skipped them.
-`get_project_intel`'s `migration_files` counted every file under
-`migrations/` or `migrate/`, which would have counted a framework's own
-package; it counts files named the way a migration tool names them.
-
-Like a build tree, generated migrations are corpus definition rather than a
-withheld file, so absence claims over the rest of the index stay citable. An
-existing index picks up a framework's migrations package at its next full walk.
-
 ### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
 
 On a real T-SQL and Sybase codebase a large share of files indexed to
@@ -135,6 +74,67 @@ claim about procedures or triggers, whose callers sit outside the static
 graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
 pre-existing prefix, because pinning the tail of an append-only tuple fails
 the next correct append, while a prefix pin still catches a reorder.
+
+## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
+
+### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere
+
+The `instructions` string the server sends when a session starts told agents to
+"Prefer them over Read/Grep/Glob/Bash" (or, on the front door, "Prefer it over
+Read/Grep/Glob/Bash for code navigation"), to call `resolve_repo` "first", and
+to run `get_file_outline` "before opening any file". The agent policy stopped
+saying any of that in 1.108.357, because on a small repository it costs turns
+the built-in search would not. This string kept saying it, and it reaches every
+session in every client whatever policy is installed, including clients that
+defer the tool descriptions.
+
+It now says what the policy says: use the index for who uses a symbol, what a
+change breaks, call graphs, a large repository or a question with no known
+starting point; on a small repository, for a known name or for a file being
+edited, the built-in Grep and Read are often as cheap. `resolve_repo` is asked
+once, before the first index call, and `get_file_outline` is described by what
+it returns. To stay inside the string's character budget, the line telling a
+client with deferred tools to load them in one lookup is shorter, and two tool
+rows lost words: `get_ranked_context` no longer says "not chained hops", and the
+`find_references` row now says `check_references` answers where a name is used.
+The tool list and the six front-door descriptions are unchanged. The test that keeps absolute wording out
+of the policy, the rules files, the skill and the guide now reads both versions
+of this string too.
+
+### Fixed - a package named `migrations` is indexed; only generated migrations are skipped
+
+`migrations` was a name on the built-in skip list, so every directory called
+that was pruned. That is right for an application's generated migration files
+and wrong for a library whose own code lives in a package of that name: django's
+migration framework (`django/db/migrations/`, with the autodetector, executor,
+loader and operations) never entered the index, and the result counted it under
+the generic `skip_dir` with nothing naming the rule.
+
+Most migration tools name what they write by sequence or timestamp:
+`0001_initial.py`, `2014_10_12_000000_create_users_table.php`,
+`20230101120000_init/`, `1612345678901-Init.ts`, `000001_init.up.sql`,
+`V1__init.sql`, `Version20230101120000.php`, `m230101_120000_x.php`,
+`Migration20230101120000.ts`. Alembic and Flask-Migrate put theirs in
+`versions/` and leave `script.py.mako` and `alembic.ini` in the directory. A
+`migrations` directory is now skipped only when it holds an entry named one of
+those ways, and the skip is counted as `generated_migrations` in
+`discovery_skip_counts`. A directory holding none is source and is indexed.
+The full walk, the watcher's fast path and the GitHub tree listing all ask the
+one predicate in `security.py`. The Django framework profile also ignored
+`migrations/` by name, a second copy of the rule, and no longer does. A
+directory that cannot be listed is reported as `unreadable`.
+`exclude_skip_directories: ["migrations"]` still indexes every migrations
+directory, generated or not.
+
+The names are a list of tool conventions. A tool that names its migrations
+another way now has them indexed, where the old rule skipped them.
+`get_project_intel`'s `migration_files` counted every file under
+`migrations/` or `migrate/`, which would have counted a framework's own
+package; it counts files named the way a migration tool names them.
+
+Like a build tree, generated migrations are corpus definition rather than a
+withheld file, so absence claims over the rest of the index stay citable. An
+existing index picks up a framework's migrations package at its next full walk.
 
 ## [1.108.361] - 2026-10-14 - an installed agent policy can be brought up to date, and only when you ask
 
