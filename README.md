@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.369](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.369)** (2026-10-15) — indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts
 - **[v1.108.368](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.368)** (2026-10-15) — a context provider that runs out of time runs again on the next index
 - **[v1.108.367](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.367)** (2026-10-15) — a session lists only its own workspace's indexes by default
 - **[v1.108.366](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.366)** (2026-10-15) — environment variables stay supported, and no longer warn that 2.0 removes them
-- **[v1.108.365](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.365)** (2026-10-15) — git blame is off by default, and it no longer adds "2 properties" to a file summary
 <!-- WHATSNEW:END -->
 
 ---

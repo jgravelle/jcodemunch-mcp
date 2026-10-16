@@ -2631,3 +2631,13 @@ The 1.108.365 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.365 count, verbatim:
 
 - ⚠ Prior (1.108.365): 17438 passed, 25 skipped, **0 failed** (17463 total).
+
+## Current State rotation (2026-10-15, release 1.108.369)
+
+The 1.108.366 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.366):** **env vars stay supported** (L-193, #1098): the loader logs no deprecation and no doc promises a 2.0 removal (`tests/test_env_vars_stay_supported.py`). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.366 count, verbatim:
+
+- ⚠ Prior (1.108.366): 17442 passed, 25 skipped, **0 failed** (17467 total).

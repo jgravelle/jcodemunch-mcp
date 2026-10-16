@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.369] - 2026-10-15 - indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts
+
 ### Fixed - LSP enrichment no longer runs a Rust project's build scripts
 
 With `enrichment.lsp_enabled` on (it is off by default), jcodemunch started
