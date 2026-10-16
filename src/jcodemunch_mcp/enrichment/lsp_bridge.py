@@ -104,6 +104,31 @@ _SERVER_COMMANDS: dict[str, list[str]] = {
     "rust-analyzer": ["rust-analyzer"],
 }
 
+# `initializationOptions` per server binary (L-198). rust-analyzer's defaults run
+# the indexed project's build scripts and procedural macros, and `cargo check`
+# on save does the same: code from the repository, started by a jcodemunch
+# switch. Enrichment needs definitions and references, not macro expansion, so
+# those are off. A server not listed here gets no options, as before.
+_INITIALIZATION_OPTIONS: dict[str, dict] = {
+    "rust-analyzer": {
+        "cargo": {"buildScripts": {"enable": False}},
+        "procMacro": {"enable": False},
+        "checkOnSave": False,
+    },
+}
+
+
+def _initialization_options(command: list[str]) -> Optional[dict]:
+    """The options for the server `command` starts, keyed by its binary name."""
+    if not command:
+        return None
+    binary = Path(command[0]).name
+    for suffix in (".exe", ".cmd", ".bat"):
+        if binary.lower().endswith(suffix):
+            binary = binary[: -len(suffix)]
+            break
+    return _INITIALIZATION_OPTIONS.get(binary)
+
 
 # ───────────────────────────────────────────────────────────────────
 # LSP JSON-RPC helpers
@@ -315,6 +340,9 @@ class LSPServer:
             },
             "workspaceFolders": [{"uri": root_uri, "name": Path(self.root_path).name}],
         }
+        options = _initialization_options(self.command)
+        if options:
+            params["initializationOptions"] = options
         result = self._send_request("initialize", params)
         if result is None:
             logger.debug("LSP: initialize failed for %s", self.language)

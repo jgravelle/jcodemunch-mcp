@@ -160,11 +160,13 @@ a string. `tests/test_shipped_text_has_no_dynamic_code_calls.py` scans every
 file the sdist ships for that call text.
 
 **One exception you switch on: LSP enrichment** (`enrichment.lsp_enabled` in
-`config.jsonc`, off by default). It starts the language server for each indexed language (`pyright`,
-`typescript-language-server`, `gopls`, `rust-analyzer`), and each server
-follows its own rules. `rust-analyzer` runs a Rust project's build scripts and
-procedural macros by default, and other servers may load code the project
-names. Turn LSP enrichment on only for repositories you trust.
+`config.jsonc`, off by default). It starts the language server for each
+indexed language (`pyright`, `typescript-language-server`, `gopls`,
+`rust-analyzer`), and each server follows its own rules. jcodemunch starts
+`rust-analyzer` with build scripts, procedural macros and check-on-save turned
+off, which are its defaults' ways of running a project's code. Other servers
+may still load code the project names, so turn LSP enrichment on only for
+repositories you trust.
 
 The words `eval` and `exec` still appear as data: names the `search_ast`
 security detector and other checks look for in *your* code, language keywords
