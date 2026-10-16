@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.370] - 2026-10-16 - seven import forms record the names they import
+
 ### Fixed - seven import forms record the names they import
 
 A name the import extractor does not record is a name `find_references`

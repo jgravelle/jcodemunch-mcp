@@ -2641,3 +2641,13 @@ The 1.108.366 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.366 count, verbatim:
 
 - ⚠ Prior (1.108.366): 17442 passed, 25 skipped, **0 failed** (17467 total).
+
+## Current State rotation (2026-10-16, release 1.108.370)
+
+The 1.108.367 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.367):** **a session lists only its own workspace's indexes** (`tools/_visibility.py`, `repo_visibility`, ruling 5): an exact id still loads anything; home or a root lists all. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.367 count, verbatim:
+
+- ⚠ Prior (1.108.367): 17456 passed, 25 skipped, **0 failed** (17481 total).

@@ -1,6 +1,12 @@
 {
-  "current": "1.108.369",
+  "current": "1.108.370",
   "entries": [
+    {
+      "version": "1.108.370",
+      "date": "2026-10-16",
+      "title": "seven import forms record the names they import",
+      "summary": "A PHP group use, a Kotlin `as` import, a Scala selector, a Haskell import list, a Dart `show`, a destructuring `require` and a Python `import` continued by a backslash each recorded no names, or no edge, so find_references answered 0 for the names they import. Each now records them, and a statement that is not whole records what it did before. The parser generation moves, so an existing index re-reads these files once."
+    },
     {
       "version": "1.108.369",
       "date": "2026-10-15",
@@ -18,12 +24,6 @@
       "date": "2026-10-15",
       "title": "a session lists only its own workspace's indexes by default",
       "summary": "`list_repos` shows the indexes whose folder is the server's working directory, inside it, or containing it, and says how many it hid. A bare name that matches several indexes picks the one in the workspace. An exact `owner/name` or a path still loads any index, and the `cross_repo` tools are unchanged. A server started in the home folder, above it, at a filesystem root, or where no index lives lists everything and says so. `\"repo_visibility\": \"all\"` restores the old listing. It scopes what a session is shown, not who can read."
-    },
-    {
-      "version": "1.108.366",
-      "date": "2026-10-15",
-      "title": "environment variables stay supported, and no longer warn that 2.0 removes them",
-      "summary": "The config loader no longer logs \"Deprecated: ... will be removed in v2.0\" when a `JCODEMUNCH_*` variable fills a key the config file leaves unset, and CONFIGURATION.md documents env vars as a supported fallback (a config file value still wins). No 2.0 is planned. `JCODEMUNCH_SHARE_SAVINGS=0`, the documented opt-out from anonymous savings sharing, keeps working. A test fails if a loader message or a tracked doc promises a 2.0 removal again."
     }
   ]
 }
