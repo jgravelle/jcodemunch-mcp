@@ -67,8 +67,29 @@ def build_items_repo(tmp_path_factory) -> tuple[str, str]:
         "App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk" />\n',
         "App/Program.cs": "namespace App { public static class Program { public static void Main() { } } }\n",
         "App/Orders.xsd": _SCHEMA,
+        # Every shape that could give an unseen-consumer file an edge or a function: a schema
+        # that includes and imports another, a props file that imports a project, a targets file
+        # with an inline C# task, and a XAML control with inline code and a wired handler.
+        "App/Invoice.xsd": (
+            '<?xml version="1.0"?>\n<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">\n'
+            '  <xs:include schemaLocation="Orders.xsd"/>\n'
+            '  <xs:import namespace="urn:common" schemaLocation="Common.xsd"/>\n</xs:schema>\n'
+        ),
+        "App/Common.xsd": _SCHEMA,
         "App/Strings.resx": '<root><data name="Greeting"><value>Hi</value></data></root>\n',
-        "App/Build.targets": '<Project><Target Name="Gen" /></Project>\n',
+        "App/Shared.props": '<Project><Import Project="Build.targets" /></Project>\n',
+        "App/Build.targets": (
+            '<Project><UsingTask TaskName="Hello" TaskFactory="RoslynCodeTaskFactory"'
+            ' AssemblyFile="$(MSBuildToolsPath)\\Microsoft.Build.Tasks.Core.dll">\n'
+            '  <Task><Code Type="Fragment" Language="cs"><![CDATA[ void Run() { Log.LogMessage("hi"); } ]]></Code></Task>\n'
+            '</UsingTask><Target Name="Gen"><Hello /></Target></Project>\n'
+        ),
+        "App/Ctl.xaml": (
+            '<UserControl x:Class="App.Ctl" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">\n'
+            '  <Button x:Name="Ok" Click="Ok_Click"/>\n'
+            '  <x:Code><![CDATA[ void Ok_Click(object s, object e) { } ]]></x:Code>\n</UserControl>\n'
+        ),
+        "App/Ctl.xaml.cs": "namespace App { public partial class Ctl { void Helper() { } } }\n",
     }
     for rel, text in files.items():
         p = root / rel
@@ -96,7 +117,10 @@ def test_v2_has_nothing_to_decide_for_a_schema_or_build_item(build_items_repo):
     owner, name = repo.split("/", 1)
     index = IndexStore(base_path=storage).load_index(owner, name)
     capped = {f for f in index.source_files if _entry_points.unseen_consumer(f, dotnet=True)}
-    assert capped == {"App/Orders.xsd", "App/Strings.resx", "App/Build.targets"}, capped
+    assert capped == {
+        "App/Orders.xsd", "App/Invoice.xsd", "App/Common.xsd", "App/Strings.resx",
+        "App/Shared.props", "App/Build.targets", "App/Ctl.xaml",
+    }, capped
     functions = [s for s in index.symbols if s.get("file") in capped and s.get("kind") in ("function", "method")]
     assert functions == [], functions
     imported = {i["specifier"] for f in capped for i in (index.imports or {}).get(f, [])}

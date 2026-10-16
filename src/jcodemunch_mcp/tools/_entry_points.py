@@ -175,8 +175,9 @@ def is_host_invoked(file_path: str) -> bool:
 
 
 # Evidence picks only the kind and its advice, never whether a schema is
-# capped. .NET source and the .NET-only capped formats count, so a subtree or a
-# controls-only tree with no project file still reads as .NET.
+# capped. .NET source and the .NET-only capped formats count, so a C#, Razor or
+# controls-only subtree with no project file still reads as .NET (an F# subtree
+# of bare `.fs` files does not, below).
 # (L-184) A Razor or Blazor tree carries no `.cs`, so its schemas got the
 # neutral advice. ⚠ A bare `.fs` is NOT evidence: GLSL fragment shaders and
 # Forth use it, and a Maven repository with `shader.fs` read as .NET. F# counts
