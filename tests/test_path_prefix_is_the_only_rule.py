@@ -19,7 +19,7 @@ from jcodemunch_mcp.path_prefix import dir_prefix
 from jcodemunch_mcp.tools.index_folder import _is_gitignored_fast
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "jcodemunch_mcp"
-OLD_SPELLING = re.compile(r"\+\s*os\.sep\b")
+OLD_SPELLING = re.compile(r"\+\s*os\.sep\b|\{os\.sep\}")
 
 
 def test_no_module_but_the_rule_appends_os_sep():
@@ -35,7 +35,7 @@ def test_no_module_but_the_rule_appends_os_sep():
 
 
 def test_the_scan_sees_the_spelling_it_is_for():
-    for bad in ("p = root + os.sep", "x=(str(d.resolve())+os.sep, spec)"):
+    for bad in ("p = root + os.sep", "x=(str(d.resolve())+os.sep, spec)", 'p = f"{root}{os.sep}"'):
         assert OLD_SPELLING.search(bad), bad
     assert not OLD_SPELLING.search("p = dir_prefix(root)")
 

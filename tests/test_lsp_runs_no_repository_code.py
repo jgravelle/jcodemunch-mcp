@@ -5,8 +5,9 @@ language server with no `initializationOptions`. rust-analyzer's defaults run
 the indexed project's build scripts (`build.rs`) and procedural macros, which is
 code from the repository, and `cargo check` on save does the same. That made
 the one jcodemunch switch that could run repository code. The bridge now sends
-the options that turn those off; what the call graph loses is macro-generated
-items, which jcodemunch's own extraction does not see either.
+the options that turn those off. What enrichment loses is unmeasured:
+macro-generated items and references inside code a build script enables or
+generates, which rust-analyzer then treats as inactive.
 """
 
 from __future__ import annotations

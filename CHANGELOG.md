@@ -9,9 +9,11 @@ With `enrichment.lsp_enabled` on (it is off by default), jcodemunch started
 project's `build.rs` files and procedural macros, which is code from the
 repository (L-198). That made the one jcodemunch switch that could run what it
 indexes. The bridge now starts `rust-analyzer` with build scripts, procedural
-macros and check-on-save turned off. Enrichment asks for definitions and
-references, not macro expansion, so the call graph loses only macro-generated
-items, which jcodemunch's own extraction does not see either. Other servers
+macros and check-on-save turned off. What enrichment loses is not measured:
+macro-generated items, plus references inside code a build script switches on
+(`cargo:rustc-cfg`) or generates into `OUT_DIR`, which rust-analyzer now
+treats as inactive. jcodemunch's own extraction still indexes that code; only
+the extra edges LSP would add for it are gone. Other servers
 still start with no options. This closes rust-analyzer's default paths, not
 every path (it still runs `cargo` to read the workspace), so SECURITY.md still
 says to turn enrichment on only for repositories you trust, rust-analyzer
