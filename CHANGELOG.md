@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.372] - 2026-10-16 - uninstall keeps your own section after the policy
+
 ### Fixed - `uninstall` no longer deletes your own section after the policy
 
 `jcodemunch-mcp uninstall` strips the Code Exploration Policy from CLAUDE.md,

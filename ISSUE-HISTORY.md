@@ -2661,3 +2661,13 @@ The 1.108.368 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.368 count, verbatim:
 
 - ⚠ Prior (1.108.368): 17476 passed, 25 skipped, **0 failed** (17501 total).
+
+## Current State rotation (2026-10-16, release 1.108.372)
+
+The 1.108.369 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.369):** **indexing a drive root keeps its files** (L-197, `path_prefix.dir_prefix`); LSP starts rust-analyzer with build scripts off (L-198); branch deltas never ran (L-196). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.369 count, verbatim:
+
+- ⚠ Prior (1.108.369): 17486 passed, 25 skipped, **0 failed** (17511 total).
