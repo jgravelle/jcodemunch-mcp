@@ -598,6 +598,9 @@ _PYVENV_READ_LIMIT = 4096
 def is_virtualenv_directory(path) -> bool:
     """True when ``path`` is a Python virtualenv root, whatever its name.
 
+    The walk prunes the venv's interpreter layout beneath this root
+    (`is_virtualenv_layout_directory`), never the root itself.
+
     ⚠ **The `home` key is the whole design**, not the file name: a file merely
     NAMED `pyvenv.cfg` is one instance of the property, the mistake a name-only
     `CACHEDIR.TAG` check would make. PEP 405 makes `home` the key the interpreter
@@ -616,6 +619,32 @@ def is_virtualenv_directory(path) -> bool:
     except (OSError, ValueError):
         return False
     return _PYVENV_HOME_RE.search(head) is not None
+
+
+# What a venv tool writes under the venv root: the interpreter, its scripts and
+# the installed packages. Matched case-insensitively (Windows writes `Lib`,
+# `Scripts`, `Include`; POSIX writes `lib`, `bin`, `include`).
+_VIRTUALENV_LAYOUT_DIR_NAMES: frozenset[str] = frozenset(
+    {"lib", "lib64", "scripts", "bin", "include"}
+)
+
+
+def is_virtualenv_layout_directory(dir_name: str, parent) -> bool:
+    """True when ``dir_name`` is part of the interpreter layout of a venv rooted at ``parent``.
+
+    ⚠⚠ **Only the layout is pruned, never the whole venv root.** A stdlib venv
+    before Python 3.13, and older virtualenv, write no `.gitignore`, and people do
+    keep their own source in the venv root (`python -m venv proj; proj/src/...`).
+    `pyvenv.cfg` proves the directory is a venv; it does not prove everything
+    under it is derived. A false prune deletes real source, the worse error, so
+    the rule removes exactly what the venv tool wrote and keeps the rest.
+
+    Name-gated: a directory not called one of the layout names costs one string
+    compare and no IO, so the watcher's per-ancestor check is nearly free.
+    """
+    if dir_name.lower() not in _VIRTUALENV_LAYOUT_DIR_NAMES:
+        return False
+    return is_virtualenv_directory(parent)
 
 
 def get_skip_virtualenvs(repo: Optional[str] = None) -> bool:

@@ -44,7 +44,7 @@ from ..security import (
     is_msbuild_output_directory,
     is_msbuild_output_path,
     is_nuget_packages_directory,
-    is_virtualenv_directory,
+    is_virtualenv_layout_directory,
     is_generated_migrations_directory,
     SKIP_FILES
 )
@@ -538,7 +538,7 @@ def _should_index_file(
         ``skip_counts`` keys (``skip_file``, ``symlink``,
         ``symlink_escape``, ``path_traversal``, ``skip_dir``,
         ``nested_worktree``, ``cache_dir``, ``msbuild_output``,
-        ``nuget_packages``, ``generated_migrations``, ``gitignore``, ``extra_ignore``, ``secret``,
+        ``nuget_packages``, ``virtualenv``, ``generated_migrations``, ``gitignore``, ``extra_ignore``, ``secret``,
         ``wrong_extension``, ``too_large``, ``unreadable``, ``binary``).
         ``rel_path`` may
         be empty if rejection happened before path resolution.
@@ -622,13 +622,17 @@ def _should_index_file(
             # called `obj`/`bin`/`packages` costs one string compare and no IO.
             if cfg.skip_msbuild_output and is_msbuild_output_path(ancestor):
                 return False, "msbuild_output", rel_path, None
+            # A Python virtualenv's interpreter layout, proven by the venv root's
+            # own `pyvenv.cfg` (L-206); name-gated, so other components cost one
+            # string compare. Same order as the walk.
+            if cfg.skip_virtualenvs and is_virtualenv_layout_directory(
+                ancestor.name, ancestor.parent
+            ):
+                return False, "virtualenv", rel_path, None
             if cfg.skip_nuget_packages and is_nuget_packages_directory(
                 ancestor.name, ancestor
             ):
                 return False, "nuget_packages", rel_path, None
-            # A Python virtualenv by its own `pyvenv.cfg` (L-206), same rule as the walk.
-            if cfg.skip_virtualenvs and is_virtualenv_directory(ancestor):
-                return False, "virtualenv", rel_path, None
             if cfg.skip_generated_migrations and is_generated_migrations_directory(
                 ancestor.name, ancestor
             ):
@@ -1461,11 +1465,12 @@ def discover_local_files(
             # either way.
             elif respect_cachedir_tag and is_cache_directory(dpath / d):
                 caches.append(d)
-            # A Python virtualenv under any name, declared by its own
-            # `pyvenv.cfg` (L-206). One open() per directory, like the
-            # CACHEDIR.TAG check above; a directory named `venv`/`.venv` never
-            # gets here because the name rule prunes it first.
-            elif skip_virtualenvs and is_virtualenv_directory(dpath / d):
+            # A Python virtualenv's interpreter layout (`Lib`, `Scripts`, `bin`,
+            # ...) beneath a root whose `pyvenv.cfg` proves it a venv (L-206).
+            # Only the layout goes; source a user keeps in the venv root stays.
+            # Name-gated: other directories cost one string compare, and a
+            # layout-named one costs one open() of the parent's pyvenv.cfg.
+            elif skip_virtualenvs and is_virtualenv_layout_directory(d, dpath):
                 venvs.append(d)
             # A NuGet restore tree. Checked LAST because it is the only rule here
             # that can cost more than one syscall — up to one stat per child dir —

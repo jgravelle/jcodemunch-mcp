@@ -5,6 +5,11 @@
 corpus, competed with the user's code in ranking and used up `max_folder_files`.
 A workspace holding several such venvs timed out (2026-10-16 friction report).
 
+⚠⚠ Only the venv's interpreter layout is pruned, never the venv root. A stdlib
+venv before 3.13 and older virtualenv write no `.gitignore`, and people keep
+their own source in the venv root; `test_source_in_a_venv_root_is_kept` is the
+guard (review of L-206 found the first draft dropping it).
+
 ⚠ The marker is the writer's, not ours: every venv tool writes `pyvenv.cfg` at the
 venv root with a `home =` key (PEP 405). The `home` key is checked, not just the
 file name, for the same reason `CACHEDIR.TAG` checks its signature: a file merely
@@ -17,7 +22,11 @@ from pathlib import Path
 import pytest
 
 from jcodemunch_mcp import config as _config
-from jcodemunch_mcp.security import get_skip_virtualenvs, is_virtualenv_directory
+from jcodemunch_mcp.security import (
+    get_skip_virtualenvs,
+    is_virtualenv_directory,
+    is_virtualenv_layout_directory,
+)
 from jcodemunch_mcp.tools.index_folder import (
     _build_index_filters,
     _build_skip_dirs_regex,
@@ -89,6 +98,31 @@ def test_a_pyvenv_cfg_directory_is_not_a_venv(tmp_path):
     assert is_virtualenv_directory(tmp_path / "v") is False
 
 
+@pytest.mark.parametrize("name", ["Lib", "lib", "lib64", "Scripts", "bin", "Include", "include", "LIB"])
+def test_the_interpreter_layout_is_the_layout_by_any_case(tmp_path, name):
+    venv = _venv(tmp_path, "jcm-venv")
+    assert is_virtualenv_layout_directory(name, venv) is True
+
+
+@pytest.mark.parametrize("name", ["src", "app", "tests", "share", "libs"])
+def test_other_children_of_a_venv_root_are_not_layout(tmp_path, name):
+    venv = _venv(tmp_path, "jcm-venv")
+    assert is_virtualenv_layout_directory(name, venv) is False
+
+
+def test_a_layout_name_without_a_venv_parent_is_not_layout(tmp_path):
+    """`lib/` and `bin/` are ordinary source directories everywhere else."""
+    (tmp_path / "lib").mkdir()
+    assert is_virtualenv_layout_directory("lib", tmp_path) is False
+
+
+def test_a_pyvenv_cfg_deeper_down_does_not_reach_up(tmp_path):
+    """Only the direct parent's `pyvenv.cfg` counts."""
+    _venv(tmp_path / "nested", "inner")
+    (tmp_path / "lib").mkdir()
+    assert is_virtualenv_layout_directory("lib", tmp_path) is False
+
+
 # ---------------------------------------------------------------------------
 # The config flag
 # ---------------------------------------------------------------------------
@@ -129,14 +163,31 @@ def test_an_unnamed_venv_is_pruned_and_counted(tmp_path):
     assert warnings == []
 
 
+def test_source_in_a_venv_root_is_kept(tmp_path):
+    """The load-bearing guard: `python -m venv proj` then `proj/src/mine.py`,
+    with no `.gitignore`. The layout goes; the user's source stays."""
+    root = _project(tmp_path)
+    venv = _venv(root, "proj")
+    (venv / "src").mkdir()
+    (venv / "src" / "mine.py").write_text("def mine():\n    return 3\n", encoding="utf-8")
+    (venv / "manage.py").write_text("def run():\n    return 4\n", encoding="utf-8")
+
+    files, _, skip_counts = discover_local_files(root)
+
+    names = {Path(f).name for f in files}
+    assert {"app.py", "mine.py", "manage.py"} <= names
+    assert "api.py" not in names
+    assert skip_counts["virtualenv"] == 1
+
+
 def test_a_project_with_a_lookalike_cfg_keeps_its_source(tmp_path):
-    """The walk half of the home-key guard: a source dir carrying a pyvenv.cfg
-    with no `home` key is indexed."""
+    """The walk half of the home-key guard: a `lib/` beside a pyvenv.cfg with no
+    `home` key is indexed."""
     root = _project(tmp_path)
     pkg = root / "tools"
-    pkg.mkdir()
+    (pkg / "lib").mkdir(parents=True)
     (pkg / "pyvenv.cfg").write_text("version = 3.13.5\n", encoding="utf-8")
-    (pkg / "build.py").write_text("def build():\n    return 2\n", encoding="utf-8")
+    (pkg / "lib" / "build.py").write_text("def build():\n    return 2\n", encoding="utf-8")
 
     files, _, skip_counts = discover_local_files(root)
 
@@ -196,11 +247,22 @@ def test_fast_path_refuses_a_file_inside_a_venv(tmp_path):
 def test_fast_path_keeps_a_file_beside_a_lookalike_cfg(tmp_path):
     root = _project(tmp_path)
     pkg = root / "tools"
-    pkg.mkdir()
+    (pkg / "lib").mkdir(parents=True)
     (pkg / "pyvenv.cfg").write_text("version = 3.13.5\n", encoding="utf-8")
-    (pkg / "build.py").write_text("def build():\n    return 2\n", encoding="utf-8")
+    (pkg / "lib" / "build.py").write_text("def build():\n    return 2\n", encoding="utf-8")
 
-    ok, _reason, _rel, _warning = _should_index_file(pkg / "build.py", _fast_cfg(root))
+    ok, _reason, _rel, _warning = _should_index_file(pkg / "lib" / "build.py", _fast_cfg(root))
+
+    assert ok is True
+
+
+def test_fast_path_keeps_source_in_a_venv_root(tmp_path):
+    root = _project(tmp_path)
+    venv = _venv(root, "proj")
+    (venv / "src").mkdir()
+    (venv / "src" / "mine.py").write_text("def mine():\n    return 3\n", encoding="utf-8")
+
+    ok, _reason, _rel, _warning = _should_index_file(venv / "src" / "mine.py", _fast_cfg(root))
 
     assert ok is True
 
