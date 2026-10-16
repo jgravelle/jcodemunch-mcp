@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Fixed - seven import forms record the names they import
+
+A name the import extractor does not record is a name `find_references`
+answers 0 for and `check_references` counts no import of. Seven common forms
+recorded the edge with no names, or no edge at all (L-177):
+
+- a PHP group use, `use App\Models\{User, Post};`, recorded no edge. Each
+  member is now one edge, as `use App\Models\User;` is;
+- a Kotlin `import a.b.D as E` recorded no edge;
+- a Scala selector, `import a.b.{C, D}`, recorded `a.b` with no names, because
+  the pattern stopped at the first space;
+- a Haskell import list, `import A.B (c, d)`, recorded no names, and
+  `import A.B(c)` with no space recorded the module as `A.B(c)`;
+- a Dart `show` combinator recorded no names;
+- a destructuring `require`, `const {a, b} = require("./m")`, recorded no
+  names;
+- a Python `import os, \` continued on the next line lost `sys`, and recorded
+  the backslash as a module.
+
+Most failed on one line as well as on several. Each reader believes a list only
+when the statement is whole: it closes, and every item has the language's
+shape. Otherwise the reader records what it recorded before, so a brace that
+never closes or a nested destructuring adds no name. `PARSER_GENERATION` moves
+to 25, so an existing index re-reads these files once. Elixir has no import
+extractor at all; that's its own ledger row, L-200.
+
 ## [1.108.369] - 2026-10-15 - indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts
 
 ### Fixed - LSP enrichment no longer runs a Rust project's build scripts

@@ -666,7 +666,13 @@ INDEX_VERSION = 17
 #   enrichment runs only on re-parsed files, so without this bump an edited file
 #   would drop them while untouched files kept them: one index holding both
 #   states, the ranking skew the fix removes.
-PARSER_GENERATION = 24
+#
+# 25 (L-177): import forms that recorded no names, or no edge, record them --
+#   a Python `import` continued by a backslash, a Scala selector, a PHP group
+#   use, a Haskell import list, a Dart `show`, a destructuring `require` and a
+#   Kotlin `as` import. `files.imports` changes on UNCHANGED content, so a
+#   re-parse is the only way an existing index gains the names.
+PARSER_GENERATION = 25
 
 
 @dataclass(frozen=True)
