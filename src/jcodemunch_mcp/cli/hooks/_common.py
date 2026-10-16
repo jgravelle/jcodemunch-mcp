@@ -135,12 +135,10 @@ def _path_overlaps(root: str, source_roots: list[str]) -> bool:
     A filesystem root already ends in a separator (`C:\\`, `/`), so appending
     one more made the ancestor test fail for every root (L-195).
     """
-
-    def _prefix(p: str) -> str:
-        return p if p.endswith(os.sep) else p + os.sep
+    from ...path_prefix import dir_prefix  # noqa: PLC0415  (leaf, stdlib only)
 
     for sr in source_roots:
-        if root == sr or root.startswith(_prefix(sr)) or sr.startswith(_prefix(root)):
+        if root == sr or root.startswith(dir_prefix(sr)) or sr.startswith(dir_prefix(root)):
             return True
     return False
 

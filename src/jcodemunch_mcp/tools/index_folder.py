@@ -46,6 +46,7 @@ from ..security import (
     is_generated_migrations_directory,
     SKIP_FILES
 )
+from .. import path_prefix
 from ..storage import IndexStore
 from ..storage.sqlite_store import PROVIDERS_CUT_KEY
 from ..storage.git_root import (
@@ -437,7 +438,7 @@ class _IndexFilters:
     bundle rather than baked into it.
     """
     root: Path
-    root_prefix: str         # str(root) + os.sep
+    root_prefix: str         # path_prefix.dir_prefix(str(root))
     root_str_norm: str       # os.path.normcase(str(root))
     root_prefix_norm: str    # os.path.normcase(root_prefix)
     follow_symlinks: bool = False
@@ -467,14 +468,8 @@ def _config_skip_flags(repo: str) -> dict:
     }
 
 
-def _dir_prefix(folder: str) -> str:
-    """`folder` with exactly one trailing separator, for a containment check.
-
-    A filesystem root already ends in one (`C:\\`, `/`), so appending another
-    made every file under a drive root fail the check (L-197; the hooks had the
-    same spelling, L-195).
-    """
-    return folder if folder.endswith(os.sep) else folder + os.sep
+# L-197: the containment prefix comes from the one rule (path_prefix.py).
+_dir_prefix = path_prefix.dir_prefix
 
 
 def _build_index_filters(
@@ -1499,7 +1494,7 @@ def discover_local_files(
             try:
                 content = gitignore_path.read_text(encoding="utf-8", errors="replace")
                 spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
-                gitignore_str_specs.append((str(dpath.resolve()) + os.sep, spec))
+                gitignore_str_specs.append((_dir_prefix(str(dpath.resolve())), spec))
             except Exception:
                 pass
 
@@ -1959,7 +1954,7 @@ def index_folder(
                         "gitignore", _gi_content.splitlines()
                     )
                     _fast_gitignore_specs.append(
-                        (str(folder_path.resolve()) + os.sep, _gi_spec)
+                        (_dir_prefix(str(folder_path.resolve())), _gi_spec)
                     )
             except Exception:
                 pass
