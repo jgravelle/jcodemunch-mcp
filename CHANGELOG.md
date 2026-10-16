@@ -24,7 +24,7 @@ recorded the edge with no names, or no edge at all (L-177):
 Most failed on one line as well as on several. Each reader believes a list only
 when the statement is whole: it closes, and every item has the language's
 shape. Otherwise the reader records what it recorded before, so a brace that
-never closes or a nested destructuring adds no name. A file that takes one module both whole and by name (`import * as m` or `const m = require(...)` beside a destructuring of the same file) records it whole, since `m.foo` may reach anything; the names used to absorb the whole, for ES imports too. `PARSER_GENERATION` moves
+never closes or a nested destructuring adds no name. `PARSER_GENERATION` moves
 to 25, so an existing index re-reads these files once. Elixir has no import
 extractor at all; that's its own ledger row, L-200.
 

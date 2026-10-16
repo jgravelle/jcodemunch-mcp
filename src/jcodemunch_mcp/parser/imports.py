@@ -237,14 +237,12 @@ def _extract_js_imports(content: str) -> list[dict]:
         for e in edges:
             if e["specifier"] != specifier:
                 continue
-            # (L-177) [] means the whole module (`import * as m`, `require()`,
-            # a dynamic import), so it wins: a union let `const {a} = require(m)`
-            # beside `const m = require(m)` narrow the edge to `a`, and
-            # `expand_barrel_leaves` stopped crediting what `m.foo` reaches.
-            if not names or not e["names"]:
-                e["names"] = []
-            else:
-                e["names"] = sorted(set(e["names"]) | set(names))
+            # ⚠ A union: [] is "everything" only to `expand_barrel_leaves` and
+            # "nothing" to every other reader (`find_references` indexes a file
+            # under its names), so letting [] win erased real names beside a
+            # type-position `import()` or a commented `require` (L-177 review).
+            # The whole-module fact needs its own field: LEDGER L-201.
+            e["names"] = sorted(set(e["names"]) | set(names))
             if not is_re_export:
                 return
             e["is_re_export"] = True

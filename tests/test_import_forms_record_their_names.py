@@ -91,13 +91,14 @@ RECORDS = {
     "ts destructuring require": ("typescript", 'const { a } = require("./m");\n', {"./m": ["a"]}),
     "js plain require, as before": ("javascript", 'const m = require("./m");\n', {"./m": []}),
     "js rest is everything": ("javascript", 'const { a, ...rest } = require("./m");\n', {"./m": []}),
-    # [] is the whole module and wins a merge: `m.foo` may reach anything (the barrel walk reads it so).
-    "js destructured and whole": ("javascript", 'const {a} = require("./m");\nconst m = require("./m");\n', {"./m": []}),
-    "js whole and destructured": ("javascript", 'const m = require("./m");\nconst {a} = require("./m");\n', {"./m": []}),
-    "ts namespace import and destructured": ("typescript", 'import * as m from "./m";\nconst {a} = require("./m");\n',
-                                             {"./m": []}),
+    # A merge keeps every name: `find_references` finds a file only through them (L-201 is the whole-module half).
     "js two destructurings": ("javascript", 'const {a} = require("./m");\nconst {b} = require("./m");\n',
                               {"./m": ["a", "b"]}),
+    "ts named import beside a type-position import()": (
+        "typescript", "import {a} from './m';\ntype T = import('./m').Foo;\n", {"./m": ["a"]}),
+    "ts named import beside a commented require": (
+        "typescript", "import {a} from './m';\n// const m = require('./m');\n", {"./m": ["a"]}),
+    "ts named import beside a side-effect import": ("typescript", "import './m';\nimport {a} from './m';\n", {"./m": ["a"]}),
     # Kotlin: an aliased import.
     "kotlin alias alone": ("kotlin", "import a.b.D as E\n", {"a.b.D": ["D"]}),
     "kotlin alias after another": ("kotlin", "import a.b.C\nimport a.b.D as E\n", {"a.b.C": ["C"], "a.b.D": ["D"]}),
