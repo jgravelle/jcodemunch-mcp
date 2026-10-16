@@ -2590,6 +2590,12 @@ def index_folder(
         # ── Branch-aware indexing ──
         # Detect current git branch. If a base index exists and we're on a
         # different branch, save as a branch delta instead of overwriting the base.
+        # ⚠⚠ DORMANT (L-196, jjg 2026-10-15): no full save records the base's
+        # branch, so `_base_branch` falls back to the current one and delta mode
+        # never starts; and no reader composes a branch view. The index follows
+        # the checked-out tree, which is what every reader assumes
+        # (tests/test_index_follows_the_checked_out_tree.py). Enabling the
+        # writer without the read path would serve a stale base on a branch.
         _current_branch = _get_git_branch(folder_path)
         _is_branch_delta = False
         _base_branch: str = ""
