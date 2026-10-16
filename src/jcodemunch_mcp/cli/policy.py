@@ -17,6 +17,8 @@ import logging
 import os
 import re
 
+from ..word_rule import word_right
+
 logger = logging.getLogger(__name__)
 
 
@@ -344,7 +346,8 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
 
 _HEADING_RE = re.compile(r"#{1,6}\s")
 # The title opens the heading; an owner's suffix ("... (mine)") still counts.
-_MARKER_HEADING_RE = re.compile(r"#{1,6}[ \t]+" + re.escape(POLICY_MARKER.lstrip("#").strip()) + r"\b.*")
+_MARKER_TITLE = POLICY_MARKER.lstrip("#").strip()
+_MARKER_HEADING_RE = re.compile(r"#{1,6}[ \t]+" + re.escape(_MARKER_TITLE) + word_right(_MARKER_TITLE) + ".*")
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:
