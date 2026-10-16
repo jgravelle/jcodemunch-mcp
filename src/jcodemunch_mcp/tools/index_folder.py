@@ -37,12 +37,14 @@ from ..security import (
     get_skip_directories,
     get_skip_msbuild_output,
     get_skip_nuget_packages,
+    get_skip_virtualenvs,
     get_skip_generated_migrations,
     is_cache_directory,
     is_dotnet_project_dir,
     is_msbuild_output_directory,
     is_msbuild_output_path,
     is_nuget_packages_directory,
+    is_virtualenv_directory,
     is_generated_migrations_directory,
     SKIP_FILES
 )
@@ -451,6 +453,7 @@ class _IndexFilters:
     respect_cachedir_tag: bool = True
     skip_msbuild_output: bool = True
     skip_nuget_packages: bool = True
+    skip_virtualenvs: bool = True
     skip_generated_migrations: bool = True
 
 
@@ -464,6 +467,7 @@ def _config_skip_flags(repo: str) -> dict:
         "respect_cachedir_tag": get_respect_cachedir_tag(repo=repo),
         "skip_msbuild_output": get_skip_msbuild_output(repo=repo),
         "skip_nuget_packages": get_skip_nuget_packages(repo=repo),
+        "skip_virtualenvs": get_skip_virtualenvs(repo=repo),
         "skip_generated_migrations": get_skip_generated_migrations(repo=repo),
     }
 
@@ -485,6 +489,7 @@ def _build_index_filters(
     respect_cachedir_tag: bool = True,
     skip_msbuild_output: bool = True,
     skip_nuget_packages: bool = True,
+    skip_virtualenvs: bool = True,
     skip_generated_migrations: bool = True,
 ) -> _IndexFilters:
     """Bundle pre-computed filter config for ``_should_index_file``.
@@ -508,6 +513,7 @@ def _build_index_filters(
         respect_cachedir_tag=respect_cachedir_tag,
         skip_msbuild_output=skip_msbuild_output,
         skip_nuget_packages=skip_nuget_packages,
+        skip_virtualenvs=skip_virtualenvs,
         skip_generated_migrations=skip_generated_migrations,
     )
 
@@ -620,6 +626,9 @@ def _should_index_file(
                 ancestor.name, ancestor
             ):
                 return False, "nuget_packages", rel_path, None
+            # A Python virtualenv by its own `pyvenv.cfg` (L-206), same rule as the walk.
+            if cfg.skip_virtualenvs and is_virtualenv_directory(ancestor):
+                return False, "virtualenv", rel_path, None
             if cfg.skip_generated_migrations and is_generated_migrations_directory(
                 ancestor.name, ancestor
             ):
@@ -1342,6 +1351,7 @@ def discover_local_files(
     respect_cachedir_tag = _flags["respect_cachedir_tag"]
     skip_msbuild_output = _flags["skip_msbuild_output"]
     skip_nuget_packages = _flags["skip_nuget_packages"]
+    skip_virtualenvs = _flags["skip_virtualenvs"]
     skip_generated_migrations = _flags["skip_generated_migrations"]
     files = []
     warnings = []
@@ -1352,6 +1362,7 @@ def discover_local_files(
         "nested_worktree": 0,
         "msbuild_output": 0,
         "nuget_packages": 0,
+        "virtualenv": 0,
         "generated_migrations": 0,
         "skip_file": 0,
         "symlink": 0,
@@ -1426,6 +1437,7 @@ def discover_local_files(
         caches = []
         msbuild = []
         nuget = []
+        venvs = []
         migrations = []
         kept = []
         # `filenames` is this directory's entries, already walked, so the .NET
@@ -1449,6 +1461,12 @@ def discover_local_files(
             # either way.
             elif respect_cachedir_tag and is_cache_directory(dpath / d):
                 caches.append(d)
+            # A Python virtualenv under any name, declared by its own
+            # `pyvenv.cfg` (L-206). One open() per directory, like the
+            # CACHEDIR.TAG check above; a directory named `venv`/`.venv` never
+            # gets here because the name rule prunes it first.
+            elif skip_virtualenvs and is_virtualenv_directory(dpath / d):
+                venvs.append(d)
             # A NuGet restore tree. Checked LAST because it is the only rule here
             # that can cost more than one syscall — up to one stat per child dir —
             # and that cost is gated behind a `packages` name compare, so every
@@ -1463,7 +1481,7 @@ def discover_local_files(
                 migrations.append(d)
             else:
                 kept.append(d)
-        if pruned or worktrees or caches or msbuild or nuget or migrations:
+        if pruned or worktrees or caches or msbuild or nuget or venvs or migrations:
             rel_dir = os.path.relpath(dirpath, root_str)
             for d in pruned:
                 skip_counts["skip_dir"] += 1
@@ -1482,6 +1500,9 @@ def discover_local_files(
             for d in nuget:
                 skip_counts["nuget_packages"] += 1
                 logger.debug("SKIP nuget_packages: %s", os.path.join(rel_dir, d))
+            for d in venvs:
+                skip_counts["virtualenv"] += 1
+                logger.debug("SKIP virtualenv: %s", os.path.join(rel_dir, d))
             for d in migrations:
                 skip_counts["generated_migrations"] += 1
                 logger.debug("SKIP generated_migrations: %s", os.path.join(rel_dir, d))
