@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - a Python virtualenv is skipped whatever its folder is called
+
+`index_folder` skipped a virtualenv only when its folder was named `venv` or
+`.venv`. A venv called `env`, `jcm-venv` or `py313` was walked file by file,
+and where nothing else excluded it (a stdlib venv before Python 3.13 or an
+older virtualenv writes no `.gitignore`, and only uv writes a `CACHEDIR.TAG`)
+its site-packages entered the index, competed with your own code in ranking
+and used up `max_folder_files`. On a workspace holding several such venvs the
+index timed out (ledger L-206, from our own dogfooding). Every venv tool writes
+`pyvenv.cfg` with a `home =` key at the venv root (PEP 405), so the walk and
+the file watcher now prune the interpreter layout beneath such a root: `Lib`,
+`lib`, `lib64`, `Scripts`, `bin`, `Include` and `include`. The venv root
+itself is never pruned, so source you keep beside them stays indexed, and a
+file merely named `pyvenv.cfg` with no `home` key prunes nothing. A newer venv
+that its own `.gitignore` already hid is now pruned at the folder instead of
+file by file. Skips are counted as `virtualenv` in `discovery_skip_counts`;
+`skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0` turns it off.
+SECURITY.md describes the rule.
+
 ## [1.108.373] - 2026-10-16 - claude-md --refresh can write the policy your server uses
 
 ### Fixed - `claude-md --refresh` can write the policy your server uses
