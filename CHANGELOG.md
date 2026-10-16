@@ -17,8 +17,8 @@ from the one it would write, and `--match-server` writes this version's policy
 for the server's settings, with the same diff, question and backup. The
 record holds settings, never text, so an edited record can only choose which
 of jcodemunch's own policies is written; one it can't read writes nothing.
-`config --check` says when a block it reads as differing matches the policy
-for the server's settings. SECURITY.md describes the marker's new field.
+`config --check` and `init` say when a block they read as differing matches
+the policy for the server's settings. SECURITY.md describes the marker's new field.
 
 ## [1.108.372] - 2026-10-16 - uninstall keeps your own section after the policy
 
