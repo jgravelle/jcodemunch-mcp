@@ -282,6 +282,12 @@ def discover_providers(
                 finished, exc = True, e
 
         elapsed = time.monotonic() - started
+        # A provider that polls budget_expired() returns on its own at the
+        # deadline, so the watchdog can see it finish with part of its work
+        # (L-190). That is an overrun too: keeping the partial context would
+        # make what an index carries depend on which thread won the race.
+        if finished and exc is None and budget > 0 and outcome.get("detected") and provider.budget_expired():
+            finished = False
         if not finished:
             logger.warning(
                 "Context provider '%s' exceeded its %.1fs budget and was skipped; "

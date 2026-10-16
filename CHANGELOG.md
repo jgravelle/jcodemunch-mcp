@@ -31,6 +31,28 @@ Never Runs Indexed Code Itself", which names the one exception you switch on:
 LSP enrichment starts language servers, and `rust-analyzer` runs a Rust
 project's build scripts and procedural macros by default.
 
+### Fixed - a context provider that runs out of time runs again on the next index
+
+Every context provider runs under a 30-second budget
+(`JCODEMUNCH_PROVIDER_BUDGET_SECONDS`), and its tags and property names become
+search keywords, so what an index held depended on how busy the machine was
+when it was built (L-190, the L-188 class at a higher threshold). A provider
+past the budget was skipped for that pass and never ran again for the files
+an incremental pass leaves alone. The Express provider, which checks the
+clock between files, could return first with part of its routes and be kept.
+Now an overrun is a cut however the provider stopped, the index records it as
+`context_metadata.providers_cut`, and the next `index_folder` over the whole
+tree re-parses every file so the provider runs again (`rebuild_reason:
+"context_provider_cut"`). A pass that reads only part of the tree (`paths=`, a
+watched edit, the edit hook's `index_file`, a subdir walk) keeps the record:
+every delta save carries it, so a writer added later cannot erase it either.
+The budget is unchanged, so an index built on a slow pass still ranks
+differently until the next one. A provider that runs out of time on EVERY pass
+now makes every `index_folder` a full re-parse, which on the large repository
+a slow provider suggests is the expensive case. The warning says so and names
+the two ways out: raise `JCODEMUNCH_PROVIDER_BUDGET_SECONDS`, or set
+`context_providers` to false.
+
 ## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
 
 ### Changed - a session lists only its own workspace's indexes by default
