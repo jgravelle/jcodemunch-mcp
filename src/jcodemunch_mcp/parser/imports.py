@@ -1226,10 +1226,15 @@ _DART_IMPORT = re.compile(
 
 # (L-177) What may follow a Dart URI up to its `;`: a prefix, `show`/`hide`
 # combinators and configurable-import conditions, on any number of lines.
+# ⚠⚠ Every keyword and every name ends on `\b`. Without it `\w+` could stop
+# inside a word and let the next keyword start there (`0deferred` read as `0`
+# then `deferred`), so a clause had exponentially many readings and a line of
+# `as 0deferred as 0deferred ...` with no `;` backtracked through all of them
+# (CodeQL on the L-177 PR; 18 repeats took 0.35 s and each 2 more took 4x).
 _DART_CLAUSE = re.compile(
-    r"""((?:\s*(?:deferred\s+)?as\s+\w+"""
-    r"""|\s*(?:show|hide)\s+\w+(?:\s*,\s*\w+)*"""
-    r"""|\s*if\s*\([^()]*\)\s*['"][^'"]*['"])*)\s*;"""
+    r"""((?:\s*\b(?:deferred\s+)?as\s+\w+\b"""
+    r"""|\s*\b(?:show|hide)\s+\w+\b(?:\s*,\s*\w+\b)*"""
+    r"""|\s*\bif\s*\([^()]*\)\s*['"][^'"]*['"])*)\s*;"""
 )
 _DART_SHOW = re.compile(r"""\bshow\s+(\w+(?:\s*,\s*\w+)*)""")
 

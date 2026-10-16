@@ -128,6 +128,41 @@ def test_a_statement_that_is_not_whole_adds_no_name(case):
     assert _edges(src, language) == want
 
 
+DART_BACKTRACK = {
+    # CodeQL's three witnesses for the first `_DART_CLAUSE`: no `;`, so the regex must fail, and it
+    # tried every way to split each word between a name and the next keyword (2 more repeats, 4x the time).
+    "as": "as " + "0deferred as " * 60 + "!",
+    "show": "show " + "0deferred as 0hide " * 60 + "!",
+    "show list": "show 0," + "0deferred as 0hide 0," * 60 + "!",
+}
+
+
+@pytest.mark.parametrize("case", sorted(DART_BACKTRACK))
+def test_a_dart_clause_that_never_ends_fails_without_backtracking(case):
+    """Run in a child so an exponential regex is killed, not left to hang the suite.
+
+    At 60 repeats the old pattern needed on the order of 2**40 times its 18-repeat cost;
+    the fixed one reads each word one way, so the child returns at once.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src_dir = Path(__file__).resolve().parents[1] / "src"
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]);"
+        "from jcodemunch_mcp.parser.imports import extract_imports;"
+        "print(extract_imports(sys.argv[2], 'm.dart', 'dart'))"
+    )
+    src = "import 'a.dart' " + DART_BACKTRACK[case] + "\n"
+    out = subprocess.run(
+        [sys.executable, "-c", code, str(src_dir), src],
+        capture_output=True, text=True, encoding="utf-8", timeout=60, stdin=subprocess.DEVNULL,
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[{'specifier': 'a.dart', 'names': []}]", out.stdout
+
+
 def test_the_parser_generation_moved_so_stored_indexes_re_read_these_files():
     """`files.imports` changes on unchanged content; without the bump an existing index keeps the empty lists."""
     from jcodemunch_mcp.storage.index_store import PARSER_GENERATION
