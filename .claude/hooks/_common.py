@@ -482,11 +482,15 @@ def timing_threshold_ids() -> frozenset[str]:
 def timing_only_failures(summary: str | None) -> list[str]:
     """The failing Floor ids when EVERY failure in a harness summary is a timing row; else [].
 
-    ⚠ UNKNOWN blocks: no summary, a pending block, a `HARNESS FAIL` with no
+    ⚠ UNKNOWN blocks: no summary, a pending block, a failing summary with no
     FAIL row, a red pytest line, or an unreadable thresholds file all return [],
     which callers read as a real failure.
+
+    ⚠ A real `--summary` file carries `## harness <tier>: FAIL` and `**FAIL**`
+    rows, never the literal `HARNESS FAIL` (that goes to stdout). The first
+    draft required it and never fired; its fixtures had invented the line.
     """
-    if not summary or PENDING_MARK in summary or "HARNESS FAIL" not in summary:
+    if not summary or PENDING_MARK in summary:
         return []
     if _PYTEST_RED_RE.search(summary):
         return []

@@ -28,13 +28,58 @@ import dod_checklist  # noqa: E402
 
 
 def _summary(*rows: tuple[str, str], pytest_line: str = "17595 passed, 25 skipped in 377.54s") -> str:
-    body = "\n".join(f"| `{rid}` | N1 | <= 1 | 2 | **{verdict}** |" for rid, verdict in rows)
+    """A summary in the shape `harness --summary` writes: a `**FAIL**` cell for a
+    failing row, a bare `PASS` otherwise, and never a literal `HARNESS FAIL`."""
+    body = "\n".join(
+        f"| `{rid}` | N1 | <= 1 | 2 | {'**FAIL**' if verdict == 'FAIL' else verdict} |" for rid, verdict in rows
+    )
     failed = any(v == "FAIL" for _, v in rows)
     return (
         f"## harness full: {'FAIL' if failed else 'PASS'}\n\n"
         "| threshold | criterion | floor | observed | verdict |\n|---|---|---|---|---|\n"
-        f"{body}\n\n```\n{pytest_line}\n```\n" + ("\nHARNESS FAIL\n" if failed else "")
+        f"{body}\n\n```\n{pytest_line}\n```\n"
     )
+
+
+# Verbatim from real runs on 2026-10-16 (F-50's full tier; #1117's trial merge, trimmed).
+REAL_FULL_TIMING_ONLY = """## harness full: FAIL
+
+| threshold | criterion | floor | observed | verdict |
+|---|---|---|---|---|
+| `coverage.min` | N2 | >= 74 | 84 | PASS |
+| `ci.skips_windows` | N7 | <= 25 | 25 | PASS |
+| `suite.full_seconds` | N1 | <= 360 | 698.74 | **FAIL** |
+
+```
+17595 passed, 25 skipped, 45 warnings in 694.84s (0:11:34)
+```
+
+xdist workers: 4
+"""
+
+REAL_FAST_SKIPS_AND_TIMING = """## harness fast: FAIL
+
+| threshold | criterion | floor | observed | verdict |
+|---|---|---|---|---|
+| `suite.fast_skips_max` | N7 | <= 15 | 115 | **FAIL** |
+| `release.unreleased_max_hours` | N8 | <= 2 | 1.15 | PASS |
+| `suite.fast_seconds` | N1 | <= 90 | 171.67 | **FAIL** |
+
+```
+1316 passed, 115 skipped, 121 warnings in 164.81s (0:02:44)
+All checks passed!
+```
+"""
+
+
+def test_a_real_timing_only_full_summary_is_deferred():
+    """The first draft required a literal `HARNESS FAIL` no real summary carries,
+    so this case returned [] and the stamp stayed red."""
+    assert _common.timing_only_failures(REAL_FULL_TIMING_ONLY) == ["suite.full_seconds"]
+
+
+def test_a_real_summary_with_a_skip_ceiling_failure_blocks():
+    assert _common.timing_only_failures(REAL_FAST_SKIPS_AND_TIMING) == []
 
 
 # ---------------------------------------------------------------------------
