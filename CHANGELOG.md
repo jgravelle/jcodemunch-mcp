@@ -26,9 +26,10 @@ package makes none, but four places carried the text: an MCP prompt sentence,
 a test fixture, a test's busy-wait, and recorded munch-bench model answers
 quoting Flask. The prompt now says "dynamic code execution", the fixture joins
 the name at run time, the busy-wait is a plain loop, and `munch-bench/results/`
-leaves the sdist (nothing installed reads it). SECURITY.md gains "Indexed Code
-Is Never Run", which names the remaining word matches and the programs
-jcodemunch starts.
+leaves the sdist (nothing installed reads it). SECURITY.md gains "jcodemunch
+Never Runs Indexed Code Itself", which names the one exception you switch on:
+LSP enrichment starts language servers, and `rust-analyzer` runs a Rust
+project's build scripts and procedural macros by default.
 
 ## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
 

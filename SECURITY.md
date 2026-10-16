@@ -151,21 +151,27 @@ Binary files are excluded using a two-stage check:
 
 ---
 
-## Indexed Code Is Never Run
+## jcodemunch Never Runs Indexed Code Itself
 
 jcodemunch reads the files it indexes as text and parses them with tree-sitter
 and regular expressions. It never imports, evaluates or executes them, and no
-file in the package calls Python's dynamic-execution built-ins or builds a
-JavaScript function from a string. `tests/test_shipped_text_has_no_dynamic_code_calls.py`
-scans every file the sdist ships for those calls.
+file in the package calls `eval` or `exec` or builds a JavaScript function from
+a string. `tests/test_shipped_text_has_no_dynamic_code_calls.py` scans every
+file the sdist ships for that call text.
+
+**One exception you switch on: LSP enrichment** (`enrichment.lsp_enabled` in
+`config.jsonc`, off by default). It starts the language server for each indexed language (`pyright`,
+`typescript-language-server`, `gopls`, `rust-analyzer`), and each server
+follows its own rules. `rust-analyzer` runs a Rust project's build scripts and
+procedural macros by default, and other servers may load code the project
+names. Turn LSP enrichment on only for repositories you trust.
 
 The words `eval` and `exec` still appear as data: names the `search_ast`
 security detector and other checks look for in *your* code, language keywords
 the parsers recognise (Tcl's `namespace eval`), and `ast.literal_eval`, which
-parses Python literals and runs nothing. The programs jcodemunch starts, such as
-`git` or an opt-in language server, read your repository without running code
-from it; anything that persists or touches the network is described under
-"Background behavior, fully disclosed" below.
+parses Python literals and runs nothing. Anything jcodemunch starts that
+persists or touches the network is described under "Background behavior,
+fully disclosed" below.
 
 ---
 
