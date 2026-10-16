@@ -1,6 +1,12 @@
 {
-  "current": "1.108.370",
+  "current": "1.108.371",
   "entries": [
+    {
+      "version": "1.108.371",
+      "date": "2026-10-16",
+      "title": "a schema's dead-code advice follows the right evidence",
+      "summary": "find_dead_code and check_delete_safe never certify a .xsd or .wsdl with no importer, and the advice they give depends on whether the repository looks like .NET. A Razor or Blazor tree now counts as .NET, and a bare .fs file no longer does, so a GLSL shader no longer makes a Maven repository read as .NET. Every schema stays capped either way; only the advice changes."
+    },
     {
       "version": "1.108.370",
       "date": "2026-10-16",
@@ -18,12 +24,6 @@
       "date": "2026-10-15",
       "title": "a context provider that runs out of time runs again on the next index",
       "summary": "A context provider past its time budget used to be skipped for that pass and never run again for the files an incremental pass leaves alone, so what an index held depended on how busy the machine was. The index now records the cut, and the next index over the whole tree re-parses every file so the provider runs again; partial passes keep the record. The steering hooks also recognise a search over a whole drive, and the published package no longer spells a code-execution call it doesn't make. SECURITY.md names LSP enrichment as the one opt-in path that can run repository code."
-    },
-    {
-      "version": "1.108.367",
-      "date": "2026-10-15",
-      "title": "a session lists only its own workspace's indexes by default",
-      "summary": "`list_repos` shows the indexes whose folder is the server's working directory, inside it, or containing it, and says how many it hid. A bare name that matches several indexes picks the one in the workspace. An exact `owner/name` or a path still loads any index, and the `cross_repo` tools are unchanged. A server started in the home folder, above it, at a filesystem root, or where no index lives lists everything and says so. `\"repo_visibility\": \"all\"` restores the old listing. It scopes what a session is shown, not who can read."
     }
   ]
 }

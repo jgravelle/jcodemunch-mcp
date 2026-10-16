@@ -2651,3 +2651,13 @@ The 1.108.367 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.367 count, verbatim:
 
 - ⚠ Prior (1.108.367): 17456 passed, 25 skipped, **0 failed** (17481 total).
+
+## Current State rotation (2026-10-16, release 1.108.371)
+
+The 1.108.368 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.368):** **a context provider that runs out of time runs again on the next index** (L-190): the cut is stored as `context_metadata.providers_cut` and every delta save keeps it. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.368 count, verbatim:
+
+- ⚠ Prior (1.108.368): 17476 passed, 25 skipped, **0 failed** (17501 total).

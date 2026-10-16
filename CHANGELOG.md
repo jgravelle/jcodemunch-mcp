@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.371] - 2026-10-16 - a schema's dead-code advice follows the right evidence
+
 ### Fixed - a schema's dead-code advice follows the right evidence
 
 `find_dead_code` and `check_delete_safe` never certify a `.xsd` or `.wsdl` with
