@@ -22,6 +22,26 @@ of jcodemunch's own policies is written; one it can't read writes nothing.
 `config --check` and `init` say when a block they read as differing matches
 the policy for the server's settings. SECURITY.md describes the marker's new field.
 
+### Fixed - audit reliability
+
+- Repositories with more than 100 dead-code candidates no longer have
+  `dead_code_pct` understated by the truncated result list. Published health
+  percentages and grades can move upward for those repositories.
+- A live React component consumed as JSX, and a React class lifecycle method,
+  are no longer offered for deletion as code with no callers. The no-store
+  direct fallback no longer crashes on a `.tsx` symbol.
+- Structured AST searches keep language metadata and indexed symbol-less files.
+  Exact `re.compile` calls and literal timer callbacks are no longer reported
+  as dynamic-code execution, ellipsis-only exception handlers are recognized,
+  and test-path context no longer lowers the severity of a secret finding.
+- Project intelligence now uses the same linked-worktree boundary as indexing:
+  files in old-form submodules are reported, while linked worktrees stay
+  outside the parent inventory. A scoped query follows that same boundary.
+- Unresolved references to external or global tools are informational, not
+  stale-symbol warnings.
+- Signal-chain gateways reuse source-content and callee resolution instead of
+  repeating that work for each gateway while retaining complete chains.
+
 ## [1.108.372] - 2026-10-16 - uninstall keeps your own section after the policy
 
 ### Fixed - `uninstall` no longer deletes your own section after the policy
