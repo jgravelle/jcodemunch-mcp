@@ -899,8 +899,13 @@ def _stamp_provider_cut(
         out = dict(getattr(existing, "context_metadata", None) or {})
     else:
         out = {}
-    out[PROVIDERS_CUT_KEY] = sorted(cut)
-    return out
+    if cut:
+        out[PROVIDERS_CUT_KEY] = sorted(cut)
+        return out
+    # A healed record leaves no empty key behind; a full save starting from
+    # nothing goes back to None, as it was before any cut.
+    out.pop(PROVIDERS_CUT_KEY, None)
+    return out if (out or meta is not None or carry_existing) else None
 
 
 def _attach_provider_skips(result: dict, folder_path: Path) -> None:

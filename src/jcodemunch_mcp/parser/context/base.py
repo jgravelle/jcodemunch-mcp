@@ -286,7 +286,7 @@ def discover_providers(
         # deadline, so the watchdog can see it finish with part of its work
         # (L-190). That is an overrun too: keeping the partial context would
         # make what an index carries depend on which thread won the race.
-        if finished and exc is None and budget > 0 and provider.budget_expired():
+        if finished and exc is None and budget > 0 and outcome.get("detected") and provider.budget_expired():
             finished = False
         if not finished:
             logger.warning(

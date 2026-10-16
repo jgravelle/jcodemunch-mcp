@@ -194,6 +194,39 @@ def test_a_watched_edit_keeps_the_cut(slowable, project):
     assert _stored_cut(r, store) == ["slowable"]
 
 
+def test_a_watched_edit_after_a_restart_records_a_new_cut(slowable, project, monkeypatch):
+    """The fast path rediscovers providers on a cache miss (a restarted
+    server); a cut there leaves the edited files without the context, so it is
+    recorded like any other."""
+    src, store = project
+    first = _index(src, store)
+    assert not _stored_cut(first, store)
+
+    monkeypatch.setattr(index_folder_mod, "_PROVIDER_CACHE", {})
+    slowable.SLOW = True
+    target = src / "b.py"
+    target.write_text("def beta():\n    return 8\n", encoding="utf-8")
+    r = _index(src, store, changed_paths=[("modified", str(target))])
+
+    assert _stored_cut(r, store) == ["slowable"]
+
+
+def test_a_provider_that_does_not_apply_is_never_a_cut(slowable, tmp_path, monkeypatch):
+    """detect() answering no just past the deadline cut nothing."""
+
+    class _Late(_Slowable):
+        def detect(self, folder_path):
+            while not self.budget_expired():
+                time.sleep(0.01)
+            return False
+
+    monkeypatch.setattr(ctx_base, "_PROVIDER_CLASSES", [_Late])
+    monkeypatch.setattr(ctx_base, "_run_with_budget", lambda fn, seconds: (fn(), (True, None))[1])
+    skipped: list = []
+    assert discover_providers(tmp_path, budget_seconds=0.3, skipped=skipped) == []
+    assert skipped == []
+
+
 def test_a_hook_driven_single_file_reindex_keeps_the_cut(slowable, project):
     """`index_file` (the PostToolUse hook's writer) hands `incremental_save` a
     metadata dict built from the active providers alone, which REPLACES the
