@@ -11,13 +11,14 @@ disabled tools) set only for the client, the server said your CLAUDE.md block
 differed, the command wrote the policy for the shell's settings, and the
 server still read the block as differing. Neither side said why, and
 `config --check` had the same blind spot (L-185). The server's notice now
-records the policy text it compared against. The command says when that isn't
-the policy it would write, and `--match-server` writes the server's policy,
-with the same diff, question and backup. It refuses a record whose text
-doesn't match its digest, or one written by a server running another version,
-whose policy would be another version's. `config --check` says when a block
-it reads as differing matches the server's policy. SECURITY.md describes the
-marker's new field.
+records the settings it chose its policy from: the tool surface and the names
+of the tools it offered. The command says when those give a different policy
+from the one it would write, and `--match-server` writes this version's policy
+for the server's settings, with the same diff, question and backup. The
+record holds settings, never text, so an edited record can only choose which
+of jcodemunch's own policies is written; one it can't read writes nothing.
+`config --check` says when a block it reads as differing matches the policy
+for the server's settings. SECURITY.md describes the marker's new field.
 
 ## [1.108.372] - 2026-10-16 - uninstall keeps your own section after the policy
 

@@ -226,9 +226,32 @@ def active_policy() -> str:
     outright rather than being filtered down to the three surviving names --
     filtering a workflow away leaves an agent with no workflow at all.
     """
-    if _effective_tool_surface() == "counter":
+    return policy_for(**policy_inputs())
+
+
+def policy_inputs() -> dict:
+    """What THIS process's policy is chosen from: ``{"surface", "tools"}``.
+
+    ``tools`` is the sorted tool names the policy is filtered to, or ``None``
+    for no filtering (and always ``None`` under ``counter``, whose policy is
+    not filtered). ``claude-md --refresh --match-server`` rebuilds the server's
+    policy from the inputs the server recorded, with this version's text, so a
+    record can choose WHICH of jcodemunch's policies is written and never
+    supply text of its own (review of L-185).
+    """
+    surface = _effective_tool_surface()
+    if surface == "counter":
+        return {"surface": "counter", "tools": None}
+    active = _get_active_tools()
+    # Any value but `counter` serves the full surface (CLI-AND-ENV: JCODEMUNCH_TOOL_SURFACE).
+    return {"surface": "full", "tools": None if active is None else sorted(active)}
+
+
+def policy_for(surface: str, tools) -> str:
+    """The policy for *surface*, filtered to *tools* (``None``: unfiltered). Pure; text is only ever ours."""
+    if surface == "counter":
         return _CLAUDE_MD_POLICY_COUNTER
-    return _filter_policy_for_tools(_CLAUDE_MD_POLICY, _get_active_tools())
+    return _filter_policy_for_tools(_CLAUDE_MD_POLICY, None if tools is None else set(tools))
 
 
 

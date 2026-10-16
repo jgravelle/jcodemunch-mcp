@@ -9234,7 +9234,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                     from .cli.policy_refresh import matches_server_policy as _matches_server
 
                     if _matches_server(cm_content):
-                        print(f"  {dim('  It matches the policy the running server selected: a setting that chooses the policy differs between the MCP client environment and this shell.')}")
+                        print(f"  {dim('  It matches the policy for the settings the server had when it last said a block differs; a setting that chooses the policy may differ between the MCP client environment and this shell.')}")
                     print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate --format policy')}")
                     print(f"  {dim('  To replace it (shows the diff, asks first, keeps a backup): jcodemunch-mcp claude-md --refresh')}")
                     # A warning, never an issue (review of #871): a block its
