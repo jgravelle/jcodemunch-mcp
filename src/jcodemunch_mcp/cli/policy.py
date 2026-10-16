@@ -249,7 +249,7 @@ def _normalise(lines) -> list[str]:
     return [ln.rstrip() for ln in lines if ln.strip()]
 
 
-def installed_policy_drift(text: str) -> dict | None:
+def installed_policy_drift(text: str, policy: str | None = None) -> dict | None:
     """Does the policy block in a CLAUDE.md match what this version installs? (#871)
 
     ``None`` when the text holds no policy block (nothing to compare: the
@@ -262,11 +262,15 @@ def installed_policy_drift(text: str) -> dict | None:
     not a difference; indentation is. ⚠ "differs" cannot tell an outdated block from one its owner
     edited on purpose; the caller must say so, and must never rewrite it
     (the ``surface_offer`` rule: a message, never a migration).
+
+    *policy* is the text to compare against, ``active_policy()`` when omitted;
+    ``claude-md --refresh --match-server`` passes the policy the server
+    recorded, which its environment may select differently (L-185).
     """
     installed = installed_policy_block(text)
     if installed is None:
         return None
-    current = _normalise(active_policy().splitlines())
+    current = _normalise((active_policy() if policy is None else policy).splitlines())
     if installed == current:
         return {"state": "current"}
     import difflib

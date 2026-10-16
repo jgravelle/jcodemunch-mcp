@@ -75,21 +75,24 @@ def policy_files() -> list[tuple[str, Path]]:
     return out
 
 
-def plan_refresh(path: Path) -> dict:
+def plan_refresh(path: Path, policy: str | None = None) -> dict:
     """What a refresh of *path* would do. Reads only.
 
     ``{"state": "no_file" | "no_block" | "current" | "unreadable"}``, or
     ``{"state": "differs", "lines_differing", "old_text", "new_text", "diff"}``
     where ``new_text`` is the file with only the block replaced, in the file's
-    own line endings.
+    own line endings. *policy* is the block to write, this process's
+    ``active_policy()`` when omitted.
     """
+    if policy is None:
+        policy = active_policy()
     if not path.is_file():
         return {"state": "no_file"}
     try:
         old_text = path.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         return {"state": "unreadable", "reason": str(exc)}
-    drift = installed_policy_drift(old_text)
+    drift = installed_policy_drift(old_text, policy)
     if drift is None:
         return {"state": "no_block"}
     if drift["state"] == "current":
@@ -111,7 +114,7 @@ def plan_refresh(path: Path) -> dict:
     trailing: list[str] = []
     while block and not block[-1].strip():
         trailing.insert(0, block.pop())
-    body = active_policy().replace("\r\n", "\n")
+    body = policy.replace("\r\n", "\n")
     if not body.endswith("\n"):
         body += "\n"
     body = body.replace("\n", newline)
@@ -120,7 +123,7 @@ def plan_refresh(path: Path) -> dict:
         body = body[: -len(newline)]  # the file had no final newline; it still has none
     new_text = bom + "".join(raw[:start]) + body + "".join(trailing) + "".join(raw[end:])
 
-    after = installed_policy_drift(new_text)
+    after = installed_policy_drift(new_text, policy)
     if after != {"state": "current"}:
         # Never write a file this module cannot then call current.
         return {"state": "unreadable", "reason": f"the replacement does not read as current ({after})"}
@@ -176,15 +179,71 @@ def apply_refresh(path: Path, plan: dict, *, now: datetime | None = None) -> Pat
     return backup
 
 
-def run_refresh(*, yes: bool = False, dry_run: bool = False, out=print) -> int:
-    """`claude-md --refresh`. Exit status: 0 done or nothing to do, 1 a file could not be read or written."""
+def server_policy() -> tuple[dict | None, str]:
+    """The policy the server last compared a block against, from the notice's marker (L-185).
+
+    ``({"text", "version", "shown_at"}, "")``, or ``(None, why)``. The server
+    picks its policy from ITS environment and the command from the shell's, so
+    a setting set only in the MCP client's environment makes the two differ.
+    ⚠ The text is used only when its sha256 is the digest recorded beside it.
+    """
+    try:
+        marker = _marker_path()
+        if not marker.is_file():
+            return None, "nothing is recorded"
+        rec = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.debug("policy notice marker unreadable", exc_info=True)
+        return None, "the record is unreadable"
+    text = rec.get("policy_text") if isinstance(rec, dict) else None
+    if not isinstance(text, str):
+        return None, "the record holds no policy text (an older version wrote it)"
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != rec.get("policy_digest"):
+        return None, "the recorded policy text does not match its digest"
+    return {"text": text, "version": str(rec.get("version", "")), "shown_at": str(rec.get("shown_at", ""))}, ""
+
+
+def matches_server_policy(text: str) -> bool | None:
+    """Does the policy block in *text* match the one the server recorded? ``None``: nothing usable is recorded."""
+    rec, _why = server_policy()
+    if rec is None:
+        return None
+    return installed_policy_drift(text, rec["text"]) == {"state": "current"}
+
+
+def run_refresh(*, yes: bool = False, dry_run: bool = False, match_server: bool = False, out=print) -> int:
+    """`claude-md --refresh`. Exit status: 0 done or nothing to do, 1 a file could not be read or written,
+    or ``--match-server`` had no policy it could use."""
+    from .. import __version__
     from .init import ensure_config_loaded
 
     ensure_config_loaded()
+    rec, why = server_policy()
+    if match_server:
+        if rec is None:
+            out(f"--match-server: not written: {why}. The server records its policy when its first "
+                "resolve_repo answer says a block differs.")
+            return 1
+        if rec["version"] != __version__:
+            out(f"--match-server: not written: the server that recorded it ran version {rec['version'] or 'unknown'}, "
+                f"and this is {__version__}. Restart the server, let it answer resolve_repo, then run this again.")
+            return 1
+        policy = rec["text"]
+    else:
+        policy = active_policy()
+        if rec is not None and rec["text"] != policy:
+            if rec["version"] == __version__:
+                out(f"The jcodemunch server selected a different policy when it last checked ({rec['shown_at']}). "
+                    "A setting that chooses it (tool_surface, tool_profile or disabled_tools) has a different value "
+                    "in the MCP client's environment than in this shell. This command writes this shell's policy; "
+                    "--match-server writes the server's instead.")
+            else:
+                out(f"The jcodemunch server last checked with version {rec['version'] or 'unknown'} "
+                    f"({rec['shown_at']}), and this is {__version__}; restart it to serve this version.")
     status = 0
     acted = False
     for scope, path in policy_files():
-        plan = plan_refresh(path)
+        plan = plan_refresh(path, policy)
         state = plan["state"]
         if state in ("no_file", "no_block", "current"):
             continue
@@ -229,8 +288,8 @@ def _marker_path() -> Path:
     return notice_marker_path(NOTICE_MARKER)
 
 
-def _policy_digest() -> str:
-    return hashlib.sha256(active_policy().encode("utf-8")).hexdigest()
+def _policy_digest(text: str | None = None) -> str:
+    return hashlib.sha256((active_policy() if text is None else text).encode("utf-8")).hexdigest()
 
 
 def policy_notice_for(name: str, result: object, *, tool: str = "resolve_repo", version: str = "") -> dict | None:
@@ -249,7 +308,8 @@ def policy_notice_for(name: str, result: object, *, tool: str = "resolve_repo", 
         return None
     NOTICE_STATE["checked"] = True
     try:
-        digest = _policy_digest()
+        policy_text = active_policy()
+        digest = _policy_digest(policy_text)
         marker = _marker_path()
         if marker.is_file():
             try:
@@ -259,7 +319,7 @@ def policy_notice_for(name: str, result: object, *, tool: str = "resolve_repo", 
                 logger.debug("policy notice marker unreadable; saying it again", exc_info=True)
         files = []
         for _scope, path in policy_files():
-            plan = plan_refresh(path)
+            plan = plan_refresh(path, policy_text)
             if plan["state"] == "differs":
                 files.append({"path": str(path), "lines_differing": plan["lines_differing"]})
     except Exception:
@@ -282,6 +342,9 @@ def policy_notice_for(name: str, result: object, *, tool: str = "resolve_repo", 
                     "shown_at": datetime.now(timezone.utc).isoformat(),
                     "tool": name,
                     "policy_digest": digest,
+                    # The policy itself, so `--match-server` can write what THIS
+                    # process selected when the shell selects another (L-185).
+                    "policy_text": policy_text,
                     "version": version,
                 }
             ),

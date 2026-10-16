@@ -8613,7 +8613,7 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
 
 
 def _run_claude_md(generate: bool = False, fmt: str = "full", refresh: bool = False,
-                   yes: bool = False, dry_run: bool = False) -> int:
+                   yes: bool = False, dry_run: bool = False, match_server: bool = False) -> int:
     """Output the recommended CLAUDE.md snippet for the current tool set.
 
     ``refresh`` replaces an installed policy block that differs from this
@@ -8622,7 +8622,7 @@ def _run_claude_md(generate: bool = False, fmt: str = "full", refresh: bool = Fa
     if refresh:
         from .cli.policy_refresh import run_refresh
 
-        return run_refresh(yes=yes, dry_run=dry_run)
+        return run_refresh(yes=yes, dry_run=dry_run, match_server=match_server)
     if fmt == "policy":
         # (#871) The exact block `init` installs and `config --check` compares
         # against. `full` is a different generator's text, and replacing an
@@ -9229,6 +9229,12 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                         f"({_drift['lines_differing']} line(s))"
                     )
                     print(f"  {dim('  It may be out of date, or you may have edited it on purpose; this check cannot tell which.')}")
+                    # (L-185) The server picks its policy in the MCP client's
+                    # environment; a block written for it reads as differing here.
+                    from .cli.policy_refresh import matches_server_policy as _matches_server
+
+                    if _matches_server(cm_content):
+                        print(f"  {dim('  It matches the policy the running server selected: a setting that chooses the policy differs between the MCP client environment and this shell.')}")
                     print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate --format policy')}")
                     print(f"  {dim('  To replace it (shows the diff, asks first, keeps a backup): jcodemunch-mcp claude-md --refresh')}")
                     # A warning, never an issue (review of #871): a block its
@@ -9757,6 +9763,11 @@ def main(argv: Optional[list[str]] = None):
     claude_md_parser.add_argument("--yes", action="store_true", help="With --refresh: write without asking")
     claude_md_parser.add_argument(
         "--dry-run", action="store_true", dest="dry_run", help="With --refresh: show the diff, write nothing"
+    )
+    claude_md_parser.add_argument(
+        "--match-server", action="store_true", dest="match_server",
+        help="With --refresh: write the policy the running server selected (recorded when it said a block "
+        "differs), for when the MCP client's environment selects a different policy than this shell's",
     )
 
     # --- index-file ---
@@ -10825,6 +10836,7 @@ def main(argv: Optional[list[str]] = None):
             refresh=getattr(args, "refresh", False),
             yes=getattr(args, "yes", False),
             dry_run=getattr(args, "dry_run", False),
+            match_server=getattr(args, "match_server", False),
         )
         if _rc:
             sys.exit(_rc)
