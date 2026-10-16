@@ -164,9 +164,11 @@ file the sdist ships for that call text.
 indexed language (`pyright`, `typescript-language-server`, `gopls`,
 `rust-analyzer`), and each server follows its own rules. jcodemunch starts
 `rust-analyzer` with build scripts, procedural macros and check-on-save turned
-off, which are its defaults' ways of running a project's code. Other servers
-may still load code the project names, so turn LSP enrichment on only for
-repositories you trust.
+off. That closes the paths its defaults use to run a project's code, not every
+path: it still runs `cargo` to read the workspace, and a repository can steer
+the toolchain through its own configuration files. The other servers may load
+code a project names as well. Turn LSP enrichment on only for repositories
+you trust, for every server including `rust-analyzer`.
 
 The words `eval` and `exec` still appear as data: names the `search_ast`
 security detector and other checks look for in *your* code, language keywords

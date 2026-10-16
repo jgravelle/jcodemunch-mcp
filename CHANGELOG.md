@@ -12,17 +12,22 @@ indexes. The bridge now starts `rust-analyzer` with build scripts, procedural
 macros and check-on-save turned off. Enrichment asks for definitions and
 references, not macro expansion, so the call graph loses only macro-generated
 items, which jcodemunch's own extraction does not see either. Other servers
-still start with no options, and SECURITY.md still says to turn enrichment on
-only for repositories you trust.
+still start with no options. This closes rust-analyzer's default paths, not
+every path (it still runs `cargo` to read the workspace), so SECURITY.md still
+says to turn enrichment on only for repositories you trust, rust-analyzer
+included.
 
 ### Fixed - indexing a filesystem root keeps the files under it
 
 The indexer checked that each file sits under the folder being indexed by
 comparing against the folder plus a separator. A filesystem root (`C:\`, `/`)
 already ends in one, so the prefix came out doubled and every file under a
-drive root failed the check, leaving the index empty (L-197). The hooks had
-the same spelling and 1.108.368 fixed it there (L-195); one helper now builds
-the prefix at every site in the indexer.
+drive root failed the check, leaving the index empty (L-197). Two `.gitignore`
+prefixes in the same file had the same spelling and failed open once the
+check passed: a `.gitignore` at a drive root would have stopped applying. The
+hooks had it too (L-195, fixed in 1.108.368). All of them now ask one rule,
+`path_prefix.dir_prefix`, and a test fails on the old spelling anywhere in
+the package.
 
 ### Changed - the 1.50.0 branch delta layers never ran, and the record now says so
 
