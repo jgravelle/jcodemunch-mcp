@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.373](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.373)** (2026-10-16) — claude-md --refresh can write the policy your server uses
 - **[v1.108.372](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.372)** (2026-10-16) — uninstall keeps your own section after the policy
 - **[v1.108.371](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.371)** (2026-10-16) — a schema's dead-code advice follows the right evidence
 - **[v1.108.370](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.370)** (2026-10-16) — seven import forms record the names they import
-- **[v1.108.369](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.369)** (2026-10-15) — indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts
 <!-- WHATSNEW:END -->
 
 ---

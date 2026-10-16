@@ -2671,3 +2671,13 @@ The 1.108.369 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.369 count, verbatim:
 
 - ⚠ Prior (1.108.369): 17486 passed, 25 skipped, **0 failed** (17511 total).
+
+## Current State rotation (2026-10-16, release 1.108.373)
+
+The 1.108.370 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.370):** **seven import forms record the names they import** (L-177): PHP group use, Kotlin `as`, Scala selectors, Haskell lists, Dart `show`, destructuring `require`, Python `import \`; `PARSER_GENERATION` 25. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.370 count, verbatim:
+
+- ⚠ Prior (1.108.370): 17538 passed, 25 skipped, **0 failed** (17563 total).

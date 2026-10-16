@@ -1,6 +1,12 @@
 {
-  "current": "1.108.372",
+  "current": "1.108.373",
   "entries": [
+    {
+      "version": "1.108.373",
+      "date": "2026-10-16",
+      "title": "claude-md --refresh can write the policy your server uses",
+      "summary": "The server picks the agent policy from the MCP client's environment and claude-md --refresh from your shell's, so a setting set only for the client made them disagree with no explanation. The command now says so, and --match-server writes this version's policy for the settings the server recorded. The record holds settings, never text."
+    },
     {
       "version": "1.108.372",
       "date": "2026-10-16",
@@ -18,12 +24,6 @@
       "date": "2026-10-16",
       "title": "seven import forms record the names they import",
       "summary": "A PHP group use, a Kotlin `as` import, a Scala selector, a Haskell import list, a Dart `show`, a destructuring `require` and a Python `import` continued by a backslash each recorded no names, or no edge, so find_references answered 0 for the names they import. Each now records them, and a statement that is not whole records what it did before. The parser generation moves, so an existing index re-reads these files once."
-    },
-    {
-      "version": "1.108.369",
-      "date": "2026-10-15",
-      "title": "indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts",
-      "summary": "A folder prefix built as folder + separator doubled the separator for a filesystem root, so indexing a drive root kept no files and a root .gitignore would not have applied; every prefix now comes from one rule. With LSP enrichment on, rust-analyzer starts with build scripts, procedural macros and check-on-save off, so it no longer runs a Rust project's build.rs by default. The 1.50.0 branch delta layers never ran, and the record now says so; the index follows the checked-out tree, as it always has."
     }
   ]
 }

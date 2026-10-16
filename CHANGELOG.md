@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.373] - 2026-10-16 - claude-md --refresh can write the policy your server uses
+
 ### Fixed - `claude-md --refresh` can write the policy your server uses
 
 The server picks the agent policy from the settings in your MCP client's
