@@ -8,7 +8,12 @@
 inside one, or above one", added a separator to the folder before comparing.
 A filesystem root (`C:\`, `/`) already ends in one, so the ancestor test never
 matched there, and a search over a whole drive holding an indexed repository
-got no steering. A new test now holds this rule and the workspace listing's
+got no steering. It now gets what a search over any folder holding an indexed
+repository gets, the home folder included: advice by default, and under
+`JCODEMUNCH_ENFORCE=strict` a denial for a Grep or Glob over the root or a
+single-command shell search run from it. A session started at a drive root
+also gets the briefing for that drive's indexes only, where it briefed every
+index before. A new test now holds this rule and the workspace listing's
 rule (`tools/_visibility.in_workspace`) to the same answer for every project
 folder. They still differ for the home folder and a root, deliberately: the
 listing treats those as no project, while the hooks still serve the search

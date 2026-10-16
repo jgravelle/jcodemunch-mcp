@@ -157,8 +157,9 @@ exclude = [
     "benchmarks/competitive/",
     # Recorded model answers from munch-bench runs. Data, not code: nothing
     # installed reads it, and the answers quote the code they were asked
-    # about (Flask's `exec(compile(...))`), which a registry scanner reading
-    # the sdist counts against us as if we ran it.
+    # about, including Flask's dynamic-execution calls, which a registry
+    # scanner reading the sdist counts against us as if we ran them
+    # (tests/test_shipped_text_has_no_dynamic_code_calls.py).
     "munch-bench/results/",
 ]
 

@@ -154,21 +154,18 @@ Binary files are excluded using a two-stage check:
 ## Indexed Code Is Never Run
 
 jcodemunch reads the files it indexes as text and parses them with tree-sitter
-and regular expressions. It never imports, evaluates or executes them. No
-shipped module calls `eval` or `exec`, and the package carries no JavaScript
-that calls `new Function`. A text scan of the package still finds those words
-in three places, none of them a call:
+and regular expressions. It never imports, evaluates or executes them, and no
+file in the package calls Python's dynamic-execution built-ins or builds a
+JavaScript function from a string. `tests/test_shipped_text_has_no_dynamic_code_calls.py`
+scans every file the sdist ships for those calls.
 
-* `search_ast`'s security detector lists the names it looks for in *your*
-  code, such as `eval` and `exec`.
-* The Tcl parser recognises Tcl's own `namespace eval` keyword.
-* Development scripts and tests in the sdist call `ast.literal_eval`, which
-  parses Python literals and runs nothing.
-
-The programs jcodemunch starts are `git`, plus three that run only when you
-turn on the feature that needs them: a language server for LSP enrichment,
-`ffmpeg` for rendered explainers, and the viewer you configure for Mermaid
-diagrams.
+The words `eval` and `exec` still appear as data: names the `search_ast`
+security detector and other checks look for in *your* code, language keywords
+the parsers recognise (Tcl's `namespace eval`), and `ast.literal_eval`, which
+parses Python literals and runs nothing. The programs jcodemunch starts, such as
+`git` or an opt-in language server, read your repository without running code
+from it; anything that persists or touches the network is described under
+"Background behavior, fully disclosed" below.
 
 ---
 
