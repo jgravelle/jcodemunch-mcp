@@ -467,6 +467,16 @@ def _config_skip_flags(repo: str) -> dict:
     }
 
 
+def _dir_prefix(folder: str) -> str:
+    """`folder` with exactly one trailing separator, for a containment check.
+
+    A filesystem root already ends in one (`C:\\`, `/`), so appending another
+    made every file under a drive root fail the check (L-197; the hooks had the
+    same spelling, L-195).
+    """
+    return folder if folder.endswith(os.sep) else folder + os.sep
+
+
 def _build_index_filters(
     root: Path,
     *,
@@ -487,7 +497,7 @@ def _build_index_filters(
     ``root`` must already be resolved by the caller.
     """
     root_str = str(root)
-    root_prefix = root_str + os.sep
+    root_prefix = _dir_prefix(root_str)
     return _IndexFilters(
         root=root,
         root_prefix=root_prefix,
@@ -1029,7 +1039,7 @@ def _rel_to_root(abs_path: Path, root: Path) -> Optional[str]:
         # Last resort: normcase both (Windows drive-letter/short-name casing).
         r_norm = os.path.normcase(str(root_resolved))
         p_norm = os.path.normcase(str(resolved))
-        prefix = r_norm if r_norm.endswith(os.sep) else r_norm + os.sep
+        prefix = _dir_prefix(r_norm)
         if p_norm.startswith(prefix):
             return str(resolved)[len(prefix):].replace("\\", "/")
     except OSError:
@@ -1367,13 +1377,7 @@ def discover_local_files(
     # the walk below (P8: single os.walk pass instead of two).
     gitignore_str_specs: list[tuple[str, pathspec.PathSpec]] = []
 
-    # Pre-compute root path strings (root is already resolved above).
-    # Normalized variants use os.path.normcase for case-insensitive comparison
-    # on Windows (no-op on POSIX).
-    root_str = str(root)
-    root_prefix = root_str + os.sep
-    root_str_norm = os.path.normcase(root_str)
-    root_prefix_norm = os.path.normcase(root_prefix)
+    root_str = str(root)  # root is already resolved above
 
     # Merge env-var global, project-level, and per-call patterns, then build
     # spec. Passing repo=str(folder_path) so .jcodemunch.jsonc overrides land
