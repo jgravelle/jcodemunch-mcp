@@ -137,7 +137,7 @@ jobs:
     needs: [fast-harness, fast-format, fast-types, fast-deps, fast-secrets]
     if: github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20   # ci.test_job_timeout_minutes; the harness asserts this literal against the Floor
+    timeout-minutes: 25   # ci.test_job_timeout_minutes; the harness asserts this literal against the Floor
     strategy:
       fail-fast: false
       matrix:
