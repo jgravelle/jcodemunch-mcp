@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Fixed - LSP enrichment no longer runs a Rust project's build scripts
+
+With `enrichment.lsp_enabled` on (it is off by default), jcodemunch started
+`rust-analyzer` with no options, and rust-analyzer's defaults run the indexed
+project's `build.rs` files and procedural macros, which is code from the
+repository (L-198). That made the one jcodemunch switch that could run what it
+indexes. The bridge now starts `rust-analyzer` with build scripts, procedural
+macros and check-on-save turned off. Enrichment asks for definitions and
+references, not macro expansion, so the call graph loses only macro-generated
+items, which jcodemunch's own extraction does not see either. Other servers
+still start with no options, and SECURITY.md still says to turn enrichment on
+only for repositories you trust.
+
+### Fixed - indexing a filesystem root keeps the files under it
+
+The indexer checked that each file sits under the folder being indexed by
+comparing against the folder plus a separator. A filesystem root (`C:\`, `/`)
+already ends in one, so the prefix came out doubled and every file under a
+drive root failed the check, leaving the index empty (L-197). The hooks had
+the same spelling and 1.108.368 fixed it there (L-195); one helper now builds
+the prefix at every site in the indexer.
+
+### Changed - the 1.50.0 branch delta layers never ran, and the record now says so
+
+1.50.0 announced per-branch delta layers: one base index plus a small delta
+per git branch, so switching branches would not re-index. They never ran.
+The writer enters delta mode only when the base index records a branch
+different from the checked-out one, and no save ever recorded it, so every
+pass on any branch updated the base index. No tool reads a branch view either:
+every reader loads the base. That behaviour is the one users have had all
+along, and it is correct for them, because the index matches the checkout and
+a branch switch re-parses only the files that differ. Turning the writer on by
+itself would have served a stale base on every feature branch, so it stays
+off (jjg, 2026-10-15; L-196). A test now pins that a pass on another branch
+updates the index readers load and writes no delta, so enabling the layers
+has to change the read path in the same change.
+
 ## [1.108.368] - 2026-10-15 - a context provider that runs out of time runs again on the next index
 
 ### Fixed - the steering hooks recognise a search over a whole drive
