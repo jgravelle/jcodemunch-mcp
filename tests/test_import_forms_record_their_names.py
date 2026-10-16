@@ -57,7 +57,9 @@ RECORDS = {
     "scala rename": ("scala", "import a.b.{C => X, D}\n", {"a.b": ["C", "D"]}),
     "scala 3 rename": ("scala", "import a.b.{C as X, D}\n", {"a.b": ["C", "D"]}),
     "scala hidden and wildcard": ("scala", "import a.b.{C => _, D, _}\n", {"a.b": ["D"]}),
-    "scala plain, as before": ("scala", "import a.b.C\n", {"a.b.C": []}),
+    "scala given and a name that starts with it": ("scala", "import a.b.{given, given Ord[Int], givenName, C}\n",
+                                                   {"a.b": ["givenName", "C"]}),
+    "scala plain, as before":("scala", "import a.b.C\n", {"a.b.C": []}),
     # PHP: a group use is one edge per member, as `use A\B\C;` is.
     "php group one line": ("php", "<?php\nuse App" + BS + "Models" + BS + "{User, Post};\n",
                            {"App\\Models\\User": ["User"], "App\\Models\\Post": ["Post"]}),
@@ -89,6 +91,13 @@ RECORDS = {
     "ts destructuring require": ("typescript", 'const { a } = require("./m");\n', {"./m": ["a"]}),
     "js plain require, as before": ("javascript", 'const m = require("./m");\n', {"./m": []}),
     "js rest is everything": ("javascript", 'const { a, ...rest } = require("./m");\n', {"./m": []}),
+    # [] is the whole module and wins a merge: `m.foo` may reach anything (the barrel walk reads it so).
+    "js destructured and whole": ("javascript", 'const {a} = require("./m");\nconst m = require("./m");\n', {"./m": []}),
+    "js whole and destructured": ("javascript", 'const m = require("./m");\nconst {a} = require("./m");\n', {"./m": []}),
+    "ts namespace import and destructured": ("typescript", 'import * as m from "./m";\nconst {a} = require("./m");\n',
+                                             {"./m": []}),
+    "js two destructurings": ("javascript", 'const {a} = require("./m");\nconst {b} = require("./m");\n',
+                              {"./m": ["a", "b"]}),
     # Kotlin: an aliased import.
     "kotlin alias alone": ("kotlin", "import a.b.D as E\n", {"a.b.D": ["D"]}),
     "kotlin alias after another": ("kotlin", "import a.b.C\nimport a.b.D as E\n", {"a.b.C": ["C"], "a.b.D": ["D"]}),

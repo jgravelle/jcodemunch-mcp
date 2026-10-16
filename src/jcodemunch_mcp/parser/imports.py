@@ -237,7 +237,14 @@ def _extract_js_imports(content: str) -> list[dict]:
         for e in edges:
             if e["specifier"] != specifier:
                 continue
-            e["names"] = sorted(set(e["names"]) | set(names))
+            # (L-177) [] means the whole module (`import * as m`, `require()`,
+            # a dynamic import), so it wins: a union let `const {a} = require(m)`
+            # beside `const m = require(m)` narrow the edge to `a`, and
+            # `expand_barrel_leaves` stopped crediting what `m.foo` reaches.
+            if not names or not e["names"]:
+                e["names"] = []
+            else:
+                e["names"] = sorted(set(e["names"]) | set(names))
             if not is_re_export:
                 return
             e["is_re_export"] = True
@@ -272,10 +279,14 @@ def _extract_js_imports(content: str) -> list[dict]:
     for m in _JS_SIDE_EFFECT.finditer(content):
         add(m.group(1), [])
 
+    destructured: set[int] = set()
     for m in _JS_REQUIRE_DESTRUCTURE.finditer(content):
+        destructured.add(m.end())
         add(m.group(2), _js_destructured_names(m.group(1)))
 
     for m in _JS_REQUIRE.finditer(content):
+        if m.end() in destructured:
+            continue  # read above with its bindings; [] here would erase them
         add(m.group(1), [])
 
     for m in _JS_REEXPORT_NAMED.finditer(content):
@@ -1090,7 +1101,7 @@ def _scala_selector_names(body: str) -> list[str]:
     names: list[str] = []
     for part in body.split(","):
         part = part.strip()
-        if not part or part in ("_", "*") or part.startswith("given"):
+        if not part or part in ("_", "*", "given") or re.match(r"given\s", part):
             continue
         m = _SCALA_SELECTOR.match(part)
         if not m:
