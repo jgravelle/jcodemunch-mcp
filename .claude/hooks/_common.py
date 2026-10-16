@@ -457,6 +457,50 @@ def settle_summary(path: Path) -> None:
         path.write_text("## harness " + rest, encoding="utf-8")
 
 
+#: Units of a Floor that measures wall clock on THIS box. jjg ruled (2026-10-14,
+#: widened 2026-10-16) that CI judges every timing row, because a busy laptop
+#: misses them for reasons the change did not cause. `hours` (release cadence)
+#: and `minutes` (a CI job's configured timeout) are not measurements of the
+#: box and keep blocking.
+TIMING_UNITS = frozenset({"seconds", "ms"})
+
+_FAIL_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|.*\|\s*\*\*FAIL\*\*\s*\|\s*$")
+_PYTEST_RED_RE = re.compile(r"\b\d+ (?:failed|errors?)\b")
+
+
+def timing_threshold_ids() -> frozenset[str]:
+    """Ids of the timing Floors, read from `harness/thresholds.json`, the one home of a Floor."""
+    try:
+        data = json.loads((REPO / "harness" / "thresholds.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(
+        t["id"] for t in data.get("thresholds", []) if isinstance(t, dict) and t.get("unit") in TIMING_UNITS
+    )
+
+
+def timing_only_failures(summary: str | None) -> list[str]:
+    """The failing Floor ids when EVERY failure in a harness summary is a timing row; else [].
+
+    ⚠ UNKNOWN blocks: no summary, a pending block, a failing summary with no
+    FAIL row, a red pytest line, or an unreadable thresholds file all return [],
+    which callers read as a real failure.
+
+    ⚠ A real `--summary` file carries `## harness <tier>: FAIL` and `**FAIL**`
+    rows, never the literal `HARNESS FAIL` (that goes to stdout). The first
+    draft required it and never fired; its fixtures had invented the line.
+    """
+    if not summary or PENDING_MARK in summary:
+        return []
+    if _PYTEST_RED_RE.search(summary):
+        return []
+    failing = [m.group(1) for ln in summary.splitlines() if (m := _FAIL_ROW_RE.match(ln.strip()))]
+    timing = timing_threshold_ids()
+    if not failing or not timing or any(f not in timing for f in failing):
+        return []
+    return failing
+
+
 def block(reason: str) -> None:
     sys.stderr.write(reason.rstrip() + "\n")
     sys.exit(2)

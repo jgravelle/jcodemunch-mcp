@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 
-from _common import EVIDENCE, REPO, STATE, UNREADABLE_PREFIX, git, tree_id
+from _common import EVIDENCE, REPO, STATE, UNREADABLE_PREFIX, git, timing_only_failures, tree_id
 
 STAMP = STATE / "full-tier.json"
 WORKERS_ENV = "PYTEST_XDIST_AUTO_NUM_WORKERS"
@@ -100,8 +100,14 @@ def main(argv: list[str]) -> int:
     with open(EVIDENCE / "full.md", "a", encoding="utf-8") as fh:
         fh.write(f"\nxdist workers: {stamp['workers']}\n")
     after = tree_id()
+    # jjg (2026-10-16): CI judges every timing row. A run whose ONLY failures
+    # are timing rows passes here and names them, so the PR body says CI
+    # judges them; any other failure keeps the stamp red.
+    deferred = [] if rc == 0 else timing_only_failures((EVIDENCE / "full.md").read_text(encoding="utf-8"))
+    if deferred:
+        stamp["timing_deferred_to_ci"] = deferred
     stamp.update(
-        ok=(rc == 0 and after == tree), seconds=round(time.monotonic() - t0, 1)
+        ok=((rc == 0 or bool(deferred)) and after == tree), seconds=round(time.monotonic() - t0, 1)
     )
     if tree.startswith(UNREADABLE_PREFIX) or after.startswith(UNREADABLE_PREFIX):
         stamp["note"] = "tree identity could not be read (see stderr); stamp invalid"
@@ -109,6 +115,8 @@ def main(argv: list[str]) -> int:
         stamp["note"] = "tree changed during the run; stamp invalid"
     STAMP.write_text(json.dumps(stamp, indent=1), encoding="utf-8")
     print(f"full-tier stamp: ok={stamp['ok']} tree={tree[:12]} workers={stamp['workers']} -> {STAMP}")
+    if deferred:
+        print("timing rows left to CI (jjg 2026-10-16): " + ", ".join(deferred))
     return rc
 
 

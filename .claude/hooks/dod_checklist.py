@@ -35,6 +35,7 @@ from _common import (
     content_tree,
     git,
     paths_for,
+    timing_only_failures,
     tree_diff_paths,
     tree_id,
 )
@@ -769,7 +770,11 @@ def _stamp_json(name: str) -> dict | None:
 def harness_pass(summary: str | None) -> bool | None:
     if summary is None:
         return None
-    return "**FAIL**" not in summary and "HARNESS FAIL" not in summary
+    if "**FAIL**" not in summary and "HARNESS FAIL" not in summary:
+        return True
+    # jjg (2026-10-16): CI judges every timing row; a summary whose ONLY
+    # failures are timing rows counts as a pass here.
+    return bool(timing_only_failures(summary))
 
 
 #: How similar two bodies must be for a removal + addition to read as a RENAME.
