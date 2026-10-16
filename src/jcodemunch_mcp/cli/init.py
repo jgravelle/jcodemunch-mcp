@@ -34,7 +34,7 @@ from .policy import (  # noqa: F401,E402
 # Constants
 # ---------------------------------------------------------------------------
 
-from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402  (#871: one marker)
+from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402, F401  (#871: one marker; re-exported, L-186)
 
 
 # Policy for `tool_surface="counter"`, the default on a genuinely first-ever
@@ -704,7 +704,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
     Returns a status message.
     """
     path = _cursor_rules_path()
-    if path.exists() and _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8"):
+    if _has_policy(path):  # (L-186) a heading, by the one boundary rule, never a substring
         return f"  already present in {path}"
     if dry_run:
         return f"  would write {path}"
@@ -739,7 +739,7 @@ def install_windsurf_rules(*, dry_run: bool = False, backup: bool = True) -> str
     Returns a status message.
     """
     path = _windsurf_rules_path()
-    if path.exists() and _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8"):
+    if _has_policy(path):  # (L-186) a heading, by the one boundary rule, never a substring
         return f"  already present in {path}"
     if dry_run:
         return f"  would append policy to {path}"
@@ -772,7 +772,7 @@ def install_agents_md(*, dry_run: bool = False, backup: bool = True) -> str:
     policy = active_policy()
     if target.exists():
         existing = target.read_text(encoding="utf-8")
-        if _CLAUDE_MD_MARKER in existing:
+        if _has_policy(target):  # (L-186) as above
             return f"  already present in {target}"
         if dry_run:
             return f"  would append policy to {target}"
@@ -1643,49 +1643,25 @@ def run_init(
 # Uninstall — reverses every install_* function above
 # ---------------------------------------------------------------------------
 
-# Headings emitted by _CLAUDE_MD_POLICY. Used by uninstall to recognise the
-# region we own when stripping the policy back out of a CLAUDE.md / AGENTS.md /
-# .windsurfrules file.
-_POLICY_HEADINGS: tuple[str, ...] = (
-    "## Code Exploration Policy",
-    "## Session-Aware Routing",
-    "## Model-Driven Tool Tiering",
-)
-
-
 def _strip_policy_blocks(text: str) -> tuple[str, bool]:
     """Remove the jCodemunch policy region from a markdown body.
 
-    Treats the first `## Code Exploration Policy` heading as the start of the
-    region. Consumes any of `_POLICY_HEADINGS` blocks that follow contiguously
-    (so partial / tier-filtered installs are still removed cleanly). Stops at
-    the first `## ` heading that is *not* one of ours, preserving any
-    user-added sections after the policy.
+    The region is `policy.policy_block_span`'s, THE boundary rule `init`, the
+    drift check and `claude-md --refresh` share (LEDGER L-186). This function
+    had a rule of its own that ended the block only at a `## ` heading, so a
+    user's `#` or `###` section right after the policy was deleted with it.
+    The shared rule ends at a heading of any level that is not one of the
+    policy's own sections, and ignores `#` inside a code fence.
 
     Returns (new_text, changed).
     """
-    lines = text.splitlines(keepends=True)
-    start = None
-    for i, line in enumerate(lines):
-        stripped = line.rstrip("\n")
-        if stripped in _POLICY_HEADINGS:
-            start = i
-            break
-    if start is None:
-        return text, False
+    from .policy import policy_block_span
 
-    # Walk forward, consuming contiguous policy blocks.
-    end = len(lines)
-    i = start + 1
-    while i < len(lines):
-        stripped = lines[i].rstrip("\n")
-        if stripped.startswith("## "):
-            if stripped in _POLICY_HEADINGS:
-                i += 1
-                continue
-            end = i
-            break
-        i += 1
+    lines = text.splitlines(keepends=True)
+    span = policy_block_span([ln.rstrip("\r\n") for ln in lines])
+    if span is None:
+        return text, False
+    start, end = span
 
     # Trim trailing blank lines we leave behind.
     before = "".join(lines[:start]).rstrip() + ("\n" if start > 0 else "")

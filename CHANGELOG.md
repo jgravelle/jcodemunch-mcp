@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - `uninstall` no longer deletes your own section after the policy
+
+`jcodemunch-mcp uninstall` strips the Code Exploration Policy from CLAUDE.md,
+AGENTS.md and `.windsurfrules`. It found the end of the block with a rule of
+its own that stopped only at a `## ` heading, so a section of yours headed `#`
+or `###` directly after the policy was deleted with it. A `.md.bak` was kept,
+so nothing was lost for good (L-186). `uninstall` now uses the boundary rule
+that `init`, the drift check and `claude-md --refresh` already share: the
+block ends at a heading of any level that isn't one of the policy's own, and a
+`#` inside a code fence is not a heading. The Cursor, Windsurf and AGENTS.md
+installers also tested for the policy's name as a substring, so a file that
+only mentioned it in a sentence read as installed and got nothing. They now
+ask the same rule, as the CLAUDE.md installer already did.
+
 ## [1.108.371] - 2026-10-16 - a schema's dead-code advice follows the right evidence
 
 ### Fixed - a schema's dead-code advice follows the right evidence
