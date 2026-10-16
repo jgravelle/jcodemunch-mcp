@@ -302,8 +302,13 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
     lines: the check that says a block differs and the command that rewrites it
     cannot disagree about where the block ends.
 
-    It starts at the first HEADING line carrying the marker, so a sentence that
-    mentions the policy by name is not mistaken for it. It runs to the first
+    It starts at the first heading that OPENS with the marker's title, at any
+    level, outside a code fence, so a sentence or a heading that mentions
+    the policy by name is not mistaken for it, and neither is a fenced example
+    (review of L-186: a fenced marker above the real block became the start,
+    flipped the fence parity and ran the block to the end of the file). A
+    byte-order mark before the first line is not part of its text; every
+    caller gets that here, not by stripping it first. It runs to the first
     Markdown heading of any level that is not one of the policy's own ``## ``
     sections, or to the end of the file. The policy text at every release tag
     uses only ``## `` headings and holds no code fence (read from all 686 tags
@@ -311,10 +316,16 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
     ends it too (review, 2026-10-14: the refresh would otherwise have deleted
     it). A ``#`` line inside a fenced code block is not a heading.
     """
-    start = next(
-        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("#") and POLICY_MARKER in ln),
-        None,
-    )
+    start = None
+    in_fence = False
+    for i, ln in enumerate(lines):
+        stripped = (ln.removeprefix(chr(0xFEFF)) if i == 0 else ln).strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and _MARKER_HEADING_RE.fullmatch(stripped):
+            start = i
+            break
     if start is None:
         return None
     own = _policy_headings()
@@ -332,6 +343,8 @@ def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
 
 
 _HEADING_RE = re.compile(r"#{1,6}\s")
+# The title opens the heading; an owner's suffix ("... (mine)") still counts.
+_MARKER_HEADING_RE = re.compile(r"#{1,6}[ \t]+" + re.escape(POLICY_MARKER.lstrip("#").strip()) + r"\b.*")
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:

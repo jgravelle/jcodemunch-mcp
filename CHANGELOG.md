@@ -7,14 +7,30 @@
 `jcodemunch-mcp uninstall` strips the Code Exploration Policy from CLAUDE.md,
 AGENTS.md and `.windsurfrules`. It found the end of the block with a rule of
 its own that stopped only at a `## ` heading, so a section of yours headed `#`
-or `###` directly after the policy was deleted with it. A `.md.bak` was kept,
-so nothing was lost for good (L-186). `uninstall` now uses the boundary rule
-that `init`, the drift check and `claude-md --refresh` already share: the
-block ends at a heading of any level that isn't one of the policy's own, and a
-`#` inside a code fence is not a heading. The Cursor, Windsurf and AGENTS.md
-installers also tested for the policy's name as a substring, so a file that
-only mentioned it in a sentence read as installed and got nothing. They now
-ask the same rule, as the CLAUDE.md installer already did.
+or `###` directly after the policy was deleted with it. A default uninstall
+keeps a backup beside the file, so nothing was lost for good (L-186).
+`uninstall` now uses the boundary rule that `init`, the drift check and
+`claude-md --refresh` already share: the block ends at a heading of any level
+that isn't one of the policy's own, and a `#` inside a code fence is not a
+heading.
+
+That shared rule had two faults of its own at the START of the block, and
+`claude-md --refresh` rewrites exactly the lines it names. It took the first
+heading containing the policy's title anywhere, so a fenced example of the
+heading above the real block became the start and flipped the fence count,
+and the block then ran to the end of the file; a heading of yours that only
+mentioned the title was taken too. The block now starts at a heading that
+opens with the title, outside a code fence. And a byte-order mark before the
+first line hid a policy heading on that line from `uninstall`, so `init` said
+the policy was installed while `uninstall` said it wasn't. The rule itself
+skips the mark now, and `uninstall` keeps it in the file.
+
+The Cursor, Windsurf and AGENTS.md installers tested for the policy's name as
+a substring, so a file that only mentioned it in a sentence read as installed
+and got nothing. They now ask the same rule, as the CLAUDE.md installer
+already did. Windsurf and AGENTS.md append the policy to such a file. Cursor's
+`.cursor/rules/jcodemunch.mdc` is a file the installer owns by name, so it is
+replaced, and a default install keeps the old text in `jcodemunch.mdc.bak`.
 
 ## [1.108.371] - 2026-10-16 - a schema's dead-code advice follows the right evidence
 

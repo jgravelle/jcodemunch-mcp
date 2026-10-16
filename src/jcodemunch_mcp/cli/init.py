@@ -1657,7 +1657,10 @@ def _strip_policy_blocks(text: str) -> tuple[str, bool]:
     """
     from .policy import policy_block_span
 
-    lines = text.splitlines(keepends=True)
+    # A byte-order mark is kept aside and put back, so a block on the first
+    # line does not take it with it.
+    bom = chr(0xFEFF) if text.startswith(chr(0xFEFF)) else ""
+    lines = text[len(bom):].splitlines(keepends=True)
     span = policy_block_span([ln.rstrip("\r\n") for ln in lines])
     if span is None:
         return text, False
@@ -1667,7 +1670,7 @@ def _strip_policy_blocks(text: str) -> tuple[str, bool]:
     before = "".join(lines[:start]).rstrip() + ("\n" if start > 0 else "")
     after = "".join(lines[end:])
     new_text = before + ("\n" + after if after.strip() else "")
-    return new_text, True
+    return (bom + new_text if new_text else new_text), True
 
 
 def _unpatch_mcp_config(path: Path, *, backup: bool, dry_run: bool) -> str:
