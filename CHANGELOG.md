@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.368] - 2026-10-15 - a context provider that runs out of time runs again on the next index
+
 ### Fixed - the steering hooks recognise a search over a whole drive
 
 `_path_overlaps`, the hooks' rule for "is this path an indexed repository,

@@ -2621,3 +2621,13 @@ The 1.108.364 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.364 count, verbatim:
 
 - ⚠ Prior (1.108.364): 17423 passed, 25 skipped, **0 failed** (17448 total).
+
+## Current State rotation (2026-10-15, release 1.108.368)
+
+The 1.108.365 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.365):** **git blame is off by default** (L-189); with it on, a provider whose properties aren't vocabulary (`properties_are_search_terms`) adds nothing to a file summary. SECURITY.md lists it. No `PARSER_GENERATION` bump. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.365 count, verbatim:
+
+- ⚠ Prior (1.108.365): 17438 passed, 25 skipped, **0 failed** (17463 total).

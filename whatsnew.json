@@ -1,6 +1,12 @@
 {
-  "current": "1.108.367",
+  "current": "1.108.368",
   "entries": [
+    {
+      "version": "1.108.368",
+      "date": "2026-10-15",
+      "title": "a context provider that runs out of time runs again on the next index",
+      "summary": "A context provider past its time budget used to be skipped for that pass and never run again for the files an incremental pass leaves alone, so what an index held depended on how busy the machine was. The index now records the cut, and the next index over the whole tree re-parses every file so the provider runs again; partial passes keep the record. The steering hooks also recognise a search over a whole drive, and the published package no longer spells a code-execution call it doesn't make. SECURITY.md names LSP enrichment as the one opt-in path that can run repository code."
+    },
     {
       "version": "1.108.367",
       "date": "2026-10-15",
@@ -18,12 +24,6 @@
       "date": "2026-10-15",
       "title": "git blame is off by default, and it no longer adds \"2 properties\" to a file summary",
       "summary": "Indexing no longer runs a timed `git log` on every git repository by default: `git_blame_enabled` defaults to `false`, and an existing config that sets the key keeps its value. With it on, the provider runs as before minus the \"2 properties\" suffix it added to every file summary it covered. SECURITY.md now lists it, since it stores commit authors' names in the index and, with AI summaries on, sends them to the summarizer. Search ranking doesn't move."
-    },
-    {
-      "version": "1.108.364",
-      "date": "2026-10-15",
-      "title": "SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file",
-      "summary": "T-SQL and Sybase stored procedures and triggers are symbols, a bracket-quoted name reads as `schema.name`, and tables, views and indexes have their own kinds (#1080, @outoftheblue9). A SQL script is parsed one batch at a time, so a statement the grammar cannot parse costs only its own batch, and named constraints are symbols (#1081, @outoftheblue9). Search ranking no longer depends on whether git blame finished inside its time budget, or on today's date. Existing indexes are re-parsed once."
     }
   ]
 }
