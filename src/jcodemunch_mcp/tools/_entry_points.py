@@ -177,7 +177,13 @@ def is_host_invoked(file_path: str) -> bool:
 # Evidence picks only the kind and its advice, never whether a schema is
 # capped. .NET source and the .NET-only capped formats count, so a subtree or a
 # controls-only tree with no project file still reads as .NET.
-_DOTNET_SOURCE_SUFFIXES = (".cs", ".fs")
+# (L-184) A Razor or Blazor tree carries no `.cs`, so its schemas got the
+# neutral advice. ⚠ A bare `.fs` is NOT evidence: GLSL fragment shaders and
+# Forth use it, and a Maven repository with `shader.fs` read as .NET. F# counts
+# through `.fsproj` (host-invoked, above), `.fsx` and `.fsi`.
+# ⚠ Only INDEXED files are seen (`index.source_files`): `.vb`, `.vbhtml`,
+# `.sln` and `.vcxproj` have no language here, so naming them would do nothing.
+_DOTNET_SOURCE_SUFFIXES = (".cs", ".fsx", ".fsi", ".cshtml", ".razor")
 _DOTNET_ONLY_SUFFIXES = tuple(
     s for s in _BUILD_CONSUMED_SUFFIXES if s not in _SHARED_FORMAT_SUFFIXES
 ) + _RUNTIME_LOADABLE_SUFFIXES

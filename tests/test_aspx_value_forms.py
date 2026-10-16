@@ -272,6 +272,19 @@ SCHEMA_TREES = {
         "App_Code/orders.xsd": _SCHEMA,
     }, "App_Code/orders.xsd", "build_consumed"),
     "schemas_only": ({"orders.xsd": _SCHEMA}, "orders.xsd", "schema_consumer"),
+    # LEDGER L-184: .NET trees the evidence list missed, and a non-.NET tree it misread.
+    "razor_only": ({"Pages/Index.cshtml": "@page\n<h1>Welcome</h1>\n", "Data/orders.xsd": _SCHEMA},
+                   "Data/orders.xsd", "build_consumed"),
+    "blazor_only": ({"Shared/Nav.razor": "<nav>Home</nav>\n", "Data/orders.xsd": _SCHEMA},
+                    "Data/orders.xsd", "build_consumed"),
+    "fsharp_script": ({"build.fsx": 'printfn "hi"\n', "Data/orders.xsd": _SCHEMA},
+                      "Data/orders.xsd", "build_consumed"),
+    "maven_glsl_shader": ({
+        "pom.xml": "<project><modelVersion>4.0.0</modelVersion></project>\n",
+        "src/main/java/App.java": _JAVA,
+        "src/main/resources/shader.fs": "void main() { gl_FragColor = vec4(1.0); }\n",
+        "src/main/resources/orders.xsd": _SCHEMA,
+    }, "src/main/resources/orders.xsd", "schema_consumer"),
     "java_no_build": ({
         "src/main/java/App.java": _JAVA,
         "src/main/resources/orders.xsd": _SCHEMA,

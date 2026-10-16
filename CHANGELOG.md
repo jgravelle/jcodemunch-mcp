@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed - a schema's dead-code advice follows the right evidence
+
+`find_dead_code` and `check_delete_safe` never certify a `.xsd` or `.wsdl` with
+no importer, because a build may compile it. Which advice they give depends on
+whether the repository looks like .NET: "a project file may consume it" or "a
+build or code generator outside the index may compile it". The evidence list
+missed a Razor or Blazor tree, which carries no `.cs`, so those schemas got the
+neutral advice. And it took any `.fs` file for F#, so a Maven repository with a
+GLSL fragment shader named `shader.fs` read as .NET and got the project-file
+advice (L-184). Razor and Blazor files now count. F# counts through `.fsproj`,
+`.fsx` and `.fsi`, and a bare `.fs` no longer does. Every schema stays capped
+either way; only the advice changes.
+
 ## [1.108.370] - 2026-10-16 - seven import forms record the names they import
 
 ### Fixed - seven import forms record the names they import
