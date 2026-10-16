@@ -181,6 +181,7 @@ def apply_refresh(path: Path, plan: dict, *, now: datetime | None = None) -> Pat
 
 
 _TOOL_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_VERSION_RE = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+-]{0,39}")
 _SURFACES = ("full", "counter")
 
 
@@ -215,11 +216,20 @@ def server_policy() -> tuple[dict | None, str]:
         isinstance(tools, list) and all(isinstance(t, str) and _TOOL_NAME_RE.fullmatch(t) for t in tools)
     ):
         return None, "the recorded tool names are not tool names"
-    return {
-        "text": policy_for(surface, tools),
-        "version": str(rec.get("version", "")),
-        "shown_at": str(rec.get("shown_at", "")) or "an unknown time",
-    }, ""
+    if tools == []:
+        return None, "the recorded tool list is empty, which no server records"
+    # ⚠ The command's output is read by agents: a marker value reaches it only
+    # in a shape this version wrote (review of L-185: a version string carried
+    # an instruction line and a shown_at an escape sequence).
+    version = rec.get("version")
+    if not (isinstance(version, str) and _VERSION_RE.fullmatch(version)):
+        version = "unknown"
+    shown_at = rec.get("shown_at")
+    try:
+        shown_at = datetime.fromisoformat(shown_at).isoformat(timespec="seconds") if isinstance(shown_at, str) else None
+    except ValueError:
+        shown_at = None
+    return {"text": policy_for(surface, tools), "version": version, "shown_at": shown_at or "an unknown time"}, ""
 
 
 def matches_server_policy(text: str) -> bool | None:

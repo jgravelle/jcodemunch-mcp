@@ -667,6 +667,14 @@ def install_claude_md(scope: str = "global", *, dry_run: bool = False, backup: b
 
         drift = installed_policy_drift(path.read_text(encoding="utf-8"))
         if drift and drift["state"] == "differs":
+            from .policy_refresh import matches_server_policy
+
+            if matches_server_policy(path.read_text(encoding="utf-8")):
+                # (L-185) Written for the server's settings by `--match-server`.
+                return (
+                    f"  policy already present in {path}; it matches the policy for the settings the server "
+                    "had when it last said a block differs, which this shell's settings do not select."
+                )
             return (
                 f"  policy already present in {path}, but it differs from the policy this "
                 "version installs (outdated, or edited on purpose; this cannot tell which). "

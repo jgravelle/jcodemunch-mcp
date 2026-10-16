@@ -9766,8 +9766,8 @@ def main(argv: Optional[list[str]] = None):
     )
     claude_md_parser.add_argument(
         "--match-server", action="store_true", dest="match_server",
-        help="With --refresh: write the policy the running server selected (recorded when it said a block "
-        "differs), for when the MCP client's environment selects a different policy than this shell's",
+        help="With --refresh: write this version's policy for the settings a server recorded when it last said "
+        "a block differs, for when the MCP client's environment selects a different policy than this shell's",
     )
 
     # --- index-file ---
