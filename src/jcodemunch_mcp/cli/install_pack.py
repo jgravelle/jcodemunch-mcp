@@ -156,13 +156,17 @@ def _install_telemetry_allowed() -> bool:
     file, still sent. The new condition is the old one AND the config's answer
     (the same `share_savings` the savings counter reads), so it can never post
     where the old one did not. A config that cannot be read means do not send.
+
+    ⚠⚠ `config.get` alone, never `load_config()`: the explicit load creates
+    `config.jsonc` when it is absent, and after a pack's `.db` lands in the
+    store that new file lacks `tool_surface` and pins a first-time user to
+    `full` (Practice 8; review of L-212). `get`'s own lazy load never writes.
     """
     if os.environ.get("JCODEMUNCH_SHARE_SAVINGS", "1") == "0":
         return False
     try:
         from .. import config as _config
 
-        _config.load_config()
         return bool(_config.get("share_savings", True))
     except Exception:
         logger.debug("install-pack: config unreadable; not sending install telemetry", exc_info=True)
