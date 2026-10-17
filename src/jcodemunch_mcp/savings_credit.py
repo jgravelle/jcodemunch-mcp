@@ -47,7 +47,7 @@ NOT_TEXT_SEARCH_STYLE: dict[str, str] = {
         "most queries are structural (empty_catch, nesting depth, god_function) "
         "that Grep cannot express, and each match is attributed to its "
         "enclosing symbol; its todo_fixme, comment: and string: modes are "
-        "grep-like and are ledger row L-213"
+        "grep-like and are ledger row L-216"
     ),
     "find_references": (
         "answers from the resolved import graph (re-exports, dbt refs, "
