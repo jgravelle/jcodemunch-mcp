@@ -53,8 +53,8 @@ search the matching lines are the answer, and an agent with Grep gets the same
 lines. Under the maintainer's ruling (2026-10-17), a text-search-style tool now
 earns zero in both models until a measurement supports a number.
 
-The first measurement points the same way. Benchmarking's Part 1
-(`for-jcodemunch-bot-search-text-part1.md`, 2026-10-17) found that where both
+The first measurement points the same way. A maintainer-run comparison of
+each tool's answer with Grep's matching lines (2026-10-17) found that where both
 answers contain every match, Grep's matching lines are 0.36 of `search_text`'s
 tokens (median, 81 queries) and 0.69 of `check_references`' (30 queries), and
 every comparable query is below 1, in all four repositories: no credit against
