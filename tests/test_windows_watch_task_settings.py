@@ -179,6 +179,18 @@ class TestStatusSaysWhenNothingRuns:
         assert result["settings"] == settings
         assert any("watch-install" in w and key in w for w in result["warnings"])
 
+    def test_an_unread_time_limit_is_not_called_old(self):
+        settings = dict(self._FIXED)
+        settings["execution_time_limit"] = None
+        result = self._status(state="Running", settings=settings)
+
+        assert "warnings" not in result
+
+    def test_a_disabled_task_is_not_told_to_run(self):
+        result = self._status(state="Disabled", settings=dict(self._FIXED))
+
+        assert any("watch-install" in w and "schtasks /Run" not in w for w in result["warnings"])
+
     def test_unreadable_settings_are_omitted_not_guessed(self):
         result = self._status(state="Running", settings=None)
 
@@ -186,38 +198,80 @@ class TestStatusSaysWhenNothingRuns:
         assert "warnings" not in result
 
 
-@pytest.mark.skipif(
-    sys.platform != "win32" or os.environ.get("GITHUB_ACTIONS") != "true",
-    reason="registers a real scheduled task: CI's Windows runner only, never a developer box",
-)
-def test_task_scheduler_accepts_the_definition_and_keeps_the_settings():
-    """Every other test here asserts on the XML we write. Only Task Scheduler
-    can say it ACCEPTS it, and a malformed definition would make
-    `watch-install` fail for every Windows user. Registered under a throwaway
-    name, read back, deleted. Never started: its action only runs at logon."""
-    name = f"{si.SERVICE_NAME}-ci-{uuid.uuid4().hex[:8]}"
-    xml_path = Path(tempfile.mkdtemp()) / "task.xml"
-    xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
-    try:
-        created = subprocess.run(
-            ["schtasks", "/Create", "/F", "/TN", name, "/XML", str(xml_path)],
-            capture_output=True, check=False,
-        )
-        assert created.returncode == 0, si._decode_windows_output(created.stderr or created.stdout)
-        queried = subprocess.run(
-            ["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True, check=False,
-        )
-        assert queried.returncode == 0
-        text = si._decode_windows_output(queried.stdout)
-        root = ET.fromstring(text[text.index("<Task"):])
-        settings = root.find("t:Settings", _NS)
-        assert settings.findtext("t:DisallowStartIfOnBatteries", namespaces=_NS) == "false"
-        assert settings.findtext("t:StopIfGoingOnBatteries", namespaces=_NS) == "false"
-        assert settings.findtext("t:ExecutionTimeLimit", namespaces=_NS) == "PT0S"
-        assert root.find("t:Triggers/t:LogonTrigger", _NS) is not None
-    finally:
-        subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, check=False)
-        xml_path.unlink(missing_ok=True)
+def _may_register_a_real_task(env=None, platform=None) -> bool:
+    """Only CI's Windows runner may register a scheduled task; a developer box never."""
+    env = os.environ if env is None else env
+    platform = sys.platform if platform is None else platform
+    return platform == "win32" and env.get("GITHUB_ACTIONS") == "true"
+
+
+def test_a_developer_box_never_registers_a_real_task():
+    """The guard below is what keeps the live test off a developer's scheduler."""
+    assert _may_register_a_real_task({}, "win32") is False
+    assert _may_register_a_real_task({"GITHUB_ACTIONS": "false"}, "win32") is False
+    assert _may_register_a_real_task({"GITHUB_ACTIONS": "true"}, "linux") is False
+    assert _may_register_a_real_task({"GITHUB_ACTIONS": "true"}, "win32") is True
+
+
+def _register_and_read_back(name: str, create_args: list[str]) -> ET.Element:
+    created = subprocess.run(
+        ["schtasks", "/Create", "/F", "/TN", name, *create_args], capture_output=True, check=False,
+    )
+    assert created.returncode == 0, si._decode_windows_output(created.stderr or created.stdout)
+    queried = subprocess.run(["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True, check=False)
+    assert queried.returncode == 0, si._decode_windows_output(queried.stderr)
+    text = si._decode_windows_output(queried.stdout)
+    # The declaration names UTF-16 and ET refuses a str carrying one.
+    return ET.fromstring(text[text.index("<Task"):])
+
+
+# ⚠⚠ DEFINED only where it may run, never skipped elsewhere (the
+# `test_declared_forms_extract.py` precedent): a skip here would spend one of
+# `ci.skips_windows`'s budget on every developer box to say nothing, and this
+# box already sits at the ceiling. CI's Windows legs collect and run it.
+if _may_register_a_real_task():
+
+    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form():
+        """Every other test here asserts on the XML we write. Only Task
+        Scheduler can say it ACCEPTS it, and a malformed definition would make
+        `watch-install` fail for every Windows user. Registers our definition
+        and the old switch form under throwaway names, compares what Windows
+        stored, deletes both. Never started: the action runs only at logon."""
+        suffix = uuid.uuid4().hex[:8]
+        xml_name = f"{si.SERVICE_NAME}-ci-xml-{suffix}"
+        old_name = f"{si.SERVICE_NAME}-ci-old-{suffix}"
+        xml_path = Path(tempfile.mkdtemp()) / "task.xml"
+        xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
+        cmd_str = " ".join(si._cmd_quote(x) for x in si._exec_cmd())
+        try:
+            new = _register_and_read_back(xml_name, ["/XML", str(xml_path)])
+            old = _register_and_read_back(old_name, ["/SC", "ONLOGON", "/RL", "LIMITED", "/TR", cmd_str])
+
+            settings = new.find("t:Settings", _NS)
+            assert settings.findtext("t:DisallowStartIfOnBatteries", namespaces=_NS) == "false"
+            assert settings.findtext("t:StopIfGoingOnBatteries", namespaces=_NS) == "false"
+            assert settings.findtext("t:ExecutionTimeLimit", namespaces=_NS) == "PT0S"
+
+            def _kept(root: ET.Element) -> dict:
+                principal = root.find("t:Principals/t:Principal", _NS)
+                trigger = root.find("t:Triggers/t:LogonTrigger", _NS)
+                exec_ = root.find("t:Actions/t:Exec", _NS)
+                return {
+                    "trigger": trigger is not None,
+                    "trigger_user": None if trigger is None else trigger.findtext("t:UserId", namespaces=_NS),
+                    "principal_user": principal.findtext("t:UserId", namespaces=_NS),
+                    "logon_type": principal.findtext("t:LogonType", namespaces=_NS),
+                    # Absent means the schema default, LeastPrivilege.
+                    "run_level": principal.findtext("t:RunLevel", namespaces=_NS) or "LeastPrivilege",
+                    "command": exec_.findtext("t:Command", namespaces=_NS),
+                    "arguments": exec_.findtext("t:Arguments", namespaces=_NS),
+                }
+
+            assert _kept(new) == _kept(old)
+        finally:
+            for name in (xml_name, old_name):
+                subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, check=False)
+            xml_path.unlink(missing_ok=True)
 
 
 class TestSettingsProbe:
@@ -239,6 +293,9 @@ class TestSettingsProbe:
 
     def test_a_failed_probe_is_unknown(self):
         assert self._probe(b"", returncode=1)[0] is None
+
+    def test_an_empty_time_limit_is_unknown_not_pt0s(self):
+        assert self._probe(b"False|False|\r\n")[0]["execution_time_limit"] is None
 
     def test_malformed_output_is_unknown(self):
         assert self._probe(b"Running\r\n")[0] is None

@@ -367,7 +367,12 @@ def _install_windows() -> dict:
     # rejects a document whose bytes disagree with it.
     fd, xml_path = tempfile.mkstemp(prefix=f"{SERVICE_NAME}-", suffix=".xml")
     try:
-        with os.fdopen(fd, "w", encoding="utf-16") as fh:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-16")
+        except Exception:
+            os.close(fd)
+            raise
+        with fh:
             fh.write(_windows_task_xml())
         args = [
             "schtasks", "/Create", "/F",
@@ -435,8 +440,8 @@ def _scheduled_task_settings() -> Optional[dict]:
     return {
         "disallow_start_if_on_batteries": _PS_BOOLS[parts[0]],
         "stop_if_going_on_batteries": _PS_BOOLS[parts[1]],
-        # The COM object spells "no limit" as an empty string or PT0S.
-        "execution_time_limit": parts[2] or "PT0S",
+        # ⚠ An empty read is UNKNOWN, never mapped to the healthy PT0S.
+        "execution_time_limit": parts[2] or None,
     }
 
 
@@ -468,15 +473,22 @@ def _status_windows() -> dict:
     }
     warnings: list[str] = []
     if state is not None and state != "Running":
+        remedy = (
+            "re-run `jcodemunch-mcp watch-install` (a disabled task cannot be started)"
+            if state == "Disabled"
+            else f"start it with `schtasks /Run /TN {SERVICE_NAME}` or log on again"
+        )
         warnings.append(
             f"task '{SERVICE_NAME}' exists (state {state}) but no watcher is "
-            "running from it, so indexes are not kept fresh; start it with "
-            f"`schtasks /Run /TN {SERVICE_NAME}` or log on again"
+            f"running from it, so indexes are not kept fresh; {remedy}"
         )
     settings = _scheduled_task_settings()
     if settings is not None:
         out["settings"] = settings
-        old = [k for k, v in _WINDOWS_TASK_SETTINGS.items() if settings.get(k) != v]
+        old = [
+            k for k, v in _WINDOWS_TASK_SETTINGS.items()
+            if settings.get(k) is not None and settings.get(k) != v
+        ]
         if old:
             warnings.append(
                 "task carries Task Scheduler defaults that stop the watcher on "
