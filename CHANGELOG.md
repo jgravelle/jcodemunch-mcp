@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Fixed - `index_file` no longer indexes a file the next full index deletes
+
+`index_file`, which the PostToolUse `index-file` hook calls after every edit,
+applied one rule of the folder walk's filter: it refused a credential file
+(#351) and nothing else. A file under `node_modules/` or `.next/`, under a
+directory tagged by `CACHEDIR.TAG`, in MSBuild output, a NuGet restore tree or
+a virtualenv's `site-packages`, matched by a `.gitignore` or by
+`extra_ignore_patterns`, or over `max_file_size` answered `success: True` and
+was searchable until the next full index deleted it (ledger L-142). The hook
+checks only the file extension before it calls, so `index_file` is that route's
+only filter. It now runs the walk's own per-file filter, `_should_index_file`,
+and refuses with the walk's reason in `skipped`. The filter's inputs come from
+the same place as the walk's: one builder for the size cap, ignore patterns and
+skip switches (`_walk_filter_config`, which `discover_local_files` now uses),
+the detected framework profile's ignore patterns (Spring Boot's `src/test/`,
+Rails' `tmp/`), and every `.gitignore` from the walk root down to the file. For
+an index built from a subdirectory of a git repository, the walk root is that
+subdirectory, as it is for the walk, so the git root's `.gitignore` and config
+do not refuse a file the walk indexed. Not covered: a per-call
+`index_folder(extra_ignore_patterns=...)` or `max_size=` is not stored, so
+`index_file` applies the configured values; and the watcher's fast path still
+assembles its own inputs (root `.gitignore` only, no profile patterns).
+
 ## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
 
 ### Fixed - a typo can no longer switch off a protective setting
