@@ -148,6 +148,24 @@ def _head_may_advance(
     return True
 
 
+# The setting that re-admits each kind of exclusion, for the walk and for this
+# route alike. A reason absent here has none, and the refusal says so (L-142).
+_OVERRIDE = {
+    "skip_dir": '`exclude_skip_directories: ["<directory name>"]`',
+    "generated_migrations": '`exclude_skip_directories: ["migrations"]`',
+    "cache_dir": "`respect_cachedir_tag: false`",
+    "msbuild_output": "`skip_msbuild_output: false`",
+    "nuget_packages": "`skip_nuget_packages: false`",
+    "virtualenv": "`skip_virtualenvs: false`",
+    "extra_ignore": (
+        "`extra_ignore_patterns` without the matching entry (a framework "
+        "profile's pattern has no setting)"
+    ),
+    "too_large": "a larger `max_file_size`",
+    "secret": "`exclude_secret_patterns` with a glob that matches the file",
+}
+
+
 _REFUSAL_TEXT = {
     "skip_file": "its file name is on the skip list (lockfiles, compiled files)",
     "skip_dir": "it is under a skipped directory (dependencies, build output, caches)",
@@ -238,6 +256,14 @@ def _walk_refusal(
             " Folder indexing skips this file too, so indexing it here would "
             "not survive the next full index."
         )
+        override = _OVERRIDE.get(reason)
+        if override:
+            error += (
+                f" To index it anyway, set {override} in the project's "
+                ".jcodemunch.jsonc (or config.jsonc); the full index then keeps it too."
+            )
+        else:
+            error += " No setting re-admits a file excluded this way."
     return {"success": False, "error": error, "skipped": reason}
 
 

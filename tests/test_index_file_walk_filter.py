@@ -185,3 +185,43 @@ def test_subdir_walk_reads_its_own_project_config(tmp_path):
     res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
     assert res["success"] is False, res
     assert res.get("skipped") == "extra_ignore", res
+
+
+# ── A refusal names the setting that re-admits the file, or says none does ──
+
+@pytest.mark.parametrize("case,setting", [
+    ("cachedir_tag", "respect_cachedir_tag"),
+    ("virtualenv", "skip_virtualenvs"),
+    ("too_large", "max_file_size"),
+    ("node_modules", "exclude_skip_directories"),
+])
+def test_refusal_names_the_override(indexed_tree, case, setting):
+    _root, store, _control, cases, _walked, _ = indexed_tree
+    path, _reason = cases[case]
+    res = index_file(path=str(path), use_ai_summaries=False, storage_path=str(store))
+    assert setting in res["error"], res["error"]
+    assert "No setting re-admits" not in res["error"]
+
+
+def test_refusal_says_when_no_setting_readmits(indexed_tree):
+    _root, store, _control, cases, _walked, _ = indexed_tree
+    path, _reason = cases["gitignore_root"]
+    res = index_file(path=str(path), use_ai_summaries=False, storage_path=str(store))
+    assert "No setting re-admits a file excluded this way." in res["error"], res["error"]
+
+
+def test_the_named_override_readmits_on_both_routes(tmp_path):
+    # The override the refusal names must work for the walk AND index_file.
+    root = tmp_path / "proj"
+    _write(root / "keep.py")
+    _write(root / ".jcodemunch.jsonc", '{"respect_cachedir_tag": false}\n')
+    tagged = root / "scratch_cache"
+    tagged.mkdir()
+    (tagged / "CACHEDIR.TAG").write_bytes(CACHEDIR_TAG_SIGNATURE + b"\n")
+    target = _write(tagged / "gen.py")
+    store = tmp_path / "store"
+    (owner, name), walked = _index_and_files(root, store)
+    assert "scratch_cache/gen.py" in walked, walked
+    _write(target, "def g():\n    return 2\n")
+    res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is True, res

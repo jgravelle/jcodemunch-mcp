@@ -36,6 +36,25 @@ do not refuse a file the walk indexed. Not covered: a per-call
 `index_file` applies the configured values; and the watcher's fast path still
 assembles its own inputs (root `.gitignore` only, no profile patterns).
 
+This reverses a stated design. PR #1122 (L-206, the virtualenv rule) said
+"explicit `paths=`, `index_file` and `index_repo` are unchanged, as for every
+sibling skip rule", and 1.108.337 listed `index_file` among the routes that do
+not apply the marker rules. That held while `index_file`'s answer was
+temporary anyway: whatever it added, the next full index removed, so a user
+who wanted an excluded file could not keep it by this route either. Applying
+the exclusions here makes the two routes agree on what is in the index;
+`explicit paths=` and `index_repo` are unchanged.
+
+To index an excluded file on purpose, change the setting that excluded it,
+which the walk then honours too; every refusal names it:
+`exclude_skip_directories` (a skipped directory name, or `migrations`),
+`respect_cachedir_tag`, `skip_msbuild_output`, `skip_nuget_packages`,
+`skip_virtualenvs`, `extra_ignore_patterns`, `max_file_size`,
+`exclude_secret_patterns`. Known limit: no setting re-admits a gitignored file,
+a file matched by a framework profile's ignore pattern, a skip-listed file name
+(lockfiles, compiled files), a binary file or one inside a nested worktree; the
+refusal says so rather than naming a setting that does not exist.
+
 ## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
 
 ### Fixed - a typo can no longer switch off a protective setting
