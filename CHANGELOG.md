@@ -7,7 +7,7 @@
 `index_folder` skipped a virtualenv only when its folder was named `venv` or
 `.venv`. A venv called `env`, `jcm-venv` or `py313` was walked file by file,
 and where nothing else excluded it (a stdlib venv before Python 3.13 or an
-older virtualenv writes no `.gitignore`, and only uv writes a `CACHEDIR.TAG`)
+older virtualenv writes no `.gitignore`, and uv also writes a `CACHEDIR.TAG`)
 its site-packages entered the index, competed with your own code in ranking
 and used up `max_folder_files`. On a workspace holding several such venvs the
 index timed out (ledger L-206, from our own dogfooding). Every venv tool writes
