@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.376] - 2026-10-17 - install-pack honours every savings opt-out
+
 ### Added - `init` and `install` end with one licence line
 
 A real run of `jcodemunch-mcp init` or `jcodemunch-mcp install <agent>` now

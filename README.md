@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.376](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.376)** (2026-10-17) — install-pack honours every savings opt-out
 - **[v1.108.375](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.375)** (2026-10-17) — a typo can no longer switch off a protective setting
 - **[v1.108.374](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.374)** (2026-10-16) — a Python virtualenv is skipped whatever its folder is called
 - **[v1.108.373](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.373)** (2026-10-16) — claude-md --refresh can write the policy your server uses
-- **[v1.108.372](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.372)** (2026-10-16) — uninstall keeps your own section after the policy
 <!-- WHATSNEW:END -->
 
 ---

@@ -2701,3 +2701,13 @@ The 1.108.372 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.372 count, verbatim:
 
 - ⚠ Prior (1.108.372): 17579 passed, 25 skipped, **0 failed** (17604 total).
+
+## Current State rotation (2026-10-17, release 1.108.376)
+
+The 1.108.373 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.373):** **claude-md --refresh can write the policy your server uses** (L-185): the notice marker records the server's policy SETTINGS, never text; `--match-server` rebuilds with `policy.policy_for`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.373 count, verbatim:
+
+- ⚠ Prior (1.108.373): 17595 passed, 25 skipped, **0 failed** (17620 total).

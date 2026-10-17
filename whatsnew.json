@@ -1,6 +1,12 @@
 {
-  "current": "1.108.375",
+  "current": "1.108.376",
   "entries": [
+    {
+      "version": "1.108.376",
+      "date": "2026-10-17",
+      "title": "install-pack honours every savings opt-out",
+      "summary": "After installing a starter pack, install-pack posts one event naming the pack, its version and your platform. It now skips that whenever you have opted out of savings sharing in any spelling (false, off, no, or share_savings: false in config.jsonc), not only for an environment value of exactly 0, so it can never send where it did not before. Also: a real init or install now ends with one line about the commercial licence."
+    },
     {
       "version": "1.108.375",
       "date": "2026-10-17",
@@ -18,12 +24,6 @@
       "date": "2026-10-16",
       "title": "claude-md --refresh can write the policy your server uses",
       "summary": "The server picks the agent policy from the MCP client's environment and claude-md --refresh from your shell's, so a setting set only for the client made them disagree with no explanation. The command now says so, and --match-server writes this version's policy for the settings the server recorded. The record holds settings, never text."
-    },
-    {
-      "version": "1.108.372",
-      "date": "2026-10-16",
-      "title": "uninstall keeps your own section after the policy",
-      "summary": "uninstall strips the Code Exploration Policy and nothing after it: a section of yours headed # or ### right after the policy used to go with it. The policy block now starts at a real heading, never a fenced example of one or a heading that only mentions it, and a byte-order mark no longer hides it. Installers no longer skip a file that only mentions the policy in a sentence."
     }
   ]
 }
