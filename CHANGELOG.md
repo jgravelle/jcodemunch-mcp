@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
+
 ### Fixed - a Python virtualenv is skipped whatever its folder is called
 
 `index_folder` skipped a virtualenv only when its folder was named `venv` or
@@ -24,6 +26,8 @@ file by file. Skips are counted as `virtualenv` in `discovery_skip_counts`;
 SECURITY.md describes the rule.
 
 ### Fixed - audit reliability
+
+Contributed by @lilubot (#1117).
 
 - Repositories with more than 100 dead-code candidates no longer have
   `dead_code_pct` understated by the truncated result list. On those

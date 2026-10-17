@@ -1,6 +1,12 @@
 {
-  "current": "1.108.373",
+  "current": "1.108.374",
   "entries": [
+    {
+      "version": "1.108.374",
+      "date": "2026-10-16",
+      "title": "a Python virtualenv is skipped whatever its folder is called",
+      "summary": "index_folder skipped a virtualenv only when its folder was named venv or .venv, so a venv called env or jcm-venv was walked file by file and its site-packages competed with your own code. It now prunes a venv's site-packages under any folder whose pyvenv.cfg has a home key, and nothing else in the venv. Also from lilubot (#1117): dead_code_pct counts every candidate past 100, live React components and lifecycle methods are not offered for deletion, and old-form submodules appear in project intelligence."
+    },
     {
       "version": "1.108.373",
       "date": "2026-10-16",
@@ -18,12 +24,6 @@
       "date": "2026-10-16",
       "title": "a schema's dead-code advice follows the right evidence",
       "summary": "find_dead_code and check_delete_safe never certify a .xsd or .wsdl with no importer, and the advice they give depends on whether the repository looks like .NET. A Razor or Blazor tree now counts as .NET, and a bare .fs file no longer does, so a GLSL shader no longer makes a Maven repository read as .NET. Every schema stays capped either way; only the advice changes."
-    },
-    {
-      "version": "1.108.370",
-      "date": "2026-10-16",
-      "title": "seven import forms record the names they import",
-      "summary": "A PHP group use, a Kotlin `as` import, a Scala selector, a Haskell import list, a Dart `show`, a destructuring `require` and a Python `import` continued by a backslash each recorded no names, or no edge, so find_references answered 0 for the names they import. Each now records them, and a statement that is not whole records what it did before. The parser generation moves, so an existing index re-reads these files once."
     }
   ]
 }
