@@ -104,9 +104,33 @@ _DEFAULT_MULTIPLIER = 8.0
 #: the call cost is. It read "Net savings" until this change.
 SAVINGS_LABEL = "Modeled gross savings"
 
-#: The Counter front door: `order(action=...)` runs another tool, so a call is
-#: priced by the action it ran, or a text search there earns the default.
-_FRONT_DOOR_DISPATCH = "order"
+#: The Counter front door runs another tool under its own name: `order` names
+#: the action in its INPUT, `route(execute=true)` names it in the first block of
+#: its RESULT (`executed_action`). Read there, a text-search action is priced as
+#: the text search it was, or it earns the default multiplier. ⚠ Only a
+#: text-search action is re-priced: every other action keeps the default, as
+#: before L-180, because moving those figures is outside the ruling.
+_ORDER = "order"
+_ROUTE = "route"
+
+
+def _routed_action(content) -> Optional[str]:
+    """`executed_action` from a `route` result's first text block, else None."""
+    if isinstance(content, list):
+        first = next(
+            (b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"),
+            None,
+        )
+    else:
+        first = content
+    if not isinstance(first, str) or '"executed_action"' not in first:
+        return None
+    try:
+        head = json.loads(first)
+    except ValueError:
+        return None
+    action = head.get("executed_action") if isinstance(head, dict) else None
+    return action if isinstance(action, str) else None
 
 
 def _multiplier(tool: str) -> float:
@@ -397,7 +421,7 @@ def _iter_calls_in_file(
                         # bare tool name (search_symbols, etc.).
                         bare = name.split("__")[-1] if "__" in name else name
                         priced_as = bare
-                        if bare == _FRONT_DOOR_DISPATCH:
+                        if bare == _ORDER:
                             tool_input = block.get("input")
                             action = tool_input.get("action") if isinstance(tool_input, dict) else None
                             if isinstance(action, str) and action in TEXT_SEARCH_STYLE_TOOLS:
@@ -421,9 +445,14 @@ def _iter_calls_in_file(
                             continue
                         result_bytes = _result_byte_length(block.get("content"))
                         result_tokens = max(1, result_bytes // _BYTES_PER_TOKEN)
+                        priced_as = meta["priced_as"]
+                        if meta["tool"] == _ROUTE:
+                            routed = _routed_action(block.get("content"))
+                            if routed in TEXT_SEARCH_STYLE_TOOLS:
+                                priced_as = routed
                         yield {
                             "tool": meta["tool"],
-                            "priced_as": meta["priced_as"],
+                            "priced_as": priced_as,
                             "timestamp": meta["timestamp"],
                             "result_tokens": result_tokens,
                             "result_bytes": result_bytes,
@@ -650,10 +679,12 @@ def render_explain() -> str:
         out.write(f"  {tool:<32} {mult:>11.1f}×\n")
     out.write("\nNo credit (L-180). A text-search-style tool's answer is the\n")
     out.write("matching lines, which Grep returns as well, so it earns nothing\n")
-    out.write("until a measurement supports a number. A call through the\n")
-    out.write("`order` front door is priced by the action it ran.\n")
+    out.write("until a measurement supports a number: its multiplier is 1.0,\n")
+    out.write("so baseline equals actual and savings is 0. The same holds when\n")
+    out.write("one runs through the front door (`order`, or `route` with\n")
+    out.write("execute=true); every other front-door action keeps the default.\n")
     for tool, reason in sorted(TEXT_SEARCH_STYLE_TOOLS.items()):
-        out.write(f"  {tool:<32} {0.0:>11.1f}×  ({reason})\n")
+        out.write(f"  {tool:<32} {_multiplier(tool):>11.1f}×  no credit: {reason}\n")
     out.write("\nTo override a tool's multiplier, edit cli/receipt.py and\n")
     out.write("send a PR with your reasoning. The numbers should reflect\n")
     out.write("realistic naive-tool-call counterfactuals, not optimism.\n")

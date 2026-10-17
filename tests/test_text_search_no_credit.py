@@ -104,7 +104,35 @@ def test_an_order_for_a_credited_tool_keeps_its_credit(tmp_path):
     _transcript(tmp_path / "p" / "s.jsonl", "mcp__jcodemunch__order",
                 {"action": "search_symbols", "args": {"repo": "r", "query": "x"}}, "y" * 4000)
     agg = receipt.aggregate(receipt.iter_calls(tmp_path))
-    assert agg["totals"]["savings_tokens"] > 0
+    # Only a text-search action is re-priced; every other `order` keeps the
+    # default multiplier it had before L-180 (moving it is outside the ruling).
+    actual = 4000 // receipt._BYTES_PER_TOKEN
+    assert agg["totals"]["savings_tokens"] == int(actual * receipt._DEFAULT_MULTIPLIER) - actual
+
+
+def _route_result(action: str) -> list[dict]:
+    # server._handle_route's head block, then the routed tool's own output.
+    head = json.dumps({"tool": "route", "task": "t", "executed_action": action, "args": {}},
+                      separators=(",", ":"))
+    return [{"type": "text", "text": head}, {"type": "text", "text": "y" * 4000}]
+
+
+@pytest.mark.parametrize("tool", TEXT_SEARCH)
+def test_a_routed_text_search_credits_nothing(tmp_path, tool):
+    # route(execute=true) names the action only in its RESULT, never its input.
+    _transcript(tmp_path / "p" / "s.jsonl", "mcp__jcodemunch__route",
+                {"task": "where is foo used", "execute": True}, _route_result(tool))
+    agg = receipt.aggregate(receipt.iter_calls(tmp_path))
+    assert agg["totals"]["calls"] == 1
+    assert agg["totals"]["savings_tokens"] == 0
+
+
+def test_a_routed_credited_tool_keeps_the_default(tmp_path):
+    _transcript(tmp_path / "p" / "s.jsonl", "mcp__jcodemunch__route",
+                {"task": "find foo", "execute": True}, _route_result("search_symbols"))
+    agg = receipt.aggregate(receipt.iter_calls(tmp_path))
+    actual = agg["totals"]["actual_tokens"]
+    assert agg["totals"]["savings_tokens"] == int(actual * receipt._DEFAULT_MULTIPLIER) - actual
 
 
 # --- the label -------------------------------------------------------------
@@ -139,7 +167,10 @@ def test_explain_names_the_label_and_every_zero_credit_tool():
     out = receipt.render_explain()
     assert "Modeled gross savings" in out
     for tool in TEXT_SEARCH:
-        assert re.search(rf"^\s+{tool}\s+0\.0", out, re.M), tool
+        # 1.0x, not 0.0x: --explain prints baseline = actual x multiplier, so a
+        # reader applying the printed formula must get a saving of zero.
+        assert re.search(rf"^\s+{tool}\s+1\.0×\s+no credit:", out, re.M), tool
+        assert receipt._multiplier(tool) == 1.0
 
 
 # --- the live meter --------------------------------------------------------
@@ -169,9 +200,24 @@ def test_search_text_reports_no_saving(tmp_path, monkeypatch):
     src = tmp_path / "src"
     src.mkdir()
     # A large file with one match: the old meter credited its whole size.
-    (src / "big.py").write_text("x = 1\n" * 5000 + "needle = 2\n", encoding="utf-8")
+    body = "x = 1\n" * 5000 + "needle = 2\n"
+    (src / "big.py").write_text(body, encoding="utf-8")
     store = str(tmp_path / "idx")
     repo = index_folder(path=str(src), use_ai_summaries=False, storage_path=store)["repo"]
+
+    # An index_folder index stores no file sizes (L-179), so on it the old
+    # meter already credited 0 and this test could not fail. Serve the index
+    # with the size a remote index stores, which is where the old credit came from.
+    import jcodemunch_mcp.tools.search_text as st_mod
+
+    class _SizedStore(st_mod.IndexStore):
+        def load_index(self, *a, **kw):
+            index = super().load_index(*a, **kw)
+            if index is not None:
+                index.file_sizes = {"big.py": len(body.encode("utf-8"))}
+            return index
+
+    monkeypatch.setattr(st_mod, "IndexStore", _SizedStore)
 
     seen = []
     monkeypatch.setattr(token_tracker._state, "add", lambda d, b, t=None: seen.append((d, t)) or 0)

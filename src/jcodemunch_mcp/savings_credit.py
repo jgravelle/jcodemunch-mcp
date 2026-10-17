@@ -33,9 +33,10 @@ TEXT_SEARCH_STYLE_TOOLS: dict[str, str] = {
         "optional context lines; Grep returns the same lines"
     ),
     "check_references": (
-        "the answer is the import lines and content lines that mention an "
-        "identifier, comments and strings included; Grep for the identifier "
-        "returns both"
+        "by default the answer is the files whose imports name an identifier "
+        "plus the lines that mention it, comments and strings included; Grep "
+        "for the identifier finds both (its import-only mode, "
+        "search_content=false, is ledger row L-216)"
     ),
 }
 
