@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed - an opted-in git blame no longer goes missing on a busy machine
+
+With `git_blame_enabled` on, the blame provider decided whether a folder below a
+repository's root was inside a git checkout by running `git rev-parse` with a
+5-second limit, and it swallowed the timeout. On a loaded machine a real
+repository read as none, and blame silently did not run: no warning and no
+skipped-provider entry (ledger L-209). The provider now asks the same rule
+the rest of jCodeMunch uses to find a git root, a walk up the folder tree that
+starts no process, so there is no timeout to miss.
+
 ## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
 
 ### Fixed - a Python virtualenv is skipped whatever its folder is called

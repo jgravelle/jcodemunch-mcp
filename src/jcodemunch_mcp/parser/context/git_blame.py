@@ -32,6 +32,20 @@ from typing import Optional
 from ... import config as _config
 from .base import ContextProvider, FileContext, register_provider
 
+
+def _find_git_root(folder_path: Path) -> Optional[Path]:
+    """Ask the one git-root rule (`storage.git_root`), a walk that spawns nothing.
+
+    L-209: this provider used to run `git rev-parse` with a hard-coded 5 s
+    timeout inside a bare `except`, so on a loaded machine a real repository
+    read as none and an opted-in blame silently did not run. Imported lazily:
+    `storage`'s package init loads the index store, which a parser module has
+    no reason to pull in at import time.
+    """
+    from ...storage.git_root import _find_git_root as authority  # noqa: PLC0415
+
+    return authority(folder_path)
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,23 +124,7 @@ class GitBlameProvider(ContextProvider):
         """Return True if the folder is inside a git repository and blame is enabled."""
         if not _config.get("git_blame_enabled", False, repo=str(folder_path)):
             return False
-        return (folder_path / ".git").exists() or self._find_git_root(folder_path) is not None
-
-    def _find_git_root(self, folder_path: Path) -> Optional[Path]:
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
-                cwd=str(folder_path),
-                capture_output=True,
-                text=True, encoding="utf-8", errors="replace",
-                timeout=5,
-                stdin=subprocess.DEVNULL,
-            )
-            if result.returncode == 0:
-                return Path(result.stdout.strip())
-        except Exception:
-            pass
-        return None
+        return (folder_path / ".git").exists() or _find_git_root(folder_path) is not None
 
     def load(self, folder_path: Path) -> None:
         """Run one bounded ``git log`` to populate the blame map.
