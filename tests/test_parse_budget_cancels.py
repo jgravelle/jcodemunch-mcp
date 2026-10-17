@@ -599,6 +599,12 @@ def test_a_first_index_leaves_no_thread_behind(tmp_path, budget, monkeypatch):
     big_fast = _PADDING * 2000 + "def marker_symbol():\n    return 1\n"
     assert len(big_fast) >= OLD_WAIT_GATE
     project = _project(tmp_path, big_fast)
+    # L-211: inside a parse the budget is tree-sitter's WALL timer, so on a
+    # starved CI runner this "fast" file outran the fixture's 0.25 s and lost
+    # its symbol (main.yml, 2026-10-17). The question here is which threads
+    # start, not whether the file fits, so the budget stays on (the budgeted
+    # route still runs) and is one the file cannot miss.
+    monkeypatch.setenv("JCODEMUNCH_PARSE_BUDGET_SECONDS", "60")
 
     started = []
     real_start = threading.Thread.start
