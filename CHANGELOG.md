@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed - an opted-in git blame no longer goes missing on a busy machine
+
+With `git_blame_enabled` on, the blame provider decided whether a folder below a
+repository's root (indexing with `identity_mode: "local"` or
+`git_root_identity: false` starts there) was inside a git checkout by running `git rev-parse` with a
+5-second limit, and it swallowed the timeout. On a loaded machine a real
+repository read as none, and blame silently did not run: no warning and no
+skipped-provider entry (ledger L-209). The provider now asks the same rule
+the rest of jCodeMunch uses to find a git root, a walk up the folder tree that
+starts no process, so there is no timeout to miss.
+
 ## [1.108.376] - 2026-10-17 - install-pack honours every savings opt-out
 
 ### Added - `init` and `install` end with one licence line
