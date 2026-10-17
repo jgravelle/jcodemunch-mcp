@@ -58,6 +58,20 @@ def _blame_opted_in(monkeypatch):
     from jcodemunch_mcp import config as config_module
 
     monkeypatch.setitem(config_module._GLOBAL_CONFIG, "git_blame_enabled", True)  # type: ignore[attr-defined]
+    _blame_cannot_run_out_of_time(monkeypatch)
+
+
+def _blame_cannot_run_out_of_time(monkeypatch):
+    """Blame's completion is setup here, not an assumption (L-208).
+
+    Under load the 10 s `git log` budget or the 30 s provider budget cut blame,
+    the symbol carried no `ecosystem_context`, and the test failed on wall clock
+    rather than on the enrichment it checks. Both are read at call time.
+    """
+    from jcodemunch_mcp.parser.context import git_blame
+
+    monkeypatch.setenv("JCODEMUNCH_PROVIDER_BUDGET_SECONDS", "0")
+    monkeypatch.setattr(git_blame, "GIT_BLAME_TIMEOUT_S", 600.0)
 
 
 def test_full_index_populates_provider_cache_and_enriches(tmp_path):

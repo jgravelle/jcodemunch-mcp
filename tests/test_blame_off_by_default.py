@@ -19,6 +19,21 @@ from jcodemunch_mcp import config as config_module
 from jcodemunch_mcp.parser.context.git_blame import GitBlameProvider
 
 
+@pytest.fixture(autouse=True)
+def _blame_cannot_run_out_of_time(monkeypatch):
+    """When a test opts blame in, its completion is setup, not an assumption (L-208).
+
+    Under load the 10 s `git log` budget or the 30 s provider budget cut blame, a
+    symbol carried no `ecosystem_context`, and a test failed on wall clock rather
+    than on what it checks. Both are read at call time. Harmless where blame is
+    off, which is the default this file also pins.
+    """
+    from jcodemunch_mcp.parser.context import git_blame
+
+    monkeypatch.setenv("JCODEMUNCH_PROVIDER_BUDGET_SECONDS", "0")
+    monkeypatch.setattr(git_blame, "GIT_BLAME_TIMEOUT_S", 600.0)
+
+
 def _git_repo(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     for args in (
