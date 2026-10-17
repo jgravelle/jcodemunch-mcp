@@ -63,19 +63,20 @@ def test_a_subfolder_of_a_real_repository_is_detected(tmp_path, blame_on):
     assert GitBlameProvider().detect(sub) is True
 
 
-def test_a_folder_in_no_repository_is_not_detected(tmp_path, blame_on, monkeypatch):
-    # tmp_path may sit inside a git checkout on some boxes; walk from a folder
-    # whose ancestors we control by pointing the authority at a known answer.
-    monkeypatch.setattr(git_blame, "_find_git_root", lambda p: None, raising=False)
+def test_a_folder_in_no_repository_is_not_detected(tmp_path, blame_on):
+    """The real walk, unmocked (review: mocking the authority asserted its own
+    stub). Skips, saying why, on a box whose temp dir sits inside a checkout."""
     plain = tmp_path / "plain"
     plain.mkdir()
+    if any((p / ".git").exists() for p in (plain, *plain.resolve().parents)):
+        pytest.skip("the temp dir is inside a git checkout on this box")
     assert GitBlameProvider().detect(plain) is False
 
 
 def test_blame_off_detects_nothing_and_walks_nothing(tmp_path, monkeypatch):
     monkeypatch.setitem(config_module._GLOBAL_CONFIG, "git_blame_enabled", False)  # type: ignore[attr-defined]
     calls = []
-    monkeypatch.setattr(git_blame, "_find_git_root", lambda p: calls.append(p), raising=False)
+    monkeypatch.setattr(git_blame, "_find_git_root", lambda p: calls.append(p))
     sub = _repo_with_subfolder(tmp_path / "repo")
     assert GitBlameProvider().detect(sub) is False
     assert calls == []

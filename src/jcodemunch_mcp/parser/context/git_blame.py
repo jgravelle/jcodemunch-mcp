@@ -172,6 +172,14 @@ class GitBlameProvider(ContextProvider):
         except Exception as exc:
             logger.warning("GitBlameProvider: git log failed: %s", exc)
             return
+        if result.returncode != 0:
+            # The walk can find a `.git` git itself refuses (a broken `.git` file,
+            # safe.directory, GIT_CEILING_DIRECTORIES); git log then fails and the
+            # blame map stays empty. Say so (review of L-209).
+            logger.debug(
+                "GitBlameProvider: git log exited %d in %s: %s",
+                result.returncode, folder_path, (result.stderr or "").strip()[:200],
+            )
 
         current_author = ""
         current_date = ""
