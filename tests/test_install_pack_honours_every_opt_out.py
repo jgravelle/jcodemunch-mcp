@@ -77,14 +77,26 @@ def test_reading_the_setting_creates_no_config_file(monkeypatch, tmp_path):
     assert not (tmp_path / "store" / "config.jsonc").exists()
 
 
-def test_an_unreadable_config_does_not_post(monkeypatch):
-    monkeypatch.delenv("JCODEMUNCH_SHARE_SAVINGS", raising=False)
+_BAD_FILES = ['{"share_savings": false,, }', '{"share_savings": "no"}', "not json at all"]
 
-    def boom(*a, **k):
-        raise OSError("config unreadable")
 
-    monkeypatch.setattr(config_module, "get", boom)
-    assert install_pack._install_telemetry_allowed() is False
+@pytest.mark.parametrize("text", _BAD_FILES)
+def test_an_unparseable_config_reads_as_the_default_and_never_sends_more(monkeypatch, tmp_path, text):
+    """The real loader maps a parse error or a wrong-typed value to the default
+    (on), so the answer is the old rule's, never more (review round 2 of L-212:
+    a stub that raised pinned a branch the real `config.get` never reaches)."""
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "config.jsonc").write_text(text, encoding="utf-8")
+    for env, expected in ((None, True), ("0", False), ("off", False)):
+        monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+        if env is None:
+            monkeypatch.delenv("JCODEMUNCH_SHARE_SAVINGS", raising=False)
+        else:
+            monkeypatch.setenv("JCODEMUNCH_SHARE_SAVINGS", env)
+        monkeypatch.setattr(config_module, "_GLOBAL_CONFIG", {})
+        monkeypatch.setattr(config_module, "_CONFIG_LOADED", False)
+        assert install_pack._install_telemetry_allowed() is expected, (text, env)
 
 
 def test_the_telemetry_post_is_guarded_by_the_helper():

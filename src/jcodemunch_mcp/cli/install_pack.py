@@ -155,7 +155,10 @@ def _install_telemetry_allowed() -> bool:
     opt-out spelled `false`/`off`/`no`, or `share_savings: false` in the config
     file, still sent. The new condition is the old one AND the config's answer
     (the same `share_savings` the savings counter reads), so it can never post
-    where the old one did not. A config that cannot be read means do not send.
+    where the old one did not. ⚠ A config file the loader cannot parse, or a
+    `share_savings` of the wrong type, reads as the default (on), the answer
+    every other reader of the key gets; that sends no more than the old rule
+    did. Only an exception out of the read itself refuses the post.
 
     ⚠⚠ `config.get` alone, never `load_config()`: the explicit load creates
     `config.jsonc` when it is absent, and after a pack's `.db` lands in the
