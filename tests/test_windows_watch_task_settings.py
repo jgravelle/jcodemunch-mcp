@@ -14,7 +14,11 @@ because the defect's whole cost was that the watcher was gone with no symptom.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
+import tempfile
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import patch
@@ -180,6 +184,40 @@ class TestStatusSaysWhenNothingRuns:
 
         assert "settings" not in result
         assert "warnings" not in result
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32" or os.environ.get("GITHUB_ACTIONS") != "true",
+    reason="registers a real scheduled task: CI's Windows runner only, never a developer box",
+)
+def test_task_scheduler_accepts_the_definition_and_keeps_the_settings():
+    """Every other test here asserts on the XML we write. Only Task Scheduler
+    can say it ACCEPTS it, and a malformed definition would make
+    `watch-install` fail for every Windows user. Registered under a throwaway
+    name, read back, deleted. Never started: its action only runs at logon."""
+    name = f"{si.SERVICE_NAME}-ci-{uuid.uuid4().hex[:8]}"
+    xml_path = Path(tempfile.mkdtemp()) / "task.xml"
+    xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
+    try:
+        created = subprocess.run(
+            ["schtasks", "/Create", "/F", "/TN", name, "/XML", str(xml_path)],
+            capture_output=True, check=False,
+        )
+        assert created.returncode == 0, si._decode_windows_output(created.stderr or created.stdout)
+        queried = subprocess.run(
+            ["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True, check=False,
+        )
+        assert queried.returncode == 0
+        text = si._decode_windows_output(queried.stdout)
+        root = ET.fromstring(text[text.index("<Task"):])
+        settings = root.find("t:Settings", _NS)
+        assert settings.findtext("t:DisallowStartIfOnBatteries", namespaces=_NS) == "false"
+        assert settings.findtext("t:StopIfGoingOnBatteries", namespaces=_NS) == "false"
+        assert settings.findtext("t:ExecutionTimeLimit", namespaces=_NS) == "PT0S"
+        assert root.find("t:Triggers/t:LogonTrigger", _NS) is not None
+    finally:
+        subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, check=False)
+        xml_path.unlink(missing_ok=True)
 
 
 class TestSettingsProbe:
