@@ -2681,3 +2681,13 @@ The 1.108.370 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.370 count, verbatim:
 
 - ⚠ Prior (1.108.370): 17538 passed, 25 skipped, **0 failed** (17563 total).
+
+## Current State rotation (2026-10-16, release 1.108.374)
+
+The 1.108.371 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.371):** **a schema's dead-code advice follows the right evidence** (L-184): Razor and Blazor count as .NET, a bare `.fs` does not (`_entry_points.has_dotnet_evidence`). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.371 count, verbatim:
+
+- ⚠ Prior (1.108.371): 17558 passed, 25 skipped, **0 failed** (17583 total).

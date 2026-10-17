@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
+
 ### Fixed - a Python virtualenv is skipped whatever its folder is called
 
 `index_folder` skipped a virtualenv only when its folder was named `venv` or
