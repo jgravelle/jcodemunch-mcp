@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed - an opted-in git blame no longer goes missing on a busy machine
+
+With `git_blame_enabled` on, the blame provider decided whether a folder below a
+repository's root (indexing with `identity_mode: "local"` or
+`git_root_identity: false` starts there) was inside a git checkout by running `git rev-parse` with a
+5-second limit, and it swallowed the timeout. On a loaded machine a real
+repository read as none, and blame silently did not run: no warning and no
+skipped-provider entry (ledger L-209). The provider now asks the same rule
+the rest of jCodeMunch uses to find a git root, a walk up the folder tree that
+starts no process, so there is no timeout to miss.
+
 ### Fixed - install-pack honours every savings opt-out
 
 After installing a starter pack, `install-pack` posts one event naming the
@@ -30,17 +41,6 @@ a warning naming the variable, and `false`/`0`/`no`/`off` still turn it off.
 Every other boolean variable reads exactly as before, including
 `JCODEMUNCH_SHARE_SAVINGS`, where a typo already reads as off, the side that
 does not share.
-
-### Fixed - an opted-in git blame no longer goes missing on a busy machine
-
-With `git_blame_enabled` on, the blame provider decided whether a folder below a
-repository's root (indexing with `identity_mode: "local"` or
-`git_root_identity: false` starts there) was inside a git checkout by running `git rev-parse` with a
-5-second limit, and it swallowed the timeout. On a loaded machine a real
-repository read as none, and blame silently did not run: no warning and no
-skipped-provider entry (ledger L-209). The provider now asks the same rule
-the rest of jCodeMunch uses to find a git root, a walk up the folder tree that
-starts no process, so there is no timeout to miss.
 
 ## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
 
