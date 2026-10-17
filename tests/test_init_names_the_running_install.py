@@ -80,7 +80,7 @@ def test_the_post_upgrade_hook_refresh_runs_the_running_install(
         returncode = 0
 
     monkeypatch.setattr(
-        upgrade.subprocess, "run", lambda cmd, check=False: seen.append(cmd) or _R()
+        upgrade.subprocess, "run", lambda cmd, check=False, **kw: seen.append(cmd) or _R()
     )
     upgrade._refresh_hooks(yes=True)
     assert _norm(seen[0][0]) == _norm(str(running))
