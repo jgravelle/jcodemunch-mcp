@@ -7,22 +7,20 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-import pathspec
-
 from .. import config as _config
 from ..parser import get_language_for_path
 from ..parser.context import discover_providers, collect_metadata
-from ..security import get_extra_ignore_patterns, get_max_file_size, validate_path
+from ..parser.context.framework_profiles import detect_framework
+from ..security import validate_path
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
 from ._indexing_pipeline import parse_and_prepare_incremental
 from .index_folder import (
-    _build_index_filters,
-    _build_skip_dirs_regex,
-    _config_skip_flags,
-    _dir_prefix,
+    _framework_ignore_patterns,
+    _gitignore_specs_on_path,
     _scan_package_json_forced_paths,
     _should_index_file,
+    _walk_filter_config,
 )
 from .resolve_repo import _independent_repo_between
 
@@ -150,30 +148,6 @@ def _head_may_advance(
     return True
 
 
-def _walk_gitignore_specs(file_path: Path, source_root: Path) -> list:
-    """The `.gitignore` specs the full walk holds when it reaches ``file_path``.
-
-    The walk reads the `.gitignore` of every directory it descends through, root
-    first; here that is the root and each directory down to the file's parent.
-    """
-    specs: list = []
-    directory = source_root
-    for part in ("",) + file_path.parent.relative_to(source_root).parts:
-        if part:
-            directory = directory / part
-        gitignore = directory / ".gitignore"
-        if not gitignore.is_file():
-            continue
-        try:
-            lines = gitignore.read_text(encoding="utf-8", errors="replace").splitlines()
-            spec = pathspec.PathSpec.from_lines("gitignore", lines)
-        except Exception:
-            logger.debug("Unreadable .gitignore %s", gitignore, exc_info=True)
-            continue
-        specs.append((_dir_prefix(str(directory.resolve())), spec))
-    return specs
-
-
 _REFUSAL_TEXT = {
     "skip_file": "its file name is on the skip list (lockfiles, compiled files)",
     "skip_dir": "it is under a skipped directory (dependencies, build output, caches)",
@@ -191,50 +165,59 @@ _REFUSAL_TEXT = {
 }
 
 
-def _walk_refusal(file_path: Path, source_root: Path, rel_path: str) -> Optional[dict]:
+def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
+    """The root the full walk that covers ``rel_path`` starts from.
+
+    A git-root index built by `index_folder(<repo>/sub)` walks only ``sub``
+    (v1.96) and records it in ``source_roots``; that walk reads `.gitignore`
+    files and project config from ``sub`` down, never from the git root. The
+    longest recorded prefix holding the file is its walk; a file under none of
+    them (or an index that predates ``source_roots``) is judged as a full walk
+    from ``source_root`` would judge it.
+    """
+    best = ""
+    for prefix in getattr(index, "source_roots", None) or ():
+        if prefix and (rel_path == prefix or rel_path.startswith(prefix + "/")):
+            if len(prefix) > len(best):
+                best = prefix
+    return (source_root / best).resolve() if best else source_root
+
+
+def _walk_refusal(
+    file_path: Path, source_root: Path, walk_root: Path, rel_path: str,
+) -> Optional[dict]:
     """The refusal for a file the full walk would not index, or None.
 
     ⚠⚠ L-142: this used to apply ONE rule of the walk's filter (`is_secret_file`),
     so a file under `node_modules/`, `.next/`, a `CACHEDIR.TAG` directory or a
     gitignored path answered `success: True` and the next full walk deleted it.
-    It asks the authority now: `_should_index_file` with the walk's switches,
-    skip-dir regex, size cap and ignore patterns, so a rule added there reaches
-    this route with no edit here. Never copy a rule into this function.
+    Every input now comes from the walk's own assembly in `index_folder`:
+    `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
+    regex), `_framework_ignore_patterns` (merged into the walk's ignore
+    patterns), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
+    Never copy a rule or an input into this function.
 
     ⚠ ``file_path`` is already resolved, so the symlink rule never fires (the
     folder's `follow_symlinks` is not stored); and a per-call `index_folder`
-    `extra_ignore_patterns` / `max_size` is not stored either, so the config the
-    project, env and global files set is what applies.
+    `extra_ignore_patterns` / `max_size` is not stored either, so the configured
+    values apply.
     """
-    repo = str(source_root)
-    max_size = get_max_file_size(None, repo=repo)
-    extra_spec = None
-    extra = get_extra_ignore_patterns(None, repo=repo)
-    if extra:
-        try:
-            extra_spec = pathspec.PathSpec.from_lines("gitignore", extra)
-        except Exception:
-            logger.debug("Invalid extra_ignore_patterns", exc_info=True)
+    cfg = _walk_filter_config(
+        walk_root,
+        extra_ignore_patterns=(
+            _framework_ignore_patterns(detect_framework(source_root)) or None
+        ),
+        per_file=True,
+    )
     # The walk exempts package.json entry points from the size cap (#25). Scan
     # only when the exemption could change the answer, as the watcher does.
-    forced: set = set()
     try:
-        if file_path.stat().st_size > max_size:
-            forced = _scan_package_json_forced_paths(source_root)
+        if file_path.stat().st_size > cfg.max_size:
+            cfg.forced_paths = _scan_package_json_forced_paths(walk_root)
     except OSError:
         pass
-    cfg = _build_index_filters(
-        root=source_root,
-        max_size=max_size,
-        extra_spec=extra_spec,
-        forced_paths=forced,
-        skip_dirs_regex=_build_skip_dirs_regex(repo=repo),
-        check_binary=True,
-        check_filename=True,
-        **_config_skip_flags(repo),
-    )
     ok, reason, _rel, _warning = _should_index_file(
-        file_path, cfg, _walk_gitignore_specs(file_path, source_root)
+        file_path, cfg, _gitignore_specs_on_path(walk_root, file_path)
     )
     if ok:
         return None
@@ -380,7 +363,14 @@ def index_file(
     # Eligibility: the walk's own per-file filter, so a manual call or the
     # PostToolUse hook cannot add a file the next full index prunes (#351 for
     # secrets, L-142 for everything else). See _walk_refusal.
-    refusal = _walk_refusal(file_path, source_root, rel_path)
+    base_index = store.load_index(owner, name)  # always load base
+    if base_index is None:
+        return {"success": False, "error": f"Failed to load index for {owner}/{name}"}
+    walk_root = _walk_root_for(base_index, source_root, rel_path)
+    if walk_root != source_root:
+        # The walk that covers this file read its project config here (#508).
+        _config.load_project_config(str(walk_root))
+    refusal = _walk_refusal(file_path, source_root, walk_root, rel_path)
     if refusal is not None:
         return refusal
 
@@ -397,10 +387,6 @@ def index_file(
     # Detect branch for branch-aware indexing
     _current_branch = _get_git_branch(source_root)
     _is_branch_delta = False
-
-    base_index = store.load_index(owner, name)  # always load base
-    if base_index is None:
-        return {"success": False, "error": f"Failed to load index for {owner}/{name}"}
 
     if _current_branch:
         _base_branch = getattr(base_index, "branch", "") or ""

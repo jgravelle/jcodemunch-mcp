@@ -123,3 +123,65 @@ def test_control_file_is_still_indexed(indexed_tree):
     assert res["is_new"] is True
     after = IndexStore(base_path=str(store)).load_index(owner, name)
     assert "pkg/fresh.py" in set(after.source_files)
+
+
+# ── Review round 1: inputs the walk assembles outside `_should_index_file` ──
+
+def _index_and_files(folder: Path, store: Path) -> tuple[tuple[str, str], set[str]]:
+    res = index_folder(str(folder), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is True, res
+    s = IndexStore(base_path=str(store))
+    owner, name = s.list_repos()[0]["repo"].split("/", 1)
+    return (owner, name), set(s.load_index(owner, name).source_files)
+
+
+def test_framework_profile_ignore_pattern_is_applied(tmp_path):
+    # The walk merges the detected profile's patterns (Spring Boot: `src/test/`)
+    # into its ignore patterns at its call site, outside the predicate.
+    root = tmp_path / "svc"
+    _write(root / "build.gradle", "plugins { id 'org.springframework.boot' }\n")
+    _write(root / "src" / "main" / "java" / "App.java", "class App { }\n")
+    store = tmp_path / "store"
+    (owner, name), walked = _index_and_files(root, store)
+    assert "src/main/java/App.java" in walked
+    test_file = _write(root / "src" / "test" / "java" / "AppTest.java", "class AppTest { }\n")
+    res = index_file(path=str(test_file), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is False, res
+    assert res.get("skipped") == "extra_ignore", res
+
+
+def _git_init(root: Path) -> None:
+    import subprocess
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+
+
+def test_subdir_walk_reads_gitignores_from_its_own_root(tmp_path):
+    # `index_folder(<repo>/sub)` walks `sub` only, so the git root's .gitignore
+    # does not reach it; a file that walk indexed must stay indexable.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    _write(repo / ".gitignore", "gen/\n")
+    target = _write(repo / "sub" / "gen" / "x.py")
+    store = tmp_path / "store"
+    (owner, name), walked = _index_and_files(repo / "sub", store)
+    assert "sub/gen/x.py" in walked, walked
+    _write(target, "def g():\n    return 2\n")
+    res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is True, res
+
+
+def test_subdir_walk_reads_its_own_project_config(tmp_path):
+    # The walk reads `.jcodemunch.jsonc` from the folder it was given.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_init(repo)
+    _write(repo / "sub" / ".jcodemunch.jsonc", '{"extra_ignore_patterns": ["drop/"]}\n')
+    _write(repo / "sub" / "keep.py")
+    target = _write(repo / "sub" / "drop" / "y.py")
+    store = tmp_path / "store"
+    (owner, name), walked = _index_and_files(repo / "sub", store)
+    assert "sub/keep.py" in walked and "sub/drop/y.py" not in walked, walked
+    res = index_file(path=str(target), use_ai_summaries=False, storage_path=str(store))
+    assert res["success"] is False, res
+    assert res.get("skipped") == "extra_ignore", res
