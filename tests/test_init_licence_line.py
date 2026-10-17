@@ -59,11 +59,14 @@ def test_a_dry_run_or_demo_prints_no_licence_line(quiet_init, capsys, mode):
 
 
 def test_the_text_lives_only_in_cli_init():
-    """No tool description, instructions string, policy text or other module carries it."""
+    """No tool description, instructions string, policy text or other module carries it.
+
+    Every file under `src/`, not only `.py`: a template shipped as data would carry text too."""
     carriers = sorted(
         str(p.relative_to(_SRC)).replace("\\", "/")
-        for p in _SRC.rglob("*.py")
-        if any(m in p.read_text(encoding="utf-8", errors="replace") for m in _MARKERS)
+        for p in _SRC.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+        and any(m in p.read_text(encoding="utf-8", errors="replace") for m in _MARKERS)
     )
     assert carriers == ["cli/init.py"], carriers
 
