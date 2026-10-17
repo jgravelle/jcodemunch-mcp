@@ -112,7 +112,6 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
         "git push --force",
         "gh release",
         "gh workflow run",
-        "gh pr merge",
         "gh issue delete",
         "gh repo delete",  # W-41
         "twine",
@@ -133,6 +132,15 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
             )
     for verb in ("gh pr comment", "gh pr edit", "gh pr close", "gh issue comment", "gh issue close", "gh api"):
         assert verb not in joined, f"deny list refuses `{verb}` again; posting is the session's (W-40)"
+    # jjg (2026-10-16 DECISIONS line 78; 2026-10-17 in session): a merge moved from this
+    # unconditional list to deny_guard's conditional rule, which still refuses every merge
+    # except a cleared test/doc-only PR of ours (tests/test_cleared_merge.py). An entry
+    # here would refuse the cleared case before the hook ever ran.
+    assert "gh pr merge" not in joined, "the merge deny is the hook's conditional rule now"
+    guard = _read(CLAUDE_DIR / "hooks" / "deny_guard.py")
+    assert "cleared_merge_refusal" in guard and "_PR_MERGE_PATTERN" in guard, (
+        "deny_guard no longer carries the conditional merge rule; the merge would be unguarded"
+    )
 
 
 def test_h1_format_check_is_read_from_the_workflow_not_copied():
