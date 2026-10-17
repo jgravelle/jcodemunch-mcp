@@ -10,7 +10,10 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
 from typing import Optional
+
+from ..storage.git_root import is_linked_worktree
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,28 @@ def _load_yaml_all(content: str) -> list:
 # File discovery
 # ---------------------------------------------------------------------------
 
+
+def _scope_crosses_checkout_boundary(source_root: str, scope: str) -> bool:
+    """True when a relative scope enters a linked worktree.
+
+    Ask the same rule `index_folder` uses so old-form submodules stay walkable.
+    The target's ancestors must be checked before os.walk starts: otherwise
+    setting the walk root directly to a linked checkout bypasses pruning below.
+    """
+    root = Path(source_root).resolve()
+    target = (root / scope).resolve()
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        return True
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if is_linked_worktree(current):
+            return True
+    return False
+
+
 def _discover_intel_files(source_root: str, scope: Optional[str] = None) -> dict[str, list[str]]:
     """Walk source_root once and categorize intel-bearing files.
 
@@ -92,12 +117,21 @@ def _discover_intel_files(source_root: str, scope: Optional[str] = None) -> dict
     if scope:
         scoped = os.path.normpath(os.path.join(source_root, scope))
         if os.path.isdir(scoped):
+            if _scope_crosses_checkout_boundary(source_root, scope):
+                return found
             walk_root = scoped
             rel_anchor = scoped
 
     for dirpath, dirnames, filenames in os.walk(walk_root, followlinks=False):
-        # Prune skipped directories
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        # Prune skipped directories, then stop at nested linked worktrees —
+        # exactly the boundary `index_folder` uses. Old-form submodules stay
+        # walkable under both .git-file and .git-directory layouts.
+        _dpath = Path(dirpath)
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in _SKIP_DIRS
+            and not is_linked_worktree(_dpath / d)
+        ]
 
         rel_dir = os.path.relpath(dirpath, rel_anchor).replace("\\", "/")
         if rel_dir == ".":
@@ -1206,6 +1240,10 @@ def get_project_intel(
         scoped_abs = os.path.normpath(os.path.join(source_root, normalised))
         if not os.path.isdir(scoped_abs):
             return {"error": f"scope_path {scope_path!r} is not a directory under source_root"}
+        if _scope_crosses_checkout_boundary(source_root, normalised):
+            return {
+                "error": f"scope_path {scope_path!r} crosses a linked worktree boundary"
+            }
         scope_path = normalised
     else:
         scope_path = None

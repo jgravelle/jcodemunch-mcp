@@ -924,6 +924,128 @@ def _sweep_other_text_files(index, text: _TextCallers, text_files: set[str], cal
             callee_has_caller.add(sym["id"])
 
 
+#: Extensions whose files can hold JSX syntax. React is written in .tsx and
+#: .jsx; a component consumed as `<WorkspaceShell />` invokes it without any
+#: call expression, so the per-symbol call index — which only records
+#: ``call_expression``/``new_expression`` — never sees the use.
+_JSX_EXTENSIONS = (".tsx", ".jsx")
+
+#: Files where a React class component can be declared. Lifecycle methods are
+#: invoked by the framework, never by repo code, so signal 2 fires on every
+#: one of them by construction (`componentDidCatch` and
+#: `getDerivedStateFromError` were offered for deletion at confidence 1.0).
+#: componentDid*/getDerivedState*/shouldComponentUpdate/getSnapshotBeforeUpdate/
+#: UNSAFE_componentWill* are React's own coinages: no other framework or plain
+#: codebase names a method that. `render` is NOT React's alone — a template
+#: engine or a renderer class names a method `render` too — so it is qualified
+#: to JSX-capable files only.
+_REACT_LIFECYCLE_METHODS = frozenset(
+    {
+        "componentDidCatch",
+        "componentDidMount",
+        "componentDidUpdate",
+        "componentWillUnmount",
+        "shouldComponentUpdate",
+        "getSnapshotBeforeUpdate",
+        "getDerivedStateFromError",
+        "getDerivedStateFromProps",
+        "UNSAFE_componentWillMount",
+        "UNSAFE_componentWillUpdate",
+        "UNSAFE_componentWillReceiveProps",
+    }
+)
+_REACT_SCRIPT_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
+
+# JSX opening tags may have attributes after the name. This conservative
+# sweep can also match a generic type argument; it never proves dead code.
+_JSX_TAG_RE = re.compile(
+    r"<([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)(?=[\s/>])"
+)
+
+
+def _sweep_jsx_and_framework_callers(
+    index,
+    store,
+    owner: str,
+    name: str,
+    rev: dict[str, list[str]],
+    callee_has_caller: set[str],
+) -> None:
+    """Add the callers JSX records and the React framework makes.
+
+    Two blind spots of the per-symbol call index, both live code offered for
+    deletion:
+
+    - a component consumed as JSX. ``<WorkspaceShell />`` holds no
+      ``call_expression``, so no ``call_references`` row names it, and a
+      .tsx file is not read as text (its language records calls elsewhere
+      in the repo), so the text sweeps cannot see it either. The use sits
+      INSIDE another component's body, the one region every other sweep
+      deliberately excludes. This reads the tag names of the symbol's own
+      file and its importers, once per file, and counts a symbol whose name
+      is a tag segment as called.
+    - a React class-component lifecycle method. React invokes it; no repo
+      code calls it by name, ever. A method with a React lifecycle name in
+      a JS/TS file is counted as called by the framework (`render` only in
+      JSX-capable files, where a class holding it is a React component to
+      a first approximation).
+
+    Mutates ``callee_has_caller`` in place; only ever ADDS callers, and only
+    for symbols the passes before left without one.
+
+    ⚠ Text, not calls: a tag in a comment or a dead JSX line counts, a
+      component referenced only as `<obj.Name/>` counts for `Name`, and a
+      capitalized identifier after a `<` that is not a tag (`a < B`,
+      `a<B>`) can count. Toward not reporting: the direction every sweep
+      here errs in, because this signal feeds deletion decisions.
+    """
+    tag_names_cache: dict[str, set[str]] = {}
+
+    def _jsx_tag_names(file_path: str) -> Optional[set[str]]:
+        # Direct callers may have an index but no store; framework-method
+        # evidence still works, while JSX tag text is unavailable, not a crash.
+        if store is None or not file_path.endswith(_JSX_EXTENSIONS):
+            return None
+        if file_path not in tag_names_cache:
+            content = store.get_file_content(owner, name, file_path) or ""
+            tag_names_cache[file_path] = set(
+                segment
+                for m in _JSX_TAG_RE.finditer(content)
+                for segment in m.group(1).split(".")
+                # React's own rule: a tag whose FIRST segment starts
+                # lowercase is an intrinsic element (`<div/>`), and only a
+                # capitalized or member tag names a component (`<Card/>`,
+                # `<ui.Card/>`: the member, not the namespace).
+                if not segment[0].islower()
+            )
+        return tag_names_cache[file_path]
+
+    for sym in index.symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sid = sym.get("id", "")
+        if not sid or sid in callee_has_caller:
+            continue
+        sym_file = sym.get("file", "")
+        sym_name = sym.get("name", "")
+        if not sym_name or not sym_file:
+            continue
+        if sym.get("kind") == "method":
+            exts = _JSX_EXTENSIONS if sym_name == "render" else _REACT_SCRIPT_EXTENSIONS
+            if (
+                sym_name in _REACT_LIFECYCLE_METHODS or sym_name == "render"
+            ) and sym_file.endswith(exts):
+                callee_has_caller.add(sid)
+                continue
+        # Own file first (a component rendered by its sibling), then any
+        # importer. Same search order as every pass above.
+        for caller_file in (sym_file, *rev.get(sym_file, ())):
+            tags = _jsx_tag_names(caller_file)
+            if tags and sym_name in tags:
+                callee_has_caller.add(sid)
+                break
+
+
 def _text_fallback_callers(
     index, store, owner: str, name: str, rev: dict[str, list[str]],
     text: Optional["_TextCallers"] = None,
@@ -1246,6 +1368,11 @@ def get_dead_code_v2(
     # A text-read function still without a caller may be called from a file
     # the import graph does not join to it (L-157).
     _sweep_other_text_files(index, text_callers, text_files, callee_has_caller)
+    # A component consumed as `<Name />` holds no call expression, and a
+    # React lifecycle method is called by the framework, not the repo: both
+    # read no_callers by construction. Runs for
+    # every path above — it only ever ADDS callers.
+    _sweep_jsx_and_framework_callers(index, store, owner, name, rev, callee_has_caller)
 
     dead_symbols: list[dict] = []
     seen_ids: set[str] = set()
@@ -1545,6 +1672,10 @@ def _call_graph_only_dead_code(
     callers_by_name = get_callers() or {}
     # Names that have at least one caller in the indexed call graph.
     called_names: set[str] = {ref for (_caller_file, ref) in callers_by_name.keys()}
+    # JSX tags and framework lifecycle methods hold no indexed call expression.
+    # Reuse the same additive sweep as the three-signal path.
+    framework_callers: set[str] = set()
+    _sweep_jsx_and_framework_callers(index, store, owner, name, {}, framework_callers)
     # ⚠ No `if callers_by_name` in front of this. The first version had one,
     # which kept the repository-wide flip in this mode: a Clojure file was
     # read as text only when some OTHER language recorded a call (review of
@@ -1586,7 +1717,7 @@ def _call_graph_only_dead_code(
                for d in (sym.get("decorators") or [])):
             continue
         total_analysed += 1
-        if sym_name in called_names:
+        if sym_name in called_names or sid in framework_callers:
             continue
         if sym_file in text_files and (
             text_callers.names_caller(sym, sym_file) or elsewhere.names_caller(sym)

@@ -153,26 +153,59 @@ def _find_line(text: str, needle: str) -> Optional[int]:
 def _check_stale_symbols(
     file_info: dict, index, all_symbol_names: set[str],
 ) -> list[dict[str, Any]]:
-    """Find references to symbols that don't exist in the index."""
+    """Find references to symbols that don't exist in the index.
+
+    Absence from the index alone is not staleness evidence. A missing name
+    earns a ``stale_reference`` warning only when corroborated: a fuzzy
+    near-match in the index (a renamed or deleted repo symbol) on a
+    project-scoped config. Everything else -- an external tool, harness
+    facility, or command named in prose (e.g. the harness tool
+    ``AskUserQuestion`` in a global ``~/.claude/CLAUDE.md``); a repo symbol
+    deleted outright with no near-match left; any reference in a global
+    config, which no single repository's index can speak for -- is reported
+    as an informational ``unresolved_reference``. The distinction is
+    evidence, not a hardcoded list of external names.
+    """
     findings: list[dict[str, Any]] = []
     refs = _extract_symbol_refs(file_info["content"])
     for ref in refs:
         # Check against symbol names (plain name, not full ID)
         parts = ref.split(".")
         name = parts[-1]  # Use the last segment (e.g., "bar" from "foo.bar")
-        if name not in all_symbol_names and len(name) > 3:
-            # Try fuzzy match for suggestions
-            suggestion = _fuzzy_suggest(name, all_symbol_names)
-            msg = f"References symbol '{ref}' which was not found in the index"
-            if suggestion:
-                msg += f". Did you mean '{suggestion}'?"
-            findings.append({
-                "file": file_info["path"],
-                "severity": "warning",
-                "category": "stale_reference",
-                "message": msg,
-                "line": _find_line(file_info["content"], ref),
-            })
+        if name in all_symbol_names or len(name) <= 3:
+            continue
+        # Try fuzzy match for corroboration / suggestions
+        suggestion = _fuzzy_suggest(name, all_symbol_names)
+        hint = f". Did you mean '{suggestion}'?" if suggestion else ""
+        if suggestion and file_info.get("scope", "project") != "global":
+            # Corroborated staleness: a near-identical repo symbol exists
+            # and this config governs this repository.
+            msg = f"References symbol '{ref}' which was not found in the index{hint}"
+            category, severity = "stale_reference", "warning"
+        else:
+            # Absence only. The name may belong to an external tool or
+            # harness facility that is not a repository symbol, and a
+            # global config spans repositories no single index covers.
+            why = (
+                "a global config applies across repositories, which this "
+                "index does not cover"
+                if file_info.get("scope") == "global"
+                else "it may name an external tool, harness facility, or "
+                     "command that is not a repository symbol"
+            )
+            msg = (
+                f"References '{ref}' which was not found in the index. "
+                f"Not proof of a stale reference: {why}. Verify before "
+                f"editing{hint}."
+            )
+            category, severity = "unresolved_reference", "info"
+        findings.append({
+            "file": file_info["path"],
+            "severity": severity,
+            "category": category,
+            "message": msg,
+            "line": _find_line(file_info["content"], ref),
+        })
     return findings
 
 

@@ -18,7 +18,7 @@ def _dotgit_kind(directory: Path) -> Optional[str]:
 
     A ``.git`` DIRECTORY is an independent repository. A ``.git`` FILE carries a
     ``gitdir:`` pointer, and where it points is the whole distinction #372 drew:
-    ``.git/worktrees/<name>`` is a linked worktree, ``.git/modules/<name>`` is a
+    ``.git/worktrees/<name>`` is a linked worktree, ``.git/modules/<path>`` is a
     submodule. Anything else pointing outside both is a ``--separate-git-dir``
     clone, which is independent.
     """
@@ -39,7 +39,11 @@ def _dotgit_kind(directory: Path) -> Optional[str]:
     parent_name = target.parent.name
     if parent_name == "worktrees":
         return "worktree"
-    if parent_name == "modules":
+    # A submodule name can span directories below .git/modules.
+    if parent_name == "modules" or any(
+        ancestor.name == "modules" and ancestor.parent.name == ".git"
+        for ancestor in target.parents
+    ):
         return "submodule"
     return "repo"
 

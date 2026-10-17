@@ -213,6 +213,19 @@ class TestTheClassifier:
         )
         assert resolve_repo_mod._dotgit_kind(parent / "vendor") == "submodule"
 
+    def test_a_submodule_at_a_nested_path_is_a_submodule(self, tmp_path):
+        """``libs/widget`` keeps its git data in ``.git/modules/libs/widget``:
+        the marker's parent is ``libs``, not ``modules``. Reading only the
+        parent name called this an independent repository."""
+        upstream = _make_repo(tmp_path / "up", {"s.py": "x = 1\n"})
+        parent = _make_repo(tmp_path / "par", {"p.py": "x = 1\n"})
+        subprocess.run(
+            ["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q",
+             str(upstream), "libs/widget"],
+            cwd=str(parent), check=True, capture_output=True, text=True,
+        )
+        assert resolve_repo_mod._dotgit_kind(parent / "libs" / "widget") == "submodule"
+
     def test_a_linked_worktree_marker_is_a_worktree(self, tmp_path):
         main = _make_repo(tmp_path / "main", {"a.py": "x = 1\n"})
         wt = tmp_path / "main" / "wt"
