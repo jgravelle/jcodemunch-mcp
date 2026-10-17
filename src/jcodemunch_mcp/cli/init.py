@@ -1298,6 +1298,21 @@ def _prompt_scope(message: str) -> Optional[str]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+#: jjg (DECISIONS 2026-10-17): the licence line belongs "in the install/init
+#: output a person reads, not in the agent's answers". ⚠⚠ Printed only at the
+#: end of a real run, never in a tool response, a relayed notice or the policy
+#: text; `tests/test_init_licence_line.py` fails if any other `src/` module
+#: carries it. Wording is Marketing's (2026-10-17); $79 is Builder, README's price.
+_LICENCE_LINES = (
+    "Using jCodeMunch at work? A commercial licence is $79, one time: https://jcodemunch.com/descriptions.php",
+    "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
+)
+#: Set by `upgrade` on the `init --hooks` it runs: the line is shown once per
+#: install, never on every upgrade (Chief of Staff, 2026-10-17). An env var, not
+#: a flag, so an older executable that `upgrade` may find on PATH ignores it.
+UPGRADE_REFRESH_ENV = "_JCODEMUNCH_UPGRADE_REFRESH"
+
+
 @with_scoped_config
 def run_init(
     *,
@@ -1643,6 +1658,10 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
+        if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
+            print()
+            for line in _LICENCE_LINES:
+                print(line)
     print()
     return 0
 

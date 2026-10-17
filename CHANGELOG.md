@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added - `init` and `install` end with one licence line
+
+A real run of `jcodemunch-mcp init` or `jcodemunch-mcp install <agent>` now
+ends with two lines after "Done.": jCodeMunch at work needs a commercial
+licence, $79 one time (the Builder price README.md lists), with the
+licence page and the 30-day money-back guarantee's terms page
+(https://jcodemunch.com/guarantee.php, which states the 30 days). It is shown
+once per install: `upgrade` re-runs `init --hooks` and marks that run through
+its environment, so an upgrade prints no licence line. A dry run or demo
+prints nothing new.
+
+It is a print and nothing else: no network call, no file written, no setting.
+The owner approved it only as output a person reads, never in the agent's
+answers (2026-10-17), so `tests/test_init_licence_line.py` fails if the text
+reaches any tool description, the `instructions` string, the policy text or
+any file under `src/` other than `cli/init.py`.
+
 ### Fixed - install-pack honours every savings opt-out
 
 After installing a starter pack, `install-pack` posts one event naming the

@@ -105,7 +105,9 @@ def _refresh_hooks(*, yes: bool = True) -> int:
 
     print(f"$ {' '.join(init_cmd)}")
     try:
-        r = subprocess.run(init_cmd, check=False)
+        from .init import UPGRADE_REFRESH_ENV
+
+        r = subprocess.run(init_cmd, check=False, env=dict(os.environ, **{UPGRADE_REFRESH_ENV: "1"}))
     except OSError as e:
         print(f"  init invocation failed: {e}", file=sys.stderr)
         return 1
