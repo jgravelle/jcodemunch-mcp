@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed - install-pack honours every savings opt-out
+
+After installing a starter pack, `install-pack` posts one event naming the
+pack, its version and your platform. It skipped that only when
+`JCODEMUNCH_SHARE_SAVINGS` was exactly `0`, so a user who opted out with
+`false`, `off` or `no`, or with `share_savings: false` in `config.jsonc`, still
+sent it, while the rest of jCodeMunch read them as opted out (ledger L-212).
+It now asks the same setting the savings counter reads, and sends only when
+both the old check and that setting allow it, so it can never send where it
+did not before. SECURITY.md now discloses the event, which it did not.
+
 ## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
 
 ### Fixed - a typo can no longer switch off a protective setting

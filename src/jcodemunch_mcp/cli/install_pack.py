@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -13,6 +14,8 @@ from urllib.parse import quote
 import httpx
 
 from ..security import resolve_within
+
+logger = logging.getLogger(__name__)
 
 # The packs are built by the jcodemunch-starter-packs CI job, which deploys to
 # jcodemunch.com. The legacy j.gravelle.us copy is no longer refreshed and served
@@ -142,6 +145,35 @@ def _clear_builder_paths(db_path: Path) -> None:
             conn.close()
     except Exception:
         pass
+
+
+def _install_telemetry_allowed() -> bool:
+    """Whether install-pack may post its install event (pack, version, platform).
+
+    ⚠⚠ jjg (2026-10-17, L-212): install-pack telemetry may only ever send LESS.
+    This used to post unless `JCODEMUNCH_SHARE_SAVINGS` was exactly "0", so an
+    opt-out spelled `false`/`off`/`no`, or `share_savings: false` in the config
+    file, still sent. The new condition is the old one AND the config's answer
+    (the same `share_savings` the savings counter reads), so it can never post
+    where the old one did not. ⚠ A config file the loader cannot parse, or a
+    `share_savings` of the wrong type, reads as the default (on), the answer
+    every other reader of the key gets; that sends no more than the old rule
+    did. Only an exception out of the read itself refuses the post.
+
+    ⚠⚠ `config.get` alone, never `load_config()`: the explicit load creates
+    `config.jsonc` when it is absent, and after a pack's `.db` lands in the
+    store that new file lacks `tool_surface` and pins a first-time user to
+    `full` (Practice 8; review of L-212). `get`'s own lazy load never writes.
+    """
+    if os.environ.get("JCODEMUNCH_SHARE_SAVINGS", "1") == "0":
+        return False
+    try:
+        from .. import config as _config
+
+        return bool(_config.get("share_savings", True))
+    except Exception:
+        logger.debug("install-pack: config unreadable; not sending install telemetry", exc_info=True)
+        return False
 
 
 def _storage_path() -> Path:
@@ -480,8 +512,9 @@ def _install_pack(
         print(f"  {_DIM}Full text: {base / 'licenses'}{_RESET}")
         print()
 
-    # Opt-in telemetry
-    if os.environ.get("JCODEMUNCH_SHARE_SAVINGS", "1") != "0":
+    # Install telemetry: pack id, version and platform, off when savings
+    # sharing is off by any route (L-212).
+    if _install_telemetry_allowed():
         try:
             httpx.post(
                 f"{STARTER_PACK_API}?action=telemetry",
@@ -493,7 +526,7 @@ def _install_pack(
                 timeout=5,
             )
         except Exception:
-            pass
+            logger.debug("install-pack: install telemetry post failed", exc_info=True)
 
     return 0
 
