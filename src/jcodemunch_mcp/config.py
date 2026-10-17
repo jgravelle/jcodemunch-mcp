@@ -27,7 +27,6 @@ _PROJECT_CONFIG_HASHES: dict[str, str] = {}
 # refreshed from global — an entry installed by anyone else is theirs, and
 # overwriting it is data loss, not cache maintenance.
 _PROJECT_CONFIG_MIRRORS: set[str] = set()
-_DEPRECATED_ENV_VARS_LOGGED: set[str] = set()
 _CONFIG_LOCK = threading.Lock()
 _REPO_PATH_CACHE: dict[str, str] = {}
 # Identifiers `_resolve_repo_key` looked up and did not find, with the
@@ -50,6 +49,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
     "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
     "JCODEMUNCH_SKIP_NUGET_PACKAGES": "skip_nuget_packages",
+    "JCODEMUNCH_SKIP_VIRTUALENVS": "skip_virtualenvs",
     "JCODEMUNCH_RESPONSE_MAX_BYTES": "response_max_bytes",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
@@ -98,6 +98,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_PATH_MAP": "path_map",
     "JCODEMUNCH_TRUSTED_FOLDERS_ENV": "trusted_folders",
     "JCODEMUNCH_CROSS_REPO_DEFAULT": "cross_repo_default",
+    "JCODEMUNCH_REPO_VISIBILITY": "repo_visibility",
     "JCODEMUNCH_DEFAULT_FORMAT": "server_output",
     "JCODEMUNCH_ENCODING_THRESHOLD": "server_output_threshold",
 }
@@ -358,6 +359,7 @@ DEFAULTS = {
     "respect_cachedir_tag": True,
     "skip_msbuild_output": True,
     "skip_nuget_packages": True,
+    "skip_virtualenvs": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
     "max_index_files": 10000,
@@ -403,6 +405,10 @@ DEFAULTS = {
     # status commands re-asking. It exists so "no thanks" is a supported
     # permanent answer that does not require accepting the offer to silence it.
     "surface_offer_seen": False,
+    # Two local per-tool counters (calls, tokens returned) kept in
+    # `_tool_counters.json` for `jcodemunch-mcp diagnose`. Sent nowhere; false
+    # records nothing and writes no file (storage/tool_counters.py).
+    "tool_counters": True,
     "tool_tier_bundles": {
         "core": [
             "index_repo", "index_folder", "index_file",
@@ -500,7 +506,7 @@ DEFAULTS = {
     "redact_source_root": False,
     "git_root_identity": True,
     "identity_mode": None,
-    "git_blame_enabled": True,
+    "git_blame_enabled": False,
     "stats_file_interval": 3,
     "share_savings": True,
     "perf_telemetry_enabled": False,
@@ -518,6 +524,7 @@ DEFAULTS = {
     "openai_extra_body": {},
     "path_map": "",
     "cross_repo_default": False,
+    "repo_visibility": "workspace",  # "workspace" or "all" (ruling 5, 2026-10-13)
     "discovery_hint": True,
     "cache_mode": "full",
     "summarize_from_docstrings": True,
@@ -550,6 +557,7 @@ CONFIG_TYPES = {
     "respect_cachedir_tag": bool,
     "skip_msbuild_output": bool,
     "skip_nuget_packages": bool,
+    "skip_virtualenvs": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
     "max_index_files": int,
@@ -570,6 +578,7 @@ CONFIG_TYPES = {
     "tool_profile": str,
     "tool_surface": str,
     "surface_offer_seen": bool,
+    "tool_counters": bool,
     "tool_tier_bundles": dict,
     "model_tier_map": dict,
     "adaptive_tiering": bool,
@@ -621,6 +630,7 @@ CONFIG_TYPES = {
     "openai_extra_body": dict,
     "path_map": str,
     "cross_repo_default": bool,
+    "repo_visibility": str,
     "discovery_hint": bool,
     "cache_mode": str,
     "summarize_from_docstrings": bool,
@@ -869,6 +879,46 @@ def load_config(storage_path: str | None = None, create_missing: bool = True) ->
     _CONFIG_LOADED = True
 
 
+_BOOL_TRUE_SPELLINGS = frozenset({"true", "1", "yes", "on"})
+_BOOL_FALSE_SPELLINGS = frozenset({"false", "0", "no", "off"})
+
+#: Default-on switches whose env var must not be turned OFF by a typo (L-207).
+#: An unrecognised value keeps the default; only a recognised false disables.
+#: ⚠⚠ A SET, NOT A RULE FOR EVERY BOOLEAN: `share_savings` is the telemetry
+#: opt-out, and a typo there reads as off, the privacy-safe side. Adding it here
+#: would turn sharing ON for a mistyped opt-out. Every other boolean keeps the
+#: old reading byte for byte: unstripped, and anything but a true spelling is False.
+BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
+    "respect_cachedir_tag",
+    "skip_msbuild_output",
+    "skip_nuget_packages",
+    "skip_virtualenvs",
+    "trusted_folders_whitelist_mode",
+    "runtime_redact_enabled",
+})
+
+
+def _parse_env_bool(value: str, key: str | None) -> bool | None:
+    """A boolean env value; ``None`` (keep the default) for a protective key's typo.
+
+    ⚠⚠ Only a key in `BOOL_ENV_TYPO_KEEPS_DEFAULT` gets the new reading
+    (stripped, typo keeps the default). Every other key returns EXACTLY the old
+    expression, unstripped: stripping alone would turn `JCODEMUNCH_SHARE_SAVINGS=1 `
+    (what cmd.exe's `set X=1 && cmd` produces) from off to on, and the same for
+    default-off network and billing switches (review of L-207).
+    """
+    if key not in BOOL_ENV_TYPO_KEEPS_DEFAULT:
+        return value.lower() in _BOOL_TRUE_SPELLINGS
+    v = value.strip().lower()
+    if v in _BOOL_TRUE_SPELLINGS:
+        return True
+    if v in _BOOL_FALSE_SPELLINGS:
+        return False
+    env = next((e for e, k in ENV_VAR_MAPPING.items() if k == key), key)
+    logger.warning("%s=%r is not true/false/1/0/yes/no/on/off; keeping the default (on)", env, value)
+    return None
+
+
 def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = None) -> Any:
     """Parse env var string to expected type."""
     # use_ai_summaries accepts "auto", "true", "false" as strings;
@@ -887,7 +937,7 @@ def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = 
                     return parsed
             return None
         if expected_type == bool:
-            return value.lower() in ("true", "1", "yes", "on")
+            return _parse_env_bool(value, key)
         elif expected_type == int:
             return int(value)
         elif expected_type == float:
@@ -928,7 +978,12 @@ def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = 
 
 
 def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
-    """Apply deprecated env var fallback for keys not explicitly set in config."""
+    """Apply env var fallback for keys not explicitly set in config.
+
+    Env vars are supported, not deprecated: no 2.0 is planned and none will be
+    removed (jjg, 2026-10-15, L-193). `JCODEMUNCH_SHARE_SAVINGS=0` is the
+    documented opt-out from savings sharing, so a removal would undo opt-outs.
+    """
     global _GLOBAL_CONFIG
 
     if explicit_keys is None:
@@ -941,14 +996,6 @@ def _apply_env_var_fallback(explicit_keys: set[str] | None = None) -> None:
 
         env_value = os.environ.get(env_var)
         if env_value is not None:
-            # Log warning once per var
-            if env_var not in _DEPRECATED_ENV_VARS_LOGGED:
-                logger.warning(
-                    f"Deprecated: Using {env_var} environment variable. "
-                    f"This will be removed in v2.0. Use config.jsonc instead."
-                )
-                _DEPRECATED_ENV_VARS_LOGGED.add(env_var)
-
             # Parse and apply value
             expected_type = CONFIG_TYPES.get(config_key)
             if expected_type is None:
@@ -2155,7 +2202,7 @@ def generate_template() -> str:
 // Project: {{project_root}}/.jcodemunch.jsonc (optional, overrides global)
 //
 // All values below show defaults. Uncomment to override.
-// Env vars still work as fallback but are deprecated.
+// Env vars work as a fallback for keys this file doesn't set.
 {{
   // Config version - do not edit. Used for additive migrations.
   "version": "{__version__}",
@@ -2221,6 +2268,19 @@ def generate_template() -> str:
   //   packages/flutter, packages/flutter_test), so a name-only rule would delete
   //   real source from those. Pruned directories are counted as `nuget_packages`
   //   in `discovery_skip_counts`. Only an explicit false disables it.
+
+  // "skip_virtualenvs": true,
+  //   Prune a Python virtualenv's installed packages whatever the venv is
+  //   called: the `site-packages` directory at Lib/site-packages or
+  //   lib/pythonX.Y/site-packages under a root whose `pyvenv.cfg` carries
+  //   the `home =` key every venv tool writes (PEP 405). `venv` and `.venv`
+  //   are skipped by name already; this catches `env`, `jcm-venv`, `py313`
+  //   and the rest, whose packages would otherwise compete with your own
+  //   code in ranking and eat the `max_folder_files` cap. Nothing else in
+  //   the venv is pruned, so your own source beside it stays indexed. A
+  //   file merely named `pyvenv.cfg` with no `home` key prunes nothing.
+  //   Pruned directories are counted as `virtualenv` in
+  //   `discovery_skip_counts`. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the
@@ -2377,6 +2437,12 @@ def generate_template() -> str:
   // move to the current default. Set true to stop being asked; it changes
   // nothing about which tools are served.
   // "surface_offer_seen": false,
+
+  // === Tool Counters ===
+  // Two local counts per tool (calls, tokens returned) kept in
+  // _tool_counters.json in the storage directory, for `jcodemunch-mcp
+  // diagnose`. Nothing is sent. Set false to record nothing.
+  // "tool_counters": true,
 
   // === Compact Schemas ===
   // When true, strips rarely-used advanced parameters (debug, fusion, semantic_*,
@@ -2620,19 +2686,26 @@ def generate_template() -> str:
   //   independent index, separate from any enclosing git repo.
   //   (v1.108.2: the git-root probe is now properly skipped when this
   //   is false — prior versions still paid the probe cost.)
-  // "git_blame_enabled": true,
-  //   Run the git_blame context provider during indexing to attach
-  //   `last_author` and `last_modified` to each file's context. The
-  //   walk is bounded (latest 20k commits or 2 years, whichever fires
-  //   first; 10s wall-clock cap). On legacy repos with very deep
-  //   history those bounds may still not be enough — set false to
-  //   skip the probe entirely. Index still builds; only the blame
-  //   metadata is omitted.
+  // "git_blame_enabled": false,
+  //   Off by default (L-189). Set true to run the
+  //   git_blame context provider during indexing, which attaches
+  //   `last_author` and `last_modified` to each file's context. It runs
+  //   one bounded `git log` per index (latest 20k commits or 2 years
+  //   before the latest commit, whichever fires first; 10s wall-clock
+  //   cap). The metadata is not used for search ranking or file
+  //   summaries; with AI summaries on, it is given to the summarizer as
+  //   context.
   // "cross_repo_default": false,
   //   When true, find_importers / get_blast_radius / get_dependency_graph
   //   traverse OTHER indexed repos by default, not just the focal one. A
   //   per-call `cross_repo` argument still overrides this. Default false
   //   keeps results scoped to the repo you asked about.
+  // "repo_visibility": "workspace",
+  //   Which indexes list_repos shows and a bare repo name can pick.
+  //   "workspace" (default): only indexes whose folder is the server's
+  //   working directory, inside it, or containing it; the answer says how
+  //   many it hid. "all": every index in the store. An exact repo id or a
+  //   path still works under either setting.
   // "discovery_hint": true,
   //   Append a short "next tools to try" hint to certain results so an
   //   agent can chain follow-up queries. Set false to suppress the hint.

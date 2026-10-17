@@ -14,7 +14,9 @@ REQUIRED_POLICY_TERMS = [
     ("Session-Aware Routing", "Session-Aware Routing section header"),
     ("budget_warning", "budget_warning handling"),
     ("No existing implementation", "no implementation guidance"),
-    ("Opening move", "opening move instruction"),
+    # Was "Opening move": the policy demanded `plan_turn` before any task. It
+    # is offered for a broad task now (tests/test_the_policy_makes_no_absolute_claim.py).
+    ("For a broad task", "plan_turn offered for a broad task"),
 ]
 
 

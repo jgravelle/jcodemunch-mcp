@@ -29,7 +29,7 @@ Settings are resolved from lowest to highest priority:
 
 **Why env vars are fallback, not override:** If env vars overrode project config, a global `JCODEMUNCH_MAX_FOLDER_FILES=10000` in your shell profile would silently break every project's tuned settings. With fallback semantics, config file values always win. Env vars only apply when the config key is absent.
 
-Env vars emit a one-time deprecation warning when used, pointing to config.jsonc.
+Env vars are supported and log nothing when used.
 
 ## CLI commands
 
@@ -56,7 +56,7 @@ jcodemunch-mcp config --check
 | `summarizer_concurrency` | int | `4` | Parallel batch requests to the AI summarizer. |
 | `allow_remote_summarizer` | bool | `false` | Allow remote AI summarizer even when local LLM is configured. |
 | `extra_ignore_patterns` | list | `[]` | Additional gitignore-style patterns to exclude from indexing. Merged with per-call patterns. |
-| `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. |
+| `exclude_skip_directories` | list | `[]` | Remove entries from the built-in skip directory list. Example: `["proto"]` to index protobuf dirs skipped by default. `["migrations"]` also indexes generated migrations, which are otherwise skipped (counted as `generated_migrations`) while a hand-written `migrations` package is indexed. |
 | `exclude_secret_patterns` | list | `[]` | Remove entries from the built-in secret-file skip patterns. |
 | `extra_extensions` | dict | `{}` | Map file extensions to language names (e.g. `{".jsx": "javascript"}`). Extends the built-in extension map. |
 | `context_providers` | bool | `true` | Enable context providers (dbt model detection, etc.) during indexing. |
@@ -237,8 +237,11 @@ The `share_savings` counter sends only an integer delta and a stable anonymous U
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `cross_repo_default` | bool | `false` | Default value for the `cross_repo` parameter on `find_importers`, `get_blast_radius`, and `get_dependency_graph`. When `true`, those tools traverse across every separately indexed repository on the machine by default. |
+| `repo_visibility` | str | `"workspace"` | Which indexes `list_repos` shows and an ambiguous bare repo name can pick. `"workspace"`: only indexes whose folder is the server's working directory, inside it, or containing it. `"all"`: every index in the store. An exact repo id or a path works under either. Env: `JCODEMUNCH_REPO_VISIBILITY`. |
 
 **Data-mingling warning.** With `cross_repo_default: true` (or per-call `cross_repo=true`), a query against a first-party repo can surface results from any third-party / customer / demo repo that has been indexed on the same machine. The features blur the boundary between separately scoped codebases by design — that's the value when you want it (e.g. tracing impact across a multi-repo product) and the risk when you don't (e.g. a docstring from an indexed customer repo leaking into a response about your internal service).
+
+**Workspace-only listing (the default).** A session sees the indexes of the folder its server was started in. `list_repos` leaves the others out and says how many it hid, at the top level of its answer as `visibility`. A bare repo name that matches several indexes picks the one in the workspace. Three things are unchanged: an exact `owner/name` or a path still loads any index; the `cross_repo` tools still reach other repositories when asked; and a server started in the home folder, a folder above it or a filesystem root (Claude Desktop starts in one of these), or in a folder that holds no index, lists everything and says the listing is unscoped. An index built from GitHub with `index_repo` has no folder, so the workspace default leaves it off the list. Set `"repo_visibility": "all"` to list every index as before. This is a listing scope, not access control: any process that can read `~/.code-index/` can read every index in it.
 
 For deployments where first-party and third-party code may both be indexed on the same workstation, leave `cross_repo_default` at `false` and pass `cross_repo=true` only on the specific calls where cross-boundary traversal is intentional. The `JCODEMUNCH_CROSS_REPO_DEFAULT` env var sets the same key for users who can't write config files.
 
@@ -400,7 +403,7 @@ Every `JCODEMUNCH_*` env var maps to a config key:
 4. Remove the env vars from your shell profile
 5. Verify with `jcodemunch-mcp config` — source column should show "config" instead of "env"
 
-Env vars continue to work as fallback (they fill in keys not set in the config file) and emit a one-time deprecation warning per variable. They will be removed in v2.0.
+Env vars keep working as a fallback: they fill in keys the config file doesn't set, and a config file value wins. They are supported, not deprecated, and nothing removes them. Moving to the config file is a convenience, not a requirement.
 
 ## Keyring-loaded credentials
 
@@ -530,10 +533,10 @@ Runtime tier switching is **off by default**. To enable it, set in `config.jsonc
 "adaptive_tiering": true
 ```
 
-When on, `plan_turn` — already the opening-move tool — accepts an optional `model` parameter that switches the session tier as a side effect, with **no extra MCP request**:
+When on, `plan_turn` accepts an optional `model` parameter that switches the session tier as a side effect, with **no extra MCP request**:
 
 ```
-plan_turn(repo="...", query="...", model="claude-haiku-4-5")
+plan_turn(repo="...", query="...", model="<your-model-id>")
 ```
 
 The server resolves the model to a tier via `model_tier_map` in config (fuzzy matching: normalizes the id, then exact → glob → substring → `*` → `full` fallback). Subsequent `tools/list` calls return only the narrowed set.
@@ -581,6 +584,14 @@ Tool surface: full (91 tools, 26,943 schema tokens)
 
 ⚠ `surface_offer_seen` silences the row **without** changing your surface, so declining does not require accepting. It has no effect on which tools are served.
 
+The same offer is also added once per install to the first successful `resolve_repo` answer, as a `surface_notice` object the agent is asked to relay to you; a marker file, `surface_notice_state.json` in the storage directory, records that it was said. `surface_offer_seen` silences that too. See SECURITY.md, "Background behavior".
+
+### `tool_counters` and `jcodemunch-mcp diagnose`
+
+The server keeps two counts per tool in `_tool_counters.json` in the storage directory: calls, and tokens returned (the answer's bytes divided by 4; the file names that estimator). They are on by default and are sent nowhere. The file is written every 20 calls, or on the first call after 30 seconds, and when the server stops. A call relayed by the front door is counted under both names and its size under the tool that answered. Set `"tool_counters": false` to record nothing; no file is then written.
+
+`jcodemunch-mcp diagnose` joins those counts with the tokens saved per tool, the server versions, each index's sizes, the tool surface and the state of each installed policy, and writes one JSON report to `<storage>/diagnose/`. The report is built from a fixed list of fields and of what each value may be: an index appears as `index-1`, never by name or path, a tool name the server does not publish is added into `other`, and a `tool_profile` you named yourself appears as `custom`. `--include-anon-id` adds the anonymous savings id, which is otherwise left out; `--stdout` prints the report and writes no file. Things to know when reading one: tokens saved and the two counts began on different dates, given as `saved_since` and `counting_since`; counts a running server has not written yet are not in it; `source_bytes` is `null` for an index that stores no file sizes; a saved figure is `null` when the savings file could not be read; and a companion server reads `null` when it is not installed in the same Python environment.
+
 ⚠ The numbers above are this machine's. Yours differ if you have `disabled_tools` set or are on a narrower `tool_profile` — which is why the offer computes them rather than quoting ours.
 
 #### `disabled_tools` precedence
@@ -612,9 +623,9 @@ Place a `.jcodemunch.jsonc` file at your project root to declare the layers your
 
 Call `get_layer_violations(rules=[...])` directly to pass rules inline — the config file is optional and used as a fallback. When no config is present, `get_layer_violations` infers layers from top-level directory structure.
 
-### Deprecated env vars (v2.0 will remove)
+### Env vars
 
-The following env vars still work but are deprecated. Config file values take priority:
+The following env vars work as a fallback for their config keys. Config file values take priority:
 
 | Variable | Config key | Default |
 |----------|-----------|---------|

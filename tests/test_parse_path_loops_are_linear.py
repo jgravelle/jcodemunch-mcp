@@ -881,3 +881,42 @@ def test_a_macro_keeps_its_line_its_end_and_its_comment():
     assert (found.name, found.params, found.line, found.end_line) == ("key", "a, b", 5, 7)
     assert found.docstring == "builds the key\nfrom two columns"
     assert text[found.byte_offset:found.byte_offset + found.byte_length].endswith(b"{% endmacro %}")
+
+
+# ---- a Rust macro's token tree (L-164): one forward pass over its tokens
+
+
+_RUST_TOKEN_TREE_PIECES = {
+    "comparisons-before-a-group": "a > (b), ",
+    "calls": "f(1), ",
+    "turbofish-calls": "x::<T>(1), ",
+    "turbofish-that-never-closes": "x::<T (1), ",
+}
+
+
+def _rust_macro_file(piece: str, n: int) -> str:
+    return "fn run() {\n    let v = vec![" + piece * n + "];\n}\n"
+
+
+def _rust_nested_macro_file(depth: int) -> str:
+    return "fn run() {\n    m!(" + "g(" * depth + ")" * depth + ");\n}\n"
+
+
+def test_twice_the_rust_macro_nesting_is_about_twice_the_loop_iterations(monkeypatch):
+    """The second version asked every nested tree for its ancestors: depth times trees."""
+    small_n, big_n = 60, 120
+    small, small_syms = _checkpoints(monkeypatch, _rust_nested_macro_file(small_n), "a.rs", "rust")
+    big, big_syms = _checkpoints(monkeypatch, _rust_nested_macro_file(big_n), "a.rs", "rust")
+    assert [s.call_references for s in small_syms] == [["g"]] and [s.call_references for s in big_syms] == [["g"]]
+    assert big / small < 2.6, f"{small} loop iterations at depth {small_n}, {big} at {big_n} (x{big / small:.2f})"
+
+
+@pytest.mark.parametrize("shape", sorted(_RUST_TOKEN_TREE_PIECES))
+def test_twice_the_rust_token_tree_is_about_twice_the_loop_iterations(monkeypatch, shape):
+    """The first version walked back from each group over `>` tokens: N * N on comparisons."""
+    piece = _RUST_TOKEN_TREE_PIECES[shape]
+    small_n, big_n = 400, 800
+    small, small_syms = _checkpoints(monkeypatch, _rust_macro_file(piece, small_n), "a.rs", "rust")
+    big, big_syms = _checkpoints(monkeypatch, _rust_macro_file(piece, big_n), "a.rs", "rust")
+    assert [s.name for s in small_syms] == ["run"] and [s.name for s in big_syms] == ["run"]
+    assert big / small < 2.6, f"{shape}: {small} loop iterations at {small_n} pieces, {big} at {big_n} (x{big / small:.2f})"

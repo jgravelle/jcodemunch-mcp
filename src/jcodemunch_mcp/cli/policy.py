@@ -17,18 +17,24 @@ import logging
 import os
 import re
 
+from ..word_rule import word_right
+
 logger = logging.getLogger(__name__)
 
 
 _CLAUDE_MD_POLICY = """\
 ## Code Exploration Policy
 
-Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
-**Exception:** Use `Read` when you need to edit a file — the agent harness requires a `Read` before `Edit`/`Write` will succeed. Use jCodemunch tools to *find and understand* code, then `Read` only the specific file you're about to modify.
+jCodemunch-MCP indexes this repository's symbols and how they relate. Use it where it is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- **Relationships are what the index is for:** who imports a symbol, where a name is used, what a change breaks, who calls a function, what is unreachable. The tools are listed under "Relationships & impact" below.
+- **A name you already know, or a file you are about to work in:** the built-in search and `Read` are often as cheap. Take whichever is fewer steps.
+- **On a small repository** the built-in tools are usually the cheaper route for finding and reading code.
+- **A large repository, or a question with no known starting point:** the search and symbol tools below read less than opening whole files.
+- The agent harness requires a `Read` before `Edit`/`Write` will succeed.
 
-**Start any session:**
-1. `resolve_repo { "path": "." }` — confirm the project is indexed. If not: `index_folder { "path": "." }`
-2. `suggest_queries` — when the repo is unfamiliar
+**Before the first jCodemunch call in a session** (skip it when the task needs none):
+- `resolve_repo { "path": "." }` — confirm the project is indexed. If not: `index_folder { "path": "." }`
+- `suggest_queries` — optional, when the repo is unfamiliar
 
 **Finding code:**
 - symbol by name → `search_symbols` (add `kind=`, `language=`, `file_pattern=`, `decorator=` to narrow)
@@ -37,7 +43,7 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 - database columns (dbt/SQLMesh) → `search_columns`
 
 **Reading code:**
-- before opening any file → `get_file_outline` first
+- a file's shape without reading it → `get_file_outline`
 - one or more symbols → `get_symbol_source` (single ID → flat object; array → batch)
 - symbol + its imports → `get_context_bundle`
 - specific line range only → `get_file_content` (last resort)
@@ -52,14 +58,15 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 - where is this name used (imports + every content match) → `check_references`
 - file dependency graph → `get_dependency_graph`
 - what breaks if I change X → `get_blast_radius`
+- who calls a function, and what it calls → `get_call_hierarchy`
 - what symbols actually changed since last commit → `get_changed_symbols`
 - find unreachable/dead code → `find_dead_code`
 - class hierarchy → `get_class_hierarchy`
 
 ## Session-Aware Routing
 
-**Opening move for any task:**
-1. `plan_turn { "repo": "...", "query": "your task description", "model": "<your-model-id>" }` — get confidence + recommended files; the `model` parameter narrows the exposed tool list to match your capabilities at zero extra requests.
+**For a broad task, when you do not know where to start:**
+1. `plan_turn { "repo": "...", "query": "your task description" }` — get confidence + recommended files. It is one call; skip it when you already know where to look.
 2. Obey the confidence level:
    - `high` → go directly to recommended symbols, max 2 supplementary reads
    - `medium` → explore recommended files, max 5 supplementary reads
@@ -86,30 +93,27 @@ Always use jCodemunch-MCP tools for code navigation. Never fall back to Read, Gr
 
 ## Model-Driven Tool Tiering
 
-Your jcodemunch-mcp server narrows the exposed tool list based on the model you are running as. To avoid wasting requests on primitives when a composite would do, always include `model="<your-model-id>"` in your opening `plan_turn` call.
+Your jcodemunch-mcp server can narrow the exposed tool list to suit the model you are running as. It is off unless `adaptive_tiering` is enabled in the server's config, and while it is off a model id changes nothing. Where it is on, pass your model id, exactly as your runner prints it, as `model="<your-model-id>"` on a `plan_turn` call you are already making, or call `announce_model(model="...")` once.
 
-Replace `<your-model-id>` with your active model:
-- Claude Opus variants → `claude-opus-4-7` (or any `claude-opus-*`)
-- Claude Sonnet variants → `claude-sonnet-4-6`
-- Claude Haiku variants → `claude-haiku-4-5`
-- GPT-4o / GPT-5 / o1 / Llama → use the model id as printed by your runner
-
-The `model=` parameter rides on the existing `plan_turn` call — it does **not** add a separate tool invocation. If `plan_turn` is not appropriate for a non-code task, call `announce_model(model="...")` once instead.
+The server reads the model's family from the id (Opus, Sonnet, Haiku, GPT, o1, Llama), so any current id works and none needs listing here.
 """
 
 
 _CLAUDE_MD_POLICY_COUNTER = """\
 ## Code Exploration Policy
 
-Always use jCodeMunch-MCP for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
-**Exception:** use `Read` when you are about to edit a file — the harness requires a `Read` before `Edit`/`Write`. Use jCodeMunch to *find and understand* code, then `Read` only the file you are changing.
+jCodeMunch-MCP indexes this repository's symbols and how they relate. Use it where it is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
+- **Relationships are what the index is for:** who imports a symbol, where a name is used, what a change breaks, who calls a function, what is unreachable.
+- **A name you already know, or a file you are about to work in:** the built-in search and `Read` are often as cheap. Take whichever is fewer steps.
+- **On a small repository** the built-in tools are usually the cheaper route for finding and reading code.
+- The harness requires a `Read` before `Edit`/`Write`.
 
 This server runs the **front door** surface: three tools reach every jCodeMunch capability, so the tool list stays small and the catalogue is fetched only when you need it.
 
-**Start any session:**
-1. `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
+**Before the first jCodeMunch call in a session** (skip it when the task needs none):
+- `order { "action": "resolve_repo", "args": { "path": "." } }` — confirm the project is indexed. If it is not: `order { "action": "index_folder", "args": { "path": "." } }`
 
-**Then, for any task:**
+**Then, for a task the index suits:**
 - Know what you want → `order { "action": "<name>", "args": { ... } }`
 - Know the goal, not the tool → `route { "query": "your task in a sentence" }` picks the action and shapes the arguments
 - Want to see what exists → `menu { "query": "what you are trying to do" }` returns matching actions with example arguments
@@ -125,7 +129,7 @@ This server runs the **front door** surface: three tools reach every jCodeMunch 
 - With PostToolUse hooks installed (Claude Code), edited files are reindexed automatically.
 - Otherwise `order { "action": "register_edit", "args": { "paths": [...] } }` after an edit, batched for bulk changes.
 
-**Announce your model once per session** so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.
+**Optional:** announce your model once so the server can size its answers: `announce_model { "model": "<your-model-id>" }`.
 """
 
 
@@ -222,9 +226,32 @@ def active_policy() -> str:
     outright rather than being filtered down to the three surviving names --
     filtering a workflow away leaves an agent with no workflow at all.
     """
-    if _effective_tool_surface() == "counter":
+    return policy_for(**policy_inputs())
+
+
+def policy_inputs() -> dict:
+    """What THIS process's policy is chosen from: ``{"surface", "tools"}``.
+
+    ``tools`` is the sorted tool names the policy is filtered to, or ``None``
+    for no filtering (and always ``None`` under ``counter``, whose policy is
+    not filtered). ``claude-md --refresh --match-server`` rebuilds the server's
+    policy from the inputs the server recorded, with this version's text, so a
+    record can choose WHICH of jcodemunch's policies is written and never
+    supply text of its own (review of L-185).
+    """
+    surface = _effective_tool_surface()
+    if surface == "counter":
+        return {"surface": "counter", "tools": None}
+    active = _get_active_tools()
+    # Any value but `counter` serves the full surface (CLI-AND-ENV: JCODEMUNCH_TOOL_SURFACE).
+    return {"surface": "full", "tools": None if active is None else sorted(active)}
+
+
+def policy_for(surface: str, tools) -> str:
+    """The policy for *surface*, filtered to *tools* (``None``: unfiltered). Pure; text is only ever ours."""
+    if surface == "counter":
         return _CLAUDE_MD_POLICY_COUNTER
-    return _filter_policy_for_tools(_CLAUDE_MD_POLICY, _get_active_tools())
+    return _filter_policy_for_tools(_CLAUDE_MD_POLICY, None if tools is None else set(tools))
 
 
 
@@ -245,7 +272,7 @@ def _normalise(lines) -> list[str]:
     return [ln.rstrip() for ln in lines if ln.strip()]
 
 
-def installed_policy_drift(text: str) -> dict | None:
+def installed_policy_drift(text: str, policy: str | None = None) -> dict | None:
     """Does the policy block in a CLAUDE.md match what this version installs? (#871)
 
     ``None`` when the text holds no policy block (nothing to compare: the
@@ -258,20 +285,15 @@ def installed_policy_drift(text: str) -> dict | None:
     not a difference; indentation is. ⚠ "differs" cannot tell an outdated block from one its owner
     edited on purpose; the caller must say so, and must never rewrite it
     (the ``surface_offer`` rule: a message, never a migration).
+
+    *policy* is the text to compare against, ``active_policy()`` when omitted;
+    ``claude-md --refresh --match-server`` passes the policy the server
+    recorded, which its environment may select differently (L-185).
     """
-    lines = text.splitlines()
-    # Found the way `init` finds it: the first line CONTAINING the marker.
-    start = next((i for i, ln in enumerate(lines) if POLICY_MARKER in ln), None)
-    if start is None:
+    installed = installed_policy_block(text)
+    if installed is None:
         return None
-    own = _policy_headings()
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## ") and lines[i].strip() not in own:
-            end = i
-            break
-    installed = _normalise(lines[start:end])
-    current = _normalise(active_policy().splitlines())
+    current = _normalise((active_policy() if policy is None else policy).splitlines())
     if installed == current:
         return {"state": "current"}
     import difflib
@@ -284,6 +306,75 @@ def installed_policy_drift(text: str) -> dict | None:
         if tag != "equal"
     )
     return {"state": "differs", "lines_differing": changed}
+
+
+def installed_policy_block(text: str) -> list[str] | None:
+    """The policy block in *text*, normalised, or ``None`` when there is none.
+
+    THE one reader of where the block starts and ends: ``installed_policy_drift``
+    compares it and ``diagnose`` digests it, and a second copy of the boundary
+    rule would let the two disagree about the same file.
+    """
+    # A byte-order mark is not part of the first line's text.
+    lines = text.removeprefix(chr(0xFEFF)).splitlines()
+    span = policy_block_span(lines)
+    if span is None:
+        return None
+    return _normalise(lines[span[0] : span[1]])
+
+
+def policy_block_span(lines: list[str]) -> tuple[int, int] | None:
+    """``(start, end)`` line indexes of the policy block in *lines*, or ``None``.
+
+    THE boundary rule. ``installed_policy_block`` reads through it, and so does
+    ``claude-md --refresh`` (``policy_refresh``), which replaces exactly these
+    lines: the check that says a block differs and the command that rewrites it
+    cannot disagree about where the block ends.
+
+    It starts at the first heading that OPENS with the marker's title, at any
+    level, outside a code fence, so a sentence or a heading that mentions
+    the policy by name is not mistaken for it, and neither is a fenced example
+    (review of L-186: a fenced marker above the real block became the start,
+    flipped the fence parity and ran the block to the end of the file). A
+    byte-order mark before the first line is not part of its text; every
+    caller gets that here, not by stripping it first. It runs to the first
+    Markdown heading of any level that is not one of the policy's own ``## ``
+    sections, or to the end of the file. The policy text at every release tag
+    uses only ``## `` headings and holds no code fence (read from all 686 tags
+    on 2026-10-14), so a user's own ``#`` or ``###`` section after the block
+    ends it too (review, 2026-10-14: the refresh would otherwise have deleted
+    it). A ``#`` line inside a fenced code block is not a heading.
+    """
+    start = None
+    in_fence = False
+    for i, ln in enumerate(lines):
+        stripped = (ln.removeprefix(chr(0xFEFF)) if i == 0 else ln).strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and _MARKER_HEADING_RE.fullmatch(stripped):
+            start = i
+            break
+    if start is None:
+        return None
+    own = _policy_headings()
+    end = len(lines)
+    in_fence = False
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if not in_fence and _HEADING_RE.match(stripped) and stripped not in own:
+            end = i
+            break
+    return start, end
+
+
+_HEADING_RE = re.compile(r"#{1,6}\s")
+# The title opens the heading; an owner's suffix ("... (mine)") still counts.
+_MARKER_TITLE = POLICY_MARKER.lstrip("#").strip()
+_MARKER_HEADING_RE = re.compile(r"#{1,6}[ \t]+" + re.escape(_MARKER_TITLE) + word_right(_MARKER_TITLE) + ".*")
 
 
 def _filter_policy_for_tools(policy: str, active_tools: set[str] | None) -> str:

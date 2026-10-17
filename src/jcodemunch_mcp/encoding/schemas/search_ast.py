@@ -59,7 +59,7 @@ _META = (
     "elapsed_ms", "files_scanned", "files_with_matches", "languages_scanned",
     "timing_ms", "tokens_saved", "total_tokens_saved",
 )
-_META_JSON = ("verdict",)  # structured _meta that must survive compaction
+_META_JSON = ("verdict", "languages_scanned")  # lists must survive compaction
 _SCALAR_TYPES: dict[str, str] = {
     "total_matches": "int",
     "truncated": "bool",

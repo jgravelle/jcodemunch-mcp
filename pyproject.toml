@@ -1,6 +1,6 @@
 [project]
 name = "jcodemunch-mcp"
-version = "1.108.343"
+version = "1.108.376"
 description = "Token-efficient MCP server for source code exploration via tree-sitter AST parsing"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -155,6 +155,12 @@ exclude = [
     # competitor (the suite contract's framing rule 1).
     "docs/competitive/",
     "benchmarks/competitive/",
+    # Recorded model answers from munch-bench runs. Data, not code: nothing
+    # installed reads it, and the answers quote the code they were asked
+    # about, including Flask's dynamic-execution calls, which a registry
+    # scanner reading the sdist counts against us as if we ran them
+    # (tests/test_shipped_text_has_no_dynamic_code_calls.py).
+    "munch-bench/results/",
 ]
 
 [tool.pytest.ini_options]

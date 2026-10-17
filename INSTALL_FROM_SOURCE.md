@@ -163,12 +163,12 @@ Create or edit `%USERPROFILE%\.claude\CLAUDE.md` and add:
 ```markdown
 ## Code Exploration Policy
 
-Always use jCodeMunch-MCP tools — never fall back to Read, Grep, Glob, or Bash for code exploration.
+Use jCodemunch-MCP tools where an index is the cheaper route, and the built-in tools (Grep, Glob, Read) where they are.
 
-- Before reading a file: use get_file_outline or get_file_content
-- Before searching: use search_symbols or search_text
-- Before exploring structure: use get_file_tree or get_repo_outline
-- Call list_repos first; if the project is not indexed, call index_folder with the current directory.
+- Relationships are what the index is for: who imports a symbol (find_references), where a name is used (check_references), what a change breaks (get_blast_radius), who calls a function (get_call_hierarchy), what is unreachable (find_dead_code).
+- In a large repository: search_symbols or search_text to find code, get_file_outline and get_symbol_source to read one symbol and not the whole file.
+- On a small repository the built-in tools are usually the cheaper route for finding and reading code.
+- Before the first jCodemunch call: resolve_repo with the current directory; if the project is not indexed, call index_folder.
 
 ## Docstring Policy
 
@@ -208,9 +208,8 @@ Claude is a probabilistic model — it will follow the policy *most* of the
 time, but occasionally it may still fall back to built-in tools (Read, Grep,
 Glob), especially for simple queries or when context is compressed. There is
 no way to guarantee 100% compliance — to this day, this is simply how LLMs
-behave and there is no fix for it. In practice, strong wording like "Always
-use X — never fall back to Y" produces very high adherence. When it does slip,
-nothing breaks — it just uses slightly more tokens than necessary.
+behave and there is no fix for it. Nothing breaks either way: the built-in tools
+give the same answers, and on a small repository they are usually the cheaper route.
 
 ---
 

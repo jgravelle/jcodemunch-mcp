@@ -47,6 +47,23 @@ def _no_network():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _shipped_sharing_default():
+    """Tests see the SHIPPED `share_savings` default, whatever the runner sets.
+
+    CI and the harness export `JCODEMUNCH_SHARE_SAVINGS=0` so that benchmark and
+    smoke steps, which run outside this suite, do not report to the public
+    savings total (cicd C-23). The variable is the fallback when no config file
+    sets `share_savings`, so left in place a test reading the effective setting
+    without a config file would read `False` where a user's box reads `True`.
+    Nothing here can post: `_no_network` refuses the connection.
+    """
+    previous = os.environ.pop("JCODEMUNCH_SHARE_SAVINGS", None)
+    yield
+    if previous is not None:
+        os.environ["JCODEMUNCH_SHARE_SAVINGS"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _pin_code_index_path(tmp_path_factory):
     """Point `CODE_INDEX_PATH` at a per-worker temp store for the whole run.
 
@@ -114,6 +131,23 @@ def _fresh_session(monkeypatch):
     monkeypatch.setattr(token_tracker, "_state", token_tracker._State())
     monkeypatch.setattr(turn_budget, "_budget", None)
     monkeypatch.setattr(session_journal, "_journal", None)
+    # The once-per-install surface notice rides in the first `resolve_repo`
+    # answer of an install. Under test that would be whichever test asked first,
+    # so it is off unless a test turns it on (the flag lives in a leaf module so
+    # this costs no server import).
+    from jcodemunch_mcp import surface_offer
+
+    monkeypatch.setitem(surface_offer.NOTICE_STATE, "checked", True)
+    # Same for the policy refresh notice, which reads the CLAUDE.md files.
+    from jcodemunch_mcp.cli import policy_refresh
+
+    monkeypatch.setitem(policy_refresh.NOTICE_STATE, "checked", True)
+    # The per-tool counters hold counts not yet on disk and write every 20
+    # calls: carried across tests, a write would arrive in whichever test made
+    # the twentieth call. A fresh state per test, as a fresh process has.
+    from jcodemunch_mcp.storage import tool_counters
+
+    monkeypatch.setattr(tool_counters, "_state", tool_counters._State())
     server = sys.modules.get("jcodemunch_mcp.server")
     if server is not None:
         monkeypatch.setattr(server, "_steer_state", {"hops": 0, "bundles": 0, "nudged": False, "repos": []})

@@ -3,9 +3,14 @@
 §0 pre-flight for the v2.0.0 context-optimization work. These numbers become
 the regression guardrails in §7 (see tests/test_schema_budget.py).
 
-Run from the repo root:
-    PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py
-    PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py --breakdown
+Run from the repo root, with CODE_INDEX_PATH naming an EMPTY directory:
+    CODE_INDEX_PATH=$(mktemp -d) PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py
+    CODE_INDEX_PATH=$(mktemp -d) PYTHONPATH=src python benchmarks/harness/capture_schema_baseline.py --breakdown
+
+⚠ The counts go through the global config, so a config that disables tools or
+overrides descriptions changes them; `tests/test_schema_baseline_is_current.py`
+runs under a reset config and rejects such a file (L-187). The file's sha256 is
+pinned in `harness/corpora.json`; repin with `python -m harness corpora --pin`.
 
 Output: benchmarks/schema_baseline.json
 
@@ -84,6 +89,18 @@ def _arms() -> list[tuple[str, dict]]:
 
 
 def capture(out_path: Path) -> dict:
+    results = measure()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    return results
+
+
+def measure() -> dict:
+    """Every arm's token count, written nowhere.
+
+    `tests/test_schema_baseline_is_current.py` compares this with the committed
+    file, so the file cannot disagree with the code (L-187).
+    """
     encoding = tiktoken.get_encoding("cl100k_base")
     results: dict[str, int] = {}
     cfg = config_module._GLOBAL_CONFIG  # type: ignore[attr-defined]
@@ -100,9 +117,6 @@ def capture(out_path: Path) -> dict:
                 cfg.pop(k, None)
             else:
                 cfg[k] = v
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     return results
 
 

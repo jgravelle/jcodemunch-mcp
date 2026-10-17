@@ -1387,8 +1387,8 @@ LUAU_SPEC = LanguageSpec(
 # SQL specification
 # NOTE: The derekstride/tree-sitter-sql grammar has no named field accessors.
 # Names live in positional children (object_reference → identifier, or direct
-# identifier). CREATE PROCEDURE and CREATE TRIGGER produce ERROR nodes and are
-# not supported by this grammar. All extraction logic is in _parse_sql_symbols()
+# identifier). CREATE PROCEDURE and CREATE TRIGGER produce ERROR nodes;
+# _scan_sql_routines recovers them. All extraction logic is in _parse_sql_symbols()
 # in extractor.py.
 SQL_SPEC = LanguageSpec(
     ts_language="sql",

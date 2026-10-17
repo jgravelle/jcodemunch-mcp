@@ -592,7 +592,87 @@ INDEX_VERSION = 17
 #   `{{ ... }}` or `{% ... %}` opens no comment; and a whitespace-control
 #   mark is dropped only for its own dialect (`+` Jinja and dbt, `~` Twig).
 #   ⚠⚠ No symbol id moves; only `docstring` changes, on UNCHANGED content.
-PARSER_GENERATION = 11
+#
+# 12 (L-159): a call through a receiver records the METHOD. In Go, Java, Rust,
+#   Ruby and C# `t.Recv()` recorded `t`, so a method read as never called and
+#   a function named like a receiver read as called. ⚠⚠ No symbol id moves;
+#   only `call_references` changes, on UNCHANGED content, and the dead-code
+#   and call-hierarchy tools read nothing else for these languages.
+#
+# 13 (L-164): a call written inside a Rust macro invocation is recorded. The
+#   grammar leaves a macro's arguments as tokens, so `assert_eq!(f(x), y)`
+#   recorded no call of `f`. ⚠⚠ No symbol id moves; only `call_references`
+#   changes, on UNCHANGED content.
+#
+# 14 (L-166): a Java constructor's `super(...)` records the superclass's
+#   constructor, by the name the class extends. It recorded nothing, so the
+#   constructor of a class that is only subclassed read as never called.
+#   No symbol id moves; only `call_references` changes, on UNCHANGED content.
+#
+# 15 (L-170): a C# `new Made(...)` records the class it creates. It recorded
+#   nothing, so a C# constructor read as never called however often its class
+#   was created. No symbol id moves; only `call_references` changes, on
+#   UNCHANGED content.
+#
+# 16 (L-171): a Go call the grammar reads as a conversion to a generic type
+#   (`Generic[int](1)`, `fs[i](1)`) records what it calls. It recorded
+#   nothing. No symbol id moves; only `call_references` changes, on UNCHANGED
+#   content.
+#
+# 17 (L-172): a Ruby method called with no receiver and no arguments
+#   (`settings`) records a call where the method around it has introduced no
+#   local of that name. It recorded nothing unless it was a receiver. No
+#   symbol id moves; only `call_references` changes, on UNCHANGED content.
+#
+# 18 (L-173 item 7): a JavaScript or TypeScript call through a string key
+#   (`t["m"]()`) records the member. It recorded the container. No symbol id
+#   moves; only `call_references` changes, on UNCHANGED content.
+#
+# 19 (L-176): a Python `from x import (...)` spread over several lines, or
+#   continued with a backslash, records the names it imports. It recorded
+#   none, so `find_references` missed every name imported that way. No symbol
+#   id moves; only `files.imports` changes, on UNCHANGED content.
+#
+# 20 (follow-up to #1012): a Web Forms attribute value may be single-quoted or
+#   unquoted. A page whose directive or server control uses either form gains
+#   its codebehind and handler edges, its control symbols and its server-script
+#   symbols, on UNCHANGED content.
+#
+# 21: a `///` XML doc comment (C#, AL) summarises as the sentence
+#   inside its `<summary>`, not the literal tag. No symbol id moves; `summary`
+#   changes on UNCHANGED content, and an AL `docstring` keeps its XML as a C#
+#   one does (an empty stub stays no docstring); a doc comment of only
+#   sections such as `<inheritdoc/>` falls to the signature. ⚠⚠ The bump alone
+#   repairs nothing: a re-parse REUSES the stored summaries of unchanged files,
+#   so `_indexing_pipeline.preservable_summaries` no longer carries over one
+#   stored beside a docstring -- free to recompute, because no AI summarizer is
+#   ever given a symbol with a docstring. Paid AI summaries are still kept. ⚠ An
+#   AL `<Summary></Summary>` or `<summary/>` stub loses its docstring here, so
+#   with AI enabled it costs one summarizer call on this re-parse, as a fresh
+#   index would.
+#
+# 22: a T-SQL/Sybase stored procedure or trigger is a symbol (recovered by
+#   source scan), a bracket-quoted name is `schema.name`, and a SQL table,
+#   view or index has its own kind instead of `type`. ⚠⚠ Symbol ids MOVE:
+#   `type` -> `table`/`view`/`index`, and `dbo].[X` -> `dbo.X`.
+#
+# 23: a SQL file is parsed one batch (`GO` / `/`) at a time, so one
+#   unparseable statement no longer loses every object after it, and named
+#   constraints, Sybase rules, defaults and `sp_addtype` types are symbols.
+#   ⚠⚠ The rows change on UNCHANGED content: objects that were lost appear.
+#
+# 24 (L-188): git blame's property names (`last_author`, `last_modified`) are
+#   no longer search keywords. `keywords` changes on UNCHANGED content, and
+#   enrichment runs only on re-parsed files, so without this bump an edited file
+#   would drop them while untouched files kept them: one index holding both
+#   states, the ranking skew the fix removes.
+#
+# 25 (L-177): import forms that recorded no names, or no edge, record them --
+#   a Python `import` continued by a backslash, a Scala selector, a PHP group
+#   use, a Haskell import list, a Dart `show`, a destructuring `require` and a
+#   Kotlin `as` import. `files.imports` changes on UNCHANGED content, so a
+#   re-parse is the only way an existing index gains the names.
+PARSER_GENERATION = 25
 
 
 @dataclass(frozen=True)

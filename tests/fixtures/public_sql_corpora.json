@@ -1,0 +1,325 @@
+{
+  "_readme": [
+    "Third-party SQL vendored as parser test fixtures, under sql_corpora/.",
+    "",
+    "⚠ VENDORED, not fetched. A test that reaches the network fails for reasons",
+    "unrelated to the change under review, and cannot run in an air-gapped",
+    "checkout at all. Upstream projects and licences: sql_corpora/SOURCES.md.",
+    "",
+    "Each entry records `upstream_sha256` -- the hash of the artifact the file was",
+    "taken from -- and `vendored_as`, its path under sql_corpora/. The hash is",
+    "provenance, not a runtime check: it was verified when the file was vendored,",
+    "and it is what lets anyone re-derive the file from upstream.",
+    "",
+    "Chinook entries carry `vendored_slice`: the upstream files are ~590 KB each",
+    "and all but the first ~220 lines is INSERT data no parser test reads, so the",
+    "DDL head is vendored instead. The slice rule is deterministic -- everything",
+    "before the first line-initial INSERT -- so it is reproducible from the hash.",
+    "Every other file is byte-for-byte upstream.",
+    "",
+    "The `expected` counts were MEASURED, never hand-typed. Regenerate with",
+    "`python benchmarks/remeasure_sql_corpora.py --write`, and read the diff:",
+    "several of these moved DOWN because a false positive was removed, so the",
+    "direction of a change matters as much as the fact of it.",
+    "",
+    "Chinook is the load-bearing entry: ONE schema emitted in five dialects, so a",
+    "dialect-specific quoting regression shows up as a diff between rows that",
+    "should agree, rather than as an absolute number nobody can sanity-check.",
+    "  SqlServer  [dbo].[Album]  bracket-quoted + GO batches",
+    "  MySql      `Album`        backtick-quoted",
+    "  PostgreSql album          unquoted",
+    "  Oracle     Album          unquoted, no CREATE INDEX at all upstream",
+    "  Sqlite     [Album]        bracket-quoted, anonymous FOREIGN KEYs",
+    "",
+    "Sakila (BSD-2) carries the ROUTINES -- procedures, triggers, functions --",
+    "which Chinook has none of. Between them the two cover both halves.",
+    "",
+    "SYBASE ASE IS NOT IN HERE, AND THAT IS NOT AN OVERSIGHT. No permissively-",
+    "licensed Sybase ASE corpus could be found public. Sybase is covered instead",
+    "by tests/fixtures/sybase_ase_schema.sql. See tests/test_sql_sybase_ase.py",
+    "(22 tests, 18 fail pre-fix)."
+  ],
+  "sources": [
+    {
+      "id": "chinook",
+      "repo": "lerocha/chinook-database",
+      "ref": "master",
+      "license": "MIT",
+      "url_base": "https://raw.githubusercontent.com/lerocha/chinook-database/master/ChinookDatabase/DataSources",
+      "ddl_only": true,
+      "files": [
+        {
+          "path": "Chinook_SqlServer.sql",
+          "expected": {
+            "constraint": 22,
+            "index": 11,
+            "table": 11
+          },
+          "vendored_as": "chinook/Chinook_SqlServer.sql",
+          "upstream_sha256": "5ea75c9e925ead917d3fabea6ed3cc8c1ff1d036b61e915c94631aafa2b0802b",
+          "vendored_slice": "DDL only: everything before the first line-initial INSERT of the upstream file, whose sha256 is recorded above."
+        },
+        {
+          "path": "Chinook_MySql.sql",
+          "expected": {
+            "constraint": 22,
+            "index": 11,
+            "table": 11
+          },
+          "vendored_as": "chinook/Chinook_MySql.sql",
+          "upstream_sha256": "68768623bac1fe6f92c317235735c706a54a28cc76ab175c194e99f994dadbd6",
+          "vendored_slice": "DDL only: everything before the first line-initial INSERT of the upstream file, whose sha256 is recorded above."
+        },
+        {
+          "path": "Chinook_PostgreSql.sql",
+          "expected": {
+            "constraint": 22,
+            "index": 11,
+            "table": 11
+          },
+          "vendored_as": "chinook/Chinook_PostgreSql.sql",
+          "upstream_sha256": "e3fde5c1a5b51a2a91429a702c9ca6e69ba56e6c7f5e112724d70c3d03db695e",
+          "vendored_slice": "DDL only: everything before the first line-initial INSERT of the upstream file, whose sha256 is recorded above."
+        },
+        {
+          "path": "Chinook_Oracle.sql",
+          "expected": {
+            "constraint": 22,
+            "table": 11
+          },
+          "note": "Upstream Oracle DDL declares no CREATE INDEX; 0 is correct here.",
+          "vendored_as": "chinook/Chinook_Oracle.sql",
+          "upstream_sha256": "9f09481f725af60a98f57ecd526b97c56b65b0056729e96f35e2ab711ea248f7",
+          "vendored_slice": "DDL only: everything before the first line-initial INSERT of the upstream file, whose sha256 is recorded above."
+        },
+        {
+          "path": "Chinook_Sqlite.sql",
+          "expected": {
+            "constraint": 22,
+            "index": 11,
+            "table": 11
+          },
+          "note": "11 tables of 11 -- and with this row closed, ALL FIVE dialects agree exactly (11 tables / 11 indexes / 22 constraints), which is what this corpus exists to show. Was 7: a column named [Name] cost its whole CREATE TABLE, because the grammar mishandles a bracket-quoted identifier that collides with a keyword. The same table parses with the brackets removed.",
+          "vendored_as": "chinook/Chinook_Sqlite.sql",
+          "upstream_sha256": "caf31d698a4a79c628215b552dfe6575e71be052ae02b8f18e763498f55f5d44",
+          "vendored_slice": "DDL only: everything before the first line-initial INSERT of the upstream file, whose sha256 is recorded above."
+        }
+      ]
+    },
+    {
+      "id": "sqlfluff_tsql",
+      "repo": "sqlfluff/sqlfluff",
+      "ref": "main",
+      "license": "MIT",
+      "url_base": "https://raw.githubusercontent.com/sqlfluff/sqlfluff/main/test/fixtures/dialects/tsql",
+      "ddl_only": false,
+      "note": "Hand-written T-SQL dialect edge cases -- an adversarial corpus, not a happy path. add_index.sql is the one that exposed guarded DDL: 0 of 10 indexes before IF [NOT] EXISTS(...) was neutralised.",
+      "files": [
+        {
+          "path": "add_index.sql",
+          "expected": {
+            "index": 10
+          },
+          "note": "10 of 10, including all five statements named `ix_name` that differ only in their WITH options. Was 8 before batch isolation and 7 after; the bracket rewrite closed it. Duplicates are disambiguated by line.",
+          "vendored_as": "sqlfluff_tsql/add_index.sql",
+          "upstream_sha256": "63c34642eab0517ecfa1ffc669cd78a82066d5ac0bde3c8b9d2887bed24006d3"
+        },
+        {
+          "path": "alter_table.sql",
+          "expected": {
+            "constraint": 6,
+            "table": 4
+          },
+          "vendored_as": "sqlfluff_tsql/alter_table.sql",
+          "upstream_sha256": "0e4678aee4fd13944fe1eadf563c4e0bc76ed57618a349d4605a76245e197dae"
+        },
+        {
+          "path": "create_table.sql",
+          "expected": {
+            "constraint": 1,
+            "table": 6
+          },
+          "vendored_as": "sqlfluff_tsql/create_table.sql",
+          "upstream_sha256": "125a65ab199229897536f4fdf2a0758e0a5f4baf98ee443ac406ac73dfc0a7cb"
+        },
+        {
+          "path": "create_table_constraints.sql",
+          "expected": {
+            "constraint": 1,
+            "table": 5
+          },
+          "vendored_as": "sqlfluff_tsql/create_table_constraints.sql",
+          "upstream_sha256": "12a317d74dcf4b01cebe103b0503776e0f969267ed5bdb4d8326e86481858ad9"
+        },
+        {
+          "path": "create_view.sql",
+          "expected": {
+            "view": 6
+          },
+          "vendored_as": "sqlfluff_tsql/create_view.sql",
+          "upstream_sha256": "06ce0f7a7cfadfe6690cdb51296ce54284d89f9ba42143592ad10a80fc7d5424"
+        },
+        {
+          "path": "create_procedure.sql",
+          "expected": {
+            "procedure": 18
+          },
+          "vendored_as": "sqlfluff_tsql/create_procedure.sql",
+          "upstream_sha256": "ec07f81e437542263fd0cf006682e0baa058435a7c3414c3ecc35ee59124c0c2"
+        },
+        {
+          "path": "stored_procedure_begin_end.sql",
+          "expected": {
+            "procedure": 4
+          },
+          "vendored_as": "sqlfluff_tsql/stored_procedure_begin_end.sql",
+          "upstream_sha256": "02b69c81f041426f35e4ef7c7ce8d6f2f18f4796011c7e48d2c7ae42794183c9"
+        },
+        {
+          "path": "triggers.sql",
+          "expected": {
+            "trigger": 11
+          },
+          "vendored_as": "sqlfluff_tsql/triggers.sql",
+          "upstream_sha256": "66898ad80ab5d9a080810700e2d4df362fa0febf80b0c3d0917333533ab2651b"
+        },
+        {
+          "path": "create_function.sql",
+          "expected": {
+            "function": 7
+          },
+          "known_gap": "1 recovered. This fixture is mostly CREATE OR ALTER FUNCTION restating the SAME name, which collapses under the (file, name, kind) symbol id -- see test_sql_batch_and_constraints for why that id scheme was left alone.",
+          "note": "7 of 7. Was 1 until CREATE FUNCTION was added to the routine SOURCE SCAN as a fallback: the grammar cannot parse a T-SQL function with a BEGIN...END body, which includes the table-valued `RETURNS @r TABLE` form that was a standing known limitation.",
+          "vendored_as": "sqlfluff_tsql/create_function.sql",
+          "upstream_sha256": "ca219f07748811b8ee9a978e90606b44d8c3c8ac03b54c389f49e1b745651b6a"
+        },
+        {
+          "path": "create_schema.sql",
+          "expected": {
+            "type": 2
+          },
+          "note": "CREATE SCHEMA maps to kind `type` by an existing deliberate decision: a schema is a namespace, not an object.",
+          "vendored_as": "sqlfluff_tsql/create_schema.sql",
+          "upstream_sha256": "7100bb0c40a483aa5b6d8d37211b768581f139213b67f15b8e72d01fbdbc2edd"
+        }
+      ]
+    },
+    {
+      "id": "sakila",
+      "repo": "jOOQ/sakila",
+      "ref": "main",
+      "license": "BSD-2-Clause",
+      "url_base": "https://raw.githubusercontent.com/jOOQ/sakila/main",
+      "ddl_only": false,
+      "note": "The ROUTINE half of the corpus: Chinook is pure table DDL and has no procedure, trigger or function anywhere in it. Sakila is the same schema across six dialects WITH routines, and it is what exposed CREATE OR REPLACE (the PostgreSQL/Oracle spelling, unmatched: 2 triggers found of 15), Oracle's `/` batch terminator (1 table of 16), and the (file, name, kind) id collision -- PostgreSQL names THIRTEEN triggers `last_updated`, one per table.",
+      "files": [
+        {
+          "path": "sql-server-sakila-db/sql-server-sakila-schema.sql",
+          "expected": {
+            "constraint": 40,
+            "index": 24,
+            "table": 15,
+            "view": 5
+          },
+          "vendored_as": "sakila/sql-server-sakila-db__sql-server-sakila-schema.sql",
+          "upstream_sha256": "994d6f2c71aa7c25a7d661ba59c1d8125fac7fe112724231bfebd1fa4ea7e03b"
+        },
+        {
+          "path": "postgres-sakila-db/postgres-sakila-schema.sql",
+          "expected": {
+            "constraint": 68,
+            "function": 9,
+            "index": 29,
+            "table": 21,
+            "trigger": 15,
+            "view": 7
+          },
+          "note": "21 tables of 21 including the six payment_p2007_* partitions. Briefly read 22: a `CREATE TEMPORARY TABLE` inside a function body leaked out as a schema object, because the temp check only knew the T-SQL `#` marker.",
+          "vendored_as": "sakila/postgres-sakila-db__postgres-sakila-schema.sql",
+          "upstream_sha256": "eaa8cfc2fd358e70617d31ed3638196982944749929f02e90b980457855bfa48"
+        },
+        {
+          "path": "mysql-sakila-db/mysql-sakila-schema.sql",
+          "expected": {
+            "constraint": 22,
+            "function": 3,
+            "procedure": 3,
+            "table": 16,
+            "trigger": 3,
+            "type": 1,
+            "view": 7
+          },
+          "note": "16 tables of 16. Same temp-keyword leak as the postgres row; briefly read 17.",
+          "vendored_as": "sakila/mysql-sakila-db__mysql-sakila-schema.sql",
+          "upstream_sha256": "f2c41c3bf6d6c239941b4f98fb37afad21f6be12b82bf586202529a793ccc2ee"
+        },
+        {
+          "path": "sqlite-sakila-db/sqlite-sakila-schema.sql",
+          "expected": {
+            "constraint": 24,
+            "index": 24,
+            "table": 16,
+            "trigger": 30,
+            "view": 5
+          },
+          "note": "16 tables of 16, up from 13 -- the same routine-blanked pass DB2 needed. SQLite's sakila puts 30 triggers among its tables.",
+          "vendored_as": "sakila/sqlite-sakila-db__sqlite-sakila-schema.sql",
+          "upstream_sha256": "b1db76b3a5192f98493901a9ac40fecb9dba918feb5604b7ef6b74230a385f12"
+        },
+        {
+          "path": "oracle-sakila-db/oracle-sakila-schema.sql",
+          "expected": {
+            "constraint": 40,
+            "index": 24,
+            "table": 16,
+            "trigger": 30,
+            "view": 5
+          },
+          "note": "Complete: 16 tables of 16, 24 indexes of 24, 30 triggers, 40 constraints. Was 1 table and 1 index -- everything after the first PL/SQL block sat inside one ERROR node. Per-batch parsing closed it; `/` had to be a batch separator first.",
+          "vendored_as": "sakila/oracle-sakila-db__oracle-sakila-schema.sql",
+          "upstream_sha256": "6d8943ba87103fcf50356e63727fd2b5be009b2061cfcec1a22db4054d809aa0"
+        },
+        {
+          "path": "db2-sakila-db/db2-sakila-schema.sql",
+          "expected": {
+            "constraint": 40,
+            "index": 23,
+            "table": 16,
+            "trigger": 15,
+            "view": 5
+          },
+          "note": "Complete: 16 tables of 16, 23 indexes, 15 triggers, 40 constraints. Was 1 table -- and it is the case batch isolation CANNOT reach, because this file has no batch separator anywhere: one long `;`-terminated batch alternating triggers and tables. Closed by the second, routine-blanked pass instead.",
+          "vendored_as": "sakila/db2-sakila-db__db2-sakila-schema.sql",
+          "upstream_sha256": "949cd4f22179f07a5c790ecb6ce903174599041132de65b3d552b8eaf3353b9e"
+        }
+      ]
+    },
+    {
+      "id": "adventureworks",
+      "repo": "microsoft/sql-server-samples",
+      "ref": "master",
+      "license": "MIT",
+      "url_base": "https://raw.githubusercontent.com/microsoft/sql-server-samples/master/samples/databases/adventure-works/oltp-install-script",
+      "ddl_only": false,
+      "note": "The only public source found carrying SET QUOTED_IDENTIFIER, and by far the heaviest GO-batch file in the corpus (434 batches, 329 KB, every object bracket-quoted). Real Microsoft-published deployment script, not a hand-made fixture.",
+      "files": [
+        {
+          "path": "instawdb.sql",
+          "expected": {
+            "constraint": 402,
+            "function": 15,
+            "index": 99,
+            "procedure": 10,
+            "table": 71,
+            "trigger": 11,
+            "type": 11,
+            "view": 20
+          },
+          "note": "COMPLETE: 71 tables of 71, 99 indexes, all 20 views, 402 constraints. Was 0 tables and 1 index. ⚠ The last three (EmployeePayHistory / ProductInventory / Vendor) were NOT lost to SQLCMD, which an earlier note claimed -- they were lost to `CHECK (x BETWEEN a AND b)` in a table-level constraint. Re-tested after batch isolation landed: the SQLCMD rewrite now changes NOTHING here, so the file needed no cleaner source.",
+          "vendored_as": "adventureworks/instawdb.sql",
+          "upstream_sha256": "fd1be672069cc4f909427c90b5a969ff65efa9d0a2bb6a0eb9e3619ddeb4fb64"
+        }
+      ]
+    }
+  ]
+}

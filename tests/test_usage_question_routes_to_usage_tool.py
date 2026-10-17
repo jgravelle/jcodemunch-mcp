@@ -34,7 +34,7 @@ USAGE_TOOLS = {"check_references", "search_text"}
 IMPORT_TOOL = "find_references"
 
 # A "usage" question, by any spelling this project has used for it.
-_USED_Q = re.compile(r"\b(used|usage|use of|every use|call sites?)\b", re.I)
+_USED_Q = re.compile(r"\b(used|usage|use of|every use|call sites?|references a|referenced)\b", re.I)
 _TOOL_NAME = re.compile(r"\b(find_references|check_references|search_text|find_importers)\b")
 
 

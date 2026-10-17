@@ -2,6 +2,1594 @@
 
 ## [Unreleased]
 
+## [1.108.376] - 2026-10-17 - install-pack honours every savings opt-out
+
+### Added - `init` and `install` end with one licence line
+
+A real run of `jcodemunch-mcp init` or `jcodemunch-mcp install <agent>` now
+ends with two lines after "Done.": jCodeMunch at work needs a commercial
+licence, $79 one time (the Builder price README.md lists), with the
+licence page and the 30-day money-back guarantee's terms page
+(https://jcodemunch.com/guarantee.php, which states the 30 days). It is shown
+at the end of a real `init` or `install` run, not on upgrades: `upgrade`
+re-runs `init --hooks` and marks that run through its environment, so an
+upgrade prints no licence line. A dry run or demo prints nothing new.
+
+It is a print and nothing else: no network call, no file written, no setting.
+By design it appears only in output a person reads, never in an agent's
+answers, and `tests/test_init_licence_line.py` fails if the text
+reaches any tool description, the `instructions` string, the policy text or
+any file under `src/` other than `cli/init.py`.
+
+### Fixed - install-pack honours every savings opt-out
+
+After installing a starter pack, `install-pack` posts one event naming the
+pack, its version and your platform. It skipped that only when
+`JCODEMUNCH_SHARE_SAVINGS` was exactly `0`, so a user who opted out with
+`false`, `off` or `no`, or with `share_savings: false` in `config.jsonc`, still
+sent it, while the rest of jCodeMunch read them as opted out (ledger L-212).
+It now asks the same setting the savings counter reads, and sends only when
+both the old check and that setting allow it, so it can never send where it
+did not before. SECURITY.md now discloses the event, which it did not.
+
+## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
+
+### Fixed - a typo can no longer switch off a protective setting
+
+Six settings are on by default and documented as switched off only by an
+explicit false: the four skip rules (`JCODEMUNCH_RESPECT_CACHEDIR_TAG`,
+`JCODEMUNCH_SKIP_MSBUILD_OUTPUT`, `JCODEMUNCH_SKIP_NUGET_PACKAGES`,
+`JCODEMUNCH_SKIP_VIRTUALENVS`), the trusted-folders allowlist
+(`JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE`) and PII redaction of runtime
+traces (`JCODEMUNCH_RUNTIME_REDACT`). The config file kept that promise; the
+environment variable did not, because any value other than
+`true`/`1`/`yes`/`on` read as false, so a typo turned the setting off (ledger
+L-207). For these six, an unrecognised value now keeps the setting on and logs
+a warning naming the variable, and `false`/`0`/`no`/`off` still turn it off.
+Every other boolean variable reads exactly as before, including
+`JCODEMUNCH_SHARE_SAVINGS`, where a typo already reads as off, the side that
+does not share.
+
+## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
+
+### Fixed - a Python virtualenv is skipped whatever its folder is called
+
+`index_folder` skipped a virtualenv only when its folder was named `venv` or
+`.venv`. A venv called `env`, `jcm-venv` or `py313` was walked file by file,
+and where nothing else excluded it (a stdlib venv before Python 3.13 or an
+older virtualenv writes no `.gitignore`, and uv also writes a `CACHEDIR.TAG`)
+its site-packages entered the index, competed with your own code in ranking
+and used up `max_folder_files`. On a workspace holding several such venvs the
+index timed out (ledger L-206, from our own dogfooding). Every venv tool writes
+`pyvenv.cfg` with a `home =` key at the venv root (PEP 405), so the walk and
+the file watcher now prune that venv's installed packages: the
+`site-packages` directory at `Lib/site-packages` or
+`lib/pythonX.Y/site-packages`. Nothing else in the venv is pruned, so source
+you keep in the venv root, or in your own `bin/` and `lib/` beside a venv
+created in a project root, stays indexed, and a file merely named
+`pyvenv.cfg` with no `home` key prunes nothing. A newer venv
+that its own `.gitignore` already hid is now pruned at the folder instead of
+file by file. Skips are counted as `virtualenv` in `discovery_skip_counts`;
+`skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0` turns it off.
+SECURITY.md describes the rule.
+
+### Fixed - audit reliability
+
+Contributed by @lilubot (#1117).
+
+- Repositories with more than 100 dead-code candidates no longer have
+  `dead_code_pct` understated by the truncated result list. On those
+  repositories `dead_code_pct` rises, so the published dead-code score and
+  health grade can move down.
+- A live React component consumed as JSX, and a React class lifecycle method,
+  are no longer offered for deletion as code with no callers. The no-store
+  direct fallback no longer crashes on a `.tsx` symbol.
+- Structured AST searches keep language metadata and indexed symbol-less files.
+  Exact `re.compile` calls and literal timer callbacks are no longer reported
+  as dynamic-code execution, and ellipsis-only exception handlers are
+  recognized. A `hardcoded_secret` match in a test file now carries
+  `in_test_file: true`; its severity is unchanged. The `god_function` and
+  `eval_exec` preset descriptions now name only what those detectors check.
+- Project intelligence now uses the same linked-worktree boundary as indexing:
+  files in old-form submodules are reported, while linked worktrees stay
+  outside the parent inventory. A scoped query follows that same boundary.
+- On a project config, a referenced name with no near-match in the index is
+  now an informational `unresolved_reference`, not a `stale_reference`
+  warning. That covers an external or global tool named in prose, and also a
+  repository symbol deleted outright, which used to be an actionable warning.
+  A name with a near-match (a likely rename) still warns. On a global config
+  every missing name is informational.
+- `resolve_repo` reads a submodule at a nested path (for example
+  `libs/widget`, whose `.git` file points at `.git/modules/libs/widget`) as a
+  submodule of the enclosing repository instead of an independent nested
+  repository.
+- Signal-chain gateways reuse source-content and callee resolution instead of
+  repeating that work for each gateway while retaining complete chains.
+- `get_signal_chains` with `include_flow_edges` kept `_meta.flow_edges` only in
+  the JSON response; the compact encoding dropped it, along with
+  `_meta.verdict`. Both now survive the compact encoding.
+
+## [1.108.373] - 2026-10-16 - claude-md --refresh can write the policy your server uses
+
+### Fixed - `claude-md --refresh` can write the policy your server uses
+
+The server picks the agent policy from the settings in your MCP client's
+environment, and `claude-md --refresh` picks it from your shell's. With a
+setting that chooses the policy (`JCODEMUNCH_TOOL_SURFACE`, the tool profile,
+disabled tools) set only for the client, the server said your CLAUDE.md block
+differed, the command wrote the policy for the shell's settings, and the
+server still read the block as differing. Neither side said why, and
+`config --check` had the same blind spot (L-185). The server's notice now
+records the settings it chose its policy from: the tool surface and the names
+of the tools it offered. The command says when those give a different policy
+from the one it would write, and `--match-server` writes this version's policy
+for the server's settings, with the same diff, question and backup. The
+record holds settings, never text, so an edited record can only choose which
+of jcodemunch's own policies is written; one it can't read writes nothing.
+`config --check` and `init` say when a block they read as differing matches
+the policy for the server's settings. SECURITY.md describes the marker's new field.
+
+## [1.108.372] - 2026-10-16 - uninstall keeps your own section after the policy
+
+### Fixed - `uninstall` no longer deletes your own section after the policy
+
+`jcodemunch-mcp uninstall` strips the Code Exploration Policy from CLAUDE.md,
+AGENTS.md and `.windsurfrules`. It found the end of the block with a rule of
+its own that stopped only at a `## ` heading, so a section of yours headed `#`
+or `###` directly after the policy was deleted with it. A default uninstall
+keeps a backup beside the file, so nothing was lost for good (L-186).
+`uninstall` now uses the boundary rule that `init`, the drift check and
+`claude-md --refresh` already share: the block ends at a heading of any level
+that isn't one of the policy's own, and a `#` inside a code fence is not a
+heading.
+
+That shared rule had two faults of its own at the START of the block, and
+`claude-md --refresh` rewrites exactly the lines it names. It took the first
+heading containing the policy's title anywhere, so a fenced example of the
+heading above the real block became the start and flipped the fence count,
+and the block then ran to the end of the file; a heading of yours that only
+mentioned the title was taken too. The block now starts at a heading that
+opens with the title, outside a code fence. And a byte-order mark before the
+first line hid a policy heading on that line from `uninstall`, so `init` said
+the policy was installed while `uninstall` said it wasn't. The rule itself
+skips the mark now, and `uninstall` keeps it in the file.
+
+The Cursor, Windsurf and AGENTS.md installers tested for the policy's name as
+a substring, so a file that only mentioned it in a sentence read as installed
+and got nothing. They now ask the same rule, as the CLAUDE.md installer
+already did. Windsurf and AGENTS.md append the policy to such a file. Cursor's
+`.cursor/rules/jcodemunch.mdc` is a file the installer owns by name, so it is
+replaced, and a default install keeps the old text in `jcodemunch.mdc.bak`.
+
+## [1.108.371] - 2026-10-16 - a schema's dead-code advice follows the right evidence
+
+### Fixed - a schema's dead-code advice follows the right evidence
+
+`find_dead_code` and `check_delete_safe` never certify a `.xsd` or `.wsdl` with
+no importer, because a build may compile it. Which advice they give depends on
+whether the repository looks like .NET: "a project file may consume it" or "a
+build or code generator outside the index may compile it". The evidence list
+missed a Razor or Blazor tree, which carries no `.cs`, so those schemas got the
+neutral advice. And it took any `.fs` file for F#, so a Maven repository with a
+GLSL fragment shader named `shader.fs` read as .NET and got the project-file
+advice (L-184). Razor and Blazor files now count. F# counts through `.fsproj`,
+`.fsx` and `.fsi`, and a bare `.fs` no longer does. Every schema stays capped
+either way; only the advice changes.
+
+## [1.108.370] - 2026-10-16 - seven import forms record the names they import
+
+### Fixed - seven import forms record the names they import
+
+A name the import extractor does not record is a name `find_references`
+answers 0 for and `check_references` counts no import of. Seven common forms
+recorded the edge with no names, or no edge at all (L-177):
+
+- a PHP group use, `use App\Models\{User, Post};`, recorded no edge. Each
+  member is now one edge, as `use App\Models\User;` is;
+- a Kotlin `import a.b.D as E` recorded no edge;
+- a Scala selector, `import a.b.{C, D}`, recorded `a.b` with no names, because
+  the pattern stopped at the first space;
+- a Haskell import list, `import A.B (c, d)`, recorded no names, and
+  `import A.B(c)` with no space recorded the module as `A.B(c)`;
+- a Dart `show` combinator recorded no names;
+- a destructuring `require`, `const {a, b} = require("./m")`, recorded no
+  names;
+- a Python `import os, \` continued on the next line lost `sys`, and recorded
+  the backslash as a module.
+
+Most failed on one line as well as on several. Each reader believes a list only
+when the statement is whole: it closes, and every item has the language's
+shape. Otherwise the reader records what it recorded before, so a brace that
+never closes or a nested destructuring adds no name. `PARSER_GENERATION` moves
+to 25, so an existing index re-reads these files once. Elixir has no import
+extractor at all; that's its own ledger row, L-200.
+
+## [1.108.369] - 2026-10-15 - indexing a drive root keeps its files, and LSP enrichment runs no Rust build scripts
+
+### Fixed - LSP enrichment no longer runs a Rust project's build scripts
+
+With `enrichment.lsp_enabled` on (it is off by default), jcodemunch started
+`rust-analyzer` with no options, and rust-analyzer's defaults run the indexed
+project's `build.rs` files and procedural macros, which is code from the
+repository (L-198). That made the one jcodemunch switch that could run what it
+indexes. The bridge now starts `rust-analyzer` with build scripts, procedural
+macros and check-on-save turned off. What enrichment loses is not measured:
+macro-generated items, plus references inside code a build script switches on
+(`cargo:rustc-cfg`) or generates into `OUT_DIR`, which rust-analyzer now
+treats as inactive. jcodemunch's own extraction still indexes that code; only
+the extra edges LSP would add for it are gone. Other servers
+still start with no options. This closes rust-analyzer's default paths, not
+every path (it still runs `cargo` to read the workspace), so SECURITY.md still
+says to turn enrichment on only for repositories you trust, rust-analyzer
+included.
+
+### Fixed - indexing a filesystem root keeps the files under it
+
+The indexer checked that each file sits under the folder being indexed by
+comparing against the folder plus a separator. A filesystem root (`C:\`, `/`)
+already ends in one, so the prefix came out doubled and every file under a
+drive root failed the check, leaving the index empty (L-197). Two `.gitignore`
+prefixes in the same file had the same spelling and failed open once the
+check passed: a `.gitignore` at a drive root would have stopped applying. The
+hooks had it too (L-195, fixed in 1.108.368). All of them now ask one rule,
+`path_prefix.dir_prefix`, and a test fails on the old spelling anywhere in
+the package.
+
+### Changed - the 1.50.0 branch delta layers never ran, and the record now says so
+
+1.50.0 announced per-branch delta layers: one base index plus a small delta
+per git branch, so switching branches would not re-index. They never ran.
+The writer enters delta mode only when the base index records a branch
+different from the checked-out one, and no save ever recorded it, so every
+pass on any branch updated the base index. No tool reads a branch view either:
+every reader loads the base. That behaviour is the one users have had all
+along, and it is correct for them, because the index matches the checkout and
+a branch switch re-parses only the files that differ. Turning the writer on by
+itself would have served a stale base on every feature branch, so it stays
+off (jjg, 2026-10-15; L-196). A test now pins that a pass on another branch
+updates the index readers load and writes no delta, so enabling the layers
+has to change the read path in the same change.
+
+## [1.108.368] - 2026-10-15 - a context provider that runs out of time runs again on the next index
+
+### Fixed - the steering hooks recognise a search over a whole drive
+
+`_path_overlaps`, the hooks' rule for "is this path an indexed repository,
+inside one, or above one", added a separator to the folder before comparing.
+A filesystem root (`C:\`, `/`) already ends in one, so the ancestor test never
+matched there, and a search over a whole drive holding an indexed repository
+got no steering. It now gets what a search over any folder holding an indexed
+repository gets, the home folder included: advice by default, and under
+`JCODEMUNCH_ENFORCE=strict` a denial for a Grep or Glob over the root or a
+single-command shell search run from it. A session started at a drive root
+also gets the briefing for that drive's indexes only, where it briefed every
+index before. A new test now holds this rule and the workspace listing's
+rule (`tools/_visibility.in_workspace`) to the same answer for every project
+folder. They still differ for the home folder and a root, deliberately: the
+listing treats those as no project, while the hooks still serve the search
+(L-195).
+
+### Changed - the published package names no code-execution call it doesn't make
+
+A registry scanner reading the sdist counts `eval`/`exec` text as calls. Our
+package makes none, but four places carried the text: an MCP prompt sentence,
+a test fixture, a test's busy-wait, and recorded munch-bench model answers
+quoting Flask. The prompt now says "dynamic code execution", the fixture joins
+the name at run time, the busy-wait is a plain loop, and `munch-bench/results/`
+leaves the sdist (nothing installed reads it). SECURITY.md gains "jcodemunch
+Never Runs Indexed Code Itself", which names the one exception you switch on:
+LSP enrichment starts language servers, and `rust-analyzer` runs a Rust
+project's build scripts and procedural macros by default.
+
+### Fixed - a context provider that runs out of time runs again on the next index
+
+Every context provider runs under a 30-second budget
+(`JCODEMUNCH_PROVIDER_BUDGET_SECONDS`), and its tags and property names become
+search keywords, so what an index held depended on how busy the machine was
+when it was built (L-190, the L-188 class at a higher threshold). A provider
+past the budget was skipped for that pass and never ran again for the files
+an incremental pass leaves alone. The Express provider, which checks the
+clock between files, could return first with part of its routes and be kept.
+Now an overrun is a cut however the provider stopped, the index records it as
+`context_metadata.providers_cut`, and the next `index_folder` over the whole
+tree re-parses every file so the provider runs again (`rebuild_reason:
+"context_provider_cut"`). A pass that reads only part of the tree (`paths=`, a
+watched edit, the edit hook's `index_file`, a subdir walk) keeps the record:
+every delta save carries it, so a writer added later cannot erase it either.
+The budget is unchanged, so an index built on a slow pass still ranks
+differently until the next one. A provider that runs out of time on EVERY pass
+now makes every `index_folder` a full re-parse, which on the large repository
+a slow provider suggests is the expensive case. The warning says so and names
+the two ways out: raise `JCODEMUNCH_PROVIDER_BUDGET_SECONDS`, or set
+`context_providers` to false.
+
+## [1.108.367] - 2026-10-15 - a session lists only its own workspace's indexes by default
+
+### Changed - a session lists only its own workspace's indexes by default
+
+Every session sharing an index store saw every repository indexed on the
+machine: `list_repos` returned all of them, and a bare repo name was resolved
+across all of them. One store holds a user's own code beside a customer's, a
+demo's and a pack's, so an agent working in one project was handed the names
+and paths of the rest. `list_repos` now shows the indexes whose folder is the
+server's working directory, inside it, or containing it. It says how many it
+left out under a top-level `visibility` key, since a default install strips
+`_meta`, and a scoped list that didn't say so would read as the whole store.
+A bare name that matches several indexes picks the one in the workspace, where
+it used to refuse as ambiguous. An exact `owner/name` or a path still loads
+any index. The `cross_repo` tools are unchanged. A server started in the home
+folder, a folder above it or a filesystem root (where Claude Desktop starts), or
+in a folder that holds no index, lists everything, as before, and says the
+listing is unscoped. A bare name that stays ambiguous still names every
+matching id in its error. An index built from
+GitHub has no folder, so the default leaves it off the list.
+`"repo_visibility": "all"` (or `JCODEMUNCH_REPO_VISIBILITY=all`) restores the
+old listing. This scopes what a session is shown, not who can read the store,
+and SECURITY.md says so.
+
+## [1.108.366] - 2026-10-15 - environment variables stay supported, and no longer warn that 2.0 removes them
+
+### Changed - environment variables stay supported, and no longer warn that 2.0 removes them
+
+The config loader logged "Deprecated: Using <VAR> environment variable. This
+will be removed in v2.0. Use config.jsonc instead." the first time a process
+read each `JCODEMUNCH_*` variable, and CONFIGURATION.md said the same. No 2.0
+is planned, and the promise wasn't harmless. `JCODEMUNCH_SHARE_SAVINGS=0` is
+the opt-out from anonymous savings sharing that SECURITY.md and five user docs
+give, so announcing its removal said that opting out that way would stop
+working. Every hook process printed the line to stderr, too. The warning is
+gone, CONFIGURATION.md documents env vars as a supported fallback (a config
+file value still wins), and a test fails if a loader message or a tracked doc
+promises a 2.0 removal again. LEDGER L-193.
+
+## [1.108.365] - 2026-10-15 - git blame is off by default, and it no longer adds "2 properties" to a file summary
+
+### Changed - git blame is off by default, and it no longer adds "2 properties" to a file summary
+
+Since 1.108.364 git blame's names and dates no longer reach search ranking, so
+what was left of its output went two places. One was a "2 properties" suffix on
+the summary of every file it covered, a count that names nothing. The other was
+the AI summarizer's prompt, when AI summaries are on. Both still depended on
+whether one timed `git log` finished, and indexing ran that `git log` (up to
+10 seconds) on every git repository to produce them. `git_blame_enabled` now
+defaults to `false`. With it `true` in `config.jsonc` the provider runs as
+before, minus the suffix: a provider whose properties aren't
+vocabulary (`properties_are_search_terms = False`) no longer has them counted
+in a file summary either. An existing config that sets the key keeps its
+value. SECURITY.md now lists the provider, since it stores commit authors' names in
+the index and, with AI summaries on, sends them to the summarizer. Search
+ranking doesn't move. `PARSER_GENERATION` is not bumped: an existing index
+keeps the suffix on a file's summary until that file is re-indexed, and
+`index_folder` with `incremental: false` clears it at once. A second
+whole-index re-parse a release after 1.108.364's would cost every user more
+than a count in a summary is worth, and nothing ranks on it. LEDGER L-189.
+
+## [1.108.364] - 2026-10-15 - SQL procedures, triggers and constraints are indexed, and one unparseable statement no longer loses the rest of the file
+
+### Fixed - a T-SQL/Sybase stored procedure or trigger indexed to nothing, and SQL objects all read as `type` (#1080, @outoftheblue9)
+
+On a real T-SQL and Sybase codebase a large share of files indexed to
+NOTHING, and what was lost was the logic -- the stored procedures and
+triggers -- so symbol search, `find_references` and `get_blast_radius` were
+blind to exactly the part that matters. The
+derekstride grammar collapses `CREATE PROCEDURE`/`CREATE TRIGGER` into ONE
+`ERROR` node with loose-punctuation children, so there is no AST to walk;
+`_scan_sql_routines` recovers them by source scan over a comment- and
+string-MASKED copy (length-preserving, so offsets stay valid) while reading
+names from the ORIGINAL bytes. Bracket-quoted `[dbo].[X]` was stored as
+`dbo].[X`; every name is re-tokenised and both dialects land on
+`schema.name`. Temp tables declared inside a routine were published as
+top-level objects named after an unrelated column (the `#` never reaches the
+name, so the marker is read from the raw bytes) and are now dropped, while
+nested CTEs are kept and re-parented. ⚠ Rejecting nodes under an `ERROR`
+ancestor is WRONG -- a real `CREATE VIEW` parses under one -- so byte-range
+containment in a recovered routine is the discriminator. Every non-function
+object had been stored as kind `type`; `procedure`, `trigger`, `table`,
+`view` and `index` join `KIND_ORDER`, APPENDED because the tuple is
+published in the cached schema prefix, and `STATE_KINDS` classifies all five
+as not-state. ⚠ The `kind` enum in `search_symbols`' input schema grows by
+five entries, and every profile that serves `search_symbols` publishes it, not
+only `full`: `core_compact` moves 3,971 -> 3,981 tokens (the hard ceiling is
+4,000) and the `full` list 23,916 -> 23,926, measured on this tree and on
+upstream's with `benchmarks/harness/capture_schema_baseline.py`; only the
+`counter` front door (945) is unchanged. Each is a one-time cache write for a
+client on that profile. ⚠ `search_symbols(kind="type")` on a SQL file now
+returns schemas only, so a caller that filtered `type` to find tables, views or
+indexes must ask for `table`, `view` or `index`.
+`PARSER_GENERATION` 21 -> 22: the stored rows are wrong on UNCHANGED content,
+so every existing index re-parses once on the next `index_folder` /
+`index_repo`. ⚠ Symbol ids move: a SQL table, view or index id changes with
+its kind (`type` -> `table`/`view`/`index`), and a bracket-quoted name's id
+loses the mangling (`dbo].[X` -> `dbo.X`). A nested CTE or table's `parent`
+is its routine's symbol id; a trigger's `parent` is its table's id when that
+table is defined in the same file, else `None`, and the table stays named in
+the signature. A routine name repeated in one file is kept and numbered
+`~1`/`~2` by the existing ordinal rule. Recognition follows the property "a
+statement that defines or redefines a procedure or trigger": T-SQL
+`ALTER PROCEDURE|PROC|TRIGGER` (only with a body, so `ALTER ... COMPILE|
+RENAME|ENABLE|DISABLE` define nothing), PostgreSQL/Oracle
+`CREATE OR REPLACE PROCEDURE|TRIGGER` (and `CONSTRAINT TRIGGER`,
+`[NON]EDITIONABLE`), and MySQL `CREATE DEFINER=... PROCEDURE|TRIGGER` /
+`IF NOT EXISTS`; a trigger's table is found after a `BEFORE|AFTER|INSTEAD OF
+<events>` clause as well as directly after the name. ⚠ A routine's span ends at its
+own terminator, so the objects written after it are top level and
+`get_symbol_source` on it returns the routine alone: a dollar-quoted body ends
+at its closing `$tag$` and the `;` after it (or after its `LANGUAGE ...`
+characteristics), a quoted body at the following `;`, a MySQL routine at the
+active `DELIMITER` (so `DELIMITER $$` is a delimiter, not a dollar quote), a
+`BEGIN ... END;` body at the matching `END;` (tracking nested `BEGIN`, `CASE`
+and `END CASE`, and not counting `BEGIN TRANSACTION`), an Oracle body at the
+`END [name];` of the BEGIN after its `IS` / `AS` / `DECLARE` declaration
+section (declarations, cursors, types, pragmas and local subprograms are
+skipped), and a body-less trigger or routine at its `;`. `IS` before anything
+else is PL/SQL; an `AS` or `DECLARE` section counts only when it opens with a
+declaration (`name type`, `CURSOR`, `TYPE`, `PRAGMA`, a local subprogram), so a
+T-SQL `AS SET NOCOUNT ON; SELECT 1;` is unchanged. Before, a file with no `GO` re-parented every table,
+view and index after a PostgreSQL or MySQL procedure under it. T-SQL and
+Sybase have no reliable body terminator and keep running to `GO` or the next
+routine header; a body whose terminator cannot be told does the same. A
+bracketed T-SQL identifier is opaque to the comment and string masker, so
+`[it's]` no longer hides the routines after it. The file-representative rank
+(`get_repo_map`, `get_repo_outline`) puts `table`, `view` and `index` where
+`type` sat and a `procedure` or `trigger` with the callables, so a `CREATE
+SCHEMA` no longer represents the tables it creates. The dead-code and
+untested-symbol tools still judge only `function`/`method`, so they make no
+claim about procedures or triggers, whose callers sit outside the static
+graph. The guard that pinned `KIND_ORDER[-1] == "variable"` now pins the
+pre-existing prefix, because pinning the tail of an append-only tuple fails
+the next correct append, while a prefix pin still catches a reorder.
+
+### Fixed - one SQL statement the grammar could not parse lost every object after it, and a named constraint was no symbol (#1081, @outoftheblue9)
+
+The derekstride grammar does not skip what it cannot parse: it opens an
+`ERROR` node that swallows every statement after it, so one SQLCMD
+`$(Var)`, `ALTER TABLE`, `IF NOT EXISTS (...)` guard or BETWEEN in a
+table-level CHECK cost the rest of the file. A script is now parsed one
+batch at a time (`GO`, `GO N`, `GO;`, and Oracle's lone `/`), so an
+unparseable statement costs exactly its own batch; coordinates are stamped
+back into whole-file space. ⚠ Rewriting `GO` to `;` is NOT enough, because
+an ERROR node spans a substituted terminator. A dialect with no separator
+(DB2) gets a second pass per batch with routine bodies blanked, UNIONed
+with the first, because either pass alone loses objects the other finds;
+the two are merged on coordinates, not ids. Within a batch, `ALTER TABLE`,
+`IF [NOT] EXISTS (...)`, `CONSTRAINT x CHECK (...)` and `[Ident]` are
+blanked or rewritten in a LENGTH-PRESERVING copy handed only to the
+grammar, so every offset still slices the original source. `constraint`
+joins `KIND_ORDER` (appended): PK, FK, UNIQUE, CHECK and DEFAULT, from
+`ALTER TABLE ... ADD CONSTRAINT` and inline in `CREATE TABLE`, with an
+unnamed FK recovered as `FK_<table>_<target>`. A constraint's `parent` is
+its table's symbol id when the table is defined in the same file, else
+`None`, the rule triggers follow, and the table is named in the signature.
+Sybase ASE `CREATE RULE`/`CREATE DEFAULT` are `constraint`s and
+`sp_addtype` names are `type`s. `SET QUOTED_IDENTIFIER OFF` is tracked, so a
+double-quoted string is no longer read as source. `CREATE FUNCTION` with a
+`BEGIN...END` body is recovered by the routine scan when the grammar cannot
+parse it; a function the grammar parsed keeps the grammar's symbol. ⚠ The
+`kind` enum in `search_symbols`' input schema grows by one entry, and under
+`compact_schemas` it is demoted to a described string like `language`,
+because the SQL kinds pushed `core_compact` past its 4,000-token ceiling
+(4,002 with the enum kept). With the demotion `core_compact` measures 3,948
+tokens and the `full` list 23,928, from `benchmarks/harness/capture_schema_baseline.py`
+on this branch; an unknown kind is still refused server-side with the valid list.
+`PARSER_GENERATION` 22 -> 23: the rows change on UNCHANGED content. Tested
+against vendored public corpora (AdventureWorks, Chinook, Sakila, sqlfluff
+T-SQL fixtures; MIT / BSD-2-Clause, provenance and sha256 in
+`tests/fixtures/sql_corpora/SOURCES.md` and `public_sql_corpora.json`) and a
+synthetic Sybase ASE schema; `benchmarks/remeasure_sql_corpora.py`
+regenerates the pinned counts.
+
+### Fixed - search ranking no longer depends on whether git blame finished, or on today's date
+
+The git blame provider gave every symbol of a file it covered two extra search
+keywords, `last_author` and `last_modified`: the property names, added through
+`FileContext.search_keywords`. Search scores them. Which files it covered
+depended on two things an unchanged repository does not fix. One `git log` had
+to finish inside a 10-second budget, and a timeout kept no blame at all. The
+window was "2 years ago", measured from the day of indexing, so files left it as
+the calendar moved. Two fresh indexes of the same commit could rank the same
+query differently. On fastapi, at the commit the published benchmark pins, a
+cold clone hit the timeout and a warm one did not. Two of the five benchmark
+queries changed their top 3 (`error exception` 1,167 to 1,232 tokens, `context
+bind` 1,191 to 1,367), and the other three fastapi queries did not move. A
+reproduction attributed the change to a release that touched nothing on that
+path.
+
+Blame now annotates a file without adding search terms. A provider declares
+whether its property names are vocabulary (`properties_are_search_terms`). The
+framework and data providers keep theirs, and git blame opts out. The window is
+measured back from the repository's latest commit, so a pinned checkout covers
+the same files on any day; `2.years.ago` remains the fallback when that commit's
+time cannot be read. A test indexes one repository twice, once with blame and
+once with it timed out, and requires identical scores. `PARSER_GENERATION` is
+24, so an existing index is re-parsed once and drops the old keywords
+everywhere. Without it, editing a file would re-enrich only that file, and one
+index would hold both states. With AI summaries on, blame's text still reaches
+the summarizer's prompt, and the summary it writes is searched; that path and
+blame's file summaries are recorded as open (L-189). The published benchmark
+runs with AI summaries off, and it is re-measured after this release.
+
+## [1.108.363] - 2026-10-14 - init writes hooks that run the install you ran, not the first one on PATH
+
+### Fixed - `init` writes hooks that run the install you ran, not the first one on PATH
+
+`init` wrote every hook command, the Codex server entry and the post-`upgrade`
+hook refresh with the executable `shutil.which("jcodemunch-mcp")` found: the
+first copy on PATH. Someone with an older install on PATH who installed a newer
+one in a venv or with `uv tool`, then ran its `init` by full path, got six hooks
+that call the older version. Nothing reported it, because the old version
+answers every hook. The reindex hook had a fourth answer of its own, its launch
+path.
+
+All four now ask `install_layout`. It returns the absolute path this process
+was launched from, or failing that the `jcodemunch-mcp` in the running
+interpreter's scripts directory. Only when neither exists do `init` and
+`upgrade` take the first one on PATH, and then the bare name, as before; the
+reindex hook falls back to `python -m jcodemunch_mcp`, as before. A relative
+launch path is never used, because a hook would resolve it inside the
+checked-out repository. An executable inside uv's cache, where `uvx` runs, is
+never written, from either source: `uvx` puts that directory first on PATH,
+and `uv cache clean` deletes it and every hook pointing there. So `init` run
+through `uvx` cannot write the install it ran. Its hooks call the next
+`jcodemunch-mcp` on PATH, which may be another version, or the bare name, and
+`init` now prints which, with the command that makes them call the version
+you ran. A test fails if
+any other module looks our executable up on PATH, whichever way the call is
+spelled. Existing hooks change only when `init` runs again.
+
+## [1.108.362] - 2026-10-14 - a package named migrations is indexed, and the start-up instructions stop preferring the index everywhere
+
+### Changed - the server's start-up instructions say where the index is cheaper, not to prefer it everywhere
+
+The `instructions` string the server sends when a session starts told agents to
+"Prefer them over Read/Grep/Glob/Bash" (or, on the front door, "Prefer it over
+Read/Grep/Glob/Bash for code navigation"), to call `resolve_repo` "first", and
+to run `get_file_outline` "before opening any file". The agent policy stopped
+saying any of that in 1.108.357, because on a small repository it costs turns
+the built-in search would not. This string kept saying it, and it reaches every
+session in every client whatever policy is installed, including clients that
+defer the tool descriptions.
+
+It now says what the policy says: use the index for who uses a symbol, what a
+change breaks, call graphs, a large repository or a question with no known
+starting point; on a small repository, for a known name or for a file being
+edited, the built-in Grep and Read are often as cheap. `resolve_repo` is asked
+once, before the first index call, and `get_file_outline` is described by what
+it returns. To stay inside the string's character budget, the line telling a
+client with deferred tools to load them in one lookup is shorter, and two tool
+rows lost words: `get_ranked_context` no longer says "not chained hops", and the
+`find_references` row now says `check_references` answers where a name is used.
+The tool list and the six front-door descriptions are unchanged. The test that keeps absolute wording out
+of the policy, the rules files, the skill and the guide now reads both versions
+of this string too.
+
+### Fixed - a package named `migrations` is indexed; only generated migrations are skipped
+
+`migrations` was a name on the built-in skip list, so every directory called
+that was pruned. That is right for an application's generated migration files
+and wrong for a library whose own code lives in a package of that name: django's
+migration framework (`django/db/migrations/`, with the autodetector, executor,
+loader and operations) never entered the index, and the result counted it under
+the generic `skip_dir` with nothing naming the rule.
+
+Most migration tools name what they write by sequence or timestamp:
+`0001_initial.py`, `2014_10_12_000000_create_users_table.php`,
+`20230101120000_init/`, `1612345678901-Init.ts`, `000001_init.up.sql`,
+`V1__init.sql`, `Version20230101120000.php`, `m230101_120000_x.php`,
+`Migration20230101120000.ts`. Alembic and Flask-Migrate put theirs in
+`versions/` and leave `script.py.mako` and `alembic.ini` in the directory. A
+`migrations` directory is now skipped only when it holds an entry named one of
+those ways, and the skip is counted as `generated_migrations` in
+`discovery_skip_counts`. A directory holding none is source and is indexed.
+The full walk, the watcher's fast path and the GitHub tree listing all ask the
+one predicate in `security.py`. The Django framework profile also ignored
+`migrations/` by name, a second copy of the rule, and no longer does. A
+directory that cannot be listed is reported as `unreadable`.
+`exclude_skip_directories: ["migrations"]` still indexes every migrations
+directory, generated or not.
+
+The names are a list of tool conventions. A tool that names its migrations
+another way now has them indexed, where the old rule skipped them.
+`get_project_intel`'s `migration_files` counted every file under
+`migrations/` or `migrate/`, which would have counted a framework's own
+package; it counts files named the way a migration tool names them.
+
+Like a build tree, generated migrations are corpus definition rather than a
+withheld file, so absence claims over the rest of the index stay citable. An
+existing index picks up a framework's migrations package at its next full walk.
+
+## [1.108.361] - 2026-10-14 - an installed agent policy can be brought up to date, and only when you ask
+
+### Added - an installed agent policy can be brought up to date, and only when you ask
+
+`init` appends the agent policy block to CLAUDE.md once, and every install path
+skips a file that already holds it. So the policy rewritten in 1.108.357, which
+no longer says "Always use" or "Never fall back" and no longer requires two
+calls before every task, reached new installs only. `config --check` could say
+an installed block differed; nothing could replace it, and a user who never
+ran the check was never told.
+
+`jcodemunch-mcp claude-md --refresh` replaces it. It reads the global and the
+project CLAUDE.md, the two files `init` writes. For each block that differs from
+what this version installs, it prints the diff and asks before writing.
+`--yes` writes without asking, `--dry-run` writes nothing, and with no terminal
+and no `--yes` it writes nothing. Before a write it copies the file to a new
+`CLAUDE.md.jcodemunch-<time>.bak` beside it, never over an earlier backup. It
+replaces only the block, which runs from its `## Code Exploration Policy`
+heading to the next heading of any level that isn't one of the policy's own
+sections. Everything before it, a section of your own after it under any
+heading, a byte-order mark, each part's line endings and a missing final
+newline stay as they were. Text added directly under the block with no heading
+of its own counts as part of it, and the diff shows that before anything is
+written. A symlinked CLAUDE.md is written through the link, so a dotfiles
+source gets the new text and the link stays a link. It refuses to write a file
+that changed after its diff was shown. The block's bounds come from the same
+function the drift check uses (`policy_block_span`), so the check that says a
+block differs and the command that rewrites it can't disagree about where it
+ends. That function now ends the block at any heading level, not only `## `,
+and starts it only at a heading line, so `config --check` no longer reads a
+user's `#` or `###` section, or a sentence naming the policy, as part of it. A
+`#` line inside a fenced code block is not a heading. `init` asks the same rule
+before appending, so a CLAUDE.md that only mentions the policy by name now gets
+it installed instead of being reported as already holding it. A
+block you edited on purpose can't be told from an old one, which is why the
+diff comes first.
+
+Existing installs are told the command exists. The first successful
+`resolve_repo` answer carries a `policy_notice` when either file holds a
+differing block: the path, how many lines differ, the command, and a line asking
+the agent to tell you once and not run it. It's in the answer body, like the
+tool-surface notice, because a user inside an MCP client never sees the
+server's log. A marker records the digest of the policy it was about. The same
+policy is said once per install, and a later version that ships a different
+policy says it again. A current block or no block says nothing and writes no
+marker. `init` and `config --check` now name the command where they report a
+differing block. SECURITY.md lists the notice, its marker and what the server
+reads.
+
+### Fixed - a C# or AL symbol's summary is its sentence, not the literal `<summary>` tag (#1075, @outoftheblue9)
+
+`extract_summary_from_docstring` took the first line of a docstring as its
+first sentence, which is true for Python, JSDoc, Go and Rust and false for
+XML documentation comments: they put `<summary>` on line one, so every
+`///`-documented C# and AL symbol summarised as the literal tag (or as
+`"<summary>Saves the order."` in the one-line form, which reads as a
+formatting quirk rather than a defect). Summaries are BM25-scored in
+`search_symbols`, so this was retrieval quality on every C# and AL codebase,
+not only display. C# and AL are the indexed languages whose parsers keep
+these comments: VB.NET is not indexed, and the F# parser extracts no doc
+comment at all, so neither had the defect and neither gains anything here.
+
+The rule now lives in one place, `summarizer/xml_doc.py`. A docstring that OPENS
+with an XML element, and whose `<summary>` comes before anything but other
+documentation sections (`<remarks>` first is legal), has that `<summary>`
+unwrapped before the first-line rule runs: a reference keeps the name it points
+at (`<see cref="T:System.String"/>` reads `String`, `<paramref name="x"/>`
+reads `x`), other tags are dropped without fusing the words around them,
+entities are decoded, and a summary wrapped for width is joined; spacing the
+author wrote is left as written. A doc comment made only of documentation
+sections (`<inheritdoc/>`, `<remarks>` or `<remarks/>`, `<param>`s,
+`<returns/>`, `<exclude/>`, `<filterpriority>`, a top-level `<para>`) falls to
+the signature fallback instead of summarising as markup, and so does an empty
+`<summary/>`, which is not read as an unterminated `<summary>` (that made the
+`<param>` after it the summary). A `<summary>` with no closing tag ends at the
+next documentation section. Every other docstring reaches the old rule
+byte-for-byte: one that MENTIONS `<summary>` in prose after other text,
+including after a leading tag (`<p>Renders a <summary> element.</p>`; a guard
+on the substring alone had turned such docstrings into fragments, among them
+the summarizer's own), and prose that merely starts with another tag, such as
+`<b>Deprecated</b> use Foo` or `<code>null</code> if absent` in Javadoc, JSDoc
+or C. ⚠ Prose that OPENS with `<summary>` itself (`<summary> element toggles
+the widget.`) is read as an unterminated summary and loses the tag: nothing
+tells the two apart. Only the first 4,096 characters are examined: the section
+pattern is quadratic on unterminated openers and runs outside the per-file
+parse budget, so a hostile docstring could otherwise stall an index for tens
+of seconds. The AL parser's `.replace("<summary>", "")`, a second copy of the rule
+that missed `<Summary>`, attributes and references, is gone: an AL docstring
+keeps its XML as a C# one does and summarises through the same module, and an
+empty `<summary>` stub is still no docstring at all.
+
+An existing index is repaired by its next index run. `PARSER_GENERATION` moves
+to 21, but that re-parse REUSES the stored summaries of unchanged files, so on
+its own it would re-parse every file and keep every summary the old rule
+wrote. A summary stored beside a docstring is now recomputed instead of
+reused. Recomputing it is free: no AI summarizer is ever given a symbol that
+has a docstring, so such a summary is always the free docstring rule or the
+signature fallback. One subset is the exception: an AL `<Summary></Summary>`,
+`<summary/>` or attributed empty stub had a docstring under the old
+`.replace("<summary>", "")` and has none now, so with AI summaries enabled each such symbol is sent to the
+summarizer once on that re-parse, exactly as a fresh index would. A summary stored WITHOUT a docstring may be a paid AI
+summary and is still kept; the check reads the stored row, not the new parse,
+so a parser change that gives a symbol a docstring cannot discard what the
+symbol earned without one. It is keyed on that property, not on how a stale
+value is spelled: the old rule wrote `<summary>`, `<remarks>R.` and
+`Posts <see cref="SalesHeader"/> now.` alike, and only the first starts with
+the tag.
+
+`test_designer_control_fields_extract_the_xml_doc_tag_as_the_summary`
+(`tests/test_dotnet_fixtures.py`) pinned this defect as a tracked weakness and
+is retired in `harness/retired.json`. It asserted `<summary>` appeared in
+summary plus docstring after `parse_file`, which sets no summary, so the
+docstring alone satisfied it and it stayed green on the fixed tree. Lesson: pin
+a weakness where the weakness lives. Its replacement,
+`test_designer_control_fields_summarise_as_the_xml_doc_text`, runs the
+docstring rule on the extracted field and asserts the sentence. Pinned against
+a vendored, MIT-licensed Microsoft `Site.Master.designer.cs`, where the
+parser's half was always correct and only the summarizer's half was wrong.
+
+## [1.108.360] - 2026-10-13 - a Web Forms attribute is read in every form ASP.NET accepts, and a schema stays capped in every repository
+
+### Fixed - a Web Forms attribute is read in every form ASP.NET accepts, and a schema outside a .NET repository is no longer given .NET advice
+
+ASP.NET's directive parser takes a double-quoted, single-quoted or unquoted
+value, and the Web Forms reader took only the first. An unquoted
+`runat=server` failed the server-control gate, so that control's `OnClick=`
+handler gave its codebehind method no reference, and a `CodeFile='Q.aspx.cs'`
+directive gave the page no edge to its codebehind. The directive and attribute
+patterns of `parser/imports.py` and `parser/extractor.py` now accept all three
+forms, and so do `plan_refactoring`'s Web Forms definition patterns. An
+unquoted value must end at a delimiter, so an empty `Title=` does not take the
+next attribute's name; in a tag it also stops at the `/` of `/>`, while a
+directive value may be a path. Each pattern stays linear on a long run of its
+own form.
+
+The `runat` gate and the `On*` pattern were searched over the raw tag, so text
+inside a quoted value counted as an attribute: `ToolTip='use OnClick="Evil_Click"'`
+named a codebehind handler, and `ToolTip='x runat="server"'` opened the gate for
+a tag with no `runat`. A tag's attributes are now read in one left-to-right pass
+that consumes each quoted value whole, in both readers, so attribute-shaped text
+inside a value is not read as an attribute of that tag. One case remains, and it
+errs toward keeping code alive: the import reader still splits tags at `<` and `>`
+without regard to quotes, so a whole tag written inside a value
+(`Text="<b runat=server onclick=X>"`) is read as a tag of its own and can name a
+handler. `runat` must be the whole
+attribute name and `server` the whole value, so `data-runat="server"` and
+`runat=server-x` do not open it either. Inline `<%...%>` blocks are blanked
+before that pass, because their quotes shifted it:
+`NavigateUrl="<%# "x.aspx?id=" + Eval("Id") %>"` read an attribute `id`,
+which replaced the control's real `ID` and published a control named
+` + Eval(`. `PARSER_GENERATION` 19 -> 20, so an existing index re-parses its
+pages instead of keeping the edges it missed.
+
+`.xsd` and `.wsdl` are W3C formats that Java and other ecosystems use too, yet
+every one was capped as `build_consumed`, so `check_delete_safe` gave a Java
+schema LoadControl and project-file advice that did not apply. They stay capped
+in every repository; .NET evidence in the index chooses only the kind and its
+advice. With .NET source (`.cs`, `.fs`), a .NET-only format (`.resx`, `.xaml`,
+`.props`, `.targets`, `.ascx`, `.master`) or a file IIS or MSBuild invokes (a
+project file, a page, `global.asax`), the kind stays `build_consumed`.
+Otherwise it is the new neutral kind `schema_consumer`, counted under
+`schema_consumer_withheld`, and the advice names a build or code generator
+outside the index. No verdict moves toward delete in either ecosystem. The
+roots and the .NET-only formats keep their extension rule. Both points raised
+by @jgravelle in the review of #1012, and the shape of the cap from the review
+of #1067. (@outoftheblue9)
+
+## [1.108.359] - 2026-10-13 - jcodemunch-mcp diagnose writes one local report with no path and no repository name
+
+### Added - `jcodemunch-mcp diagnose`, and two local per-tool counters
+
+A user asked what the product did for them had nothing safe to hand over. `install-status`,
+`list-repos` and `surface` print full paths and repository names. Calls per tool lived only
+inside a running process, and tokens returned per tool were recorded nowhere, so the savings
+file could say what a tool saved and nothing could say what it cost.
+
+`jcodemunch-mcp diagnose` writes one JSON report to `<storage>/diagnose/` and prints its path.
+It holds the three servers' versions, Python and OS; each index as `index-N` with file count,
+symbol count, source bytes, index bytes on disk and embeddings yes, no or unknown; the tool
+surface, profile, tool count and schema tokens; each policy target as present, current or
+differing, with a digest of the installed block beside the digest of the policy this version
+installs; and per tool the calls, tokens returned and tokens saved. It sends nothing.
+
+The report is built from a fixed list of fields and of what each value may be, checked on
+every build: a key nobody listed raises, and so does a value that is not the type, pattern or
+word its key allows. Review found why the second half is needed: `surface.profile` is the
+user's own `tool_profile` string, and with keys alone checked a profile named after a path
+went into the report as written. It reads `custom` now. An index is a label, never its name
+or path. A tool name the server does not publish is added into `other`, because the files the
+report reads are keyed by strings it did not choose. The `anon_id` is left out unless
+`--include-anon-id` is passed. `--stdout` prints the report and writes no file, the config
+file included.
+
+Unknown is never zero. An index that cannot be opened is listed with its size on disk and
+`null` counts; a savings file that cannot be read gives `null` saved figures. Tokens saved
+have been recorded far longer than the two new counts, so each carries its own start date
+(`saved_since`, `counting_since`).
+
+The two counters are new background behaviour and SECURITY.md discloses them: calls and tokens
+returned per tool, in `_tool_counters.json` in the storage directory, on by default, sent
+nowhere. `tokens_returned` is the answer's bytes divided by 4 and the file names that
+estimator. Only a name the server publishes is counted, so a client cannot write an arbitrary
+string into the file. A call relayed by the front door is counted under both names and its
+size under the tool that answered. A count is written to the storage directory in force when
+it was counted, not the one in force at exit. `"tool_counters": false` records nothing and
+writes no file. The savings telemetry payload is unchanged and does not read this file.
+
+Counting never waits for the disk: the dispatcher adds to a dict, and a short-lived thread
+writes the file every 20 calls, or on the first call after 30 seconds, and when the server
+stops. A write takes a lock file, goes through a temp file named for its process, and keeps
+every count it could not write. Review measured the first draft, which had none of the three:
+eight processes stopping together kept 5 of 40 counts in 12 of 12 trials, and the write cost
+about 15 ms on the event loop every twentieth call. A test now runs eight real processes that
+stop together and requires all 40.
+
+What it does not do yet: `uninstall` removes none of the new files, and old reports are not
+pruned. A server that is killed loses the counts it had not written, and a report does not
+include what a running server still holds. `source_bytes` is `null` for an index that stores
+no file sizes, which includes an index built by `index` on a local folder (LEDGER L-179); a
+sum over the files that have a size would read as the whole corpus. A companion server reads
+`null` unless it is installed in the same Python environment.
+`tests/test_diagnose_writes_only_what_is_on_its_list.py`.
+
+## [1.108.358] - 2026-10-13 - a Python import written over several lines records its names, and the surface offer reaches the user
+
+### Added - the offer to switch tool surface reaches the user, once, through the agent
+
+An install created before the front-door default serves the full tool list for good:
+`tool_surface` is written once at install time and no upgrade revisits it. The offer to switch
+was one WARNING line in the server's log and a row in two status commands. A user inside an MCP
+client sees neither, so the offer was delivered once per install and read by nobody.
+
+The first successful `resolve_repo` answer an install makes now carries it as a
+`surface_notice` object. It gives the tool-list token difference for that install, says the
+list is read on every turn and from cache after the first (the full basis note rides with
+it), names the commands that switch, undo and silence it, and asks the agent to tell the user
+once, with the cache caveat, and not to change the setting itself. Where the surface is set
+by `JCODEMUNCH_TOOL_SURFACE`, the notice names the variable and not the config command, which
+would do nothing. Measured in a fresh storage directory with the shipped defaults
+(`evidence/notice_sample.txt`): 90 tools against 6, 26,082 fewer tool-list tokens a turn,
+and 1,623 bytes added to that one answer. An install with a narrower tool list is told
+its own smaller figure.
+
+It is said **once per install**. A marker, `surface_notice_state.json` in the storage
+directory, records that it was said: a timestamp, the tool, the surface and the version.
+Nothing is sent anywhere, no setting is changed and `config.jsonc` is not written. An install
+on the front-door surface, or one with `surface_offer_seen` set, is told nothing and gets no
+marker. To silence it before it is said: `jcodemunch-mcp config set surface_offer_seen true`.
+SECURITY.md discloses it under "Background behavior".
+
+The notice is in the response body because the default `meta_fields: []` strips `_meta`, and
+the answer that carries it is sent as JSON so that no compact encoding can drop the key.
+`tests/test_the_surface_offer_reaches_the_user_through_the_agent.py`; sixteen guards removed
+one at a time each fail it (`evidence/mutants.txt`).
+
+### Fixed - a Python import written over several lines recorded none of its names (LEDGER L-176)
+
+`find_references("solve_dependencies")` answered 0 on fastapi while `fastapi/routing.py` imports
+it. The import is written the way every formatter writes a long one:
+
+```python
+from fastapi.dependencies.utils import (
+    get_dependant,
+    solve_dependencies,
+)
+```
+
+The extractor read a `from` import one line at a time, and that line holds `(` and nothing
+else. The edge was stored with no names. So `find_references` missed every name imported in
+that form, `check_references` counted no import for it, and the per-name module edges that let
+`from pkg import (` + `submodule,` + `)` reach `pkg/submodule.py` (#550) were never offered. A
+backslash continuation kept the names of its first line and recorded the backslash as a name.
+A one-line import with a trailing comment recorded words of the comment: `# noqa: E402` gave
+an imported name `E402`.
+
+The statement is now read to its closing parenthesis, or to the end of the continuation, and
+comments are dropped before the names are split. A backslash joins the next line in either
+form. The lines after the first are believed only when the statement is whole: it closes,
+and every item is `name` or `name as alias`. A parenthesis that never closes, or prose in a
+docstring that reads like an import, records what its opening line holds, which is what was
+recorded before. The first draft of this fix recorded the words of such prose; the reviewer
+found it. The read stops at the next line that starts `from` or `import`, so no line is
+read twice.
+
+Measured over every `.py` file with `main`'s extractor and with the fix
+(`evidence/corpus_l176.txt`): this repository's `src/` has 62 import edges that go from no
+names to names, and the pinned fastapi clone has 50. Indexed both ways, the `fastapi/` package
+answers `find_references` for `solve_dependencies` and for `get_dependant` with 1 file where it
+answered 0, and `find_dead_code`'s list of files is unchanged (`evidence/entry_l176.txt`).
+Against Python's own parser (`evidence/oracle_l176.txt`), `main` missed 323 of the 2319
+names imported by a `from` statement in `src/`, 714 of 3631 in `tests/` and 233 of 3931 in
+the fastapi clone; the fix misses 0 in all three.
+`tests/test_a_python_import_spread_over_lines_records_its_names.py` pins twenty-two
+spellings; 27 of its 37 cases failed before the change (`evidence/red.txt`), and nine guards
+removed one at a time each fail it (`evidence/mutants.txt`).
+
+`PARSER_GENERATION` is 19: the import edges change on unchanged content, so an existing index
+is re-parsed on upgrade.
+
+Not fixed here, recorded as LEDGER L-177 with the probe (`evidence/other_languages_l176.txt`):
+a Python `import a, \` continuation; and grouped imports in Scala, PHP, Elixir, Haskell and
+Dart, a destructured `require` in JavaScript and an aliased Kotlin import, which record no
+names or no edge on one line or several.
+
+## [1.108.357] - 2026-10-13 - the generated agent policy no longer orders the index for everything
+
+### Changed - the generated agent policy no longer orders the index for everything (LEDGER L-175)
+
+The policy that `init` installs and `claude-md --generate --format policy` prints opened "Always
+use jCodemunch-MCP tools for code navigation. Never fall back to Read, Grep, Glob, or Bash". It
+required `resolve_repo` at the start of every session and `plan_turn` as the "opening move for
+any task", and it printed model ids by version (`claude-opus-4-7`, `claude-sonnet-4-6`,
+`claude-haiku-4-5`). Followed to the letter on a small repository, that wording costs turns:
+each index call is another turn, every turn re-reads the context, and the built-in search
+finds a known name in fewer. The policy forbade that route.
+
+It now says where each route is cheaper. The index is for relationships (who imports a symbol,
+where a name is used, what a change breaks, who calls a function, what is unreachable), for a
+large repository, and for a question with no known starting point. The built-in tools are
+named as the usual cheaper route on a small repository and for a file about to be edited.
+`resolve_repo` is asked for before the first jCodemunch call and not before every session, and
+`plan_turn` is offered for a broad task. The policy prints no versioned model id (the server
+reads the family from whatever id it is given) and says that tool tiering is off unless
+`adaptive_tiering` is set. `get_call_hierarchy` gains a line under "Relationships & impact".
+
+The same change is made where that text is generated or served: both policy variants, the
+Cursor and Windsurf rules (whose frontmatter was written twice and is one constant now), the
+installed skill, the `jcodemunch_guide` snippet and the MCP `workflow` prompt. The docs that
+repeat it follow: `QUICKSTART.md` (which also stops recommending "stronger language"),
+`INSTALL_FROM_SOURCE.md`, `AGENT_HOOKS.md`, `CONFIGURATION.md`, `CAPABILITIES.md`,
+`USER_GUIDE.md`, `ARCHITECTURE.md` and this repository's `AGENTS.md`.
+`tests/test_the_policy_makes_no_absolute_claim.py` reads each generated surface for the old
+phrases; 65 of its 104 cases failed before the change (`evidence/red.txt`), and thirteen old
+sentences put back one at a time each fail a test (`evidence/mutants.txt`). Three older tests
+required the old phrases and now require their absence.
+
+**If you installed the policy before this release, your file still holds the old text.**
+Nothing rewrites it. `jcodemunch-mcp config --check` reports that it differs, and
+`jcodemunch-mcp claude-md --generate --format policy` prints the current text to paste over it.
+
+What this does not change yet, each recorded in LEDGER L-175: the server's start-up
+instructions and a few tool descriptions still say to prefer the index, two parameter
+descriptions still give a versioned model id as their example, `TWEAKCC.md` still suggests a
+prompt patch that orders an outline before every read, the search hooks still
+nudge toward it at any repository size, the policy does not know how big the repository is, and
+jDocMunch's and jDataMunch's own policy text is unchanged.
+
+## [1.108.356] - 2026-10-13 - a JavaScript method called through a string key is recorded as called
+
+### Fixed - a JavaScript method called through a string key recorded the wrong name (LEDGER L-173)
+
+JavaScript and TypeScript reach a member by a string as well as by a dot: `t["m"]()` calls what
+`t.m()` calls. The grammar gives the first a `subscript_expression`, and the parser resolved
+every subscript to its container, the rule for `fs[0]()` where an element has no name. So the
+call recorded `t`, the method `m` recorded nothing, and a method called only that way read
+`no_callers` in `get_dead_code_v2`: live code reported dead. Found fixing L-159.
+
+A key that is a string holding a name is read as the name now: in single or double quotes, or
+a template with no substitution, behind `?.`, `new`, parentheses or TypeScript's `!`. A name is
+what could follow a dot: letters of any script, digits not first, `_` and `$`. Any other key
+resolves to the container as before: a variable, a number, a string that is not a name
+(`"a-b"`, `"a.b"`, `""`, one with an escape), a template with a substitution, two strings
+joined. Other languages are unchanged, because there a string key reaches an element of a
+container: PHP's `$t["m"]()` is the same node type with no `index` field, and Python's, Go's
+and C#'s subscripts are other node types.
+
+Measured by parsing eight pinned clones with both trees, 1,959 files
+(`evidence/refs_l173.txt`): no symbol's references change. The reviewer's scan of those clones
+found one call through a string key, zod's `this["~validate"](data)`, and `~validate` is not a
+name, so the fix leaves it alone. The effect is on a method whose only call is through a string
+that holds a name, and it is shown by the tests and not by a corpus.
+
+What it does not do:
+
+- **The container is no longer recorded** for a string key, as it never was for a dot. A
+  function held in a table and called as `handlers["save"]()` records `save`, and a project
+  function named `save` anywhere counts as called. Toward not reporting.
+- **A key that is not written as one string is not read**: a string in parentheses
+  (`t[("m")]()`), a constant (`const K = "m"; t[K]()`), a joined string. The container is
+  recorded.
+- **A member read by a string and not called records nothing** (`const f = t["m"]`), as
+  `t.m` records nothing.
+- **A method declared with a string that is not a name is not reached**: zod's
+  `"~validate"(data) {}` is stored with its quotes and its call records nothing, on both trees.
+
+`PARSER_GENERATION` is 18, so an existing index is re-parsed: the fix changes what unchanged
+files record. The rest is LEDGER L-174. Sixteen mutants each fail the tests
+(`evidence/mutants.txt`).
+
+## [1.108.355] - 2026-10-13 - a Ruby method called by its bare name is recorded as called
+
+### Fixed - a Ruby method called by its bare name recorded no call (LEDGER L-172)
+
+Ruby writes a call of a method with no receiver and no arguments as a bare name: `settings`.
+The grammar gives that the `identifier` node of a local variable, and the parser read only
+`call` nodes, so the commonest way one Ruby method calls another recorded nothing unless the
+name happened to be a receiver (`settings.environment`). A helper called only by its bare name
+read `no_callers` in `get_dead_code_v2`: live code reported dead. Found fixing L-159.
+
+Ruby itself settles what a bare name is by what the method has done so far: it is a local
+variable once a parameter, an assignment, a block parameter, a pattern capture or
+`rescue => e` has introduced it, and a method call otherwise. The parser now reads each method
+that way (`_record_bare_ruby_calls`), from the method node down, once, in source order, so
+`y = x; x = 2` reads the first `x` as a call. A nested `def` is a scope of its own, and so is
+a class or module body inside a method. A setter's own name (`def host=(v)`) is not a call of
+the reader. The object of `def obj.m`, a block's implicit parameter (`it`, `_1` to `_9`) and a
+name in a stretch the grammar could not parse are not calls either.
+
+Measured on sinatra at a pinned commit, read and parsed only
+(`evidence/measure_dead_l172.txt`): in the default call 176 methods carried `no_callers`
+before and 152 after; with `include_tests=True`, 326 and 294. No row is newly reported.
+`evidence/cleared_sinatra_l172.txt` names, for each of the 32 rows that left, a method that
+gained the name; none left another way. Parsing eight pinned clones with both trees, 1,959
+files (`evidence/refs_l172.txt`), only Ruby changes: 192 symbols gain 224 names, none is
+removed, and no symbol id moves. Ruby's parse time in that run was 0.47 s before and 0.50 s
+after.
+
+What it does not do:
+
+- **Code outside every method is not read.** A bare call in a class body, in a top-level
+  block or in a `define_method` block belongs to no method symbol, as before. Sinatra's own
+  route blocks are that.
+- **The match is by name within Ruby**, as for every Ruby call since L-165: a bare `params` or
+  `request` that is a library's method also counts for a project method of that name. Toward
+  not reporting.
+- **A local it cannot see is read as a call**: one made by a regular expression's named
+  capture (`/(?<year>\d+)/ =~ s`), by `binding.local_variable_set` or by `eval`. Toward not
+  reporting.
+- **A block parameter stays a local to the end of its method**, where Ruby ends it with its
+  block. Toward reporting.
+- **A shorthand argument or hash value records no call**: `f(x:)` and `{x:}` name `x` with
+  no node for it. Nor does a name inside a pinned expression in a pattern (`in ^(limit)`).
+  Toward reporting; both from the review's probes.
+- **A receiver is still recorded whether or not it is a local** (`items.each` records `items`
+  when `items` is a parameter): the L-159 rule, unchanged.
+- **A method's bare calls are listed before its other calls.** On sinatra 17 methods hold the
+  names they already had in a new order, which is the order `get_call_hierarchy` lists
+  their callees in.
+- **`initialize` is still never called by that word** (`T.new` records `new`).
+
+`PARSER_GENERATION` is 17, so an existing index is re-parsed: the fix changes what unchanged
+Ruby files record. `get_repo_health` reads the dead-code tool, so its dead-code share can fall
+for a Ruby repository. The rest is LEDGER L-173. Thirty-six mutants each fail the tests
+(`evidence/mutants.txt`).
+
+## [1.108.354] - 2026-10-13 - a Go generic function called with one argument is recorded as called
+
+### Fixed - a Go generic function called with one argument recorded no call (LEDGER L-171)
+
+Go's grammar cannot tell `Generic[int](1)`, a generic function called with one argument, from
+`List[int](y)`, a conversion to a generic type. It parses both as a
+`type_conversion_expression` whose type is a `generic_type`, and that node was not among the
+ones the parser reads as calls. So the call recorded nothing, and a generic function called
+only that way read `no_callers` in `get_dead_code_v2`: live code reported dead. With two call
+arguments, or none, the grammar gives a `call_expression`, which was always recorded, so the
+defect depended on how many arguments a call happened to have. Found fixing L-159.
+
+`fs[i](1)` is the same node when the index is a bare name, so a function taken from a slice or
+a map by a variable recorded nothing either, where `fs[0](1)` recorded `fs`. That was a second
+finding of the same ledger row (`t.fs[i](x)`), and the one change fixes both.
+
+The node is a Go call node now, and its name is reached by the tables every other call uses:
+`Generic[int](1)` and `pkg.Generic[int](1)` record `Generic`, `fs[i](1)` and `t.fs[i](x)`
+record `fs`. The call is recorded behind a dereference and in parentheses too
+(`*Ptr[int](y)`, `(Generic[int])(1)`, `*fs[i](y)`): the review found those still recording
+nothing. A conversion to a type that is not a name (`[]byte(s)`, `map[string]int(m)`,
+`chan int(c)`, `func(int) int(f)`, `(*T)(p)`, `(*[]int)(p)`) records nothing, as before, and
+neither does a generic composite literal or a declaration.
+
+Measured by parsing eight pinned clones with both trees, 1,959 files
+(`evidence/refs_l171.txt`; commits in `evidence/corpora_l171.txt`): 24 symbols gain one name
+each, 23 on lo and 1 on gin (`Context.Next`, which calls `c.handlers[c.index](c)`). No name is
+removed, no symbol's references are reordered, no symbol id moves, and no language but Go
+changes. Through `get_dead_code_v2` on lo and gin (`evidence/measure_dead_l171.txt`) no
+`no_callers` row moves, in the default call or with `include_tests=True`: each function that
+gained a caller there already had one on record. The fix is for a function whose only call has
+this shape; these two corpora hold none.
+
+What it does not do:
+
+- **A real conversion to a generic type records the type's name.** `iter.Seq[T](f)` records
+  `Seq`: 7 of the 23 names added on lo are that. So do `pkg.List[int](y)` and
+  `(*List[int])(p)`. The grammar gives a conversion and a call the same tree, and the name is
+  recorded bare, whatever its package. Toward not reporting.
+- **A function value in a container is recorded as the container** (`fs`, `handlers`), as
+  `fs[0](1)` always was. The functions stored in it are not known.
+
+`PARSER_GENERATION` is 16, so an existing index is re-parsed: the fix changes what unchanged
+Go files record. The rest is LEDGER L-172. Sixteen mutants each fail the tests
+(`evidence/mutants.txt`): seven reintroduce the defect or one of its spellings, six make a
+conversion to an unnamed type record a name, and three remove a rule the file relies on.
+
+## [1.108.353] - 2026-10-12 - a C# constructor is no longer reported as having no caller when its class is created
+
+### Fixed - a C# constructor was reported as having no caller however often its class was created (LEDGER L-170)
+
+A C# constructor is named for its class, and the only way to call it by that name is
+`new Made(...)`. Java's `new Base()` records `Base` and JavaScript's `new K()` records `K`. C#'s
+`object_creation_expression` was not among the nodes the parser reads as calls, so creating a
+class recorded nothing. `get_dead_code_v2` then found no caller of the constructor and reported
+it with `no_callers`: live code reported dead, in a tool whose rows feed delete decisions. Found
+fixing L-159.
+
+`new Made(...)` now records `Made`, with or without arguments, with an object initialiser, for a
+generic class (`new Made<int>()`), a qualified one (`new Ns.Made()`, `new Outer.Made()`) and an
+alias-qualified one (`new global::Ns.Made()`). The callee is resolved by the tables every other
+call uses (`_CALLEE_MEMBER_FIELD` gained C#'s two qualified-name nodes); no second rule was
+written. An array (`new Made[3]`, `stackalloc Made[2]`) creates no instance and records
+nothing, as do a cast, a type test and `typeof`.
+
+Measured through `get_dead_code_v2` on pinned clones, read and parsed only
+(`evidence/measure_dead_l170.txt`, with each commit): on RestSharp, in the default call, 101
+functions carried `no_callers` before and 73 after; with `include_tests=True`, 625 and 596. All
+the rows that left (28, and 29) are constructors, and no row is newly reported. gson, zod, ripgrep and this repository's `src/` did not move; of eleven languages
+probed with a qualified callee, only C#'s output changed (`evidence/other_languages_*_l170.txt`).
+
+What it does not do (`evidence/shapes_l170.txt`):
+
+- **A target-typed `new()` records nothing.** `Made x = new();` names the class on the
+  target, not in the expression.
+- **`: base(...)`, `: this(...)`, a primary constructor's base call and an attribute
+  (`[Made(1)]`) record nothing**, as before.
+- **A `new` in a field or property initialiser, or in a top-level statement, is in no
+  function**, so no call reference holds it.
+- **10 constructors on RestSharp are still reported** in the default call (38 before); 35 with
+  `include_tests=True` (64 before). Which are test classes a runner creates and which are
+  reached one of the ways above was not looked into.
+- **The match is by name within C#**, as for every C# call since L-165: `new Made()` of a
+  library class also counts for a project constructor, or method, named `Made`. RestSharp's
+  recorded call references rise from 3756 to 5114. `new T()` on a type parameter records `T`.
+  Toward not reporting.
+
+`PARSER_GENERATION` is 15, so an existing index is re-parsed: the fix changes what unchanged
+C# files record. `get_call_hierarchy` and `get_impact_preview` read the same references but
+keep their import-edge rule: by the reviewer's probe a method that creates the class in the
+constructor's own file is listed as its caller now, and one in another C# file is not.
+`get_repo_health`
+reads the dead-code tool, so its dead-code share can fall for a C# repository. The rest is
+LEDGER L-171. Twelve reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.352] - 2026-10-12 - a function used only in a constant or a dispatch table is no longer reported as having no caller
+
+### Fixed - a function used only in a constant's initialiser or a dispatch table was reported as having no caller (LEDGER L-169)
+
+A call written outside every function belongs to no function, so no call reference records it.
+`get_dead_code_v2` reads that code as text instead: each file with its symbols' lines taken out.
+It took out every symbol's lines, and a constant, a variable and a class field are symbols. So
+the place a module-level call is usually written, the right-hand side of an assignment, was
+removed before it was read. A function used only as `ONE = helper()`, or named only in a
+dispatch table, read `no_callers` in Python, JavaScript, TypeScript, Go, Java, C# and Rust. Live
+code reported dead, in a tool whose rows feed delete decisions. Found fixing L-167.
+
+The lines of a constant, variable, field or property are read now, in the function's own file
+and in the files that import it. Three things keep that from counting what is not a use: the
+name the line declares is blanked once (`int size;` is not a use of `size()`; Ruby's
+`@@after_reload` is blanked sigil and all), what sits inside quotes on one line is removed
+(`NAMES = ["helper"]` is text; an apostrophe is a quote only in languages that write strings
+with one, so a Rust lifetime is not), and a line that a function or method holds stays out,
+since its body is answered by its call references. Nothing is re-parsed.
+
+Measured through `get_dead_code_v2` on pinned clones, read and parsed only
+(`evidence/measure_dead_l169.txt`, with each commit), rows with `no_callers` before and after:
+this repository's `src/` 426 and 375, zod 844 and 686, RestSharp 654 and 625, sinatra 327 and
+326, ripgrep 536 and 534; express, gin and gson did not move. No row is newly reported on any
+of the eight. `evidence/cleared_src_l169.txt` shows, for each of the 51 rows that left `src/`,
+a line that names it in a file the tool reads for it: by this session's reading 46 are named
+in an initialiser's code (42 of them entries of five dispatch tables), one is a class created
+in a constant, and 4 are not uses: two named in a comment, one in a string that spans lines,
+one by a keyword argument of its name. The reviewer read the 158 rows that left zod and
+judged 141 a use and 17 not (its own script and reading, in no evidence file here).
+
+What this does not do:
+
+- **It reads text, not calls.** On a line it reads, every word counts as a use of a function,
+  a method or a class of that name: a comment, a string that spans lines or sits in
+  backticks, an object key or keyword argument (`size: 3`, `name=1`), a destructuring key, a
+  type annotation (`x: string`, `parent: Optional[T] = None`, which counts as creating `T`)
+  and a modifier (`readonly`). Those are the 4 rows above and the reviewer's 17 on zod.
+  Toward not reporting.
+- **A function written inside an initialiser that is not a symbol of its own is read as text
+  with it** (an unnamed handler in a table). What it calls was invisible before and is counted
+  now; a property it reads (`b.size`) also counts as a use of a method of that name. A
+  method or function that is a symbol is not read this way: with those read too, zod loses
+  265 rows and not 158 (`evidence/guard_l169.txt`).
+- **The mode with no import graph is unchanged** (gson): it reads no code outside functions.
+- **A use in another file is seen only through an import.** Go, Java, C# and Rust files call
+  each other with none, and a call in another file's initialiser there is still not counted.
+- **A name used only as text is not a use**: a function looked up by a quoted name is still
+  reported.
+- **A very large constant costs a read**: the reviewer measured 20 files of 455,149 bytes,
+  each one 5,000-line table, at 0.070 s before and 0.359 s after.
+
+`get_repo_health` reads this tool, so its dead-code share falls, and its grade can rise, by the
+rows no longer reported. The rest is LEDGER L-170. Sixteen reintroduced defects each fail the
+tests
+(`evidence/mutants.txt`).
+
+## [1.108.351] - 2026-10-12 - the constructor of a class that is created is no longer reported as having no caller
+
+### Fixed - the constructor of a class that is created was reported as having no caller (LEDGER L-167)
+
+Python, JavaScript and TypeScript name a constructor with a fixed word, and nothing calls it by
+that word: `T()` records a call of `T`, `new K()` a call of `K`. `get_dead_code_v2` looked for a
+caller of the name `__init__` or `constructor`, found none, and reported the constructor with
+`no_callers` however often its class was created. Live code reported dead, in a tool whose rows
+feed delete decisions. Found fixing L-166.
+
+A constructor now has a caller when its class has one, by the rule a function has: the class's
+name is called in its own file or in a file that imports it, inside a function or outside every
+one. The tool asks its existing questions a second time, of the class, and files the answer
+under the constructor (`_call_graph.constructors_as_their_classes`); no second rule was written,
+and nothing is re-parsed. A class that is created runs the constructor it inherits, so creating
+a subclass counts for each class it extends, where the subclass is in its base's file or in a
+file that imports it. Python's `__new__` is counted with `__init__`.
+
+Measured through `get_dead_code_v2` on pinned clones, read and parsed only
+(`evidence/measure_dead_l167.txt`, with each commit): on this repository's `src/`, 42 functions
+named `__init__` carried `no_callers` before and 13 after, of 455 rows before and 426 after; on
+zod, 13 named `constructor` before and 4 after, of 853 and 844. Every row that left is a
+constructor, and no row is newly reported on either, on express or on sinatra. The cost does
+not grow with a shared name: 800 files, each with its own `Base` and five subclasses that are
+all created, take 1.35 s before and 1.36 s after (`evidence/cost_l167.txt`). Where the classes
+are never created the files are read a second time, and the reviewer measured the same 800
+files at 1.47 s before and 3.38 s after. `get_repo_health` reads this tool,
+so its dead-code share falls, and its grade can rise, by the constructors no longer reported.
+
+What this does not do:
+
+- **A Ruby `initialize` is still reported**: 27 of the 327 rows on sinatra, before and after.
+  `T.new(1)` records `new` and not `T`, so there is no recorded call of the class to count.
+- **A class created only in a Python constant's initialiser or a class attribute is not seen**
+  (`ONE = T()`). Nothing is: a function called there reads `no_callers` too, on both trees
+  (`evidence/shapes_l167.txt`). One of the 13 left on `src/` is this.
+- **A subclass counts only where its base is written as a bare name**, and only from the
+  base's file or a file that imports it. `class Kid(a.Base)` and `class Kid extends ns.Base`
+  join nothing. In an index with no import at all, a subclass counts in its base's own file
+  only, so script files that share globals leave the base's constructor reported.
+- **A class created by something that is handed it is not seen**: ten of the 13 left on `src/`
+  are context providers a registry creates.
+- **Toward not reporting, by design**: two classes of one name in one file are both taken as
+  the base; a subclass constructor that never calls up still counts for the classes it
+  extends; an import line that names the class counts as a use, as it does for a function; a
+  class created only inside one of its own methods counts as created; and a function that
+  shares the class's name, called in a file that imports the class, counts as creating it.
+- **`get_call_hierarchy` and `check_delete_safe` were not changed**: asked about a constructor,
+  they do not list the places its class is created.
+
+The rest is LEDGER L-169. Sixteen reintroduced defects each fail the tests
+(`evidence/mutants.txt`).
+
+## [1.108.350] - 2026-10-12 - a watched repo no longer stays stale after a commit, switch or pull
+
+### Fixed - a watched repo stayed `stale` after a commit, switch or pull that changed no file (#1040)
+
+Reported by @randyhbh, with the mechanism. A repo is `fresh` when the index's stored `git_head`
+equals the live `HEAD`. The stored value was refreshed only inside `index_folder`, and the
+watcher ran `index_folder` only on a file event. A commit writes under `.git/` only, which the
+watcher does not watch, so after `git commit` the repo read `stale` in `get_watch_status` and
+`list-repos`, and `search_text` refused to certify absence, over an index whose every file was
+current. It stayed that way until some unrelated file changed. A pre-commit hook that touches
+the tree made it certain: the reindex it provoked ran during the commit and stored the parent's
+SHA, and the ref was written seconds later. #330 had fixed the no-change run to refresh the
+SHA; the watched case never started one.
+
+The watcher already woke every second and threw the empty wake-up away. It now uses it: it
+reads where HEAD points (`HEAD` and the ref it names, at most 256 bytes of each; no process is
+started), and once a move has held still for one more wake-up it asks git for the commit and
+compares it with the stored one. When they differ it runs the ordinary incremental index, whose
+no-change path refreshes the SHA. So a commit is followed on the second idle wake-up after it
+(wake-ups are a second apart), and `git switch -c` by nothing, since the commit did not move.
+HEAD moves that follow each other inside one wake-up, as a fast rebase's do, get one
+reconciliation after the last; moves further apart get one each. A reconciliation that fails
+is tried again after a minute.
+
+The report suggested rewriting the stored SHA directly. That would mark the index current at
+the new HEAD without reading a file, and a checkout whose file events were lost would then
+carry old symbols under a `fresh` verdict. The incremental index reads the tree, so a HEAD move
+now also repairs such a miss.
+
+Measured on this box (`evidence/signature_cost.txt`): one read of where HEAD points takes 230.5
+microseconds for this repository, once a second per watched repo.
+
+What this does not do:
+
+- **A repo nobody is watching still reads `stale` after a commit** until something indexes it.
+  That verdict is correct: nothing has checked the tree.
+- **A HEAD move costs one incremental index of the repo**, which walks the tree. On a very large
+  repository that is the same cost as the `post-commit` hook workaround in the report.
+- **A reftable repository is read but not tested here**; the signature stats its table list.
+  LEDGER L-168.
+
+Forty reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.349] - 2026-10-12 - a Java constructor reached only by super(...) is no longer reported as having no caller
+
+### Fixed - a Java constructor reached only by `super(...)` was reported as having no caller (LEDGER L-166)
+
+A Java constructor is named for its class, and `new Base()` records a call of `Base`. A
+subclass constructor reaches the same constructor with `super(...)`, which the grammar gives a
+node of its own, and the parser recorded nothing for it. The node names nothing either: the
+name is on the class, in `extends Base`. So the constructor of a class that is only ever
+subclassed, which is every abstract class, had no caller on record, and `get_dead_code_v2`
+reported it with `no_callers`. Found fixing L-159.
+
+A constructor's `super(...)` now records the name its class extends, whether that is written
+`Base`, `Base<T>`, `pkg.Base` or `@Ann Base`, and whether the call is `super(x)` or
+`outer.super(x)`. The class is read downward: its constructors, and the first statement of each.
+
+Measured through `get_dead_code_v2` on gson, a shallow clone read and parsed only
+(`evidence/measure_dead_l166.txt`, with its commit): 1708 functions carried `no_callers` before
+and 1704 after. Four constructors in three test classes are no longer reported and none is
+newly reported; `tests/fixtures` did not move. The fix is small. The ledger row asked whether
+`super(...)` reaches any of the twenty-four gson functions 1.108.346 newly reported: it reaches
+none of them, and all twenty-four are still reported.
+
+What this does not do:
+
+- **`this(...)` is not recorded.** It calls a constructor of the enclosing one's own name, and a
+  call of the enclosing function's name is dropped as recursion. Where the class is created
+  with `new` anywhere, every overload is cleared by name already.
+- **A superclass constructor called implicitly is not recorded.** A constructor with no
+  explicit call runs the superclass's no-argument one; nothing is written, so nothing is read.
+- **A `super(...)` that follows other statements is not recorded.** JDK 25 allows
+  `Kid(int x) { check(x); super(x); }`; the grammar this release ships parses that `super` as an
+  error. L-167.
+- **Other languages' constructors are a larger gap and are not touched.** A Python `__init__`,
+  a JavaScript or TypeScript `constructor` and a Ruby `initialize` are never called by their
+  own name, and each reads `no_callers`: 40 of the 451 reported functions on this repository's
+  `src/`, 13 of 853 on zod and 27 of 327 on sinatra. C# `: base(...)` and `: this(...)` record
+  nothing. L-167.
+- **An existing index is re-parsed once**: `PARSER_GENERATION` moves to 14.
+
+Ten reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.348] - 2026-10-12 - a Go, Java, C#, Rust or Ruby function called only from another file is no longer reported as having no caller
+
+### Fixed - a Go, Java, C#, Rust or Ruby function called only from another file was reported as having no caller (LEDGER L-165)
+
+`get_dead_code_v2` looked for a caller of a function in two places: the function's own file,
+and each file the import graph says imports that file. That is the right rule for Python and
+JavaScript, where a file must import a name to call it. It is the wrong rule where a file calls
+another with no import between them: two files of one Go package, two classes of one Java
+package, two C# files of one namespace, a Rust path call (`crate::flags::config::args()` needs
+no `use`), any two Ruby files (a `require` is global to the process). There the call was on
+record and was never asked about, and the function carried `no_callers`. L-157 fixed the same
+blindness for files read as text; the call-reference path kept it. Found fixing L-159.
+
+A function of such a language that is still without a caller now has one when any symbol of the
+SAME language records a call of its name. The languages are one named set,
+`LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT` (`tools/_call_graph.py`): Go, Java, C#, Rust
+and Ruby, plus Kotlin, Swift and PHP, which need no import either and record no call today
+(L-158). Python, JavaScript and TypeScript are not in it and behave as before: a same-named
+call in a file that does not import the function counts for nothing.
+
+Measured through `get_dead_code_v2` on shallow clones read and parsed only
+(`evidence/measure_dead_l165.txt`, with each commit), distinct functions carrying `no_callers`
+before and after: gin 750 and 647, ripgrep 810 and 521, RestSharp 828 and 625, sinatra 455 and
+305. None is newly reported in any of them. express, zod, this repository's `src/` and
+`tests/fixtures` did not move.
+
+What this does not do:
+
+- **The match is by name, so an uncalled function can hide behind any call of its name.** A
+  function nothing calls is not reported when a same-named one of its language is called, and
+  a call of a LIBRARY method counts the same way: a project `fn len()` nothing calls is cleared
+  by `v.len()` on a `Vec` in another file, a Go `Println` by `fmt.Println`, a C# `Dispose` by
+  `s.Dispose()` on a `Stream` (the reviewer's fixtures, `no_callers` on `origin/main` and gone here). Of
+  the 289 ripgrep functions no longer reported, 179 share their name with another Rust function
+  (`write`, `finish`, `empty`); the other 110 have a name of their own, and that does not make
+  them safe, since `clone`, `as_str` and `init` are among them. In RestSharp 35 of the 203 are
+  `Dispose`. Which of the cleared functions are dead was not looked into. This errs toward not
+  reporting, and it is how the call-graph-only mode has always matched.
+- **A call written outside any function, in another file, is still not counted.** The pass
+  that reads module-level calls keeps the import-edge rule. A Ruby method called only at the
+  top level of another file is still reported; the same call at the top level of its own file
+  is counted. A call in a Ruby class body is counted in neither. L-166.
+- **gson did not move** (1701 before and after). An index with no import edge takes the
+  call-graph-only path, which already asked every file.
+- **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row called it the same
+  shape. It is not: every call of it is inside a module-level `rgtest!`, and a macro with no
+  enclosing function records nothing. L-166.
+- **`get_call_hierarchy` and `get_impact_preview` are unchanged.** They list callers through the
+  same import-edge rule, and a by-name match there would list a caller of another function of
+  that name. L-166.
+
+Nine reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.347] - 2026-10-12 - a Rust function called only inside a macro is no longer reported as having no caller
+
+### Fixed - a Rust function called only inside a macro invocation was reported as having no caller (LEDGER L-164)
+
+The Rust grammar does not parse a macro's arguments. `assert_eq!(e(x), seq([y]))` reaches the
+parser as a macro name and a tree of tokens, and the parser recorded a call only for a parsed
+call expression. So a function called only inside `assert_eq!`, `assert!`, `vec!`, `println!`
+or a test macro had no caller on record, and `get_dead_code_v2` reported it with `no_callers`.
+Rust tests are written almost entirely inside such macros, so a test helper was the usual
+victim. Until 1.108.346 a local variable that happened to share the function's name had been
+recorded as a call and stood in for some of them; that release stopped recording receivers and
+reported them. Found fixing L-159.
+
+The parser now reads the tokens of a macro invocation: a name directly followed by a
+parenthesised group is a call of that name. That one shape is how `f(x)`, `t.m(x)` and
+`a::b::f(x)` all end, in `(...)`, `[...]` and `{...}` macros alike, nested or not; a turbofish
+(`f::<T>(x)`) is stepped over. A contextual keyword counts as a name, since a function may
+carry it (`Foo::default()`, `a.union(&b)`, `gen(3)`). Not read as calls: a reserved word before
+a group (`in (0..n)`), a name being declared (`fn name(x)`, `struct Pair(u8, u8)`), a lifetime
+or a label, the closure traits (`Fn(u8) -> u8`), the next macro's own name, and an attribute
+written in the macro's body (`#[cfg(not(test))]`). An attribute outside a macro is not a macro
+invocation and is never read. The body of each `macro_rules!` arm is read the same way, since a
+test that defines a local macro calls its helper only there; the arm's pattern is not.
+
+Measured on ripgrep, a shallow clone read and parsed only (`evidence/measure_dead_l164.txt`,
+with its commit). Through `get_dead_code_v2`, 849 distinct functions carried `no_callers`
+before and 810 after: thirty-nine are no longer reported and none is newly reported.
+`tests/fixtures` did not move. Of ripgrep's 2991 Rust functions, 445 gained a recorded call
+and none lost one; parsing its 110 Rust files records 9487 call references where it recorded
+8469, in 1.183 s against 1.119 s, best of three.
+
+Each token is read once, starting from the invocation. Two earlier versions of this fix did
+not, and the review measured both. The first walked back from each group to look for a
+turbofish, which cost N times N on a macro of N comparisons. The second made every nested
+group its own call node and asked each for its ancestors, which cost depth times groups. Each
+ran a file past the parse budget that `main` parses without trouble, and a file past the
+budget is skipped whole. On those two shapes now: 16000 comparisons parse in 0.321 s against
+0.250 s on `main`, and 64000 nested groups take 0.71 s to 0.78 s at depths from 10 to 640
+against 0.50 s to 0.54 s. A test doubles each shape and counts the loop's steps. The first
+version also took a name only from an `identifier` token, so `default`, `union` and `gen` were
+never recorded, and it read attribute arguments as calls. The third did not read a
+`macro_rules!` body, which left ripgrep's live `sgramq` reported. All were the reviewer's
+measurements.
+
+What this does not do:
+
+- **Tokens cannot tell a call from a pattern.** `matches!(x, Wrapped(y))` records `Wrapped`,
+  `Some(y)` records `Some`, and an enum variant with a field declared inside a macro records
+  its name. `cfg!(any(unix))` records `any`. Toward not reporting.
+- **What a macro expands to is not read**, only what is written in an invocation or in a
+  `macro_rules!` body. `$name($arg)` in such a body records nothing.
+- **`cmd` in ripgrep's `tests/util.rs` is still reported.** The ledger row named it with two
+  others. Its calls are recorded now, but they are in another file, and the tool does not
+  count that call; that is L-165.
+- **The order of a function's recorded calls can change**, where a name is now first seen
+  inside a macro: 19 of ripgrep's functions.
+- **An existing index is re-parsed once**: `PARSER_GENERATION` moves to 13.
+
+Twenty-six reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.346] - 2026-10-12 - a call through a receiver records the method, never the receiver
+
+### Fixed - a call through a receiver recorded the receiver's name, so the method read as never called (LEDGER L-159)
+
+For every call the parser records one name, and the tools that ask "who calls this" read those
+names: `get_dead_code_v2`, `get_call_hierarchy`, `get_impact_preview`, `get_untested_symbols`,
+`find_similar_symbols`, `winnow_symbols`, `find_implementations` and the LSP bridge. The rule that picks the name knew two ways a
+grammar writes a member call, JavaScript's and Python's. For any other callee it took the first
+identifier inside it. In Go, Java, Rust, Ruby and C#, the first identifier inside `t.Recv()` is
+`t`.
+
+So the recorded name was the receiver's, and that is two errors. The method was never named:
+`get_dead_code_v2` reported a Go, Java, Rust or C# method called only as `t.UsedMethod()` or
+`this.usedMethod()` with `no_callers`, live code as dead, in a tool whose rows feed delete
+decisions. And a function that shared a name with a receiver (`t`, `args`, a class called
+statically) read as called. Found by the reviewer of L-155, who measured the Go and Java cases.
+
+Measured on every call node of nine trees, 130845 of them, this repository's `src/` and
+`tests/fixtures` and seven shallow clones read and parsed only (`evidence/measure_l159.txt`,
+with their commits):
+
+| language | call nodes | recorded another name before | recorded none before |
+|---|---|---|---|
+| Go | 9145 | 6165 | 595 |
+| Java | 18098 | 8882 | 849 |
+| Rust | 10043 | 5285 | 1768 |
+| Ruby | 12991 | 1877 | 1327 |
+| C# | 4768 | 3171 | 27 |
+| TypeScript | 41100 | 0 | 4 |
+
+JavaScript, Python and TSX did not move, and no call in any language lost its name.
+
+The rule reads the grammar's own fields now: where each call node keeps its callee, and for
+each member shape which side is the member (`extractor.py` has the tables). It covers what the
+old fallback got wrong beyond the reported call: a path (`Type::assoc()` recorded `Type`), a
+static call, C#'s `a?.M()`, a generic method or constructor, `new pkg.Type()`, a parenthesised
+callee, a JavaScript private method. The fallback is gone. A callee of a type the tables do not
+name records nothing, where it used to record whatever identifier came first.
+
+Through `get_dead_code_v2` on the same trees, distinct functions carrying `no_callers` before
+and after (`evidence/measure_dead_l159.txt`): gin 781 and 750, ripgrep 1296 and 849, gson 2056
+and 1701, RestSharp 840 and 828, sinatra 521 and 455. express, zod, this repository's `src/`
+and `tests/fixtures` did not move.
+
+What changes that is not a pure gain:
+
+- **Functions that were found only by a shared name are reported now**: 8 in ripgrep and 24 in
+  gson, none in the other seven trees. Of the ripgrep eight, five were read. `defaults` has no
+  call anywhere. `seq`, `m` and `cmd` are live: they are called only inside macro invocations
+  (`assert_eq!`, `eqnice!`), whose arguments the Rust grammar leaves as tokens, so no call was
+  ever recorded for them and a local variable of the same name had been standing in. `args` is
+  live, called from another file as `crate::flags::config::args()`; why that call is not
+  counted was not looked into. Of the gson twenty-four, four were read: three are constructors
+  nothing calls with `new` (two of them private), found before through static calls on the
+  class, and `excluder` has no call. The rest are L-164.
+- **Ruby still records a bare receiver, beside the method.** Ruby writes a method called with
+  no receiver and no arguments exactly like a local variable, so in `settings.environment` the
+  receiver may be a call. Without this, 27 of sinatra's methods that the old rule had found
+  were reported (the last lines of `evidence/measure_dead_l159.txt`).
+- **A call of a container's element records the container** (`fs[0]()` records `fs`,
+  `t.handlers[k]()` records `handlers`), as before for the first and newly for the second, in
+  Go, Python, JavaScript and C#. The first version of this fix recorded nothing for the C#
+  forms (`fs[0]()`, `a?[0]()`, and a null-forgiving `f!()`); its reviewer measured that.
+- **A method that delegates to a method of the same name records no call for it.** A call to
+  the enclosing function's own name is dropped as recursion, so `write` calling `w.write()`
+  records nothing now, where it recorded `w`. The reviewer's measurement; L-164.
+- **An existing index is re-parsed once.** The names change on unchanged files, so
+  `PARSER_GENERATION` moves to 12 and the next index of a repository is a full one.
+
+PHP, Kotlin, Swift and Dart record no call at all (L-158), and `get_dead_code_v2` reads their
+files as text for that reason. They still record none, and the test pins it: a parser that
+recorded some of their call shapes would take the text evidence away for the rest.
+
+Twenty-seven reintroduced defects each fail the tests (`evidence/mutants.txt`).
+
+## [1.108.345] - 2026-10-11 - a name that starts or ends in a punctuation mark is matched where it is used
+
+### Fixed - a name that starts or ends in a punctuation mark was never matched where it is used (LEDGER L-154)
+
+Every tool that asks "does this text name this symbol" used one rule: a word boundary, the
+name, a word boundary. A word boundary beside a punctuation mark exists only when a WORD
+character is on its other side. So a name that ends in a mark (Ruby and Elixir `valid?` and
+`save!`, Clojure `empty?`) matched in `valid?x` and never in `valid?`, `valid?(x)` or
+`valid? x`. A name that starts with one (Clojure `-main`) matched in `run-main` and never in
+`(-main)`. `get_dead_code_v2` reported such a function with `no_callers` wherever its evidence
+was text, `get_blast_radius` did not find its uses, and the rename plan in `plan_refactoring`
+skipped them and classified the line that defines one as a use. Found while fixing L-152.
+
+Measured through `get_dead_code_v2` on three repositories, shallow clones read and parsed only
+(`evidence/measure_l154.txt`, with their commits). In ring (Clojure), 30 functions have a name
+with a mark at an end: all 30 carried `no_callers` before and 6 do now. In plug (Elixir), 85
+such functions: all 85 before, 1 now. In sinatra (Ruby), 154 such functions: 98 before and 96
+now. Ruby moved little because its evidence is mostly call references, which never went
+through this rule; what is left there is L-159. No function is newly reported on any of the
+three, on this repository's `src/` (no such name, the same 451 rows) or on `tests/fixtures`.
+
+The rule is one module now, `jcodemunch_mcp/word_rule.py`, and each side of a name is decided
+by the name's own first or last character:
+
+- a word character: the boundary is unchanged, so a name with a word character at both ends
+  gets the pattern it always had, byte for byte;
+- `?`, `!`, `-`, `$`, `@`, `*` and any other mark not named below: the name must not be glued
+  to a word character on that side;
+- a trailing `=` (a Ruby setter): a word may touch it, since `u.name=value` is the ordinary
+  call, but it must not be the start of `==`, `=~` or `=>`;
+- a leading `.` or `#` (a CSS selector): a word may touch it, since `a.btn` and `div#main` name
+  `.btn` and `#main`;
+- whitespace, and a name with no word character at all (an operator): no condition.
+
+The setter and selector lines came out of the review. The first version treated every mark
+alike, which reported a called Ruby setter as having no caller and made a rename of `name=`
+rewrite the comparison `name=="x"`.
+
+The rule was written by hand on 84 lines of six modules (`evidence/sites.txt`, counted by the
+test's own scan; the ledger row had counted 19). Fifty-nine of them were the per-language
+definition templates in `plan_refactoring.py`, which ended the name with a boundary. All 84
+read the module now, and the scan fails on a new one in any of the shapes they took:
+concatenated to an escape, to a variable holding one, to a joined alternation, written into an
+f-string, or left in a `{name}` template. The templates are also filled by replacement now;
+`str.format` read the literal brace in the CSS ones as a field. Twenty reintroduced defects
+each fail the tests (`evidence/mutants.txt`).
+
+What changes that is not a pure gain, each pinned in the tests:
+
+- `valid?x` no longer names `valid?`, and `run-main` no longer names `-main`. Those were the
+  only places the old rule matched such names.
+- `"a$x"` and `"item_$total"` do not name `$x` and `$total`: a `$` glued to a word character is
+  not read as a sigil. A PHP string that interpolates a variable directly after a letter, a
+  digit or an underscore is missed.
+- An operator name is matched anywhere it appears, so `==` is named in `a===b`, and a rename of
+  an operator rewrites every occurrence.
+- A glued local assignment `name=1` is indistinguishable from a call of the setter `name=`.
+- `-` still ends a token, as before: `main` is named in `run-main`, `empty?` in `not-empty?`,
+  and `valid` in `valid?`.
+- A CSS name that starts with `:` or `%` (`:root`, `%btn`) is no longer named when glued to a
+  word, as in `html:root`; only `.` and `#` have the selector rule. The reviewer measured it;
+  it reaches `get_blast_radius` and the rename, not the dead-code rows.
+
+Three test files stated the old behaviour. Two pinned it as cases ("a bang needs a word after
+it", "a sigil needs a word before it", "a predicate needs a word after the mark"): those three
+are inverted and renamed, the operator case expects both spellings, and the files' reference
+loops read the rule from the module. The third filled the definition templates itself and now
+fills them the way the tool does. No assertion was removed.
+
+## [1.108.344] - 2026-10-11 - dead code: a caller in another file is found without an import edge
+
 ### Fixed - `get_dead_code_v2` reported a function as having no caller when its only caller was in another file the import graph did not join to it (LEDGER L-157)
 
 For a function of a language that records no call reference, `get_dead_code_v2` read text in

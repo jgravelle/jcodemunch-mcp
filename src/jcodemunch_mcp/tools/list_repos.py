@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 from ..storage import IndexStore
+from ._visibility import scope_repos
 
 
 
@@ -27,7 +28,7 @@ def list_repos(storage_path: Optional[str] = None) -> dict:
     """
     start = time.perf_counter()
     store = IndexStore(base_path=storage_path)
-    repos = store.list_repos()
+    repos, visibility = scope_repos(store.list_repos())
     elapsed = (time.perf_counter() - start) * 1000
 
     result = {
@@ -37,6 +38,10 @@ def list_repos(storage_path: Optional[str] = None) -> dict:
             "timing_ms": round(elapsed, 1),
         },
     }
+    # Top-level, never `_meta`: a default install strips `_meta`, and a scoped
+    # listing that does not say so reads as the whole store.
+    if visibility:
+        result["visibility"] = visibility
 
     # Empty-store nudge (jcm#375 correspondence, suggestion C). A user ran the
     # suite for months with jdatamunch holding zero datasets and jdocmunch

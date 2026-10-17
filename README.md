@@ -1,6 +1,6 @@
 # jCodeMunch MCP
 
-**The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 28.3x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
+**The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 29.2x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
 
 > **Real results, live from production**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
@@ -46,19 +46,19 @@ Index once. Query cheaply. Keep moving. **Precision context beats brute-force co
 
 ### Reproducible token efficiency benchmark
 
-Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-09-03 on v1.108.316. Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
+Measured with `tiktoken cl100k_base` across three public repos pinned to upstream commits, run 2026-10-15 on v1.108.364. Workflow: `search_symbols` (top 5) + `get_symbol_source` × 3 per query. Two baselines, same run, same corpus, same file reader:
 
 - **Grep-top-3**: `rg -l` the query terms, rank files by match count, open the top 3 whole. This is what a competent agent without the tool actually does, and it is the number to quote.
 - **Read-all**: every indexed source file concatenated. A ceiling nobody pays; retained for continuity with previously published figures.
 
 | Repository | Files | Symbols | Grep-top-3 baseline | jCodeMunch | vs grep | vs read-all |
 |------------|------:|--------:|--------------------:|-----------:|--------:|------------:|
-| expressjs/express | 186 | 455 | 15,724 avg | 1,007 avg | **15.6x** | 153.5x |
-| fastapi/fastapi | 1,186 | 13,240 | 85,296 avg | 2,149 avg | **39.7x** | 384.1x |
-| gin-gonic/gin | 98 | 1,451 | 31,975 avg | 1,537 avg | **20.8x** | 98.8x |
-| **Grand total (15 task-runs)** | | | **664,975** | **23,467** | **28.3x** | 241.1x |
+| expressjs/express | 186 | 989 | 15,724 avg | 967 avg | **16.3x** | 159.8x |
+| fastapi/fastapi | 1,186 | 13,699 | 85,296 avg | 2,097 avg | **40.7x** | 393.6x |
+| gin-gonic/gin | 98 | 1,822 | 31,975 avg | 1,484 avg | **21.5x** | 102.3x |
+| **Grand total (15 task-runs)** | | | **664,975** | **22,741** | **29.2x** | 248.8x |
 
-**Against a grep-and-read agent: 96.5% reduction, 28.3x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
+**Against a grep-and-read agent: 96.6% reduction, 29.2x fewer tokens.** No single multiple describes every query; the per-repo rows above are the spread. Against read-all the figure is 99.6%, but nobody pays that ceiling. Compact [MUNCH](SPEC_MUNCH.md) wire encoding then trims a median 45.5% more bytes off responses.
 
 Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHODOLOGY.md](benchmarks/METHODOLOGY.md) · [Reproduce it yourself](benchmarks/REPRODUCING.md) · [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md)
 
@@ -158,10 +158,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
-- **[v1.108.343](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.343)** (2026-10-11) — dead code: a file is read as text wherever its language records no call
-- **[v1.108.342](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.342)** (2026-10-11) — the dead-code text fallback reads a file once
-- **[v1.108.341](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.341)** (2026-10-11) — the index CLI chooses the index identity, and an existing directory is a local target
-- **[v1.108.340](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.340)** (2026-10-10) — ASP.NET Web Forms is indexed, and a handler wired in markup is referenced
+- **[v1.108.376](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.376)** (2026-10-17) — install-pack honours every savings opt-out
+- **[v1.108.375](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.375)** (2026-10-17) — a typo can no longer switch off a protective setting
+- **[v1.108.374](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.374)** (2026-10-16) — a Python virtualenv is skipped whatever its folder is called
+- **[v1.108.373](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.373)** (2026-10-16) — claude-md --refresh can write the policy your server uses
 <!-- WHATSNEW:END -->
 
 ---
@@ -317,7 +317,7 @@ Conditions on all uses: retain the copyright notice, clearly mark modifications 
 ## FAQ
 
 **How much can I save on Claude / Opus tokens?**
-In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.5% average (28.3x) against a grep-and-read agent across 15 tasks and 3 repositories. Per-query results span 7.6x to 81.2x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
+In retrieval-heavy workflows, code-reading tokens typically drop 86-99%, benchmarked at 96.6% average (29.2x) against a grep-and-read agent across 15 tasks and 3 repositories. Per-query results span 7.6x to 85.7x. Methodology: [TOKEN_SAVINGS.md](TOKEN_SAVINGS.md) and [benchmarks/](benchmarks/).
 
 **How is this different from RAG or grep-based tools?**
 jCodeMunch retrieves at the **symbol level** with byte-level precision (functions, classes, importers, blast radius, hierarchies) rather than fuzzy chunks (RAG) or raw line matches (grep) the agent still has to read and reason over.

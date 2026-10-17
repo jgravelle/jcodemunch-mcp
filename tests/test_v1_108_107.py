@@ -51,15 +51,39 @@ def _clear_provider_cache():
     _if._PROVIDER_CACHE.clear()
 
 
+@pytest.fixture(autouse=True)
+def _blame_opted_in(monkeypatch):
+    # These tests use git blame as the provider whose enrichment the fast path
+    # must keep; it is off by default since L-189, so they opt in.
+    from jcodemunch_mcp import config as config_module
+
+    monkeypatch.setitem(config_module._GLOBAL_CONFIG, "git_blame_enabled", True)  # type: ignore[attr-defined]
+    _blame_cannot_run_out_of_time(monkeypatch)
+
+
+def _blame_cannot_run_out_of_time(monkeypatch):
+    """Blame's completion is setup here, not an assumption (L-208).
+
+    Under load the 10 s `git log` budget or the 30 s provider budget cut blame,
+    the symbol carried no `ecosystem_context`, and the test failed on wall clock
+    rather than on the enrichment it checks. Both are read at call time.
+    """
+    from jcodemunch_mcp.parser.context import git_blame
+
+    monkeypatch.setenv("JCODEMUNCH_PROVIDER_BUDGET_SECONDS", "0")
+    monkeypatch.setattr(git_blame, "GIT_BLAME_TIMEOUT_S", 600.0)
+
+
 def test_full_index_populates_provider_cache_and_enriches(tmp_path):
     _git_repo(tmp_path)
     store_path = str(tmp_path / ".code-index")
     r = index_folder(path=str(tmp_path), use_ai_summaries=False,
                      storage_path=store_path, incremental=False)
     assert r["success"]
-    # git-blame provider ran → symbols carry its keywords
+    # git-blame provider ran → symbols carry its annotation. (Its property names
+    # stopped being search keywords in L-188, so the annotation is the witness.)
     syms = _load(store_path)
-    assert "last_author" in syms["alpha"]["keywords"]
+    assert "git_blame" in syms["alpha"]["ecosystem_context"]
     # and the discovered providers are cached for the fast path
     assert str(tmp_path) in _if._PROVIDER_CACHE
     assert any(p.name == "git_blame" for p in _if._PROVIDER_CACHE[str(tmp_path)])
@@ -83,8 +107,8 @@ def test_watched_edit_preserves_git_blame_enrichment(tmp_path):
     # The freshly re-parsed symbols must still carry git-blame enrichment, not
     # lose it on the fast path (the W1 regression).
     assert "beta" in syms, syms.keys()
-    assert "last_author" in syms["beta"]["keywords"], syms["beta"]["keywords"]
-    assert "last_author" in syms["alpha"]["keywords"], syms["alpha"]["keywords"]
+    assert "git_blame" in syms["beta"]["ecosystem_context"], syms["beta"]["ecosystem_context"]
+    assert "git_blame" in syms["alpha"]["ecosystem_context"], syms["alpha"]["ecosystem_context"]
 
 
 def test_fast_path_providers_discovers_once_on_cache_miss(tmp_path, monkeypatch):

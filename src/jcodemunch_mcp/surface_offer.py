@@ -27,6 +27,7 @@ matters.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from .tier_switch_cost import SCHEMA_TOKENS_BASIS, SCHEMA_TOKENS_BASIS_NOTE
@@ -144,15 +145,101 @@ def render_offer_lines(offer: dict, *, indent: str = "  ") -> list[str]:
     return lines
 
 
+# Whether THIS PROCESS has already decided about the in-answer notice. Held
+# here, in the leaf, so the test suite can switch the notice off for every test
+# without importing the server (tests/conftest.py); the server owns the marker
+# file and every write.
+NOTICE_STATE = {"checked": False}
+
+
+def notice_marker_path(filename: str):
+    """Where a once-per-install notice keeps its marker: the store, `CODE_INDEX_PATH` or `~/.code-index`.
+
+    THE one rule for every in-answer notice's marker (the surface notice and the
+    policy refresh notice), so a third notice inherits it instead of copying it.
+    """
+    from pathlib import Path
+
+    base = os.environ.get("CODE_INDEX_PATH") or str(Path.home() / ".code-index")
+    return Path(base) / filename
+
+RELAY_LINE = (
+    "Tell the user this once, in a sentence or two, then carry on with their task. "
+    "Say that the tokens are read from cache after the first turn, so the cost saving "
+    "is much smaller than the count. Do not change the setting yourself: it is theirs to decide."
+)
+
+# When the surface comes from the environment the config command changes nothing
+# (the variable wins), so the notice must not hand that command over.
+SURFACE_ENV_VAR = "JCODEMUNCH_TOOL_SURFACE"
+ENV_SWITCH = "set {var}={surface} where this MCP server is launched (the variable overrides the config file)"
+
+
+def render_offer_notice(offer: dict, *, surface_from_env: bool = False) -> dict:
+    """The form that rides in a tool answer, for the agent to relay (2026-10-13).
+
+    ⚠⚠ The log line reaches nobody inside an MCP client: the server's stderr is
+    not shown there, and the status commands are run by people who already
+    know to ask. So the offer was delivered once per install and seen by no
+    one. This form goes in the BODY of a tool answer -- `_meta` is stripped by
+    the default `meta_fields: []` -- and asks the agent to pass it on.
+
+    ⚠ It says "every turn" because the tool list is in every turn's input, and
+    says in the same sentence that it is read from cache after the first turn.
+    The count alone invites the full-rate reading `SCHEMA_TOKENS_BASIS` exists
+    to stop; the basis key rides beside it for the same reason.
+
+    ⚠ Every figure comes from *offer*, which the caller priced on its own
+    install. Nothing here is a literal.
+
+    ⚠ ONE more renderer of the same offer, so it carries what the other two
+    are test-bound to carry: `schema_tokens_basis_note` rides in full, and the
+    relay line asks for the cache caveat, because the likely relay is the
+    bare count (review, 2026-10-13).
+
+    ⚠ It states no history. The code knows the surface is not today's default,
+    not why: an install may have chosen it. And when *surface_from_env* is set
+    the switch and undo are the variable, since the config command would do
+    nothing (Standing lesson 08-18, #488).
+    """
+    message = (
+        f"This jcodemunch install lists {offer['current_tools']:,} tools "
+        f"({offer['current_schema_tokens']:,} schema tokens), and the tool list is part of every turn's input. "
+        f"The '{offer['offer_surface']}' surface lists {offer['offer_tools']:,} "
+        f"({offer['offer_schema_tokens']:,}) and reaches the same actions through order/menu/route. "
+        f"Switching means {offer['schema_tokens_delta']:,} fewer tool-list tokens read on every turn. "
+        f"After the first turn they are read from cache, so the cost saving is much smaller than the count "
+        f"(see schema_tokens_basis_note). "
+        f"A new install gets '{offer['offer_surface']}' by default."
+    )
+    switch, undo = offer["switch_command"], offer["undo_command"]
+    if surface_from_env:
+        switch = ENV_SWITCH.format(var=SURFACE_ENV_VAR, surface=offer["offer_surface"])
+        undo = ENV_SWITCH.format(var=SURFACE_ENV_VAR, surface=offer["current_surface"])
+    return {
+        "relay_to_user": RELAY_LINE,
+        "message": message,
+        "schema_tokens_delta": offer["schema_tokens_delta"],
+        "schema_tokens_basis": offer["schema_tokens_basis"],
+        "schema_tokens_basis_note": offer["schema_tokens_basis_note"],
+        "switch_command": switch,
+        "undo_command": undo,
+        "silence_command": offer["silence_command"],
+        "switch_cost_note": offer["switch_cost_note"],
+        "shown": "once per install",
+    }
+
+
 def render_offer_log_line(offer: dict) -> str:
     """The one-line server-start form, for the WARNING log channel.
 
     ⚠ Emitted at WARNING because that is the default ``log_level`` -- at INFO
     nobody sees it, which is the ``HeartbeatReporter`` precedent exactly.
 
-    ⚠⚠ **The log is the only channel that reaches a user who never runs a status
-    command, and it is still not a prompt.** The alternatives are all closed by
-    design: ``_meta`` is stripped by the default ``meta_fields: []``, the MCP
+    ⚠⚠ **The log reaches a user who never runs a status command only if they
+    read the log, and inside an MCP client nobody does.** Since 2026-10-13
+    `render_offer_notice` carries the same offer once in a tool answer. The
+    other channels stay closed by design: ``_meta`` is stripped by the default ``meta_fields: []``, the MCP
     ``instructions`` string is a 1,000-char budget aimed at the MODEL and is the
     only prose surviving tool deferral, and an unrequested notification is what
     ``progress.py`` holds no notify channel BY CONSTRUCTION to prevent.

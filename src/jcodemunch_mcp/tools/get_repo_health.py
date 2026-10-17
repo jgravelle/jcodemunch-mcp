@@ -188,7 +188,15 @@ def get_repo_health(
     dead_result = get_dead_code_v2(
         repo=f"{owner}/{name}", min_confidence=0.67, storage_path=storage_path
     )
-    dead_count = len(dead_result.get("dead_symbols", []))
+    # ⚠⚠ The count is v2's UNCAPPED `total_matches`, not `len(dead_symbols)`.
+    # v2 caps the list at `max_results` (default 100) for token cost and
+    # reports the true total beside it; dividing the capped list by every
+    # function/method understated `dead_code_pct` on any repo with more
+    # than 100 candidates. Denominator stays every function/method symbol —
+    # the same population v2's own `total_analysed` counts.
+    dead_count = dead_result.get("_meta", {}).get(
+        "total_matches", len(dead_result.get("dead_symbols", []))
+    )
     dead_code_pct = (
         round(dead_count / fn_method_count * 100, 1) if fn_method_count > 0 else 0.0
     )

@@ -37,7 +37,8 @@ class TestBuildSkillContent:
         content = _build_skill_content()
         # Spot-check the procedural body has the expected sections
         assert "When to load this skill" in content
-        assert "Opening move" in content
+        # Was "Opening move": two calls demanded before any exploration.
+        assert "Before the first jCodemunch call" in content
         assert "Anti-patterns" in content
         assert "resolve_repo" in content
         assert "plan_turn" in content

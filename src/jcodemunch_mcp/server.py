@@ -330,12 +330,12 @@ _MCP_TOOL_PREFIX = "mcp__jcodemunch__"
 
 # Named in the order an agent should reach for them, most-used first.
 _INSTRUCTION_TOOLS_FULL: tuple = (
-    ("resolve_repo", "is this repo indexed? Call it first."),
-    ("get_ranked_context", '"how does X work" in ONE budgeted call, not chained hops.'),
+    ("resolve_repo", "is it indexed? Once, before the first index call."),
+    ("get_ranked_context", '"how does X work" in one budgeted call.'),
     ("search_symbols", "a symbol by name; search_text for strings and config."),
-    ("get_file_outline", "before opening any file."),
+    ("get_file_outline", "a file's shape without reading it."),
     ("get_symbol_source", "one id, or an array to batch."),
-    ("find_references", "who imports a name; check_references for where it is used."),
+    ("find_references", "who imports a name; check_references: where it is used."),
 )
 
 _INSTRUCTION_TOOLS_COUNTER: tuple = (
@@ -361,24 +361,32 @@ def _mcp_instructions(surface: "Optional[str]" = None, prefix: str = _MCP_TOOL_P
     """The `instructions` string for the initialize response, surface-aware."""
     surface = surface or _effective_surface()
     rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
+    # (2026-10-14, owner's ruling) The opening said "Prefer it/them over
+    # Read/Grep/Glob/Bash" and the first row "Call it first", after the policy
+    # (1.108.357) had stopped saying either: on a small repository that steering
+    # costs turns, and agents quoted this string as their reason. It now says
+    # what the policy says, so the two cannot point opposite ways.
     if surface == "counter":
         opening = (
             "This repo can be indexed by jcodemunch. Its whole tool catalog sits "
-            "behind a 3-verb front door. Prefer it over Read/Grep/Glob/Bash for "
-            "code navigation."
+            "behind a 3-verb front door."
         )
     else:
         opening = (
-            "This repo can be indexed by jcodemunch: a prebuilt index of every "
-            "symbol, its file:line span, and who references what. Prefer them "
-            "over Read/Grep/Glob/Bash: one call usually replaces several reads."
+            "This repo can be indexed by jcodemunch: every symbol, its file:line "
+            "span and who references what."
         )
+    routes = (
+        "Use it for who uses a symbol, what a change breaks, call graphs, a large "
+        "repo or an open question. On a small repository, a known name or a file "
+        "you are editing, built-in Grep and Read are often as cheap."
+    )
     lines = [
         opening,
+        routes,
         "",
-        "**If these tools are deferred (names shown, schemas withheld), load them "
-        'in ONE lookup:** ToolSearch "%s". One round trip for the session, '
-        "never one at a time." % _tool_search_query(surface, prefix),
+        "**Tools deferred? Load all in ONE lookup:** ToolSearch "
+        '"%s". One round trip for the session.' % _tool_search_query(surface, prefix),
         "",
     ]
     lines += ["- %s: %s" % (name, why) for name, why in rows]
@@ -627,6 +635,88 @@ def _announce_surface_offer(transport: str = "unknown") -> bool:
     except Exception:
         logger.debug("surface offer announcement skipped", exc_info=True)
         return False
+
+
+_SURFACE_NOTICE_STATE_FILE = "surface_notice_state.json"
+# The one tool whose answer carries the notice: the call the policy and the
+# start-up instructions put first, and one with no compact encoder of its own.
+_SURFACE_NOTICE_TOOL = "resolve_repo"
+
+
+def _surface_notice_state_path() -> "Path":
+    """The once-per-install marker for the in-answer notice (see `_surface_offer_state_path`)."""
+    from .surface_offer import notice_marker_path
+
+    return notice_marker_path(_SURFACE_NOTICE_STATE_FILE)
+
+
+def _surface_notice_for(name: str, result: object) -> "dict | None":
+    """The surface offer for the agent to relay, or None. Said once per install.
+
+    ⚠⚠ `_announce_surface_offer` logs the same offer at server start, and a
+    user inside an MCP client never sees the log: the offer was delivered and
+    read by nobody. This puts it in the answer of the first successful
+    `resolve_repo` call the install makes.
+
+    ⚠ Its own marker, not the log line's: every install that has started a
+    server already holds that one, and those are the installs this is for.
+
+    ⚠ A process prices the offer at most once (`_build_tools_list` twice), and
+    only on an answer that can carry it: another tool or an error answer
+    first does not use it up.
+
+    ⚠ Known limits, each in the repeat-or-skip direction and none silent in the
+    log: two servers answering their first call at the same moment both say
+    it; and a `response_max_bytes` set below the size of this one answer
+    refuses the answer after the marker is written (review, 2026-10-13).
+
+    ⚠ Fail-safe: a pricing failure says nothing. An unwritable marker still
+    says it, once in this process, and again next session; repeating an
+    advisory is recoverable and suppressing it for good is not.
+    """
+    if name != _SURFACE_NOTICE_TOOL or not isinstance(result, dict) or "error" in result:
+        return None
+    from .surface_offer import NOTICE_STATE
+
+    if NOTICE_STATE["checked"]:
+        return None
+    NOTICE_STATE["checked"] = True
+    import json as _json
+    from datetime import datetime, timezone
+
+    try:
+        path = _surface_notice_state_path()
+        if path.is_file():
+            return None
+        offer = _tool_surface_stats().get("surface_offer")
+        if not offer:
+            return None
+        from .surface_offer import SURFACE_ENV_VAR, render_offer_notice
+
+        notice = render_offer_notice(
+            offer, surface_from_env=bool((os.environ.get(SURFACE_ENV_VAR) or "").strip())
+        )
+    except Exception:
+        logger.debug("surface notice skipped", exc_info=True)
+        return None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(
+            _json.dumps(
+                {
+                    "shown_at": datetime.now(timezone.utc).isoformat(),
+                    "tool": name,
+                    "surface": offer.get("current_surface"),
+                    "version": __version__,
+                }
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    except OSError:
+        logger.debug("surface notice marker not written", exc_info=True)
+    return notice
 
 
 def _tool_surface_stats(top_n: int = 15) -> dict:
@@ -1114,7 +1204,15 @@ _COMPACT_STRIP_PARAMS: dict[str, set[str]] = {
 # fully usable as a free-string filter (the tool tolerates any language string)
 # while reclaiming the tokens. Keyed by param name so every tool that exposes a
 # `language` enum (search_symbols, search_ast, ...) benefits across all tiers.
-_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language"})
+#
+# `kind` joins it for the same reason and with the same safety: the values are
+# short mechanical names, and an unknown one is REFUSED server-side against
+# VALID_KINDS with the valid list in the error, so demoting the schema enum
+# costs a caller nothing it cannot recover at the point of failure.
+# ⚠ It is here because the SQL object kinds pushed core_compact to 4002 against
+# the <=4000 ceiling. Demoting is the lever that test names; regenerating the
+# baseline would have papered over it, which that test says in as many words.
+_COMPACT_DEMOTE_ENUM_PARAMS: frozenset[str] = frozenset({"language", "kind"})
 
 # Tools eligible for Agent Selector complexity scoring
 _AGENT_SELECTOR_TOOLS = frozenset({
@@ -5006,7 +5104,9 @@ async def read_resource(uri) -> "list[ReadResourceContents]":
 _WORKFLOW_PROMPT_TEXT = """\
 # jcodemunch-mcp — Workflow Guide
 
-Use these tools instead of Grep/Read/search for any indexed repository.
+Use these tools where an index is the cheaper route: relationships, impact, and
+symbol lookup in a large repository. On a small repository the built-in Grep/Read/Glob
+are usually cheaper for finding and reading code.
 
 ## Step-by-step
 
@@ -5060,7 +5160,7 @@ complexity, churn, test gaps, and change volume. Includes actionable recommendat
 6. **get_untested_symbols** on affected files → flag unreached symbols in the blast radius.
 7. **get_coupling_metrics** on changed files → check if the change increases coupling.
 8. **get_dependency_cycles** → check if the change introduces new cycles.
-9. **search_ast** with `category='security'` on changed files → catch hardcoded secrets or eval() calls in the diff.
+9. **search_ast** with `category='security'` on changed files → catch hardcoded secrets or dynamic code execution in the diff.
 """
 
 _TRIAGE_PROMPT_TEXT = """\
@@ -5663,6 +5763,56 @@ def _response_text_bytes(result: "list[TextContent] | CallToolResult") -> int:
     return total
 
 
+_COUNTED_TOOL_NAMES: "frozenset | None" = None
+
+
+def _counted_tool_names() -> frozenset:
+    """Every name a per-tool counter may be keyed by: the catalog and the front door."""
+    global _COUNTED_TOOL_NAMES
+    if _COUNTED_TOOL_NAMES is None:
+        _COUNTED_TOOL_NAMES = frozenset(_catalog_names() | set(_COUNTER_FRONT_DOOR))
+    return _COUNTED_TOOL_NAMES
+
+
+# The dispatcher frame a call is counted in. `order` re-dispatches through
+# `call_tool`, so one client request runs two frames; the inner one marks its
+# parent so the same bytes are not counted under two names.
+_COUNT_FRAME: "contextvars.ContextVar[Optional[dict]]" = contextvars.ContextVar(
+    "jcm_count_frame", default=None
+)
+
+
+def _count_tool_call(
+    name: str, result: "list[TextContent] | CallToolResult | None", *, relayed: bool = False
+) -> None:
+    """Add this call to the local per-tool counters (`storage/tool_counters.py`).
+
+    Called from every dispatcher frame with the value that frame returns, after
+    the response cap, so a refusal is counted at the size the client saw.
+    ⚠ **A call relayed by the front door is counted under both names and its
+    size under ONE**: the tool that answered. *relayed* is the outer frame
+    saying an inner frame already counted these bytes; without it every row on
+    the default surface was mirrored under `order` (review, 2026-10-13).
+    ⚠ A dispatch that raised is a call with no answer: *result* is None and
+    it adds a call and no tokens, so `calls` agrees with the latency rows.
+    ⚠ *name* is the client's string: only a name this server publishes is
+    counted, so nothing else can be written into a file the user may hand to
+    someone. ⚠ It never touches the disk (the counters module hands a due
+    write to a thread) and a failure here never reaches the answer.
+    """
+    try:
+        if not config_module.get("tool_counters", True):
+            return
+        if name not in _counted_tool_names():
+            return
+        from .storage import tool_counters
+
+        size = 0 if relayed or result is None else _response_text_bytes(result)
+        tool_counters.record(name, size)
+    except Exception:
+        logger.debug("tool counter not recorded for %s", name, exc_info=True)
+
+
 def _enforce_response_cap(
     name: str, result: "list[TextContent] | CallToolResult"
 ) -> "list[TextContent] | CallToolResult":
@@ -5756,11 +5906,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent] | CallToolR
     # cannot drift from what the client saw because it IS what the client saw.
     _t0_dispatch = time.perf_counter()
     _dispatch_ok = False
+    _count_parent = _COUNT_FRAME.get()
+    _count_frame: dict = {"inner": False}
+    _count_token = _COUNT_FRAME.set(_count_frame)
+    _counted_result: "list[TextContent] | CallToolResult | None" = None
     try:
         result = _enforce_response_cap(name, await _call_tool_impl(name, arguments))
         _dispatch_ok = not bool(getattr(result, "isError", False))
+        _counted_result = result
         return result
     finally:
+        _COUNT_FRAME.reset(_count_token)
+        _count_tool_call(name, _counted_result, relayed=_count_frame["inner"])
+        if _count_parent is not None:
+            _count_parent["inner"] = True
         try:
             from .storage.token_tracker import record_tool_latency
             _duration_ms = (time.perf_counter() - _t0_dispatch) * 1000.0
@@ -7485,6 +7644,31 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
         except Exception:
             logger.debug("Steering attach failed", exc_info=True)
 
+        # The surface offer, once per install, in the answer the agent reads
+        # first. In the BODY (`_meta` is stripped by default) and as JSON (a
+        # compact encoding drops a key it does not declare, and the marker
+        # would be spent on a notice nobody received). A new dict: `result`
+        # may be an object a cache still holds.
+        try:
+            _surface_notice = _surface_notice_for(name, result)
+            if _surface_notice:
+                result = {**result, "surface_notice": _surface_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("surface notice attach failed", exc_info=True)
+
+        # (2026-10-13) The policy refresh command, once per policy text, in the
+        # same answer and for the same reason: the log reaches nobody in a client.
+        try:
+            from .cli.policy_refresh import policy_notice_for as _policy_notice_for
+
+            _policy_notice = _policy_notice_for(name, result, tool=_SURFACE_NOTICE_TOOL, version=__version__)
+            if _policy_notice:
+                result = {**result, "policy_notice": _policy_notice}
+                _requested_format = "json"
+        except Exception:
+            logger.debug("policy notice attach failed", exc_info=True)
+
         # Response-level secret redaction — scrub leaked credentials
         # before they reach the LLM context window. Skipped for tools that
         # return raw cached source (any "secret" found is the user's own
@@ -8411,7 +8595,9 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     lines = [
         f"## jcodemunch-mcp (v{_ver})",
         "",
-        "Use jcodemunch-mcp tools instead of Grep/Read/Glob for any indexed repository.",
+        "Use jcodemunch-mcp tools where an index is the cheaper route: references, impact, "
+        "call hierarchy, and symbol lookup in a large repository. On a small repository the "
+        "built-in Grep/Read/Glob are usually cheaper for finding and reading code.",
         "",
         "### Quick start",
         *_quick_start_lines(_active),
@@ -8421,13 +8607,22 @@ def _generate_claude_md_snippet(missing_only: bool = False) -> str:
     for cat, tools in categories:
         lines.append(f"**{cat}:** " + ", ".join(f"`{t}`" for t in tools))
     lines.append("")
-    lines.append("Never fall back to Grep, Read, or Glob for indexed repos.")
+    lines.append("The built-in tools stay the right choice for a file you are about to edit.")
     lines.append("")
     return "\n".join(lines)
 
 
-def _run_claude_md(generate: bool = False, fmt: str = "full") -> None:
-    """Output the recommended CLAUDE.md snippet for the current tool set."""
+def _run_claude_md(generate: bool = False, fmt: str = "full", refresh: bool = False,
+                   yes: bool = False, dry_run: bool = False, match_server: bool = False) -> int:
+    """Output the recommended CLAUDE.md snippet for the current tool set.
+
+    ``refresh`` replaces an installed policy block that differs from this
+    version's, after showing the diff and asking (cli/policy_refresh.py).
+    """
+    if refresh:
+        from .cli.policy_refresh import run_refresh
+
+        return run_refresh(yes=yes, dry_run=dry_run, match_server=match_server)
     if fmt == "policy":
         # (#871) The exact block `init` installs and `config --check` compares
         # against. `full` is a different generator's text, and replacing an
@@ -8438,14 +8633,15 @@ def _run_claude_md(generate: bool = False, fmt: str = "full") -> None:
         ensure_config_loaded()
         _policy_text = active_policy()
         print(_policy_text, end="" if _policy_text.endswith("\n") else "\n")
-        return
+        return 0
     missing_only = fmt == "append"
     snippet = _generate_claude_md_snippet(missing_only=missing_only)
     if missing_only and not snippet:
         import sys as _sys
         print("CLAUDE.md is already up to date — no new tools to add.", file=_sys.stderr)
-        return
+        return 0
     print(snippet, end="")
+    return 0
 
 
 def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) -> None:
@@ -9033,7 +9229,14 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
                         f"({_drift['lines_differing']} line(s))"
                     )
                     print(f"  {dim('  It may be out of date, or you may have edited it on purpose; this check cannot tell which.')}")
+                    # (L-185) The server picks its policy in the MCP client's
+                    # environment; a block written for it reads as differing here.
+                    from .cli.policy_refresh import matches_server_policy as _matches_server
+
+                    if _matches_server(cm_content):
+                        print(f"  {dim('  It matches the policy for the settings the server had when it last said a block differs; a setting that chooses the policy may differ between the MCP client environment and this shell.')}")
                     print(f"  {dim('  To see the current text: jcodemunch-mcp claude-md --generate --format policy')}")
+                    print(f"  {dim('  To replace it (shows the diff, asks first, keeps a backup): jcodemunch-mcp claude-md --refresh')}")
                     # A warning, never an issue (review of #871): a block its
                     # owner edited on purpose must not fail the health check,
                     # whose exit status clients read as a broken install.
@@ -9068,7 +9271,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
             for _hook_cmd, (_event, _matcher) in _expected_hooks.items():
                 # Compare SUBCOMMANDS, not a `jcodemunch-mcp <sub>` substring.
                 # `_hook_invocation()` writes an absolute path whenever
-                # `shutil.which` resolves, so the substring never matched an
+                # it resolves an executable, so the substring never matched an
                 # `C:/.../jcodemunch-mcp.EXE hook-pretooluse` install and the
                 # check reported every hook missing on a correctly-installed box.
                 _present = False
@@ -9551,6 +9754,21 @@ def main(argv: Optional[list[str]] = None):
         help="'full' (default) — complete snippet; 'append' — only tools not yet in your CLAUDE.md; "
         "'policy' — the exact Code Exploration Policy `init` installs, which `config --check` compares against",
     )
+    claude_md_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Replace an installed policy block that differs from this version's, in the global and the "
+        "project CLAUDE.md. Shows the diff and asks before writing; keeps a backup; touches nothing outside the block",
+    )
+    claude_md_parser.add_argument("--yes", action="store_true", help="With --refresh: write without asking")
+    claude_md_parser.add_argument(
+        "--dry-run", action="store_true", dest="dry_run", help="With --refresh: show the diff, write nothing"
+    )
+    claude_md_parser.add_argument(
+        "--match-server", action="store_true", dest="match_server",
+        help="With --refresh: write this version's policy for the settings a server recorded when it last said "
+        "a block differs, for when the MCP client's environment selects a different policy than this shell's",
+    )
 
     # --- index-file ---
     # --- index (full folder/repo index) ---
@@ -9887,6 +10105,21 @@ def main(argv: Optional[list[str]] = None):
     status_parser.add_argument(
         "--json", action="store_true", dest="as_json",
         help="Emit JSON instead of pretty-printed output",
+    )
+
+    # --- diagnose ---
+    diagnose_parser = subparsers.add_parser(
+        "diagnose",
+        help="Write one local report (versions, index sizes, tool surface, policy state, per-tool counts). "
+             "No paths or repository names; nothing is sent.",
+    )
+    diagnose_parser.add_argument(
+        "--stdout", action="store_true",
+        help="Print the report instead of writing a file",
+    )
+    diagnose_parser.add_argument(
+        "--include-anon-id", action="store_true", dest="include_anon_id",
+        help="Add the anonymous savings id (left out by default)",
     )
 
     # --- uninstall ---
@@ -10364,7 +10597,7 @@ def main(argv: Optional[list[str]] = None):
     if any(arg in top_level_flags for arg in raw_argv):
         args = parser.parse_args(raw_argv)
     else:
-        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface"}
+        known_commands = {"serve", "watch", "hook-event", "hook-pretooluse", "hook-posttooluse", "hook-copilot-posttooluse", "hook-precompact", "hook-taskcomplete", "hook-subagent-start", "hook-sessionstart", "watch-claude", "watch-all", "watch-install", "watch-uninstall", "watch-status", "config", "list-repos", "delete-index", "org-report", "org-rollup", "license", "index", "index-file", "import-trace", "import-scip", "claude-md", "init", "install", "install-status", "uninstall", "install-pack", "download-model", "upgrade", "whatsnew", "receipt", "digest", "reflect", "delivery", "parity", "refresh", "health", "file-risk", "observatory", "keyring", "surface", "diagnose"}
         # MCP-tool-name typos: route to the right CLI verb with a friendly hint.
         # `index_repo` and `index_folder` are MCP tools, not CLI subcommands.
         _CLI_ALIASES = {
@@ -10597,10 +10830,16 @@ def main(argv: Optional[list[str]] = None):
         sys.exit(0 if result.get("success") else 1)
 
     if args.command == "claude-md":
-        _run_claude_md(
+        _rc = _run_claude_md(
             generate=getattr(args, "generate", False),
             fmt=getattr(args, "fmt", "full"),
+            refresh=getattr(args, "refresh", False),
+            yes=getattr(args, "yes", False),
+            dry_run=getattr(args, "dry_run", False),
+            match_server=getattr(args, "match_server", False),
         )
+        if _rc:
+            sys.exit(_rc)
         return
 
     if args.command == "init":
@@ -10674,6 +10913,32 @@ def main(argv: Optional[list[str]] = None):
     if args.command == "install-status":
         from .cli.init import install_status as _install_status, print_status as _print_status
         _print_status(_install_status(), as_json=getattr(args, "as_json", False))
+        sys.exit(0)
+
+    if args.command == "diagnose":
+        # Above the shared load_config() call, like `surface`: the surface block
+        # is shaped by tool_surface / tool_profile / disabled_tools.
+        # ⚠ `create_missing=False`: this command reads, and `--stdout` is
+        # documented to write no file; the default would create config.jsonc.
+        config_module.load_config(create_missing=False)
+        from . import diagnose as _diagnose
+
+        _report = _diagnose.build_report(
+            surface_stats=_tool_surface_stats(),
+            known_tools=_counted_tool_names(),
+            include_anon_id=getattr(args, "include_anon_id", False),
+        )
+        if getattr(args, "stdout", False):
+            print(json.dumps(_report, indent=2))
+        else:
+            _path = _diagnose.write_report(_report)
+            print(f"Report written to {_path}")
+            print("Nothing was sent. It holds no path and no repository name; read it before you share it.")
+            from .storage import tool_counters as _tc
+
+            print(f"Counts a running server has not written yet are not in it (it writes every "
+                  f"{_tc._FLUSH_EVERY} calls, or on the first call after {_tc._FLUSH_SECONDS:g} seconds, "
+                  "and when it stops).")
         sys.exit(0)
 
     if args.command == "uninstall":

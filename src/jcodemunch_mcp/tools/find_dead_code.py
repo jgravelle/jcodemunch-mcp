@@ -14,6 +14,7 @@ from ._utils import index_status_to_tool_error, resolve_repo
 from ..parser.context._route_utils import ENTRY_POINT_DECORATOR_RE
 from ._entry_points import (
     entry_point_spec,
+    has_dotnet_evidence,
     is_host_invoked,
     package_json_entries as _package_json_entries,
     unseen_consumer,
@@ -327,7 +328,8 @@ def find_dead_code(
     # both tools share. An opaque site caps nothing and is disclosed.
     boundary = DynamicBoundary(index.imports)
     boundary_withheld = 0
-    unseen_withheld = {"build_consumed": 0, "runtime_loadable": 0}
+    unseen_withheld = {"build_consumed": 0, "schema_consumer": 0, "runtime_loadable": 0}
+    dotnet = has_dotnet_evidence(index.source_files)
 
     dead_files: list[dict] = []
 
@@ -356,10 +358,12 @@ def find_dead_code(
                 continue  # file is reachable, skip
 
         reaching = boundary.reaching(f)
-        unseen = unseen_consumer(f)
+        unseen = unseen_consumer(f, dotnet=dotnet)
         if unseen is None and reason == "all_importers_dead":
             # A codebehind whose only importer is itself unproven inherits the cap.
-            unseen = next(filter(None, map(unseen_consumer, importers)), None)
+            unseen = next(
+                filter(None, (unseen_consumer(i, dotnet=dotnet) for i in importers)), None
+            )
         file_ceiling = min(ceiling, UNPROVEN_CEILING) if (reaching or unseen) else ceiling
         capped = min(confidence, file_ceiling)
         if capped < min_confidence:
@@ -506,15 +510,17 @@ def find_dead_code(
             "(pass min_confidence=0 to see them with the sites named)"
         )
     _unseen_why = {
-        "build_consumed": "the project file may consume them (EmbeddedResource, Page, Import)",
-        "runtime_loadable": "user controls and master pages can be loaded by path at "
+        "build_consumed": "a .NET project file may consume them (EmbeddedResource, Page, "
+        "Import)",
+        "schema_consumer": "a build or code generator outside the index may compile them",
+        "runtime_loadable": ".NET user controls and master pages can be loaded by path at "
         "runtime (LoadControl, a stored control path, MasterPageFile set in code)",
     }
     for kind, n in unseen_withheld.items():
         if n:
             result[f"{kind}_withheld"] = n
             analysis_notes.append(
-                f"{n} .NET file(s) with no static importer were withheld: "
+                f"{n} file(s) with no static importer were withheld: "
                 f"{_unseen_why[kind]}, an edge the index does not carry "
                 "(pass min_confidence=0 to see them)"
             )

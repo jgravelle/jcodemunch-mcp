@@ -15,6 +15,7 @@ from .get_blast_radius import (
     importers_with_verdict,
 )
 from ._call_graph import _symbol_body
+from ..word_rule import fill_name_template, word_left, word_pattern, word_right
 from ..storage import record_savings
 
 logger = logging.getLogger(__name__)
@@ -109,87 +110,87 @@ _IMPORT_PATTERNS = {
 # Definition patterns per language
 _DEF_PATTERNS = {
     # -- Tier 1: languages with import extractors --
-    "python": re.compile(r"^\s*(class|def|async\s+def)\s+{name}\b"),
-    "typescript": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
-    "javascript": re.compile(r"^\s*(export\s+)?(class|function|const|let|var)\s+{name}\b"),
-    "tsx": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
-    "jsx": re.compile(r"^\s*(export\s+)?(class|function|const|let|var)\s+{name}\b"),
-    "rust": re.compile(r"^\s*(pub(\s*\([^)]*\))?\s+)?(fn|struct|enum|trait|type|const|static|mod)\s+{name}\b"),
-    "go": re.compile(r"^\s*(func|type|var|const)\s+{name}\b"),
-    "java": re.compile(r"^\s*(public|private|protected)?\s*(static\s+)?(abstract\s+)?(final\s+)?(class|interface|enum|record|@interface)\s+{name}\b"),
-    "kotlin": re.compile(r"^\s*(public|private|protected|internal)?\s*(data\s+|sealed\s+|abstract\s+|open\s+)?(class|interface|object|enum\s+class|fun)\s+{name}\b"),
-    "csharp": re.compile(r"^\s*(public|private|protected|internal)?\s*(static\s+)?(partial\s+)?(class|struct|interface|enum|record|delegate)\s+{name}\b"),
-    "php": re.compile(r"^\s*(abstract\s+)?(final\s+)?(class|interface|trait|enum|function)\s+{name}\b"),
-    "ruby": re.compile(r"^\s*(class|module|def)\s+{name}\b"),
-    "c": re.compile(r"^\s*(struct|enum|union|typedef)\s+{name}\b"),
-    "cpp": re.compile(r"^\s*(class|struct|enum|union|namespace|template)\s+{name}\b"),
-    "objc": re.compile(r"^\s*@(interface|implementation|protocol)\s+{name}\b"),
-    "arduino": re.compile(r"^\s*(class|struct|enum|union|namespace|template)\s+{name}\b"),
-    "vhdl": re.compile(r"^\s*(entity|architecture|package|component|process|function|procedure|signal|constant|type|subtype)\s+{name}\b", re.IGNORECASE),
-    "verilog": re.compile(r"^\s*(module|interface|class|function|task|package|typedef)\s+{name}\b"),
-    "swift": re.compile(r"^\s*(public\s+|private\s+|internal\s+|open\s+|fileprivate\s+)?(class|struct|enum|protocol|func|extension|typealias|actor)\s+{name}\b"),
-    "scala": re.compile(r"^\s*(private\s+|protected\s+)?(abstract\s+|sealed\s+|case\s+)?(class|object|trait|def|val|var|type|enum)\s+{name}\b"),
-    "haskell": re.compile(r"^\s*(data|type|newtype|class)\s+{name}\b"),
-    "dart": re.compile(r"^\s*(abstract\s+)?(class|mixin|enum|extension|typedef)\s+{name}\b"),
+    "python": re.compile(r"^\s*(class|def|async\s+def)\s+{name}{right}"),
+    "typescript": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
+    "javascript": re.compile(r"^\s*(export\s+)?(class|function|const|let|var)\s+{name}{right}"),
+    "tsx": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
+    "jsx": re.compile(r"^\s*(export\s+)?(class|function|const|let|var)\s+{name}{right}"),
+    "rust": re.compile(r"^\s*(pub(\s*\([^)]*\))?\s+)?(fn|struct|enum|trait|type|const|static|mod)\s+{name}{right}"),
+    "go": re.compile(r"^\s*(func|type|var|const)\s+{name}{right}"),
+    "java": re.compile(r"^\s*(public|private|protected)?\s*(static\s+)?(abstract\s+)?(final\s+)?(class|interface|enum|record|@interface)\s+{name}{right}"),
+    "kotlin": re.compile(r"^\s*(public|private|protected|internal)?\s*(data\s+|sealed\s+|abstract\s+|open\s+)?(class|interface|object|enum\s+class|fun)\s+{name}{right}"),
+    "csharp": re.compile(r"^\s*(public|private|protected|internal)?\s*(static\s+)?(partial\s+)?(class|struct|interface|enum|record|delegate)\s+{name}{right}"),
+    "php": re.compile(r"^\s*(abstract\s+)?(final\s+)?(class|interface|trait|enum|function)\s+{name}{right}"),
+    "ruby": re.compile(r"^\s*(class|module|def)\s+{name}{right}"),
+    "c": re.compile(r"^\s*(struct|enum|union|typedef)\s+{name}{right}"),
+    "cpp": re.compile(r"^\s*(class|struct|enum|union|namespace|template)\s+{name}{right}"),
+    "objc": re.compile(r"^\s*@(interface|implementation|protocol)\s+{name}{right}"),
+    "arduino": re.compile(r"^\s*(class|struct|enum|union|namespace|template)\s+{name}{right}"),
+    "vhdl": re.compile(r"^\s*(entity|architecture|package|component|process|function|procedure|signal|constant|type|subtype)\s+{name}{right}", re.IGNORECASE),
+    "verilog": re.compile(r"^\s*(module|interface|class|function|task|package|typedef)\s+{name}{right}"),
+    "swift": re.compile(r"^\s*(public\s+|private\s+|internal\s+|open\s+|fileprivate\s+)?(class|struct|enum|protocol|func|extension|typealias|actor)\s+{name}{right}"),
+    "scala": re.compile(r"^\s*(private\s+|protected\s+)?(abstract\s+|sealed\s+|case\s+)?(class|object|trait|def|val|var|type|enum)\s+{name}{right}"),
+    "haskell": re.compile(r"^\s*(data|type|newtype|class)\s+{name}{right}"),
+    "dart": re.compile(r"^\s*(abstract\s+)?(class|mixin|enum|extension|typedef)\s+{name}{right}"),
     # -- Tier 2: languages with tree-sitter but no import extractors --
-    "elixir": re.compile(r"^\s*(defmodule|def|defp|defmacro|defmacrop|defstruct|defguard|defdelegate)\s+{name}\b"),
-    "perl": re.compile(r"^\s*(sub|package)\s+{name}\b"),
-    "lua": re.compile(r"^\s*(local\s+)?function\s+(\w+[.:])?\s*{name}\b"),
-    "luau": re.compile(r"^\s*(local\s+)?function\s+(\w+[.:])?\s*{name}\b"),
-    "groovy": re.compile(r"^\s*(public|private|protected)?\s*(static\s+)?(class|interface|enum|def)\s+{name}\b"),
-    "gleam": re.compile(r"^\s*(pub\s+)?(fn|type|const)\s+{name}\b"),
-    "fortran": re.compile(r"^\s*(subroutine|function|module|program|type)\s+{name}\b"),
+    "elixir": re.compile(r"^\s*(defmodule|def|defp|defmacro|defmacrop|defstruct|defguard|defdelegate)\s+{name}{right}"),
+    "perl": re.compile(r"^\s*(sub|package)\s+{name}{right}"),
+    "lua": re.compile(r"^\s*(local\s+)?function\s+(\w+[.:])?\s*{name}{right}"),
+    "luau": re.compile(r"^\s*(local\s+)?function\s+(\w+[.:])?\s*{name}{right}"),
+    "groovy": re.compile(r"^\s*(public|private|protected)?\s*(static\s+)?(class|interface|enum|def)\s+{name}{right}"),
+    "gleam": re.compile(r"^\s*(pub\s+)?(fn|type|const)\s+{name}{right}"),
+    "fortran": re.compile(r"^\s*(subroutine|function|module|program|type)\s+{name}{right}"),
     "erlang": re.compile(r"^{name}\s*\("),  # Erlang: function_name(args) ->
-    "julia": re.compile(r"^\s*(function|struct|abstract\s+type|mutable\s+struct|module|macro)\s+{name}\b"),
+    "julia": re.compile(r"^\s*(function|struct|abstract\s+type|mutable\s+struct|module|macro)\s+{name}{right}"),
     "r": re.compile(r"^\s*{name}\s*(<-|=)\s*function\s*\("),
-    "gdscript": re.compile(r"^\s*(func|class|signal|enum)\s+{name}\b"),
+    "gdscript": re.compile(r"^\s*(func|class|signal|enum)\s+{name}{right}"),
     "bash": re.compile(r"^\s*(function\s+{name}|{name}\s*\(\s*\))"),
-    "proto": re.compile(r"^\s*(message|service|enum|rpc)\s+{name}\b"),
+    "proto": re.compile(r"^\s*(message|service|enum|rpc)\s+{name}{right}"),
     "hcl": re.compile(r"^\s*(resource|data|module|variable|output)\s+\"[^\"]*\"\s+\"{name}\""),
-    "graphql": re.compile(r"^\s*(type|query|mutation|subscription|interface|enum|scalar|union|input|fragment|directive)\s+{name}\b"),
+    "graphql": re.compile(r"^\s*(type|query|mutation|subscription|interface|enum|scalar|union|input|fragment|directive)\s+{name}{right}"),
     "autohotkey": re.compile(r"^\s*(class\s+{name}|{name}\s*\()"),
     # -- Tier 2 continued: missing languages --
-    "solidity": re.compile(r"^\s*(?:contract|interface|library|function|struct|enum|event|modifier)\s+{name}\b"),
-    "zig": re.compile(r"^\s*(?:pub\s+)?(?:fn|const|var|struct|enum|union)\s+{name}\b"),
-    "powershell": re.compile(r"^\s*(?:function|filter|class|enum)\s+{name}\b", re.IGNORECASE),
-    "ocaml": re.compile(r"^\s*(?:let|type|module|class)\s+{name}\b"),
-    "fsharp": re.compile(r"^\s*(?:let|type|module|namespace|class)\s+{name}\b"),
-    "clojure": re.compile(r"^\s*\(\s*(?:defn|defmacro|def|defrecord)\s+{name}\b"),
-    "elisp": re.compile(r"^\s*\(\s*(?:defun|defmacro|defvar|defcustom)\s+{name}\b"),
+    "solidity": re.compile(r"^\s*(?:contract|interface|library|function|struct|enum|event|modifier)\s+{name}{right}"),
+    "zig": re.compile(r"^\s*(?:pub\s+)?(?:fn|const|var|struct|enum|union)\s+{name}{right}"),
+    "powershell": re.compile(r"^\s*(?:function|filter|class|enum)\s+{name}{right}", re.IGNORECASE),
+    "ocaml": re.compile(r"^\s*(?:let|type|module|class)\s+{name}{right}"),
+    "fsharp": re.compile(r"^\s*(?:let|type|module|namespace|class)\s+{name}{right}"),
+    "clojure": re.compile(r"^\s*\(\s*(?:defn|defmacro|def|defrecord)\s+{name}{right}"),
+    "elisp": re.compile(r"^\s*\(\s*(?:defun|defmacro|defvar|defcustom)\s+{name}{right}"),
     "racket": re.compile(
         r"^\s*\(\s*(?:define|define/contract|define-syntax|define-syntax-rule|"
-        r"struct|define-struct|define-values|define-type)\s+\(?{name}\b"
+        r"struct|define-struct|define-values|define-type)\s+\(?{name}{right}"
     ),
-    "nim": re.compile(r"^\s*(?:proc|func|method|iterator|macro|template|type)\s+{name}\b"),
-    "tcl": re.compile(r"^\s*(?:proc|namespace\s+eval)\s+{name}\b"),
-    "dlang": re.compile(r"^\s*(?:class|struct|interface|enum|template|function)\s+{name}\b"),
-    "pascal": re.compile(r"^\s*(?:procedure|function|class|type)\s+{name}\b", re.IGNORECASE),
-    "ada": re.compile(r"^\s*(?:package|procedure|function|task|protected)\s+{name}\b", re.IGNORECASE),
-    "cobol": re.compile(r"^\s*PROGRAM-ID\.\s*{name}\b", re.IGNORECASE),
-    "commonlisp": re.compile(r"^\s*\(\s*(?:defun|defmacro|defclass|defmethod)\s+{name}\b"),
-    "matlab": re.compile(r"^\s*function\s+.*{name}\b"),
-    "apex": re.compile(r"^\s*(?:public|private|protected)?\s*(?:class|interface|enum|trigger)\s+{name}\b"),
-    "sql": re.compile(r"^\s*CREATE\s+(?:TABLE|VIEW|FUNCTION|PROCEDURE)\s+{name}\b", re.IGNORECASE),
+    "nim": re.compile(r"^\s*(?:proc|func|method|iterator|macro|template|type)\s+{name}{right}"),
+    "tcl": re.compile(r"^\s*(?:proc|namespace\s+eval)\s+{name}{right}"),
+    "dlang": re.compile(r"^\s*(?:class|struct|interface|enum|template|function)\s+{name}{right}"),
+    "pascal": re.compile(r"^\s*(?:procedure|function|class|type)\s+{name}{right}", re.IGNORECASE),
+    "ada": re.compile(r"^\s*(?:package|procedure|function|task|protected)\s+{name}{right}", re.IGNORECASE),
+    "cobol": re.compile(r"^\s*PROGRAM-ID\.\s*{name}{right}", re.IGNORECASE),
+    "commonlisp": re.compile(r"^\s*\(\s*(?:defun|defmacro|defclass|defmethod)\s+{name}{right}"),
+    "matlab": re.compile(r"^\s*function\s+.*{name}{right}"),
+    "apex": re.compile(r"^\s*(?:public|private|protected)?\s*(?:class|interface|enum|trigger)\s+{name}{right}"),
+    "sql": re.compile(r"^\s*CREATE\s+(?:TABLE|VIEW|FUNCTION|PROCEDURE)\s+{name}{right}", re.IGNORECASE),
     "css": re.compile(r"^\s*\.{name}\s*\{|^\s*#{name}\s*\{|^\s*{name}\s*\{"),
-    "scss": re.compile(r"^\s*\.{name}\s*\{|^\s*#{name}\s*\{|^\s*{name}\s*\{|^\s*@mixin\s+{name}\b"),
-    "sass": re.compile(r"^\s*\.{name}\s*$|^\s*#{name}\s*$|^\s*{name}\s*$|^\s*=\\s*{name}\b"),
+    "scss": re.compile(r"^\s*\.{name}\s*\{|^\s*#{name}\s*\{|^\s*{name}\s*\{|^\s*@mixin\s+{name}{right}"),
+    "sass": re.compile(r"^\s*\.{name}\s*$|^\s*#{name}\s*$|^\s*{name}\s*$|^\s*=\\s*{name}{right}"),
     "less": re.compile(r"^\s*\.{name}\s*\{|^\s*#{name}\s*\{|^\s*{name}\s*\{|^\s*\.{name}\s*\("),
     "styl": re.compile(r"^\s*\.{name}\s*$|^\s*#{name}\s*$|^\s*{name}\s*$"),
     "razor": re.compile(r"^\s*@\s*(?:functions|code|page|inject)\s+"),
     # Web Forms "definition": a server control's ID, or the Inherits codebehind class.
     "aspx": re.compile(
-        r"<\w+:\w+[^>]*\bID\s*=\s*[\"']{name}[\"']"
-        r"|<%@[^%]*\bInherits\s*=\s*[\"'][^\"']*\b{name}[\"']"
+        r"<\w+:\w+[^>]*\bID\s*=\s*[\"']?{name}(?:[\"'\s/>]|$)"
+        r"|<%@[^%]*\bInherits\s*=\s*[\"']?[\w.]*{left}{name}(?:[\"'\s%]|$)"
     ),
-    "astro": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
+    "astro": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
     "blade": re.compile(r"^\s*@\s*(?:section|component|slot)\s*\(\s*['\"]{name}['\"]"),
-    "al": re.compile(r"^\s*(?:page|table|codeunit|report|query|enum)\s+{name}\b"),
+    "al": re.compile(r"^\s*(?:page|table|codeunit|report|query|enum)\s+{name}{right}"),
     "nix": re.compile(r"^\s*{name}\s*="),
     "ejs": re.compile(r"<%[=-]?\s*(?:function|const\s+{name})"),
-    "verse": re.compile(r"^\s*(?:class|function|agent|device)\s+{name}\b"),
+    "verse": re.compile(r"^\s*(?:class|function|agent|device)\s+{name}{right}"),
     # -- Tier 3: vue, svelte and asm (vue/svelte use JS/TS patterns, asm labels) --
-    "vue": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
-    "svelte": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}\b"),
+    "vue": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
+    "svelte": re.compile(r"^\s*(export\s+)?(class|function|const|let|var|interface|type|enum)\s+{name}{right}"),
     "asm": re.compile(r"^\s*{name}\s*:"),
 }
 
@@ -345,7 +346,7 @@ def _find_affected_files(index, store, owner, name, sym_file, sym_name, depth):
 
 def _apply_word_replacement(text: str, old_name: str, new_name: str) -> str:
     """Replace old_name with new_name at word boundaries."""
-    return re.sub(r"\b" + re.escape(old_name) + r"\b", new_name, text)
+    return re.sub(word_pattern(old_name), new_name, text)
 
 
 def _classify_line(line_text: str, old_name: str, language: str) -> str:
@@ -482,7 +483,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
     
     # Check if old_name appears outside all string boundaries
     # Use word boundary matching
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     for match in pattern.finditer(stripped):
         match_start, match_end = match.start(), match.end()
         # Check if this occurrence is outside ALL string boundaries
@@ -498,7 +499,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
                 return "import"
             def_pat = _DEF_PATTERNS.get(language)
             if def_pat:
-                concrete = re.compile(def_pat.pattern.format(name=re.escape(old_name)))
+                concrete = re.compile(fill_name_template(def_pat.pattern, old_name))
                 if concrete.match(stripped):
                     return "definition"
             return "usage"
@@ -511,7 +512,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
 
     def_pat = _DEF_PATTERNS.get(language)
     if def_pat:
-        concrete = re.compile(def_pat.pattern.format(name=re.escape(old_name)))
+        concrete = re.compile(fill_name_template(def_pat.pattern, old_name))
         if concrete.match(stripped):
             return "definition"
 
@@ -527,7 +528,7 @@ def _classify_line(line_text: str, old_name: str, language: str) -> str:
 def _scan_non_code_files(store, owner, name, index, old_name):
     """Scan non-code files for word-boundary matches -> warnings."""
     warnings = []
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     for fpath in index.source_files:
         ext = PurePosixPath(fpath).suffix.lower()
         if ext not in _NON_CODE_EXTENSIONS:
@@ -1258,7 +1259,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
     For single-part imports (no dots), we check if that part appears as a word.
     """
     # Check full qualified name first
-    if re.search(r"\b" + re.escape(specifier) + r"\b", body):
+    if re.search(word_pattern(specifier), body):
         return True
     
     # For qualified imports (with dots), check if used in qualified access pattern
@@ -1269,11 +1270,11 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
         # or if os appears followed by . and then path
         qualified_pattern = re.escape(parts[0]) + r"(?:\s*\.\s*)" + re.escape(".".join(parts[1:]))
         # Fix 3: Add word boundary at BOTH ends of the full qualified pattern
-        if re.search(r"\b" + qualified_pattern + r"\b", body, re.DOTALL):
+        if re.search(word_left(parts[0]) + qualified_pattern + word_right(parts[-1]), body, re.DOTALL):
             return True
     elif len(parts) == 1:
         # Single-part import (e.g., `import os`): check if it appears as a word
-        if re.search(r"\b" + re.escape(specifier) + r"\b", body):
+        if re.search(word_pattern(specifier), body):
             return True
     
     return False
@@ -1285,7 +1286,7 @@ def _check_qualified_import_used(body: str, specifier: str) -> bool:
 
 def _count_symbol_occurrences(content: str, symbol_name: str) -> int:
     """Count how many times a symbol name appears at word boundaries in content."""
-    pattern = re.compile(r"\b" + re.escape(symbol_name) + r"\b")
+    pattern = re.compile(word_pattern(symbol_name))
     return len(pattern.findall(content))
 
 
@@ -1402,7 +1403,7 @@ def _is_inside_interpolation(line_text: str, symbol_name: str, language: str) ->
             # Replace {{ and }} with placeholders before checking for interpolation
             escaped_content = fstring_content.replace("{{", "⟪ESCAPED_OPEN⟫").replace("}}", "⟪ESCAPED_CLOSE⟫")
             # Check for {symbol_name} inside the f-string (after removing escaped braces)
-            interp_pattern = re.compile(r"\{[^}]*\b" + re.escape(symbol_name) + r"\b[^}]*\}")
+            interp_pattern = re.compile(r"\{[^}]*" + word_pattern(symbol_name) + r"[^}]*\}")
             if interp_pattern.search(escaped_content):
                 return True
         # Also check for unclosed f-strings (opening quote found but no closing) - line is still in string
@@ -1422,7 +1423,7 @@ def _is_inside_interpolation(line_text: str, symbol_name: str, language: str) ->
                 content_after = stripped[start:]
                 # Bug 6: Also handle escaped braces in unclosed f-strings
                 escaped_content = content_after.replace("{{", "⟪ESCAPED_OPEN⟫").replace("}}", "⟪ESCAPED_CLOSE⟫")
-                interp_pattern = re.compile(r"\{[^}]*\b" + re.escape(symbol_name) + r"\b[^}]*\}")
+                interp_pattern = re.compile(r"\{[^}]*" + word_pattern(symbol_name) + r"[^}]*\}")
                 if interp_pattern.search(escaped_content):
                     return True
     
@@ -1466,7 +1467,7 @@ def _check_symbol_in_template_interp(content: str, symbol_name: str) -> bool:
             # Extract interpolation content (from ${ to matching })
             interp_content = content[start:j-1] if brace_depth == 0 else content[start:]
             # Check for symbol name at word boundary
-            if re.search(r"\b" + re.escape(symbol_name) + r"\b", interp_content):
+            if re.search(word_pattern(symbol_name), interp_content):
                 return True
             i = j
         else:
@@ -1550,7 +1551,7 @@ def _plan_rename(index, store, owner, name, sym, new_name, depth):
 def _generate_rename_blocks(content, old_name, new_name, language):
     """Generate {old_text, new_text, category} blocks for all matches in a file."""
     lines = content.splitlines()
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    pattern = re.compile(word_pattern(old_name))
     blocks = []
 
     for i, line in enumerate(lines):
@@ -1617,7 +1618,7 @@ def _extract_symbol_with_deps(store, owner, name, index, sym):
         # Fix B: Check if any imported name appears in the symbol body
         if imp_names:
             for n in imp_names:
-                if re.search(r"\b" + re.escape(n) + r"\b", body):
+                if re.search(word_pattern(n), body):
                     needed_imports.append(imp)
                     break
         elif specifier:
@@ -1745,7 +1746,7 @@ def _generate_import_rewrites(index, store, owner, name, affected_files, sym_nam
         for i, line in enumerate(content.splitlines()):
             if not (_IMPORT_PATTERNS.get(language, _DEFAULT_IMPORT_PATTERN)).match(line.strip()):
                 continue
-            if not re.search(r"\b" + re.escape(sym_name) + r"\b", line):
+            if not re.search(word_pattern(sym_name), line):
                 continue
 
             # Handle multi-import lines: "from X import a, b" when only "a" moves
@@ -1974,7 +1975,7 @@ def _find_inter_symbol_deps(index, store, owner, name, syms, source_file):
     for sym in syms:
         body = _symbol_body(lines, sym)
         for stay_sym in staying:
-            if re.search(r"\b" + re.escape(stay_sym["name"]) + r"\b", body):
+            if re.search(word_pattern(stay_sym["name"]), body):
                 warnings.append({
                     "extracted": sym["name"],
                     "references": stay_sym["name"],
@@ -1986,7 +1987,7 @@ def _find_inter_symbol_deps(index, store, owner, name, syms, source_file):
     for stay_sym in staying:
         stay_body = _symbol_body(lines, stay_sym)
         for sym in syms:
-            if re.search(r"\b" + re.escape(sym["name"]) + r"\b", stay_body):
+            if re.search(word_pattern(sym["name"]), stay_body):
                 warnings.append({
                     "extracted": sym["name"],
                     "references": stay_sym["name"],
@@ -2180,7 +2181,7 @@ def _plan_signature_change(index, store, owner, name, sym, new_signature, depth)
         if not file_content:
             continue
         file_lines = file_content.splitlines()
-        pattern = re.compile(r"\b" + re.escape(sym_name) + r"\s*\(")
+        pattern = re.compile(word_left(sym_name) + re.escape(sym_name) + r"\s*\(")
 
         for i, line in enumerate(file_lines):
             # Skip all lines that are part of the definition signature
@@ -2227,7 +2228,7 @@ def _extract_call_expression(lines, func_name, start_line_idx):
     """Extract a full function call, handling multi-line with paren balancing."""
     line = lines[start_line_idx]
     # Find the function name and opening paren
-    match = re.search(r"\b" + re.escape(func_name) + r"\s*\(", line)
+    match = re.search(word_left(func_name) + re.escape(func_name) + r"\s*\(", line)
     if not match:
         return line.strip()
 

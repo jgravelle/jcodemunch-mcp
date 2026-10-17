@@ -393,7 +393,18 @@ def _annotation_text(annotation) -> str:
         text = annotation.__name__
     else:
         text = str(annotation)
-    return text.replace(" ", "").replace("typing.", "")
+    text = text.replace(" ", "").replace("typing.", "")
+    # L-205: Python 3.14 renders `Optional[str]` as `str | None`. One type, so
+    # one text: the pinned scalar list names KINDS, not their spellings.
+    return _OPTIONAL_SPELLINGS.get(text, text)
+
+
+_OPTIONAL_SPELLINGS = {
+    "str|None": "Optional[str]",
+    "None|str": "Optional[str]",
+    "Union[str,None]": "Optional[str]",
+    "Union[None,str]": "Optional[str]",
+}
 
 
 def _spec_field_names() -> set[str]:
@@ -654,6 +665,18 @@ def test_the_pending_set_is_exactly_what_review_saw():
         f"new entry needs the branch that adds the field named, and a `getattr` "
         f"read is not evidence the field will ever exist (#757)."
     )
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["Optional[str]", "typing.Optional[str]", "str | None", "str|None", "None | str", "typing.Union[str, None]"],
+)
+def test_every_spelling_of_an_optional_str_reads_as_one(spelling):
+    """L-205: Python 3.14 renders `Optional[str]` as `str | None`, so the
+    normaliser read `decorator_node_type` as a collection there and two tests
+    failed on 3.14 only. The SAME type spelled differently must normalise to
+    one text; the pinned list stays three scalar KINDS."""
+    assert _annotation_text(spelling) == "Optional[str]"
 
 
 def test_every_scalar_field_has_a_pinned_scalar_annotation():
@@ -1165,12 +1188,20 @@ _HELPER_LITERAL_EXCEPTIONS = {
         "derivation the 08-19 standing lesson names",
     ),
     "sql": (
-        {"function_declaration", "function_body"},
+        {"function_declaration", "function_body", "constraint"},
         "reached through the SHARED `_extract_name` and `_build_signature`, which "
         "NAME and SIGN a node rather than decide whether it is a symbol: "
         "`_parse_sql_symbols` recognises `create_function`, and "
         "`CREATE FUNCTION add_one(...)` yields ('add_one', 'function'), so the "
-        "inventory row is honest",
+        "inventory row is honest. `constraint` is reached through "
+        "`_scan_sybase_objects` and `_scan_sql_constraints`, where it is the "
+        "symbol KIND those source scans emit, never a node type matched: "
+        "constraints are recovered from the masked source, not the tree. "
+        "MEASURED against the inventory fixture: `constraint` is in no "
+        "language's rows (sql's are `array_size_definition`, "
+        "`frame_definition`, `function_declaration`, `var_declaration`), and "
+        "it carries none of the four declaration suffixes, so it cannot enter "
+        "them",
     ),
 }
 

@@ -34,7 +34,7 @@ from .policy import (  # noqa: F401,E402
 # Constants
 # ---------------------------------------------------------------------------
 
-from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402  (#871: one marker)
+from .policy import POLICY_MARKER as _CLAUDE_MD_MARKER  # noqa: E402, F401  (#871: one marker; re-exported, L-186)
 
 
 # Policy for `tool_surface="counter"`, the default on a genuinely first-ever
@@ -71,7 +71,9 @@ def _hook_invocation() -> str:
     Windows API that accepts a path and don't trigger bash escape
     parsing.
     """
-    resolved = shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    resolved = executable_for_commands()
     if not resolved:
         # Fall back to bare name; user will get a clear error if PATH is wrong.
         return "jcodemunch-mcp"
@@ -132,13 +134,18 @@ def _enforcement_hooks() -> dict[str, Any]:
 # Cursor rules use MDC format (frontmatter + markdown).
 # alwaysApply: true ensures the rule is in context for every agent turn,
 # including subagents — which is the main reliability complaint.
-_CURSOR_RULES_CONTENT = """\
+# ONE copy: the rules constant and `install_cursor_rules` both prepend it, so
+# the description cannot say one thing for the full policy and another for a
+# filtered one (L-175: it was written twice and only one copy was tested).
+_CURSOR_FRONTMATTER = """\
 ---
-description: Use jCodemunch MCP tools for all code navigation instead of built-in search
+description: When jCodemunch MCP tools are the cheaper route for code navigation, and when the built-in search is
 alwaysApply: true
 ---
 
-""" + _CLAUDE_MD_POLICY
+"""
+
+_CURSOR_RULES_CONTENT = _CURSOR_FRONTMATTER + _CLAUDE_MD_POLICY
 
 # Windsurf uses a plain-text .windsurfrules file in the project root.
 _WINDSURF_RULES_CONTENT = _CLAUDE_MD_POLICY
@@ -342,7 +349,9 @@ def _codex_command() -> Optional[str]:
     cannot resolve a real binary has to say so instead of writing a config
     that appears to work.
     """
-    return shutil.which("jcodemunch-mcp")
+    from ..install_layout import executable_for_commands
+
+    return executable_for_commands()
 
 
 def _has_codex_entry(text: str) -> bool:
@@ -549,10 +558,17 @@ def _claude_md_path(scope: str) -> Path:
 
 
 def _has_policy(path: Path) -> bool:
-    """Check if the Code Exploration Policy marker already exists."""
+    """Does *path* hold the Code Exploration Policy block?
+
+    Asks the one boundary rule (`policy.policy_block_span`), so `init`, the
+    drift check and `claude-md --refresh` agree: a sentence that names the
+    policy is not a block, and `init` installs one beside it.
+    """
     if not path.exists():
         return False
-    return _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8")
+    from .policy import installed_policy_block
+
+    return installed_policy_block(path.read_text(encoding="utf-8")) is not None
 
 
 def with_scoped_config(fn):
@@ -651,10 +667,18 @@ def install_claude_md(scope: str = "global", *, dry_run: bool = False, backup: b
 
         drift = installed_policy_drift(path.read_text(encoding="utf-8"))
         if drift and drift["state"] == "differs":
+            from .policy_refresh import matches_server_policy
+
+            if matches_server_policy(path.read_text(encoding="utf-8")):
+                # (L-185) Written for the server's settings by `--match-server`.
+                return (
+                    f"  policy already present in {path}; it matches the policy for the settings the server "
+                    "had when it last said a block differs, which this shell's settings do not select."
+                )
             return (
                 f"  policy already present in {path}, but it differs from the policy this "
                 "version installs (outdated, or edited on purpose; this cannot tell which). "
-                "See `jcodemunch-mcp config --check`."
+                "`jcodemunch-mcp claude-md --refresh` shows the difference and replaces it after asking."
             )
         return f"  policy already present in {path}"
     if dry_run:
@@ -688,7 +712,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
     Returns a status message.
     """
     path = _cursor_rules_path()
-    if path.exists() and _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8"):
+    if _has_policy(path):  # (L-186) a heading, by the one boundary rule, never a substring
         return f"  already present in {path}"
     if dry_run:
         return f"  would write {path}"
@@ -703,12 +727,7 @@ def install_cursor_rules(*, dry_run: bool = False, backup: bool = True) -> str:
     policy = active_policy()
     content = _CURSOR_RULES_CONTENT
     if policy != _CLAUDE_MD_POLICY:
-        content = (
-            "---\n"
-            "description: Use jCodemunch MCP tools for all code navigation instead of built-in search\n"
-            "alwaysApply: true\n"
-            "---\n\n"
-        ) + policy
+        content = _CURSOR_FRONTMATTER + policy
     path.write_text(content, encoding="utf-8")
     return f"  wrote {path}"
 
@@ -728,7 +747,7 @@ def install_windsurf_rules(*, dry_run: bool = False, backup: bool = True) -> str
     Returns a status message.
     """
     path = _windsurf_rules_path()
-    if path.exists() and _CLAUDE_MD_MARKER in path.read_text(encoding="utf-8"):
+    if _has_policy(path):  # (L-186) a heading, by the one boundary rule, never a substring
         return f"  already present in {path}"
     if dry_run:
         return f"  would append policy to {path}"
@@ -761,7 +780,7 @@ def install_agents_md(*, dry_run: bool = False, backup: bool = True) -> str:
     policy = active_policy()
     if target.exists():
         existing = target.read_text(encoding="utf-8")
-        if _CLAUDE_MD_MARKER in existing:
+        if _has_policy(target):  # (L-186) as above
             return f"  already present in {target}"
         if dry_run:
             return f"  would append policy to {target}"
@@ -1279,6 +1298,21 @@ def _prompt_scope(message: str) -> Optional[str]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+#: jjg (DECISIONS 2026-10-17): the licence line belongs "in the install/init
+#: output a person reads, not in the agent's answers". ⚠⚠ Printed only at the
+#: end of a real run, never in a tool response, a relayed notice or the policy
+#: text; `tests/test_init_licence_line.py` fails if any other `src/` module
+#: carries it. Wording is Marketing's (2026-10-17); $79 is Builder, README's price.
+_LICENCE_LINES = (
+    "Using jCodeMunch at work? A commercial licence is $79, one time: https://jcodemunch.com/descriptions.php",
+    "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
+)
+#: Set by `upgrade` on the `init --hooks` it runs: the line is shown once per
+#: install, never on every upgrade (Chief of Staff, 2026-10-17). An env var, not
+#: a flag, so an older executable that `upgrade` may find on PATH ignores it.
+UPGRADE_REFRESH_ENV = "_JCODEMUNCH_UPGRADE_REFRESH"
+
+
 @with_scoped_config
 def run_init(
     *,
@@ -1556,6 +1590,13 @@ def run_init(
                 "eliminating staleness anxiety and enforcing token-efficient navigation",
             ))
 
+    if do_hooks or do_enforce:
+        from ..install_layout import substitution_note
+
+        _note = substitution_note()
+        if _note:
+            print(f"  Note: {_note}")
+
     # ----- Step 3c: Copilot hooks (.github/hooks/hooks.json) -----
     if copilot_hooks:
         msg = install_copilot_hooks(dry_run=dry_run, backup=backup)
@@ -1617,6 +1658,10 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
+        if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
+            print()
+            for line in _LICENCE_LINES:
+                print(line)
     print()
     return 0
 
@@ -1625,55 +1670,34 @@ def run_init(
 # Uninstall — reverses every install_* function above
 # ---------------------------------------------------------------------------
 
-# Headings emitted by _CLAUDE_MD_POLICY. Used by uninstall to recognise the
-# region we own when stripping the policy back out of a CLAUDE.md / AGENTS.md /
-# .windsurfrules file.
-_POLICY_HEADINGS: tuple[str, ...] = (
-    "## Code Exploration Policy",
-    "## Session-Aware Routing",
-    "## Model-Driven Tool Tiering",
-)
-
-
 def _strip_policy_blocks(text: str) -> tuple[str, bool]:
     """Remove the jCodemunch policy region from a markdown body.
 
-    Treats the first `## Code Exploration Policy` heading as the start of the
-    region. Consumes any of `_POLICY_HEADINGS` blocks that follow contiguously
-    (so partial / tier-filtered installs are still removed cleanly). Stops at
-    the first `## ` heading that is *not* one of ours, preserving any
-    user-added sections after the policy.
+    The region is `policy.policy_block_span`'s, THE boundary rule `init`, the
+    drift check and `claude-md --refresh` share (LEDGER L-186). This function
+    had a rule of its own that ended the block only at a `## ` heading, so a
+    user's `#` or `###` section right after the policy was deleted with it.
+    The shared rule ends at a heading of any level that is not one of the
+    policy's own sections, and ignores `#` inside a code fence.
 
     Returns (new_text, changed).
     """
-    lines = text.splitlines(keepends=True)
-    start = None
-    for i, line in enumerate(lines):
-        stripped = line.rstrip("\n")
-        if stripped in _POLICY_HEADINGS:
-            start = i
-            break
-    if start is None:
-        return text, False
+    from .policy import policy_block_span
 
-    # Walk forward, consuming contiguous policy blocks.
-    end = len(lines)
-    i = start + 1
-    while i < len(lines):
-        stripped = lines[i].rstrip("\n")
-        if stripped.startswith("## "):
-            if stripped in _POLICY_HEADINGS:
-                i += 1
-                continue
-            end = i
-            break
-        i += 1
+    # A byte-order mark is kept aside and put back, so a block on the first
+    # line does not take it with it.
+    bom = chr(0xFEFF) if text.startswith(chr(0xFEFF)) else ""
+    lines = text[len(bom):].splitlines(keepends=True)
+    span = policy_block_span([ln.rstrip("\r\n") for ln in lines])
+    if span is None:
+        return text, False
+    start, end = span
 
     # Trim trailing blank lines we leave behind.
     before = "".join(lines[:start]).rstrip() + ("\n" if start > 0 else "")
     after = "".join(lines[end:])
     new_text = before + ("\n" + after if after.strip() else "")
-    return new_text, True
+    return (bom + new_text if new_text else new_text), True
 
 
 def _unpatch_mcp_config(path: Path, *, backup: bool, dry_run: bool) -> str:

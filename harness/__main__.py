@@ -148,6 +148,10 @@ def _run(cmd: list[str], *, env: dict | None = None) -> tuple[int, str, float]:
     e = dict(os.environ)
     e.setdefault("PYTHONPATH", str(REPO / "src"))
     e.setdefault("PYTHONIOENCODING", "utf-8")
+    # A tier is not a user: the tool calls it makes must not be reported to the
+    # public savings total. Benchmark tiers ran outside the tests' network guard
+    # and posted like any install (cicd C-23).
+    e.setdefault("JCODEMUNCH_SHARE_SAVINGS", "0")
     if env:
         e.update(env)
     proc = subprocess.run(

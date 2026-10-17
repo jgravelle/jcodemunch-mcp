@@ -37,14 +37,20 @@ from ..security import (
     get_skip_directories,
     get_skip_msbuild_output,
     get_skip_nuget_packages,
+    get_skip_virtualenvs,
+    get_skip_generated_migrations,
     is_cache_directory,
     is_dotnet_project_dir,
     is_msbuild_output_directory,
     is_msbuild_output_path,
     is_nuget_packages_directory,
+    is_virtualenv_site_packages_directory,
+    is_generated_migrations_directory,
     SKIP_FILES
 )
+from .. import path_prefix
 from ..storage import IndexStore
+from ..storage.sqlite_store import PROVIDERS_CUT_KEY
 from ..storage.git_root import (
     IdentityModeAmbiguous,
     IdentityModeConflict,
@@ -246,6 +252,7 @@ def _maybe_apply_adaptive(folder_path: str, result: dict) -> None:
 def get_filtered_files(path: str) -> Generator[str, None, None]:
     """Generator function to filter directories and files"""
     skip_dirs_regex = _build_skip_dirs_regex(repo=path)
+    skip_migrations = get_skip_generated_migrations(repo=path)
     # Use os.walk with followlinks=False to avoid infinite loops caused by
     # NTFS junctions or symlinks pointing back to ancestor directories.
     for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
@@ -257,6 +264,7 @@ def get_filtered_files(path: str) -> Generator[str, None, None]:
             dir for dir in dirnames
             if not skip_dirs_regex.match(dir)
             and not is_linked_worktree(dpath / dir)
+            and not (skip_migrations and is_generated_migrations_directory(dir, dpath / dir))
         ]
         for file in filenames:
             if not SKIP_FILES_REGEX.search(file):
@@ -432,7 +440,7 @@ class _IndexFilters:
     bundle rather than baked into it.
     """
     root: Path
-    root_prefix: str         # str(root) + os.sep
+    root_prefix: str         # path_prefix.dir_prefix(str(root))
     root_str_norm: str       # os.path.normcase(str(root))
     root_prefix_norm: str    # os.path.normcase(root_prefix)
     follow_symlinks: bool = False
@@ -445,6 +453,27 @@ class _IndexFilters:
     respect_cachedir_tag: bool = True
     skip_msbuild_output: bool = True
     skip_nuget_packages: bool = True
+    skip_virtualenvs: bool = True
+    skip_generated_migrations: bool = True
+
+
+def _config_skip_flags(repo: str) -> dict:
+    """The skip switches a project's config sets, read once for one walk root.
+
+    The full walk and the watcher's fast path both take their switches from here,
+    so a switch added to one route cannot be missing from the other.
+    """
+    return {
+        "respect_cachedir_tag": get_respect_cachedir_tag(repo=repo),
+        "skip_msbuild_output": get_skip_msbuild_output(repo=repo),
+        "skip_nuget_packages": get_skip_nuget_packages(repo=repo),
+        "skip_virtualenvs": get_skip_virtualenvs(repo=repo),
+        "skip_generated_migrations": get_skip_generated_migrations(repo=repo),
+    }
+
+
+# L-197: the containment prefix comes from the one rule (path_prefix.py).
+_dir_prefix = path_prefix.dir_prefix
 
 
 def _build_index_filters(
@@ -460,13 +489,15 @@ def _build_index_filters(
     respect_cachedir_tag: bool = True,
     skip_msbuild_output: bool = True,
     skip_nuget_packages: bool = True,
+    skip_virtualenvs: bool = True,
+    skip_generated_migrations: bool = True,
 ) -> _IndexFilters:
     """Bundle pre-computed filter config for ``_should_index_file``.
 
     ``root`` must already be resolved by the caller.
     """
     root_str = str(root)
-    root_prefix = root_str + os.sep
+    root_prefix = _dir_prefix(root_str)
     return _IndexFilters(
         root=root,
         root_prefix=root_prefix,
@@ -482,6 +513,8 @@ def _build_index_filters(
         respect_cachedir_tag=respect_cachedir_tag,
         skip_msbuild_output=skip_msbuild_output,
         skip_nuget_packages=skip_nuget_packages,
+        skip_virtualenvs=skip_virtualenvs,
+        skip_generated_migrations=skip_generated_migrations,
     )
 
 
@@ -505,7 +538,7 @@ def _should_index_file(
         ``skip_counts`` keys (``skip_file``, ``symlink``,
         ``symlink_escape``, ``path_traversal``, ``skip_dir``,
         ``nested_worktree``, ``cache_dir``, ``msbuild_output``,
-        ``nuget_packages``, ``gitignore``, ``extra_ignore``, ``secret``,
+        ``nuget_packages``, ``virtualenv``, ``generated_migrations``, ``gitignore``, ``extra_ignore``, ``secret``,
         ``wrong_extension``, ``too_large``, ``unreadable``, ``binary``).
         ``rel_path`` may
         be empty if rejection happened before path resolution.
@@ -589,10 +622,21 @@ def _should_index_file(
             # called `obj`/`bin`/`packages` costs one string compare and no IO.
             if cfg.skip_msbuild_output and is_msbuild_output_path(ancestor):
                 return False, "msbuild_output", rel_path, None
+            # A Python virtualenv's installed packages (`site-packages` under a root
+            # whose `pyvenv.cfg` proves it, L-206); name-gated, so other components
+            # cost one string compare. Same order as the walk.
+            if cfg.skip_virtualenvs and is_virtualenv_site_packages_directory(
+                ancestor.name, ancestor.parent
+            ):
+                return False, "virtualenv", rel_path, None
             if cfg.skip_nuget_packages and is_nuget_packages_directory(
                 ancestor.name, ancestor
             ):
                 return False, "nuget_packages", rel_path, None
+            if cfg.skip_generated_migrations and is_generated_migrations_directory(
+                ancestor.name, ancestor
+            ):
+                return False, "generated_migrations", rel_path, None
 
     # 8. Gitignore (string-prefix specs, walk-order)
     if gitignore_specs and _is_gitignored_fast(resolved_str, gitignore_specs):
@@ -831,6 +875,57 @@ def _resolve_active_providers(folder_path: Path, context_providers: bool) -> lis
     return active
 
 
+# L-190: a provider the budget cut leaves its context off the stored symbols.
+# The index records it under PROVIDERS_CUT_KEY, and the next full pass over the
+# whole tree re-parses every file to run it again. A pass that re-reads only
+# part of the tree (`paths=`, a watched edit, `index_file`, a subdir walk, a
+# branch delta) keeps the record; `incremental_save` carries it for every
+# delta writer.
+
+
+def _provider_cut_names(folder_path: Path) -> list[str]:
+    """Providers the budget cut on this process's latest discovery for the folder."""
+    skips = _PROVIDER_SKIPS.get(str(folder_path)) or []
+    return sorted({
+        str(s["provider"]) for s in skips
+        if s.get("reason") == "budget_exceeded" and s.get("provider")
+    })
+
+
+def _stored_provider_cut(index) -> list[str]:
+    """Providers an index records as cut; [] for none or an unreadable value."""
+    meta = getattr(index, "context_metadata", None) or {}
+    value = meta.get(PROVIDERS_CUT_KEY) if isinstance(meta, dict) else None
+    return sorted({str(v) for v in value}) if isinstance(value, list) else []
+
+
+def _stamp_provider_cut(
+    meta: Optional[dict], cut: list[str], existing, *, carry_existing: bool
+) -> Optional[dict]:
+    """Return context metadata that records `cut`, clearing a stored cut it ends.
+
+    An incremental save REPLACES `context_metadata` when given a dict and keeps
+    the stored one when given None, so a pass with no provider metadata of its
+    own starts from the stored dict (`carry_existing`) rather than wiping it. A
+    full save starts from nothing, as it always has.
+    """
+    if not cut and not _stored_provider_cut(existing):
+        return meta
+    if meta is not None:
+        out = dict(meta)
+    elif carry_existing:
+        out = dict(getattr(existing, "context_metadata", None) or {})
+    else:
+        out = {}
+    if cut:
+        out[PROVIDERS_CUT_KEY] = sorted(cut)
+        return out
+    # A healed record leaves no empty key behind; a full save starting from
+    # nothing goes back to None, as it was before any cut.
+    out.pop(PROVIDERS_CUT_KEY, None)
+    return out if (out or meta is not None or carry_existing) else None
+
+
 def _attach_provider_skips(result: dict, folder_path: Path) -> None:
     """Surface budget-skipped / failed context providers on an index result."""
     skips = _PROVIDER_SKIPS.get(str(folder_path)) or []
@@ -845,6 +940,8 @@ def _attach_provider_skips(result: dict, folder_path: Path) -> None:
                 f"{skip.get('seconds')}s and was skipped. Symbols are indexed but "
                 f"carry no {skip['provider']} context, and its import edges "
                 f"(route mounts, template renders) are missing from the graph. "
+                f"The index records the cut, and the next index_folder re-parses "
+                f"every file so the provider runs again. "
                 f"Raise JCODEMUNCH_PROVIDER_BUDGET_SECONDS to let it finish, or "
                 f"set context_providers=false to stop paying for it."
             )
@@ -950,7 +1047,7 @@ def _rel_to_root(abs_path: Path, root: Path) -> Optional[str]:
         # Last resort: normcase both (Windows drive-letter/short-name casing).
         r_norm = os.path.normcase(str(root_resolved))
         p_norm = os.path.normcase(str(resolved))
-        prefix = r_norm if r_norm.endswith(os.sep) else r_norm + os.sep
+        prefix = _dir_prefix(r_norm)
         if p_norm.startswith(prefix):
             return str(resolved)[len(prefix):].replace("\\", "/")
     except OSError:
@@ -1254,9 +1351,12 @@ def discover_local_files(
     _repo_key = str(root)
     max_size = get_max_file_size(max_size, repo=_repo_key)
     max_files = get_max_folder_files(max_files, repo=_repo_key)
-    respect_cachedir_tag = get_respect_cachedir_tag(repo=_repo_key)
-    skip_msbuild_output = get_skip_msbuild_output(repo=_repo_key)
-    skip_nuget_packages = get_skip_nuget_packages(repo=_repo_key)
+    _flags = _config_skip_flags(_repo_key)
+    respect_cachedir_tag = _flags["respect_cachedir_tag"]
+    skip_msbuild_output = _flags["skip_msbuild_output"]
+    skip_nuget_packages = _flags["skip_nuget_packages"]
+    skip_virtualenvs = _flags["skip_virtualenvs"]
+    skip_generated_migrations = _flags["skip_generated_migrations"]
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1266,6 +1366,8 @@ def discover_local_files(
         "nested_worktree": 0,
         "msbuild_output": 0,
         "nuget_packages": 0,
+        "virtualenv": 0,
+        "generated_migrations": 0,
         "skip_file": 0,
         "symlink": 0,
         "symlink_escape": 0,
@@ -1285,13 +1387,7 @@ def discover_local_files(
     # the walk below (P8: single os.walk pass instead of two).
     gitignore_str_specs: list[tuple[str, pathspec.PathSpec]] = []
 
-    # Pre-compute root path strings (root is already resolved above).
-    # Normalized variants use os.path.normcase for case-insensitive comparison
-    # on Windows (no-op on POSIX).
-    root_str = str(root)
-    root_prefix = root_str + os.sep
-    root_str_norm = os.path.normcase(root_str)
-    root_prefix_norm = os.path.normcase(root_prefix)
+    root_str = str(root)  # root is already resolved above
 
     # Merge env-var global, project-level, and per-call patterns, then build
     # spec. Passing repo=str(folder_path) so .jcodemunch.jsonc overrides land
@@ -1345,6 +1441,8 @@ def discover_local_files(
         caches = []
         msbuild = []
         nuget = []
+        venvs = []
+        migrations = []
         kept = []
         # `filenames` is this directory's entries, already walked, so the .NET
         # project-file marker `is_msbuild_output_directory` needs costs no IO.
@@ -1367,6 +1465,13 @@ def discover_local_files(
             # either way.
             elif respect_cachedir_tag and is_cache_directory(dpath / d):
                 caches.append(d)
+            # A Python virtualenv's installed packages: `site-packages` at the
+            # path a venv tool writes it, under a root whose `pyvenv.cfg` proves
+            # it (L-206). Everything else in the venv, including source a user
+            # keeps in its root, `bin/` or `lib/`, stays. Name-gated: other
+            # directories cost one string compare.
+            elif skip_virtualenvs and is_virtualenv_site_packages_directory(d, dpath):
+                venvs.append(d)
             # A NuGet restore tree. Checked LAST because it is the only rule here
             # that can cost more than one syscall — up to one stat per child dir —
             # and that cost is gated behind a `packages` name compare, so every
@@ -1375,9 +1480,13 @@ def discover_local_files(
             # either way.
             elif skip_nuget_packages and is_nuget_packages_directory(d, dpath / d):
                 nuget.append(d)
+            # Generated migrations: name-gated, so every other directory pays one
+            # string compare; a `migrations` directory costs one listing.
+            elif skip_generated_migrations and is_generated_migrations_directory(d, dpath / d):
+                migrations.append(d)
             else:
                 kept.append(d)
-        if pruned or worktrees or caches or msbuild or nuget:
+        if pruned or worktrees or caches or msbuild or nuget or venvs or migrations:
             rel_dir = os.path.relpath(dirpath, root_str)
             for d in pruned:
                 skip_counts["skip_dir"] += 1
@@ -1396,6 +1505,12 @@ def discover_local_files(
             for d in nuget:
                 skip_counts["nuget_packages"] += 1
                 logger.debug("SKIP nuget_packages: %s", os.path.join(rel_dir, d))
+            for d in venvs:
+                skip_counts["virtualenv"] += 1
+                logger.debug("SKIP virtualenv: %s", os.path.join(rel_dir, d))
+            for d in migrations:
+                skip_counts["generated_migrations"] += 1
+                logger.debug("SKIP generated_migrations: %s", os.path.join(rel_dir, d))
         dirnames[:] = kept
 
         # Load .gitignore for this directory BEFORE filtering its files so
@@ -1405,7 +1520,7 @@ def discover_local_files(
             try:
                 content = gitignore_path.read_text(encoding="utf-8", errors="replace")
                 spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
-                gitignore_str_specs.append((str(dpath.resolve()) + os.sep, spec))
+                gitignore_str_specs.append((_dir_prefix(str(dpath.resolve())), spec))
             except Exception:
                 pass
 
@@ -1865,7 +1980,7 @@ def index_folder(
                         "gitignore", _gi_content.splitlines()
                     )
                     _fast_gitignore_specs.append(
-                        (str(folder_path.resolve()) + os.sep, _gi_spec)
+                        (_dir_prefix(str(folder_path.resolve())), _gi_spec)
                     )
             except Exception:
                 pass
@@ -1915,15 +2030,7 @@ def index_folder(
                 ),
                 check_binary=False,
                 check_filename=True,
-                respect_cachedir_tag=get_respect_cachedir_tag(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_msbuild_output=get_skip_msbuild_output(
-                    repo=str(Path(walk_root).resolve())
-                ),
-                skip_nuget_packages=get_skip_nuget_packages(
-                    repo=str(Path(walk_root).resolve())
-                ),
+                **_config_skip_flags(str(Path(walk_root).resolve())),
             )
 
             # Branch detection for watcher fast-path
@@ -2186,6 +2293,13 @@ def index_folder(
                 _fast_phase("parse")
                 git_head = _get_git_head(folder_path) or ""
                 incr_context_metadata = collect_metadata(active_providers) if active_providers else None
+                # A delta keeps the stored cut; a discovery run on a cache miss
+                # may add one of its own (L-190).
+                incr_context_metadata = _stamp_provider_cut(
+                    incr_context_metadata,
+                    sorted(set(_stored_provider_cut(existing_index)) | set(_provider_cut_names(folder_path))),
+                    existing_index, carry_existing=True,
+                )
                 _fast_phase("git_head")
 
                 # Merge mtime-only updates so they're persisted alongside real changes
@@ -2497,6 +2611,12 @@ def index_folder(
         # ── Branch-aware indexing ──
         # Detect current git branch. If a base index exists and we're on a
         # different branch, save as a branch delta instead of overwriting the base.
+        # ⚠⚠ DORMANT (L-196, jjg 2026-10-15): no full save records the base's
+        # branch, so `_base_branch` falls back to the current one and delta mode
+        # never starts; and no reader composes a branch view. The index follows
+        # the checked-out tree, which is what every reader assumes
+        # (tests/test_index_follows_the_checked_out_tree.py). Enabling the
+        # writer without the read path would serve a stale base on a branch.
         _current_branch = _get_git_branch(folder_path)
         _is_branch_delta = False
         _base_branch: str = ""
@@ -2600,6 +2720,33 @@ def index_folder(
                     "Racket config (racket_definition_forms / racket_langs) changed since this "
                     "index was built; every file was re-parsed once so the declarations apply."
                 )
+        elif (
+            (_cut_before := _stored_provider_cut(existing_index))
+            and paths is None
+            and not _is_branch_delta
+            and _merge_with_existing is None
+        ):
+            # L-190: a provider the budget cut on an earlier pass left its
+            # context off every file, and an incremental pass re-reads only the
+            # changed ones, so the gap would outlive the slow moment that made
+            # it. Re-parse everything once so the provider runs again. Only a
+            # pass over the whole tree can clear the record, so a targeted pass
+            # (`paths=`), a subdir walk and a branch delta (whose index inherits
+            # the base's metadata and cannot save its own) keep it instead.
+            incremental = False
+            rebuild_reason = "context_provider_cut"
+            logger.warning(
+                "index_folder context_provider_cut — %s/%s: %s cut by the provider "
+                "budget on the last pass; re-parsing every file so it runs again",
+                owner, repo_name, ", ".join(_cut_before),
+            )
+            warnings.append(
+                f"Context provider(s) {', '.join(_cut_before)} ran out of time on the last "
+                f"index pass, so their context was missing from this index; every file was "
+                f"re-parsed so they run again. A provider that runs out of time on every pass "
+                f"makes every index_folder a full re-parse: raise "
+                f"JCODEMUNCH_PROVIDER_BUDGET_SECONDS or set context_providers=false."
+            )
 
         # Discovery pass — resolve rel_paths and collect mtimes without
         # reading file contents (P2-5: avoids 200MB-1GB allocation
@@ -2814,6 +2961,13 @@ def index_folder(
 
             git_head = _get_git_head(folder_path) or ""
             incr_context_metadata = collect_metadata(active_providers) if active_providers else None
+            # An incremental pass re-reads only changed files, so a stored cut
+            # stays until a full pass clears it; a new cut joins it (L-190).
+            incr_context_metadata = _stamp_provider_cut(
+                incr_context_metadata,
+                sorted(set(_stored_provider_cut(existing_index)) | set(_provider_cut_names(folder_path))),
+                existing_index, carry_existing=True,
+            )
 
             # ── Optional LSP enrichment (incremental path) ──
             try:
@@ -3033,11 +3187,10 @@ def index_folder(
                     if existing_index.file_hashes.get(f) == h
                 }
                 if _folder_unchanged_files:
-                    _folder_existing_summaries = {
-                        (s["file"], s["name"], s["kind"]): s["summary"]
-                        for s in existing_index.symbols
-                        if s.get("summary") and s.get("file") in _folder_unchanged_files
-                    }
+                    from . import _indexing_pipeline
+                    _folder_existing_summaries = _indexing_pipeline.preservable_summaries(
+                        existing_index.symbols, _folder_unchanged_files
+                    )
                     logger.info(
                         "index_folder full — %d/%d files unchanged, %d summaries preserved",
                         len(_folder_unchanged_files), len(file_hashes),
@@ -3072,6 +3225,18 @@ def index_folder(
                 full_context_metadata.update(profile_meta)
             else:
                 full_context_metadata = profile_meta
+
+        # A full pass over the whole tree re-ran every provider over every
+        # file, so its cuts replace the stored record. A subdir walk carries
+        # files it never re-read and a branch delta saves no metadata of its
+        # own, so those keep the record and add to it (L-190).
+        _cut_now = set(_provider_cut_names(folder_path))
+        if _merge_with_existing is not None or _is_branch_delta:
+            _cut_now |= set(_stored_provider_cut(existing_index))
+        full_context_metadata = _stamp_provider_cut(
+            full_context_metadata, sorted(_cut_now),
+            existing_index, carry_existing=False,
+        )
 
         # Extract package names from manifest files
         _pkg_names: list[str] = []

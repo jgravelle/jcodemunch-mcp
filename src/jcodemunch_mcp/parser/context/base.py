@@ -74,8 +74,12 @@ class FileContext:
             parts.append(f"Properties: {', '.join(prop_strs)}")
         return ". ".join(parts)
 
-    def file_summary(self) -> str:
-        """Build an enriched file-level summary."""
+    def file_summary(self, include_properties: bool = True) -> str:
+        """Build an enriched file-level summary.
+
+        ``include_properties=False`` drops the "N properties" count, for a
+        provider whose properties are not vocabulary (L-189).
+        """
         parts = []
         if self.description:
             desc = self.description.strip()
@@ -84,16 +88,20 @@ class FileContext:
             parts.append(desc)
         if self.tags:
             parts.append(f"Tags: {', '.join(self.tags)}")
-        if self.properties:
+        if self.properties and include_properties:
             parts.append(f"{len(self.properties)} properties")
         return ". ".join(parts)
 
-    def search_keywords(self) -> list[str]:
-        """Extract keywords for search indexing."""
+    def search_keywords(self, include_properties: bool = True) -> list[str]:
+        """Extract keywords for search indexing.
+
+        ``include_properties=False`` for a provider whose property names are
+        not vocabulary (see ``ContextProvider.properties_are_search_terms``).
+        """
         keywords = []
         if self.tags:
             keywords.extend(self.tags)
-        if self.properties:
+        if self.properties and include_properties:
             keywords.extend(self.properties.keys())
         return keywords
 
@@ -113,6 +121,16 @@ class ContextProvider(ABC):
     # watchdog only stops the CALLER waiting — it cannot stop the work. Loops
     # that poll this actually stop burning CPU, so poll it wherever you walk.
     _deadline: Optional[float] = None
+
+    # Whether this provider's property NAMES become search keywords on every
+    # symbol of a file it covers. True for a framework or data provider, whose
+    # property names describe the code (`materialized`, a route verb). False for
+    # one whose coverage depends on something outside the corpus: git blame
+    # covers a file only when a timed `git log` finished, and BM25 scores the
+    # keywords, so a timeout reordered search results on unchanged code (L-188).
+    # The same flag keeps the bare "N properties" count out of a file summary
+    # (`FileContext.file_summary`), which names nothing for such a provider (L-189).
+    properties_are_search_terms: bool = True
 
     def budget_expired(self) -> bool:
         """True once this provider has overrun its discovery budget."""
@@ -264,6 +282,12 @@ def discover_providers(
                 finished, exc = True, e
 
         elapsed = time.monotonic() - started
+        # A provider that polls budget_expired() returns on its own at the
+        # deadline, so the watchdog can see it finish with part of its work
+        # (L-190). That is an overrun too: keeping the partial context would
+        # make what an index carries depend on which thread won the race.
+        if finished and exc is None and budget > 0 and outcome.get("detected") and provider.budget_expired():
+            finished = False
         if not finished:
             logger.warning(
                 "Context provider '%s' exceeded its %.1fs budget and was skipped; "
@@ -330,7 +354,7 @@ def enrich_symbols(symbols: list, providers: list[ContextProvider]) -> None:
             ctx = provider.get_file_context(fpath)
             if ctx is not None:
                 summary = ctx.summary_context(max_properties=8)
-                kw = ctx.search_keywords()
+                kw = ctx.search_keywords(include_properties=provider.properties_are_search_terms)
                 if summary or kw:
                     file_ctx_cache[(pname, fpath)] = (summary, kw)
 

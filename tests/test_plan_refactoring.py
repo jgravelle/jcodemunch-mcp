@@ -1897,11 +1897,14 @@ class TestLanguageCoverage:
         for lang, sample in sample_defs.items():
             pattern = _DEF_PATTERNS.get(lang)
             assert pattern is not None, f"No _DEF_PATTERN for '{lang}'"
-            # For patterns using {name}, substitute "Foo"
-            # Use replace() instead of format() to avoid issues with literal braces in patterns
+            # For patterns using {name}, substitute "Foo" the way the tool does:
+            # the templates end the name with {right} since L-154, and the
+            # filler replaces (never format(): the patterns hold literal braces).
             if "{name}" in pattern.pattern:
+                from jcodemunch_mcp.word_rule import fill_name_template
+
                 concrete_pattern = re_module.compile(
-                    pattern.pattern.replace("{name}", re_module.escape("Foo"))
+                    fill_name_template(pattern.pattern, "Foo")
                 )
             else:
                 concrete_pattern = pattern

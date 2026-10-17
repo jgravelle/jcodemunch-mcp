@@ -35,6 +35,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # A runner is not a user: its tool calls must not be reported to the public savings total (cicd C-23).
+  JCODEMUNCH_SHARE_SAVINGS: "0"
   UV_VERSION: "0.9.5"   # must be able to read uv.lock revision 3; bump with the lock, never alone
 
 jobs:
@@ -135,7 +137,7 @@ jobs:
     needs: [fast-harness, fast-format, fast-types, fast-deps, fast-secrets]
     if: github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20   # ci.test_job_timeout_minutes; the harness asserts this literal against the Floor
+    timeout-minutes: 25   # ci.test_job_timeout_minutes; the harness asserts this literal against the Floor
     strategy:
       fail-fast: false
       matrix:

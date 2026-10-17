@@ -63,7 +63,7 @@ class _Work:
         self.chars += len(content)
         self.calls += 1
         self.longest = max(self.longest, len(content))
-        return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
+        return bool(re.search(_call_graph.word_pattern(name), content))
 
     def word_starts(self, content: str, name: str) -> list[int]:
         """The search that lists every match: it cannot stop at the first."""
@@ -71,7 +71,7 @@ class _Work:
         self.calls += 1
         self.listings += 1
         self.longest = max(self.longest, len(content))
-        return [m.start() for m in re.finditer(r"\b" + re.escape(name) + r"\b", content)]
+        return [m.start() for m in re.finditer(_call_graph.word_pattern(name), content)]
 
 
 class _CountedWords:
@@ -203,7 +203,7 @@ def _reference_sweep(index, store, owner, name, rev, callee_has_caller) -> None:
                 hit = sym_name in residue_names(caller_file)
             else:
                 residue = residue_text(caller_file)
-                hit = bool(residue) and bool(re.search(r"\b" + re.escape(sym_name) + r"\b", residue))
+                hit = bool(residue) and bool(re.search(_call_graph.word_pattern(sym_name), residue))
             if hit:
                 callee_has_caller.add(sid)
                 break
@@ -540,7 +540,7 @@ CASES = {
         [_sym("a", "do-it", "f.clj", 1, 1), _sym("b", "go-on", "f.clj", 2, 2)],
         {"f.clj": "(defn do-it [] 1)\n(defn go-on [] 1)\n(do-it-now)\n(pre-go-on)\n"},
     ),
-    "a predicate needs a word after the mark": (
+    "a predicate glued to a word is not the name (L-154)": (
         [_sym("a", "ok?", "f.rb", 1, 1), _sym("b", "on?", "f.rb", 2, 2)],
         {"f.rb": "def ok?; end\ndef on?; end\nok?x\non?\n"},
     ),
@@ -634,12 +634,12 @@ EXPECTED = {
     "a name inside another symbol's body is not residue": set(),
     "a longer hyphenated name is not the name": set(),
     "a hyphen continues the name in the old search too": {"a", "b"},
-    "a predicate needs a word after the mark": {"a"},
+    "a predicate glued to a word is not the name (L-154)": {"b"},
     "an arity name": {"a"},
     "found in an importer's residue": {"a"},
     "inside an importer's symbol is not residue": set(),
     "found in the second importer": {"a"},
-    "an operator between words": {"a"},
+    "an operator between words": {"a", "b"},
     "a symbol with no span stays in the residue": {"a"},
     "an end before the start covers nothing": {"a"},
     "a span past the end of the file": {"a"},

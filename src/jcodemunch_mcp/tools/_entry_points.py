@@ -158,6 +158,10 @@ _HOST_INVOKED_NAMES = frozenset({
 # Build-consumed: project-file items. Runtime-loadable: LoadControl, a CMS's
 # stored control path, MasterPageFile set in code.
 _BUILD_CONSUMED_SUFFIXES = (".resx", ".xaml", ".xsd", ".wsdl", ".props", ".targets")
+# W3C formats other ecosystems use too: always capped, `build_consumed` with
+# .NET evidence and the neutral `schema_consumer` otherwise, since any build or
+# code generator outside the index may compile them.
+_SHARED_FORMAT_SUFFIXES = (".xsd", ".wsdl")
 _RUNTIME_LOADABLE_SUFFIXES = (".ascx", ".master")
 
 
@@ -170,16 +174,43 @@ def is_host_invoked(file_path: str) -> bool:
     return base in _HOST_INVOKED_NAMES or base.endswith(_HOST_INVOKED_SUFFIXES)
 
 
-def unseen_consumer(file_path: str) -> Optional[str]:
-    """`build_consumed`, `runtime_loadable`, or None.
+# Evidence picks only the kind and its advice, never whether a schema is
+# capped. .NET source and the .NET-only capped formats count, so a C#, Razor or
+# controls-only subtree with no project file still reads as .NET (an F# subtree
+# of bare `.fs` files does not, below).
+# (L-184) A Razor or Blazor tree carries no `.cs`, so its schemas got the
+# neutral advice. ⚠ A bare `.fs` is NOT evidence: GLSL fragment shaders and
+# Forth use it, and a Maven repository with `shader.fs` read as .NET. F# counts
+# through `.fsproj` (host-invoked, above), `.fsx` and `.fsi`.
+# ⚠ Only INDEXED files are seen (`index.source_files`): `.vb`, `.vbhtml`,
+# `.sln` and `.vcxproj` have no language here, so naming them would do nothing.
+_DOTNET_SOURCE_SUFFIXES = (".cs", ".fsx", ".fsi", ".cshtml", ".razor")
+_DOTNET_ONLY_SUFFIXES = tuple(
+    s for s in _BUILD_CONSUMED_SUFFIXES if s not in _SHARED_FORMAT_SUFFIXES
+) + _RUNTIME_LOADABLE_SUFFIXES
+
+
+def has_dotnet_evidence(source_files) -> bool:
+    """True when any indexed file is .NET source, a .NET-only format, or one IIS or MSBuild invokes."""
+    return any(
+        is_host_invoked(f) or f.lower().endswith(_DOTNET_SOURCE_SUFFIXES + _DOTNET_ONLY_SUFFIXES)
+        for f in source_files
+    )
+
+
+def unseen_consumer(file_path: str, *, dotnet: bool) -> Optional[str]:
+    """`build_consumed`, `schema_consumer`, `runtime_loadable`, or None.
 
     A host-invoked file is a root and never capped, so `Directory.Build.props`
-    (also a `.props`) returns None.
+    (also a `.props`) returns None. `dotnet` is `has_dotnet_evidence` for the
+    repository; without it `.xsd`/`.wsdl` are still capped, as `schema_consumer`.
     """
     if is_host_invoked(file_path):
         return None
     base = _basename_lower(file_path)
     if base.endswith(_BUILD_CONSUMED_SUFFIXES):
+        if not dotnet and base.endswith(_SHARED_FORMAT_SUFFIXES):
+            return "schema_consumer"
         return "build_consumed"
     if base.endswith(_RUNTIME_LOADABLE_SUFFIXES):
         return "runtime_loadable"

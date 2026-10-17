@@ -18,6 +18,7 @@ from ._dynamic_boundary import FILES_CAP as DYNAMIC_FILES_CAP, DynamicBoundary
 from ._utils import index_status_to_tool_error, resolve_repo, resolve_fqn
 from .package_registry import extract_root_package_from_specifier
 from ._call_graph import build_symbols_by_file, bfs_callers
+from ..word_rule import word_pattern
 from .find_dead_code import _is_test_file
 from .decision_context import resolve_decision_context
 from ._scip_consume import open_scip_reader, scip_meta_and_stale, scip_meta_block
@@ -379,7 +380,7 @@ def _find_symbol(index, symbol: str) -> list[dict]:
 
 def _name_in_content(content: str, name: str) -> bool:
     """Return True if name appears as a word token in content."""
-    return bool(re.search(r"\b" + re.escape(name) + r"\b", content))
+    return bool(re.search(word_pattern(name), content))
 
 
 def _extract_reference_snippets(content: str, name: str) -> list[dict]:
@@ -388,7 +389,7 @@ def _extract_reference_snippets(content: str, name: str) -> list[dict]:
     Returns list of {"line": int, "text": str} dicts.
     """
     snippets: list[dict] = []
-    pattern = re.compile(r"\b" + re.escape(name) + r"\b")
+    pattern = re.compile(word_pattern(name))
     for i, line in enumerate(content.splitlines()):
         if pattern.search(line):
             snippets.append({"line": i + 1, "text": line.rstrip()})
@@ -562,7 +563,7 @@ def get_blast_radius(
             continue
         if _name_in_content(content, sym_name):
             # Count occurrences for extra signal
-            count = len(re.findall(r"\b" + re.escape(sym_name) + r"\b", content))
+            count = len(re.findall(word_pattern(sym_name), content))
             confirmed.append({"file": imp_file, "references": count})
         else:
             potential.append({"file": imp_file, "reason": "symbol name not found (may use namespace/wildcard import)"})

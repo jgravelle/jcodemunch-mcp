@@ -6,7 +6,9 @@ invokes:  .claude/state/full-tier.json (written by run_full.py), git tree id,
 produces: nothing
 refuses:  `gh pr create` when the stamp is absent, failed, or for another
           tree; when the branch is main; when the checklist is absent or has
-          an `unmet` row
+          an `unmet` row. A tier whose ONLY failures are timing rows (unit
+          `seconds`/`ms` in harness/thresholds.json) passes: CI judges those
+          (jjg, 2026-10-16)
 budget:   5 s
 """
 
@@ -24,6 +26,7 @@ from _common import (
     ok,
     read_hook_input,
     strip_heredocs,
+    timing_only_failures,
     tool_command,
     tree_id,
 )
@@ -71,7 +74,9 @@ def main() -> None:
             + ". Run `uv run python -m harness fast --summary .claude/state/evidence/fast.md`, "
             "then the checklist again."
         )
-    if "HARNESS FAIL" in fast_text or "**FAIL**" in fast_text:
+    # jjg (2026-10-16): CI judges every timing row, so a fast tier whose ONLY
+    # failures are timing rows does not block; any other failure does.
+    if ("HARNESS FAIL" in fast_text or "**FAIL**" in fast_text) and not timing_only_failures(fast_text):
         block("pre_pr: the last fast tier on this box FAILED; fix, then run it again.")
     if not CHECKLIST.exists():
         block(

@@ -409,19 +409,30 @@
       "criterion": "N1",
       "metric": "timeout-minutes on the test.yml test job",
       "comparator": "<=",
-      "floor": 20,
+      "floor": 25,
       "unit": "minutes",
       "set_at": {
-        "commit": "457a758",
-        "date": "2026-09-03",
-        "reason": "STANDARD N1 Floor; last 10 runs 9m44s-15m59s"
+        "commit": "f748af83",
+        "date": "2026-10-16",
+        "reason": "The full job's timeout must exceed `suite.full_seconds_ci_windows` (1313 s, 21.9 min) plus setup, or a slow leg is killed before the wall Floor can give a verdict: two of F-38's four occurrences were timeouts with no verdict. 25 min = the Floor plus about three minutes of checkout, uv install and sync."
       },
       "measured": null,
-      "history": [],
+      "history": [
+        {
+          "floor": 20,
+          "commit": "457a758",
+          "date": "2026-09-03",
+          "reason": "STANDARD N1 Floor; last 10 runs 9m44s-15m59s"
+        }
+      ],
       "enforced_by": [
         ".github/workflows/pr-gate.yml",
         "tests/test_standard_invariants.py::test_ci_timeout_matches_threshold"
-      ]
+      ],
+      "loosened": {
+        "by": "jjg delegated to the session's judgment, 2026-10-16",
+        "reason": "20 -> 25 min so the windows wall Floor (1313 s) is reachable inside the job (F-38)."
+      }
     },
     {
       "id": "ci.skips_ubuntu",
@@ -698,19 +709,30 @@
       "criterion": "N1",
       "metric": "full-tier pytest wall seconds on a GitHub-hosted windows runner (GITHUB_ACTIONS set and sys.platform win32)",
       "comparator": "<=",
-      "floor": 1033,
+      "floor": 1313,
       "unit": "seconds",
       "set_at": {
-        "commit": "5157b28",
-        "date": "2026-09-04",
-        "reason": "STANDARD N1. A NEW platform-scoped Floor, not a loosening: `suite.full_seconds` (360) was set at 2x this box's median and still governs every non-CI run and the ubuntu legs. The first four windows legs of the PR gate measured 478.7 / 483.55 / 549.12 / 553.55 s on one commit (PR #578, run 33818929448); median 516.3, x2 = 1033 (tolerance rule in docs/harness/DESIGN.md). Tightens only after three more CI runs"
+        "commit": "f748af83",
+        "date": "2026-10-16",
+        "reason": "Re-set by the tolerance rule (docs/harness/DESIGN.md): ceil(2 x median) of the windows legs of the three most recent green PR-gate runs at today's suite size (17,558 passed + 25 skipped). Runs 38891570175 (973.85 / 593.31 / 666.79 / 645.66), 38886053278 (772.04 / 812.4 / 882.89 / 597.17), 38874714494 (861.36 / 576.88 / 624.84 / 600.12); median 656.23, x2 = 1313. The first setting's median was 516.3 at a smaller suite. F-38 recorded four legs over the old Floor, or killed by the job timeout first, in two days, each passing on re-run."
       },
       "measured": null,
-      "history": [],
+      "history": [
+        {
+          "floor": 1033,
+          "commit": "5157b28",
+          "date": "2026-09-04",
+          "reason": "STANDARD N1. A NEW platform-scoped Floor, not a loosening: `suite.full_seconds` (360) was set at 2x this box's median and still governs every non-CI run and the ubuntu legs. The first four windows legs of the PR gate measured 478.7 / 483.55 / 549.12 / 553.55 s on one commit (PR #578, run 33818929448); median 516.3, x2 = 1033 (tolerance rule in docs/harness/DESIGN.md). Tightens only after three more CI runs"
+        }
+      ],
       "enforced_by": [
         "harness/__main__.py",
         ".github/workflows/pr-gate.yml"
-      ]
+      ],
+      "loosened": {
+        "by": "jjg delegated to the session's judgment, 2026-10-16",
+        "reason": "1033 -> 1313: the same 2x-median formula re-applied at today's suite size (F-38), not widened to pass one run. A windows leg slower than twice today's median still fails."
+      }
     },
     {
       "id": "release.unreleased_max_hours",

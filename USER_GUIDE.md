@@ -711,7 +711,7 @@ Set `JCODEMUNCH_LAUNCH_ID` (or the suite-generic `MUNCH_LAUNCH_ID`) in the serve
 
 | Tool | What it does | Key parameters |
 |------|--------------|----------------|
-| `plan_turn` | Opening-move router: runs BM25 + PageRank against a query, returns confidence level, recommended symbols/files, insertion point suggestions, and budget advisor | `repo`, `query`, `max_recommended` |
+| `plan_turn` | Router for a broad task: runs BM25 + PageRank against a query, returns confidence level, recommended symbols/files, insertion point suggestions, and budget advisor | `repo`, `query`, `max_recommended` |
 | `get_session_context` | Returns session history: files read, searches run, edits made, tool call counts — use to avoid re-reading the same files | — |
 | `get_session_snapshot` | Compact ~200-token markdown summary of session state (focus files, edits, searches, negative evidence) — designed for context injection after compaction | — |
 | `register_edit` | Post-edit cache invalidation: clears BM25 and search caches for edited files, optionally reindexes | `file_path`, `reindex` |

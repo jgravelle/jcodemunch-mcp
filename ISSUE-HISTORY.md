@@ -2381,3 +2381,333 @@ The 1.108.340 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.340 count, verbatim:
 
 - ⚠ Prior (1.108.340): 15386 passed, 25 skipped, **0 failed** (15411 total).
+
+## Current State rotation (2026-10-11, release 1.108.344)
+
+The 1.108.341 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.341):** **The `index` CLI takes `--identity-mode`, and an existing directory is a local target however it is spelled** (#1017, @sKlat-beep): `_index_target_is_local` (`server.py`) is the one local-or-GitHub rule. ⚠⚠ **A URL-shaped target skips only the directory PROBE, on an ANCHORED match**; `://` anywhere in the string once moved `C://dir` to GitHub. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.341 count, verbatim:
+
+- ⚠ Prior (1.108.341): 15415 passed, 25 skipped, **0 failed** (15440 total).
+
+## Current State rotation (2026-10-11, release 1.108.345)
+
+The 1.108.342 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.342):** **`get_dead_code_v2`'s text fallback reads a file once** (L-150): `FileWords` (`tools/_call_graph.py`) answers which lines name a word. ⚠⚠ **Never answer a per-symbol question there with a pass over a file's text.** Residue L-152. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.342 count, verbatim:
+
+- ⚠ Prior (1.108.342): 15614 passed, 25 skipped, **0 failed** (15639 total).
+
+## Current State rotation (2026-10-12, release 1.108.346)
+
+The 1.108.343 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.343):** **`get_dead_code_v2` reads a file as text wherever its language records no call** (L-155, L-152): `_files_read_as_text` asks the INDEX per file. ⚠⚠ **Never gate caller evidence on a repository-wide test, and never on `_CALL_NODE_TYPES`** (it names PHP and Dart, which record none). Residue L-154, L-157, L-159, L-160. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.343 count, verbatim:
+
+- ⚠ Prior (1.108.343): 15775 passed, 25 skipped, **0 failed** (15800 total).
+
+## Current State rotation (2026-10-12, release 1.108.347)
+
+The 1.108.344 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.344):** **`get_dead_code_v2` asks every other text-read code file for a caller, import edge or not** (L-157): `_CallersElsewhere`. ⚠⚠ **The answer is kept per NAME**; per function it cost files times functions. ⚠ Weakest evidence in the tool, toward not reporting: limits in L-161. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.344 count, verbatim:
+
+- ⚠ Prior (1.108.344): 15809 passed, 25 skipped, **0 failed** (15834 total).
+
+## Current State rotation (2026-10-12, release 1.108.348)
+
+The 1.108.345 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.345):** **A name that starts or ends in a mark is matched as a token** (L-154): `word_rule.py` (Key Files). ⚠ Not a superset of the old rule; limits in L-163. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.345 count, verbatim:
+
+- ⚠ Prior (1.108.345): 16024 passed, 25 skipped, **0 failed** (16049 total).
+
+## Current State rotation (2026-10-12, release 1.108.349)
+
+The 1.108.346 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.346):** **A call through a receiver records the METHOD, never the receiver** (L-159): `_extract_call_name` reads the grammar's callee fields. ⚠⚠ **Never fall back to an identifier inside the callee.** `PARSER_GENERATION` 12. Residue L-158, L-164. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.346 count, verbatim:
+
+- ⚠ Prior (1.108.346): 16062 passed, 25 skipped, **0 failed** (16087 total).
+
+## Current State rotation (2026-10-12, release 1.108.350)
+
+The 1.108.347 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.347):** **A call inside a Rust macro invocation or `macro_rules!` body is recorded** (L-164): `_record_macro_calls`. ⚠⚠ **Each token is read ONCE, from the macro node down; never ask a node for its parent** (two versions were quadratic). `PARSER_GENERATION` 13. Residue L-165. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.347 count, verbatim:
+
+- ⚠ Prior (1.108.347): 16111 passed, 25 skipped, **0 failed** (16136 total).
+
+## Current State rotation (2026-10-12, release 1.108.351)
+
+The 1.108.348 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.348):** **`get_dead_code_v2` counts a call from another file where the language needs no import** (L-165): `LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT`. ⚠⚠ **Python, JS and TS stay out.** ⚠ By name: hides an uncalled function behind any call of its name. Residue L-166. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.348 count, verbatim:
+
+- ⚠ Prior (1.108.348): 16128 passed, 25 skipped, **0 failed** (16153 total).
+
+## Current State rotation (2026-10-12, release 1.108.352)
+
+The 1.108.349 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.349):** **A Java `super(...)` records the superclass's constructor** (L-166): `_record_super_constructor_calls` reads the class node DOWN. `PARSER_GENERATION` 14. ⚠ `__init__`, `constructor` and `initialize` still read `no_callers`: L-167. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.349 count, verbatim:
+
+- ⚠ Prior (1.108.349): 16157 passed, 25 skipped, **0 failed** (16182 total).
+
+## Current State rotation (2026-10-12, release 1.108.353)
+
+The 1.108.350 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.350):** **The watcher follows a HEAD move that changed no file** (#1040): `_reconcile_head_move` runs the ordinary incremental index. ⚠⚠ **Never a bare SHA rewrite**: it marks unread files `fresh`. ⚠ Reads under `.git` are bounded and in `SECURITY.md`. Residue L-168. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.350 count, verbatim:
+
+- ⚠ Prior (1.108.350): 16204 passed, 25 skipped, **0 failed** (16229 total).
+
+## Current State rotation (2026-10-13, release 1.108.354)
+
+The 1.108.351 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.351):** **Creating a class counts as a call of its constructor** (L-167): `constructors_as_their_classes` hands `get_dead_code_v2` each `__init__`/`constructor` as its class. ⚠⚠ **A subclass joins its base only from the base's file or an importer** (by name across the index was quadratic). ⚠ Ruby not covered: L-172. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.351 count, verbatim:
+
+- ⚠ Prior (1.108.351): 16243 passed, 25 skipped, **0 failed** (16268 total).
+
+## Current State rotation (2026-10-13, release 1.108.355)
+
+The 1.108.352 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.352):** **An initialiser outside every function is read for callers** (L-169): `_residue_text` keeps the lines of `STATE_KINDS` symbols. ⚠⚠ **A line a function or method holds stays out** (zod loses 265 rows, not 158, without it). ⚠ Text, not calls: L-173. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.352 count, verbatim:
+
+- ⚠ Prior (1.108.352): 16285 passed, 25 skipped, **0 failed** (16310 total).
+
+## Current State rotation (2026-10-13, release 1.108.356)
+
+The 1.108.353 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.353):** **A C# `new Made()` records the class it creates** (L-170): `object_creation_expression` is a C# call node. `PARSER_GENERATION` 15. ⚠ A target-typed `new()`, `: base(...)` and an attribute record nothing: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.353 count, verbatim:
+
+- ⚠ Prior (1.108.353): 16321 passed, 25 skipped, **0 failed** (16346 total).
+
+## Current State rotation (2026-10-13, release 1.108.357)
+
+The 1.108.354 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.354):** **A Go call the grammar reads as a conversion is recorded** (L-171): `type_conversion_expression` is a Go call node (`Generic[int](1)`, `fs[i](1)`). `PARSER_GENERATION` 16. ⚠ A real conversion to a generic type records the type's name: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.354 count, verbatim:
+
+- ⚠ Prior (1.108.354): 16376 passed, 25 skipped, **0 failed** (16401 total).
+
+## Current State rotation (2026-10-13, release 1.108.358)
+
+The 1.108.355 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.355):** **A bare Ruby method call is recorded** (L-172): `_record_bare_ruby_calls` reads each method in source order; a bare name is a call unless a local of that name exists by then. `PARSER_GENERATION` 17. ⚠ Code outside every method is not read: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.355 count, verbatim:
+
+- ⚠ Prior (1.108.355): 16457 passed, 25 skipped, **0 failed** (16482 total).
+
+## Current State rotation (2026-10-13, release 1.108.359)
+
+The 1.108.356 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.356):** **A JavaScript call through a string key records the method** (L-173): `_js_string_key_name` reads `t["m"]()` as `m` in JS, TS and TSX. `PARSER_GENERATION` 18. ⚠ Any other key, and every other language's subscript, records the container: L-174. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.356 count, verbatim:
+
+- ⚠ Prior (1.108.356): 16607 passed, 25 skipped, **0 failed** (16632 total).
+
+## Current State rotation (2026-10-13, release 1.108.360)
+
+The 1.108.357 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.357):** **The generated agent policy no longer orders the index for everything** (L-175): `cli/policy.py` says where each route is cheaper; `resolve_repo` and `plan_turn` are conditional. ⚠ An installed policy is never rewritten; the start-up instructions and hooks still steer to the index: L-175. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.357 count, verbatim:
+
+- ⚠ Prior (1.108.357): 16711 passed, 25 skipped, **0 failed** (16736 total).
+
+## Current State rotation (2026-10-14, release 1.108.361)
+
+The 1.108.358 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.358):** **A multi-line Python import records its names** (L-176): `_py_from_clause` reads the whole `from x import (...)`. `PARSER_GENERATION` 19. **The surface offer reaches the user once** in the first `resolve_repo` answer (`surface_notice`, SECURITY.md). ⚠ Other languages' grouped imports: L-177. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.358 count, verbatim:
+
+- ⚠ Prior (1.108.358): 16772 passed, 25 skipped, **0 failed** (16797 total).
+
+## Current State rotation (2026-10-14, release 1.108.362)
+
+The 1.108.359 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.359):** **`diagnose` writes one local report** (`diagnose.py`): a fixed list of keys AND values, no path or repo name. Two local per-tool counters (`storage/tool_counters.py`, `_tool_counters.json`, SECURITY.md). ⚠ Residue: L-179, L-181. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.359 count, verbatim:
+
+- ⚠ Prior (1.108.359): 16844 passed, 25 skipped, **0 failed** (16869 total).
+
+## Current State rotation (2026-10-14, release 1.108.363)
+
+The 1.108.360 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.360):** **A Web Forms attribute is read in every value form** (#1067, @outoftheblue9): one quote-aware pass per tag in both readers. `.xsd`/`.wsdl` stay capped everywhere, as `build_consumed` or the neutral `schema_consumer`. `PARSER_GENERATION` 20. ⚠ Tags are still split quote-blind: L-182. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.360 count, verbatim:
+
+- ⚠ Prior (1.108.360): 16926 passed, 25 skipped, **0 failed** (16951 total).
+
+## Current State rotation (2026-10-15, release 1.108.364)
+
+The 1.108.361 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.361):** **An installed policy is refreshed only when asked** (`cli/policy_refresh.py`): `claude-md --refresh` shows the diff, asks, keeps a backup and replaces only the block (`policy_block_span`, shared with `init` and the drift check). `policy_notice` once per policy text (SECURITY.md). ⚠ `uninstall` keeps its own boundary: L-186. `///` summaries unwrapped (#1075, @outoftheblue9), `PARSER_GENERATION` 21. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.361 count, verbatim:
+
+- ⚠ Prior (1.108.361): 16978 passed, 25 skipped, **0 failed** (17003 total).
+
+## Current State rotation (2026-10-15, release 1.108.365)
+
+The 1.108.362 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.362):** **A `migrations` package is indexed** (`security.is_generated_migrations_directory`): only a dir holding a generated-named entry is skipped (`generated_migrations`). Start-up `instructions` match the policy (#1079). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.362 count, verbatim:
+
+- ⚠ Prior (1.108.362): 17169 passed, 25 skipped, **0 failed** (17194 total).
+
+## Current State rotation (2026-10-15, release 1.108.366)
+
+The 1.108.363 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.363):** **Hooks name the install that ran** (`install_layout.own_executable`): never PATH first, never a relative launch path, never uv's cache (`init` says which). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.363 count, verbatim:
+
+- ⚠ Prior (1.108.363): 17197 passed, 25 skipped, **0 failed** (17222 total).
+
+## Current State rotation (2026-10-15, release 1.108.367)
+
+The 1.108.364 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.364):** **SQL procedures, triggers and constraints are symbols; a script parses one batch at a time** (#1080, #1081, @outoftheblue9). Ranking ignores git blame (`properties_are_search_terms`), `PARSER_GENERATION` 24. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.364 count, verbatim:
+
+- ⚠ Prior (1.108.364): 17423 passed, 25 skipped, **0 failed** (17448 total).
+
+## Current State rotation (2026-10-15, release 1.108.368)
+
+The 1.108.365 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.365):** **git blame is off by default** (L-189); with it on, a provider whose properties aren't vocabulary (`properties_are_search_terms`) adds nothing to a file summary. SECURITY.md lists it. No `PARSER_GENERATION` bump. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.365 count, verbatim:
+
+- ⚠ Prior (1.108.365): 17438 passed, 25 skipped, **0 failed** (17463 total).
+
+## Current State rotation (2026-10-15, release 1.108.369)
+
+The 1.108.366 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.366):** **env vars stay supported** (L-193, #1098): the loader logs no deprecation and no doc promises a 2.0 removal (`tests/test_env_vars_stay_supported.py`). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.366 count, verbatim:
+
+- ⚠ Prior (1.108.366): 17442 passed, 25 skipped, **0 failed** (17467 total).
+
+## Current State rotation (2026-10-16, release 1.108.370)
+
+The 1.108.367 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.367):** **a session lists only its own workspace's indexes** (`tools/_visibility.py`, `repo_visibility`, ruling 5): an exact id still loads anything; home or a root lists all. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.367 count, verbatim:
+
+- ⚠ Prior (1.108.367): 17456 passed, 25 skipped, **0 failed** (17481 total).
+
+## Current State rotation (2026-10-16, release 1.108.371)
+
+The 1.108.368 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.368):** **a context provider that runs out of time runs again on the next index** (L-190): the cut is stored as `context_metadata.providers_cut` and every delta save keeps it. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.368 count, verbatim:
+
+- ⚠ Prior (1.108.368): 17476 passed, 25 skipped, **0 failed** (17501 total).
+
+## Current State rotation (2026-10-16, release 1.108.372)
+
+The 1.108.369 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.369):** **indexing a drive root keeps its files** (L-197, `path_prefix.dir_prefix`); LSP starts rust-analyzer with build scripts off (L-198); branch deltas never ran (L-196). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.369 count, verbatim:
+
+- ⚠ Prior (1.108.369): 17486 passed, 25 skipped, **0 failed** (17511 total).
+
+## Current State rotation (2026-10-16, release 1.108.373)
+
+The 1.108.370 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.370):** **seven import forms record the names they import** (L-177): PHP group use, Kotlin `as`, Scala selectors, Haskell lists, Dart `show`, destructuring `require`, Python `import \`; `PARSER_GENERATION` 25. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.370 count, verbatim:
+
+- ⚠ Prior (1.108.370): 17538 passed, 25 skipped, **0 failed** (17563 total).
+
+## Current State rotation (2026-10-16, release 1.108.374)
+
+The 1.108.371 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.371):** **a schema's dead-code advice follows the right evidence** (L-184): Razor and Blazor count as .NET, a bare `.fs` does not (`_entry_points.has_dotnet_evidence`). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.371 count, verbatim:
+
+- ⚠ Prior (1.108.371): 17558 passed, 25 skipped, **0 failed** (17583 total).
+
+## Current State rotation (2026-10-17, release 1.108.375)
+
+The 1.108.372 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.372):** **uninstall keeps your own section after the policy** (L-186): `uninstall` asks `policy.policy_block_span`, whose start is a real heading past a BOM and fences. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.372 count, verbatim:
+
+- ⚠ Prior (1.108.372): 17579 passed, 25 skipped, **0 failed** (17604 total).
+
+## Current State rotation (2026-10-17, release 1.108.376)
+
+The 1.108.373 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.373):** **claude-md --refresh can write the policy your server uses** (L-185): the notice marker records the server's policy SETTINGS, never text; `--match-server` rebuilds with `policy.policy_for`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.373 count, verbatim:
+
+- ⚠ Prior (1.108.373): 17595 passed, 25 skipped, **0 failed** (17620 total).

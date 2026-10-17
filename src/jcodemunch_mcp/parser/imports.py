@@ -31,6 +31,13 @@ _JS_IMPORT_FROM = re.compile(
 _JS_SIDE_EFFECT = re.compile(r"""(?:^|\n)\s*import\s+['"]([^'"]+)['"]""", re.MULTILINE)
 # JS/TS: require('specifier')
 _JS_REQUIRE = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE)
+# (L-177) JS/TS: const { a, b: x } = require('specifier'), on one line or several.
+# `[^{}]` refuses a nested pattern (`{ a: { b } }`), which keeps the plain edge.
+_JS_REQUIRE_DESTRUCTURE = re.compile(
+    r"""\b(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)"""
+)
+# One binding: `a`, `a: x`, `a = 1`, `a: x = 1`.
+_JS_BINDING = re.compile(r"""^([A-Za-z_$][\w$]*)(?:\s*:\s*[A-Za-z_$][\w$]*)?(?:\s*=\s*[^,]+)?$""")
 # JS/TS: export { A, B as C } from 'specifier'  (selective re-export)
 # Captures the brace contents so the graph builder can do per-name barrel
 # routing — `import { A } from './barrel'` credits the leaf `A` came from,
@@ -85,7 +92,9 @@ logger = logging.getLogger(__name__)
 _PY_FROM = re.compile(
     r"""^[ \t]*from\s+(\.{0,4}[\w.]*)\s+import\s+(.+)$""", re.MULTILINE
 )
-_PY_IMPORT = re.compile(r"""^[ \t]*import\s+([\w.,][^\n]*)$""", re.MULTILINE)
+# (L-177) The first character may be the backslash of `import \` continued on
+# the next line; `_py_from_clause` reads the rest.
+_PY_IMPORT = re.compile(r"""^[ \t]*import\s+([\w.,\\][^\n]*)$""", re.MULTILINE)
 
 # Go: import "pkg"  or import ( ... )
 _GO_IMPORT_BLOCK = re.compile(r"""import\s*\((.*?)\)""", re.DOTALL)
@@ -93,7 +102,9 @@ _GO_IMPORT_LINE = re.compile(r"""import\s+(?:\w+\s+)?["']([^"']+)["']""")
 _GO_IMPORT_ENTRY = re.compile(r"""(?:\w+\s+)?["']([^"']+)["']""")
 
 # Java/Kotlin: import com.example.Foo
-_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)\s*;?$""", re.MULTILINE)
+# (L-177) Kotlin's `import a.b.D as E` names `D`; without the alias clause the
+# line matched nothing and the file had no edge to `a.b.D`. Java has no `as`.
+_JAVA_IMPORT = re.compile(r"""^import\s+(?:static\s+)?([\w.]+)(?:\s+as\s+\w+)?\s*;?$""", re.MULTILINE)
 
 # Rust: use crate::foo::{Bar, Baz}
 _RUST_USE = re.compile(r"""^use\s+([\w::{},\s*]+)\s*;""", re.MULTILINE)
@@ -119,16 +130,32 @@ _CSHARP_USING = re.compile(r"""^using\s+(?:static\s+)?(?:(\w+)\s*=\s*)?([\w.]+)\
 
 # PHP: use App\Foo\Bar;  /  require/include
 _PHP_USE = re.compile(r"""^use\s+([\w\\]+)(?:\s+as\s+\w+)?\s*;""", re.MULTILINE)
+# (L-177) PHP group use: `use App\Models\{User, Post};`, on one line or several.
+# `[^{};]` keeps the body to one statement: a brace that never closes stops at
+# the next `;` or `{` and matches nothing.
+_PHP_GROUP_USE = re.compile(r"""^use\s+([\w\\]+?)\\\{([^{};]*)\}\s*;""", re.MULTILINE)
+_PHP_GROUP_ITEM = re.compile(r"""^(?:(?:function|const)\s+)?([\w\\]+)(?:\s+as\s+\w+)?$""")
 _PHP_REQUIRE = re.compile(r"""(?:require|include)(?:_once)?\s+['"]([^'"]+)['"]""", re.MULTILINE)
 
 # Swift: import Foundation
 _SWIFT_IMPORT = re.compile(r"""^import\s+(\w+)""", re.MULTILINE)
 
-# Scala: import scala.collection.mutable
-_SCALA_IMPORT = re.compile(r"""^import\s+([\w.{}]+)""", re.MULTILINE)
+# Scala: import scala.collection.mutable  /  import a.b.{C, D => E}
+# (L-177) The selector body may span lines; `[^{}]` stops a brace that never
+# closes at the next one, so it matches only the path.
+_SCALA_IMPORT = re.compile(r"""^import\s+([\w.]+)(?:\{([^{}]*)\})?""", re.MULTILINE)
+# One selector: `C`, `C => D`, `C as D` (Scala 3). `C => _` hides C, and `_`,
+# `*` and `given` select no name.
+_SCALA_SELECTOR = re.compile(r"""^(\w+)(?:\s*(?:=>|as)\s*(\w+))?$""")
 
 # Haskell: import Data.Map (fromList)
-_HASKELL_IMPORT = re.compile(r"""^import\s+(?:qualified\s+)?(\S+)""", re.MULTILINE)
+# (L-177) The module stops at `(`: `import A.B(c)` with no space recorded `A.B(c)`.
+_HASKELL_IMPORT = re.compile(r"""^import\s+(?:qualified\s+)?([^\s(]+)""", re.MULTILINE)
+# (L-177) What may sit between the module and its import list.
+_HASKELL_LIST_HEAD = re.compile(
+    r"""\s*(?:qualified\s+)?(?:as\s+[\w.]+\s*)?(hiding\s*)?\("""
+)
+_HASKELL_OPERATOR = re.compile(r"""^[!#$%&*+./<=>?@\\^|~:-]+$""")
 
 # Gleam: import gleam/option.{type Option, None, Some} as opt
 # Module paths are lowercase snake_case segments joined by '/'. The optional
@@ -155,6 +182,29 @@ def _clean_names(raw: str) -> list[str]:
         # Take first token before 'as'
         names.append(part.split()[0])
     return [n for n in names if n]
+
+
+def _js_destructured_names(raw: str) -> list[str]:
+    """The names a destructuring `require` binds, or [] when the pattern is not plain (LEDGER L-177).
+
+    `const {a, b} = require("./m")` recorded the edge with no names, so
+    `find_references("a")` did not see the file. A `...rest` element takes
+    everything the module exports, which is what [] already means, and a
+    pattern this reader cannot read whole (a nested one, a default holding a
+    comma) also records [], as before.
+    """
+    raw = re.sub(r"/\*.*?\*/", " ", raw, flags=re.DOTALL)
+    raw = re.sub(r"//[^\n]*", " ", raw)
+    names: list[str] = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        m = _JS_BINDING.match(item)
+        if not m:
+            return []
+        names.append(m.group(1))
+    return names
 
 
 def _extract_js_imports(content: str) -> list[dict]:
@@ -187,6 +237,11 @@ def _extract_js_imports(content: str) -> list[dict]:
         for e in edges:
             if e["specifier"] != specifier:
                 continue
+            # ⚠ A union: [] is "everything" only to `expand_barrel_leaves` and
+            # "nothing" to every other reader (`find_references` indexes a file
+            # under its names), so letting [] win erased real names beside a
+            # type-position `import()` or a commented `require` (L-177 review).
+            # The whole-module fact needs its own field: LEDGER L-201.
             e["names"] = sorted(set(e["names"]) | set(names))
             if not is_re_export:
                 return
@@ -222,7 +277,14 @@ def _extract_js_imports(content: str) -> list[dict]:
     for m in _JS_SIDE_EFFECT.finditer(content):
         add(m.group(1), [])
 
+    destructured: set[int] = set()
+    for m in _JS_REQUIRE_DESTRUCTURE.finditer(content):
+        destructured.add(m.end())
+        add(m.group(2), _js_destructured_names(m.group(1)))
+
     for m in _JS_REQUIRE.finditer(content):
+        if m.end() in destructured:
+            continue  # read above with its bindings; [] here would erase them
         add(m.group(1), [])
 
     for m in _JS_REEXPORT_NAMED.finditer(content):
@@ -255,12 +317,98 @@ def _extract_js_imports(content: str) -> list[dict]:
     return edges
 
 
+# One item of a clause: `name` or `name as alias`.
+_PY_CLAUSE_ITEM = re.compile(r"^\w+(?:\s+as\s+\w+)?$")
+# One item of a plain `import`: a dotted module, `as` an alias (L-177).
+_PY_IMPORT_ITEM = re.compile(r"^\w+(?:\.\w+)*(?:\s+as\s+\w+)?$")
+_BACKSLASH = chr(92)
+
+
+def _py_from_clause(content: str, first: str, pos: int, item: re.Pattern = _PY_CLAUSE_ITEM) -> str:
+    """The whole name clause of a `from ... import`, wherever the statement ends (LEDGER L-176).
+
+    ⚠⚠ `_PY_FROM` matches ONE line. For the form every formatter writes,
+
+        from pkg.utils import (
+            solve,
+        )
+
+    that line holds `(` and nothing else, so the edge was recorded with NO
+    names: `find_references("solve")` answered 0, `check_references` counted
+    no import, and the per-name module edges of #550 were never offered. A
+    backslash continuation kept the names of its first line only.
+
+    *first* is the rest of the matched line and *pos* the offset where that
+    line ends. Comments are dropped before anything is split: a clause holds
+    no string, so `#` always starts one. A trailing backslash joins the next
+    line in either form, and a parenthesis may open on the line after one.
+
+    ⚠⚠ The following lines are believed only when the statement is WHOLE:
+    it closes (a `)`, or a continuation's last line) and every item is
+    `name` or `name as alias`. Otherwise the clause is what the
+    opening line holds, which is what was recorded before. So a parenthesis
+    that never closes (a file cut short, prose in a docstring that reads
+    like an import) adds no name: review of the first draft found it
+    recording the words of the prose that followed.
+    ⚠ The read WALKS to the closing parenthesis, the end of the continuation
+    or the next line that starts `from` or `import`, whichever is first.
+    Every `_PY_FROM` match is such a line, so no line is walked twice and
+    the pass over a file stays linear (a test counts the reader's steps).
+
+    (L-177) A plain `import os, \\` continued on the next line is read the
+    same way, with *item* the dotted shape `_PY_IMPORT_ITEM`: its second
+    line was dropped, and the backslash recorded as a specifier.
+    """
+    head = first.split("#", 1)[0].strip()
+    if not head.startswith("(") and not head.endswith(_BACKSLASH):
+        return head
+    opening = head.lstrip("(").rstrip(_BACKSLASH)
+    if head.startswith("(") and ")" in head:
+        return head[1:].split(")", 1)[0]
+
+    parts: list[str] = []
+    parenthesised = started = closed = False
+    line = head
+    size = len(content)
+    while True:
+        more = line.endswith(_BACKSLASH)
+        if more:
+            line = line[:-1].rstrip()
+        if not started and line.startswith("("):
+            parenthesised = True
+            line = line[1:]
+        if line or parenthesised:
+            started = True
+        body, hit, _ = line.partition(")") if parenthesised else (line, "", "")
+        parts.append(body)
+        if hit or (started and not parenthesised and not more):
+            closed = True
+            break
+        if pos >= size:
+            break
+        nxt = content.find("\n", pos + 1)
+        if nxt == -1:
+            nxt = size
+        line = content[pos + 1:nxt].split("#", 1)[0].strip()
+        pos = nxt
+        if line.split(None, 1)[:1] in (["from"], ["import"]):
+            break  # the next statement: this one never closed
+
+    if not closed:
+        return opening
+    clause = " ".join(parts)
+    items = [part.strip() for part in clause.split(",")]
+    if not all(item.match(part) for part in items if part):
+        return opening
+    return clause
+
+
 def _extract_python_imports(content: str) -> list[dict]:
     edges = []
     seen: set[str] = set()
 
     for m in _PY_FROM.finditer(content):
-        module, names_str = m.group(1), m.group(2)
+        module, names_str = m.group(1), _py_from_clause(content, m.group(2), m.end())
         # Skip 'from __future__ import ...'
         if module.strip() == "__future__":
             continue
@@ -331,7 +479,8 @@ def _extract_python_imports(content: str) -> list[dict]:
                     edges.append({"specifier": _sub, "names": [_name]})
 
     for m in _PY_IMPORT.finditer(content):
-        for mod in m.group(1).split(","):
+        clause = _py_from_clause(content, m.group(1), m.end(), _PY_IMPORT_ITEM)
+        for mod in clause.split(","):
             # ⚠⚠ `[0]` on an empty split raised IndexError, and `extract_imports`
             # swallows it and returns [], so ONE bad line cost the file EVERY
             # import edge it had. Found 2026-08-26 on this repo's own
@@ -912,6 +1061,23 @@ def _extract_php_imports(content: str) -> list[dict]:
         parts = qualified.rsplit("\\", 1)
         names = [parts[-1]] if len(parts) > 1 else []
         edges.append({"specifier": qualified, "names": names})
+    # (L-177) A group use matched neither pattern, so the file had no edge to
+    # any class it named. Each member is one edge, as `use A\B\C;` is; a body
+    # with an item this reader cannot read records nothing, as before.
+    for m in _PHP_GROUP_USE.finditer(content):
+        prefix = m.group(1)
+        members = []
+        for part in re.sub(r"//[^\n]*|/\*.*?\*/", " ", m.group(2), flags=re.DOTALL).split(","):
+            part = " ".join(part.split())
+            if not part:
+                continue
+            item = _PHP_GROUP_ITEM.match(part)
+            if not item:
+                members = []
+                break
+            members.append(item.group(1).strip("\\"))
+        for member in members:
+            edges.append({"specifier": f"{prefix}\\{member}", "names": [member.rsplit("\\", 1)[-1]]})
     for m in _PHP_REQUIRE.finditer(content):
         edges.append({"specifier": m.group(1), "names": []})
     return edges
@@ -921,18 +1087,109 @@ def _extract_swift_imports(content: str) -> list[dict]:
     return [{"specifier": m.group(1), "names": []} for m in _SWIFT_IMPORT.finditer(content)]
 
 
+def _scala_selector_names(body: str) -> list[str]:
+    """The names a Scala selector `{...}` imports, or [] when it is not whole (LEDGER L-177).
+
+    The old pattern stopped at the first space or comma, so `import a.b.{C, D}`
+    never reached its closing brace and recorded `a.b` with no names, on one
+    line or several. `C => _` hides `C`; `_`, `*` and `given ...` select
+    everything, which [] already means for the names that are left.
+    """
+    body = re.sub(r"//[^\n]*", " ", body)
+    names: list[str] = []
+    for part in body.split(","):
+        part = part.strip()
+        if not part or part in ("_", "*", "given") or re.match(r"given\s", part):
+            continue
+        m = _SCALA_SELECTOR.match(part)
+        if not m:
+            return []
+        if m.group(2) != "_":
+            names.append(m.group(1))
+    return names
+
+
 def _extract_scala_imports(content: str) -> list[dict]:
     edges = []
     for m in _SCALA_IMPORT.finditer(content):
-        raw = m.group(1)
-        brace_m = re.search(r"\{([^}]+)\}", raw)
-        names = _clean_names(brace_m.group(1)) if brace_m else []
-        edges.append({"specifier": raw.split("{")[0].rstrip(".").strip(), "names": names})
+        names = _scala_selector_names(m.group(2)) if m.group(2) is not None else []
+        edges.append({"specifier": m.group(1).rstrip(".").strip(), "names": names})
     return edges
 
 
+def _haskell_statement(content: str, pos: int) -> str:
+    """The rest of a Haskell import from *pos*: its line and the indented lines under it.
+
+    A line that starts in column 0 begins the next declaration (the layout
+    rule), so the read stops there and never walks past the import block.
+    """
+    end = content.find("\n", pos)
+    if end == -1:
+        return content[pos:]
+    lines = [content[pos:end]]
+    size = len(content)
+    while end < size:
+        nxt = content.find("\n", end + 1)
+        if nxt == -1:
+            nxt = size
+        line = content[end + 1:nxt].rstrip("\r")
+        if line.strip() and not line[:1].isspace():
+            break
+        lines.append(line)
+        end = nxt
+    return "\n".join(lines)
+
+
+def _haskell_list_names(rest: str) -> list[str]:
+    """The names an import list `(c, T(..), (<>))` brings in, or [] (LEDGER L-177).
+
+    The extractor read the module and nothing after it, so every Haskell edge
+    had no names. `hiding (...)` imports everything but the list, which []
+    already means. A list that never closes, or an item this reader cannot
+    read, records [], as before.
+    """
+    rest = re.sub(r"--+(?![!#$%&*+./<=>?@\\^|~:])[^\n]*", " ", rest)
+    head = _HASKELL_LIST_HEAD.match(rest)
+    if not head or head.group(1):
+        return []
+    depth, start, items = 1, head.end(), []
+    for i in range(head.end(), len(rest)):
+        ch = rest[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                items.append(rest[start:i])
+                break
+        elif ch == "," and depth == 1:
+            items.append(rest[start:i])
+            start = i + 1
+    else:
+        return []
+    names: list[str] = []
+    for item in items:
+        item = re.sub(r"^(?:type|pattern)\s+", "", item.strip())
+        if not item:
+            continue
+        if item.startswith("("):
+            op = item[1:].split(")", 1)[0].strip()
+            if not _HASKELL_OPERATOR.match(op) or item.split(")", 1)[1].strip():
+                return []
+            names.append(op)
+            continue
+        m = re.match(r"([\w']+)\s*(\(.*\))?$", item, re.DOTALL)
+        if not m:
+            return []
+        names.append(m.group(1))
+    return names
+
+
 def _extract_haskell_imports(content: str) -> list[dict]:
-    return [{"specifier": m.group(1), "names": []} for m in _HASKELL_IMPORT.finditer(content)]
+    return [
+        {"specifier": m.group(1), "names": _haskell_list_names(_haskell_statement(content, m.end()))}
+        for m in _HASKELL_IMPORT.finditer(content)
+    ]
 
 
 def _extract_gleam_imports(content: str) -> list[dict]:
@@ -967,8 +1224,43 @@ _DART_IMPORT = re.compile(
 )
 
 
+# (L-177) What may follow a Dart URI up to its `;`: a prefix, `show`/`hide`
+# combinators and configurable-import conditions, on any number of lines.
+# ⚠⚠ Every keyword and every name ends on `\b`. Without it `\w+` could stop
+# inside a word and let the next keyword start there (`0deferred` read as `0`
+# then `deferred`), so a clause had exponentially many readings and a line of
+# `as 0deferred as 0deferred ...` with no `;` backtracked through all of them
+# (CodeQL on the L-177 PR; 18 repeats took 0.35 s and each 2 more took 4x).
+_DART_CLAUSE = re.compile(
+    r"""((?:\s*\b(?:deferred\s+)?as\s+\w+\b"""
+    r"""|\s*\b(?:show|hide)\s+\w+\b(?:\s*,\s*\w+\b)*"""
+    r"""|\s*\bif\s*\([^()]*\)\s*['"][^'"]*['"])*)\s*;"""
+)
+_DART_SHOW = re.compile(r"""\bshow\s+(\w+(?:\s*,\s*\w+)*)""")
+
+
+def _dart_shown_names(content: str, pos: int) -> list[str]:
+    """The names a Dart `show` combinator lists, or [] (LEDGER L-177).
+
+    The extractor read the URI and nothing after it, so `import 'a.dart'
+    show C, D;` recorded no names, on one line or several. Without `show` the
+    import takes everything (`hide` included), which [] already means; a
+    clause that does not reach its `;` in this shape records [], as before.
+    """
+    m = _DART_CLAUSE.match(content, pos)
+    if not m:
+        return []
+    names: list[str] = []
+    for shown in _DART_SHOW.findall(m.group(1)):
+        names.extend(n.strip() for n in shown.split(",") if n.strip())
+    return names
+
+
 def _extract_dart_imports(content: str) -> list[dict]:
-    return [{"specifier": m.group(1), "names": []} for m in _DART_IMPORT.finditer(content)]
+    return [
+        {"specifier": m.group(1), "names": _dart_shown_names(content, m.end())}
+        for m in _DART_IMPORT.finditer(content)
+    ]
 
 
 # SQL/dbt: {{ ref('model_name') }} and {{ source('source', 'table') }}
@@ -1129,7 +1421,19 @@ def _extract_vue_imports(content: str) -> list[dict]:
 # character of the run. Each is one C call that no parse budget interrupts:
 # 100 KB of `a` took minutes.
 _ASPX_DIRECTIVE = re.compile(r"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
-_ASPX_ATTR = re.compile(r'(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*"([^"]*)"')
+# ASP.NET's parser takes a double-quoted, single-quoted or unquoted value. An
+# unquoted one must end at a delimiter, so `Title= CodeFile="x"` does not read
+# `CodeFile` as Title's value; in a tag it also stops at the `/` of `/>`, while
+# a directive value may be a path.
+_ASPX_VALUE = r"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=]+)(?=\s|$))"""
+_ASPX_TAG_VALUE = r"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=/]+)(?=[\s/>]|$))"""
+_ASPX_ATTR = re.compile(r"(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*" + _ASPX_VALUE)
+
+
+def _aspx_attr_pairs(pattern: re.Pattern, text: str):
+    """(name, value) for each match of an attribute pattern ending in `_ASPX_VALUE`."""
+    for name, dq, sq, bare in pattern.findall(text):
+        yield name, dq or sq or bare
 
 _ASPX_MARKUP_SUFFIXES = (".aspx", ".ascx", ".master", ".asax", ".ashx", ".asmx")
 
@@ -1173,10 +1477,40 @@ def _aspx_tags(content: str):
             j = close + 2
 
 
-_ASPX_RUNAT_SERVER = re.compile(r'runat\s*=\s*"server"', re.IGNORECASE)
-# The lookbehind makes `on...` the attribute's whole name: with `\b` alone,
-# `data-onclick="Foo"` and `aria-onx="Bar"` named server handlers.
-_ASPX_EVENT_ATTR = re.compile(r'(?<![\w:.\-])(on[a-z]+)\s*=\s*"([^"]*)"', re.IGNORECASE)
+_ASPX_TAG_ATTR = re.compile(r"(?<![\w:.\-])(\w[\w:.\-]*)\s*=\s*" + _ASPX_TAG_VALUE)
+# The whole attribute name: `data-onclick="Foo"` names no server handler.
+_ASPX_EVENT_NAME = re.compile(r"on[a-z]+", re.IGNORECASE)
+
+
+def _without_inline_blocks(text: str) -> str:
+    """`text` with each closed `<%...%>` replaced by a space; a scan, so linear."""
+    parts: list[str] = []
+    i = 0
+    while (start := text.find("<%", i)) >= 0:
+        close = text.find("%>", start + 2)
+        if close < 0:
+            break
+        parts.append(text[i:start])
+        parts.append(" ")
+        i = close + 2
+    parts.append(text[i:])
+    return "".join(parts)
+
+
+def _aspx_tag_attrs(raw: str) -> list[tuple[str, str]]:
+    """(name, value) for each attribute of one tag, left to right.
+
+    One pass consumes each quoted value whole, so `ToolTip="use OnClick=X"`
+    names no handler and opens no `runat` gate. Inline blocks are blanked first:
+    their quotes (`Text="<%# Eval("Id") %>"`) would otherwise shift the pass.
+    """
+    return list(_aspx_attr_pairs(_ASPX_TAG_ATTR, _without_inline_blocks(raw)))
+
+
+def _aspx_runat_server(attrs: list[tuple[str, str]]) -> bool:
+    return any(n.lower() == "runat" and v.lower() == "server" for n, v in attrs)
+
+
 # OnClient* handlers are JavaScript, not codebehind methods.
 _ASPX_CLIENT_EVENT_PREFIX = "onclient"
 # Bare method names only; databound expressions are not handler references.
@@ -1198,9 +1532,12 @@ def _aspx_handler_names(content: str) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     for raw in _aspx_tags(content):
-        if not _ASPX_RUNAT_SERVER.search(raw):
+        attrs = _aspx_tag_attrs(raw)
+        if not _aspx_runat_server(attrs):
             continue
-        for attr_name, value in _ASPX_EVENT_ATTR.findall(raw):
+        for attr_name, value in attrs:
+            if not _ASPX_EVENT_NAME.fullmatch(attr_name):
+                continue
             if attr_name.lower().startswith(_ASPX_CLIENT_EVENT_PREFIX):
                 continue
             value = value.strip()
@@ -1237,7 +1574,7 @@ def _extract_aspx_imports(content: str) -> list[dict]:
     handlers = None  # sorted handler names, found once
     for m in _ASPX_DIRECTIVE.finditer(content):
         name = m.group(1).lower()
-        attrs = {k.lower(): v for k, v in _ASPX_ATTR.findall(m.group(2))}
+        attrs = {k.lower(): v for k, v in _aspx_attr_pairs(_ASPX_ATTR, m.group(2))}
 
         if name in ("page", "control", "master", "application", "webservice", "webhandler"):
             code = attrs.get("codebehind") or attrs.get("codefile") or attrs.get("src")
@@ -2026,6 +2363,9 @@ _ALIAS_MAP_LOCK = threading.Lock()
 # walk cheaper.
 _TSCONFIG_EXTRA_SKIP_DIRS = frozenset({
     "out", ".cache", ".next", ".nuxt", ".svelte-kit", ".turbo", ".vercel",
+    # Left the authority when the index rule became content-aware; no
+    # migrations directory holds a tsconfig, so the walk keeps skipping it.
+    "migrations",
 })
 
 

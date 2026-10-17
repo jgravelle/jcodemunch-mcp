@@ -30,6 +30,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# `context_metadata` key naming the context providers a time budget cut on the
+# last full pass (L-190). Written by `tools/index_folder.py`; a delta save keeps
+# it (see `_incremental_save_locked`), and only a full save can end it.
+PROVIDERS_CUT_KEY = "providers_cut"
+
 # Repos whose JSON index already failed migration schema validation this
 # process. A stale/corrupt JSON index (e.g. a starter pack's `.pack/<id>`)
 # never becomes loadable, so every load_index / eager-migrate path retries the
@@ -2045,6 +2050,22 @@ class SQLiteIndexStore:
         conn = self._connect(db_path)
         try:
             conn.execute("BEGIN")
+
+            # A delta re-reads some files, so it cannot end a provider cut that
+            # a full pass recorded (L-190). The caller's dict REPLACES the stored
+            # one, and `index_file` and the watcher build theirs from the active
+            # providers alone; carrying the record here covers every writer.
+            if context_metadata is not None and PROVIDERS_CUT_KEY not in context_metadata:
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key = 'context_metadata'"
+                ).fetchone()
+                try:
+                    stored_cut = (json.loads(row["value"]) or {}).get(PROVIDERS_CUT_KEY) if row else None
+                except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                    logger.debug("incremental_save: unreadable stored context_metadata", exc_info=True)
+                    stored_cut = None
+                if stored_cut:
+                    context_metadata = {**context_metadata, PROVIDERS_CUT_KEY: stored_cut}
 
             # Delete symbols for changed + deleted files
             files_to_remove: set[str] = set(deleted_files) | set(changed_files)

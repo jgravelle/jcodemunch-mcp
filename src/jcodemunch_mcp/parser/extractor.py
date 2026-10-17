@@ -4,6 +4,7 @@ import bisect
 import dataclasses
 import logging
 import re
+from dataclasses import replace
 from typing import Any, Callable, Optional
 from . import parse_budget
 from .grammar_pack import get_parser  # #608: records a grammar failure, then re-raises
@@ -119,77 +120,531 @@ _CALL_NODE_TYPES: dict[str, set[str]] = {
     "javascript": {"call_expression", "new_expression"},
     "typescript": {"call_expression", "new_expression"},
     "tsx": {"call_expression", "new_expression"},
-    "go": {"call_expression"},
-    "rust": {"call_expression"},
-    "java": {"method_invocation", "object_creation_expression"},
+    # `type_conversion_expression`: the grammar cannot tell `Generic[int](1)`
+    # or `fs[i](1)` from a conversion to a generic type, and gives all three
+    # this node. A conversion to a type with no name records nothing (L-171).
+    "go": {"call_expression", "type_conversion_expression"},
+    # `macro_invocation` and `macro_definition`: a macro's arguments and a
+    # `macro_rules!` body are tokens the grammar does not parse
+    # (`_record_macro_calls`, LEDGER L-164).
+    "rust": {"call_expression", "macro_invocation", "macro_definition"},
+    # `class_declaration`: a constructor's `super(...)` calls the constructor
+    # of the class this one extends, and only the class node names that class
+    # (`_record_super_constructor_calls`, LEDGER L-166).
+    "java": {"method_invocation", "object_creation_expression", "class_declaration"},
     "php": {"function_call_expression", "method_call_expression", "scoped_call_expression"},
-    "ruby": {"call", "method_call"},
-    "csharp": {"invocation_expression"},
+    # `method` and `singleton_method`: a method called with no receiver and no
+    # arguments is a bare `identifier`, the node of a local variable, and only
+    # the method around it says which it is (`_record_bare_ruby_calls`, L-172).
+    "ruby": {"call", "method_call", "method", "singleton_method"},
+    # `object_creation_expression`: a C# constructor is named for its class,
+    # so `new Made()` is the only call of it there is (LEDGER L-170).
+    "csharp": {"invocation_expression", "object_creation_expression"},
     "kotlin": {"call_expression"},
     "dart": {"function_expression_invocation"},
     "swift": {"call_expression"},
 }
 
 
-def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
-    """Extract the function/method name from a call node.
+#: Where a call node keeps what it calls, tried in this order. `function` is
+#: most grammars'; `method` is Ruby's; `name` is Java's `method_invocation`;
+#: `constructor` and `type` are the two `new` forms.
+_CALLEE_FIELDS = ("function", "method", "name", "constructor", "type")
 
-    Handles:
-    - Simple identifier: foo() -> "foo"
-    - Member expression: obj.method() -> "method"
-    - Constructor: new Foo() -> "Foo"
-    - Return None for complex computed calls.
+#: A node that IS a name.
+_CALLEE_NAME_NODES = frozenset({
+    "identifier", "type_identifier", "field_identifier", "property_identifier",
+    "private_property_identifier", "constant",
+})
+
+#: A node that reaches a member of something: the field that holds the MEMBER.
+#: `None` means the grammar gives it no field and the member is the last named
+#: child. ⚠ The member is what is called. The other side is the receiver, and
+#: recording it is LEDGER L-159.
+_CALLEE_MEMBER_FIELD: dict[str, Optional[str]] = {
+    "member_expression": "property",         # JavaScript, TypeScript: t.m, t?.m, t.#m
+    "attribute": "attribute",                # Python: t.m
+    "selector_expression": "field",          # Go: t.M, pkg.F
+    "field_expression": "field",             # Rust: t.m
+    "scoped_identifier": "name",             # Rust: Type::assoc, a::b::f
+    "member_access_expression": "name",      # C#: a.M, this.M, base.M
+    "member_binding_expression": "name",     # C#: the `.M` of a?.M
+    "conditional_access_expression": None,   # C#: a?.M
+    "qualified_name": "name",                # C#: new Ns.Type()
+    "alias_qualified_name": "name",          # C#: new global::Type()
+    "qualified_type": "name",                # Go: pkg.F[T](x), t.fs[i](x)
+    "scoped_type_identifier": None,          # Java: new pkg.Type()
+    "annotated_type": None,                  # Java: extends @Ann Type
+}
+
+#: A node that wraps the callee: the field that holds what it wraps, `None` for
+#: the first named child. A subscript resolves to its container: an element has
+#: no name, and the container is what holds the function.
+_CALLEE_WRAPPER_FIELD: dict[str, Optional[str]] = {
+    "generic_function": "function",          # Rust: f::<T>
+    "generic_name": None,                    # C#: F<T>
+    "generic_type": None,                    # Java: new Type<T>(); Go: F[T](x)
+    "non_null_expression": None,             # TypeScript: f!
+    "parenthesized_expression": None,        # (t.m)()
+    "index_expression": "operand",           # Go: fs[0], and F[T]
+    "subscript": "value",                    # Python: fs[0]
+    "subscript_expression": "object",        # JavaScript: fs[0]
+    "element_access_expression": "expression",  # C#: fs[0]
+    "postfix_unary_expression": None,        # C#: f!
+    "pointer_type": None,                    # Go: *F[T](x), the call's result dereferenced
+    "parenthesized_type": None,              # Go: (F[T])(x)
+}
+
+#: C#'s `a?[0]`: the last child of the conditional access is the `[0]`, which
+#: has no name. The container is on the other side, in this field.
+_CALLEE_ELEMENT_BINDING = "element_binding_expression"
+_CALLEE_CONDITION_FIELD = "condition"
+
+#: A Rust macro invocation or definition holds calls; it is not one, and it
+#: has no callee.
+_RUST_MACRO_INVOCATION = "macro_invocation"
+_RUST_MACRO_DEFINITION = "macro_definition"
+_RUST_MACRO_NODES = frozenset({_RUST_MACRO_INVOCATION, _RUST_MACRO_DEFINITION})
+#: A Java class holds `super(...)` calls; it is not a call, and it has no callee.
+_JAVA_CLASS_DECLARATION = "class_declaration"
+#: A Ruby method holds bare calls; it is not a call, and it has no callee.
+_RUBY_METHOD_NODES = frozenset({"method", "singleton_method"})
+_CALL_NODES_OF_ANY_LANGUAGE = frozenset(
+    t for types in _CALL_NODE_TYPES.values() for t in types
+) - _RUST_MACRO_NODES - {_JAVA_CLASS_DECLARATION} - _RUBY_METHOD_NODES
+#: A callee nests one level per `.`, `::`, `<>` or `()`; past this it has no name.
+_CALLEE_MAX_DEPTH = 64
+
+#: JavaScript and TypeScript reach a member by a string too: `t["m"]()` calls
+#: what `t.m()` calls. The key is a `string`, or a `template_string` with no
+#: substitution, with one part that reads as a name (LEDGER L-173 item 7).
+#: ⚠ Three things keep every other grammar out, and each is needed: the node
+#: is named `subscript_expression` (PHP's is too), its key is in the `index`
+#: field (PHP's has no field; Go's `index_expression` and Java's
+#: `array_access` have one), and the key is one of these two node types (Go's
+#: string literals are neither). In those languages a string key reaches an
+#: element of a container, not a member.
+_JS_KEYED_MEMBER = "subscript_expression"
+_JS_STRING_KEYS = frozenset({"string", "template_string"})
+
+
+def _js_string_key_name(node) -> Optional[str]:
+    """The member a subscript reaches when its key is a string holding a name, or None.
+
+    A name is what could be written after a dot: letters of any script, digits
+    not first, `_` and `$`. A method declared with a string that is not a name
+    (`"~validate"(data) {}`) is not reached by this: LEDGER L-174.
+    """
+    key = node.child_by_field_name("index")
+    if key is None or key.type not in _JS_STRING_KEYS or key.named_child_count != 1:
+        return None
+    text = key.named_children[0].text.decode("utf-8", errors="replace")
+    return text if text.replace("$", "_").isidentifier() else None
+
+
+def _callee_first_named(node):
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.is_named and child.type != "comment":
+            return child
+    return None
+
+
+def _callee_last_named(node):
+    for child in reversed(node.children):
+        parse_budget.checkpoint()
+        if child.is_named and child.type != "comment":
+            return child
+    return None
+
+
+def _callee_of(node):
+    """The child of a call node that says what is called, or None."""
+    for field in _CALLEE_FIELDS:
+        parse_budget.checkpoint()
+        callee = node.child_by_field_name(field)
+        if callee is not None:
+            return callee
+    if node.child_by_field_name("receiver") is not None:
+        return None  # Ruby `t.()`: a receiver and no method. The receiver is not the callee.
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.type not in ("(", ")", "[", "]", "new"):
+            return child
+    return None
+
+
+def _extract_call_name(node, source_bytes: bytes) -> Optional[str]:
+    """The name of what a call node calls, or None when it has no name.
+
+    - ``foo()`` -> ``foo``; ``new Foo()`` -> ``Foo``
+    - a member, in every grammar's spelling (``obj.method()``, ``Type::assoc()``,
+      ``a?.M()``, ``this.m()``) -> the member
+    - a generic, parenthesised or chained callee -> the name underneath
+    - an element of a container (``fs[0]()``) -> the container
+    - a JavaScript member reached by a string that holds a name (``t["m"]()``)
+      -> the member
+    - a function literal called in place, or a callee of a type not named in
+      the tables above -> None
+
+    ⚠⚠ **Never fall back to "an identifier somewhere inside the callee".** That
+    was the rule for every shape but JavaScript's and Python's until L-159, and
+    in Go, Java, Rust, Ruby and C# the first identifier inside ``t.Recv()`` is
+    the RECEIVER: the method read as never called and a function named like
+    the receiver read as called. A callee this does not know records nothing.
     """
     parse_budget.checkpoint()
-    node_type = node.type
-
-    if node_type == "identifier":
-        # Simple call: foo()
-        return node.text.decode("utf-8", errors="replace")
-
-    if node_type in ("call_expression", "function_call_expression", "method_invocation",
-                      "invocation_expression", "call", "method_call", "function_expression_invocation",
-                      "new_expression", "object_creation_expression"):
-        # For call_expression, the function being called is the first child
-        # For Python call: foo() -> the "foo" is the first child (an identifier)
-        # For JS call_expression: the function is first child (could be identifier or member expression)
-        first_child = None
-        for child in node.children:
-            parse_budget.checkpoint()
-            if child.type not in ("(", ")", "[", "]", "new"):
-                first_child = child
-                break
-
-        if first_child is None:
+    current = node
+    for _ in range(_CALLEE_MAX_DEPTH):
+        parse_budget.checkpoint()
+        if current is None:
             return None
-
-        ft = first_child.type
-        if ft in ("identifier", "type_identifier"):
-            return first_child.text.decode("utf-8", errors="replace")
-        elif ft in ("member_expression", "attribute_expression", "attribute", "method_declaration"):
-            # For JS/TS: member_expression contains property_identifier for the method name
-            # For Python: attribute node contains two identifiers (object and method)
-            # First check for property_identifier (JS/TS way)
-            for child in first_child.children:
-                parse_budget.checkpoint()
-                if child.type == "property_identifier":
-                    return child.text.decode("utf-8", errors="replace")
-            # Fallback: for Python attribute, get the last identifier (method name)
-            identifiers = [c for c in first_child.children if c.type == "identifier"]
-            if identifiers:
-                return identifiers[-1].text.decode("utf-8", errors="replace")
-        elif ft == "call_expression":
-            # Nested call: foo()(bar) - extract foo's name
-            return _extract_call_name(first_child, source_bytes)
+        kind = current.type
+        if kind in _CALLEE_NAME_NODES:
+            return current.text.decode("utf-8", errors="replace")
+        if kind in _CALL_NODES_OF_ANY_LANGUAGE:
+            current = _callee_of(current)  # the call itself, or `foo()(bar)`: foo
+        elif kind in _CALLEE_MEMBER_FIELD:
+            field = _CALLEE_MEMBER_FIELD[kind]
+            member = current.child_by_field_name(field) if field else None
+            if member is None:
+                member = _callee_last_named(current)
+            if member is not None and member.type == _CALLEE_ELEMENT_BINDING:
+                member = current.child_by_field_name(_CALLEE_CONDITION_FIELD)
+            current = member
+        elif kind in _CALLEE_WRAPPER_FIELD:
+            if kind == _JS_KEYED_MEMBER:
+                keyed = _js_string_key_name(current)
+                if keyed is not None:
+                    return keyed
+            field = _CALLEE_WRAPPER_FIELD[kind]
+            inner = current.child_by_field_name(field) if field else None
+            current = inner if inner is not None else _callee_first_named(current)
         else:
-            # Could be a parenthesized expression or other complex case
-            # Try to find an identifier within
-            for child in first_child.children:
-                parse_budget.checkpoint()
-                if child.type == "identifier":
-                    return child.text.decode("utf-8", errors="replace")
-
+            return None
     return None
+
+
+#: The node a Rust macro's arguments are: tokens, not expressions.
+_TOKEN_TREE = "token_tree"
+#: Rust's strict and reserved keywords, which no function can be named without
+#: `r#`, and the three closure traits written `Fn(u8) -> u8`. A token tree
+#: hands some of these back as an `identifier` (`else`, `in`, `try`), so the
+#: rule cannot rely on the token's kind. `_` is a pattern, never a name.
+#: ⚠ NOT here, deliberately: `union`, `default`, `gen`, `auto`, `raw`, `safe`,
+#: `macro_rules`. They are contextual, and a function may carry the name
+#: (`Foo::default()`, `a.union(&b)`).
+_RUST_WORDS_THAT_ARE_NOT_CALLS = frozenset({
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate", "do", "dyn",
+    "else", "enum", "extern", "false", "final", "fn", "for", "if", "impl", "in", "let", "loop", "macro",
+    "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return", "self", "Self", "static",
+    "struct", "super", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use", "virtual",
+    "where", "while", "yield",
+    "Fn", "FnMut", "FnOnce", "_",
+})
+#: A name after one of these is not being called: `fn name(args)` and
+#: `struct Pair(u8, u8)` declare it, and `'a (dyn Tr)` and `break 'lbl (1)`
+#: are a lifetime and a label.
+_RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED = frozenset({"fn", "struct", "union", "'"})
+#: One arm of a `macro_rules!`: a `token_tree_pattern`, `=>`, then the body.
+_RUST_MACRO_RULE = "macro_rule"
+_RUST_COMMENT_TOKENS = frozenset({"line_comment", "block_comment"})
+_RUST_NAME_TOKEN_RE = re.compile(r"(?:r#)?[^\W\d]\w*\Z")
+
+
+def _token_text(node) -> str:
+    return node.text.decode("utf-8", errors="replace")
+
+
+def _rust_name_token(node) -> Optional[str]:
+    """The name a token could be calling by, or None.
+
+    An ``identifier``, or a contextual keyword the grammar gives its own token
+    kind (``default``, ``union``, ``gen``): such a token's kind IS its text.
+    """
+    if node.type == "identifier":
+        name = _token_text(node)
+    elif not node.is_named and _RUST_NAME_TOKEN_RE.match(node.type):
+        name = node.type
+    else:
+        return None
+    return None if name in _RUST_WORDS_THAT_ARE_NOT_CALLS else name
+
+
+def _macro_token_trees(macro) -> list:
+    """The token trees a macro node holds calls in.
+
+    An invocation: its arguments. A ``macro_rules!`` definition: the BODY of
+    each arm, never its pattern (a ``token_tree_pattern``, a different node),
+    so ``($f:ident ( $x:expr ))`` declares nothing as called.
+    """
+    if macro.type == _RUST_MACRO_INVOCATION:
+        return [child for child in macro.children if child.type == _TOKEN_TREE]
+    trees = []
+    for rule in macro.children:
+        parse_budget.checkpoint()
+        if rule.type == _RUST_MACRO_RULE:
+            trees.extend(child for child in rule.children if child.type == _TOKEN_TREE)
+    return trees
+
+
+def _record_macro_calls(macro, calls: list[tuple[int, str]]) -> None:
+    """Record the calls written in one Rust macro invocation or definition.
+
+    A macro's arguments are not parsed: ``assert_eq!(e(x), seq([y]))`` holds a
+    ``token_tree`` of tokens, and no ``call_expression``. A function called only
+    inside ``assert_eq!``, ``vec!`` or a test macro had no caller, and Rust tests
+    are written almost entirely inside such macros (LEDGER L-164). The body of
+    a ``macro_rules!`` arm is the same: a test that defines a local macro and
+    calls its helper only there (ripgrep's ``sgramq``) had no caller either.
+
+    The rule: a name directly followed by a parenthesised group is a call of
+    that name. ``f(x)``, ``t.m(x)`` and ``a::b::f(x)`` all end in that shape; a
+    turbofish between the two (``f::<T>(x)``) is stepped over. Not a call: a
+    reserved word (``in (0..n)``), a name being declared (``fn name(x)``), a
+    lifetime or label, a name followed by ``!`` (the next macro's own name),
+    and an attribute written in the macro's body (``#[cfg(not(test))]``).
+
+    ⚠⚠ **Every token is read ONCE, from the invocation down, and it must stay
+    so.** Two earlier versions did not (L-164's review, twice). The first
+    walked BACK from each group to find a turbofish's ``<``: N * N on a macro
+    of N comparisons. The second made every nested tree a call node and asked
+    each for its ancestors: depth times trees, and a file nested 160 deep ran
+    past the parse budget and was skipped whole. Hence the invocation is the
+    node the walk hands over, its trees are walked here with a stack, and
+    nothing asks a node for its parent.
+    ``tests/test_parse_path_loops_are_linear.py`` doubles width and depth.
+    ⚠ A parsed attribute (``#[cfg(any(unix, not(windows)))]`` on an item or a
+    statement) is not under a macro invocation, so it is never reached.
+    ⚠ Tokens cannot tell a call from a tuple-struct pattern or an enum variant
+    with a field: ``Some(y)`` and ``A(u8)`` are recorded. Toward not reporting.
+    """
+    found: list[tuple[int, str]] = []
+    trees = _macro_token_trees(macro)
+    while trees:
+        parse_budget.checkpoint()
+        children = trees.pop().children
+        count = len(children)
+        pending = None  # (start, name) a group directly after would be a call of
+        i = 0
+        while i < count:
+            parse_budget.checkpoint()
+            token = children[i]
+            kind = token.type
+            if kind in _RUST_COMMENT_TOKENS:
+                i += 1  # `name /* why */ (args)` is still a call of `name`
+                continue
+            if kind == _TOKEN_TREE:
+                opener = token.children[0].type if token.children else ""
+                is_attribute = opener == "[" and i >= 1 and (
+                    children[i - 1].type == "#"
+                    or (children[i - 1].type == "!" and i >= 2 and children[i - 2].type == "#")
+                )
+                if not is_attribute:
+                    if pending is not None and opener == "(":
+                        found.append(pending)
+                    trees.append(token)
+                pending = None
+            elif kind == "::" and pending is not None and i + 1 < count and children[i + 1].type in ("<", "<<"):
+                # A turbofish: step over `::<...>` and keep the name before it.
+                depth = 0
+                i += 1
+                while i < count:
+                    parse_budget.checkpoint()
+                    inner = children[i].type
+                    if inner == "<":
+                        depth += 1
+                    elif inner == "<<":
+                        depth += 2
+                    elif inner == ">":
+                        depth -= 1
+                    elif inner == ">>":
+                        depth -= 2
+                    if depth <= 0:
+                        break
+                    i += 1
+            else:
+                name = _rust_name_token(token)
+                if name is not None and not (
+                    i >= 1 and children[i - 1].type in _RUST_TOKENS_BEFORE_A_NAME_THAT_IS_NOT_CALLED
+                ):
+                    pending = (token.start_byte, name)
+                else:
+                    pending = None
+            i += 1
+    found.sort()  # the stack reads inner trees out of source order
+    calls.extend(found)
+
+
+def _java_first_named(node):
+    """The first named child that is not a comment. Java's are `line_comment` and `block_comment`."""
+    for child in node.children:
+        parse_budget.checkpoint()
+        if child.is_named and not child.type.endswith("comment"):
+            return child
+    return None
+
+
+def _record_super_constructor_calls(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
+    """Append a Java class's `super(...)` calls to ``calls``, under the superclass's name.
+
+    A Java constructor is named for its class, so ``new Base()`` records
+    ``Base``. A subclass reaches the same constructor with ``super(...)``, an
+    ``explicit_constructor_invocation`` that names nothing: the name is on the
+    class, in ``extends Base``. Without it the constructor of a class that is
+    only ever subclassed had no caller on record (LEDGER L-166).
+
+    Read from the class node DOWN: its direct constructors, and the first
+    statement of each. ⚠ Since JDK 25 statements may come before the call
+    (``Kid(int x) { check(x); super(x); }``); the grammar here parses that
+    ``super`` as an error node, so it records nothing (L-169).
+    ⚠ Never from the call node up. Asking a node for its parent costs the depth
+    of the tree, once per call (L-164).
+    ⚠ ``this(...)`` is left out. It calls a constructor of the enclosing one's
+    own name, and a call of the enclosing function's name is dropped as
+    recursion wherever calls are attributed.
+    A class that extends nothing calls ``Object``'s constructor: nothing to record.
+    """
+    superclass = node.child_by_field_name("superclass")
+    body = node.child_by_field_name("body")
+    if superclass is None or body is None:
+        return
+    name = _extract_call_name(_java_first_named(superclass), source_bytes)
+    if not name:
+        return
+    for member in body.children:
+        parse_budget.checkpoint()
+        if member.type != "constructor_declaration":
+            continue
+        constructor_body = member.child_by_field_name("body")
+        first = _java_first_named(constructor_body) if constructor_body is not None else None
+        if first is None or first.type != "explicit_constructor_invocation":
+            continue
+        called = first.child_by_field_name("constructor")
+        if called is not None and called.type == "super":
+            calls.append((first.start_byte, name))
+
+
+#: Ruby nodes whose `identifier` children are names being INTRODUCED: a
+#: parameter list, the targets of a multiple assignment, `rescue => e`.
+_RUBY_NODES_THAT_DECLARE_THEIR_NAMES = frozenset({
+    "method_parameters", "block_parameters", "lambda_parameters", "destructured_parameter",
+    "left_assignment_list", "destructured_left_assignment", "rest_assignment", "exception_variable",
+})
+#: Ruby parameters with a default: the `name` is introduced, the `value` is read.
+_RUBY_NODES_THAT_DECLARE_THEIR_NAME_FIELD = frozenset({
+    "optional_parameter", "keyword_parameter", "splat_parameter", "hash_splat_parameter", "block_parameter",
+})
+_RUBY_ASSIGNMENTS = frozenset({"assignment", "operator_assignment"})
+#: Ruby nodes with a `pattern` field whose names are all captures:
+#: `case x in [a, b]`, `x in [a, b]`, `x => {name:}`.
+_RUBY_NODES_WITH_A_PATTERN = frozenset({"in_clause", "test_pattern", "match_pattern"})
+#: A scope of its own inside a method. A nested method is read when the walk
+#: reaches it; a class body is in no method.
+_RUBY_NODES_WITH_THEIR_OWN_SCOPE = _RUBY_METHOD_NODES | {"class", "module", "singleton_class"}
+#: A block's implicit parameters: `it` (Ruby 3.4) and `_1` to `_9`. No node declares them.
+_RUBY_IMPLICIT_BLOCK_PARAMETERS = frozenset({"it"} | {f"_{n}" for n in range(1, 10)})
+
+
+def _record_bare_ruby_calls(node, calls: list[tuple[int, str]]) -> None:
+    """Append the bare-name calls of one Ruby method to ``calls``.
+
+    Ruby writes a call of a method with no receiver and no arguments as a bare
+    name (``settings``), and the grammar gives it the ``identifier`` node of a
+    local variable. Read as no call, the commonest way one Ruby method calls
+    another recorded nothing, and a helper called only so had no caller on
+    record (LEDGER L-172).
+
+    The rule is Ruby's own: a bare name is a local variable once the method
+    has introduced it (a parameter, an assignment, a block parameter, a
+    pattern capture, ``rescue => e``), and a method call otherwise. Names are
+    met in source order, so ``y = x; x = 2`` reads the first ``x`` as a call.
+
+    Read from the method node DOWN, once. ⚠ Never from an identifier up:
+    asking a node for its parent costs the depth of the tree (L-164).
+    ⚠ A block parameter stays a local to the end of the method, where Ruby
+    ends it with its block. Toward reporting, and rare.
+    ⚠ What the grammar could not parse (an ``ERROR`` node) is read as
+    introducing every name in it: a name the walk cannot place is not called.
+    ⚠ The method and the receiver of a ``call`` node are left to
+    ``_record_call``, which records both.
+    ⚠ These calls are appended when the method node is met, so they come
+    before the method's ``call`` nodes in its references.
+    """
+    declared: set[str] = set()
+    found: list[tuple[int, str]] = []
+    # (node, its parent's type, its field in the parent, inside a pattern)
+    stack: list[tuple[Any, str, Optional[str], bool]] = []
+    for i in range(node.child_count - 1, -1, -1):
+        parse_budget.checkpoint()
+        stack.append((node.children[i], node.type, node.field_name_for_child(i), False))
+    while stack:
+        parse_budget.checkpoint()
+        current, parent, field, in_pattern = stack.pop()
+        kind = current.type
+        if kind in _RUBY_NODES_WITH_THEIR_OWN_SCOPE:
+            continue
+        if kind == "identifier":
+            name = current.text.decode("utf-8", errors="replace")
+            if (
+                in_pattern
+                or parent in _RUBY_NODES_THAT_DECLARE_THEIR_NAMES
+                or (parent in _RUBY_NODES_THAT_DECLARE_THEIR_NAME_FIELD and field != "value")
+                or (parent in _RUBY_ASSIGNMENTS and field == "left")
+                or (parent == "for" and field == "pattern")
+            ):
+                declared.add(name)
+            elif (parent == "call" and field in ("method", "receiver")) or (
+                # `def obj.m`: `obj` is a local of the scope AROUND the method
+                parent in _RUBY_METHOD_NODES and field in ("name", "object")
+            ) or parent in ("setter", "alias", "undef"):
+                pass  # `def name=(v)`: the `setter` node holds the method's own name
+            elif name not in declared and name not in _RUBY_IMPLICIT_BLOCK_PARAMETERS:
+                found.append((current.start_byte, name))
+            continue
+        if in_pattern and kind == "keyword_pattern" and current.child_by_field_name("value") is None:
+            key = current.child_by_field_name("key")  # `in {name:}` captures `name`
+            if key is not None:
+                declared.add(key.text.decode("utf-8", errors="replace"))
+        holds_a_pattern = kind in _RUBY_NODES_WITH_A_PATTERN
+        unparsed = kind == "ERROR"
+        children = current.children
+        for i in range(len(children) - 1, -1, -1):
+            parse_budget.checkpoint()
+            child_field = current.field_name_for_child(i)
+            stack.append((children[i], kind, child_field, in_pattern or unparsed or (holds_a_pattern and child_field == "pattern")))
+    calls.extend(found)
+
+
+def _record_call(node, source_bytes: bytes, calls: list[tuple[int, str]]) -> None:
+    """Append what one call node calls to ``calls``. THE one recorder.
+
+    ⚠ Ruby alone records a second name. Its grammar gives a method called with
+    no receiver and no arguments (``settings``) the same ``identifier`` node as
+    a local variable, so in ``settings.environment`` the receiver may itself be
+    a call. It is recorded too: leaving it out reported 27 of sinatra's methods
+    as uncalled that the old rule had found (LEDGER L-159).
+    ⚠ The rule is keyed on the FIELD, not on the language. Of the grammars in
+    ``_CALL_NODE_TYPES`` only Ruby has a ``receiver`` field on a call node. Go
+    and Kotlin have one too, on a method DECLARATION, which is never a call
+    node. Before a grammar's call nodes are added (L-158), check that none of
+    them carries the field.
+    """
+    if node.type in _RUST_MACRO_NODES:
+        _record_macro_calls(node, calls)
+        return
+    if node.type == _JAVA_CLASS_DECLARATION:
+        _record_super_constructor_calls(node, source_bytes, calls)
+        return
+    if node.type in _RUBY_METHOD_NODES:
+        _record_bare_ruby_calls(node, calls)
+        return
+    name = _extract_call_name(node, source_bytes)
+    if name:
+        calls.append((node.start_byte, name))
+    receiver = node.child_by_field_name("receiver")
+    if receiver is not None and receiver.type == "identifier":
+        calls.append((receiver.start_byte, receiver.text.decode("utf-8", errors="replace")))
 
 
 def _collect_calls(
@@ -214,9 +669,7 @@ def _collect_calls(
         parse_budget.checkpoint()
         current = stack.pop()
         if current.type in call_types:
-            name = _extract_call_name(current, source_bytes)
-            if name:
-                results.append((current.start_byte, name))
+            _record_call(current, source_bytes, results)
         # Extend with all children at once (push in reverse for pre-order)
         stack.extend(reversed(current.children))
 
@@ -917,9 +1370,7 @@ def _walk_tree(
 
     # Collect call sites during the same walk (when enabled)
     if call_types is not None and calls is not None and node.type in call_types:
-        name = _extract_call_name(node, source_bytes)
-        if name:
-            calls.append((node.start_byte, name))
+        _record_call(node, source_bytes, calls)
 
     # Check if this node is a symbol
     # #830: a C-family type specifier WITHOUT a body is a mention of a type,
@@ -7145,9 +7596,7 @@ _AL_ATTR_RE = re.compile(
     r"\[(?P<attr>[A-Za-z_]\w*)\s*(?:\([^]]*\))?\]",
 )
 
-_AL_DOC_RE = re.compile(
-    r"///\s*(?:<summary>)?\s*(?P<text>.*?)(?:</summary>)?\s*$",
-)
+_AL_SUMMARY_TAG_RE = re.compile(r"</?summary\b[^>]*>", re.IGNORECASE)
 
 
 def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
@@ -7254,8 +7703,17 @@ def _parse_al_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             else:
                 break
         if doc_lines:
-            text = " ".join(doc_lines)
-            text = text.replace("<summary>", "").replace("</summary>", "").strip()
+            # The XML stays, as it does for C#: `summarizer/xml_doc.py` reads the
+            # summary out of it. A local `.replace("<summary>", "")` here was a
+            # second copy of that rule, blind to `<Summary>`, to attributes and
+            # to `<see cref=.../>`, and a sentence with no period carried the
+            # `<param>` markup that followed it into the summary.
+            text = " ".join(doc_lines).strip()
+            # ⚠ An empty stub (`/// <summary>` + `/// </summary>`) is NO
+            # docstring, as it was under the old strip: a non-empty docstring
+            # takes the symbol away from the AI summarizer for good.
+            if not _AL_SUMMARY_TAG_RE.sub("", text).strip():
+                return ""
             return text
         # Fallback: look for // inline comments
         idx = line_idx - 1
@@ -9123,8 +9581,15 @@ def _parse_ejs_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 # The `\b` and the lookbehind keep a long run of name characters from being
 # re-read from every position (see `_ASPX_DIRECTIVE` in imports.py).
 _ASPX_DIRECTIVE_RE = re.compile(rb"<%@\s*(\w+)\b((?:[^%<]|%(?!>)|<(?!%))*)%>", re.DOTALL)
+# Double-quoted, single-quoted or unquoted, as ASP.NET's parser accepts (see
+# `_ASPX_VALUE` in imports.py): an unquoted value ends at a delimiter, and in a
+# tag also at the `/` of `/>`.
+_ASPX_ATTR_NAME_RE = rb"(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"
 _ASPX_ATTR_RE = re.compile(
-    rb'(?<![\w\x80-\xff:.\-])([\w\x80-\xff][\w\x80-\xff:.\-]*)\s*=\s*"([^"]*)"'
+    _ASPX_ATTR_NAME_RE + rb"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=]+)(?=\s|$))"""
+)
+_ASPX_TAG_ATTR_RE = re.compile(
+    _ASPX_ATTR_NAME_RE + rb"""(?:"([^"]*)"|'([^']*)'|([^\s"'<>%=/]+)(?=[\s/>]|$))"""
 )
 # Any tag prefix: <%@ Register TagPrefix= %> lets a project define its own.
 # Attributes may hold quoted HTML (`ErrorMessage="<br>..."`) or an inline
@@ -9135,7 +9600,24 @@ _ASPX_CONTROL_RE = re.compile(
     rb"<(\w+):(\w+)\b((?:\"[^\"]*\"|'[^']*'|" + _ASPX_INLINE_BLOCK + rb"|[^<>\"'])*)>",
     re.IGNORECASE,
 )
-_ASPX_RUNAT_SERVER_RE = re.compile(rb'runat\s*=\s*"server"', re.IGNORECASE)
+_ASPX_INLINE_BLOCK_RE = re.compile(_ASPX_INLINE_BLOCK)
+
+
+def _aspx_tag_attr_pairs(raw: bytes) -> list[tuple[bytes, bytes]]:
+    """(name, value) for each attribute of one tag, left to right.
+
+    One pass consumes each quoted value whole, so `ToolTip="set runat=server"`
+    opens no gate; inline blocks are blanked first so their quotes cannot shift
+    the pass (see `_aspx_tag_attrs` in imports.py).
+    """
+    blanked = _ASPX_INLINE_BLOCK_RE.sub(b" ", raw)
+    return [(k, dq or sq or bare) for k, dq, sq, bare in _ASPX_TAG_ATTR_RE.findall(blanked)]
+
+
+def _aspx_runat_server(pairs: list[tuple[bytes, bytes]]) -> bool:
+    return any(k.lower() == b"runat" and v.lower() == b"server" for k, v in pairs)
+
+
 # `</script\b[^<>]*>`, not `</script>`, to satisfy CodeQL py/bad-tag-filter.
 _ASPX_SCRIPT_OPEN_TAG_RE = re.compile(rb"<script\b([^<>]*)>", re.IGNORECASE)
 _ASPX_SCRIPT_OPEN_RE = re.compile(rb"<script\b", re.IGNORECASE)
@@ -9159,7 +9641,7 @@ def _aspx_server_scripts(source_bytes: bytes):
         if opened is None:
             return
         pos = opened.end()
-        if not _ASPX_RUNAT_SERVER_RE.search(opened.group(1)):
+        if not _aspx_runat_server(_aspx_tag_attr_pairs(opened.group(1))):
             continue
         following = _ASPX_SCRIPT_OPEN_RE.search(source_bytes, pos)
         limit = following.start() if following else len(source_bytes)
@@ -9200,7 +9682,10 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
         return raw.decode("utf-8", errors="replace")
 
     def _attrs(raw: bytes) -> dict[str, str]:
-        return {_text(k).lower(): _text(v) for k, v in _ASPX_ATTR_RE.findall(raw)}
+        return {
+            _text(k).lower(): _text(dq or sq or bare)
+            for k, dq, sq, bare in _ASPX_ATTR_RE.findall(raw)
+        }
 
     def _line_for_offset(offset: int) -> int:
         return bisect.bisect_left(newlines, offset) + 1
@@ -9266,10 +9751,10 @@ def _parse_aspx_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     seen_ids: set[str] = set()
     for m in _ASPX_CONTROL_RE.finditer(source_bytes):
         parse_budget.checkpoint()
-        attrs_raw = m.group(3) or b""
-        if not _ASPX_RUNAT_SERVER_RE.search(attrs_raw):
+        pairs = _aspx_tag_attr_pairs(m.group(3) or b"")
+        if not _aspx_runat_server(pairs):
             continue
-        attrs = _attrs(attrs_raw)
+        attrs = {_text(k).lower(): _text(v) for k, v in pairs}
         control_id = attrs.get("id")
         if not control_id or control_id in seen_ids:
             continue
@@ -11171,6 +11656,1097 @@ def _parse_fortran_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     return symbols
 
 
+def _split_sql_qualified_name(text: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    closer: Optional[str] = None
+    i = 0
+    n = len(text)
+    while i < n:
+        parse_budget.checkpoint()
+        ch = text[i]
+        if closer is not None:
+            if ch == closer:
+                if i + 1 < n and text[i + 1] == closer:
+                    buf.append(ch)
+                    i += 2
+                    continue
+                closer = None
+                i += 1
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "[":
+            closer = "]"
+            i += 1
+            continue
+        if ch in ('"', "'", "`"):
+            closer = ch
+            i += 1
+            continue
+        if ch == ".":
+            parts.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        if ch == "]":
+            # Grammar leaves stray closers.
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf).strip())
+    return [p for p in parts if p]
+
+
+def _clean_sql_name(text: str) -> str:
+    parts = _split_sql_qualified_name(text)
+    return ".".join(parts) if parts else text.strip()
+
+
+_SQL_MASK_COMMENT_OPENERS_RE = re.compile(rb"--|/\*|\[")
+# T-SQL bracket identifier, `]]` escaping `]`. One line only: with no closer
+# on the line no later `[` on it has one either, so an unmatched `[` cannot
+# swallow the file.
+_SQL_MASK_BRACKET_RE = re.compile(rb"\[(?:[^\]\r\n]|\]\])*\]")
+_SQL_STRING_LITERAL_RE = re.compile(rb"'[^']*(?:''[^']*)*'?")
+_SQL_NOT_NEWLINE_RE = re.compile(rb"[^\n]")
+# `SET QUOTED_IDENTIFIER OFF` makes "..." a STRING LITERAL rather than a quoted
+# identifier -- the Sybase ASE default, and emitted verbatim at the top of most
+# SSMS scripts.  Without tracking it, a double-quoted string containing the
+# words CREATE PROCEDURE was scanned as real source and became a phantom symbol.
+_SQL_MASK_OPENERS_RE = re.compile(
+    rb"--|/\*|'|\[|\"|\bSET\s+QUOTED_IDENTIFIER\s+(?:ON|OFF)\b", re.IGNORECASE
+)
+_SQL_DOUBLE_QUOTED_LITERAL_RE = re.compile(rb'"[^"]*(?:""[^"]*)*"?')
+
+
+def _sql_blank(out: bytearray, lo: int, hi: int) -> None:
+    """Blank ``out[lo:hi]`` to spaces, keeping newlines so line numbers hold."""
+    out[lo:hi] = _SQL_NOT_NEWLINE_RE.sub(b" ", bytes(out[lo:hi]))
+
+
+def _mask_sql_noise(src: bytes, mask_strings: bool = True) -> bytes:
+    """Length-preserving; offsets index the original.
+
+    ⚠ Double quotes are masked only while ``SET QUOTED_IDENTIFIER OFF`` is in
+    effect, because that setting is precisely what decides whether ``"..."`` is
+    a string or an identifier.  The scan starts in the ON state: assuming OFF
+    would mask ``"dbo"."Name"`` -- a real object -- out of existence, which is a
+    worse failure than the phantom symbol this prevents.
+    """
+    out = bytearray(src)
+    openers = _SQL_MASK_OPENERS_RE if mask_strings else _SQL_MASK_COMMENT_OPENERS_RE
+    i = 0
+    n = len(src)
+    quoted_identifier_on = True
+    while i < n:
+        parse_budget.checkpoint()
+        opener = openers.search(src, i)
+        if opener is None:
+            break
+        start = opener.start()
+        kind = opener.group()
+        if kind == b"--":
+            end = src.find(b"\n", start)
+            end = n if end < 0 else end
+        elif kind == b"/*":
+            close = src.find(b"*/", start + 2)
+            end = n if close < 0 else close + 2
+        elif kind == b"[":
+            ident = _SQL_MASK_BRACKET_RE.match(src, start)
+            if ident is None:
+                newline = src.find(b"\n", start)
+                i = n if newline < 0 else newline
+                continue
+            # Opaque: an apostrophe or `--` inside brackets opens nothing. The
+            # brackets stay so a masked name still reads as an identifier.
+            if mask_strings:
+                out[start + 1:ident.end() - 1] = b"_" * (ident.end() - start - 2)
+            i = ident.end()
+            continue
+        elif kind == b"'":
+            literal = _SQL_STRING_LITERAL_RE.match(src, start)
+            end = literal.end() if literal else start + 1
+        elif kind == b'"':
+            if quoted_identifier_on:
+                i = start + 1
+                continue
+            double = _SQL_DOUBLE_QUOTED_LITERAL_RE.match(src, start)
+            end = double.end() if double else start + 1
+        else:  # SET QUOTED_IDENTIFIER ON|OFF
+            quoted_identifier_on = kind.split()[-1].upper() == b"ON"
+            i = opener.end()
+            continue
+        out[start:end] = _SQL_NOT_NEWLINE_RE.sub(b" ", src[start:end])
+        i = end
+    return bytes(out)
+
+
+_SQL_IDENT_PART = rb"(?:\[[^\]]*\]|\"[^\"]*\"|'[^']*'|`[^`]*`|[A-Za-z_#][\w$#@]*)"
+_SQL_OBJECT_NAME_RE = re.compile(
+    rb"\s*(" + _SQL_IDENT_PART + rb"(?:\s*\.\s*" + _SQL_IDENT_PART + rb")*)"
+)
+# Whitespace runs stay unambiguous: linear.
+_SQL_DEFINER_PART = rb"(?:`[^`\r\n]*`|\"[^\"\r\n]*\"|'[^'\r\n]*'|[\w$.%-]+)"
+_SQL_DEFINER_VALUE = (
+    rb"(?:"
+    + _SQL_DEFINER_PART
+    + rb"(?:\s*@(?:\s*"
+    + _SQL_DEFINER_PART
+    + rb")?)?|@(?:\s*"
+    + _SQL_DEFINER_PART
+    + rb")?)(?:\s*\(\s*\))?"
+)
+# ⚠ Both re-definition spellings: T-SQL says OR ALTER, PostgreSQL and Oracle say
+# OR REPLACE.
+_SQL_REDEFINE = rb"(?:OR\s+(?:ALTER|REPLACE)\s+)?"
+# ⚠ FUNCTION is in here as a FALLBACK, not a replacement.  The grammar parses
+# plain scalar UDFs and gives a richer signature (parameters, RETURNS type), and
+# `_parse_sql_symbols` keeps whatever the grammar already produced.  What it
+# cannot parse is a T-SQL function with a BEGIN...END body -- including the
+# table-valued `RETURNS @r TABLE` form -- and those are what the scan recovers.
+_SQL_ROUTINE_HEADER_RE = re.compile(
+    rb"\b(?P<verb>CREATE|ALTER)\s+"
+    + _SQL_REDEFINE
+    + rb"(?:DEFINER\s*=\s*" + _SQL_DEFINER_VALUE + rb"\s+)?"
+    rb"(?:(?:NON)?EDITIONABLE\s+|CONSTRAINT\s+)?"
+    # PROCEDURE before PROC: longest wins.
+    # Single \s: runs eat masked names.
+    rb"(?P<kw>PROCEDURE|PROC|TRIGGER|FUNCTION)\s"
+    rb"(?:\s*IF\s+NOT\s+EXISTS\s)?",
+    re.IGNORECASE,
+)
+_SQL_TRIGGER_EVENT = (
+    rb"(?:INSERT|DELETE|TRUNCATE|UPDATE(?:\s+OF\s+"
+    + _SQL_IDENT_PART
+    + rb"(?:\s*,\s*"
+    + _SQL_IDENT_PART
+    + rb")*)?)"
+)
+_SQL_TRIGGER_ON_RE = re.compile(
+    rb"\s*(?:(?:BEFORE|AFTER|INSTEAD\s+OF)\s+"
+    + _SQL_TRIGGER_EVENT
+    + rb"(?:\s+OR\s+"
+    + _SQL_TRIGGER_EVENT
+    + rb")*\s+)?ON\b",
+    re.IGNORECASE,
+)
+_SQL_PROC_NUMBER_RE = re.compile(rb"\s*;\s*\d+")
+# `GO N` repeats the batch N times and `GO;` is accepted by every client that
+# accepts `GO`; both are separators.  Matching only bare `GO` left the previous
+# batch's byte range running on into the separator line.
+# A lone `/` is Oracle/PL-SQL's batch terminator and behaves exactly like GO:
+# no grammar rule, so an unhandled one swallowed the rest of the file.  Measured
+# on sakila's Oracle schema: 1 table of 16 before, because everything after the
+# first `/` was inside one ERROR node.
+_SQL_BATCH_SEPARATOR_RE = re.compile(
+    rb"^[ \t]*(?:GO(?:[ \t]+\d+)?[ \t]*;?|/)[ \t]*\r?$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SQL_BODY_START_RE = re.compile(rb"\bAS\b", re.IGNORECASE)
+# Statements that cannot legally be nested inside a routine body: each must be
+# the first statement of its batch.  CREATE TABLE and CREATE INDEX are absent
+# ON PURPOSE -- both appear inside real procedure bodies in the wild (a
+# `CREATE TABLE #Temp` at column 0 is common), so treating either as a
+# top-level boundary would truncate real routines.
+_SQL_NON_NESTABLE_CREATE_RE = re.compile(
+    rb"\bCREATE\s+" + _SQL_REDEFINE
+    + rb"(?:PROCEDURE|PROC|TRIGGER|VIEW|FUNCTION|SCHEMA)\b",
+    re.IGNORECASE,
+)
+_SQL_PAREN_RE = re.compile(rb"[()]")
+
+
+def _sql_paren_group_end(masked: bytes, open_at: int) -> Optional[int]:
+    """End offset of the parenthesised group opened at ``open_at``, or None."""
+    depth = 0
+    for p in _SQL_PAREN_RE.finditer(masked, open_at):
+        parse_budget.checkpoint()
+        depth += 1 if p.group() == b"(" else -1
+        if depth == 0:
+            return p.end()
+    return None
+
+
+_SQL_TABLE_CHECK_RE = re.compile(
+    rb"\bCONSTRAINT\s+" + _SQL_IDENT_PART + rb"\s+CHECK\s*\(", re.IGNORECASE
+)
+_SQL_TRAILING_SPACE_COMMA_RE = re.compile(rb",?[ \t\r\n]*\Z")
+
+
+def _neutralize_sql_check_constraints(buf: bytes, masked: bytes) -> bytes:
+    """Blank table-level ``CONSTRAINT x CHECK (...)`` out of the grammar's copy.
+
+    ⚠ The grammar loses the WHOLE ``CREATE TABLE`` over the expression inside,
+    and the trigger is narrow: measured, ``CHECK (a BETWEEN 1 AND 5)`` costs the
+    table while ``CHECK (a IN (1, 2))`` and ``CHECK (a > 0)`` do not.  That is
+    AdventureWorks' last three tables -- EmployeePayHistory, ProductInventory
+    and Vendor -- each of which has a BETWEEN in a table-level CHECK.
+
+    Blanking loses nothing: ``_scan_sql_constraints`` reads these from the
+    ORIGINAL bytes, exactly as it does for ``ALTER TABLE``.
+
+    ⚠ The separating comma goes too.  Leaving ``[a] int NOT NULL,`` followed by
+    a blank run and then ``)`` is a trailing comma, which is its own parse
+    error -- the fix would otherwise trade one failure for another.
+    """
+    if not _SQL_TABLE_CHECK_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    prev_end = 0
+    for m in _SQL_TABLE_CHECK_RE.finditer(masked):
+        parse_budget.checkpoint()
+        if m.start() < prev_end:
+            continue  # inside a group already blanked
+        end = _sql_paren_group_end(masked, m.end() - 1)
+        if end is None:
+            continue  # unbalanced -- leave it alone
+        # Whitespace and one comma before the CONSTRAINT, searched only back
+        # to the previous blanked group so the walk stays linear.
+        lead = _SQL_TRAILING_SPACE_COMMA_RE.search(masked, prev_end, m.start())
+        start = lead.start() if lead else m.start()
+        _sql_blank(out, start, end)
+        prev_end = end
+    return bytes(out)
+
+
+_SQL_BRACKET_IDENT_RE = re.compile(rb"\[(\w+)\]")
+_SQL_PLAIN_WORD_RE = re.compile(rb"\w+")
+
+
+def _neutralize_sql_bracket_identifiers(buf: bytes, masked: bytes) -> bytes:
+    """Rewrite ``[Ident]`` to a plain identifier for the grammar's copy.
+
+    ⚠⚠ The grammar mishandles bracket-quoted identifiers badly enough to lose
+    the whole statement when one collides with a keyword.  Measured on Chinook's
+    SQLite schema: a column named ``[Name]`` costs its entire ``CREATE TABLE``,
+    and 4 of 11 tables were lost to exactly that.  The same table parses when
+    the column is written ``Name`` without brackets, which is what this does.
+
+    ⚠ Only ``[\\w+]`` is rewritten.  ``[Column 0]`` (a name containing a space)
+    and anything else with punctuation inside are left alone deliberately --
+    unbracketing those would change what the text MEANS, where unbracketing a
+    plain word only changes how it is spelled.
+
+    Length-preserving, like the other rewrites: the word plus the two spaces
+    that replace the brackets.  Names are read back out of this buffer and go
+    through ``_clean_sql_name``, which already collapses ``dbo  .  X`` to
+    ``dbo.X``.
+    """
+    if not _SQL_BRACKET_IDENT_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    for m in _SQL_BRACKET_IDENT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        # The mask fills a bracketed name with `_` (so an apostrophe or a
+        # keyword inside it opens and closes nothing); the word is read from
+        # the ORIGINAL, and a name that is not a plain word stays bracketed.
+        word = buf[m.start(1):m.end(1)]
+        if not _SQL_PLAIN_WORD_RE.fullmatch(word):
+            continue
+        out[m.start():m.end()] = word + b"  "
+    return bytes(out)
+
+
+_SQL_CONDITIONAL_GUARD_RE = re.compile(
+    rb"\bIF\s+(?:NOT\s+)?EXISTS\s*\(", re.IGNORECASE
+)
+
+
+def _neutralize_sql_conditional_guards(buf: bytes, masked: bytes) -> bytes:
+    """Blank ``IF [NOT] EXISTS (...)`` guards out of the grammar's copy.
+
+    Guarded DDL -- ``IF NOT EXISTS (SELECT ... ) CREATE INDEX ...`` -- is the
+    house style of every migration script, and the grammar cannot parse the
+    guard, so the CREATE it protects was lost with it.  Found twice
+    independently: an indented ``CREATE UNIQUE INDEX`` in a migration, and ten
+    of ten indexes in the reference dialect fixture ``add_index.sql``.
+
+    Only the guard is blanked; the statement it guards is left untouched and
+    parses on its own.  Length-preserving, for the reason given on the ``GO``
+    rewrite.
+    """
+    if not _SQL_CONDITIONAL_GUARD_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    prev_end = 0
+    for m in _SQL_CONDITIONAL_GUARD_RE.finditer(masked):
+        parse_budget.checkpoint()
+        if m.start() < prev_end:
+            continue  # nested inside a guard already blanked
+        end = _sql_paren_group_end(masked, m.end() - 1)
+        if end is None:
+            continue  # unbalanced -- leave the source alone
+        _sql_blank(out, m.start(), end)
+        prev_end = end
+    return bytes(out)
+
+
+def _neutralize_sql_alter_statements(buf: bytes, masked: bytes) -> bytes:
+    """Blank ``ALTER TABLE`` statements out of the copy handed to the grammar.
+
+    The grammar has no rule for ``ALTER TABLE`` either, and an unparsed one does
+    not fail quietly: it opens an ERROR node that swallows every statement after
+    it.  Measured on the SSMS "Script Table as CREATE" layout -- table, three
+    ALTERs, one index -- the index was lost even once ``GO`` was handled.
+
+    Blanking is safe here in a way it would not be for any other statement:
+    ``_scan_sql_constraints`` reads these from the ORIGINAL bytes, so nothing
+    the grammar could have produced is thrown away.  Length is preserved for
+    the same reason as the ``GO`` rewrite.
+
+    ⚠ A statement ends at the next ``;`` or non-nestable CREATE, both located
+    in ``masked`` once, up front, so many ALTERs stay linear in the batch.
+    """
+    if not _SQL_ALTER_TABLE_RE.search(masked):
+        return buf
+    out = bytearray(buf)
+    n = len(buf)
+    semis = [m.start() for m in _SQL_SEMICOLON_RE.finditer(masked)]
+    creates = [m.start() for m in _SQL_NON_NESTABLE_CREATE_RE.finditer(masked)]
+    for m in _SQL_ALTER_TABLE_RE.finditer(masked):
+        parse_budget.checkpoint()
+        stop = n
+        k = bisect.bisect_left(semis, m.end())
+        if k < len(semis):
+            stop = semis[k]
+        k = bisect.bisect_left(creates, m.end())
+        if k < len(creates):
+            stop = min(stop, creates[k])
+        _sql_blank(out, m.start(), stop)
+    return bytes(out)
+
+
+_SQL_SEMICOLON_RE = re.compile(rb";")
+
+
+def _sql_batch_spans(masked: bytes, total: int) -> list[tuple[int, int]]:
+    """Byte spans of the batches a script is divided into by ``GO`` / ``/``.
+
+    ⚠⚠ **Batches are parsed SEPARATELY, and that is the whole point.** The
+    grammar does not skip what it cannot parse -- it opens an ERROR node that
+    swallows everything after it -- so within ONE parse tree a single
+    unsupported construct costs the rest of the file no matter what is
+    rewritten around it. Rewriting ``GO`` to ``;`` was measured and is NOT
+    enough: on AdventureWorks' own instawdb.sql one SQLCMD ``$(DatabaseName)``
+    still cost all 71 CREATE TABLEs below it, because an ERROR node spans the
+    substituted terminator happily. Parsing each batch on its own makes the
+    blast radius exactly one batch -- the only bound that holds against
+    constructs nobody has thought of yet.
+
+    ⚠ Splitting is safe by construction: a batch separator cannot appear inside
+    a statement, which is what makes it a separator.
+
+    ⚠ Slices, not masked full-length buffers. Both were measured on
+    instawdb.sql and give identical symbols; slicing costs 0.23s where blanking
+    all-but-one-batch of a full copy costs 3.99s and grows as O(n^2).
+
+    Spans come from ``masked``, so a ``GO`` in a comment or string is not one.
+    """
+    bounds = [0]
+    for m in _SQL_BATCH_SEPARATOR_RE.finditer(masked):
+        parse_budget.checkpoint()
+        bounds += [m.start(), m.end()]
+    bounds.append(total)
+    return [
+        (bounds[i], bounds[i + 1])
+        for i in range(0, len(bounds) - 1, 2)
+        if bounds[i + 1] > bounds[i]
+    ]
+_SQL_DELIMITER_LINE_RE = re.compile(
+    rb"^[ \t]*DELIMITER[ \t]+(\S+)[ \t]*\r?$", re.IGNORECASE | re.MULTILINE
+)
+# The words that decide how a routine ends, read at parenthesis depth 0 so a
+# parameter list or a trigger's WHEN (...) cannot answer for the body.
+_SQL_HEADER_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))"
+    rb"|(?P<dollar>(?<![\w$])\$(?:[A-Za-z_]\w*)?\$)"
+    rb"|\b(?P<begin>BEGIN)\b"
+    rb"(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)"
+    rb"|\b(?P<decl>AS|IS|DECLARE)\b"
+    rb"|(?P<semi>;)",
+    re.IGNORECASE,
+)
+# Block depth. `END IF` / `END LOOP` / `END WHILE` / `END REPEAT` / `END FOR`
+# close constructs that were never counted as openers; `END CASE` closes the
+# CASE statement that was, read as ONE token so its CASE does not open a block
+# again. The qualifier must share the END's line: in T-SQL
+# `END` then `IF` on the next line is two statements.
+_SQL_BLOCK_TOKEN_RE = re.compile(
+    rb"\b(?:(?P<open>BEGIN(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)|CASE)"
+    rb"|(?P<end>END(?![ \t]+(?:IF|LOOP|WHILE|REPEAT|FOR)\b)(?:[ \t]+CASE\b)?))\b",
+    re.IGNORECASE,
+)
+# `END;` or `END name;`. T-SQL ends a block without a semicolon, and there the
+# routine keeps running to `GO` or the next header.
+_SQL_BLOCK_END_TAIL_RE = re.compile(
+    rb"[ \t]*(?:[A-Za-z_#][\w$#]*|\"[^\"\r\n]*\"|`[^`\r\n]*`)?[ \t]*;"
+)
+_SQL_STRING_BODY_RE = re.compile(rb"\s*[eE]?'")
+# What may sit between a dollar-quoted body and the `;` that ends the statement
+# (`LANGUAGE plpgsql`, `SECURITY DEFINER`, `SET search_path = a`): never a
+# parenthesis, a dollar quote, or the start of another statement.
+_SQL_NOT_A_TAIL_RE = re.compile(
+    rb"[()$]|\b(?:CREATE|ALTER|DROP|INSERT|SELECT|UPDATE|DELETE|GRANT|REVOKE"
+    rb"|COMMENT|WITH|CALL|DO|BEGIN|END)\b",
+    re.IGNORECASE,
+)
+_SQL_DOLLAR_TAIL_LIMIT = 500
+# A PL/SQL declaration section: what follows `IS` / `AS` / `DECLARE` when the
+# routine declares before its BEGIN. The shape is `name [CONSTANT] type` then
+# `:=`, `DEFAULT`, `NOT NULL` or `;`, or one of the declaration keywords. T-SQL
+# writes `AS` then statements, and a statement is not that shape: the first
+# word of every T-SQL statement that could pass for `name type;` is listed.
+_SQL_PLSQL_NOT_A_NAME = (
+    rb"SELECT|EXEC|EXECUTE|SET|PRINT|UPDATE|INSERT|DELETE|IF|WHILE|RETURN|USE"
+    rb"|TRUNCATE|DROP|CREATE|ALTER|WITH|MERGE|DECLARE|GOTO|THROW|COMMIT|ROLLBACK"
+    rb"|FETCH|OPEN|CLOSE|DEALLOCATE|WAITFOR|RAISERROR|GRANT|REVOKE|BEGIN|END|SAVE"
+    rb"|KILL|CHECKPOINT|DBCC"
+)
+_SQL_PLSQL_DECLARATION_RE = re.compile(
+    rb"\s*(?:(?:CURSOR|TYPE|SUBTYPE|PRAGMA|PROCEDURE|FUNCTION)\b"
+    rb"|(?!(?:" + _SQL_PLSQL_NOT_A_NAME + rb")\b)[A-Za-z_]\w*\s+(?:CONSTANT\s+)?"
+    rb"[A-Za-z_][\w.%$#]*(?:\s*\([^()]*\))?\s*(?::=|;|DEFAULT\b|NOT\s+NULL\b))",
+    re.IGNORECASE,
+)
+# Inside a declaration section only these matter: a BEGIN opens the body, a
+# PROCEDURE / FUNCTION opens a local subprogram that has a body of its own.
+_SQL_PLSQL_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))"
+    rb"|\b(?P<begin>BEGIN)\b"
+    rb"(?!\s+(?:TRAN|TRANSACTION|WORK|DISTRIBUTED|DIALOG|CONVERSATION)\b)"
+    rb"|\b(?P<sub>PROCEDURE|FUNCTION)\b",
+    re.IGNORECASE,
+)
+_SQL_PLSQL_SUB_TOKEN_RE = re.compile(
+    rb"(?P<open>\()|(?P<close>\))|\b(?P<kw>IS|AS)\b|(?P<semi>;)", re.IGNORECASE
+)
+_SQL_PLSQL_EXTERNAL_RE = re.compile(rb"\s*(?:LANGUAGE|EXTERNAL)\b", re.IGNORECASE)
+_SQL_PLSQL_MAX_NESTING = 8
+_SQL_BANNER_RULE_RE = re.compile(r"^[=\-*_\s]*$")
+
+_SQL_SIGNATURE_SCAN_LIMIT = 2000
+_SQL_SIGNATURE_MAX_CHARS = 200
+
+
+def _sql_leading_comment(src: bytes, offset: int) -> str:
+    line_start = src.rfind(b"\n", 0, offset) + 1
+    if src[line_start:offset].strip():
+        return ""
+    collected: list[str] = []
+    end = line_start - 1
+    while end >= 0:
+        parse_budget.checkpoint()
+        prev_start = src.rfind(b"\n", 0, end) + 1
+        stripped = src[prev_start:end].strip()
+        if not stripped.startswith(b"--"):
+            break
+        end = prev_start - 1
+        text = stripped.lstrip(b"-").decode("utf-8", errors="replace").strip()
+        if _SQL_BANNER_RULE_RE.match(text):
+            continue
+        collected.append(text)
+    collected.reverse()
+    return "\n".join(collected)
+
+
+_SQL_CREATE_TABLE_RE = re.compile(rb"\bCREATE\s+TABLE\b", re.IGNORECASE)
+
+
+def _next_permanent_table(
+    source_bytes: bytes, masked: bytes, lo: int, hi: int
+) -> Optional[int]:
+    """Offset of the next NON-TEMP ``CREATE TABLE`` in ``[lo, hi)``, if any.
+
+    A routine body legitimately contains ``CREATE TABLE #Temp``, often at
+    column 0, so CREATE TABLE cannot be a routine boundary outright.  A table that is NOT temp is a
+    different matter: nothing declares a permanent table inside a trigger or a
+    procedure body in any corpus here.
+
+    ⚠ This is what a dialect with no batch separator depends on.  DB2's sakila
+    schema is one long ``;``-terminated batch alternating triggers and tables,
+    so without this every trigger's range ran to the NEXT trigger and swallowed
+    the tables between them: 1 table of 16.
+
+    ⚠ Temp-ness is read from the RAW bytes at the match offset, the same way
+    ``_SQL_TEMP_MARKER_RE`` is used elsewhere, because the ``#`` never survives
+    into an extracted name.
+    """
+    for m in _SQL_CREATE_TABLE_RE.finditer(masked, lo, hi):
+        parse_budget.checkpoint()
+        if not _SQL_TEMP_MARKER_RE.match(source_bytes, m.start()):
+            return m.start()
+    return None
+
+
+def _sql_active_delimiter(
+    delimiters: list[tuple[int, bytes]], offset: int
+) -> bytes:
+    """MySQL client `DELIMITER x` in force at `offset`; `;` when none is."""
+    idx = bisect.bisect_right(delimiters, offset, key=lambda d: d[0]) - 1
+    return delimiters[idx][1] if idx >= 0 else b";"
+
+
+def _sql_block_end(masked: bytes, begin_end: int, limit: int) -> Optional[int]:
+    """End of the `BEGIN ... END;` whose BEGIN ends at `begin_end`."""
+    depth = 1
+    for tok in _SQL_BLOCK_TOKEN_RE.finditer(masked, begin_end, limit):
+        parse_budget.checkpoint()
+        if tok.lastgroup == "open":
+            depth += 1
+            continue
+        depth -= 1
+        if depth == 0:
+            tail = _SQL_BLOCK_END_TAIL_RE.match(masked, tok.end(), limit)
+            return tail.end() if tail else None
+    return None
+
+
+def _sql_dollar_end(masked: bytes, tag: re.Match[bytes], limit: int) -> Optional[int]:
+    """End of the statement whose body is quoted by the `$tag$` just read."""
+    close = masked.find(tag.group(), tag.end(), limit)
+    if close < 0:
+        return None
+    after = close + len(tag.group())
+    semi = masked.find(b";", after, min(limit, after + _SQL_DOLLAR_TAIL_LIMIT))
+    if semi >= 0 and not _SQL_NOT_A_TAIL_RE.search(masked, after, semi):
+        return semi + 1
+    return after
+
+
+def _sql_plsql_subprogram_end(
+    masked: bytes, after_kw: int, limit: int, nesting: int
+) -> Optional[int]:
+    """End of a local PROCEDURE / FUNCTION whose keyword ends at `after_kw`."""
+    depth = 0
+    cur = after_kw
+    while True:
+        parse_budget.checkpoint()
+        tok = _SQL_PLSQL_SUB_TOKEN_RE.search(masked, cur, limit)
+        if tok is None:
+            return None
+        group = tok.lastgroup
+        cur = tok.end()
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "semi":
+            return cur  # a forward declaration
+        elif _SQL_PLSQL_EXTERNAL_RE.match(masked, cur, limit):
+            semi = masked.find(b";", cur, limit)
+            return semi + 1 if semi >= 0 else None
+        else:
+            return _sql_plsql_end(masked, cur, limit, nesting)
+
+
+def _sql_plsql_end(
+    masked: bytes, body_from: int, limit: int, nesting: int = 0
+) -> Optional[int]:
+    """End of a PL/SQL block whose `IS` / `AS` / `DECLARE` ends at `body_from`.
+
+    The declaration section is skipped (its `;`-terminated declarations,
+    cursors, types and pragmas hold no BEGIN, and a local subprogram is skipped
+    whole through its own END), then the first BEGIN opens the body and its
+    matching `END [name];` ends the block. None when that cannot be told.
+    """
+    if nesting > _SQL_PLSQL_MAX_NESTING:
+        return None
+    depth = 0
+    cur = body_from
+    while True:
+        parse_budget.checkpoint()
+        tok = _SQL_PLSQL_TOKEN_RE.search(masked, cur, limit)
+        if tok is None:
+            return None
+        group = tok.lastgroup
+        cur = tok.end()
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "begin":
+            return _sql_block_end(masked, cur, limit)
+        else:
+            sub_end = _sql_plsql_subprogram_end(masked, cur, limit, nesting + 1)
+            if sub_end is None:
+                return None
+            cur = sub_end
+
+
+def _sql_routine_terminator(
+    masked: bytes,
+    source_bytes: bytes,
+    start: int,
+    body_from: int,
+    limit: int,
+    delimiters: list[tuple[int, bytes]],
+) -> Optional[int]:
+    """Where the routine's own text ends, or None when it cannot be told.
+
+    Every scan stays inside `[body_from, limit)`, the span the routine already
+    had (next header or batch separator), so a failure to find a terminator
+    falls back to exactly that and the work is linear in the file. T-SQL and
+    Sybase have no reliable terminator (`AS` then statements to `GO`), so a
+    body those dialects write returns None.
+    """
+    delimiter = _sql_active_delimiter(delimiters, start)
+    if delimiter != b";":
+        at = masked.find(delimiter, body_from, limit)
+        return at + len(delimiter) if at >= 0 else None
+
+    depth = 0
+    last_decl: Optional[re.Match[bytes]] = None
+    for tok in _SQL_HEADER_TOKEN_RE.finditer(masked, body_from, limit):
+        parse_budget.checkpoint()
+        group = tok.lastgroup
+        if group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        elif depth:
+            continue
+        elif group == "dollar":
+            return _sql_dollar_end(masked, tok, limit)
+        elif group == "begin":
+            return _sql_block_end(masked, tok.end(), limit)
+        elif group == "decl":
+            # An Oracle declaration section: `IS` before anything else is
+            # PL/SQL (T-SQL never writes it in a header); `AS` / `DECLARE`
+            # count only when what follows is shaped like a declaration.
+            word = tok.group().upper()
+            if (word == b"IS" and last_decl is None) or (
+                word != b"IS" and _SQL_PLSQL_DECLARATION_RE.match(masked, tok.end(), limit)
+            ):
+                return _sql_plsql_end(masked, tok.end(), limit)
+            last_decl = tok
+        elif group == "semi":
+            if last_decl is None:
+                return tok.end()
+            # `AS 'body'` is a string body; `AS` / `IS` / `DECLARE` then
+            # statements is T-SQL or a PL/SQL declare section.
+            if last_decl.group().upper() == b"AS" and _SQL_STRING_BODY_RE.match(
+                source_bytes, last_decl.end()
+            ):
+                return tok.end()
+            return None
+    return None
+
+
+def _scan_sql_routines(
+    source_bytes: bytes,
+    filename: str,
+    table_ids: Optional[dict[str, str]] = None,
+    masked: Optional[bytes] = None,
+) -> list[Symbol]:
+    """Trigger parent: same-file table id only. ``masked``: reuse the caller's."""
+    if not _SQL_ROUTINE_HEADER_RE.search(source_bytes):
+        return []
+
+    if masked is None:
+        masked = _mask_sql_noise(source_bytes)
+    headers = [
+        (m.start(), m.group("verb").upper(), m.group("kw").upper(), m.end())
+        for m in _SQL_ROUTINE_HEADER_RE.finditer(masked)
+    ]
+    if not headers:
+        return []
+
+    # Keep quoted defaults in signatures.
+    uncommented = _mask_sql_noise(source_bytes, mask_strings=False)
+
+    # latin-1: one char per byte.
+    line_of = _line_numbers(source_bytes.decode("latin-1"))
+
+    delimiters = [
+        (m.start(), m.group(1)) for m in _SQL_DELIMITER_LINE_RE.finditer(masked)
+    ]
+
+    symbols: list[Symbol] = []
+    for idx, (start, verb, keyword, after_kw) in enumerate(headers):
+        parse_budget.checkpoint()
+        # Original bytes: mask blanks quoted names.
+        name_match = _SQL_OBJECT_NAME_RE.match(source_bytes, after_kw - 1)
+        if not name_match:
+            continue
+        name = _clean_sql_name(name_match.group(1).decode("utf-8", errors="replace"))
+        if not name:
+            continue
+
+        kind = {b"TRIGGER": "trigger", b"FUNCTION": "function"}.get(
+            keyword, "procedure"
+        )
+        parent = None
+        if keyword == b"TRIGGER":
+            on_match = _SQL_TRIGGER_ON_RE.match(masked, name_match.end())
+            if on_match:
+                table_match = _SQL_OBJECT_NAME_RE.match(source_bytes, on_match.end())
+                if table_match and table_ids:
+                    parent = table_ids.get(
+                        _clean_sql_name(
+                            table_match.group(1).decode("utf-8", errors="replace")
+                        )
+                    )
+
+        # A routine ends at the next batch separator, the next routine header,
+        # the next statement that cannot legally be nested in a body, or end of
+        # file -- whichever comes first.
+        #
+        # ⚠ The non-nestable check is what stops a GO-less script from running
+        # the last routine to EOF: everything after it was being swallowed into
+        # that routine's byte range and re-parented as its child.
+        end = headers[idx + 1][0] if idx + 1 < len(headers) else len(source_bytes)
+        boundary = _SQL_NON_NESTABLE_CREATE_RE.search(masked, after_kw, end)
+        if boundary:
+            end = boundary.start()
+        sep = _SQL_BATCH_SEPARATOR_RE.search(masked, start, end)
+        if sep:
+            end = sep.start()
+
+        # ALTER without a body is maintenance.
+        if verb == b"ALTER":
+            lo = name_match.end()
+            num = _SQL_PROC_NUMBER_RE.match(masked, lo, end)
+            if num:
+                lo = num.end()
+            as_at = _SQL_BODY_START_RE.search(masked, lo, end)
+            if not as_at or masked.find(b";", lo, as_at.start()) != -1:
+                continue
+
+        # The routine ends at its own terminator when its dialect has one;
+        # everything else keeps running to `GO` or the next header.
+        body_from = name_match.end()
+        number = _SQL_PROC_NUMBER_RE.match(masked, body_from, end)
+        if number:
+            body_from = number.end()
+        terminated = _sql_routine_terminator(
+            masked, source_bytes, start, body_from, end, delimiters
+        )
+        if terminated is not None:
+            end = terminated
+
+        scan_end = min(end, start + _SQL_SIGNATURE_SCAN_LIMIT)
+        body_as = _SQL_BODY_START_RE.search(masked, name_match.end(), scan_end)
+        header_end = body_as.start() if body_as else scan_end
+        signature = " ".join(
+            uncommented[start:header_end].decode("utf-8", errors="replace").split()
+        )
+        if len(signature) > _SQL_SIGNATURE_MAX_CHARS:
+            signature = signature[:_SQL_SIGNATURE_MAX_CHARS].rstrip() + "..."
+
+        body = source_bytes[start:end]
+        symbols.append(Symbol(
+            id=make_symbol_id(filename, name, kind),
+            file=filename,
+            name=name,
+            qualified_name=name,
+            kind=kind,
+            language="sql",
+            signature=signature,
+            docstring=_sql_leading_comment(source_bytes, start),
+            parent=parent,
+            line=line_of(start),
+            end_line=line_of(max(start, end - 1)),
+            byte_offset=start,
+            byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    return symbols
+
+
+_SQL_ALTER_TABLE_RE = re.compile(rb"\bALTER\s+TABLE\s", re.IGNORECASE)
+# WITH CHECK / WITH NOCHECK sit between the table name and ADD in SSMS output.
+_SQL_CONSTRAINT_RE = re.compile(
+    rb"\bCONSTRAINT\s+(" + _SQL_IDENT_PART + rb")\s*"
+    rb"(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|DEFAULT)\b",
+    re.IGNORECASE,
+)
+# An UNNAMED foreign key still states the one thing a foreign key exists to
+# state -- that these two tables are related -- so it is recovered too, under a
+# name derived from both ends.  Chinook's SQLite and SQLAlchemy-generated DDL
+# both emit FKs this way, and a nameless edge is not a missing edge.
+_SQL_ANON_FK_RE = re.compile(
+    rb"\bFOREIGN\s+KEY\s*\([^)]*\)\s*REFERENCES\s+(" + _SQL_IDENT_PART + rb")",
+    re.IGNORECASE,
+)
+_SQL_CONSTRAINT_TYPE_LABELS = {
+    b"PRIMARYKEY": "PRIMARY KEY",
+    b"FOREIGNKEY": "FOREIGN KEY",
+    b"UNIQUE": "UNIQUE",
+    b"CHECK": "CHECK",
+    b"DEFAULT": "DEFAULT",
+}
+
+
+# Sybase ASE keeps a RULE and a DEFAULT as FREE-STANDING schema objects, bound
+# to columns afterwards with sp_bindrule / sp_bindefault.  A rule is a reusable
+# CHECK and a default is a reusable DEFAULT, so both are `constraint` -- naming
+# them anything else would need a kind whose only members are these two.
+_SQL_SYBASE_RULE_DEFAULT_RE = re.compile(
+    rb"\bCREATE\s+(RULE|DEFAULT)\s+(" + _SQL_IDENT_PART
+    + rb"(?:\s*\.\s*" + _SQL_IDENT_PART + rb")*)",
+    re.IGNORECASE,
+)
+# `EXEC sp_addtype 'name', ...` is how a user-defined datatype is DECLARED in
+# Sybase -- there is no CREATE TYPE.  Those names are then used as column types
+# across the schema, so "where is u_currency defined" is a real question that
+# had no answer.
+_SQL_ADDTYPE_KEYWORD_RE = re.compile(rb"\bsp_addtype\b", re.IGNORECASE)
+_SQL_ADDTYPE_ARG_RE = re.compile(
+    rb"\s*\(?\s*(?:@typename\s*=\s*)?(?:N?'([^']*)'|\"([^\"]*)\"|(\w+))",
+    re.IGNORECASE,
+)
+
+
+def _scan_sybase_objects(
+    source_bytes: bytes,
+    filename: str,
+    masked: bytes,
+    line_of: Callable[[int], int],
+) -> list[Symbol]:
+    """Recover Sybase objects that have no CREATE the grammar understands."""
+    symbols: list[Symbol] = []
+    emitted: set[str] = set()
+
+    def _emit(name: str, kind: str, sig: str, start: int, stop: int) -> None:
+        if not name:
+            return
+        sym_id = make_symbol_id(filename, name, kind)
+        if sym_id in emitted:
+            return
+        emitted.add(sym_id)
+        body = source_bytes[start:stop]
+        symbols.append(Symbol(
+            id=sym_id, file=filename, name=name, qualified_name=name, kind=kind,
+            language="sql", signature=sig, docstring="",
+            line=line_of(start),
+            end_line=line_of(stop),
+            byte_offset=start, byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    for m in _SQL_SYBASE_RULE_DEFAULT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        keyword = m.group(1).upper().decode()
+        name = _clean_sql_name(
+            source_bytes[m.start(2):m.end(2)].decode("utf-8", errors="replace")
+        )
+        _emit(name, "constraint", f"CREATE {keyword} {name}", m.start(), m.end())
+
+    for m in _SQL_ADDTYPE_KEYWORD_RE.finditer(masked):
+        parse_budget.checkpoint()
+        # ⚠ Keyword found in the MASK (so a commented-out call is not a type),
+        # argument read from the ORIGINAL bytes -- sp_addtype's arguments are
+        # single-quoted and the mask blanks single-quoted strings, so matching
+        # the whole call against the mask finds a name that is all spaces.
+        arg = _SQL_ADDTYPE_ARG_RE.match(source_bytes, m.end())
+        if not arg:
+            continue
+        raw = next(
+            (arg.group(g) for g in (1, 2, 3) if arg.group(g) is not None), b""
+        )
+        name = _clean_sql_name(raw.decode("utf-8", errors="replace"))
+        _emit(name, "type", f"sp_addtype {name}", m.start(), arg.end())
+
+    return symbols
+
+
+def _scan_sql_constraints(
+    source_bytes: bytes,
+    filename: str,
+    masked: bytes,
+    table_ranges: list[tuple[int, int, str]],
+    line_of: Callable[[int], int],
+    table_ids: Optional[dict[str, str]] = None,
+) -> list[Symbol]:
+    """Recover named constraints -- PK, FK, UNIQUE, CHECK, DEFAULT.
+
+    ``ALTER TABLE ... ADD CONSTRAINT`` produced NOTHING at any file layout
+    before this existed, in the grammar path or the scan: measured, all three of
+    PRIMARY KEY / FOREIGN KEY / DEFAULT returned an empty symbol list even when
+    they were the only statement in the file.  That made a foreign key -- the one
+    piece of DDL that states a relationship BETWEEN two tables -- unsearchable.
+
+    Both spellings are recovered from one pattern:
+
+    - ``ALTER TABLE T ADD CONSTRAINT c ...`` -- parent read from the ALTER header.
+    - ``CREATE TABLE T ( ..., CONSTRAINT c PRIMARY KEY (...) )`` -- parent read
+      from the enclosing table's byte range, which the grammar already resolved.
+
+    ⚠ Keywords are located in ``masked`` and names are read from the ORIGINAL
+    bytes, the same split ``_scan_sql_routines`` uses: a commented-out or quoted
+    constraint is not a constraint, but a bracket-quoted name must survive.
+
+    ``parent`` is the constrained table's symbol id when that table is defined
+    in the same file, else None -- the rule triggers follow -- and the table is
+    always named in the signature.
+
+    ⚠ Every lookup below is a bisect over a list built once, so the scan stays
+    linear in the file however many constraints and tables it holds.
+    """
+    if not _SQL_CONSTRAINT_RE.search(masked):
+        return []
+
+    alter_starts: list[int] = []
+    alter_ends: list[int] = []
+    for m in _SQL_ALTER_TABLE_RE.finditer(masked):
+        parse_budget.checkpoint()
+        alter_starts.append(m.start())
+        alter_ends.append(m.end())
+
+    tables = sorted(table_ranges)
+    table_starts = [lo for lo, _hi, _nm in tables]
+    separators = [m.start() for m in _SQL_BATCH_SEPARATOR_RE.finditer(masked)]
+
+    # (start, stop, name, type-label) for both spellings, in file order.
+    found: list[tuple[int, int, str, str]] = []
+    named_spans: list[tuple[int, int]] = []
+    for m in _SQL_CONSTRAINT_RE.finditer(masked):
+        parse_budget.checkpoint()
+        named_spans.append((m.start(), m.end()))
+        found.append((
+            m.start(),
+            m.end(),
+            # Read from the original: the mask fills a bracketed name with `_`.
+            _clean_sql_name(
+                source_bytes[m.start(1):m.end(1)].decode("utf-8", errors="replace")
+            ),
+            _SQL_CONSTRAINT_TYPE_LABELS.get(
+                b"".join(m.group(2).upper().split()), "CONSTRAINT"
+            ),
+        ))
+    named_starts = [lo for lo, _hi in named_spans]
+    for m in _SQL_ANON_FK_RE.finditer(masked):
+        parse_budget.checkpoint()
+        k = bisect.bisect_right(named_starts, m.start()) - 1
+        if k >= 0 and m.start() < named_spans[k][1]:
+            continue  # already covered by its CONSTRAINT <name> prefix
+        target = _clean_sql_name(
+            source_bytes[m.start(1):m.end(1)].decode("utf-8", errors="replace")
+        )
+        found.append((m.start(), m.end(), "", f"FOREIGN KEY REFERENCES {target}"))
+    found.sort()
+
+    symbols: list[Symbol] = []
+    emitted_ids: set[str] = set()
+    for start, stop, name, ctype in found:
+        parse_budget.checkpoint()
+
+        # Parent: the nearest ALTER TABLE before it, else the table whose byte
+        # range contains it.  An ALTER wins because a CREATE TABLE body cannot
+        # contain an ALTER, so the nearer statement is always the right one.
+        parent = None
+        k = bisect.bisect_left(alter_starts, start) - 1
+        if k >= 0:
+            tbl = _SQL_OBJECT_NAME_RE.match(source_bytes, alter_ends[k] - 1)
+            if tbl:
+                parent = _clean_sql_name(
+                    tbl.group(1).decode("utf-8", errors="replace")
+                ) or None
+        t = bisect.bisect_right(table_starts, start) - 1
+        if parent is None and t >= 0 and start < tables[t][1]:
+            parent = tables[t][2]
+        t = bisect.bisect_left(table_starts, start) - 1
+        if parent is None and t >= 0:
+            # The table's byte range can END EARLY when the grammar trips over
+            # something in the column list -- a Sybase MATERIALIZED computed
+            # column does exactly that -- leaving an inline constraint sitting
+            # just past its own table.  Fall back to the nearest table opened
+            # before it, but ONLY when no batch separator intervenes: same
+            # batch means same statement, and that is what makes this safe
+            # rather than a guess.
+            lo = tables[t][0]
+            s = bisect.bisect_left(separators, lo)
+            if s == len(separators) or separators[s] >= start:
+                parent = tables[t][2]
+
+        if not name:
+            # Unnamed FK: derive one from both ends so it is addressable at all.
+            target = ctype.rsplit(" ", 1)[-1]
+            name = f"FK_{(parent or 'table').split('.')[-1]}_{target.split('.')[-1]}"
+            ctype = "FOREIGN KEY"
+
+        symbol_id = make_symbol_id(filename, name, "constraint")
+        if symbol_id in emitted_ids:
+            continue
+        emitted_ids.add(symbol_id)
+
+        body = source_bytes[start:stop]
+        on_target = f" ON {parent}" if parent else ""
+        parent = (table_ids or {}).get(parent) if parent else None
+        symbols.append(Symbol(
+            id=symbol_id,
+            file=filename,
+            name=name,
+            qualified_name=name,
+            kind="constraint",
+            language="sql",
+            signature=f"CONSTRAINT {name} {ctype}{on_target}",
+            docstring="",
+            parent=parent,
+            line=line_of(start),
+            end_line=line_of(stop),
+            byte_offset=start,
+            byte_length=len(body),
+            content_hash=compute_content_hash(body),
+        ))
+
+    return symbols
+
+
+# Grammar drops '#'; read raw bytes.
+_SQL_TEMP_MARKER_RE = re.compile(
+    rb"\bCREATE\s+(?:GLOBAL\s+|LOCAL\s+)?"
+    rb"(?:TEMP(?:ORARY)?\s+TABLE\b"
+    rb"|TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[#@])",
+    re.IGNORECASE,
+)
+
+_SQL_LOCAL_ONLY_KINDS: frozenset[str] = frozenset({"table"})
+
+
+def _resolve_nested_sql_symbols(
+    symbols: list[Symbol],
+    routines: list[Symbol],
+    source_bytes: bytes,
+) -> list[Symbol]:
+    """Containment, not ERROR ancestry, marks nesting."""
+    if not routines or not symbols:
+        return symbols
+
+    # Routines sorted, disjoint: bisect suffices.
+    starts = [r.byte_offset for r in routines]
+
+    resolved: list[Symbol] = []
+    for sym in symbols:
+        parse_budget.checkpoint()
+        idx = bisect.bisect_right(starts, sym.byte_offset) - 1
+        host = None
+        if idx >= 0:
+            routine = routines[idx]
+            if routine.byte_offset < sym.byte_offset < routine.byte_offset + routine.byte_length:
+                host = routine.id
+        if host is None:
+            resolved.append(sym)
+            continue
+
+        if sym.kind in _SQL_LOCAL_ONLY_KINDS and _SQL_TEMP_MARKER_RE.match(
+            source_bytes, sym.byte_offset
+        ):
+            continue
+
+        resolved.append(replace(sym, parent=host))
+
+    return resolved
+
+
 def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
     """Extract symbols from SQL source files using tree-sitter.
 
@@ -11187,7 +12763,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                             direct ``identifier`` child.
 
     ``CREATE PROCEDURE`` and ``CREATE TRIGGER`` produce ERROR nodes in this
-    grammar and are not extracted.
+    grammar; ``_scan_sql_routines`` recovers them.
 
     Jinja-templated SQL (dbt models) is pre-processed by ``sql_preprocessor``
     to replace ``{{ }}``, ``{% %}``, and ``{# #}`` tokens with ``__jinja__``
@@ -11239,26 +12815,36 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         source_bytes = strip_jinja(source_bytes)
 
+    # One mask serves three consumers: the GO rewrite below, the routine scan,
+    # and the constraint scan.  It is the expensive step, so it is built once.
+    masked = _mask_sql_noise(source_bytes)
+
     try:
         parser = _get_parser("sql")
-        tree = parser.parse(source_bytes)
+        batches = _sql_batch_spans(masked, len(source_bytes))
     except Exception:
         return []
 
     symbols: list[Symbol] = []
 
+    # The walk below reads node text out of whichever batch is being parsed and
+    # stamps WHOLE-FILE coordinates onto the symbols it builds.  Cells rather
+    # than parameters because the readers are closures shared by every batch.
+    _active: list[bytes] = [source_bytes]
+    _base = [0, 0]  # byte offset, 0-based line offset of the active batch
+
     # Node types we extract and their symbol kind
     NODE_KIND_MAP = {
-        "create_table": "type",
-        "create_view": "type",
+        "create_table": "table",
+        "create_view": "view",
         "create_function": "function",
-        "create_index": "type",
+        "create_index": "index",
         "create_schema": "type",
         "cte": "function",
     }
 
     def _node_text(node) -> str:
-        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+        return _active[0][node.start_byte:node.end_byte].decode("utf-8", errors="replace")
 
     def _extract_name(node) -> str | None:
         """Extract the name from a SQL DDL node."""
@@ -11271,7 +12857,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 if child.type == "object_reference":
                     # object_reference may contain schema.name (multiple identifiers)
                     # Take the full text as the name (e.g. "schema.table_name")
-                    return _node_text(child)
+                    return _clean_sql_name(_node_text(child)) or None
             return None
 
         # create_index, create_schema, cte: name is a direct identifier child
@@ -11279,7 +12865,7 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             for child in node.children:
                 parse_budget.checkpoint()
                 if child.type == "identifier":
-                    return _node_text(child)
+                    return _clean_sql_name(_node_text(child)) or None
             return None
 
         return None
@@ -11322,12 +12908,18 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
 
         if node_type == "create_index":
             name = _extract_name(node) or "?"
-            # Find the ON target
+            # Find the ON target; skip ERROR nodes.
             on_target = ""
             for i, child in enumerate(node.children):
                 parse_budget.checkpoint()
-                if child.type == "keyword_on" and i + 1 < len(node.children):
-                    on_target = f" ON {_node_text(node.children[i + 1])}"
+                if child.type != "keyword_on":
+                    continue
+                for following in node.children[i + 1:]:
+                    parse_budget.checkpoint()
+                    if following.type in ("object_reference", "identifier"):
+                        on_target = f" ON {_clean_sql_name(_node_text(following))}"
+                        break
+                break
             return f"CREATE INDEX {name}{on_target}"
 
         if node_type == "create_schema":
@@ -11351,12 +12943,19 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             prev = prev.prev_named_sibling
         return "\n".join(lines) if lines else ""
 
+    # A batch may be walked twice (see the loop below).  Coordinates, not ids,
+    # decide whether a hit is the same object: the ordinal rule would happily
+    # number the SECOND sighting of one table `~2`.
+    seen_coords: set[tuple[str, str, int]] = set()
+
     def _walk(node) -> None:
         """Recursively walk the AST to find extractable nodes."""
         if node.type in NODE_KIND_MAP:
             name = _extract_name(node)
-            if name:
-                kind = NODE_KIND_MAP[node.type]
+            kind = NODE_KIND_MAP[node.type]
+            coord = (kind, name or "", node.start_point[0] + 1 + _base[1])
+            if name and coord not in seen_coords:
+                seen_coords.add(coord)
                 signature = _build_signature(node)
 
                 # Collect docstring from preceding comment sibling
@@ -11367,9 +12966,10 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                 docstring = _collect_docstring(doc_node)
 
                 c_hash = compute_content_hash(
-                    source_bytes[node.start_byte:node.end_byte]
+                    _active[0][node.start_byte:node.end_byte]
                 )
 
+                line_no = node.start_point[0] + 1 + _base[1]
                 sym = Symbol(
                     id=make_symbol_id(filename, name, kind),
                     file=filename,
@@ -11379,9 +12979,9 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
                     language="sql",
                     signature=signature,
                     docstring=docstring,
-                    line=node.start_point[0] + 1,
-                    end_line=node.end_point[0] + 1,
-                    byte_offset=node.start_byte,
+                    line=line_no,
+                    end_line=node.end_point[0] + 1 + _base[1],
+                    byte_offset=node.start_byte + _base[0],
                     byte_length=node.end_byte - node.start_byte,
                     content_hash=c_hash,
                 )
@@ -11391,10 +12991,144 @@ def _parse_sql_symbols(source_bytes: bytes, filename: str) -> list[Symbol]:
             parse_budget.checkpoint()
             _walk(child)
 
-    _walk(tree.root_node)
+    # Scanned up front because the grammar loop needs the ranges: a routine body
+    # is exactly the thing the grammar cannot parse, and knowing where one sits
+    # is what lets the second pass below step over it.
+    scanned_routines = _scan_sql_routines(source_bytes, filename, masked=masked)
+
+    # ⚠⚠ The range a routine is BLANKED over is NOT the routine's extent, and
+    # conflating them broke a standing contract: a permanent table declared
+    # inside a deploy procedure is real, and is re-parented onto that procedure
+    # rather than dropped (see test_real_table_inside_routine_is_reparented).
+    # That re-parenting needs the FULL extent, so the extent stays permissive.
+    # Blanking wants the opposite -- it must stop before any permanent table, or
+    # a dialect with no batch separator blanks its own tables away. Two
+    # purposes, two ranges.
+    routine_ranges = []
+    for r in scanned_routines:
+        parse_budget.checkpoint()
+        rlo = r.byte_offset
+        rhi = rlo + r.byte_length
+        perm = _next_permanent_table(source_bytes, masked, rlo, rhi)
+        routine_ranges.append((rlo, perm if perm is not None else rhi))
+
+    # latin-1: one char per byte.
+    line_of = _line_numbers(source_bytes.decode("latin-1"))
+    # Routines are disjoint and in file order, as are batches, so one cursor
+    # finds every routine a batch overlaps without rescanning the list.
+    next_routine = 0
+    for _lo, _hi in batches:
+        parse_budget.checkpoint()
+        chunk = source_bytes[_lo:_hi]
+        if not chunk.strip():
+            continue
+        # ⚠ Both rewrites run PER BATCH, and that is not a tidy-up.
+        # `_neutralize_sql_alter_statements` blanks from ALTER TABLE to the next
+        # `;`, and with no batch boundary to stop it, it blanked the entire rest
+        # of the file.  Measured when it was hoisted out of this loop: sakila's
+        # SQL Server schema fell from 84 symbols to 46, losing 14 of 15 tables
+        # and all 24 indexes.  A batch is the unit that bounds it.
+        chunk_masked = masked[_lo:_hi]
+        chunk = _neutralize_sql_alter_statements(chunk, chunk_masked)
+        chunk = _neutralize_sql_conditional_guards(chunk, chunk_masked)
+        chunk = _neutralize_sql_bracket_identifiers(chunk, chunk_masked)
+        chunk = _neutralize_sql_check_constraints(chunk, chunk_masked)
+        _active[0] = chunk
+        _base[0] = _lo
+        _base[1] = line_of(_lo) - 1
+        try:
+            _walk(parser.parse(chunk).root_node)
+        except Exception:
+            logger.debug(
+                "sql: batch at byte %d of %s failed to parse", _lo, filename,
+                exc_info=True,
+            )
+
+        # ⚠⚠ Second pass, with this batch's routine bodies blanked out.  It is a
+        # UNION with the first pass, never a replacement, and that is the whole
+        # design: blanking ALONE was measured and trades losses -- DB2's sakila
+        # goes 1 table to 16, but PostgreSQL's loses one -- so neither pass is
+        # right on its own.  Running both and keeping everything either finds
+        # costs one extra parse of the batches that contain a routine.
+        #
+        # Blanking throws nothing away: a routine body is exactly what the scan
+        # above already owns, and what the grammar turns into an ERROR node that
+        # swallows every statement after it.  DB2 needs this and cannot use
+        # batch isolation instead -- its schema is one long `;`-terminated batch
+        # alternating triggers and tables, with no separator anywhere.
+        while (
+            next_routine < len(routine_ranges)
+            and routine_ranges[next_routine][1] <= _lo
+        ):
+            parse_budget.checkpoint()
+            next_routine += 1
+        overlapping = []
+        k = next_routine
+        while k < len(routine_ranges) and routine_ranges[k][0] < _hi:
+            parse_budget.checkpoint()
+            rlo, rhi = routine_ranges[k]
+            if rhi > _lo:
+                overlapping.append((max(rlo, _lo), min(rhi, _hi)))
+            k += 1
+        if not overlapping:
+            continue
+        masked_chunk = bytearray(chunk)
+        for rlo, rhi in overlapping:
+            parse_budget.checkpoint()
+            _sql_blank(masked_chunk, rlo - _lo, rhi - _lo)
+        if not masked_chunk.strip():
+            continue
+        _active[0] = bytes(masked_chunk)
+        try:
+            _walk(parser.parse(bytes(masked_chunk)).root_node)
+        except Exception:
+            logger.debug(
+                "sql: routine-blanked batch at byte %d of %s failed to parse",
+                _lo, filename, exc_info=True,
+            )
+    _active[0] = source_bytes
+    _base[0] = _base[1] = 0
+
+    # Temp tables are not schema objects.
+    table_ids = {
+        s.name: s.id
+        for s in symbols
+        if s.kind == "table" and not _SQL_TEMP_MARKER_RE.match(source_bytes, s.byte_offset)
+    }
+    routine_symbols = _scan_sql_routines(source_bytes, filename, table_ids, masked)
+    # A FUNCTION the grammar parsed wins over the scan's fallback for it: the
+    # AST gives the better signature.
+    seen_ids = {s.id for s in dbt_symbols} | {s.id for s in symbols}
+    routine_symbols = [
+        s for s in routine_symbols if s.kind != "function" or s.id not in seen_ids
+    ]
+    symbols = _resolve_nested_sql_symbols(symbols, routine_symbols, source_bytes)
+
+    # Named constraints are invisible to the grammar in both spellings, so they
+    # are scanned too.  The table byte ranges come from the walk above, which is
+    # what lets an inline `CONSTRAINT ... PRIMARY KEY` name its own table.
+    table_ranges = [
+        (t.byte_offset, t.byte_offset + t.byte_length, t.qualified_name)
+        for t in symbols if t.kind == "table"
+    ]
+    seen_ids |= {s.id for s in symbols} | {s.id for s in routine_symbols}
+    constraint_symbols = [
+        c for c in _scan_sql_constraints(
+            source_bytes, filename, masked, table_ranges, line_of, table_ids
+        )
+        if c.id not in seen_ids
+    ]
+
+    sybase_symbols = [
+        c for c in _scan_sybase_objects(source_bytes, filename, masked, line_of)
+        if c.id not in seen_ids
+    ]
 
     # Merge dbt directive symbols with tree-sitter SQL symbols
-    all_symbols = dbt_symbols + symbols
+    all_symbols = (
+        dbt_symbols + symbols + routine_symbols
+        + constraint_symbols + sybase_symbols
+    )
     all_symbols.sort(key=lambda s: s.line)
     return all_symbols
 

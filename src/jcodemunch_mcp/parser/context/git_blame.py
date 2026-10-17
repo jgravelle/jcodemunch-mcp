@@ -7,7 +7,7 @@ History bound:
     MCP client's request-timeout budget. We bound the work two ways:
 
       * ``-n GIT_BLAME_COMMIT_LIMIT`` caps the commit count
-      * ``--since=GIT_BLAME_SINCE`` bounds the time window
+      * ``--since`` bounds the time window to ``GIT_BLAME_WINDOW_DAYS`` before HEAD
 
     Together these mean blame data covers recent activity (where it matters
     for `last_author` / `last_modified` queries) without paying for ancient
@@ -15,14 +15,17 @@ History bound:
     map, and ``get_file_context`` will return ``None`` for them — the same
     behaviour as files outside a git working tree.
 
-Operator override:
-    Setting ``git_blame_enabled = false`` in the project or global config
-    short-circuits ``detect()`` so the provider never runs. Useful for huge
-    histories where even the bounded walk is too slow.
+Opt-in (L-189):
+    Off unless ``git_blame_enabled = true`` in the project or global config;
+    ``detect()`` returns False
+    otherwise, so no ``git log`` runs. Since L-188 its output reaches neither
+    search ranking nor file summaries, only an AI summarizer's prompt, so the
+    walk is not worth running unasked.
 """
 
 import logging
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -38,10 +41,15 @@ logger = logging.getLogger(__name__)
 # team committing a couple dozen times a day.
 GIT_BLAME_COMMIT_LIMIT = 20_000
 
-# Time window for the blame walk. ``git log --since`` accepts approximate
-# strings ("2.years.ago", "6 months ago"). Two years catches the
-# overwhelming majority of files an agent will ask about; older files
-# silently fall off the map and report no blame.
+# Time window for the blame walk, measured back from the corpus's HEAD commit
+# (L-188): measured from today, a pinned corpus lost files from the map as the
+# calendar moved, so two indexes of the same commit disagreed. Two years catches
+# the overwhelming majority of files an agent will ask about; older files fall
+# off the map and report no blame.
+GIT_BLAME_WINDOW_DAYS = 730
+
+# The window when HEAD's commit time cannot be read (`git log --since` accepts
+# approximate strings).
 GIT_BLAME_SINCE = "2.years.ago"
 
 # Hard wall-clock bound on the subprocess. Tight enough that we don't blow
@@ -55,7 +63,7 @@ class GitBlameProvider(ContextProvider):
     """Context provider that reads per-file last-commit metadata from git.
 
     Detected automatically when a ``.git`` directory is present in the indexed
-    folder and ``git_blame_enabled`` config is true (default). Runs a single
+    folder and ``git_blame_enabled`` config is true (default false, L-189). Runs a single
     bounded ``git log`` command during ``load()`` to build a
     {relative_path: (author, iso_date)} map; subsequent ``get_file_context``
     calls are O(1) dict lookups.
@@ -65,9 +73,34 @@ class GitBlameProvider(ContextProvider):
       - ``last_modified``: ISO-8601 date of the most recent commit
     """
 
+    # Blame annotates a file; it is not vocabulary. Its coverage depends on a
+    # timed `git log`, so its property names must not reach BM25 (L-188), nor
+    # a file summary as a bare "2 properties" (L-189).
+    properties_are_search_terms = False
+
     def __init__(self) -> None:
         self._blame: dict[str, tuple[str, str]] = {}  # path -> (author, date)
         self._folder: Optional[Path] = None
+
+    def _since(self, folder_path: Path) -> str:
+        """The `--since` bound: ``GIT_BLAME_WINDOW_DAYS`` before HEAD's commit time."""
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%ct"],
+                cwd=str(folder_path),
+                capture_output=True,
+                text=True, encoding="utf-8", errors="replace",
+                timeout=5,
+                stdin=subprocess.DEVNULL,
+            )
+            head = int(result.stdout.strip()) if result.returncode == 0 else None
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            logger.debug("GitBlameProvider: could not read HEAD's commit time", exc_info=True)
+            head = None
+        if head is None:
+            return GIT_BLAME_SINCE
+        start = datetime.fromtimestamp(head, tz=timezone.utc) - timedelta(days=GIT_BLAME_WINDOW_DAYS)
+        return start.strftime("%Y-%m-%d %H:%M:%S +0000")
 
     @property
     def name(self) -> str:
@@ -75,7 +108,7 @@ class GitBlameProvider(ContextProvider):
 
     def detect(self, folder_path: Path) -> bool:
         """Return True if the folder is inside a git repository and blame is enabled."""
-        if not _config.get("git_blame_enabled", True, repo=str(folder_path)):
+        if not _config.get("git_blame_enabled", False, repo=str(folder_path)):
             return False
         return (folder_path / ".git").exists() or self._find_git_root(folder_path) is not None
 
@@ -117,7 +150,7 @@ class GitBlameProvider(ContextProvider):
                     "--diff-filter=AM",
                     "--no-merges",
                     "-n", str(GIT_BLAME_COMMIT_LIMIT),
-                    f"--since={GIT_BLAME_SINCE}",
+                    f"--since={self._since(folder_path)}",
                     "--",
                     # `.` spends `-n` on commits under the index root, not on
                     # the whole monorepo (#685).

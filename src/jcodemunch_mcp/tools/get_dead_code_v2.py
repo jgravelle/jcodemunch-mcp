@@ -21,12 +21,15 @@ from typing import Optional
 
 from ..storage import IndexStore
 from ..parser.imports import resolve_specifier
+from ..parser.symbols import STATE_KINDS
 from ._utils import resolve_repo as _resolve_repo
 from ._call_graph import (
+    LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT,
     FileWords,
     _word_match,
     adjacent_word_pairs,
     build_symbols_by_file,
+    constructors_as_their_classes,
     is_one_word,
     words_of,
 )
@@ -34,6 +37,7 @@ from ._call_graph import (
 # both dead-code tools or #436 gets replaced by a subtler version of itself.
 from ._entry_points import (
     entry_point_spec,
+    has_dotnet_evidence,
     is_host_invoked,
     package_json_entries as _package_json_entries,
     unseen_consumer,
@@ -373,6 +377,51 @@ def _signal_diagnostics(
     return diag
 
 
+#: Symbol kinds whose lines are code that runs outside every function: the
+#: initialiser of a constant, a variable, a class field or a property.
+#: Derived from the vocabulary (#806), so a state kind added there is read here.
+_DATA_KINDS = frozenset(STATE_KINDS)
+
+#: A quoted string that opens and closes on one line. A word inside one is
+#: data, not a name the code uses: without this a constant holding the text
+#: ``"name"`` counted as a use of every method called ``name``.
+_DOUBLE_QUOTED_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"")
+_QUOTED_RE = re.compile(r"\"(?:[^\"\\\n]|\\.)*\"" + "|" + r"'(?:[^'\\\n]|\\.)*'")
+
+#: Languages that write a string between single quotes. Anywhere else an
+#: apostrophe is something shorter (a Rust lifetime, a character), and pairing
+#: two of them removed the code between: ``static ONE: &'static str =
+#: helper('a');`` lost its call (review of L-169).
+_SINGLE_QUOTE_STRING_LANGUAGES = frozenset({
+    "python", "javascript", "typescript", "tsx", "vue", "ruby", "php", "perl",
+    "lua", "luau", "dart", "bash", "groovy", "gdscript", "r", "sql",
+})
+
+
+def _without_declared_name(line: str, declared: str) -> str:
+    """*line* with the first occurrence of *declared* blanked.
+
+    The line that declares ``size`` names it once as the thing declared. Left
+    in, every field would count as a use of the method that shares its name.
+    Once only: in ``static int size = size();`` the second is a call.
+
+    A name that is not a plain identifier (Ruby's ``@@after_reload``) is
+    blanked where it is written, sigil and all; left in, the word behind
+    the sigil counted as a use of the method ``after_reload``.
+    """
+    if not declared:
+        return line
+    if _IDENT_ONLY_RE.fullmatch(declared) is None:
+        at = line.find(declared)
+        if at < 0:
+            return line
+        return line[:at] + " " * len(declared) + line[at + len(declared):]
+    for match in _IDENT_RE.finditer(line):
+        if match.group(0) == declared:
+            return line[: match.start()] + " " * len(declared) + line[match.end():]
+    return line
+
+
 def _sweep_module_level_callers(
     index,
     store,
@@ -380,6 +429,7 @@ def _sweep_module_level_callers(
     name: str,
     rev: dict[str, list[str]],
     callee_has_caller: set[str],
+    symbols=None,
 ) -> None:
     """Add callers that the per-symbol AST call index cannot record.
 
@@ -391,7 +441,8 @@ def _sweep_module_level_callers(
     pass left without a caller, so a repo whose callers all resolve reads no
     file contents at all.
 
-    Mutates ``callee_has_caller`` in place. Only ever adds.
+    Mutates ``callee_has_caller`` in place. Only ever adds. *symbols* is what is
+    asked about, every symbol of the index when not given.
 
     ⚠ Disclosed residual: this matches text, not calls, so a bare mention of the
     name at module level (an ``__all__`` entry, a decorator line above a
@@ -421,13 +472,40 @@ def _sweep_module_level_callers(
     residue_words_cache: dict[str, Optional[FileWords]] = {}
 
     def _residue_text(file_path: str) -> str:
-        """File text with every symbol's line span removed."""
+        """File text with the lines of every function, class and type removed.
+
+        ⚠⚠ **A constant, variable, field or property is a symbol too, and its
+        lines ARE code outside every function.** This removed every symbol's
+        span, so the right-hand side of ``ONE = helper()`` and every entry of
+        a dispatch table was taken out before it was read, and the function
+        named only there read ``no_callers`` (LEDGER L-169). Such a symbol's
+        lines are kept, with the name it declares blanked (``int size;`` is
+        not a use of ``size()``) and what sits inside quotes on one line
+        removed (``NAMES = ["helper"]`` is text).
+        ⚠⚠ **A line a function or method holds stays out, whichever symbol
+        wraps the other**: a function's body is answered by its call
+        references, and read as text every property access in it
+        (``b.size``) would count as a call of a method of that name. A
+        constant whose initialiser holds functions that are symbols is read
+        around them. Without this, zod lost 107 more rows.
+        ⚠ A function written inside an initialiser that is NOT a symbol of
+        its own (an unnamed handler in a table) is read as text with it:
+        nothing else reads it, and what it calls was invisible before.
+        ⚠ Text, not calls. On a kept line every word counts: a comment, a
+        string over several lines, an object key or keyword argument
+        (``size: 3``, ``name=1``), a type annotation (``x: T | None``) and a
+        modifier (``readonly``) all name a function or a class of that
+        word. Toward not reporting; LEDGER L-174.
+        """
         if file_path in residue_text_cache:
             return residue_text_cache[file_path]
         content = store.get_file_content(owner, name, file_path) or ""
         if content:
             lines = content.splitlines()
             covered = bytearray(len(lines))
+            in_function = bytearray(len(lines))
+            data: list[tuple[int, int, str]] = []
+            quoted = _DOUBLE_QUOTED_RE
             for s in symbols_by_file.get(file_path, ()):
                 line = s.get("line") or 0
                 if line <= 0:
@@ -438,8 +516,27 @@ def _sweep_module_level_callers(
                     continue
                 start = max(0, line - 1)
                 end = min(len(lines), s.get("end_line") or line)
-                if end > start:
-                    covered[start:end] = b"\x01" * (end - start)
+                if end <= start:
+                    continue
+                kind = s.get("kind")
+                if (s.get("language") or "") in _SINGLE_QUOTE_STRING_LANGUAGES:
+                    quoted = _QUOTED_RE
+                if kind in _DATA_KINDS:
+                    data.append((start, end, s.get("name") or ""))
+                    continue
+                covered[start:end] = b"\x01" * (end - start)
+                if kind in ("function", "method"):
+                    in_function[start:end] = b"\x01" * (end - start)
+            # Second, so a field's lines come back out of its class's span.
+            kept = bytearray(len(lines))
+            for start, end, declared in data:
+                if not in_function[start]:
+                    lines[start] = _without_declared_name(lines[start], declared)
+                for i in range(start, end):
+                    if not kept[i] and not in_function[i]:
+                        kept[i] = 1
+                        covered[i] = 0
+                        lines[i] = quoted.sub(" ", lines[i])
             content = "\n".join(
                 ln for i, ln in enumerate(lines) if not covered[i]
             )
@@ -459,7 +556,7 @@ def _sweep_module_level_callers(
             )
         return residue_names_cache[file_path]
 
-    for sym in index.symbols:
+    for sym in (index.symbols if symbols is None else symbols):
         if sym.get("kind") not in ("function", "method"):
             continue
         sid = sym.get("id", "")
@@ -484,6 +581,47 @@ def _sweep_module_level_callers(
             if hit:
                 callee_has_caller.add(sid)
                 break
+
+
+def _sweep_callers_that_need_no_import(index, callee_has_caller: set[str]) -> None:
+    """Count a call recorded in another file where the language needs no import.
+
+    The pass before this looks for a caller in the function's own file and in
+    the files that import it. In Go, Java, C#, Rust and Ruby (the list is
+    ``LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT``) a file calls another
+    with no import between them, so a function called only from
+    another file of its package, namespace or crate read ``no_callers``: live
+    code reported dead (LEDGER L-165; ripgrep's ``args``, called as
+    ``crate::flags::config::args()``).
+
+    A function of such a language that is still without a caller has one when
+    any symbol of the SAME language records a call of its name.
+
+    ⚠ By name, across the whole index: a function nothing calls is not
+    reported when another function of that language shares its name and is
+    called (``new``, ``get``, ``default``). Toward not reporting, the direction
+    this signal errs in everywhere (the call-graph-only mode has always matched
+    by name across every file and language).
+    ⚠ Only ADDS callers, and only for functions the pass before left without
+    one, so nothing here can report a function that pass cleared.
+    """
+    called: dict[str, set[str]] = {}
+    for sym in index.symbols:
+        references = sym.get("call_references")
+        if references:
+            language = sym.get("language") or ""
+            if language in LANGUAGES_CALLED_ACROSS_FILES_WITHOUT_AN_IMPORT:
+                called.setdefault(language, set()).update(references)
+    if not called:
+        return
+    for sym in index.symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sym_id = sym.get("id", "")
+        if not sym_id or sym_id in callee_has_caller:
+            continue
+        if sym.get("name", "") in called.get(sym.get("language") or "", ()):
+            callee_has_caller.add(sym_id)
 
 
 def _files_read_as_text(index) -> set[str]:
@@ -786,15 +924,139 @@ def _sweep_other_text_files(index, text: _TextCallers, text_files: set[str], cal
             callee_has_caller.add(sym["id"])
 
 
+#: Extensions whose files can hold JSX syntax. React is written in .tsx and
+#: .jsx; a component consumed as `<WorkspaceShell />` invokes it without any
+#: call expression, so the per-symbol call index — which only records
+#: ``call_expression``/``new_expression`` — never sees the use.
+_JSX_EXTENSIONS = (".tsx", ".jsx")
+
+#: Files where a React class component can be declared. Lifecycle methods are
+#: invoked by the framework, never by repo code, so signal 2 fires on every
+#: one of them by construction (`componentDidCatch` and
+#: `getDerivedStateFromError` were offered for deletion at confidence 1.0).
+#: componentDid*/getDerivedState*/shouldComponentUpdate/getSnapshotBeforeUpdate/
+#: UNSAFE_componentWill* are React's own coinages: no other framework or plain
+#: codebase names a method that. `render` is NOT React's alone — a template
+#: engine or a renderer class names a method `render` too — so it is qualified
+#: to JSX-capable files only.
+_REACT_LIFECYCLE_METHODS = frozenset(
+    {
+        "componentDidCatch",
+        "componentDidMount",
+        "componentDidUpdate",
+        "componentWillUnmount",
+        "shouldComponentUpdate",
+        "getSnapshotBeforeUpdate",
+        "getDerivedStateFromError",
+        "getDerivedStateFromProps",
+        "UNSAFE_componentWillMount",
+        "UNSAFE_componentWillUpdate",
+        "UNSAFE_componentWillReceiveProps",
+    }
+)
+_REACT_SCRIPT_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
+
+# JSX opening tags may have attributes after the name. This conservative
+# sweep can also match a generic type argument; it never proves dead code.
+_JSX_TAG_RE = re.compile(
+    r"<([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)(?=[\s/>])"
+)
+
+
+def _sweep_jsx_and_framework_callers(
+    index,
+    store,
+    owner: str,
+    name: str,
+    rev: dict[str, list[str]],
+    callee_has_caller: set[str],
+) -> None:
+    """Add the callers JSX records and the React framework makes.
+
+    Two blind spots of the per-symbol call index, both live code offered for
+    deletion:
+
+    - a component consumed as JSX. ``<WorkspaceShell />`` holds no
+      ``call_expression``, so no ``call_references`` row names it, and a
+      .tsx file is not read as text (its language records calls elsewhere
+      in the repo), so the text sweeps cannot see it either. The use sits
+      INSIDE another component's body, the one region every other sweep
+      deliberately excludes. This reads the tag names of the symbol's own
+      file and its importers, once per file, and counts a symbol whose name
+      is a tag segment as called.
+    - a React class-component lifecycle method. React invokes it; no repo
+      code calls it by name, ever. A method with a React lifecycle name in
+      a JS/TS file is counted as called by the framework (`render` only in
+      JSX-capable files, where a class holding it is a React component to
+      a first approximation).
+
+    Mutates ``callee_has_caller`` in place; only ever ADDS callers, and only
+    for symbols the passes before left without one.
+
+    ⚠ Text, not calls: a tag in a comment or a dead JSX line counts, a
+      component referenced only as `<obj.Name/>` counts for `Name`, and a
+      capitalized identifier after a `<` that is not a tag (`a < B`,
+      `a<B>`) can count. Toward not reporting: the direction every sweep
+      here errs in, because this signal feeds deletion decisions.
+    """
+    tag_names_cache: dict[str, set[str]] = {}
+
+    def _jsx_tag_names(file_path: str) -> Optional[set[str]]:
+        # Direct callers may have an index but no store; framework-method
+        # evidence still works, while JSX tag text is unavailable, not a crash.
+        if store is None or not file_path.endswith(_JSX_EXTENSIONS):
+            return None
+        if file_path not in tag_names_cache:
+            content = store.get_file_content(owner, name, file_path) or ""
+            tag_names_cache[file_path] = set(
+                segment
+                for m in _JSX_TAG_RE.finditer(content)
+                for segment in m.group(1).split(".")
+                # React's own rule: a tag whose FIRST segment starts
+                # lowercase is an intrinsic element (`<div/>`), and only a
+                # capitalized or member tag names a component (`<Card/>`,
+                # `<ui.Card/>`: the member, not the namespace).
+                if not segment[0].islower()
+            )
+        return tag_names_cache[file_path]
+
+    for sym in index.symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sid = sym.get("id", "")
+        if not sid or sid in callee_has_caller:
+            continue
+        sym_file = sym.get("file", "")
+        sym_name = sym.get("name", "")
+        if not sym_name or not sym_file:
+            continue
+        if sym.get("kind") == "method":
+            exts = _JSX_EXTENSIONS if sym_name == "render" else _REACT_SCRIPT_EXTENSIONS
+            if (
+                sym_name in _REACT_LIFECYCLE_METHODS or sym_name == "render"
+            ) and sym_file.endswith(exts):
+                callee_has_caller.add(sid)
+                continue
+        # Own file first (a component rendered by its sibling), then any
+        # importer. Same search order as every pass above.
+        for caller_file in (sym_file, *rev.get(sym_file, ())):
+            tags = _jsx_tag_names(caller_file)
+            if tags and sym_name in tags:
+                callee_has_caller.add(sid)
+                break
+
+
 def _text_fallback_callers(
     index, store, owner: str, name: str, rev: dict[str, list[str]],
     text: Optional["_TextCallers"] = None,
+    symbols=None,
 ) -> set[str]:
     """Ids of the functions and methods some text names outside their own lines.
 
     The answer when the index holds no call reference at all: every file is
     read through ``_TextCallers``, the symbol's own file first, then each file
-    that imports it. Pass *text* to learn afterwards which files were read.
+    that imports it. Pass *text* to learn afterwards which files were read, and
+    *symbols* to ask about something other than every symbol of the index.
 
     ⚠ A file listed as its OWN importer is read as the symbol's own file (the
     symbol's lines excluded) both times; the loop this replaced read it
@@ -804,7 +1066,7 @@ def _text_fallback_callers(
     callee_has_caller: set[str] = set()
     if text is None:
         text = _TextCallers(store, owner, name)
-    for sym in index.symbols:
+    for sym in (index.symbols if symbols is None else symbols):
         if sym.get("kind") not in ("function", "method"):
             continue
         sym_file = sym.get("file", "")
@@ -816,6 +1078,46 @@ def _text_fallback_callers(
                 callee_has_caller.add(sym["id"])
                 break
     return callee_has_caller
+
+
+def _mark_callers_from_references(
+    symbols,
+    rev: dict[str, list[str]],
+    called_names_by_file: dict[str, set[str]],
+    text_files: set[str],
+    text_callers: "_TextCallers",
+    callee_has_caller: set[str],
+) -> None:
+    """Add each of *symbols* that a call reference names, in its own file or an importer.
+
+    A caller file whose language records no call in this index is read as
+    text instead. Mutates ``callee_has_caller`` in place. Only ever adds.
+    """
+    for sym in symbols:
+        if sym.get("kind") not in ("function", "method"):
+            continue
+        sym_file = sym.get("file", "")
+        sym_name = sym.get("name", "")
+        if not sym_name or not sym_file:
+            continue
+        # Check the symbol's own file (intra-file calls) and any importing
+        # file. Same-file callers were missed pre-1.80.10, which produced
+        # false positives in nested-root TS monorepos where a function is
+        # defined and called within the same module.
+        search_files = (sym_file, *rev.get(sym_file, ()))
+        for caller_file in search_files:
+            if caller_file in text_files:
+                # ⚠ Which path ran used to be one repository-wide test,
+                # so one Python call reference anywhere left a Clojure
+                # function called inside another with no evidence at
+                # all, reported `no_callers` (#409's flip, one level
+                # down). The choice is per caller file now.
+                hit = text_callers.names_caller(sym, caller_file)
+            else:
+                hit = sym_name in called_names_by_file.get(caller_file, set())
+            if hit:
+                callee_has_caller.add(sym["id"])
+                break
 
 
 def get_dead_code_v2(
@@ -997,7 +1299,8 @@ def get_dead_code_v2(
     # reason, and the response names it apart: these files were reported under
     # `dynamic_import_boundary` with no site, in a repository holding no dynamic
     # import (review of #1012).
-    unseen_roots = {f: kind for f in source_files if (kind := unseen_consumer(f))}
+    dotnet = has_dotnet_evidence(source_files)
+    unseen_roots = {f: kind for f in source_files if (kind := unseen_consumer(f, dotnet=dotnet))}
     maybe_loaded = dynamic_loaded | _with_what_they_import(set(unseen_roots))
 
     # Pre-compute barrel exports (Signal 3 input). Recursively follows CJS
@@ -1018,6 +1321,7 @@ def get_dead_code_v2(
     # differs from the call-reference path alone.
     text_files: set[str] = set()
     text_callers = _TextCallers(store, owner, name)
+    class_rows = constructors_as_their_classes(index.symbols, rev)
     if callers_by_name:
         text_files = _files_read_as_text(index)
         # Fast path: use pre-computed AST call_references index
@@ -1025,31 +1329,9 @@ def get_dead_code_v2(
         called_names_by_file: dict[str, set[str]] = {}
         for (caller_file, called_name) in callers_by_name:
             called_names_by_file.setdefault(caller_file, set()).add(called_name)
-        for sym in index.symbols:
-            if sym.get("kind") not in ("function", "method"):
-                continue
-            sym_file = sym.get("file", "")
-            sym_name = sym.get("name", "")
-            if not sym_name or not sym_file:
-                continue
-            # Check the symbol's own file (intra-file calls) and any importing
-            # file. Same-file callers were missed pre-1.80.10, which produced
-            # false positives in nested-root TS monorepos where a function is
-            # defined and called within the same module.
-            search_files = (sym_file, *rev.get(sym_file, ()))
-            for caller_file in search_files:
-                if caller_file in text_files:
-                    # ⚠ Which path ran used to be one repository-wide test,
-                    # so one Python call reference anywhere left a Clojure
-                    # function called inside another with no evidence at
-                    # all, reported `no_callers` (#409's flip, one level
-                    # down). The choice is per caller file now.
-                    hit = text_callers.names_caller(sym, caller_file)
-                else:
-                    hit = sym_name in called_names_by_file.get(caller_file, set())
-                if hit:
-                    callee_has_caller.add(sym["id"])
-                    break
+        _mark_callers_from_references(
+            index.symbols, rev, called_names_by_file, text_files, text_callers, callee_has_caller
+        )
         # Sweep what the AST index structurally cannot see (#409).
         # ``call_references`` are recorded PER SYMBOL, so a call written at
         # module level belongs to no symbol and never enters ``callers_by_name``
@@ -1064,14 +1346,33 @@ def get_dead_code_v2(
         _sweep_module_level_callers(
             index, store, owner, name, rev, callee_has_caller
         )
+        # A language whose files call each other with no import (L-165).
+        _sweep_callers_that_need_no_import(index, callee_has_caller)
+        # A constructor named with a fixed word is called by creating its
+        # class, never by that word (L-167). Asked the two questions above,
+        # of the class.
+        _mark_callers_from_references(
+            class_rows, rev, called_names_by_file, text_files, text_callers, callee_has_caller
+        )
+        _sweep_module_level_callers(
+            index, store, owner, name, rev, callee_has_caller, symbols=class_rows
+        )
     else:
         # Fallback: text heuristic, one pass per file (LEDGER L-150).
         callee_has_caller = _text_fallback_callers(index, store, owner, name, rev, text_callers)
+        callee_has_caller |= _text_fallback_callers(
+            index, store, owner, name, rev, text_callers, symbols=class_rows
+        )
         # No language records a call here, so every file with a symbol is read as text.
         text_files = _files_read_as_text(index)
     # A text-read function still without a caller may be called from a file
     # the import graph does not join to it (L-157).
     _sweep_other_text_files(index, text_callers, text_files, callee_has_caller)
+    # A component consumed as `<Name />` holds no call expression, and a
+    # React lifecycle method is called by the framework, not the repo: both
+    # read no_callers by construction. Runs for
+    # every path above — it only ever ADDS callers.
+    _sweep_jsx_and_framework_callers(index, store, owner, name, rev, callee_has_caller)
 
     dead_symbols: list[dict] = []
     seen_ids: set[str] = set()
@@ -1235,7 +1536,8 @@ def get_dead_code_v2(
             "files_by_kind": dict(sorted(kinds.items())),
             "note": (
                 "unreachable_file was not decided for these files: a .NET project "
-                "file may consume them (build_consumed), or a user control or master "
+                "file may consume them (build_consumed), a build or code generator may "
+                "compile a schema (schema_consumer), or a user control or master "
                 "page may be loaded by path at runtime (runtime_loadable); "
                 "imported_by_one counts the files such a file imports. The index "
                 "carries neither edge. Their other signals still vote."
@@ -1370,6 +1672,10 @@ def _call_graph_only_dead_code(
     callers_by_name = get_callers() or {}
     # Names that have at least one caller in the indexed call graph.
     called_names: set[str] = {ref for (_caller_file, ref) in callers_by_name.keys()}
+    # JSX tags and framework lifecycle methods hold no indexed call expression.
+    # Reuse the same additive sweep as the three-signal path.
+    framework_callers: set[str] = set()
+    _sweep_jsx_and_framework_callers(index, store, owner, name, {}, framework_callers)
     # ⚠ No `if callers_by_name` in front of this. The first version had one,
     # which kept the repository-wide flip in this mode: a Clojure file was
     # read as text only when some OTHER language recorded a call (review of
@@ -1378,6 +1684,15 @@ def _call_graph_only_dead_code(
     text_callers = _TextCallers(store, owner, name)
     # This mode has no import graph, so another file is reached only this way (L-157).
     elsewhere = _CallersElsewhere(index, text_callers, _text_files_that_can_call(index, text_files))
+
+    # A fixed-word constructor is called by creating its class (L-167). This
+    # mode has no import graph to bound the join, so a subclass counts in its
+    # base's own file only. ⚠ Script files that share globals with no import
+    # extend across files; a subclass created there leaves its base's
+    # constructor reported (L-169).
+    class_rows: dict[str, list[dict]] = {}
+    for row in constructors_as_their_classes(index.symbols, {}):
+        class_rows.setdefault(row["id"], []).append(row)
 
     dead_symbols: list[dict] = []
     seen: set[str] = set()
@@ -1402,10 +1717,19 @@ def _call_graph_only_dead_code(
                for d in (sym.get("decorators") or [])):
             continue
         total_analysed += 1
-        if sym_name in called_names:
+        if sym_name in called_names or sid in framework_callers:
             continue
         if sym_file in text_files and (
             text_callers.names_caller(sym, sym_file) or elsewhere.names_caller(sym)
+        ):
+            continue
+        if any(
+            row["name"] in called_names
+            or (
+                row["file"] in text_files
+                and (text_callers.names_caller(row, row["file"]) or elsewhere.names_caller(row))
+            )
+            for row in class_rows.get(sid, ())
         ):
             continue
         seen.add(sid)
