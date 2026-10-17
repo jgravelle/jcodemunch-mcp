@@ -32,6 +32,7 @@ from _common import (
     settle_summary,
     split_segments,
     strip_heredocs,
+    timing_only_failures,
     tool_command,
     warn,
     write_pending_summary,
@@ -142,7 +143,16 @@ def main() -> None:
         skipped.append("the fast tier")
     else:
         settle_summary(summary)
-    if rc is not None and rc != 0:
+    deferred = (
+        timing_only_failures(summary.read_text(encoding="utf-8"))
+        if rc is not None and rc != 0 and summary.exists()
+        else []
+    )
+    if deferred:
+        # jjg (2026-10-16): CI judges every timing row; a fast tier whose ONLY
+        # failures are timing rows does not refuse the commit (#1119's rule).
+        warn("PreToolUse", "pre_commit: timing rows left to CI: " + ", ".join(deferred))
+    elif rc is not None and rc != 0:
         tail = [
             ln for ln in out.splitlines() if " FAIL" in ln or "failed" in ln.lower()
         ][-12:]
