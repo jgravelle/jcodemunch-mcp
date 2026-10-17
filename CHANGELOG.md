@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - listing your indexes no longer writes into other files
+
+Every server start lists the indexes in the storage directory (to clean up
+orphans and repair starter packs), and listing opened each `*.db` file with the
+indexer's connection. That connection creates the index schema in a file that
+has none and runs every version migration on one with no version row. So a
+SQLite file of another kind in that directory, such as the parse cache, gained
+16 index tables, and an index still being written for the first time had a
+version stamped into it (ledger L-144). Only two file names were protected, and
+the runtime-signal summary in `get_session_stats` kept its own copy of that list
+with one of the two names missing. Listing and `inspect_index` now open
+read-only, and whether a file is an index is decided by what is in it: a `meta`
+table naming its repository, or index tables that still hold rows (a damaged
+index stays visible so you can re-index it). A store of another kind is skipped
+whatever it is called, and an index is read whatever its file is called. The
+schema script also runs as one transaction now, so a second connection can no
+longer see a half-created schema. One write remains: when a legacy JSON index
+shares its name with a SQLite file of another kind, listing still migrates the
+JSON into that file, as it did before.
+
 ### Fixed - `index_file` no longer indexes a file the next full index deletes
 
 `index_file`, which the PostToolUse `index-file` hook calls after every edit,
