@@ -27,6 +27,8 @@ SECURITY.md describes the rule.
 
 ### Fixed - audit reliability
 
+Contributed by @lilubot (#1117).
+
 - Repositories with more than 100 dead-code candidates no longer have
   `dead_code_pct` understated by the truncated result list. On those
   repositories `dead_code_pct` rises, so the published dead-code score and
