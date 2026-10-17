@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 from ..retrieval.verdict import symbol_not_found
 from ..storage import IndexStore
 from ._utils import resolve_repo
-from ._call_graph import _CalleeNameIndex, build_symbols_by_file, find_direct_callees
+from ._call_graph import (
+    _CalleeNameIndex,
+    _ContentCache,
+    build_symbols_by_file,
+    find_direct_callees,
+)
 from .flow_edges import resolve_flow_edges
 
 
@@ -203,6 +208,8 @@ def _bfs_chain(
     symbols_by_file: dict[str, list[dict]],
     max_depth: int,
     callee_index=None,
+    content_cache=None,
+    callee_memo=None,
 ) -> tuple[list[dict], int]:
     """BFS forward from a gateway through callees.
 
@@ -210,6 +217,31 @@ def _bfs_chain(
     {id, name, kind, file, line, depth}.
     """
     from collections import deque
+
+    memo = callee_memo if callee_memo is not None else {}
+
+    def _direct_callees(sym: dict) -> list[dict]:
+        """find_direct_callees resolved once per symbol per run.
+
+        Phase 2 runs one BFS per gateway, and a shared hub is reached from
+        many gateways: without this memo the same resolution — SQLite file
+        reads plus body scans in the text fallback — runs once per
+        (gateway, node) pair, which is the repository-wide traversal that
+        made large-index runs slow. The callee relation is
+        invariant for a loaded index, so memoizing by symbol id is
+        byte-identical and bounds resolution work to the distinct symbols
+        visited, independent of gateway count.
+        """
+        sid = sym.get("id", "")
+        resolved = memo.get(sid) if sid else None
+        if resolved is None:
+            resolved = find_direct_callees(
+                index, store, owner, repo_name, sym, symbols_by_file,
+                content_cache, callee_index,
+            )
+            if sid:
+                memo[sid] = resolved
+        return resolved
 
     sym_id = gateway_sym.get("id", "")
     visited: set[str] = {sym_id}
@@ -219,10 +251,7 @@ def _bfs_chain(
     symbol_index: dict[str, dict] = getattr(index, "_symbol_index", {})
 
     # Depth-1 callees
-    for c in find_direct_callees(
-        index, store, owner, repo_name, gateway_sym, symbols_by_file,
-        None, callee_index,
-    ):
+    for c in _direct_callees(gateway_sym):
         if c["id"] not in visited:
             visited.add(c["id"])
             chain.append({**c, "depth": 1})
@@ -237,10 +266,7 @@ def _bfs_chain(
         curr_full = symbol_index.get(curr_dict["id"])
         if not curr_full:
             continue
-        for c in find_direct_callees(
-            index, store, owner, repo_name, curr_full, symbols_by_file,
-            None, callee_index,
-        ):
+        for c in _direct_callees(curr_full):
             if c["id"] not in visited:
                 visited.add(c["id"])
                 new_depth = curr_depth + 1
@@ -308,6 +334,12 @@ def get_signal_chains(
     # loop rather than going through bfs_callees, so a cache scoped inside the
     # traversal would rebuild the map for every gateway this repo has.
     callee_index = _CalleeNameIndex(symbols_by_file)
+    # Shared across every gateway's BFS for the same reason: file content is
+    # invariant during the run, and the per-symbol callee memo turns "resolve
+    # every hub once per gateway that reaches it" into "resolve each distinct
+    # symbol once".
+    content_cache = _ContentCache(store, owner, name)
+    callee_memo = {}
 
     # ------------------------------------------------------------------
     # Phase 1: detect all gateways
@@ -426,7 +458,7 @@ def get_signal_chains(
     for gw_sym, gw_kind, gw_label in gateways:
         chain_syms, depth_reached = _bfs_chain(
             index, store, owner, name, gw_sym, symbols_by_file, max_depth,
-            callee_index,
+            callee_index, content_cache, callee_memo,
         )
 
         gw_id = gw_sym.get("id", "")
@@ -525,6 +557,7 @@ def get_signal_chains(
             "_meta": {
                 "timing_ms": round(elapsed, 1),
                 "total_gateways": len(gateways),
+                "callee_resolutions": len(callee_memo),
             },
         }
         if include_flow_edges:
@@ -561,6 +594,7 @@ def get_signal_chains(
             "include_tests": include_tests,
             "symbols_on_chains": len(symbol_ids_on_chains),
             "total_functions_methods": total_fn_method,
+            "callee_resolutions": len(callee_memo),
         },
     }
     if include_flow_edges:

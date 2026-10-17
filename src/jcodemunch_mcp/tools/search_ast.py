@@ -28,6 +28,7 @@ from typing import Any, Optional
 from ..storage import IndexStore
 from ..parser.languages import LANGUAGE_EXTENSIONS, LANGUAGE_REGISTRY
 from ._utils import resolve_repo
+from ._test_paths import is_test_file
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,7 @@ _PRESET_CATALOG: dict[str, dict[str, Any]] = {
         "threshold": 5,
     },
     "god_function": {
-        "description": "Function exceeding 100 lines or cyclomatic complexity > 15",
+        "description": "Function exceeding 100 lines — split candidate",
         "severity": _Severity.WARNING,
         "category": "complexity",
     },
@@ -199,7 +200,7 @@ _PRESET_CATALOG: dict[str, dict[str, Any]] = {
         "category": "maintenance",
     },
     "eval_exec": {
-        "description": "Dynamic code execution (eval, exec, Function constructor, vm.runInNewContext) — injection risk",
+        "description": "Dynamic code execution candidates (eval, exec, compile, __import__, Function, timers without a literal callback) — injection risk",
         "severity": _Severity.ERROR,
         "category": "security",
     },
@@ -248,7 +249,7 @@ def _child_statement_count(node) -> int:
         if child.type not in trivial and child.type not in ("{", "}", "(", ")", ":", "pass"):
             # Python pass
             text = child.text
-            if text and text.strip() not in (b"", b"pass", b";"):
+            if text and text.strip() not in (b"", b"pass", b";", b"..."):
                 count += 1
     return count
 
@@ -310,16 +311,7 @@ def _detect_bare_except(node, lang: str, source_bytes: bytes) -> list[dict]:
         if current.type in catch_types:
             is_bare = False
             if lang == "python":
-                # Python except_clause: bare if no type child after 'except'
-                has_type = any(
-                    c.type not in ("except", ":", "block", "as", "identifier", "comment")
-                    or (c.type == "identifier" and c.prev_sibling and c.prev_sibling.type == "as")
-                    for c in current.children
-                    if c.type not in ("except", ":", "block", "comment", "as")
-                    and not (c.type == "identifier" and c.prev_sibling and
-                             c.prev_sibling.type == "as")
-                )
-                # Simpler: bare except has no type between 'except' and ':'
+                # Bare except has no type expression between 'except' and ':'
                 child_types = [c.type for c in current.children]
                 if "except" in child_types:
                     exc_idx = child_types.index("except")
@@ -453,6 +445,28 @@ _EVAL_NAMES: dict[str, set[str]] = {
     "c": {"system"},
 }
 
+# These are syntactic exclusions, not type or data-flow proof. Keep unknown
+# compiler receivers and timer arguments visible for review.
+_TIMER_CALLEES = {"setTimeout", "setInterval"}
+
+
+def _is_regex_compile(call_node, source_bytes: bytes) -> bool:
+    callee = call_node.child_by_field_name("function")
+    return callee is not None and _node_text(callee, source_bytes) == "re.compile"
+
+
+def _first_arg_is_callback(call_node) -> bool:
+    for child in call_node.children:
+        if child.type in ("argument_list", "arguments"):
+            args = [arg for arg in child.named_children if arg.type != "comment"]
+            return bool(args) and args[0].type in {
+                "arrow_function",
+                "function_expression",
+                "function",
+                "generator_function",
+            }
+    return False
+
 
 def _detect_eval_exec(node, lang: str, source_bytes: bytes) -> list[dict]:
     """Find dynamic code execution calls."""
@@ -469,13 +483,24 @@ def _detect_eval_exec(node, lang: str, source_bytes: bytes) -> list[dict]:
             # Extract the callee name
             name = _extract_simple_call_name(current, source_bytes)
             if name and name in dangerous:
-                matches.append({
-                    "line": current.start_point[0] + 1,
-                    "end_line": current.end_point[0] + 1,
-                    "column": current.start_point[1],
-                    "snippet": _node_text(current, source_bytes)[:200],
-                    "callee": name,
-                })
+                if (
+                    lang == "python"
+                    and name == "compile"
+                    and _is_regex_compile(current, source_bytes)
+                ):
+                    # Recognized regex construction; builtins.compile still matches.
+                    pass
+                elif name in _TIMER_CALLEES and _first_arg_is_callback(current):
+                    # Only literal callbacks are proven not to be string code.
+                    pass
+                else:
+                    matches.append({
+                        "line": current.start_point[0] + 1,
+                        "end_line": current.end_point[0] + 1,
+                        "column": current.start_point[1],
+                        "snippet": _node_text(current, source_bytes)[:200],
+                        "callee": name,
+                    })
         stack.extend(reversed(current.children))
     return matches
 
@@ -561,7 +586,7 @@ def _detect_magic_number(node, lang: str, source_bytes: bytes) -> list[dict]:
 
 
 def _detect_god_function(node, lang: str, source_bytes: bytes) -> list[dict]:
-    """Find functions exceeding 100 lines or with very high branch density."""
+    """Find functions exceeding 100 lines."""
     func_types = set(_FUNCTION_NODES.get(lang, []))
     if not func_types:
         return []
@@ -1094,6 +1119,10 @@ def search_ast(
         f = sym.get("file")
         if f:
             all_files.add(f)
+    # file_languages covers every indexed file, including symbol-less ones
+    # (a config module whose top level is only assignments has no symbols;
+    # secrets and eval calls there are exactly what the presets exist for).
+    all_files.update(file_langs)
 
     files_to_scan: list[tuple[str, str]] = []  # (relative_path, language)
     for fpath in sorted(all_files):
@@ -1172,6 +1201,9 @@ def search_ast(
                 match["file"] = fpath
                 match["language"] = lang_name
                 match["pattern"] = det_name
+                if det_name == "hardcoded_secret" and is_test_file(fpath.replace("\\", "/")):
+                    # Location is context, never proof that a credential is synthetic.
+                    match["in_test_file"] = True
                 match["severity"] = severity
                 severity_counts[severity] = severity_counts.get(severity, 0) + 1
                 # Enrich with symbol context

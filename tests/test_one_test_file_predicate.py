@@ -125,6 +125,7 @@ BINDINGS = [
     "tools/get_parity_map.py:_is_test_file",
     "tools/get_pr_risk_profile.py:_is_test_file",
     "tools/get_untested_symbols.py:_is_test_file",
+    "tools/search_ast.py:is_test_file",
 ]
 
 

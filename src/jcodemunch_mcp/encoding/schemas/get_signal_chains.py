@@ -23,10 +23,10 @@ _SCALARS = (
 )
 _DISCOVERY_META = (
     "timing_ms", "max_depth", "include_tests",
-    "symbols_on_chains", "total_functions_methods",
+    "symbols_on_chains", "total_functions_methods", "callee_resolutions",
 )
-_META_JSON = ("verdict",)  # structured _meta that must survive compaction
-_LOOKUP_META = ("timing_ms", "total_gateways")
+_META_JSON = ("verdict", "flow_edges")  # structured _meta that must survive compaction
+_LOOKUP_META = ("timing_ms", "total_gateways", "callee_resolutions")
 _NO_GATEWAY_META = ("timing_ms",)
 _META = tuple(dict.fromkeys(_DISCOVERY_META + _LOOKUP_META + _NO_GATEWAY_META))
 _JSON = ("kind_summary",)
@@ -43,7 +43,7 @@ def _meta_keys(response: dict) -> tuple[str, ...]:
 def encode(tool: str, response: dict) -> tuple[str, str]:
     return sd.encode(
         tool, response, ENCODING_ID, _TABLES, _SCALARS,
-        meta_keys=_meta_keys(response), json_blobs=_JSON,
+        meta_keys=_meta_keys(response), meta_json_blobs=_META_JSON, json_blobs=_JSON,
     )
 
 
