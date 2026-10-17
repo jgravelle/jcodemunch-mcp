@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed - `index_file` no longer indexes a file the next full index deletes
+
+`index_file`, which the PostToolUse `index-file` hook calls after every edit,
+applied one rule of the folder walk's filter: it refused a credential file
+(#351) and nothing else. A file under `node_modules/` or `.next/`, under a
+directory tagged by `CACHEDIR.TAG`, in MSBuild output, a NuGet restore tree or
+a virtualenv's `site-packages`, matched by a `.gitignore` or by
+`extra_ignore_patterns`, or over `max_file_size` answered `success: True` and
+was searchable until the next full index deleted it (ledger L-142). The hook
+checks only the file extension before it calls, so `index_file` is that route's
+only filter. It now runs the walk's own per-file filter, `_should_index_file`,
+and refuses with the walk's reason in `skipped`. The filter's inputs come from
+the same place as the walk's: one builder for the size cap, ignore patterns and
+skip switches (`_walk_filter_config`, which `discover_local_files` now uses),
+the detected framework profile's ignore patterns (Spring Boot's `src/test/`,
+Rails' `tmp/`), and every `.gitignore` from the walk root down to the file. For
+an index built from a subdirectory of a git repository, the walk root is that
+subdirectory, as it is for the walk, so the git root's `.gitignore` and config
+do not refuse a file the walk indexed. Not covered: a per-call
+`index_folder(extra_ignore_patterns=...)` or `max_size=` is not stored, so
+`index_file` applies the configured values; and the watcher's fast path still
+assembles its own inputs (root `.gitignore` only, no profile patterns).
+
+This reverses a stated design. PR #1122 (L-206, the virtualenv rule) said
+"explicit `paths=`, `index_file` and `index_repo` are unchanged, as for every
+sibling skip rule", and 1.108.337 listed `index_file` among the routes that do
+not apply the marker rules. That held while `index_file`'s answer was
+temporary anyway: whatever it added, the next full index removed, so a user
+who wanted an excluded file could not keep it by this route either. Applying
+the exclusions here makes the two routes agree on what is in the index;
+`explicit paths=` and `index_repo` are unchanged.
+
+To index an excluded file on purpose, change the setting that excluded it,
+which the walk then honours too; every refusal names it:
+`exclude_skip_directories` (a skipped directory name, or `migrations`),
+`respect_cachedir_tag`, `skip_msbuild_output`, `skip_nuget_packages`,
+`skip_virtualenvs`, `extra_ignore_patterns`, `max_file_size`,
+`exclude_secret_patterns`. Known limit: no setting re-admits a gitignored file,
+a file matched by a framework profile's ignore pattern, a skip-listed file name
+(lockfiles, compiled files), a binary file or one inside a nested worktree; the
+refusal says so rather than naming a setting that does not exist.
+
 ### Fixed - an opted-in git blame no longer goes missing on a busy machine
 
 With `git_blame_enabled` on, the blame provider decided whether a folder below a
