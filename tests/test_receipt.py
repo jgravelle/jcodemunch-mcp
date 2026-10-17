@@ -241,7 +241,8 @@ class TestExports:
 
     def test_csv_has_header_and_row(self):
         out = render_csv(self._agg())
-        assert out.splitlines()[0] == "tool,calls,actual_tokens,baseline_tokens,savings_tokens"
+        # L-180 appended `savings_label`; the five columns before it are unchanged.
+        assert out.splitlines()[0] == "tool,calls,actual_tokens,baseline_tokens,savings_tokens,savings_label"
         assert "search_symbols" in out
 
     def test_json_payload_shape(self):

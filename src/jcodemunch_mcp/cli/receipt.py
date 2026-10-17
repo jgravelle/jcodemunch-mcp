@@ -24,6 +24,8 @@ import sys
 from pathlib import Path
 from typing import Iterable, Optional
 
+from ..savings_credit import TEXT_SEARCH_STYLE_TOOLS
+
 # Per-tool savings multipliers: jcodemunch result tokens × multiplier ≈
 # what naive Read+Grep would have spent answering the same query.
 # Calibrated to be *conservative* against published RAG benchmarks
@@ -33,7 +35,10 @@ from typing import Iterable, Optional
 _TOOL_MULTIPLIERS: dict[str, float] = {
     # Pure retrieval — narrow query against indexed corpus.
     "search_symbols": 20.0,
-    "search_text": 12.0,
+    # ⚠ L-180: search_text and check_references are absent ON PURPOSE. Their
+    # answer is the matching lines, which Grep returns as well, so they earn no
+    # credit until a measurement supports one (savings_credit.py). Listing a
+    # multiplier for either here is refused by tests/test_text_search_no_credit.py.
     "search_columns": 15.0,
     "search_ast": 18.0,
     "get_ranked_context": 18.0,
@@ -52,7 +57,6 @@ _TOOL_MULTIPLIERS: dict[str, float] = {
     # Graph queries — the structurally hardest things to do with grep.
     "find_importers": 25.0,
     "find_references": 25.0,
-    "check_references": 15.0,
     "get_call_hierarchy": 30.0,
     "get_dependency_graph": 25.0,
     "get_dependency_cycles": 25.0,
@@ -94,6 +98,46 @@ _TOOL_MULTIPLIERS: dict[str, float] = {
 # Default multiplier for tools not in the table above. Conservative
 # middle-of-the-road estimate.
 _DEFAULT_MULTIPLIER = 8.0
+
+#: The label of the savings figure on every surface (L-180). GROSS because only
+#: the answer's own size is subtracted from the modeled baseline; nothing else
+#: the call cost is. It read "Net savings" until this change.
+SAVINGS_LABEL = "Modeled gross savings"
+
+#: The Counter front door runs another tool under its own name: `order` names
+#: the action in its INPUT, `route(execute=true)` names it in the first block of
+#: its RESULT (`executed_action`). Read there, a text-search action is priced as
+#: the text search it was, or it earns the default multiplier. ⚠ Only a
+#: text-search action is re-priced: every other action keeps the default, as
+#: before L-180, because moving those figures is outside the ruling.
+_ORDER = "order"
+_ROUTE = "route"
+
+
+def _routed_action(content) -> Optional[str]:
+    """`executed_action` from a `route` result's first text block, else None."""
+    if isinstance(content, list):
+        first = next(
+            (b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"),
+            None,
+        )
+    else:
+        first = content
+    if not isinstance(first, str) or '"executed_action"' not in first:
+        return None
+    try:
+        head = json.loads(first)
+    except ValueError:
+        return None
+    action = head.get("executed_action") if isinstance(head, dict) else None
+    return action if isinstance(action, str) else None
+
+
+def _multiplier(tool: str) -> float:
+    """Baseline multiplier for one call. 1.0 (no saving) for a text search."""
+    if tool in TEXT_SEARCH_STYLE_TOOLS:
+        return 1.0
+    return _TOOL_MULTIPLIERS.get(tool, _DEFAULT_MULTIPLIER)
 
 # Model prices in USD per million input tokens. Cache-read pricing is
 # typically 10% of normal input pricing for Anthropic models, but we use
@@ -376,8 +420,15 @@ def _iter_calls_in_file(
                         # Strip the mcp__jcodemunch__ prefix to get the
                         # bare tool name (search_symbols, etc.).
                         bare = name.split("__")[-1] if "__" in name else name
+                        priced_as = bare
+                        if bare == _ORDER:
+                            tool_input = block.get("input")
+                            action = tool_input.get("action") if isinstance(tool_input, dict) else None
+                            if isinstance(action, str) and action in TEXT_SEARCH_STYLE_TOOLS:
+                                priced_as = action
                         pending[tu_id] = {
                             "tool": bare,
+                            "priced_as": priced_as,
                             "timestamp": ts_raw,
                             "_ts_parsed": ts,
                         }
@@ -394,8 +445,14 @@ def _iter_calls_in_file(
                             continue
                         result_bytes = _result_byte_length(block.get("content"))
                         result_tokens = max(1, result_bytes // _BYTES_PER_TOKEN)
+                        priced_as = meta["priced_as"]
+                        if meta["tool"] == _ROUTE:
+                            routed = _routed_action(block.get("content"))
+                            if routed in TEXT_SEARCH_STYLE_TOOLS:
+                                priced_as = routed
                         yield {
                             "tool": meta["tool"],
+                            "priced_as": priced_as,
                             "timestamp": meta["timestamp"],
                             "result_tokens": result_tokens,
                             "result_bytes": result_bytes,
@@ -414,7 +471,7 @@ def aggregate(calls: Iterable[dict]) -> dict:
     for call in calls:
         tool = call["tool"]
         actual = call["result_tokens"]
-        mult = _TOOL_MULTIPLIERS.get(tool, _DEFAULT_MULTIPLIER)
+        mult = _multiplier(call.get("priced_as") or tool)
         baseline = int(actual * mult)
         savings = baseline - actual
 
@@ -449,7 +506,7 @@ def aggregate_by_day(calls: Iterable[dict], *, model: str) -> list[dict]:
             continue
         day = ts.astimezone().date().isoformat()
         actual = call["result_tokens"]
-        mult = _TOOL_MULTIPLIERS.get(call["tool"], _DEFAULT_MULTIPLIER)
+        mult = _multiplier(call.get("priced_as") or call["tool"])
         baseline = int(actual * mult)
         bucket = per_day.setdefault(
             day,
@@ -529,7 +586,7 @@ def render_text(
     out.write(f"  Tokens delivered (actual):     {totals['actual_tokens']:>12,}\n")
     out.write(f"  Tokens you would have spent:   {totals['baseline_tokens']:>12,}\n")
     out.write(f"                                 {'-' * 12}\n")
-    out.write(f"  Net savings:                   {totals['savings_tokens']:>12,} tokens\n")
+    out.write(f"  {SAVINGS_LABEL + ':':<31}{totals['savings_tokens']:>12,} tokens\n")
     # Call-count-invariant companion to the total. The total scales with calls
     # by construction (baseline = actual x multiplier, per call), so a rising
     # total can mean more calls rather than better ones. This figure cannot.
@@ -576,6 +633,8 @@ def render_text(
     out.write("  Read the total WITH the call count: savings is computed per call,\n")
     out.write("  so it rises with calls by construction and is not cost-per-task.\n")
     out.write("  Tool calls are themselves a cost carrier. --explain has the detail.\n")
+    out.write(f"  No credit for {', '.join(sorted(TEXT_SEARCH_STYLE_TOOLS))}: their\n")
+    out.write("  answer is the matching lines, which Grep returns as well.\n")
     out.write("  Provenance: basis = measured — committed, drift-guarded artifacts\n")
     out.write("  at benchmarks/provenance/measured.json (tiktoken methodology +\n")
     out.write("  CI-gated replay retrieval golden). --export json carries the block.\n")
@@ -591,6 +650,10 @@ def render_explain() -> str:
     out.write("Per-tool savings multipliers. For each call:\n")
     out.write("  baseline_tokens = actual_tokens × multiplier\n")
     out.write("  savings_tokens  = baseline_tokens − actual_tokens\n\n")
+    out.write(f"The total is labelled '{SAVINGS_LABEL}'. It is MODELED: the\n")
+    out.write("baseline is a multiplier, not a measurement. It is GROSS: only\n")
+    out.write("the answer's own size is subtracted, not anything else the call\n")
+    out.write("cost.\n\n")
     out.write("⚠ Savings is computed PER CALL, so the total rises with the\n")
     out.write("number of calls by construction. Doubling the calls doubles the\n")
     out.write("reported savings even when the work done is identical. The total\n")
@@ -614,6 +677,14 @@ def render_explain() -> str:
     out.write(f"  {'tool':<32} {'multiplier':>12}\n")
     for tool, mult in rows:
         out.write(f"  {tool:<32} {mult:>11.1f}×\n")
+    out.write("\nNo credit (L-180). A text-search-style tool's answer is the\n")
+    out.write("matching lines, which Grep returns as well, so it earns nothing\n")
+    out.write("until a measurement supports a number: its multiplier is 1.0,\n")
+    out.write("so baseline equals actual and savings is 0. The same holds when\n")
+    out.write("one runs through the front door (`order`, or `route` with\n")
+    out.write("execute=true); every other front-door action keeps the default.\n")
+    for tool, reason in sorted(TEXT_SEARCH_STYLE_TOOLS.items()):
+        out.write(f"  {tool:<32} {_multiplier(tool):>11.1f}×  no credit: {reason}\n")
     out.write("\nTo override a tool's multiplier, edit cli/receipt.py and\n")
     out.write("send a PR with your reasoning. The numbers should reflect\n")
     out.write("realistic naive-tool-call counterfactuals, not optimism.\n")
@@ -643,9 +714,9 @@ def render_rates() -> str:
 def render_csv(agg: dict) -> str:
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["tool", "calls", "actual_tokens", "baseline_tokens", "savings_tokens"])
+    w.writerow(["tool", "calls", "actual_tokens", "baseline_tokens", "savings_tokens", "savings_label"])
     for tool, b in sorted(agg["per_tool"].items()):
-        w.writerow([tool, b["calls"], b["actual_tokens"], b["baseline_tokens"], b["savings_tokens"]])
+        w.writerow([tool, b["calls"], b["actual_tokens"], b["baseline_tokens"], b["savings_tokens"], SAVINGS_LABEL])
     return out.getvalue()
 
 
@@ -665,6 +736,8 @@ def render_json(
         "per_tool": agg["per_tool"],
         "model": model,
         "savings_usd": dollar_savings(agg["totals"]["savings_tokens"], model),
+        "savings_label": SAVINGS_LABEL,
+        "no_credit_tools": dict(TEXT_SEARCH_STYLE_TOOLS),
         "savings_usd_basis": SAVINGS_USD_BASIS,
         "savings_usd_note": SAVINGS_USD_NOTE,
         "provenance": measured_provenance(),

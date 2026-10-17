@@ -5,7 +5,7 @@ import re
 import time
 from typing import Optional
 
-from ..storage import IndexStore, record_savings, estimate_savings, cost_avoided
+from ..storage import IndexStore, record_savings, cost_avoided
 from ._utils import index_status_to_tool_error, resolve_repo
 
 # Detect nested quantifiers that cause catastrophic backtracking in Python's re engine.
@@ -128,8 +128,6 @@ def search_text(
     files_unreadable = 0
     truncated = False
     timed_out = False
-    raw_bytes = 0
-    response_bytes = 0
 
     # Only enforce the wall-clock budget for regex mode — substring (`in`)
     # is linear and not a ReDoS vector.
@@ -174,7 +172,6 @@ def search_text(
                 "line": line_index + 1,
                 "text": text,
             }
-            response_bytes += len(text) + 20  # key overhead estimate
             if context_lines > 0:
                 before_start = max(0, line_index - context_lines)
                 after_end = min(len(lines), line_index + context_lines + 1)
@@ -182,7 +179,6 @@ def search_text(
                 after = [v.rstrip()[:200] for v in lines[line_index + 1:after_end]]
                 match["before"] = before
                 match["after"] = after
-                response_bytes += sum(len(v) for v in before) + sum(len(v) for v in after)
             file_matches.append(match)
             result_count += 1
             if result_count >= max_results:
@@ -191,15 +187,16 @@ def search_text(
 
         if file_matches:
             results.append({"file": file_path, "matches": file_matches})
-            response_bytes += len(file_path) + 20
-            raw_bytes += index.file_sizes.get(file_path, 0)
 
         if truncated or timed_out:
             break
 
     elapsed = (time.perf_counter() - start) * 1000
 
-    tokens_saved = estimate_savings(raw_bytes, response_bytes)
+    # L-180: no credit. The answer is the matching lines, which Grep returns
+    # as well; the old figure credited every matching file's whole size.
+    # Zero until a measurement supports a number (savings_credit.py).
+    tokens_saved = 0
     total_saved = record_savings(tokens_saved, tool_name="search_text")
 
     from ..retrieval.verdict import build_verdict as _build_verdict
