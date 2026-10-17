@@ -1514,7 +1514,16 @@ def record_savings(tokens_saved: int, base_path: Optional[str] = None, tool_name
     """Add tokens_saved to the running total. Returns new cumulative total.
 
     Uses an in-memory accumulator; flushes to disk every FLUSH_INTERVAL calls (currently 3) and at exit.
+
+    ⚠ L-180: a text-search-style tool (``savings_credit.TEXT_SEARCH_STYLE_TOOLS``)
+    is credited ZERO here, whatever its caller computed. The call is still
+    counted. Refused at this layer so an indirect caller (the deletion
+    investigator runs ``search_text``) and a site written later inherit it.
     """
+    from ..savings_credit import earns_credit
+
+    if not earns_credit(tool_name):
+        tokens_saved = 0
     return _state.add(tokens_saved, base_path, tool_name)
 
 
