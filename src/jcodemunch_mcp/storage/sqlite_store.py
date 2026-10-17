@@ -2687,13 +2687,14 @@ class SQLiteIndexStore:
             kind = _classify_index_conn(conn)
             if kind == INDEX_DB_NOT_INDEX:
                 return None
-            meta = self._read_meta(conn)
             if kind == INDEX_DB_DAMAGED:
+                # Before `_read_meta`: a damaged index may have no `meta` table.
                 status = self.inspect_index(owner, name)
                 return {
                     "repo": status.repo,
                     **status.as_fields(include_empty=True),
                 }
+            meta = self._read_meta(conn)
             symbol_count = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
             file_count = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             # Read branch info if branch tables exist
