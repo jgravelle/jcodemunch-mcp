@@ -127,10 +127,18 @@ files never contain secrets.
 
 * jCodeMunch honours the [Cache Directory Tagging Specification](https://bford.info/cachedir/). A directory containing a `CACHEDIR.TAG` file whose first 43 bytes are `Signature: 8a477f597d28d172789f06886806bc55` is pruned from the walk along with everything beneath it.
 * **The signature is verified.** A file merely named `CACHEDIR.TAG` excludes nothing.
-* This is the only exclusion rule declared by the *writer* of a directory rather than listed by us, so a tool that writes derived data into your tree is honoured without jCodeMunch knowing its name, and it applies to cache directories that are not dot-directories.
+* The rule is declared by the *writer* of a directory rather than listed by us, so a tool that writes derived data into your tree is honoured without jCodeMunch knowing its name, and it applies to cache directories that are not dot-directories.
 * Pruned directories are counted as `cache_dir` in `discovery_skip_counts`. This is an ordinary exclusion, not a withholding: a tagged directory is regenerable derived data by its own declaration, so absence claims over the remaining corpus stay citable.
 * Disable with `respect_cachedir_tag: false` or `JCODEMUNCH_RESPECT_CACHEDIR_TAG=0` if you tag a directory you nonetheless want indexed.
 * Applies to local folder indexing. GitHub repository indexing does not honour the tag, because validating the signature requires the file's content and the tree listing carries only paths and sizes.
+
+## Python Virtualenvs
+
+* A directory whose `pyvenv.cfg` carries a `home =` key (PEP 405, written by every venv tool) is a virtualenv root, whatever it is called. Its installed packages, the `site-packages` directory at `Lib/site-packages` or `lib/pythonX.Y/site-packages`, are pruned from the walk.
+* **Only `site-packages` is pruned.** The venv root, `bin/`, `Scripts/`, `lib/` and anything you keep there are still indexed, including a venv created in a project root beside your own `bin/` and `lib/`.
+* A file merely named `pyvenv.cfg` with no `home` key prunes nothing.
+* Pruned directories are counted as `virtualenv` in `discovery_skip_counts`. This is an ordinary exclusion, not a withholding, so absence claims over the remaining corpus stay citable.
+* Disable with `skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0`. Applies to local folder indexing only.
 
 ---
 

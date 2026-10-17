@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - a Python virtualenv is skipped whatever its folder is called
+
+`index_folder` skipped a virtualenv only when its folder was named `venv` or
+`.venv`. A venv called `env`, `jcm-venv` or `py313` was walked file by file,
+and where nothing else excluded it (a stdlib venv before Python 3.13 or an
+older virtualenv writes no `.gitignore`, and uv also writes a `CACHEDIR.TAG`)
+its site-packages entered the index, competed with your own code in ranking
+and used up `max_folder_files`. On a workspace holding several such venvs the
+index timed out (ledger L-206, from our own dogfooding). Every venv tool writes
+`pyvenv.cfg` with a `home =` key at the venv root (PEP 405), so the walk and
+the file watcher now prune that venv's installed packages: the
+`site-packages` directory at `Lib/site-packages` or
+`lib/pythonX.Y/site-packages`. Nothing else in the venv is pruned, so source
+you keep in the venv root, or in your own `bin/` and `lib/` beside a venv
+created in a project root, stays indexed, and a file merely named
+`pyvenv.cfg` with no `home` key prunes nothing. A newer venv
+that its own `.gitignore` already hid is now pruned at the folder instead of
+file by file. Skips are counted as `virtualenv` in `discovery_skip_counts`;
+`skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0` turns it off.
+SECURITY.md describes the rule.
+
 ### Fixed - audit reliability
 
 - Repositories with more than 100 dead-code candidates no longer have
@@ -13,8 +34,10 @@
   direct fallback no longer crashes on a `.tsx` symbol.
 - Structured AST searches keep language metadata and indexed symbol-less files.
   Exact `re.compile` calls and literal timer callbacks are no longer reported
-  as dynamic-code execution, ellipsis-only exception handlers are recognized,
-  and test-path context no longer lowers the severity of a secret finding.
+  as dynamic-code execution, and ellipsis-only exception handlers are
+  recognized. A `hardcoded_secret` match in a test file now carries
+  `in_test_file: true`; its severity is unchanged. The `god_function` and
+  `eval_exec` preset descriptions now name only what those detectors check.
 - Project intelligence now uses the same linked-worktree boundary as indexing:
   files in old-form submodules are reported, while linked worktrees stay
   outside the parent inventory. A scoped query follows that same boundary.
@@ -30,6 +53,9 @@
   repository.
 - Signal-chain gateways reuse source-content and callee resolution instead of
   repeating that work for each gateway while retaining complete chains.
+- `get_signal_chains` with `include_flow_edges` kept `_meta.flow_edges` only in
+  the JSON response; the compact encoding dropped it, along with
+  `_meta.verdict`. Both now survive the compact encoding.
 
 ## [1.108.373] - 2026-10-16 - claude-md --refresh can write the policy your server uses
 

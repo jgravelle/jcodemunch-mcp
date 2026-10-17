@@ -49,6 +49,7 @@ ENV_VAR_MAPPING = {
     "JCODEMUNCH_RESPECT_CACHEDIR_TAG": "respect_cachedir_tag",
     "JCODEMUNCH_SKIP_MSBUILD_OUTPUT": "skip_msbuild_output",
     "JCODEMUNCH_SKIP_NUGET_PACKAGES": "skip_nuget_packages",
+    "JCODEMUNCH_SKIP_VIRTUALENVS": "skip_virtualenvs",
     "JCODEMUNCH_RESPONSE_MAX_BYTES": "response_max_bytes",
     "JCODEMUNCH_MAX_FOLDER_FILES": "max_folder_files",
     "JCODEMUNCH_MAX_INDEX_FILES": "max_index_files",
@@ -358,6 +359,7 @@ DEFAULTS = {
     "respect_cachedir_tag": True,
     "skip_msbuild_output": True,
     "skip_nuget_packages": True,
+    "skip_virtualenvs": True,
     "response_max_bytes": 1048576,
     "max_folder_files": 2000,
     "max_index_files": 10000,
@@ -555,6 +557,7 @@ CONFIG_TYPES = {
     "respect_cachedir_tag": bool,
     "skip_msbuild_output": bool,
     "skip_nuget_packages": bool,
+    "skip_virtualenvs": bool,
     "response_max_bytes": int,
     "max_folder_files": int,
     "max_index_files": int,
@@ -2225,6 +2228,19 @@ def generate_template() -> str:
   //   packages/flutter, packages/flutter_test), so a name-only rule would delete
   //   real source from those. Pruned directories are counted as `nuget_packages`
   //   in `discovery_skip_counts`. Only an explicit false disables it.
+
+  // "skip_virtualenvs": true,
+  //   Prune a Python virtualenv's installed packages whatever the venv is
+  //   called: the `site-packages` directory at Lib/site-packages or
+  //   lib/pythonX.Y/site-packages under a root whose `pyvenv.cfg` carries
+  //   the `home =` key every venv tool writes (PEP 405). `venv` and `.venv`
+  //   are skipped by name already; this catches `env`, `jcm-venv`, `py313`
+  //   and the rest, whose packages would otherwise compete with your own
+  //   code in ranking and eat the `max_folder_files` cap. Nothing else in
+  //   the venv is pruned, so your own source beside it stays indexed. A
+  //   file merely named `pyvenv.cfg` with no `home` key prunes nothing.
+  //   Pruned directories are counted as `virtualenv` in
+  //   `discovery_skip_counts`. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the

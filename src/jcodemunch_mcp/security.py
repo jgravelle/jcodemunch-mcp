@@ -585,6 +585,87 @@ def get_skip_nuget_packages(repo: Optional[str] = None) -> bool:
     return False if value is False else True
 
 
+# A Python virtualenv declares itself: every venv tool (`python -m venv`,
+# virtualenv, uv) writes `pyvenv.cfg` at the venv root with a `home =` key
+# (PEP 405). `_SKIP_DIRECTORY_NAMES` lists only `venv` and `.venv`, so a venv
+# under any other name was walked file by file (L-206).
+PYVENV_CFG_FILENAME = "pyvenv.cfg"
+_PYVENV_HOME_RE = re.compile(r"^\s*home\s*=", re.IGNORECASE | re.MULTILINE)
+# PEP 405 puts `home` first in practice; 4 KiB covers every key a venv tool writes.
+_PYVENV_READ_LIMIT = 4096
+
+
+def is_virtualenv_directory(path) -> bool:
+    """True when ``path`` is a Python virtualenv root, whatever its name.
+
+    The walk prunes only the venv's `site-packages` beneath this root
+    (`is_virtualenv_site_packages_directory`), never the root itself.
+
+    ⚠ **The `home` key is the whole design**, not the file name: a file merely
+    NAMED `pyvenv.cfg` is one instance of the property, the mistake a name-only
+    `CACHEDIR.TAG` check would make. PEP 405 makes `home` the key the interpreter
+    reads to find its base install, so every real venv carries it.
+
+    ⚠ Deliberately NOT a withheld exclusion, like `is_cache_directory`: installed
+    packages are re-installable, derived data by the writer's own marker, so this
+    is the corpus being defined. Absence claims over the rest stay citable.
+
+    Never raises: an unreadable or absent file means "not a venv", so a
+    permission error can never silently empty a corpus.
+    """
+    try:
+        with open(os.path.join(str(path), PYVENV_CFG_FILENAME), "r", encoding="utf-8-sig", errors="replace") as fh:
+            head = fh.read(_PYVENV_READ_LIMIT)
+    except (OSError, ValueError):
+        return False
+    return _PYVENV_HOME_RE.search(head) is not None
+
+
+# Where a venv tool installs packages beneath the venv root: `Lib/site-packages`
+# on Windows, `lib/pythonX.Y/site-packages` (or `lib64/...`, `lib/pypyX.Y/...`) on
+# POSIX. Matched case-insensitively.
+_VIRTUALENV_LIB_DIR_NAMES: frozenset[str] = frozenset({"lib", "lib64"})
+_VIRTUALENV_PYTHON_DIR_RE = re.compile(r"^(?:python|pypy)\d", re.IGNORECASE)
+
+
+def is_virtualenv_site_packages_directory(dir_name: str, parent) -> bool:
+    """True when ``dir_name`` under ``parent`` is the installed-packages tree of a venv.
+
+    ⚠⚠ **Only `site-packages` is pruned, and only where the venv tool put it.**
+    `pyvenv.cfg` proves a directory is a venv root; it does not prove everything
+    under it is derived. A venv created in a project root (`python -m venv .`)
+    sits beside the user's own `bin/`, `lib/` and `src/`, and a POSIX venv merges
+    into an existing `lib/`. Two review rounds found a wider rule dropping
+    hand-written source each time (first the whole root, then the layout
+    names), so the rule is exactly the directory that holds installed packages,
+    at the path a venv tool writes it, under a proven root.
+
+    Name-gated: a directory not called `site-packages` costs one string compare.
+    """
+    if dir_name.lower() != "site-packages":
+        return False
+    p = Path(parent)
+    # Windows layout: <root>/Lib/site-packages
+    if p.name.lower() in _VIRTUALENV_LIB_DIR_NAMES and is_virtualenv_directory(p.parent):
+        return True
+    # POSIX layout: <root>/lib/pythonX.Y/site-packages
+    return (
+        _VIRTUALENV_PYTHON_DIR_RE.match(p.name) is not None
+        and p.parent.name.lower() in _VIRTUALENV_LIB_DIR_NAMES
+        and is_virtualenv_directory(p.parent.parent)
+    )
+
+
+def get_skip_virtualenvs(repo: Optional[str] = None) -> bool:
+    """Whether the walk prunes Python virtualenvs by their `pyvenv.cfg`. Default True.
+
+    Only an explicit false disables it, matching `get_skip_nuget_packages`: a
+    typo or garbage value keeps installed packages out of the corpus.
+    """
+    value = _config.get("skip_virtualenvs", True, repo=repo)
+    return False if value is False else True
+
+
 def _excluded_skip_directories(repo: Optional[str] = None) -> set[str]:
     """Return the set of directory names the user wants to un-skip.
 
