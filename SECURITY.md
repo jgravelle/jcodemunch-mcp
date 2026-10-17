@@ -134,8 +134,8 @@ files never contain secrets.
 
 ## Python Virtualenvs
 
-* A directory whose `pyvenv.cfg` carries a `home =` key (PEP 405, written by every venv tool) is a virtualenv root, whatever it is called. Its interpreter layout (`Lib`, `lib`, `lib64`, `Scripts`, `bin`, `Include`, `include`) is pruned from the walk.
-* **Only the layout is pruned, never the venv root.** Source you keep beside it in the venv root is still indexed.
+* A directory whose `pyvenv.cfg` carries a `home =` key (PEP 405, written by every venv tool) is a virtualenv root, whatever it is called. Its installed packages, the `site-packages` directory at `Lib/site-packages` or `lib/pythonX.Y/site-packages`, are pruned from the walk.
+* **Only `site-packages` is pruned.** The venv root, `bin/`, `Scripts/`, `lib/` and anything you keep there are still indexed, including a venv created in a project root beside your own `bin/` and `lib/`.
 * A file merely named `pyvenv.cfg` with no `home` key prunes nothing.
 * Pruned directories are counted as `virtualenv` in `discovery_skip_counts`. This is an ordinary exclusion, not a withholding, so absence claims over the remaining corpus stay citable.
 * Disable with `skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0`. Applies to local folder indexing only.

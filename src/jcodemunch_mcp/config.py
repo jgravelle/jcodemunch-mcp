@@ -2230,17 +2230,17 @@ def generate_template() -> str:
   //   in `discovery_skip_counts`. Only an explicit false disables it.
 
   // "skip_virtualenvs": true,
-  //   Prune a Python virtualenv's interpreter layout (Lib, lib, lib64,
-  //   Scripts, bin, Include, include) whatever the venv is called, when the
-  //   venv root's `pyvenv.cfg` carries the `home =` key every venv tool writes
-  //   (PEP 405). `venv` and `.venv` are skipped by name already; this catches
-  //   `env`, `jcm-venv`, `py313` and the rest, whose site-packages would
-  //   otherwise compete with your own code in ranking and eat the
-  //   `max_folder_files` cap. Only the layout is pruned, never the venv root,
-  //   so source you keep beside it stays indexed. A file merely named
-  //   `pyvenv.cfg` with no `home` key prunes nothing. Pruned directories are
-  //   counted as `virtualenv` in `discovery_skip_counts`. Only an explicit
-  //   false disables it.
+  //   Prune a Python virtualenv's installed packages whatever the venv is
+  //   called: the `site-packages` directory at Lib/site-packages or
+  //   lib/pythonX.Y/site-packages under a root whose `pyvenv.cfg` carries
+  //   the `home =` key every venv tool writes (PEP 405). `venv` and `.venv`
+  //   are skipped by name already; this catches `env`, `jcm-venv`, `py313`
+  //   and the rest, whose packages would otherwise compete with your own
+  //   code in ranking and eat the `max_folder_files` cap. Nothing else in
+  //   the venv is pruned, so your own source beside it stays indexed. A
+  //   file merely named `pyvenv.cfg` with no `home` key prunes nothing.
+  //   Pruned directories are counted as `virtualenv` in
+  //   `discovery_skip_counts`. Only an explicit false disables it.
 
   // "response_max_bytes": 1048576,
   //   Ceiling on a SINGLE MCP tool response, in bytes, enforced at the

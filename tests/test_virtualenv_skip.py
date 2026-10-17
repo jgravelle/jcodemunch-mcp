@@ -5,10 +5,13 @@
 corpus, competed with the user's code in ranking and used up `max_folder_files`.
 A workspace holding several such venvs timed out (2026-10-16 friction report).
 
-⚠⚠ Only the venv's interpreter layout is pruned, never the venv root. A stdlib
-venv before 3.13 and older virtualenv write no `.gitignore`, and people keep
-their own source in the venv root; `test_source_in_a_venv_root_is_kept` is the
-guard (review of L-206 found the first draft dropping it).
+⚠⚠ Only `site-packages` is pruned, at the path a venv tool writes it, under a
+proven root. A stdlib venv before 3.13 and older virtualenv write no
+`.gitignore`, people keep their own source in the venv root, and a venv created
+in a project root (`python -m venv .`) sits beside hand-written `bin/` and `lib/`.
+Review found a wider rule dropping source twice (the whole root, then the layout
+names); `test_source_in_a_venv_root_is_kept` and
+`test_a_venv_in_the_project_root_keeps_its_bin_and_lib` are the guards.
 
 ⚠ The marker is the writer's, not ours: every venv tool writes `pyvenv.cfg` at the
 venv root with a `home =` key (PEP 405). The `home` key is checked, not just the
@@ -25,7 +28,7 @@ from jcodemunch_mcp import config as _config
 from jcodemunch_mcp.security import (
     get_skip_virtualenvs,
     is_virtualenv_directory,
-    is_virtualenv_layout_directory,
+    is_virtualenv_site_packages_directory,
 )
 from jcodemunch_mcp.tools.index_folder import (
     _build_index_filters,
@@ -98,29 +101,42 @@ def test_a_pyvenv_cfg_directory_is_not_a_venv(tmp_path):
     assert is_virtualenv_directory(tmp_path / "v") is False
 
 
-@pytest.mark.parametrize("name", ["Lib", "lib", "lib64", "Scripts", "bin", "Include", "include", "LIB"])
-def test_the_interpreter_layout_is_the_layout_by_any_case(tmp_path, name):
+@pytest.mark.parametrize("lib", ["Lib", "lib", "lib64", "LIB"])
+def test_windows_site_packages_under_a_venv_root_is_installed_packages(tmp_path, lib):
     venv = _venv(tmp_path, "jcm-venv")
-    assert is_virtualenv_layout_directory(name, venv) is True
+    assert is_virtualenv_site_packages_directory("site-packages", venv / lib) is True
 
 
-@pytest.mark.parametrize("name", ["src", "app", "tests", "share", "libs"])
-def test_other_children_of_a_venv_root_are_not_layout(tmp_path, name):
+@pytest.mark.parametrize("pydir", ["python3.12", "python3.13", "pypy3.10", "Python3.11"])
+def test_posix_site_packages_under_a_venv_root_is_installed_packages(tmp_path, pydir):
+    venv = _venv(tmp_path, "env")
+    assert is_virtualenv_site_packages_directory("site-packages", venv / "lib" / pydir) is True
+
+
+@pytest.mark.parametrize("name", ["Lib", "lib", "bin", "Scripts", "Include", "src", "dist-packages"])
+def test_nothing_but_site_packages_is_installed_packages(tmp_path, name):
     venv = _venv(tmp_path, "jcm-venv")
-    assert is_virtualenv_layout_directory(name, venv) is False
+    assert is_virtualenv_site_packages_directory(name, venv) is False
+    assert is_virtualenv_site_packages_directory(name, venv / "Lib") is False
 
 
-def test_a_layout_name_without_a_venv_parent_is_not_layout(tmp_path):
-    """`lib/` and `bin/` are ordinary source directories everywhere else."""
-    (tmp_path / "lib").mkdir()
-    assert is_virtualenv_layout_directory("lib", tmp_path) is False
+def test_site_packages_without_a_venv_root_is_not_installed_packages(tmp_path):
+    """A vendored `lib/site-packages` in an ordinary project is source someone chose to keep."""
+    (tmp_path / "lib" / "site-packages").mkdir(parents=True)
+    assert is_virtualenv_site_packages_directory("site-packages", tmp_path / "lib") is False
+
+
+@pytest.mark.parametrize("parent", ["site-packages", "src/site-packages", "lib/notpython/site-packages"])
+def test_site_packages_at_another_path_in_a_venv_is_not_installed_packages(tmp_path, parent):
+    venv = _venv(tmp_path, "jcm-venv")
+    p = venv / parent
+    assert is_virtualenv_site_packages_directory(p.name, p.parent) is False
 
 
 def test_a_pyvenv_cfg_deeper_down_does_not_reach_up(tmp_path):
-    """Only the direct parent's `pyvenv.cfg` counts."""
+    """Only the venv root's own `pyvenv.cfg` counts."""
     _venv(tmp_path / "nested", "inner")
-    (tmp_path / "lib").mkdir()
-    assert is_virtualenv_layout_directory("lib", tmp_path) is False
+    assert is_virtualenv_site_packages_directory("site-packages", tmp_path / "Lib") is False
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +181,7 @@ def test_an_unnamed_venv_is_pruned_and_counted(tmp_path):
 
 def test_source_in_a_venv_root_is_kept(tmp_path):
     """The load-bearing guard: `python -m venv proj` then `proj/src/mine.py`,
-    with no `.gitignore`. The layout goes; the user's source stays."""
+    with no `.gitignore`. Installed packages go; the user's source stays."""
     root = _project(tmp_path)
     venv = _venv(root, "proj")
     (venv / "src").mkdir()
@@ -178,6 +194,36 @@ def test_source_in_a_venv_root_is_kept(tmp_path):
     assert {"app.py", "mine.py", "manage.py"} <= names
     assert "api.py" not in names
     assert skip_counts["virtualenv"] == 1
+
+
+def test_a_venv_in_the_project_root_keeps_its_bin_and_lib(tmp_path):
+    """`python -m venv .` beside a hand-written `bin/` and `lib/` (review round 2).
+
+    The venv tool writes into the same root and a POSIX venv merges into an
+    existing `lib/`; only the installed packages are the writer's.
+    """
+    root = _project(tmp_path)
+    (root / "pyvenv.cfg").write_text(_PYVENV_CFG, encoding="utf-8")
+    site = root / "lib" / "python3.12" / "site-packages" / "requests"
+    site.mkdir(parents=True)
+    (site / "api.py").write_text("def get(url):\n    return url\n", encoding="utf-8")
+    (root / "lib" / "mylib.py").write_text("def mine():\n    return 5\n", encoding="utf-8")
+    (root / "bin").mkdir()
+    (root / "bin" / "deploy.py").write_text("def deploy():\n    return 6\n", encoding="utf-8")
+    (root / "Scripts").mkdir()
+    (root / "Scripts" / "tool.py").write_text("def tool():\n    return 7\n", encoding="utf-8")
+
+    files, _, skip_counts = discover_local_files(root)
+
+    names = {Path(f).name for f in files}
+    assert {"app.py", "mylib.py", "deploy.py", "tool.py"} <= names
+    assert "api.py" not in names
+    assert skip_counts["virtualenv"] == 1
+
+    ok, _reason, _rel, _warning = _should_index_file(root / "bin" / "deploy.py", _fast_cfg(root))
+    assert ok is True
+    ok, reason, _rel, _warning = _should_index_file(site / "api.py", _fast_cfg(root))
+    assert (ok, reason) == (False, "virtualenv")
 
 
 def test_a_project_with_a_lookalike_cfg_keeps_its_source(tmp_path):

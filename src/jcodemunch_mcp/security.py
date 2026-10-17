@@ -598,8 +598,8 @@ _PYVENV_READ_LIMIT = 4096
 def is_virtualenv_directory(path) -> bool:
     """True when ``path`` is a Python virtualenv root, whatever its name.
 
-    The walk prunes the venv's interpreter layout beneath this root
-    (`is_virtualenv_layout_directory`), never the root itself.
+    The walk prunes only the venv's `site-packages` beneath this root
+    (`is_virtualenv_site_packages_directory`), never the root itself.
 
     ⚠ **The `home` key is the whole design**, not the file name: a file merely
     NAMED `pyvenv.cfg` is one instance of the property, the mistake a name-only
@@ -621,30 +621,39 @@ def is_virtualenv_directory(path) -> bool:
     return _PYVENV_HOME_RE.search(head) is not None
 
 
-# What a venv tool writes under the venv root: the interpreter, its scripts and
-# the installed packages. Matched case-insensitively (Windows writes `Lib`,
-# `Scripts`, `Include`; POSIX writes `lib`, `bin`, `include`).
-_VIRTUALENV_LAYOUT_DIR_NAMES: frozenset[str] = frozenset(
-    {"lib", "lib64", "scripts", "bin", "include"}
-)
+# Where a venv tool installs packages beneath the venv root: `Lib/site-packages`
+# on Windows, `lib/pythonX.Y/site-packages` (or `lib64/...`, `lib/pypyX.Y/...`) on
+# POSIX. Matched case-insensitively.
+_VIRTUALENV_LIB_DIR_NAMES: frozenset[str] = frozenset({"lib", "lib64"})
+_VIRTUALENV_PYTHON_DIR_RE = re.compile(r"^(?:python|pypy)\d", re.IGNORECASE)
 
 
-def is_virtualenv_layout_directory(dir_name: str, parent) -> bool:
-    """True when ``dir_name`` is part of the interpreter layout of a venv rooted at ``parent``.
+def is_virtualenv_site_packages_directory(dir_name: str, parent) -> bool:
+    """True when ``dir_name`` under ``parent`` is the installed-packages tree of a venv.
 
-    ⚠⚠ **Only the layout is pruned, never the whole venv root.** A stdlib venv
-    before Python 3.13, and older virtualenv, write no `.gitignore`, and people do
-    keep their own source in the venv root (`python -m venv proj; proj/src/...`).
-    `pyvenv.cfg` proves the directory is a venv; it does not prove everything
-    under it is derived. A false prune deletes real source, the worse error, so
-    the rule removes exactly what the venv tool wrote and keeps the rest.
+    ⚠⚠ **Only `site-packages` is pruned, and only where the venv tool put it.**
+    `pyvenv.cfg` proves a directory is a venv root; it does not prove everything
+    under it is derived. A venv created in a project root (`python -m venv .`)
+    sits beside the user's own `bin/`, `lib/` and `src/`, and a POSIX venv merges
+    into an existing `lib/`. Two review rounds found a wider rule dropping
+    hand-written source each time (first the whole root, then the layout
+    names), so the rule is exactly the directory that holds installed packages,
+    at the path a venv tool writes it, under a proven root.
 
-    Name-gated: a directory not called one of the layout names costs one string
-    compare and no IO, so the watcher's per-ancestor check is nearly free.
+    Name-gated: a directory not called `site-packages` costs one string compare.
     """
-    if dir_name.lower() not in _VIRTUALENV_LAYOUT_DIR_NAMES:
+    if dir_name.lower() != "site-packages":
         return False
-    return is_virtualenv_directory(parent)
+    p = Path(parent)
+    # Windows layout: <root>/Lib/site-packages
+    if p.name.lower() in _VIRTUALENV_LIB_DIR_NAMES and is_virtualenv_directory(p.parent):
+        return True
+    # POSIX layout: <root>/lib/pythonX.Y/site-packages
+    return (
+        _VIRTUALENV_PYTHON_DIR_RE.match(p.name) is not None
+        and p.parent.name.lower() in _VIRTUALENV_LIB_DIR_NAMES
+        and is_virtualenv_directory(p.parent.parent)
+    )
 
 
 def get_skip_virtualenvs(repo: Optional[str] = None) -> bool:

@@ -12,10 +12,12 @@ its site-packages entered the index, competed with your own code in ranking
 and used up `max_folder_files`. On a workspace holding several such venvs the
 index timed out (ledger L-206, from our own dogfooding). Every venv tool writes
 `pyvenv.cfg` with a `home =` key at the venv root (PEP 405), so the walk and
-the file watcher now prune the interpreter layout beneath such a root: `Lib`,
-`lib`, `lib64`, `Scripts`, `bin`, `Include` and `include`. The venv root
-itself is never pruned, so source you keep beside them stays indexed, and a
-file merely named `pyvenv.cfg` with no `home` key prunes nothing. A newer venv
+the file watcher now prune that venv's installed packages: the
+`site-packages` directory at `Lib/site-packages` or
+`lib/pythonX.Y/site-packages`. Nothing else in the venv is pruned, so source
+you keep in the venv root, or in your own `bin/` and `lib/` beside a venv
+created in a project root, stays indexed, and a file merely named
+`pyvenv.cfg` with no `home` key prunes nothing. A newer venv
 that its own `.gitignore` already hid is now pruned at the folder instead of
 file by file. Skips are counted as `virtualenv` in `discovery_skip_counts`;
 `skip_virtualenvs: false` or `JCODEMUNCH_SKIP_VIRTUALENVS=0` turns it off.
