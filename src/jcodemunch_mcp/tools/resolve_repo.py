@@ -33,7 +33,7 @@ def _dotgit_kind(directory: Path) -> Optional[str]:
         return None
     if not text.startswith("gitdir:"):
         return None
-    target = Path(text[len("gitdir:") :].strip())
+    target = Path(text[len("gitdir:"):].strip())
     if not target.is_absolute():
         target = directory / target
     parent_name = target.parent.name

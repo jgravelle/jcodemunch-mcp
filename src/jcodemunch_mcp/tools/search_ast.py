@@ -200,7 +200,7 @@ _PRESET_CATALOG: dict[str, dict[str, Any]] = {
         "category": "maintenance",
     },
     "eval_exec": {
-        "description": "Dynamic execution candidates (eval, exec, compile, __import__, nonliteral-callback timers) — injection risk",
+        "description": "Dynamic code execution candidates (eval, exec, compile, __import__, Function, timers without a literal callback) — injection risk",
         "severity": _Severity.ERROR,
         "category": "security",
     },
@@ -246,14 +246,7 @@ def _child_statement_count(node) -> int:
     trivial = {"comment", "line_comment", "block_comment", "pass_statement", ";", "empty_statement"}
     count = 0
     for child in node.children:
-        if child.type not in trivial and child.type not in (
-            "{",
-            "}",
-            "(",
-            ")",
-            ":",
-            "pass",
-        ):
+        if child.type not in trivial and child.type not in ("{", "}", "(", ")", ":", "pass"):
             # Python pass
             text = child.text
             if text and text.strip() not in (b"", b"pass", b";", b"..."):
@@ -517,10 +510,6 @@ _SECRET_RE = re.compile(
     r"""|private_key|credentials?)\s*[=:]\s*['"][^'"]{4,}['"]""",
     re.IGNORECASE,
 )
-
-
-# Test-path context is not evidence that a secret is synthetic. Annotate it
-# without lowering severity or removing the finding, using the shared rule.
 
 
 def _detect_hardcoded_secret(node, lang: str, source_bytes: bytes) -> list[dict]:
@@ -1212,12 +1201,11 @@ def search_ast(
                 match["file"] = fpath
                 match["language"] = lang_name
                 match["pattern"] = det_name
-                row_severity = severity
                 if det_name == "hardcoded_secret" and is_test_file(fpath.replace("\\", "/")):
                     # Location is context, never proof that a credential is synthetic.
                     match["in_test_file"] = True
-                match["severity"] = row_severity
-                severity_counts[row_severity] = severity_counts.get(row_severity, 0) + 1
+                match["severity"] = severity
+                severity_counts[severity] = severity_counts.get(severity, 0) + 1
                 # Enrich with symbol context
                 _enrich_matches([match], fpath, index)
                 all_matches.append(match)

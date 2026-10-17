@@ -932,8 +932,8 @@ _JSX_EXTENSIONS = (".tsx", ".jsx")
 
 #: Files where a React class component can be declared. Lifecycle methods are
 #: invoked by the framework, never by repo code, so signal 2 fires on every
-#: one of them by construction (NIMA audit 2026-10-15: componentDidCatch and
-#: getDerivedStateFromError offered for deletion at confidence 1.0).
+#: one of them by construction (`componentDidCatch` and
+#: `getDerivedStateFromError` were offered for deletion at confidence 1.0).
 #: componentDid*/getDerivedState*/shouldComponentUpdate/getSnapshotBeforeUpdate/
 #: UNSAFE_componentWill* are React's own coinages: no other framework or plain
 #: codebase names a method that. `render` is NOT React's alone — a template
@@ -973,8 +973,8 @@ def _sweep_jsx_and_framework_callers(
 ) -> None:
     """Add the callers JSX records and the React framework makes.
 
-    Two blind spots of the per-symbol call index, both reported by the NIMA
-    audit (2026-10-15), both live code offered for deletion:
+    Two blind spots of the per-symbol call index, both live code offered for
+    deletion:
 
     - a component consumed as JSX. ``<WorkspaceShell />`` holds no
       ``call_expression``, so no ``call_references`` row names it, and a
@@ -1370,7 +1370,7 @@ def get_dead_code_v2(
     _sweep_other_text_files(index, text_callers, text_files, callee_has_caller)
     # A component consumed as `<Name />` holds no call expression, and a
     # React lifecycle method is called by the framework, not the repo: both
-    # read no_callers by construction (NIMA audit 2026-10-15). Runs for
+    # read no_callers by construction. Runs for
     # every path above — it only ever ADDS callers.
     _sweep_jsx_and_framework_callers(index, store, owner, name, rev, callee_has_caller)
 

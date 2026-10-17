@@ -1,7 +1,6 @@
-"""NIMA audit 2026-10-15: search_ast detector false-positive regressions.
+"""search_ast detector false-positive regressions.
 
-Evidence base: the audit's uncapped 41,055-record scan of lilubot/nima-core
-(ast-findings.json, detector labels only, no source literals):
+Each case below is a shape a detector misread; the fixtures reproduce it:
 
 - Regex compilation must not be confused with runtime code compilation.
 - Literal callback timers are scheduling; unknown first arguments may be code.

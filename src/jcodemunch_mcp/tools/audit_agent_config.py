@@ -159,11 +159,11 @@ def _check_stale_symbols(
     earns a ``stale_reference`` warning only when corroborated: a fuzzy
     near-match in the index (a renamed or deleted repo symbol) on a
     project-scoped config. Everything else -- an external tool, harness
-    facility, or command named in prose; any reference in a global config,
-    which no single repository's index can speak for -- is reported as an
-    informational ``unresolved_reference`` (audit 2026-10-15: the global
-    ``~/.claude/CLAUDE.md`` harness tool ``AskUserQuestion`` was
-    recommended for removal on absence alone). The distinction is
+    facility, or command named in prose (e.g. the harness tool
+    ``AskUserQuestion`` in a global ``~/.claude/CLAUDE.md``); a repo symbol
+    deleted outright with no near-match left; any reference in a global
+    config, which no single repository's index can speak for -- is reported
+    as an informational ``unresolved_reference``. The distinction is
     evidence, not a hardcoded list of external names.
     """
     findings: list[dict[str, Any]] = []

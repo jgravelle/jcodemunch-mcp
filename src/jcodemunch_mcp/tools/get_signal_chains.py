@@ -233,30 +233,14 @@ def _bfs_chain(
         visited, independent of gateway count.
         """
         sid = sym.get("id", "")
-        if not sid:
-            return find_direct_callees(
-                index,
-                store,
-                owner,
-                repo_name,
-                sym,
-                symbols_by_file,
-                content_cache,
-                callee_index,
-            )
-        resolved = memo.get(sid)
+        resolved = memo.get(sid) if sid else None
         if resolved is None:
             resolved = find_direct_callees(
-                index,
-                store,
-                owner,
-                repo_name,
-                sym,
-                symbols_by_file,
-                content_cache,
-                callee_index,
+                index, store, owner, repo_name, sym, symbols_by_file,
+                content_cache, callee_index,
             )
-            memo[sid] = resolved
+            if sid:
+                memo[sid] = resolved
         return resolved
 
     sym_id = gateway_sym.get("id", "")
@@ -473,16 +457,8 @@ def get_signal_chains(
 
     for gw_sym, gw_kind, gw_label in gateways:
         chain_syms, depth_reached = _bfs_chain(
-            index,
-            store,
-            owner,
-            name,
-            gw_sym,
-            symbols_by_file,
-            max_depth,
-            callee_index,
-            content_cache,
-            callee_memo,
+            index, store, owner, name, gw_sym, symbols_by_file, max_depth,
+            callee_index, content_cache, callee_memo,
         )
 
         gw_id = gw_sym.get("id", "")

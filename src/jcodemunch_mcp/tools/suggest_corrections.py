@@ -203,7 +203,7 @@ def _stale_config_corrections(audit: dict) -> list[dict]:
         # records absence-only evidence -- the name may be an external
         # tool or harness facility that is not a repository symbol -- and
         # folding it here would turn "could not corroborate" back into
-        # "remove this reference" (audit 2026-10-15: ``AskUserQuestion``).
+        # "remove this reference" (e.g. the harness tool ``AskUserQuestion``).
         # Only evidence-backed staleness becomes an actionable correction.
         if ftype in ("stale_symbol", "dead_path", "stale_reference", "dead_file"):
             out.append({

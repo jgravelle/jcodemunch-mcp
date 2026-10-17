@@ -1,13 +1,11 @@
-"""Regressions for the 2026-10-15 NIMA audit's discovery blind spots.
+"""Regressions for two discovery blind spots.
 
-Two tool-output defects surfaced by the nima-core audit:
-
-1. ``get_project_intel`` traversal crossed repository boundaries: the
-   audited checkout contained a linked worktree
-   whose infrastructure files leaked into the parent repo's intel
-   inventory even though the index walk prunes linked worktrees (#372).
+1. ``get_project_intel`` traversal crossed repository boundaries: a
+   checkout containing a linked worktree had the worktree's
+   infrastructure files leak into the parent repo's intel inventory
+   even though the index walk prunes linked worktrees (#372).
 2. ``suggest_corrections`` recommended removing ``AskUserQuestion`` --
-   a harness tool named in prose in the GLOBAL ``~/.claude/CLAUDE.md`` --
+   a harness tool named in prose in a GLOBAL ``~/.claude/CLAUDE.md`` --
    because it was absent from the repo index. Absence from one
    repository's index is not staleness evidence for an external tool
    name, and no single index can speak for a global config.
@@ -174,8 +172,8 @@ def test_near_match_on_project_config_is_still_a_stale_warning():
 
 
 def test_absent_external_tool_reference_is_unresolved_not_stale():
-    """The audited case: a harness tool named in config prose. Absence
-    from the index must not be reported as a stale reference."""
+    """A harness tool named in config prose. Absence from the index
+    must not be reported as a stale reference."""
     findings = _check_stale_symbols(
         _config(
             "when clarification is required use AskUserQuestion "

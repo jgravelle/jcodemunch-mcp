@@ -1,8 +1,7 @@
-"""`get_dead_code_v2` keeps JSX-consumed components and React lifecycle methods (NIMA audit 2026-10-15).
+"""`get_dead_code_v2` keeps JSX-consumed components and React lifecycle methods.
 
-The NIMA audit's dead-code run offered `WorkspaceShell`, `WorkspaceFallback`
-and `WelcomeScreen` of `explorer/src/App.tsx` for deletion at confidence 1.0,
-each consumed as JSX at lines 1591–1678, plus the error-boundary lifecycle
+Components of a `.tsx` file consumed only as JSX (`<WorkspaceShell />`) were
+offered for deletion at confidence 1.0, as were the error-boundary lifecycle
 methods `componentDidCatch` and `getDerivedStateFromError`.
 
 A component consumed as `<WorkspaceShell />` holds no `call_expression`, so no
@@ -13,10 +12,9 @@ React class-component lifecycle method is invoked by the framework, never by
 repo code. Both read `no_callers` by construction: live code, offered for
 deletion, in a tool whose rows feed delete decisions.
 
-The audit's second defect is here too: `get_repo_health` divided the
-`dead_symbols` list — capped at `max_results=100` — by every function/method,
-so a repo with more than 100 candidates had its `dead_code_pct` understated
-
+A second defect is here too: `get_repo_health` divided the `dead_symbols`
+list — capped at `max_results=100` — by every function/method, so a repo with
+more than 100 candidates had its `dead_code_pct` understated.
 
 Every fixture goes through `index_folder` and the tool, on its own store.
 """
@@ -54,11 +52,11 @@ def _signals(repo: str, store: str) -> dict:
     return rows
 
 
-# The audit's shape: an entry file rendering App, and App.tsx where every
+# The reported shape: an entry file rendering App, and App.tsx where every
 # sibling is consumed only as JSX. ⚠ The `React.useState` call inside App is
 # load-bearing: with no call reference anywhere in the .tsx corpus, every file
 # is read as text and the JSX mention already counted — it is a recording
-# language that makes the file's bodies invisible, which is the NIMA case.
+# language that makes the file's bodies invisible, which is the reported case.
 APP_TSX = """import React from 'react'
 
 function WelcomeScreen() { return <p>welcome</p> }
@@ -141,6 +139,7 @@ def test_no_import_tsx_fallback_keeps_jsx_and_framework_callers(tmp_path):
     for live in ("Child", "componentDidCatch", "render"):
         assert "no_callers" not in rows.get(("src/App.tsx", live), []), rows
     assert "no_callers" in rows.get(("src/App.tsx", "trulyUnusedHelper"), []), rows
+
 
 def test_direct_storeless_tsx_fallback_keeps_framework_evidence_without_crashing():
     """The no-store direct path cannot read JSX tags, but React lifecycle

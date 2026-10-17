@@ -1242,8 +1242,7 @@ def get_project_intel(
             return {"error": f"scope_path {scope_path!r} is not a directory under source_root"}
         if _scope_crosses_checkout_boundary(source_root, normalised):
             return {
-                "error": f"scope_path {scope_path!r} crosses a nested repository "
-                "or linked worktree boundary"
+                "error": f"scope_path {scope_path!r} crosses a linked worktree boundary"
             }
         scope_path = normalised
     else:
