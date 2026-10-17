@@ -190,13 +190,20 @@ def resolve_effective_license_key(explicit: Optional[str]) -> Optional[str]:
     ``license_key``. Without this, a customer who set ``license_key`` in
     ``config.jsonc`` (rather than passing ``--license`` every time) silently
     can't download the packs they paid for.
+
+    ⚠⚠ `create_missing=False` (L-215): the default load creates
+    `config.jsonc` when it is absent, and after a pack's `.db` lands in the
+    store that new file lacks `tool_surface` and pins a first-time user to
+    `full` (Practice 8). ⚠ The explicit load stays, rather than relying on
+    `config.get`'s lazy one: that fires only when nothing was ever loaded, so
+    an already-populated config would hide the file's `license_key`.
     """
     if explicit:
         return explicit
     try:
         from ..config import load_config
         from ..org.license import _license_key
-        load_config()  # idempotent; makes the config `license_key` visible
+        load_config(create_missing=False)  # re-reads the file, never writes one
         return _license_key() or None
     except Exception:
         return None
