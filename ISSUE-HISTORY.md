@@ -2691,3 +2691,13 @@ The 1.108.371 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.371 count, verbatim:
 
 - ⚠ Prior (1.108.371): 17558 passed, 25 skipped, **0 failed** (17583 total).
+
+## Current State rotation (2026-10-17, release 1.108.375)
+
+The 1.108.372 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.372):** **uninstall keeps your own section after the policy** (L-186): `uninstall` asks `policy.policy_block_span`, whose start is a real heading past a BOM and fences. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.372 count, verbatim:
+
+- ⚠ Prior (1.108.372): 17579 passed, 25 skipped, **0 failed** (17604 total).
