@@ -5,7 +5,8 @@ settings, so Task Scheduler's defaults applied: do not start on battery, stop
 when the machine goes on battery, end after 72 hours. `schtasks /Create` has no
 switch for any of the three, so the task is registered from an XML definition.
 
-⚠ Nothing here runs the real `schtasks`: every test asserts on the generated
+⚠ Only one test runs the real `schtasks`, and it exists only on CI's Windows
+runner (`_may_register_a_real_task`); every other test asserts on the generated
 XML or on the command line handed to `subprocess.run`, which is patched.
 
 `watch-status` must also say when the task exists and nothing is running,
@@ -231,18 +232,28 @@ def _register_and_read_back(name: str, create_args: list[str]) -> ET.Element:
 # box already sits at the ceiling. CI's Windows legs collect and run it.
 if _may_register_a_real_task():
 
-    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form():
+    # The runner's own interpreter path has no space; `C:\Program Files\...`
+    # is the quoted form a user can hit. Task Scheduler does not check the
+    # command exists at registration, and neither task is ever started.
+    @pytest.mark.parametrize(
+        "exec_cmd",
+        [None, [r"C:\Program Files\Python 3\python.exe", "-m", "jcodemunch_mcp", "watch-all"]],
+        ids=["runner-interpreter", "path-with-a-space"],
+    )
+    def test_task_scheduler_accepts_the_definition_and_matches_the_switch_form(exec_cmd):
         """Every other test here asserts on the XML we write. Only Task
         Scheduler can say it ACCEPTS it, and a malformed definition would make
         `watch-install` fail for every Windows user. Registers our definition
         and the old switch form under throwaway names, compares what Windows
         stored, deletes both. Never started: the action runs only at logon."""
+        cmd = si._exec_cmd() if exec_cmd is None else exec_cmd
         suffix = uuid.uuid4().hex[:8]
         xml_name = f"{si.SERVICE_NAME}-ci-xml-{suffix}"
         old_name = f"{si.SERVICE_NAME}-ci-old-{suffix}"
         xml_path = Path(tempfile.mkdtemp()) / "task.xml"
-        xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
-        cmd_str = " ".join(si._cmd_quote(x) for x in si._exec_cmd())
+        with patch.object(si, "_exec_cmd", lambda: list(cmd)):
+            xml_path.write_text(si._windows_task_xml(), encoding="utf-16")
+        cmd_str = " ".join(si._cmd_quote(x) for x in cmd)
         try:
             new = _register_and_read_back(xml_name, ["/XML", str(xml_path)])
             old = _register_and_read_back(old_name, ["/SC", "ONLOGON", "/RL", "LIMITED", "/TR", cmd_str])
