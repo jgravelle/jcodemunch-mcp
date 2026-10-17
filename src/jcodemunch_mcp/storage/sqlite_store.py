@@ -274,20 +274,24 @@ def _classify_index_conn(conn: sqlite3.Connection) -> str:
     tables = {
         r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    if "meta" not in tables:
-        return INDEX_DB_NOT_INDEX
-    row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
-    if row is not None and row[0]:
-        return INDEX_DB_INDEX
-    # ⚠ `meta` with no `repo` is three things: an index whose meta rows were
-    # lost (kept visible so it can be re-indexed, the sqlite_missing_meta
-    # contract), an index still being written for the first time, and a
-    # foreign store an earlier release's `_connect` filled with EMPTY index
-    # tables plus two meta rows (this box's telemetry.db and org_savings.db).
-    # Only the first holds anything worth listing, and rows are the tell.
-    if {"symbols", "files"} <= tables:
+    if "meta" in tables:
+        row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+        if row is not None and row[0]:
+            return INDEX_DB_INDEX
+    # ⚠ No `repo` row is three things: an index whose meta was lost (its rows,
+    # its table, or another index table with it; kept visible so it can be
+    # re-indexed, the sqlite_missing_meta / sqlite_corrupt contract), an index
+    # still being written for the first time, and a foreign store an earlier
+    # release's `_connect` filled with EMPTY index tables plus two meta rows
+    # (this box's telemetry.db and org_savings.db). Only the first holds
+    # anything worth listing, and rows are the tell. ⚠ `files` alone is too
+    # generic a name to vouch for an index, so it counts only beside
+    # `symbols`; `symbols` holding rows counts alone.
+    if "symbols" in tables:
         for table in ("symbols", "files"):
-            if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+            if table in tables and conn.execute(
+                f"SELECT 1 FROM {table} LIMIT 1"
+            ).fetchone():
                 return INDEX_DB_DAMAGED
     return INDEX_DB_NOT_INDEX
 

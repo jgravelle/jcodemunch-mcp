@@ -1582,6 +1582,9 @@ class IndexStore:
                     repos.append(entry)
             except Exception:
                 logger.debug("Skipping corrupted DB: %s", db_file, exc_info=True)
+                # An unreadable file is listed (or its JSON is), so pass 2
+                # must not list the JSON a second time.
+                seen_slugs.add(slug)
                 parts = slug.split("-", 1)
                 owner, name = parts if len(parts) == 2 else ("local", slug)
                 status = self._sqlite.inspect_index(owner, name)

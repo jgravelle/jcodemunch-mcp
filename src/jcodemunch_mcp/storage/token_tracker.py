@@ -1601,24 +1601,24 @@ def _runtime_signal_summary(base_path: Optional[str] = None) -> dict:
                 from .generation import connect_readonly
 
                 conn = connect_readonly(db_path, isolation_level="")
-                conn.row_factory = _sqlite3.Row
-                if _classify_index_conn(conn) == INDEX_DB_NOT_INDEX:
+                try:
+                    conn.row_factory = _sqlite3.Row
+                    if _classify_index_conn(conn) == INDEX_DB_NOT_INDEX:
+                        continue
+                    # Skip dbs that don't have the runtime_calls table yet
+                    row = conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_calls'"
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    rows = conn.execute(
+                        "SELECT source, COALESCE(SUM(count), 0) AS n FROM runtime_calls GROUP BY source"
+                    ).fetchall()
+                finally:
                     conn.close()
-                    continue
-                # Skip dbs that don't have the runtime_calls table yet
-                row = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_calls'"
-                ).fetchone()
-                if row is None:
-                    conn.close()
-                    continue
-                rows = conn.execute(
-                    "SELECT source, COALESCE(SUM(count), 0) AS n FROM runtime_calls GROUP BY source"
-                ).fetchall()
                 for r in rows:
                     by_source[r["source"]] = by_source.get(r["source"], 0) + int(r["n"])
                     total += int(r["n"])
-                conn.close()
             except _sqlite3.Error:
                 logger.debug("Runtime signal probe failed on %s", db_path, exc_info=True)
         summary["rows"] = total

@@ -197,9 +197,9 @@ def test_store_polluted_by_an_earlier_release_is_not_listed(tmp_path):
     finally:
         conn.close()
 
-    assert sqlite_store.classify_index_db(polluted) == "not_index"
     for repos in _every_listing_path(tmp_path):
         assert not any("polluted" in (r.get("repo") or "") for r in repos), repos
+    assert sqlite_store.classify_index_db(polluted) == "not_index"
 
 
 def test_a_real_index_is_read_whatever_its_file_is_called(tmp_path):
@@ -209,9 +209,9 @@ def test_a_real_index_is_read_whatever_its_file_is_called(tmp_path):
     renamed = tmp_path / "telemetry.db"
     db.rename(renamed)
 
-    assert sqlite_store.classify_index_db(renamed) == "index"
     repos = store.list_repos()
     assert any(r["repo"] == "local/proj" for r in repos), repos
+    assert sqlite_store.classify_index_db(renamed) == "index"
 
 
 def test_damaged_index_stays_visible(tmp_path):
@@ -226,9 +226,63 @@ def test_damaged_index_stays_visible(tmp_path):
         conn.close()
     SQLiteIndexStore._initialized_dbs.clear()
 
-    assert sqlite_store.classify_index_db(db) == "damaged"
     broken = next(r for r in store.list_repos() if r["repo"] == "local/broken")
     assert broken["status"] == "sqlite_missing_meta"
+    assert sqlite_store.classify_index_db(db) == "damaged"
+
+
+@pytest.mark.parametrize(
+    "damage,status",
+    [
+        ("DROP TABLE meta", "sqlite_missing_meta"),
+        ("DELETE FROM meta WHERE key = 'repo'; DROP TABLE files", "sqlite_corrupt"),
+    ],
+    ids=["meta_table_dropped", "repo_row_and_files_table_gone"],
+)
+def test_index_with_a_lost_table_stays_visible(tmp_path, damage, status):
+    """Rows in `symbols` vouch for an index whatever else was lost; the
+    review's two shapes, both listed on main."""
+    store = SQLiteIndexStore(base_path=str(tmp_path))
+    db = _real_index(store, "broken")
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.executescript(damage)
+    finally:
+        conn.close()
+    SQLiteIndexStore._initialized_dbs.clear()
+
+    for repos in (store.list_repos(), IndexStore(base_path=str(tmp_path)).list_repos()):
+        broken = [r for r in repos if r["repo"] == "local/broken"]
+        assert len(broken) == 1, repos
+        assert broken[0]["status"] == status, broken
+
+
+def test_unreadable_db_beside_legacy_json_is_listed_once(tmp_path):
+    """The review's probe: a `.db` that is not SQLite plus a legacy JSON of
+    the same slug. Pass 2 must not list the JSON a second time."""
+    import json
+
+    store = IndexStore(base_path=str(tmp_path))
+    store.save_index(
+        owner="local", name="x",
+        source_files=["a.py"], symbols=[_make_symbol("f")],
+        raw_files={"a.py": "def f(): pass\n"},
+    )
+    entry = next(r for r in store.list_repos() if r["repo"] == "local/x")
+    assert entry
+    db = tmp_path / "local-x.db"
+    legacy = {
+        "repo": "local/x", "owner": "local", "name": "x",
+        "indexed_at": "2026-01-01T00:00:00", "index_version": 3,
+        "source_files": ["a.py"], "languages": {"python": 1},
+        "symbols": [], "file_hashes": {},
+    }
+    store.delete_index("local", "x")
+    (tmp_path / "local-x.json").write_text(json.dumps(legacy), encoding="utf-8")
+    db.write_bytes(b"this is not a sqlite database at all" * 4)
+
+    repos = IndexStore(base_path=str(tmp_path)).list_repos()
+    assert len([r for r in repos if r["repo"] == "local/x"]) == 1, repos
 
 
 def test_runtime_signal_counts_only_indexes(tmp_path):
