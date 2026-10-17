@@ -29,47 +29,57 @@ sent it, while the rest of jCodeMunch read them as opted out (ledger L-212).
 It now asks the same setting the savings counter reads, and sends only when
 both the old check and that setting allow it, so it can never send where it
 did not before. SECURITY.md now discloses the event, which it did not.
+
 ### Changed - a text search earns no savings credit, so your receipt and meter figures drop
 
-⚠ **Your `receipt` totals and your live savings meter will read lower from
-this release.** The drop is the credit two tools never earned, not a loss of
-anything they do. Already-recorded lifetime totals are not rewritten; new
-calls to these tools add nothing to them.
+⚠ **Your `receipt` totals will read lower from this release, and so may your
+live savings meter.** The drop is credit two tools never earned, not a loss of
+anything they do. Figures fed from the same two models drop with them: an org
+seat's `org-rollup` report (it sums the receipt), and, if you opted in to
+sharing savings, what your seat adds to the shared savings counter from now
+on. Lifetime totals already recorded are not rewritten.
 
 Both savings models credited a text search for work an agent would not have
 done (ledger L-180, from a Marketing question about one day's receipt). The
 `receipt` CLI credited `search_text` 11 times the size of each answer
 (multiplier 12) and `check_references` 14 times (multiplier 15), citing a
 symbol-retrieval benchmark that never measured a text search, so a larger
-answer earned a larger saving. The live meter credited the whole size of every
-file that held a match, minus the response. For a text search the matching
-lines are the answer, and an agent with Grep gets the same lines. Under the
-maintainer's ruling (2026-10-17), a text-search-style tool now earns zero in
-both models until a measurement supports a number.
+answer earned a larger saving. The live meter credited `search_text` with the
+whole size of every file that held a match, minus the response. That half
+reached only an index that stores file sizes, such as one built by
+`index_repo`: an `index_folder` index stores none (L-179), so there the meter
+already credited nothing. `check_references` never fed the meter. For a text
+search the matching lines are the answer, and an agent with Grep gets the same
+lines. Under the maintainer's ruling (2026-10-17), a text-search-style tool now
+earns zero in both models until a measurement supports a number.
 
 A tool is text-search-style when its answer IS the matching lines:
 
 - **`search_text`**: its answer is the lines a regex or substring scan matched,
   with optional context lines. Grep returns the same lines.
-- **`check_references`**: its answer is the import lines and content lines that
-  mention an identifier, comments and strings included. Grep for the
-  identifier returns both.
+- **`check_references`**: by default its answer is the files whose imports name
+  an identifier plus the lines that mention it, comments and strings included.
+  Grep for the identifier finds both. Its import-only mode
+  (`search_content=false`) answers more like `find_references` and is ledger
+  row L-216.
 
 Each tool was decided by its answer, not by a word in its description. These
 were considered and keep their credit, which does not mean their multipliers
 were measured: `search_ast` (most queries are structural and Grep cannot
 express them; its `todo_fixme`, `comment:` and `string:` modes are grep-like
-and are ledger row L-216), `find_references` (the resolved import graph, not
-text), `search_columns` (provider-emitted column metadata, not file lines), and
+and are also L-216), `find_references` (the resolved import graph, not text),
+`search_columns` (provider-emitted column metadata, not file lines), and
 `winnow_symbols`, `get_decorator_census`, `find_hot_paths`, `list_repos` and
 `announce_model` (a "regex" or "substring" there filters names; none returns
 file lines).
 
-The zero is enforced once, in `record_savings`, so an indirect caller inherits
-it: the deletion investigator runs `search_text` internally and would credit
-it too. A text search run through the Counter front door
-(`order(action="search_text")`) was priced at the default multiplier; the
-receipt now prices an `order` call by the action it ran. The two tools are
+The meter's zero is enforced once, in `record_savings`, so an indirect caller
+inherits it: the deletion investigator runs `search_text` internally. On the
+Counter front door a text search was priced at the default multiplier, because
+the receipt saw only `order` or `route`; it now reads the action (from
+`order`'s input, and from the `executed_action` head of a `route` result with
+`execute=true`) and prices a text-search action at zero. Every other
+front-door action keeps the default multiplier, as before. The two tools are
 listed in one module, `savings_credit.py`, with their reasons, and a test fails
 if a tool whose description reads like a text search has not been decided
 there, or if either tool regains a multiplier.
@@ -78,9 +88,10 @@ The receipt's `Net savings` line is now **`Modeled gross savings`**. Modeled,
 because the baseline is a multiplier rather than a measurement; gross, because
 only the answer's own size is subtracted. `--export json` carries the label as
 `savings_label` and the zero-credit tools with their reasons as
-`no_credit_tools`; `--export csv` gains a `savings_label` column; `--explain`
-names the label and lists both tools at 0.0x. No existing key or column is
-renamed.
+`no_credit_tools`; `--export csv` appends a `savings_label` column; `--explain`
+names the label and lists both tools at 1.0x (baseline equals actual, so the
+saving is zero). No existing key or column is renamed; a CSV reader that
+checks the column count sees one more.
 
 ## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
 
