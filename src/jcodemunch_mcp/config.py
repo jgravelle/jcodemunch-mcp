@@ -887,7 +887,7 @@ _BOOL_FALSE_SPELLINGS = frozenset({"false", "0", "no", "off"})
 #: ⚠⚠ A SET, NOT A RULE FOR EVERY BOOLEAN: `share_savings` is the telemetry
 #: opt-out, and a typo there reads as off, the privacy-safe side. Adding it here
 #: would turn sharing ON for a mistyped opt-out. Every other boolean keeps the
-#: old reading: an unrecognised value is False.
+#: old reading byte for byte: unstripped, and anything but a true spelling is False.
 BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
     "respect_cachedir_tag",
     "skip_msbuild_output",
@@ -899,18 +899,24 @@ BOOL_ENV_TYPO_KEEPS_DEFAULT: frozenset[str] = frozenset({
 
 
 def _parse_env_bool(value: str, key: str | None) -> bool | None:
-    """A boolean env value; ``None`` (keep the default) for a protective key's typo."""
+    """A boolean env value; ``None`` (keep the default) for a protective key's typo.
+
+    ⚠⚠ Only a key in `BOOL_ENV_TYPO_KEEPS_DEFAULT` gets the new reading
+    (stripped, typo keeps the default). Every other key returns EXACTLY the old
+    expression, unstripped: stripping alone would turn `JCODEMUNCH_SHARE_SAVINGS=1 `
+    (what cmd.exe's `set X=1 && cmd` produces) from off to on, and the same for
+    default-off network and billing switches (review of L-207).
+    """
+    if key not in BOOL_ENV_TYPO_KEEPS_DEFAULT:
+        return value.lower() in _BOOL_TRUE_SPELLINGS
     v = value.strip().lower()
     if v in _BOOL_TRUE_SPELLINGS:
         return True
     if v in _BOOL_FALSE_SPELLINGS:
         return False
-    env = next((e for e, k in ENV_VAR_MAPPING.items() if k == key), key or "a boolean env var")
-    if key in BOOL_ENV_TYPO_KEEPS_DEFAULT:
-        logger.warning("%s=%r is not true/false/1/0/yes/no/on/off; keeping the default (on)", env, value)
-        return None
-    logger.warning("%s=%r is not true/false/1/0/yes/no/on/off; reading it as false", env, value)
-    return False
+    env = next((e for e, k in ENV_VAR_MAPPING.items() if k == key), key)
+    logger.warning("%s=%r is not true/false/1/0/yes/no/on/off; keeping the default (on)", env, value)
+    return None
 
 
 def _parse_env_value(value: str, expected_type: type | tuple, key: str | None = None) -> Any:

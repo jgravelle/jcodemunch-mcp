@@ -92,13 +92,34 @@ def test_a_typo_in_the_savings_opt_out_still_reads_as_off(monkeypatch, restore):
 
 
 @pytest.mark.parametrize("value", ["true", "1", "yes", "on", "TRUE", " On "])
-def test_recognised_true_spellings_read_true(value):
-    assert _parse_env_value(value, bool) is True
+def test_recognised_true_spellings_read_true_for_a_protective_key(value):
+    assert _parse_env_value(value, bool, key="skip_virtualenvs") is True
 
 
 @pytest.mark.parametrize("value", ["false", "0", "no", "off", "False", " OFF "])
-def test_recognised_false_spellings_read_false(value):
-    assert _parse_env_value(value, bool) is False
+def test_recognised_false_spellings_read_false_for_a_protective_key(value):
+    assert _parse_env_value(value, bool, key="skip_virtualenvs") is False
+
+
+_OTHER_BOOL_KEYS = sorted(
+    k for k in _ENV_FOR if CONFIG_TYPES.get(k) is bool and k not in set(_PROTECTIVE)
+)
+_BATTERY = ["1", "1 ", " 1", "true", "true ", " yes", "On\n", "\ttrue", "TRUE", "0", "off", "", " ", "garbage", "enabled"]
+
+
+@pytest.mark.parametrize("key", _OTHER_BOOL_KEYS)
+def test_every_other_boolean_reads_exactly_as_before(key):
+    """Zero change outside the protective set (review of L-207). Stripping alone
+    would turn `JCODEMUNCH_SHARE_SAVINGS=1 ` (cmd.exe's `set X=1 && cmd`) from off
+    to on, and the same for default-off network and billing switches."""
+    for value in _BATTERY:
+        before = value.lower() in ("true", "1", "yes", "on")
+        assert _parse_env_value(value, bool, key=key) is before, (key, value)
+
+
+def test_the_guard_covers_the_telemetry_and_network_switches():
+    """Non-vacuity: the battery above reaches the keys it exists to protect."""
+    assert {"share_savings", "perf_telemetry_enabled", "allow_paid_summaries", "runtime_ingest_enabled"} <= set(_OTHER_BOOL_KEYS)
 
 
 def test_a_typo_is_named_in_a_warning(monkeypatch, restore, caplog):
