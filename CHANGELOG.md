@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - a typo can no longer switch off a protective setting
+
+Six settings are on by default and documented as switched off only by an
+explicit false: the four skip rules (`JCODEMUNCH_RESPECT_CACHEDIR_TAG`,
+`JCODEMUNCH_SKIP_MSBUILD_OUTPUT`, `JCODEMUNCH_SKIP_NUGET_PACKAGES`,
+`JCODEMUNCH_SKIP_VIRTUALENVS`), the trusted-folders allowlist
+(`JCODEMUNCH_TRUSTED_FOLDERS_WHITELIST_MODE`) and PII redaction of runtime
+traces (`JCODEMUNCH_RUNTIME_REDACT`). The config file kept that promise; the
+environment variable did not, because any value other than
+`true`/`1`/`yes`/`on` read as false, so a typo turned the setting off (ledger
+L-207). For these six, an unrecognised value now keeps the setting on and logs
+a warning naming the variable, and `false`/`0`/`no`/`off` still turn it off.
+Every other boolean variable reads exactly as before, including
+`JCODEMUNCH_SHARE_SAVINGS`, where a typo already reads as off, the side that
+does not share.
+
 ## [1.108.374] - 2026-10-16 - a Python virtualenv is skipped whatever its folder is called
 
 ### Fixed - a Python virtualenv is skipped whatever its folder is called
