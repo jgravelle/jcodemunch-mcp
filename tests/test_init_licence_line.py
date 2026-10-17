@@ -58,6 +58,34 @@ def test_a_dry_run_or_demo_prints_no_licence_line(quiet_init, capsys, mode):
     assert not any(m in out for m in _MARKERS), out
 
 
+def test_upgrade_prints_no_licence_line(quiet_init, capsys, monkeypatch):
+    """The line is shown once per install, never on every upgrade (Chief of Staff, 2026-10-17).
+
+    `upgrade` re-runs `init --hooks` as a child process; the child here is run
+    in-process with exactly the environment `upgrade` hands it."""
+    from jcodemunch_mcp.cli import upgrade
+
+    envs = []
+
+    class _R:
+        returncode = 0
+
+    def fake_run(cmd, check=False, env=None, **kw):
+        envs.append(env)
+        return _R()
+
+    monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+    assert upgrade._refresh_hooks(yes=True) == 0
+    capsys.readouterr()
+    (env,) = envs
+    assert env is not None, "upgrade must hand its init child an explicit environment"
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    out = _run(capsys, dry_run=False)
+    assert "Done." in out
+    assert not any(m in out for m in _MARKERS), out
+
+
 def test_the_text_lives_only_in_cli_init():
     """No tool description, instructions string, policy text or other module carries it.
 

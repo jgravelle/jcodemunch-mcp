@@ -1307,6 +1307,10 @@ _LICENCE_LINES = (
     "Using jCodeMunch at work? A commercial licence is $79, one time: https://jcodemunch.com/descriptions.php",
     "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
 )
+#: Set by `upgrade` on the `init --hooks` it runs: the line is shown once per
+#: install, never on every upgrade (Chief of Staff, 2026-10-17). An env var, not
+#: a flag, so an older executable that `upgrade` may find on PATH ignores it.
+UPGRADE_REFRESH_ENV = "_JCODEMUNCH_UPGRADE_REFRESH"
 
 
 @with_scoped_config
@@ -1654,9 +1658,10 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
-        print()
-        for line in _LICENCE_LINES:
-            print(line)
+        if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
+            print()
+            for line in _LICENCE_LINES:
+                print(line)
     print()
     return 0
 
