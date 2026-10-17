@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Added - `init` and `install` end with one licence line
+
+A real run of `jcodemunch-mcp init` or `jcodemunch-mcp install <agent>` now
+ends with two lines after "Done.": jCodeMunch at work needs a commercial
+licence, $79 one time (the Builder price README.md lists), with the
+licence page and the 30-day money-back guarantee's terms page
+(https://jcodemunch.com/guarantee.php, which states the 30 days). It is shown
+once per install: `upgrade` re-runs `init --hooks` and marks that run through
+its environment, so an upgrade prints no licence line. A dry run or demo
+prints nothing new.
+
+It is a print and nothing else: no network call, no file written, no setting.
+The owner approved it only as output a person reads, never in the agent's
+answers (2026-10-17), so `tests/test_init_licence_line.py` fails if the text
+reaches any tool description, the `instructions` string, the policy text or
+any file under `src/` other than `cli/init.py`.
+
+### Fixed - install-pack honours every savings opt-out
+
+After installing a starter pack, `install-pack` posts one event naming the
+pack, its version and your platform. It skipped that only when
+`JCODEMUNCH_SHARE_SAVINGS` was exactly `0`, so a user who opted out with
+`false`, `off` or `no`, or with `share_savings: false` in `config.jsonc`, still
+sent it, while the rest of jCodeMunch read them as opted out (ledger L-212).
+It now asks the same setting the savings counter reads, and sends only when
+both the old check and that setting allow it, so it can never send where it
+did not before. SECURITY.md now discloses the event, which it did not.
+
 ### Fixed - listing your indexes no longer writes into other files
 
 Every server start lists the indexes in the storage directory (to clean up
