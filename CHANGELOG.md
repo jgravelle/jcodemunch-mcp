@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.375] - 2026-10-17 - a typo can no longer switch off a protective setting
+
 ### Fixed - a typo can no longer switch off a protective setting
 
 Six settings are on by default and documented as switched off only by an

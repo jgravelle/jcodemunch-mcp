@@ -1,6 +1,12 @@
 {
-  "current": "1.108.374",
+  "current": "1.108.375",
   "entries": [
+    {
+      "version": "1.108.375",
+      "date": "2026-10-17",
+      "title": "a typo can no longer switch off a protective setting",
+      "summary": "Six settings that are on by default and documented as switched off only by an explicit false (the four skip rules, the trusted-folders allowlist and PII redaction of runtime traces) were turned off by a mistyped environment value. A typo now keeps them on, with a warning naming the variable; every other boolean, the savings opt-out included, reads exactly as before."
+    },
     {
       "version": "1.108.374",
       "date": "2026-10-16",
@@ -18,12 +24,6 @@
       "date": "2026-10-16",
       "title": "uninstall keeps your own section after the policy",
       "summary": "uninstall strips the Code Exploration Policy and nothing after it: a section of yours headed # or ### right after the policy used to go with it. The policy block now starts at a real heading, never a fenced example of one or a heading that only mentions it, and a byte-order mark no longer hides it. Installers no longer skip a file that only mentions the policy in a sentence."
-    },
-    {
-      "version": "1.108.371",
-      "date": "2026-10-16",
-      "title": "a schema's dead-code advice follows the right evidence",
-      "summary": "find_dead_code and check_delete_safe never certify a .xsd or .wsdl with no importer, and the advice they give depends on whether the repository looks like .NET. A Razor or Blazor tree now counts as .NET, and a bare .fs file no longer does, so a GLSL shader no longer makes a Maven repository read as .NET. Every schema stays capped either way; only the advice changes."
     }
   ]
 }
