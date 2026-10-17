@@ -2670,6 +2670,9 @@ class SQLiteIndexStore:
         on every server start (`cleanup_orphan_indexes`,
         `heal_pack_index_paths`).
         """
+        # ⚠ `_INDEX_VERSION` is bound lazily here, and `_connect` used to do
+        # it as a side effect; a fresh process listing first saw None.
+        _ensure_index_store_deps()
         if _pairs is None:
             _pairs = parse_path_map()
         slug = db_path.stem
