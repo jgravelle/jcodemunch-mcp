@@ -34,8 +34,10 @@ SECURITY.md describes the rule.
   direct fallback no longer crashes on a `.tsx` symbol.
 - Structured AST searches keep language metadata and indexed symbol-less files.
   Exact `re.compile` calls and literal timer callbacks are no longer reported
-  as dynamic-code execution, ellipsis-only exception handlers are recognized,
-  and test-path context no longer lowers the severity of a secret finding.
+  as dynamic-code execution, and ellipsis-only exception handlers are
+  recognized. A `hardcoded_secret` match in a test file now carries
+  `in_test_file: true`; its severity is unchanged. The `god_function` and
+  `eval_exec` preset descriptions now name only what those detectors check.
 - Project intelligence now uses the same linked-worktree boundary as indexing:
   files in old-form submodules are reported, while linked worktrees stay
   outside the parent inventory. A scoped query follows that same boundary.
@@ -51,6 +53,9 @@ SECURITY.md describes the rule.
   repository.
 - Signal-chain gateways reuse source-content and callee resolution instead of
   repeating that work for each gateway while retaining complete chains.
+- `get_signal_chains` with `include_flow_edges` kept `_meta.flow_edges` only in
+  the JSON response; the compact encoding dropped it, along with
+  `_meta.verdict`. Both now survive the compact encoding.
 
 ## [1.108.373] - 2026-10-16 - claude-md --refresh can write the policy your server uses
 
