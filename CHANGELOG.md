@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - the Windows watcher keeps running when the charger is unplugged
+
+On Windows, `watch-install` registered the `jcodemunch-watch` task with
+`schtasks /Create` switches. `schtasks` has no switch for Task Scheduler's
+battery rules or its time limit, so the defaults applied: the task did not
+start on battery, it was stopped when the machine went on battery, and it was
+ended after 72 hours. On a laptop the watcher died the first time the charger
+was unplugged and stayed dead until the next logon on mains, while
+`watch-status` still read `active: true`, because `active` means the task
+exists (ledger L-149, from a process audit of our own development laptop). The
+task is now registered from an XML definition that turns those three rules
+off and keeps everything the switch form set: a logon trigger, the limited
+run level, the running interpreter as the action, one instance at a time.
+`watch-status` on Windows now also reports `watcher_running`, the installed
+task's battery and time-limit `settings`, and a warning when the task exists
+but no watcher runs from it, or when it still carries the old defaults; an
+existing install is repaired by running `watch-install` again. The disclosure
+in SECURITY.md's "Background behavior, fully disclosed" states the new
+settings. The systemd and launchd installs were not checked.
+
 ### Fixed - listing your indexes no longer writes into other files
 
 Every server start lists the indexes in the storage directory (to clean up
