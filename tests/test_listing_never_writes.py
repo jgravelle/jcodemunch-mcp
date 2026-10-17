@@ -332,3 +332,23 @@ def test_schema_script_is_one_transaction(tmp_path, monkeypatch):
         store._connect(db)
 
     assert _tables(db) == []
+
+
+def test_runtime_signal_feeds_nothing_that_is_sent():
+    """L-144 edits `_runtime_signal_summary`; J's rule is no telemetry change
+    without his ruling. Its one reader is `get_session_stats`, a local read,
+    so the savings totals and every sent payload are untouched by it. A new
+    caller (a sender included) fails here and needs that ruling first."""
+    import ast
+
+    src = Path(sqlite_store.__file__).resolve().parents[1]
+    callers = []
+    for path in src.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Name) and node.id == "_runtime_signal_summary":
+                    callers.append((path.name, fn.name))
+    assert callers == [("token_tracker.py", "get_session_stats")], callers
