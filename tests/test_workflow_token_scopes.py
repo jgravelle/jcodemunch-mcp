@@ -7,17 +7,16 @@ workflow holding its token start ANY workflow, `release.yml` with
 `dry_run=false` included; the `pypi` environment has a wait timer and no
 required reviewer.
 
-1. `release.yml` runs only when jgravelle triggers it: the first step of the
-   first job refuses any other `github.triggering_actor`, and every job needs
-   that one.
-2. Every write ("app") token names its permissions, and only the competitive
-   feed's carries `actions: write`.
+1. `release.yml` runs only when jgravelle triggers it: the first step of EVERY
+   job refuses any other `github.triggering_actor`. The pre-flight alone is not
+   enough: "re-run failed jobs" skips the pre-flight's steps, and the re-run's
+   triggering actor is whoever pressed it.
+2. Every App token names only the permissions its job uses. Only one token
+   carries `actions: write`: the competitive feed's dispatch token, minted only
+   when there is a run to start and held by one step.
 
-⚠ The kill-switch ("switchtok") tokens cannot be scoped: `create-github-app-token`
-has no input for the variables permission they need (checked on v3.2.0 and
-the latest v3.3.0), so naming any permission would drop it. They inherit the
-App's full set, Actions write included once granted. The guard on them is the
-last test: their token reaches only the kill-switch script.
+The scope table below is the contract. A job that needs a new write changes
+the table here and its workflow in the same diff, so the widening is reviewed.
 """
 
 from __future__ import annotations
@@ -29,7 +28,23 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-APP_WRITES = {"permission-contents": "write", "permission-issues": "write", "permission-pull-requests": "write"}
+
+APP_SCOPES = {
+    ("competitive-feed.yml", "feed"): {"contents": "write"},
+    ("competitive-post.yml", "post"): {"contents": "write", "issues": "write"},
+    ("competitive-run.yml", "ledger"): {"contents": "write"},
+    ("inbound-bench-full.yml", "apply"): {"issues": "write", "pull-requests": "write"},
+    ("inbound-depeval.yml", "apply"): {"issues": "write", "pull-requests": "write"},
+    ("inbound-digest.yml", "apply"): {"issues": "write"},
+    ("inbound-fix-promote.yml", "promote"): {"issues": "write", "pull-requests": "write"},
+    ("inbound-fix.yml", "preflight"): {"issues": "write"},
+    ("inbound-fix.yml", "publish"): {"contents": "write", "issues": "write", "pull-requests": "write"},
+    ("inbound-sweep.yml", "sweep"): {"contents": "write", "issues": "write", "pull-requests": "write"},
+    ("inbound-triage.yml", "apply"): {"issues": "write"},
+}
+SWITCH_SCOPE = {"actions-variables": "read"}
+DISPATCH_SCOPE = {"actions": "write"}
+GUARD_NAME = "A release runs only when jgravelle triggers it"
 
 
 def _load(path: Path) -> dict:
@@ -45,44 +60,77 @@ def _token_steps():
                     yield wf.name, job_name, step, steps
 
 
-def test_there_are_app_tokens_to_check():
+def _perms(step) -> dict:
+    return {
+        k[len("permission-"):]: v
+        for k, v in (step.get("with") or {}).items()
+        if k.startswith("permission-")
+    }
+
+
+def _users(step_id: str, steps: list) -> list:
+    ref = f"steps.{step_id}.outputs.token"
+    return [s for s in steps if ref in yaml.safe_dump(s)]
+
+
+def test_there_are_tokens_to_check():
     """An empty walk would pass every test below vacuously."""
     ids = [s.get("id") for _, _, s, _ in _token_steps()]
-    assert ids.count("app") >= 10 and ids.count("switchtok") >= 10, ids
-
-
-def test_every_app_token_names_exactly_its_write_permissions():
-    for wf, job, step, _ in _token_steps():
-        if step.get("id") != "app":
-            continue
-        perms = {k: v for k, v in (step.get("with") or {}).items() if k.startswith("permission-")}
-        expected = dict(APP_WRITES)
-        if wf == "competitive-feed.yml":
-            expected["permission-actions"] = "write"
-        assert perms == expected, (wf, job, perms)
-
-
-def test_only_the_competitive_feed_token_may_start_a_run():
-    carriers = [
-        (wf, job) for wf, job, step, _ in _token_steps()
-        if "permission-actions" in (step.get("with") or {})
-    ]
-    assert carriers == [("competitive-feed.yml", "feed")], carriers
+    assert ids.count("app") == len(APP_SCOPES), ids
+    assert ids.count("switchtok") >= 10 and ids.count("dispatch") == 1, ids
 
 
 def test_every_token_step_is_a_known_kind():
-    """A new token step must be one of the two kinds, or this file must learn a third on purpose."""
+    """A new token step must be one of the three kinds, or this file must learn a fourth on purpose."""
     for wf, job, step, _ in _token_steps():
-        assert step.get("id") in {"app", "switchtok"}, (wf, job, step.get("id"))
+        assert step.get("id") in {"app", "switchtok", "dispatch"}, (wf, job, step.get("id"))
+
+
+def test_every_app_token_names_exactly_the_writes_its_job_makes():
+    found = {}
+    for wf, job, step, _ in _token_steps():
+        if step.get("id") == "app":
+            found[(wf, job)] = _perms(step)
+    assert found == APP_SCOPES
+
+
+def test_every_switch_token_reads_variables_and_nothing_else():
+    for wf, job, step, _ in _token_steps():
+        if step.get("id") == "switchtok":
+            assert _perms(step) == SWITCH_SCOPE, (wf, job)
+
+
+def test_a_token_that_names_no_permission_does_not_exist():
+    """A step with no permission-* input inherits everything the App holds, Actions write included."""
+    for wf, job, step, _ in _token_steps():
+        assert _perms(step), (wf, job, step.get("id"))
+
+
+def test_only_the_feed_dispatch_token_may_start_a_run():
+    carriers = [
+        (wf, job, step.get("id")) for wf, job, step, _ in _token_steps()
+        if "actions" in _perms(step)
+    ]
+    assert carriers == [("competitive-feed.yml", "feed", "dispatch")], carriers
+
+
+def test_the_dispatch_token_is_minted_only_for_a_run_and_held_by_one_step():
+    (step, steps), = [(s, st) for wf, _, s, st in _token_steps() if s.get("id") == "dispatch"]
+    assert _perms(step) == DISPATCH_SCOPE
+    assert "steps.reason.outputs.reason != ''" in str(step.get("if", ""))
+    users = _users("dispatch", steps)
+    assert len(users) == 1, [u.get("name") for u in users]
+    run = str(users[0].get("run", ""))
+    assert "gh workflow run competitive-run.yml" in run
+    assert run.count("gh ") == 1, "the dispatch token runs one gh command"
+    assert "checkout" not in str(users[0].get("uses", "")), "it must never be persisted into git config"
 
 
 def test_a_kill_switch_token_reaches_only_the_kill_switch_script():
-    """It cannot be scoped, so the guard is where its token goes."""
     for wf, job, step, steps in _token_steps():
         if step.get("id") != "switchtok":
             continue
-        ref = "steps.switchtok.outputs.token"
-        users = [s for s in steps if ref in yaml.safe_dump(s)]
+        users = _users("switchtok", steps)
         assert users, (wf, job, "switchtok is never used")
         for user in users:
             run = str(user.get("run", ""))
@@ -95,16 +143,22 @@ def release():
     return _load(ROOT / ".github" / "workflows" / "release.yml")
 
 
-def test_the_release_refuses_any_actor_but_jgravelle_first(release):
-    first = release["jobs"]["preflight"]["steps"][0]
-    assert first.get("env", {}).get("ACTOR") == "${{ github.triggering_actor }}"
-    run = first["run"]
-    assert '"$ACTOR" != "jgravelle"' in run and "exit 1" in run
-    assert "${{" not in run, "the actor must reach the script through env, never interpolated"
-    assert "if" not in first, "the guard must run on every trigger, dispatch and tag push alike"
+def test_every_release_job_refuses_any_actor_but_jgravelle_first(release):
+    jobs = release["jobs"]
+    assert len(jobs) >= 9, list(jobs)
+    for name, job in jobs.items():
+        first = job["steps"][0]
+        assert first.get("name") == GUARD_NAME, name
+        assert first.get("env") == {"ACTOR": "${{ github.triggering_actor }}"}, name
+        run = first["run"]
+        assert '"$ACTOR" != "jgravelle"' in run and "exit 1" in run, name
+        assert "${{" not in run, (name, "the actor must reach the script through env, never interpolated")
+        assert "if" not in first, (name, "the guard must run on every trigger, re-runs included")
+        assert "continue-on-error" not in first, name
+        assert "|| true" not in run and "set +e" not in run, name
 
 
-def test_every_release_job_waits_for_the_guard(release):
+def test_every_release_job_waits_for_the_preflight(release):
     for name, job in release["jobs"].items():
         if name == "preflight":
             continue
