@@ -14,7 +14,7 @@ sharing savings, what your seat adds to the shared savings counter from now
 on. Lifetime totals already recorded are not rewritten.
 
 Both savings models credited a text search for work an agent would not have
-done (ledger L-180, from a Marketing question about one day's receipt). The
+done (ledger L-180). The
 `receipt` CLI credited `search_text` 11 times the size of each answer
 (multiplier 12) and `check_references` 14 times (multiplier 15), citing a
 symbol-retrieval benchmark that never measured a text search, so a larger
