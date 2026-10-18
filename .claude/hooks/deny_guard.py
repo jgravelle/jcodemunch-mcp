@@ -75,14 +75,20 @@ DENIED = [
         # Bounded to ONE command (`[^|;&]*`, as the push rules are), so a `-f` in a
         # piped `grep -F` or a chained `rm -f` is not read as a field; an explicit
         # GET is a read. Short flags may be clustered (`-iXPUT`, `-if`).
-        # A named write method always counts, even beside a GET (`-X GET --method
-        # POST`); only the field-flag arm is waived by an explicit GET.
-        r"\bgh\s+api\b(?:(?=[^|;&]*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-[A-Za-z]*X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)))"
-        r"|(?![^|;&]*(?:--method[=\s]+['\"]?GET\b|\s-[A-Za-z]*X[=\s]*['\"]?GET\b))"
-        r"(?=[^|;&]*\s(?:-[A-Za-z]*[fF]|--field|--raw-field|--input)(?=[\s=]|\S)))"
-        r"[^|;&]*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/"
-        r"|--method[=\s]+['\"]?DELETE|\s-[A-Za-z]*X[=\s]*['\"]?DELETE)",
+        # A NAMED write method reads the whole line, as on main (a quoted `&` or `;`
+        # in a merge title must not end the window; review round 3, 2026-10-18).
+        r"\bgh\s+api\b(?=.*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-[A-Za-z]*X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)))"
+        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method[=\s]+['\"]?DELETE|\s-[A-Za-z]*X[=\s]*['\"]?DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
+    ),
+    (
+        # An IMPLICIT write: `gh api` sends POST whenever a field flag is given, so
+        # `-f ref=main` on .../dispatches needs no method. Read within ONE command
+        # (a piped `grep -F` or a chained `rm -f` is not a field), waived by an
+        # explicit GET, and not for graphql, whose mutations the rule below owns.
+        r"\bgh\s+api\b(?![^|;&]*\bgraphql\b)(?![^|;&]*(?:--method[=\s]+['\"]?GET\b|\s-[A-Za-z]*X[=\s]*['\"]?GET\b))"
+        r"(?=[^|;&]*\s(?:-[A-Za-z]*[fF]|--field|--raw-field|--input)(?=[\s=]|\S))[^|;&]*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/)",
+        "an implicit write through the API (a field flag on a merge, release, dispatch or tag path); the human runs it",
     ),
     (
         # W-41: the rule above is gated on --method/-X, and a GraphQL mutation

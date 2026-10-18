@@ -43,6 +43,12 @@ def _refused(cmd: str) -> bool:
         "gh api -iXPUT repos/x/y/pulls/5/merge",
         "gh api --method 'PUT' repos/x/y/pulls/5/merge",
         "gh api -X \"PUT\" repos/x/y/pulls/5/merge",
+        # main refused these; a bounded window let a quoted & ; | end it (review round 3)
+        "gh api -X PUT -f commit_title='Fix A & B (#12)' repos/o/r/pulls/5/merge",
+        "gh api -X PUT -f commit_title='Fix A; B' repos/o/r/pulls/5/merge",
+        "gh api --method PUT -f commit_message='a | b' repos/o/r/pulls/5/merge",
+        "gh api --jq '.sha | tostring' -X PUT repos/o/r/pulls/5/merge",
+        "gh api -H 'Accept: application/vnd.github+json; q=1' -X PUT repos/o/r/pulls/5/merge",
     ],
 )
 def test_every_spelling_of_an_api_merge_or_delete_is_refused(cmd):
@@ -86,7 +92,8 @@ def test_an_implicit_post_through_a_field_flag_is_refused(cmd):
             "gh api repos/x/y/issues/5/comments -f body=thanks", "gh api -X=GET repos/x/y",
             "gh api repos/o/r/releases | grep -F v1", "gh api repos/o/r/releases/latest > x.json; rm -f x.json",
             "gh api repos/o/r/releases -X GET -f per_page=100", "gh api --method GET repos/o/r/releases -f per_page=5",
-            "gh api graphql -f query='query { viewer { login } }' | grep -F --input"],
+            "gh api graphql -f query='query { viewer { login } }' | grep -F --input",
+            "gh api graphql -f query='query { repository(owner:\"o\", name:\"r\") { refs(refPrefix:\"refs/tags/\", first:5) { nodes { name } } } }'"],
 )
 def test_reads_and_posting_still_pass(cmd):
     """Posting and reads are the session's (W-40); the new rules refuse acts, not words."""
