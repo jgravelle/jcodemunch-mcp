@@ -73,6 +73,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): killswitch.py reads repository variables, nothing else.
+          permission-actions-variables: read
       - name: kill switch, budget, and the fix pre-flight (POLICY section 2, bug row)
         id: pre
         env:
@@ -104,6 +106,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-issues: write
       - name: mark in progress (removed by the publish job's always() step)
         if: steps.pre.outputs.go == 'true'
         env:
@@ -248,6 +252,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): killswitch.py reads repository variables, nothing else.
+          permission-actions-variables: read
       - name: "re-read the kill switch before the first write (the App token; the only token that can read a variable)"
         env:
           SWITCH_TOKEN: ${{ steps.switchtok.outputs.token }}
@@ -260,6 +266,10 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: push the branch and open the draft (the ruleset confines the App to inbound/**)
         if: steps.gate.outputs.ok == 'true'

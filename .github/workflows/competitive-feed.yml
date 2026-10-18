@@ -54,6 +54,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): killswitch.py reads repository variables, nothing else.
+          permission-actions-variables: read
       - name: kill switch and budget
         id: gate
         env:
@@ -66,13 +68,15 @@ jobs:
           set -e
           if [ "$k" != "0" ] || [ "$b" != "0" ]; then echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
 
-      - name: App token (DESIGN D2; the ledger checkout only, so the feed can read what earlier feeds dispatched)
+      - name: App token (DESIGN D2; the ledger checkout and push only, so the feed can read what earlier feeds dispatched)
         if: steps.gate.outputs.go == 'true'
         id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
       - name: check out the ledger branch beside the tree
         if: steps.gate.outputs.go == 'true'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -117,13 +121,37 @@ jobs:
           git diff --cached --quiet || git commit -q -m "competitive feed: $(date -u +%Y-%m-%d)"
           git push origin HEAD:inbound-ledger
           echo "done=true" >> "$GITHUB_OUTPUT"
-      - name: schedule a re-run when a release names a measured axis (one dispatch at most; the reason names the release)
+      - name: the re-run a release names, if any (one at most; the reason names the release)
+        if: steps.gate.outputs.go == 'true'
+        id: reason
+        run: |
+          REASON=$(python -c "import json,sys; r=json.load(open(sys.argv[1])); print(r[0]['reason'] if r else '')" "$RUNNER_TEMP/feed/rerun.json")
+          # feed.py builds it as release:<tool>@<version>; anything else is refused, so a
+          # registry value can never add a second output line.
+          PATTERN='^release:[A-Za-z0-9._-]+@[A-Za-z0-9.+_-]+$'
+          if [ -n "$REASON" ] && ! [[ "$REASON" =~ $PATTERN ]]; then
+            echo "::error title=feed refused::unexpected re-run reason"
+            exit 1
+          fi
+          printf 'reason=%s\n' "$REASON" >> "$GITHUB_OUTPUT"
+      # The one token in this repository that may start a run (jjg, DECISIONS
+      # 2026-10-18). Minted only when there is a run to start, held by the next
+      # step alone and never written to git config, unlike the ledger token above.
+      - name: dispatch token (actions write; competitive-run.yml only)
+        if: steps.gate.outputs.go == 'true' && steps.reason.outputs.reason != ''
+        id: dispatch
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.INBOUND_APP_ID }}
+          private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          permission-actions: write
+      - name: schedule a re-run when a release names a measured axis
         if: steps.gate.outputs.go == 'true'
         id: rerun
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ steps.dispatch.outputs.token }}
+          REASON: ${{ steps.reason.outputs.reason }}
         run: |
-          REASON=$(python -c "import json,sys; r=json.load(open(sys.argv[1])); print(r[0]['reason'] if r else '')" "$RUNNER_TEMP/feed/rerun.json")
           if [ -n "$REASON" ]; then
             gh workflow run competitive-run.yml -R "$REPO" -f "reason=$REASON"
             echo "dispatched=$REASON" >> "$GITHUB_OUTPUT"

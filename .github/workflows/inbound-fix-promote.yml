@@ -56,6 +56,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): killswitch.py reads repository variables, nothing else.
+          permission-actions-variables: read
       - name: kill switch
         id: kill
         env:
@@ -125,6 +127,9 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: promote or hold
         if: steps.kill.outputs.go == 'true' && steps.inputs.outputs.pr != ''

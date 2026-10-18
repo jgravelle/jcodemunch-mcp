@@ -27,7 +27,8 @@ to whoever owns that login.
    bump and a bump without its heading.
 2. Merge it when every required check is green (branch protection will not
    let you otherwise).
-3. Dispatch, from the Actions tab or:
+3. Dispatch, from the Actions tab or (only jgravelle may start or re-run a
+   release: every job's first step refuses any other triggering actor, C-26):
 
    ```
    gh workflow run release.yml -R jgravelle/jcodemunch-mcp -f version=X.Y.Z -f dry_run=false
@@ -371,8 +372,10 @@ names the step. A security item is named by number only, everywhere.
 
 **Before the first run (once).** FINDINGS IN-3, IN-4, IN-6, IN-8: create
 the App `jcodemunch-inbound` (repository permissions: Contents, Issues,
-Pull requests read and write; Variables read; Metadata read; no webhook;
-installed on this repository only), store `INBOUND_APP_ID`,
+Pull requests read and write; Variables read; Metadata read; Actions read
+and write, to be granted only once C-26's safeguards are on `main`; no
+webhook; installed on this repository only; each workflow's token asks for
+a subset, and only the competitive feed's dispatch token asks for Actions), store `INBOUND_APP_ID`,
 `INBOUND_APP_PRIVATE_KEY` and `ANTHROPIC_API_KEY` as repository secrets,
 read the App's user id (`gh api "users/jcodemunch-inbound[bot]" --jq .id`)
 and check it against the `user.email` literal the five App-pushing
@@ -464,7 +467,12 @@ that question gets the same answer.
 **Weekly feed.** Sundays 04:00 UTC (`competitive-feed.yml`) reads each set
 member's latest release through registries on a read-only token, drafts a
 `competitive-idea` when a title carries a capability word, and dispatches
-one re-run when a release names a measured axis. It reads the ledger first
+one re-run when a release names a measured axis, with a token that holds
+Actions write and nothing else (C-26). Until the App holds Actions write,
+that dispatch fails with HTTP 403 (ledger L-217). The feed record is pushed
+to the ledger before the dispatch, so a release whose dispatch failed, or
+whose reason the feed refused, is already marked as re-run; start
+`competitive-run.yml` by hand for it. It reads the ledger first
 so one release is re-run once.
 
 **Something looks wrong.** Flip `INBOUND_ENABLED` off: each job re-reads

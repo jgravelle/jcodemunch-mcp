@@ -220,8 +220,14 @@ def test_feed_dispatches_at_most_one_rerun_and_only_with_the_app_token():
     steps = [s for _, r, s in _runs(doc["jobs"]["feed"]) if "gh workflow run" in r]
     assert len(steps) == 1
     s = steps[0]
-    assert s["env"]["GH_TOKEN"] == "${{ steps.app.outputs.token }}"
-    assert "competitive-run.yml" in s["run"] and "r[0]" in s["run"]
+    # An App token minted in this job (C-26: its own dispatch-only token), never GITHUB_TOKEN.
+    assert s["env"]["GH_TOKEN"] == "${{ steps.dispatch.outputs.token }}"
+    minted = [t for t in doc["jobs"]["feed"]["steps"] if t.get("id") == "dispatch"]
+    assert len(minted) == 1 and "create-github-app-token" in minted[0]["uses"]
+    # One re-run at most: the reason is the first entry of rerun.json, read by the step before.
+    reason = [t for t in doc["jobs"]["feed"]["steps"] if t.get("id") == "reason"]
+    assert len(reason) == 1 and "r[0]" in reason[0]["run"]
+    assert "competitive-run.yml" in s["run"] and s["env"]["REASON"] == "${{ steps.reason.outputs.reason }}"
 
 
 # --- feed.py -----------------------------------------------------------

@@ -52,6 +52,8 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): killswitch.py reads repository variables, nothing else.
+          permission-actions-variables: read
       - name: both switches and the budget (INBOUND_ENABLED, then COMPETITIVE_POST_ENABLED by the same reader)
         id: gate
         env:
@@ -72,6 +74,9 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
+          permission-issues: write
       - name: check out the ledger branch beside the tree
         if: steps.gate.outputs.go == 'true'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
