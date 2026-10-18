@@ -45,7 +45,11 @@
       "PowerShell(gh repo delete*)",
       "PowerShell(*twine upload*)",
       "PowerShell(*mcp-publisher* publish*)",
-      "PowerShell(*mcp-publisher* login*)"
+      "PowerShell(*mcp-publisher* login*)",
+      "Bash(gh alias set*)",
+      "PowerShell(gh alias set*)",
+      "Bash(gh alias import*)",
+      "PowerShell(gh alias import*)"
     ],
     "allow": [
       "Bash(uv run python -m harness*)",
