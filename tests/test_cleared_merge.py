@@ -115,3 +115,80 @@ def test_the_api_and_graphql_merges_are_still_refused_unconditionally():
     patterns = [p for p, _ in deny_guard.DENIED]
     assert any("/pulls/" in p and "merge" in p for p in patterns)
     assert any("mergePullRequest" in p for p in patterns)
+
+
+# --- the second allowed merge: auto-merge on a main.yml harness-results PR (jjg 2026-10-17) ---
+
+
+def _results_pr(**over) -> dict:
+    pr = {
+        "author": {"login": "app/github-actions", "is_bot": True},
+        "headRefName": "harness-bot/results-2026-10-19",
+        "files": [{"path": "harness/results/latest.json"}, {"path": "harness/results/self_latency.json"}],
+    }
+    pr.update(over)
+    return pr
+
+
+def _results_refusal(cmd, pr):
+    return deny_guard.results_auto_merge_refusal(cmd, gh=lambda n: pr)
+
+
+def test_auto_merge_may_be_enabled_on_a_results_pr():
+    assert _results_refusal(f"{_VERB} 1030 --squash --auto", _results_pr()) is None
+
+
+def test_auto_merge_with_the_token_prefix_may_be_enabled():
+    assert _results_refusal(f'GITHUB_TOKEN="" {_VERB} 1030 --squash --auto', _results_pr()) is None
+
+
+@pytest.mark.parametrize("login", ["jgravelle", "lilubot", "app/dependabot", "github-actions", ""])
+def test_a_results_auto_merge_from_any_other_author_refuses(login):
+    assert "not a main.yml results PR" in _results_refusal(f"{_VERB} 1030 --squash --auto", _results_pr(author={"login": login}))
+
+
+@pytest.mark.parametrize("branch", ["harness-bot/results-latest", "feat/results-2026-10-19", "harness-bot/results-2026-10-19-x", "", None])
+def test_a_results_auto_merge_on_another_branch_refuses(branch):
+    assert "is not harness-bot/results-<date>" in _results_refusal(f"{_VERB} 1030 --squash --auto", _results_pr(headRefName=branch))
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["harness/thresholds.json", "harness/results/sub/x.json", "harness/results/latest.txt", "src/jcodemunch_mcp/server.py",
+     ".github/workflows/main.yml", ".claude/hooks/deny_guard.py", "tests/test_x.py", "CHANGELOG.md"],
+)
+def test_a_results_auto_merge_touching_anything_else_refuses(path):
+    files = _results_pr()["files"] + [{"path": path}]
+    assert "changes more than harness/results/*.json" in _results_refusal(f"{_VERB} 1030 --squash --auto", _results_pr(files=files))
+
+
+def test_a_results_auto_merge_with_no_files_refuses():
+    assert "changes more than" in _results_refusal(f"{_VERB} 1030 --squash --auto", _results_pr(files=[]))
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [f"{_VERB} 1030 --auto", f"{_VERB} 1030 --squash --auto --admin", f"{_VERB} 1030 --merge --auto",
+     f"{_VERB} 1030 --squash --auto && echo x", f"{_VERB} 1030 --auto --squash"],
+)
+def test_any_other_auto_form_refuses(cmd):
+    assert deny_guard.merge_refusal(cmd) is not None
+
+
+def test_a_plain_squash_of_a_results_pr_is_not_the_auto_case():
+    """Without `--auto` the line is a cleared-merge attempt, which needs our authorship and a clearance record."""
+    refusal = deny_guard.cleared_merge_refusal(f"{_VERB} 1030 --squash", gh=lambda n: _results_pr())
+    assert refusal is not None
+
+
+def test_the_dispatcher_routes_the_auto_form_to_the_results_rule(monkeypatch):
+    seen = []
+    monkeypatch.setattr(deny_guard, "results_auto_merge_refusal", lambda cmd, gh=None: seen.append(cmd) or None)
+    assert deny_guard.merge_refusal(f"{_VERB} 1030 --squash --auto") is None and seen
+
+
+def test_an_unreadable_results_pr_refuses():
+    def boom(n):
+        raise RuntimeError("gh failed")
+
+    assert "could not read" in deny_guard.results_auto_merge_refusal(f"{_VERB} 1030 --squash --auto", gh=boom)

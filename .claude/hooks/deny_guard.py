@@ -4,8 +4,11 @@ purpose:  nothing in a session does the IRREVERSIBLE: publish, tag, dispatch a
           release, merge, force-push; the refusal names the RUNBOOK section
           the human runs instead. Posting (a PR, a comment, a review, an
           edit, an alert dismissal) is the session's: every one of those can
-          be undone from the page (W-40, jjg 2026-09-07)
-invokes:  nothing
+          be undone from the page (W-40, jjg 2026-09-07). Two merges pass
+          their checks (jjg 2026-10-17): a Chief-of-Staff-cleared test- or
+          doc-only PR of ours, and enabling auto-merge on a main.yml
+          harness-results PR that touches only harness/results/*.json
+invokes:  gh pr view (read only), for those two merges
 produces: nothing
 refuses:  the verbs below, on Bash and PowerShell
 budget:   1 s
@@ -80,7 +83,58 @@ def cleared_merge_refusal(cmd: str, gh=_gh_pr) -> str | None:
         return f"PR #{number} changes more than tests and docs ({', '.join(other[:5]) or 'no files listed'})"
     return None
 
-#: The one verb with a conditional pass, `cleared_merge_refusal` (jjg 2026-10-17).
+#: jjg (2026-10-17 DECISIONS line 80; in session the same day): "Weekly
+#: harness-results PRs from main.yml may auto-merge when every check is green."
+#: The session may ENABLE GitHub's auto-merge on such a PR; GitHub then merges it
+#: only when every required check, the agreement check included, is green. ⚠⚠
+#: Only `gh pr merge <n> --squash --auto`, alone on the line, and only for a PR
+#: authored by github-actions on a `harness-bot/results-YYYY-MM-DD` branch whose
+#: every changed file is `harness/results/*.json`; anything else is refused.
+_RESULTS_AUTO_RE = re.compile(r"^\s*(?:GITHUB_TOKEN=(?:\"\"|'')?\s+)?gh\s+pr\s+merge\s+(\d+)\s+--squash\s+--auto\s*$")
+_RESULTS_AUTHOR = "app/github-actions"
+_RESULTS_BRANCH_RE = re.compile(r"^harness-bot/results-\d{4}-\d{2}-\d{2}$")
+_RESULTS_FILE_RE = re.compile(r"^harness/results/[^/]+\.json$")
+
+
+def _gh_results_pr(number: str) -> dict:
+    env = dict(os.environ, GITHUB_TOKEN="")
+    out = subprocess.run(
+        ["gh", "pr", "view", number, "--json", "author,files,headRefName"],
+        capture_output=True, text=True, encoding="utf-8", timeout=30, env=env, cwd=str(_common.REPO),
+    )
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or "gh pr view failed")
+    return json.loads(out.stdout)
+
+
+def results_auto_merge_refusal(cmd: str, gh=_gh_results_pr) -> str | None:
+    """None when this line enables auto-merge on a harness-results PR from main.yml; else why not."""
+    m = _RESULTS_AUTO_RE.match(cmd)
+    if not m:
+        return "only `gh pr merge <n> --squash --auto`, alone on the line, can enable a results auto-merge"
+    number = m.group(1)
+    try:
+        pr = gh(number)
+    except Exception as exc:  # noqa: BLE001 - any failure to read the PR refuses
+        return f"could not read PR #{number} ({exc})"
+    if (pr.get("author") or {}).get("login") != _RESULTS_AUTHOR:
+        return f"PR #{number} is not a main.yml results PR (author {(pr.get('author') or {}).get('login')})"
+    if not _RESULTS_BRANCH_RE.match(pr.get("headRefName") or ""):
+        return f"PR #{number}'s branch {pr.get('headRefName')!r} is not harness-bot/results-<date>"
+    other = [f["path"] for f in pr.get("files") or [] if not _RESULTS_FILE_RE.match(f.get("path", ""))]
+    if other or not pr.get("files"):
+        return f"PR #{number} changes more than harness/results/*.json ({', '.join(other[:5]) or 'no files listed'})"
+    return None
+
+
+def merge_refusal(cmd: str) -> str | None:
+    """None when the line is one of the two allowed merges; else why not."""
+    if _RESULTS_AUTO_RE.match(cmd):
+        return results_auto_merge_refusal(cmd)
+    return cleared_merge_refusal(cmd)
+
+
+#: The one verb with a conditional pass, `merge_refusal` (jjg 2026-10-17).
 _PR_MERGE_PATTERN = r"\bgh\s+pr\s+merge\b"
 
 DENIED = [
@@ -174,7 +228,7 @@ def main() -> None:
     for pattern, why in DENIED:
         if re.search(pattern, cmd, re.I):
             if pattern == _PR_MERGE_PATTERN:
-                refusal = cleared_merge_refusal(cmd)
+                refusal = merge_refusal(cmd)
                 if refusal is None:
                     continue
                 why = f"{why} ({refusal})"
