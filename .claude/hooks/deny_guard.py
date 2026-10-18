@@ -72,10 +72,16 @@ DENIED = [
         # quoted) OR any field flag, because `gh api` sends POST whenever a field is
         # given (`gh api --help`): `-f ref=main` on .../dispatches is a dispatch with
         # no method named (review of W-57, 2026-10-18).
-        r"\bgh\s+api\b(?=.*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)"
-        r"|\s(?:-f|-F|--field|--raw-field|--input)(?=[\s=]|\S)))"
-        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/"
-        r"|--method[=\s]+['\"]?DELETE|\s-X[=\s]*['\"]?DELETE)",
+        # Bounded to ONE command (`[^|;&]*`, as the push rules are), so a `-f` in a
+        # piped `grep -F` or a chained `rm -f` is not read as a field; an explicit
+        # GET is a read. Short flags may be clustered (`-iXPUT`, `-if`).
+        # A named write method always counts, even beside a GET (`-X GET --method
+        # POST`); only the field-flag arm is waived by an explicit GET.
+        r"\bgh\s+api\b(?:(?=[^|;&]*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-[A-Za-z]*X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)))"
+        r"|(?![^|;&]*(?:--method[=\s]+['\"]?GET\b|\s-[A-Za-z]*X[=\s]*['\"]?GET\b))"
+        r"(?=[^|;&]*\s(?:-[A-Za-z]*[fF]|--field|--raw-field|--input)(?=[\s=]|\S)))"
+        r"[^|;&]*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/"
+        r"|--method[=\s]+['\"]?DELETE|\s-[A-Za-z]*X[=\s]*['\"]?DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
     ),
     (
@@ -93,7 +99,7 @@ DENIED = [
     (
         # A GraphQL query read from a file carries no mutation text for the rule
         # above to read; the human runs those (2026-10-17).
-        r"\bgh\s+api\b(?=.*\bgraphql\b).*(?:query=@|--input\b)",
+        r"\bgh\s+api\b(?=[^|;&]*\bgraphql\b)[^|;&]*(?:query=@|--input\b)",
         "a GraphQL query read from a file, which no rule here can read; the human runs it",
     ),
     (
