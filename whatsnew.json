@@ -1,6 +1,12 @@
 {
-  "current": "1.108.376",
+  "current": "1.108.377",
   "entries": [
+    {
+      "version": "1.108.377",
+      "date": "2026-10-18",
+      "title": "a text search earns no savings credit",
+      "summary": "Your receipt and live savings meter now read lower: search_text and check_references earn no savings credit in either model, because their answer is the matching lines, which Grep returns too, and no measurement supports a credit. The receipt's total is renamed Modeled gross savings. Also: index_file excludes what the full index excludes, listing indexes never writes to other files, the Windows watcher keeps running on battery, and an opted-in git blame no longer goes missing on a busy machine."
+    },
     {
       "version": "1.108.376",
       "date": "2026-10-17",
@@ -18,12 +24,6 @@
       "date": "2026-10-16",
       "title": "a Python virtualenv is skipped whatever its folder is called",
       "summary": "index_folder skipped a virtualenv only when its folder was named venv or .venv, so a venv called env or jcm-venv was walked file by file and its site-packages competed with your own code. It now prunes a venv's site-packages under any folder whose pyvenv.cfg has a home key, and nothing else in the venv. Also from lilubot (#1117): dead_code_pct counts every candidate past 100, live React components and lifecycle methods are not offered for deletion, and old-form submodules appear in project intelligence."
-    },
-    {
-      "version": "1.108.373",
-      "date": "2026-10-16",
-      "title": "claude-md --refresh can write the policy your server uses",
-      "summary": "The server picks the agent policy from the MCP client's environment and claude-md --refresh from your shell's, so a setting set only for the client made them disagree with no explanation. The command now says so, and --match-server writes this version's policy for the settings the server recorded. The record holds settings, never text."
     }
   ]
 }

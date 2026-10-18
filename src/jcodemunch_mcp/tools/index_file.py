@@ -8,12 +8,20 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .. import config as _config
-from ..parser import LANGUAGE_EXTENSIONS, get_language_for_path
+from ..parser import get_language_for_path
 from ..parser.context import discover_providers, collect_metadata
-from ..security import validate_path, is_secret_file
+from ..parser.context.framework_profiles import detect_framework
+from ..security import validate_path
 from ..storage import IndexStore
 from ..storage.index_store import _file_hash, _get_git_head, _get_git_branch
 from ._indexing_pipeline import parse_and_prepare_incremental
+from .index_folder import (
+    _framework_ignore_patterns,
+    _gitignore_specs_on_path,
+    _scan_package_json_forced_paths,
+    _should_index_file,
+    _walk_filter_config,
+)
 from .resolve_repo import _independent_repo_between
 
 logger = logging.getLogger(__name__)
@@ -140,6 +148,125 @@ def _head_may_advance(
     return True
 
 
+# The setting that re-admits each kind of exclusion, for the walk and for this
+# route alike. A reason absent here has none, and the refusal says so (L-142).
+_OVERRIDE = {
+    "skip_dir": '`exclude_skip_directories: ["<directory name>"]`',
+    "generated_migrations": '`exclude_skip_directories: ["migrations"]`',
+    "cache_dir": "`respect_cachedir_tag: false`",
+    "msbuild_output": "`skip_msbuild_output: false`",
+    "nuget_packages": "`skip_nuget_packages: false`",
+    "virtualenv": "`skip_virtualenvs: false`",
+    "extra_ignore": (
+        "`extra_ignore_patterns` without the matching entry (a framework "
+        "profile's pattern has no setting)"
+    ),
+    "too_large": "a larger `max_file_size`",
+    "secret": "`exclude_secret_patterns` with a glob that matches the file",
+}
+
+
+_REFUSAL_TEXT = {
+    "skip_file": "its file name is on the skip list (lockfiles, compiled files)",
+    "skip_dir": "it is under a skipped directory (dependencies, build output, caches)",
+    "nested_worktree": "it is inside a nested git worktree, which is indexed on its own",
+    "cache_dir": "it is under a directory tagged as a cache by CACHEDIR.TAG",
+    "msbuild_output": "it is MSBuild output beside a .NET project file",
+    "nuget_packages": "it is under a NuGet packages restore directory",
+    "virtualenv": "it is under a Python virtualenv's site-packages",
+    "generated_migrations": "it is under a generated migrations directory",
+    "gitignore": "it is matched by a .gitignore",
+    "extra_ignore": "it is matched by extra_ignore_patterns",
+    "too_large": "it is over the max_file_size cap",
+    "binary": "it is a binary file",
+    "path_traversal": "it resolves outside the indexed folder",
+}
+
+
+def _walk_root_for(index, source_root: Path, rel_path: str) -> Path:
+    """The root the full walk that covers ``rel_path`` starts from.
+
+    A git-root index built by `index_folder(<repo>/sub)` walks only ``sub``
+    (v1.96) and records it in ``source_roots``; that walk reads `.gitignore`
+    files and project config from ``sub`` down, never from the git root. The
+    longest recorded prefix holding the file is its walk; a file under none of
+    them (or an index that predates ``source_roots``) is judged as a full walk
+    from ``source_root`` would judge it.
+    """
+    best = ""
+    for prefix in getattr(index, "source_roots", None) or ():
+        if prefix and (rel_path == prefix or rel_path.startswith(prefix + "/")):
+            if len(prefix) > len(best):
+                best = prefix
+    return (source_root / best).resolve() if best else source_root
+
+
+def _walk_refusal(
+    file_path: Path, source_root: Path, walk_root: Path, rel_path: str,
+) -> Optional[dict]:
+    """The refusal for a file the full walk would not index, or None.
+
+    ⚠⚠ L-142: this used to apply ONE rule of the walk's filter (`is_secret_file`),
+    so a file under `node_modules/`, `.next/`, a `CACHEDIR.TAG` directory or a
+    gitignored path answered `success: True` and the next full walk deleted it.
+    Every input now comes from the walk's own assembly in `index_folder`:
+    `_walk_filter_config` (size cap, ignore patterns, skip switches, skip-dir
+    regex), `_framework_ignore_patterns` (merged into the walk's ignore
+    patterns), `_gitignore_specs_on_path`, and the predicate `_should_index_file`.
+    Never copy a rule or an input into this function.
+
+    ⚠ ``file_path`` is already resolved, so the symlink rule never fires (the
+    folder's `follow_symlinks` is not stored); and a per-call `index_folder`
+    `extra_ignore_patterns` / `max_size` is not stored either, so the configured
+    values apply.
+    """
+    cfg = _walk_filter_config(
+        walk_root,
+        extra_ignore_patterns=(
+            _framework_ignore_patterns(detect_framework(source_root)) or None
+        ),
+        per_file=True,
+    )
+    # The walk exempts package.json entry points from the size cap (#25). Scan
+    # only when the exemption could change the answer, as the watcher does.
+    try:
+        if file_path.stat().st_size > cfg.max_size:
+            cfg.forced_paths = _scan_package_json_forced_paths(walk_root)
+    except OSError:
+        pass
+    ok, reason, _rel, _warning = _should_index_file(
+        file_path, cfg, _gitignore_specs_on_path(walk_root, file_path)
+    )
+    if ok:
+        return None
+    if reason == "secret":
+        error = f"Skipped secret/credential file: {rel_path}."
+    elif reason == "wrong_extension":
+        error = (
+            f"Unsupported file type: {file_path.suffix}. "
+            "File not recognized as a supported language."
+        )
+    elif reason == "unreadable":
+        error = f"Failed to read file: {rel_path}."
+    else:
+        why = _REFUSAL_TEXT.get(reason, f"the discovery filter refused it ({reason})")
+        error = f"Skipped {rel_path}: {why}."
+    if reason not in ("wrong_extension", "unreadable"):
+        error += (
+            " Folder indexing skips this file too, so indexing it here would "
+            "not survive the next full index."
+        )
+        override = _OVERRIDE.get(reason)
+        if override:
+            error += (
+                f" To index it anyway, set {override} in the project's "
+                ".jcodemunch.jsonc (or config.jsonc); the full index then keeps it too."
+            )
+        else:
+            error += " No setting re-admits a file excluded this way."
+    return {"success": False, "error": error, "skipped": reason}
+
+
 def index_file(
     path: str,
     use_ai_summaries: bool = True,
@@ -259,29 +386,19 @@ def index_file(
     # Compute rel_path, hash, and mtime
     rel_path = file_path.relative_to(source_root).as_posix()
 
-    # Eligibility: match index_folder's discovery filter so a manual index_file
-    # call cannot add a credential file that the next full folder index would
-    # skip and then prune — the flip-flop in #351. is_secret_file already exempts
-    # source modules (e.g. secret_redaction.py) after the same-issue fix, so this
-    # only refuses actual credential files (.env, *.pem, secrets/db.yaml, …).
-    if is_secret_file(rel_path, repo=str(source_root)):
-        return {
-            "success": False,
-            "error": (
-                f"Skipped secret/credential file: {rel_path}. "
-                "Folder indexing skips this file too, so indexing it here would "
-                "not survive the next full index."
-            ),
-            "skipped": "secret",
-        }
-
-    # Check language support
-    ext = file_path.suffix
-    if ext not in LANGUAGE_EXTENSIONS and get_language_for_path(str(file_path)) is None:
-        return {
-            "success": False,
-            "error": f"Unsupported file type: {ext}. File not recognized as a supported language.",
-        }
+    # Eligibility: the walk's own per-file filter, so a manual call or the
+    # PostToolUse hook cannot add a file the next full index prunes (#351 for
+    # secrets, L-142 for everything else). See _walk_refusal.
+    base_index = store.load_index(owner, name)  # always load base
+    if base_index is None:
+        return {"success": False, "error": f"Failed to load index for {owner}/{name}"}
+    walk_root = _walk_root_for(base_index, source_root, rel_path)
+    if walk_root != source_root:
+        # The walk that covers this file read its project config here (#508).
+        _config.load_project_config(str(walk_root))
+    refusal = _walk_refusal(file_path, source_root, walk_root, rel_path)
+    if refusal is not None:
+        return refusal
 
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace", newline="") as f:
@@ -296,10 +413,6 @@ def index_file(
     # Detect branch for branch-aware indexing
     _current_branch = _get_git_branch(source_root)
     _is_branch_delta = False
-
-    base_index = store.load_index(owner, name)  # always load base
-    if base_index is None:
-        return {"success": False, "error": f"Failed to load index for {owner}/{name}"}
 
     if _current_branch:
         _base_branch = getattr(base_index, "branch", "") or ""
