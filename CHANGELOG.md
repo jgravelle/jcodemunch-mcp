@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - install-pack no longer creates a config file to look up a licence key
+
+`install-pack <id>` without `--license` looks for a key in
+`JCODEMUNCH_LICENSE_KEY` and then in `config.jsonc`. That lookup loaded the
+config in the mode that writes a default `config.jsonc` when none exists, so
+a first install could leave one behind. Once the pack's index sits in the
+store, a file written that way has no `tool_surface` key and pins a new user
+to the `full` tool surface, which nothing migrates them off (ledger L-215,
+the same shape L-212 avoided one step later on the same command). The lookup
+now reads the file without ever writing one. `--license`, the environment
+variable and a `license_key` in the config file resolve exactly as before;
+`tests/test_install_pack_license_lookup_writes_no_config.py` pins all three
+and fails if the command creates the file.
+
 ## [1.108.377] - 2026-10-18 - a text search earns no savings credit
 
 ### Changed - a text search earns no savings credit, so your receipt and meter figures drop
