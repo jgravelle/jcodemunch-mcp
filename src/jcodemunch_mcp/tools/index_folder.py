@@ -518,6 +518,79 @@ def _build_index_filters(
     )
 
 
+def _walk_filter_config(
+    root: Path,
+    *,
+    max_size: Optional[int] = None,
+    extra_ignore_patterns: Optional[list[str]] = None,
+    follow_symlinks: bool = False,
+    per_file: bool = False,
+) -> _IndexFilters:
+    """The filter config the full walk applies under ``root``.
+
+    ONE assembly of the walk's inputs: the size cap, the merged ignore patterns
+    (env, global, project ``.jcodemunch.jsonc`` and per-call, issue #300) and the
+    skip switches, each read with ``repo=root``. `discover_local_files` uses it,
+    and `index_file` uses it with ``per_file=True`` so the skip-directory rules
+    that the walk applies by pruning are applied to one path instead (L-142).
+    ``forced_paths`` is left empty; the caller decides when the package.json
+    scan is worth paying for.
+    """
+    root = root.resolve()
+    repo = str(root)
+    effective_extra = get_extra_ignore_patterns(extra_ignore_patterns, repo=repo)
+    extra_spec = None
+    if effective_extra:
+        try:
+            extra_spec = pathspec.PathSpec.from_lines("gitignore", effective_extra)
+        except Exception:
+            logger.debug("Invalid extra_ignore_patterns for %s", repo, exc_info=True)
+    return _build_index_filters(
+        root=root,
+        follow_symlinks=follow_symlinks,
+        max_size=get_max_file_size(max_size, repo=repo),
+        extra_spec=extra_spec,
+        skip_dirs_regex=_build_skip_dirs_regex(repo=repo) if per_file else None,
+        check_binary=True,
+        check_filename=True,
+        **_config_skip_flags(repo),
+    )
+
+
+def _framework_ignore_patterns(profile) -> list[str]:
+    """``profile``'s ignore patterns, which the walk merges into
+    ``extra_ignore_patterns``; empty for no profile. The walk detects the
+    profile at the index root (the git root after the v1.96 retarget) and
+    applies the patterns relative to the walk root; `index_file` does the same.
+    """
+    if not profile:
+        return []
+    logger.info(
+        "Framework profile '%s' active — adding %d ignore patterns",
+        profile.name,
+        len(profile.ignore_patterns),
+    )
+    return list(profile.ignore_patterns)
+
+
+def _gitignore_specs_on_path(root: Path, file_path: Path) -> list[tuple[str, "pathspec.PathSpec"]]:
+    """The ``.gitignore`` specs the walk from ``root`` holds when it reaches ``file_path``.
+
+    The walk reads the ``.gitignore`` of every directory it descends through,
+    root first; for one file that is ``root`` and each directory down to the
+    file's parent. ``file_path`` must be under ``root``; both resolved.
+    """
+    specs: list[tuple[str, "pathspec.PathSpec"]] = []
+    directory = root
+    for part in ("",) + file_path.parent.relative_to(root).parts:
+        if part:
+            directory = directory / part
+        spec = _load_gitignore(directory)
+        if spec is not None:
+            specs.append((_dir_prefix(str(directory.resolve())), spec))
+    return specs
+
+
 def _should_index_file(
     file_path: Path,
     cfg: _IndexFilters,
@@ -1389,38 +1462,19 @@ def discover_local_files(
 
     root_str = str(root)  # root is already resolved above
 
-    # Merge env-var global, project-level, and per-call patterns, then build
-    # spec. Passing repo=str(folder_path) so .jcodemunch.jsonc overrides land
-    # (issue #300, reported by @domis86).
-    effective_extra = get_extra_ignore_patterns(
-        extra_ignore_patterns, repo=str(folder_path)
+    # Build per-file filter config once (#306). ``per_file=False`` leaves
+    # ``skip_dirs_regex`` None because ``os.walk`` below prunes those
+    # directories before any of their files reach the helper. `index_file`
+    # builds the same config with ``per_file=True`` (L-142).
+    filter_cfg = _walk_filter_config(
+        root,
+        max_size=max_size,
+        extra_ignore_patterns=extra_ignore_patterns,
+        follow_symlinks=follow_symlinks,
     )
-    extra_spec = None
-    if effective_extra:
-        try:
-            extra_spec = pathspec.PathSpec.from_lines("gitignore", effective_extra)
-        except Exception:
-            pass
-
     # Pre-scan package.json files; their `main`/`module`/`exports`/`bin`
     # targets get the size-cap exemption. Built once before the walk.
-    forced_paths = _scan_package_json_forced_paths(root)
-
-    # Build per-file filter config once. Shared with the watcher fast path
-    # via ``_should_index_file`` (see #306). ``skip_dirs_regex`` is None
-    # here because ``os.walk`` below prunes those directories before any
-    # of their files reach the helper — keeping behaviour identical.
-    filter_cfg = _build_index_filters(
-        root=root,
-        follow_symlinks=follow_symlinks,
-        max_size=max_size,
-        extra_spec=extra_spec,
-        forced_paths=forced_paths,
-        skip_dirs_regex=None,
-        check_binary=True,
-        check_filename=True,
-        respect_cachedir_tag=respect_cachedir_tag,
-    )
+    filter_cfg.forced_paths = _scan_package_json_forced_paths(root)
 
     skip_dirs_regex = _build_skip_dirs_regex(repo=str(root))
 
@@ -2404,14 +2458,7 @@ def index_folder(
         # ── Standard path: full directory discovery ──
         # Detect framework profile and merge its ignore patterns before discovery
         _framework_profile = detect_framework(folder_path)
-        _profile_ignore: list[str] = []
-        if _framework_profile:
-            _profile_ignore = _framework_profile.ignore_patterns
-            logger.info(
-                "Framework profile '%s' active — adding %d ignore patterns",
-                _framework_profile.name,
-                len(_profile_ignore),
-            )
+        _profile_ignore = _framework_ignore_patterns(_framework_profile)
 
         _merged_ignore = list(extra_ignore_patterns or []) + _profile_ignore
 

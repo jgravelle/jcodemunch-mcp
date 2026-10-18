@@ -238,14 +238,22 @@ def _surface(stats: Mapping) -> dict:
 def _indexes(root: Path) -> list[dict]:
     from .storage.embedding_store import EmbeddingStore
     from .storage.generation import connect_readonly
-    from .storage.sqlite_store import _NON_REPO_DB_FILES
+    from .storage.sqlite_store import INDEX_DB_NOT_INDEX, classify_index_db
 
     rows: list[dict] = []
     try:
-        dbs = sorted(p for p in root.glob("*.db") if p.name not in _NON_REPO_DB_FILES)
+        candidates = sorted(root.glob("*.db"))
     except OSError:
         logger.debug("diagnose: storage directory not listed", exc_info=True)
         return rows
+    dbs = []
+    for db in candidates:
+        try:
+            if classify_index_db(db) == INDEX_DB_NOT_INDEX:
+                continue  # another store, by content (L-144)
+        except Exception:
+            logger.debug("diagnose: %s not classified", db.name, exc_info=True)
+        dbs.append(db)
     for n, db in enumerate(dbs, start=1):
         files = symbols = source = None
         embeddings = "unknown"
