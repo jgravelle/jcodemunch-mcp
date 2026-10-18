@@ -5,13 +5,15 @@ purpose:  nothing in a session does the IRREVERSIBLE: publish, tag, dispatch a
           the human runs instead. Posting (a PR, a comment, a review, an
           edit, an alert dismissal) is the session's: every one of those can
           be undone from the page (W-40, jjg 2026-09-07). One merge passes
-          its checks (jjg 2026-10-17): enabling auto-merge on a main.yml
-          harness-results PR that touches only harness/results/*.json;
+          its checks (jjg 2026-10-17): merging a CLEAN main.yml
+          harness-results PR, on a pinned head, that touches only
+          harness/results/*.json;
           a crashed or unverifiable check refuses
 invokes:  gh api (read only), for that one merge
 produces: nothing
 refuses:  the verbs below, on Bash and PowerShell
-budget:   1 s
+budget:   1 s for every line except the one checked merge, which makes up to
+          1 + _MAX_FILE_PAGES API reads of _GH_TIMEOUT_S each (settings.json: 60 s)
 """
 
 from __future__ import annotations
@@ -20,14 +22,24 @@ import json
 import os
 import re
 import subprocess
+import sys
 
-import _common
-from _common import block, ok, read_hook_input, tool_command
+try:
+    import _common
+    from _common import block, ok, read_hook_input, tool_command
+except Exception as _exc:  # noqa: BLE001 - a guard that cannot load must refuse: exit 1 lets the command run
+    sys.stderr.write(f"deny_guard: refused; the guard could not load ({type(_exc).__name__}: {_exc})\n")
+    sys.exit(2)
 
-#: jjg (2026-10-17, DECISIONS line 80, and in session the same day): "Weekly
+#: jjg (DECISIONS 2026-10-17, and in session the same day): "Weekly
 #: harness-results PRs from main.yml may auto-merge when every check is green."
-#: The session may ENABLE GitHub's auto-merge on such a PR; GitHub then merges
-#: it only when every required check, license/cla included, is green.
+#: The session merges such a PR itself once GitHub reads it CLEAN, with the head
+#: pinned by `--match-head-commit`: GitHub refuses the merge if the head moved,
+#: and refuses it unless every required check, license/cla included, is green
+#: (no admin). ⚠⚠ NOT `--auto`: GitHub keeps auto-merge enabled through a later
+#: push by a writer, and the session is a writer with more routes onto a branch
+#: than any text rule here can close (review round 2, 2026-10-17). A merge now,
+#: on a pinned head, leaves no window.
 #: ⚠⚠ This is the ONLY conditional merge, and it fails CLOSED: any form other
 #: than `_RESULTS_AUTO_RE` is refused by the regex alone, with no network, and
 #: every exception or timeout on the checked form refuses. Review of 2026-10-17
@@ -36,22 +48,22 @@ from _common import block, ok, read_hook_input, tool_command
 #:  - branch `harness-bot/results-YYYY-MM-DD` of THIS repo, base `main`;
 #:  - the head pinned by `--match-head-commit`, equal to the live head, so a push
 #:    between this check and the merge makes GitHub refuse the merge;
+#:  - GitHub's `mergeable_state` `clean` (every required check green, not behind);
 #:  - files from the paginated REST list (`gh pr view` stops at 100 and hides a
 #:    rename's old path), each `added`/`modified`, none renamed, all under
 #:    `harness/results/*.json`, and their count equal to `changed_files`;
 #:  - `--repo jgravelle/jcodemunch-mcp` in the command, so the merge cannot act
 #:    on another checkout's PR of the same number.
-#: A push to a results branch after enabling is refused separately (DENIED).
 _REPO = "jgravelle/jcodemunch-mcp"
 _RESULTS_AUTO_RE = re.compile(
     r"\A\s*(?:GITHUB_TOKEN=(?:\"\"|'')?[ \t]+)?gh[ \t]+pr[ \t]+merge[ \t]+([0-9]+)"
-    r"[ \t]+--repo[ \t]+jgravelle/jcodemunch-mcp[ \t]+--squash[ \t]+--auto"
+    r"[ \t]+--repo[ \t]+jgravelle/jcodemunch-mcp[ \t]+--squash"
     r"[ \t]+--match-head-commit[ \t]+([0-9a-f]{40})[ \t]*\Z"
 )
 _RESULTS_BOT_LOGIN = "github-actions[bot]"
 _RESULTS_BRANCH_RE = re.compile(r"\Aharness-bot/results-[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 _RESULTS_FILE_RE = re.compile(r"\Aharness/results/[A-Za-z0-9_.-]+\.json\Z")
-_GH_TIMEOUT_S = 6  # each call, at most 1 + _MAX_FILE_PAGES of them, inside settings.json's 30 s hook budget:
+_GH_TIMEOUT_S = 6  # each call, at most 1 + _MAX_FILE_PAGES of them, plus _common's 10 s repo rebind, inside settings.json's 60 s hook budget:
 # a slow API refuses rather than letting the runner kill the hook (W-42: a killed hook reads as consent)
 _MAX_FILE_PAGES = 3
 
@@ -68,11 +80,11 @@ def _gh_api(path: str) -> object:
 
 
 def results_auto_merge_refusal(cmd: str, api=_gh_api) -> str | None:
-    """None when this line enables auto-merge on a main.yml results PR; else why not. Never raises."""
+    """None when this line merges a CLEAN main.yml results PR on a pinned head; else why not. Never raises."""
     m = _RESULTS_AUTO_RE.match(cmd)
     if not m:
         return (
-            f"the only merge the session may run is `gh pr merge <n> --repo {_REPO} --squash --auto "
+            f"the only merge the session may run is `gh pr merge <n> --repo {_REPO} --squash "
             "--match-head-commit <40-hex head>`, alone on the line, for a main.yml results PR"
         )
     number, head = m.group(1), m.group(2)
@@ -94,6 +106,8 @@ def results_auto_merge_refusal(cmd: str, api=_gh_api) -> str | None:
             return f"PR #{number} is not a {_REPO} branch into main"
         if head_ref.get("sha") != head:
             return f"PR #{number}'s head is {head_ref.get('sha')!r}, not the pinned {head}"
+        if pr.get("mergeable_state") != "clean":
+            return f"PR #{number} is {pr.get('mergeable_state')!r}, not clean (every required check green and not behind)"
         expected = pr.get("changed_files")
         if not isinstance(expected, int) or expected < 1 or expected > 100 * _MAX_FILE_PAGES:
             return f"PR #{number}: changed_files {expected!r} is not a checkable count"
@@ -121,7 +135,7 @@ def results_auto_merge_refusal(cmd: str, api=_gh_api) -> str | None:
     return None
 
 
-#: The one verb with a conditional pass, `results_auto_merge_refusal` (jjg 2026-10-17).
+#: The one verb with a conditional pass, `results_auto_merge_refusal` (jjg, DECISIONS 2026-10-17).
 _PR_MERGE_PATTERN = r"\bgh\s+pr\s+merge\b"
 
 DENIED = [
@@ -160,10 +174,16 @@ DENIED = [
         "a merge; the human merges when the gate is green (RUNBOOK section 1, step 2)",
     ),
     (
-        # After auto-merge is enabled on a results PR, GitHub would still merge a later
-        # push by a writer; the session must not be that writer (review 2026-10-17).
+        # Only main.yml writes results branches. The merge is pinned to a head, so this
+        # rule is belt, not braces: it refuses the plain spelling (review 2026-10-17).
         r"\bgit\s+push\b[^|;&]*\bharness-bot/",
-        "a push to a harness-bot results branch; only main.yml writes those (an auto-merge may be pending)",
+        "a push to a harness-bot results branch; only main.yml writes those",
+    ),
+    (
+        # A GraphQL query read from a file carries no mutation text for the rule below
+        # to read (review round 2, 2026-10-17); the human runs those.
+        r"\bgh\s+api\b(?=.*\bgraphql\b).*(?:\bquery=@|--input\b)",
+        "a GraphQL query read from a file, which no rule here can read; the human runs it",
     ),
     (
         # `gh alias set m 'pr merge'` then `gh m 5` reaches a merge no rule reads.
@@ -178,8 +198,8 @@ DENIED = [
         # An API write is the session's (W-40) unless its path is one of the
         # irreversible acts the verbs above already refuse: a merge, a release,
         # a workflow dispatch, a tag ref, a deletion.
-        r"\bgh\s+api\b(?=.*(?:--method\s+(?:POST|PATCH|PUT|DELETE)|\s-X\s*(?:POST|PATCH|PUT|DELETE)))"
-        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method\s+DELETE|\s-X\s*DELETE)",
+        r"\bgh\s+api\b(?=.*(?:--method[=\s]+(?:POST|PATCH|PUT|DELETE)|\s-X\s*(?:POST|PATCH|PUT|DELETE)))"
+        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method[=\s]+DELETE|\s-X\s*DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
     ),
     (

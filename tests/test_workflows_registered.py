@@ -132,9 +132,9 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
             )
     for verb in ("gh pr comment", "gh pr edit", "gh pr close", "gh issue comment", "gh issue close", "gh api"):
         assert verb not in joined, f"deny list refuses `{verb}` again; posting is the session's (W-40)"
-    # jjg (2026-10-17, DECISIONS line 80, and in session): a merge moved from this
-    # unconditional list to deny_guard's one conditional rule, enabling auto-merge on a
-    # main.yml results PR (tests/test_results_auto_merge.py). A plain merge glob here
+    # jjg (DECISIONS 2026-10-17, and in session): a merge moved from this
+    # unconditional list to deny_guard's one conditional rule, merging a CLEAN
+    # main.yml results PR on a pinned head (tests/test_results_auto_merge.py). A plain merge glob here
     # would refuse that form before the hook ran; the forms the hook never allows stay.
     verb = "gh pr " + "merge"
     for shell in ("Bash", "PowerShell"):

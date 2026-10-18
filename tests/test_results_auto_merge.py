@@ -1,4 +1,4 @@
-"""deny_guard's one conditional merge: auto-merge on a main.yml harness-results PR (jjg, 2026-10-17).
+"""deny_guard's one conditional merge: a CLEAN main.yml harness-results PR on a pinned head (jjg, 2026-10-17).
 
 jjg ruled that weekly harness-results PRs from main.yml may auto-merge when every
 check is green. `results_auto_merge_refusal` is that rule. ⚠⚠ The tests that
@@ -8,7 +8,9 @@ crash) must refuse too, because a guard that errors lets the command run. The
 first draft was BLOCKed in review for failing open on a crash and a timeout,
 trusting a 100-entry file list that hides renames, checking one repository while
 the merge could act on another, and leaving a push window after enabling; each
-of those has a test below.
+of those has a test below. Round 2 found that `--auto` itself leaves a window
+(GitHub keeps auto-merge on through a writer's later push), so the allowed form
+merges now, on a head pinned by `--match-head-commit`, once GitHub reads it clean.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ import deny_guard  # noqa: E402
 _VERB = "gh pr " + "merge"  # split so no shell line ever carries the verb literally
 _HEAD = "a" * 40
 _REPO = "jgravelle/jcodemunch-mcp"
-_CMD = f"{_VERB} 1030 --repo {_REPO} --squash --auto --match-head-commit {_HEAD}"
+_CMD = f"{_VERB} 1030 --repo {_REPO} --squash --match-head-commit {_HEAD}"
 
 
 def _pr(**over) -> dict:
@@ -40,6 +42,7 @@ def _pr(**over) -> dict:
         "head": {"ref": "harness-bot/results-2026-10-19", "sha": _HEAD, "repo": {"full_name": _REPO}},
         "base": {"ref": "main"},
         "changed_files": 2,
+        "mergeable_state": "clean",
     }
     pr.update(over)
     return pr
@@ -72,32 +75,35 @@ def _refusal(cmd=_CMD, **kw):
     return deny_guard.results_auto_merge_refusal(cmd, api=_api(**kw))
 
 
-def test_auto_merge_may_be_enabled_on_a_results_pr():
+def test_a_clean_results_pr_on_a_pinned_head_may_merge():
     assert _refusal() is None
 
 
-def test_the_token_prefix_form_may_be_enabled():
+def test_the_token_prefix_form_may_merge():
     assert _refusal(f'GITHUB_TOKEN="" {_CMD}') is None
 
 
 @pytest.mark.parametrize(
     "cmd",
     [
-        f"{_VERB} 1030 --squash --auto",  # no repo, no pinned head
-        f"{_VERB} 1030 --repo {_REPO} --squash --auto",  # no pinned head
-        f"{_VERB} 1030 --squash --auto --match-head-commit {_HEAD}",  # no repo
-        f"{_VERB} 1030 --repo jgravelle/jdocmunch-mcp --squash --auto --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --squash",  # no repo, no pinned head
+        f"{_VERB} 1030 --repo {_REPO} --squash",  # no pinned head
+        f"{_VERB} 1030 --squash --match-head-commit {_HEAD}",  # no repo
+        f"{_VERB} 1030 --repo jgravelle/jdocmunch-mcp --squash --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --repo {_REPO} --squash --auto --match-head-commit {_HEAD}",  # --auto leaves a window
+        f"{_CMD} --auto",
         f"{_CMD} --admin",
-        f"{_VERB} 1030 --repo {_REPO} --merge --auto --match-head-commit {_HEAD}",
-        f"{_VERB} 1030 --repo {_REPO} --squash --match-head-commit {_HEAD}",  # not --auto: an immediate merge
-        f"{_VERB} 1030 --repo {_REPO} --squash --auto --match-head-commit {'A' * 40}",
-        f"{_VERB} 1030 --repo {_REPO} --squash --auto --match-head-commit {_HEAD[:39]}",
+        f"{_VERB} 1030 --repo {_REPO} --merge --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --repo {_REPO} --rebase --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --repo {_REPO} --squash --match-head-commit {'A' * 40}",
+        f"{_VERB} 1030 --repo {_REPO} --squash --match-head-commit {_HEAD[:39]}",
         f"{_CMD} && echo x",
         f"{_CMD}; git push",
         f"{_CMD}\necho x",
         f"cd x && {_CMD}",
         f"FOO=1 {_CMD}",
-        f"{_VERB} 1030 --repo {_REPO} --squash --squash --auto --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --repo {_REPO} --squash --squash --match-head-commit {_HEAD}",
+        f"{_VERB} 1030 --repo {_REPO} --squash --match-head-commit {_HEAD} -d",
     ],
 )
 def test_any_other_form_refuses_without_asking_the_api(cmd):
@@ -140,6 +146,11 @@ def test_a_head_that_differs_from_the_pinned_one_refuses():
     pr = _pr()
     pr["head"] = dict(pr["head"], sha="b" * 40)
     assert "not the pinned" in _refusal(pr=pr)
+
+
+@pytest.mark.parametrize("mstate", ["blocked", "behind", "dirty", "unstable", "unknown", "has_hooks", None])
+def test_a_pr_github_does_not_read_clean_refuses(mstate):
+    assert "not clean" in _refusal(pr=_pr(mergeable_state=mstate))
 
 
 @pytest.mark.parametrize("state", ["closed", None])
@@ -220,8 +231,13 @@ def test_the_gh_timeout_sits_inside_the_hook_budget():
     budget = next(
         h["timeout"] for entries in settings["hooks"].values() for e in entries for h in e["hooks"] if "deny_guard.py" in h["command"]
     )
-    worst = deny_guard._GH_TIMEOUT_S * (1 + deny_guard._MAX_FILE_PAGES)
-    assert worst < budget, (worst, budget)
+    import re
+
+    common = (HOOKS / "_common.py").read_text(encoding="utf-8")
+    rebind = common[common.index("def _rebind_repo"):]
+    rebind_s = int(re.search(r"timeout=(\d+)", rebind).group(1))  # read_hook_input runs it first
+    worst = rebind_s + deny_guard._GH_TIMEOUT_S * (1 + deny_guard._MAX_FILE_PAGES)
+    assert worst + 5 < budget, (worst, budget)  # 5 s for the interpreter and the imports
 
 
 @pytest.mark.parametrize(
@@ -230,6 +246,17 @@ def test_the_gh_timeout_sits_inside_the_hook_budget():
      "git push -u origin harness-bot/results-2026-10-19", "gh alias set m 'pr merge'", "gh alias import x.yml"],
 )
 def test_a_push_to_a_results_branch_and_a_gh_alias_are_refused(cmd):
+    import re
+
+    assert any(re.search(p, cmd, re.I) for p, _ in deny_guard.DENIED), cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["gh api --method=PUT repos/x/y/pulls/5/merge", "gh api --method PUT repos/x/y/pulls/5/merge",
+     "gh api -XPUT repos/x/y/pulls/5/merge", "gh api graphql -F query=@m.graphql", "gh api graphql --input q.json"],
+)
+def test_api_merge_spellings_and_a_graphql_query_from_a_file_are_refused(cmd):
     import re
 
     assert any(re.search(p, cmd, re.I) for p, _ in deny_guard.DENIED), cmd
@@ -277,8 +304,31 @@ def test_a_crashed_guard_refuses():
     assert r.returncode == 2, (r.returncode, r.stderr)
 
 
-def test_the_hook_wiring_routes_merges_to_the_rule():
-    """Deleting the conditional pass in main() must turn this red: the allowed form passes the wiring."""
-    src = (HOOKS / "deny_guard.py").read_text(encoding="utf-8")
-    assert "refusal = results_auto_merge_refusal(cmd)" in src
-    assert "if pattern == _PR_MERGE_PATTERN:" in src
+def _main_exit(monkeypatch, cmd, refusal):
+    monkeypatch.setattr(deny_guard, "read_hook_input", lambda: {"tool_input": {"command": cmd}})
+    monkeypatch.setattr(deny_guard, "results_auto_merge_refusal", lambda c: refusal)
+    with pytest.raises(SystemExit) as stop:
+        deny_guard.main()
+    return stop.value.code
+
+
+def test_main_lets_the_checked_merge_through_when_the_rule_allows_it(monkeypatch):
+    """The wiring itself: delete the `continue` in main() and this turns red."""
+    assert _main_exit(monkeypatch, _CMD, None) == 0
+
+
+def test_main_blocks_the_merge_when_the_rule_refuses(monkeypatch):
+    assert _main_exit(monkeypatch, _CMD, "no") == 2
+
+
+def test_main_still_blocks_another_refused_verb_on_an_allowed_merge_line(monkeypatch):
+    """A merge the rule allows does not excuse a second refused act on the same line."""
+    assert _main_exit(monkeypatch, f"{_CMD} ; gh workflow run x.yml", None) == 2
+
+
+def test_a_guard_that_cannot_load_refuses(tmp_path):
+    """An import failure used to exit 1, which lets the command run."""
+    lone = tmp_path / "deny_guard.py"
+    lone.write_text((HOOKS / "deny_guard.py").read_text(encoding="utf-8"), encoding="utf-8")
+    r = subprocess.run([sys.executable, str(lone)], input="{}", capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 2, (r.returncode, r.stderr)
