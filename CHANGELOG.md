@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.378] - 2026-10-18 - install-pack's licence lookup writes no config file
+
 ### Fixed - install-pack no longer creates a config file to look up a licence key
 
 `install-pack <id>` without `--license` looks for a key in
