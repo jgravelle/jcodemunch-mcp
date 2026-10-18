@@ -165,3 +165,14 @@ def test_every_release_job_waits_for_the_preflight(release):
         needs = job.get("needs") or []
         needs = [needs] if isinstance(needs, str) else needs
         assert "preflight" in needs, (name, needs)
+
+
+def test_the_feed_refuses_a_reason_that_could_forge_an_output_line():
+    """The reason reaches GITHUB_OUTPUT; a newline in it would add a key. Match the whole string, never per line."""
+    doc = _load(ROOT / ".github" / "workflows" / "competitive-feed.yml")
+    (step,) = [s for s in doc["jobs"]["feed"]["steps"] if s.get("id") == "reason"]
+    run = step["run"]
+    assert "PATTERN='^release:[A-Za-z0-9._-]+@[A-Za-z0-9.+_-]+$'" in run
+    assert '[[ "$REASON" =~ $PATTERN ]]' in run and "exit 1" in run
+    assert "grep" not in run, "grep matches line by line, so a two-line value passes"
+    assert run.index("=~") < run.index("GITHUB_OUTPUT")

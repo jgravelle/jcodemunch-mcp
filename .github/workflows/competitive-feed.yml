@@ -126,6 +126,13 @@ jobs:
         id: reason
         run: |
           REASON=$(python -c "import json,sys; r=json.load(open(sys.argv[1])); print(r[0]['reason'] if r else '')" "$RUNNER_TEMP/feed/rerun.json")
+          # feed.py builds it as release:<tool>@<version>; anything else is refused, so a
+          # registry value can never add a second output line.
+          PATTERN='^release:[A-Za-z0-9._-]+@[A-Za-z0-9.+_-]+$'
+          if [ -n "$REASON" ] && ! [[ "$REASON" =~ $PATTERN ]]; then
+            echo "::error title=feed refused::unexpected re-run reason"
+            exit 1
+          fi
           printf 'reason=%s\n' "$REASON" >> "$GITHUB_OUTPUT"
       # The one token in this repository that may start a run (jjg, DECISIONS
       # 2026-10-18). Minted only when there is a run to start, held by the next

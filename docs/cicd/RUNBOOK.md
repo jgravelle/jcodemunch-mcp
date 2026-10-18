@@ -469,7 +469,9 @@ member's latest release through registries on a read-only token, drafts a
 `competitive-idea` when a title carries a capability word, and dispatches
 one re-run when a release names a measured axis, with a token that holds
 Actions write and nothing else (C-26). Until the App holds Actions write,
-that dispatch fails with HTTP 403 (ledger L-217). It reads the ledger first
+that dispatch fails with HTTP 403 (ledger L-217). The feed record is pushed
+to the ledger before the dispatch, so a release whose dispatch failed is
+already marked as re-run; start `competitive-run.yml` by hand for it. It reads the ledger first
 so one release is re-run once.
 
 **Something looks wrong.** Flip `INBOUND_ENABLED` off: each job re-reads
