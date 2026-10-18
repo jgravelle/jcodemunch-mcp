@@ -62,6 +62,7 @@ jobs:
       # before a build, a tag or an upload. The actor is read through env, never
       # interpolated into the script.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -115,6 +116,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -152,6 +154,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -189,6 +192,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -247,6 +251,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -288,6 +293,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -322,6 +328,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -397,6 +404,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |
@@ -448,6 +456,7 @@ jobs:
       # Every job checks, not only the pre-flight: a re-run of failed jobs skips the
       # pre-flight's steps, and its triggering actor is whoever pressed re-run.
       - name: A release runs only when jgravelle triggers it
+        shell: bash  # a windows-latest leg would otherwise run it under pwsh
         env:
           ACTOR: ${{ github.triggering_actor }}
         run: |

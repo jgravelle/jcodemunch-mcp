@@ -149,6 +149,7 @@ def test_every_release_job_refuses_any_actor_but_jgravelle_first(release):
     for name, job in jobs.items():
         first = job["steps"][0]
         assert first.get("name") == GUARD_NAME, name
+        assert first.get("shell") == "bash", (name, "a windows-latest leg runs an unset shell as pwsh")
         assert first.get("env") == {"ACTOR": "${{ github.triggering_actor }}"}, name
         run = first["run"]
         assert '"$ACTOR" != "jgravelle"' in run and "exit 1" in run, name
