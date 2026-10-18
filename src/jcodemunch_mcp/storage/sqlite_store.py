@@ -257,13 +257,78 @@ _INIT_PRAGMAS = [
     "PRAGMA journal_mode = WAL",
 ]
 
-# SQLite files in ~/.code-index/ that are NOT per-repo indexes — list_repos
-# must skip these so they don't get phantom-resolved as repos (and worse,
-# get auto-initialised with the code-index schema by _connect()).
-# org_savings.db is the team-SKU org-rollup store (see org/store.py); without
-# this it surfaced as a bogus `local/org_savings` card (sym 0, no source_root)
-# that could never be deleted.
-_NON_REPO_DB_FILES = frozenset({"telemetry.db", "org_savings.db"})
+# What a SQLite file in the storage directory IS, decided by what is in it
+# (LEDGER L-144). ⚠⚠ Never by its name: the name denylist this replaces
+# (`telemetry.db`, `org_savings.db`) had a one-name copy in `token_tracker`
+# that omitted the second, and it said nothing about the parse cache, a
+# half-built index, or the next store someone adds. Every listing reader
+# (`list_repos` here and in `IndexStore`, `list_source_roots`, `diagnose`,
+# `token_tracker._runtime_signal_summary`) asks this one rule.
+INDEX_DB_INDEX = "index"          # `meta` carries a `repo`: a finished index
+INDEX_DB_DAMAGED = "damaged"      # index tables with rows, `meta` lost its rows
+INDEX_DB_NOT_INDEX = "not_index"  # anything else, including a half-built index
+
+
+def _classify_index_conn(conn: sqlite3.Connection) -> str:
+    """Classify an open connection's database; see ``classify_index_db``."""
+    tables = {
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    if "meta" in tables:
+        row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+        if row is not None and row[0]:
+            return INDEX_DB_INDEX
+    # ⚠ No `repo` row is three things: an index whose meta was lost (its rows,
+    # its table, or another index table with it; kept visible so it can be
+    # re-indexed, the sqlite_missing_meta / sqlite_corrupt contract), an index
+    # still being written for the first time, and a foreign store an earlier
+    # release's `_connect` filled with EMPTY index tables plus two meta rows
+    # (this box's telemetry.db and org_savings.db). Only the first holds
+    # anything worth listing, and rows are the tell. ⚠ `files` alone is too
+    # generic a name to vouch for an index, so it counts only beside
+    # `symbols`; `symbols` holding rows counts alone.
+    if "symbols" in tables:
+        for table in ("symbols", "files"):
+            if table in tables and conn.execute(
+                f"SELECT 1 FROM {table} LIMIT 1"
+            ).fetchone():
+                return INDEX_DB_DAMAGED
+    return INDEX_DB_NOT_INDEX
+
+
+def classify_index_db(db_path: Path) -> str:
+    """Whether ``db_path`` is a code index, read-only and by content.
+
+    Returns ``INDEX_DB_INDEX``, ``INDEX_DB_DAMAGED`` or ``INDEX_DB_NOT_INDEX``.
+    Raises ``sqlite3.DatabaseError`` when the file cannot be read as SQLite;
+    each caller decides what an unreadable file means to it.
+    """
+    from .generation import connect_readonly
+
+    conn = connect_readonly(db_path)
+    try:
+        return _classify_index_conn(conn)
+    finally:
+        conn.close()
+
+
+def _create_schema(conn: sqlite3.Connection) -> None:
+    """Run ``_SCHEMA_SQL`` as ONE transaction (LEDGER L-144).
+
+    ⚠ In autocommit each statement committed on its own, so a second
+    connection opened during a first index saw `meta` with no other table
+    and `_connect` ran every migration against it (L-143's
+    `no such table: files`). IMMEDIATE takes the write lock up front, so a
+    second creator waits on `busy_timeout` and then finds every
+    `IF NOT EXISTS` satisfied; a DEFERRED transaction could instead fail
+    with a stale snapshot, which the busy handler does not retry.
+    """
+    try:
+        conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_SQL + "\nCOMMIT;")
+    except sqlite3.Error:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
 
 # Directory name the starter-pack builder clones into on its CI machine
 # (`build_pack.py`: tempfile.gettempdir() / "jcm-pack-clones" / <owner>-<repo>).
@@ -901,7 +966,11 @@ class SQLiteIndexStore:
 
             # Lightweight check: table_info returns column list; empty = not initialised.
             if not conn.execute("PRAGMA table_info(meta)").fetchall():
-                conn.executescript(_SCHEMA_SQL)
+                try:
+                    _create_schema(conn)
+                except sqlite3.Error:
+                    conn.close()
+                    raise
             else:
                 # Existing DB — check if v4→v5 migration is needed
                 _ensure_index_store_deps()
@@ -930,6 +999,14 @@ class SQLiteIndexStore:
 
             SQLiteIndexStore._initialized_dbs.add(db_key)
 
+        return conn
+
+    def _open_read(self, db_path: Path) -> sqlite3.Connection:
+        """A read-only connection that never initialises or migrates (L-144)."""
+        from .generation import connect_readonly
+
+        conn = connect_readonly(db_path)
+        conn.row_factory = sqlite3.Row  # _read_meta indexes by name
         return conn
 
     def checkpoint_and_close(self, owner: str, name: str) -> None:
@@ -1868,9 +1945,14 @@ class SQLiteIndexStore:
             )
 
         try:
-            conn = self._connect(db_path)
+            # ⚠ Read-only (L-144): inspecting is a read, and `_connect` would
+            # create the schema in whatever file sits at this name.
+            conn = self._open_read(db_path)
             try:
-                meta = self._read_meta(conn)
+                has_meta = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'"
+                ).fetchone()
+                meta = self._read_meta(conn) if has_meta else {}
                 if not meta:
                     return IndexLoadStatus(
                         repo=repo_id,
@@ -2539,8 +2621,6 @@ class SQLiteIndexStore:
         _pairs = parse_path_map()
         repos = []
         for db_file in self.base_path.glob("*.db"):
-            if db_file.name in _NON_REPO_DB_FILES:
-                continue
             try:
                 entry = self._list_repo_from_db(db_file, _pairs)
                 if entry:
@@ -2565,16 +2645,14 @@ class SQLiteIndexStore:
         tool call): `list_repos()` pays `SELECT COUNT(*)` over symbols and
         files per repo, a full b-tree scan the roots never needed.
         """
-        from .generation import connect_readonly
         _pairs = parse_path_map()
         roots: list[str] = []
         for db_file in self.base_path.glob("*.db"):
-            if db_file.name in _NON_REPO_DB_FILES:
-                continue
             try:
-                conn = connect_readonly(db_file)
-                conn.row_factory = sqlite3.Row  # _read_meta indexes by name
+                conn = self._open_read(db_file)
                 try:
+                    if _classify_index_conn(conn) != INDEX_DB_INDEX:
+                        continue
                     meta = self._read_meta(conn)
                 finally:
                     conn.close()
@@ -2586,21 +2664,37 @@ class SQLiteIndexStore:
         return roots
 
     def _list_repo_from_db(self, db_path: Path, _pairs: Optional[list] = None) -> Optional[dict]:
-        """Read repo metadata from a .db file for list_repos."""
+        """Read repo metadata from a .db file for list_repos.
+
+        Returns None for a file that is not an index (``classify_index_db``).
+        ⚠⚠ Read-only, never `_connect` (LEDGER L-144): `_connect` creates the
+        index schema in a file with no `meta` and runs every migration on one
+        with no version row, so listing wrote 16 tables into a foreign
+        `parse_cache.db` and stamped `index_version` into a half-built index,
+        on every server start (`cleanup_orphan_indexes`,
+        `heal_pack_index_paths`).
+        """
+        # ⚠ `_INDEX_VERSION` is bound lazily here, and `_connect` used to do
+        # it as a side effect; a fresh process listing first saw None.
+        _ensure_index_store_deps()
         if _pairs is None:
             _pairs = parse_path_map()
         slug = db_path.stem
         parts = slug.split("-", 1)
         owner, name = parts if len(parts) == 2 else ("local", slug)
-        conn = self._connect(db_path)
+        conn = self._open_read(db_path)
         try:
-            meta = self._read_meta(conn)
-            if not meta or not meta.get("repo"):
+            kind = _classify_index_conn(conn)
+            if kind == INDEX_DB_NOT_INDEX:
+                return None
+            if kind == INDEX_DB_DAMAGED:
+                # Before `_read_meta`: a damaged index may have no `meta` table.
                 status = self.inspect_index(owner, name)
                 return {
                     "repo": status.repo,
                     **status.as_fields(include_empty=True),
                 }
+            meta = self._read_meta(conn)
             symbol_count = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
             file_count = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             # Read branch info if branch tables exist

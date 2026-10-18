@@ -2,6 +2,170 @@
 
 ## [Unreleased]
 
+### Changed - a text search earns no savings credit, so your receipt and meter figures drop
+
+⚠ **Your `receipt` totals will read lower from this release, and so may your
+live savings meter.** The drop is credit two tools never earned, not a loss of
+anything they do. Figures fed from the same two models drop with them: an org
+seat's `org-rollup` report (it sums the receipt), and, if you opted in to
+sharing savings, what your seat adds to the shared savings counter from now
+on. Lifetime totals already recorded are not rewritten.
+
+Both savings models credited a text search for work an agent would not have
+done (ledger L-180, from a Marketing question about one day's receipt). The
+`receipt` CLI credited `search_text` 11 times the size of each answer
+(multiplier 12) and `check_references` 14 times (multiplier 15), citing a
+symbol-retrieval benchmark that never measured a text search, so a larger
+answer earned a larger saving. The live meter credited `search_text` with the
+whole size of every file that held a match, minus the response. That half
+reached only an index that stores file sizes, such as one built by
+`index_repo`: an `index_folder` index stores none (L-179), so there the meter
+already credited nothing. `check_references` never fed the meter. For a text
+search the matching lines are the answer, and an agent with Grep gets the same
+lines. Under the maintainer's ruling (2026-10-17), a text-search-style tool now
+earns zero in both models until a measurement supports a number.
+
+The first measurement points the same way. A maintainer-run comparison of
+each tool's answer with Grep's matching lines (2026-10-17) found that where both
+answers contain every match, Grep's matching lines are 0.36 of `search_text`'s
+tokens (median, 81 queries) and 0.69 of `check_references`' (30 queries), and
+every comparable query is below 1, in all four repositories: no credit against
+Grep is supported. Conditions: 1.108.375 at defaults, cl100k_base, express,
+fastapi and gin at the pins plus django 6.1.2, 120 queries drawn by seed.
+
+A tool is text-search-style when its answer IS the matching lines:
+
+- **`search_text`**: its answer is the lines a regex or substring scan matched,
+  with optional context lines. Grep returns the same lines.
+- **`check_references`**: by default its answer is the files whose imports name
+  an identifier plus the lines that mention it, comments and strings included.
+  Grep for the identifier finds both. Its import-only mode
+  (`search_content=false`) answers more like `find_references` and is ledger
+  row L-216.
+
+Each tool was decided by its answer, not by a word in its description. These
+were considered and keep their credit, which does not mean their multipliers
+were measured: `search_ast` (most queries are structural and Grep cannot
+express them; its `todo_fixme`, `comment:` and `string:` modes are grep-like
+and are also L-216), `find_references` (the resolved import graph, not text),
+`search_columns` (provider-emitted column metadata, not file lines), and
+`winnow_symbols`, `get_decorator_census`, `find_hot_paths`, `list_repos` and
+`announce_model` (a "regex" or "substring" there filters names; none returns
+file lines).
+
+The meter's zero is enforced once, in `record_savings`, so an indirect caller
+inherits it: the deletion investigator runs `search_text` internally. On the
+Counter front door a text search was priced at the default multiplier, because
+the receipt saw only `order` or `route`; it now reads the action (from
+`order`'s input, and from the `executed_action` head of a `route` result with
+`execute=true`) and prices a text-search action at zero. Every other
+front-door action keeps the default multiplier, as before. The two tools are
+listed in one module, `savings_credit.py`, with their reasons, and a test fails
+if a tool whose description reads like a text search has not been decided
+there, or if either tool regains a multiplier.
+
+The receipt's `Net savings` line is now **`Modeled gross savings`**. Modeled,
+because the baseline is a multiplier rather than a measurement; gross, because
+only the answer's own size is subtracted. `--export json` carries the label as
+`savings_label` and the zero-credit tools with their reasons as
+`no_credit_tools`; `--export csv` appends a `savings_label` column; `--explain`
+names the label and lists both tools at 1.0x (baseline equals actual, so the
+saving is zero). No existing key or column is renamed; a CSV reader that
+checks the column count sees one more.
+
+### Fixed - the Windows watcher keeps running when the charger is unplugged
+
+On Windows, `watch-install` registered the `jcodemunch-watch` task with
+`schtasks /Create` switches. `schtasks` has no switch for Task Scheduler's
+battery rules or its time limit, so the defaults applied: the task did not
+start on battery, it was stopped when the machine went on battery, and it was
+ended after 72 hours. On a laptop the watcher died the first time the charger
+was unplugged and stayed dead until the next logon on mains, while
+`watch-status` still read `active: true`, because `active` means the task
+exists (ledger L-149, from a process audit of our own development laptop). The
+task is now registered from an XML definition that turns those three rules
+off and keeps everything the switch form set: a logon trigger, the limited
+run level, the running interpreter as the action, one instance at a time.
+`watch-status` on Windows now also reports `watcher_running`, the installed
+task's battery and time-limit `settings`, and a warning when the task exists
+but no watcher runs from it, or when it still carries the old defaults; an
+existing install is repaired by running `watch-install` again. The disclosure
+in SECURITY.md's "Background behavior, fully disclosed" states the new
+settings. The systemd and launchd installs were not checked.
+
+### Fixed - listing your indexes no longer writes into other files
+
+Every server start lists the indexes in the storage directory (to clean up
+orphans and repair starter packs), and listing opened each `*.db` file with the
+indexer's connection. That connection creates the index schema in a file that
+has none and runs every version migration on one with no version row. So a
+SQLite file of another kind in that directory, such as the parse cache, gained
+16 index tables, and an index still being written for the first time had a
+version stamped into it (ledger L-144). Only two file names were protected, and
+the runtime-signal summary in `get_session_stats` kept its own copy of that list
+with one of the two names missing. Listing and `inspect_index` now open
+read-only, and whether a file is an index is decided by what is in it: a `meta`
+table naming its repository, or index tables that still hold rows (a damaged
+index stays visible so you can re-index it). A store of another kind is skipped
+whatever it is called, and an index is read whatever its file is called. The
+schema script also runs as one transaction now, so a second connection can no
+longer see a half-created schema. One write remains: when a legacy JSON index
+shares its name with a SQLite file of another kind, listing still migrates the
+JSON into that file, as it did before.
+
+### Fixed - `index_file` no longer indexes a file the next full index deletes
+
+`index_file`, which the PostToolUse `index-file` hook calls after every edit,
+applied one rule of the folder walk's filter: it refused a credential file
+(#351) and nothing else. A file under `node_modules/` or `.next/`, under a
+directory tagged by `CACHEDIR.TAG`, in MSBuild output, a NuGet restore tree or
+a virtualenv's `site-packages`, matched by a `.gitignore` or by
+`extra_ignore_patterns`, or over `max_file_size` answered `success: True` and
+was searchable until the next full index deleted it (ledger L-142). The hook
+checks only the file extension before it calls, so `index_file` is that route's
+only filter. It now runs the walk's own per-file filter, `_should_index_file`,
+and refuses with the walk's reason in `skipped`. The filter's inputs come from
+the same place as the walk's: one builder for the size cap, ignore patterns and
+skip switches (`_walk_filter_config`, which `discover_local_files` now uses),
+the detected framework profile's ignore patterns (Spring Boot's `src/test/`,
+Rails' `tmp/`), and every `.gitignore` from the walk root down to the file. For
+an index built from a subdirectory of a git repository, the walk root is that
+subdirectory, as it is for the walk, so the git root's `.gitignore` and config
+do not refuse a file the walk indexed. Not covered: a per-call
+`index_folder(extra_ignore_patterns=...)` or `max_size=` is not stored, so
+`index_file` applies the configured values; and the watcher's fast path still
+assembles its own inputs (root `.gitignore` only, no profile patterns).
+
+This reverses a stated design. PR #1122 (L-206, the virtualenv rule) said
+"explicit `paths=`, `index_file` and `index_repo` are unchanged, as for every
+sibling skip rule", and 1.108.337 listed `index_file` among the routes that do
+not apply the marker rules. That held while `index_file`'s answer was
+temporary anyway: whatever it added, the next full index removed, so a user
+who wanted an excluded file could not keep it by this route either. Applying
+the exclusions here makes the two routes agree on what is in the index;
+`explicit paths=` and `index_repo` are unchanged.
+
+To index an excluded file on purpose, change the setting that excluded it,
+which the walk then honours too; every refusal names it:
+`exclude_skip_directories` (a skipped directory name, or `migrations`),
+`respect_cachedir_tag`, `skip_msbuild_output`, `skip_nuget_packages`,
+`skip_virtualenvs`, `extra_ignore_patterns`, `max_file_size`,
+`exclude_secret_patterns`. Known limit: no setting re-admits a gitignored file,
+a file matched by a framework profile's ignore pattern, a skip-listed file name
+(lockfiles, compiled files), a binary file or one inside a nested worktree; the
+refusal says so rather than naming a setting that does not exist.
+
+### Fixed - an opted-in git blame no longer goes missing on a busy machine
+
+With `git_blame_enabled` on, the blame provider decided whether a folder below a
+repository's root (indexing with `identity_mode: "local"` or
+`git_root_identity: false` starts there) was inside a git checkout by running `git rev-parse` with a
+5-second limit, and it swallowed the timeout. On a loaded machine a real
+repository read as none, and blame silently did not run: no warning and no
+skipped-provider entry (ledger L-209). The provider now asks the same rule
+the rest of jCodeMunch uses to find a git root, a walk up the folder tree that
+starts no process, so there is no timeout to miss.
+
 ## [1.108.376] - 2026-10-17 - install-pack honours every savings opt-out
 
 ### Added - `init` and `install` end with one licence line

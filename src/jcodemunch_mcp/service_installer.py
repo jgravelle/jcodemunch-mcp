@@ -2,7 +2,8 @@
 
 - Linux: systemd --user unit at ~/.config/systemd/user/jcodemunch-watch.service
 - macOS: launchd plist at ~/Library/LaunchAgents/us.gravelle.jcodemunch-watch.plist
-- Windows: Task Scheduler task named `jcodemunch-watch`
+- Windows: Task Scheduler task named `jcodemunch-watch`, registered from XML
+  so it keeps running on battery and has no time limit (L-149)
 
 The installer deliberately invokes the *same interpreter* currently running
 (via `sys.executable -m jcodemunch_mcp watch-all`) so the service picks up
@@ -17,6 +18,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -306,22 +308,86 @@ def _scheduled_task_state() -> Optional[str]:
     return state or None
 
 
+# ⚠⚠ L-149: `schtasks /Create` with switches takes Task Scheduler's defaults for
+# everything it has no switch for, and three of those defaults kill a watcher on
+# a laptop: it does not START on battery, it is STOPPED when the machine goes on
+# battery, and it is ENDED after 72 hours. No switch exists for any of them, so
+# the task is registered from this definition. Everything the switch form set is
+# kept: a logon trigger, the limited run level, the running interpreter as the
+# action, one instance at a time. The principal names no UserId, so `schtasks`
+# registers it for the calling user, as the switch form did.
+_WINDOWS_TASK_TEMPLATE = """<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>jcodemunch-mcp: auto-reindex every locally-indexed repo</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{command}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"""
+
+
+def _windows_task_xml() -> str:
+    """The task definition `_install_windows` registers (L-149)."""
+    exe, *rest = _exec_cmd()
+    return _WINDOWS_TASK_TEMPLATE.format(
+        command=_xml_escape(_cmd_quote(exe)),
+        arguments=_xml_escape(" ".join(_cmd_quote(x) for x in rest)),
+    )
+
+
 def _install_windows() -> dict:
     _log_dir().mkdir(parents=True, exist_ok=True)
-    cmd_str = " ".join(_cmd_quote(x) for x in _exec_cmd())
     # schtasks /Create does not persist stdout redirection; rely on Python logging
     # (watcher.py writes to stderr) and inspect via Event Viewer if needed.
-    args = [
-        "schtasks", "/Create", "/F",
-        "/TN", SERVICE_NAME,
-        "/SC", "ONLOGON",
-        "/RL", "LIMITED",
-        "/TR", cmd_str,
-    ]
-    # ⚠ The failure message is USER-FACING, so it needs the same decoding as the
-    # status path — a localized "access denied" rendered as mojibake is a support
-    # ticket, not a diagnosis.
-    returncode, stdout, stderr = _run_schtasks(args)
+    # ⚠ The file is written in the encoding its declaration names; schtasks
+    # rejects a document whose bytes disagree with it.
+    fd, xml_path = tempfile.mkstemp(prefix=f"{SERVICE_NAME}-", suffix=".xml")
+    try:
+        try:
+            fh = os.fdopen(fd, "w", encoding="utf-16")
+        except Exception:
+            os.close(fd)
+            raise
+        with fh:
+            fh.write(_windows_task_xml())
+        args = [
+            "schtasks", "/Create", "/F",
+            "/TN", SERVICE_NAME,
+            "/XML", xml_path,
+        ]
+        # ⚠ The failure message is USER-FACING, so it needs the same decoding as the
+        # status path — a localized "access denied" rendered as mojibake is a support
+        # ticket, not a diagnosis.
+        returncode, stdout, stderr = _run_schtasks(args)
+    finally:
+        try:
+            os.unlink(xml_path)
+        except OSError:
+            logger.debug("could not remove %s", xml_path, exc_info=True)
     if returncode != 0:
         raise InstallerError(f"schtasks /Create failed: {stderr.strip() or stdout.strip()}")
     subprocess.run(["schtasks", "/Run", "/TN", SERVICE_NAME], check=False, capture_output=True)
@@ -333,6 +399,50 @@ def _uninstall_windows() -> dict:
         ["schtasks", "/Delete", "/F", "/TN", SERVICE_NAME]
     )
     return {"platform": "schtasks", "task": SERVICE_NAME, "removed": returncode == 0}
+
+
+# The values L-149's definition registers. A task installed before it keeps
+# Task Scheduler's defaults (True, True, PT72H) until `watch-install` is re-run.
+_WINDOWS_TASK_SETTINGS = {
+    "disallow_start_if_on_batteries": False,
+    "stop_if_going_on_batteries": False,
+    "execution_time_limit": "PT0S",
+}
+_PS_BOOLS = {"True": True, "False": False}
+
+
+def _scheduled_task_settings() -> Optional[dict]:
+    """The installed task's battery and time-limit settings, or None if unread.
+
+    Read from `Get-ScheduledTask`, like the state: a bool's `ToString()` and the
+    ISO-8601 duration do not change with the display language.
+    """
+    script = (
+        "$ErrorActionPreference='Stop';"
+        f"$s=(Get-ScheduledTask -TaskName '{SERVICE_NAME}').Settings;"
+        "'{0}|{1}|{2}' -f $s.DisallowStartIfOnBatteries,$s.StopIfGoingOnBatteries,$s.ExecutionTimeLimit"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, check=False, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.debug("Get-ScheduledTask settings probe failed", exc_info=True)
+        return None
+    if result.returncode != 0:
+        logger.debug("Get-ScheduledTask settings returned %s", result.returncode)
+        return None
+    parts = _decode_windows_output(result.stdout or b"").strip().split("|")
+    if len(parts) != 3 or parts[0] not in _PS_BOOLS or parts[1] not in _PS_BOOLS:
+        return None
+    return {
+        "disallow_start_if_on_batteries": _PS_BOOLS[parts[0]],
+        "stop_if_going_on_batteries": _PS_BOOLS[parts[1]],
+        # ⚠ An empty read is UNKNOWN, never mapped to the healthy PT0S.
+        "execution_time_limit": parts[2] or None,
+    }
 
 
 def _status_windows() -> dict:
@@ -349,13 +459,45 @@ def _status_windows() -> dict:
         # confident `false` pass for a measurement.
         active = "Running" in stdout or "Ready" in stdout
         source = "display_text"
-    return {
+    out: dict = {
         "platform": "schtasks",
         "active": active,
         "state": state,
         "state_source": source,
+        # ⚠ `active` keeps #469's meaning (the task exists and is enabled). This
+        # answers L-149's question: is the watcher the task starts running now?
+        # The action IS the watcher, so the task reads Running exactly while it
+        # runs. None when the state is unreadable: unknown, never stopped.
+        "watcher_running": None if state is None else state == "Running",
         "detail": stdout.strip()[:400],
     }
+    warnings: list[str] = []
+    if state is not None and state != "Running":
+        remedy = (
+            "re-run `jcodemunch-mcp watch-install` (a disabled task cannot be started)"
+            if state == "Disabled"
+            else f"start it with `schtasks /Run /TN {SERVICE_NAME}` or log on again"
+        )
+        warnings.append(
+            f"task '{SERVICE_NAME}' exists (state {state}) but no watcher is "
+            f"running from it, so indexes are not kept fresh; {remedy}"
+        )
+    settings = _scheduled_task_settings()
+    if settings is not None:
+        out["settings"] = settings
+        old = [
+            k for k, v in _WINDOWS_TASK_SETTINGS.items()
+            if settings.get(k) is not None and settings.get(k) != v
+        ]
+        if old:
+            warnings.append(
+                "task carries Task Scheduler defaults that stop the watcher on "
+                f"battery or after 72 hours ({', '.join(old)}); re-run "
+                "`jcodemunch-mcp watch-install` to replace it"
+            )
+    if warnings:
+        out["warnings"] = warnings
+    return out
 
 
 # ── Public dispatch ─────────────────────────────────────────────────────────

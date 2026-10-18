@@ -1514,7 +1514,16 @@ def record_savings(tokens_saved: int, base_path: Optional[str] = None, tool_name
     """Add tokens_saved to the running total. Returns new cumulative total.
 
     Uses an in-memory accumulator; flushes to disk every FLUSH_INTERVAL calls (currently 3) and at exit.
+
+    ⚠ L-180: a text-search-style tool (``savings_credit.TEXT_SEARCH_STYLE_TOOLS``)
+    is credited ZERO here, whatever its caller computed. The call is still
+    counted. Refused at this layer so an indirect caller (the deletion
+    investigator runs ``search_text``) and a site written later inherit it.
     """
+    from ..savings_credit import earns_credit
+
+    if not earns_credit(tool_name):
+        tokens_saved = 0
     return _state.add(tokens_saved, base_path, tool_name)
 
 
@@ -1585,13 +1594,14 @@ def _runtime_signal_summary(base_path: Optional[str] = None) -> dict:
         root = Path(base_path) if base_path else Path.home() / ".code-index"
         if not root.exists():
             return summary
-        # Skip non-repo files (telemetry.db, config.jsonc, etc.)
-        non_repo = {"telemetry.db"}
+        # ⚠ Which files are indexes is sqlite_store's one content rule
+        # (L-144). This loop kept its own one-name denylist, which omitted
+        # org_savings.db and every other store that is not an index.
+        from .sqlite_store import INDEX_DB_NOT_INDEX, _classify_index_conn
+
         total = 0
         by_source: dict[str, int] = {}
         for db_path in root.glob("*.db"):
-            if db_path.name in non_repo:
-                continue
             try:
                 # #398 Arc 1: this loop touches EVERY index in ~/.code-index,
                 # so a plain `mode=ro` created a -wal beside each one and moved
@@ -1600,21 +1610,24 @@ def _runtime_signal_summary(base_path: Optional[str] = None) -> dict:
                 from .generation import connect_readonly
 
                 conn = connect_readonly(db_path, isolation_level="")
-                conn.row_factory = _sqlite3.Row
-                # Skip dbs that don't have the runtime_calls table yet
-                row = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_calls'"
-                ).fetchone()
-                if row is None:
+                try:
+                    conn.row_factory = _sqlite3.Row
+                    if _classify_index_conn(conn) == INDEX_DB_NOT_INDEX:
+                        continue
+                    # Skip dbs that don't have the runtime_calls table yet
+                    row = conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_calls'"
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    rows = conn.execute(
+                        "SELECT source, COALESCE(SUM(count), 0) AS n FROM runtime_calls GROUP BY source"
+                    ).fetchall()
+                finally:
                     conn.close()
-                    continue
-                rows = conn.execute(
-                    "SELECT source, COALESCE(SUM(count), 0) AS n FROM runtime_calls GROUP BY source"
-                ).fetchall()
                 for r in rows:
                     by_source[r["source"]] = by_source.get(r["source"], 0) + int(r["n"])
                     total += int(r["n"])
-                conn.close()
             except _sqlite3.Error:
                 logger.debug("Runtime signal probe failed on %s", db_path, exc_info=True)
         summary["rows"] = total
