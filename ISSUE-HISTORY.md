@@ -2711,3 +2711,13 @@ The 1.108.373 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.373 count, verbatim:
 
 - ⚠ Prior (1.108.373): 17595 passed, 25 skipped, **0 failed** (17620 total).
+
+## Current State rotation (2026-10-18, release 1.108.377)
+
+The 1.108.374 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.374):** **a Python virtualenv is skipped whatever its folder is called** (L-206): `security.is_virtualenv_site_packages_directory` prunes only `site-packages` under a root whose `pyvenv.cfg` has `home`; also #1117 audit reliability (lilubot). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.374 count, verbatim:
+
+- ⚠ Prior (1.108.374): 17702 passed, 25 skipped, **0 failed** (17727 total).

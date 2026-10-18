@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.377] - 2026-10-18 - a text search earns no savings credit
+
 ### Changed - a text search earns no savings credit, so your receipt and meter figures drop
 
 ⚠ **Your `receipt` totals will read lower from this release, and so may your
