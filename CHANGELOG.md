@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.378] - 2026-10-18 - install-pack's licence lookup writes no config file
+
 ### Fixed - install-pack no longer creates a config file to look up a licence key
 
 `install-pack <id>` without `--license` looks for a key in
@@ -9,9 +11,9 @@
 config in the mode that writes a default `config.jsonc` when none exists, so
 a first install could leave one behind. Once the pack's index sits in the
 store, a file written that way has no `tool_surface` key and pins a new user
-to the `full` tool surface, which nothing migrates them off (ledger L-215,
-the same shape L-212 avoided one step later on the same command). The lookup
-now reads the file without ever writing one. `--license`, the environment
+to the `full` tool surface, which nothing migrates them off (the same shape
+the v1.108.376 fix closed one step later in the same command). The lookup now
+reads the file without ever writing one. `--license`, the environment
 variable and a `license_key` in the config file resolve exactly as before;
 `tests/test_install_pack_license_lookup_writes_no_config.py` pins all three
 and fails if the command creates the file.
