@@ -1,6 +1,12 @@
 {
-  "current": "1.108.377",
+  "current": "1.108.378",
   "entries": [
+    {
+      "version": "1.108.378",
+      "date": "2026-10-18",
+      "title": "install-pack's licence lookup writes no config file",
+      "summary": "install-pack without --license looked up your licence key in a way that could create a default config.jsonc when none existed, and that file could pin a new user to the full tool surface. The lookup now reads the config without ever writing one; --license, JCODEMUNCH_LICENSE_KEY and a license_key in config.jsonc resolve as before."
+    },
     {
       "version": "1.108.377",
       "date": "2026-10-18",
@@ -18,12 +24,6 @@
       "date": "2026-10-17",
       "title": "a typo can no longer switch off a protective setting",
       "summary": "Six settings that are on by default and documented as switched off only by an explicit false (the four skip rules, the trusted-folders allowlist and PII redaction of runtime traces) were turned off by a mistyped environment value. A typo now keeps them on, with a warning naming the variable; every other boolean, the savings opt-out included, reads exactly as before."
-    },
-    {
-      "version": "1.108.374",
-      "date": "2026-10-16",
-      "title": "a Python virtualenv is skipped whatever its folder is called",
-      "summary": "index_folder skipped a virtualenv only when its folder was named venv or .venv, so a venv called env or jcm-venv was walked file by file and its site-packages competed with your own code. It now prunes a venv's site-packages under any folder whose pyvenv.cfg has a home key, and nothing else in the venv. Also from lilubot (#1117): dead_code_pct counts every candidate past 100, live React components and lifecycle methods are not offered for deletion, and old-form submodules appear in project intelligence."
     }
   ]
 }

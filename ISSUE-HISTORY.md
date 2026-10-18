@@ -2721,3 +2721,13 @@ The 1.108.374 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.374 count, verbatim:
 
 - ⚠ Prior (1.108.374): 17702 passed, 25 skipped, **0 failed** (17727 total).
+
+## Current State rotation (2026-10-18, release 1.108.378)
+
+The 1.108.375 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.375):** **a typo can no longer switch off a protective setting** (L-207): `config.BOOL_ENV_TYPO_KEEPS_DEFAULT` keeps six default-on switches on for an unrecognised env value; every other boolean reads as before (pinned). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.375 count, verbatim:
+
+- ⚠ Prior (1.108.375): 17815 passed, 25 skipped, **0 failed** (17840 total).
