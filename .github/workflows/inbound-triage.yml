@@ -213,6 +213,10 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: apply exactly what section 2 permits
         id: apply

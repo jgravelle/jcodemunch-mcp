@@ -57,6 +57,18 @@ jobs:
       tool_count: ${{ steps.v.outputs.tool_count }}
       dry_run: ${{ steps.v.outputs.dry_run }}
     steps:
+      # jjg (DECISIONS 2026-10-18): a release runs only when he triggers it. Every
+      # job needs this one, so a run started by a bot or anyone else stops here,
+      # before a build, a tag or an upload. The actor is read through env, never
+      # interpolated into the script.
+      - name: A release runs only when jgravelle triggers it
+        env:
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          if [ "$ACTOR" != "jgravelle" ]; then
+            echo "::error title=release refused::triggered by '$ACTOR'; only jgravelle may start a release"
+            exit 1
+          fi
       - name: A hand-pushed tag is refused (releases are cut by dispatch)
         if: github.event_name == 'push'
         run: |

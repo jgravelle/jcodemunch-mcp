@@ -104,6 +104,10 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
       - name: mark in progress (removed by the publish job's always() step)
         if: steps.pre.outputs.go == 'true'
         env:
@@ -260,6 +264,10 @@ jobs:
         with:
           app-id: ${{ secrets.INBOUND_APP_ID }}
           private-key: ${{ secrets.INBOUND_APP_PRIVATE_KEY }}
+          # Least privilege (jjg, DECISIONS 2026-10-18): the writes this job makes.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: push the branch and open the draft (the ruleset confines the App to inbound/**)
         if: steps.gate.outputs.ok == 'true'
