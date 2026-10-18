@@ -43,7 +43,13 @@
       "PowerShell(gh repo delete*)",
       "PowerShell(*twine upload*)",
       "PowerShell(*mcp-publisher* publish*)",
-      "PowerShell(*mcp-publisher* login*)"
+      "PowerShell(*mcp-publisher* login*)",
+      "Bash(gh pr merge*--admin*)",
+      "PowerShell(gh pr merge*--admin*)",
+      "Bash(gh alias set*)",
+      "PowerShell(gh alias set*)",
+      "Bash(gh alias import*)",
+      "PowerShell(gh alias import*)"
     ],
     "allow": [
       "Bash(uv run python -m harness*)",
@@ -74,7 +80,7 @@
       {
         "matcher": "Bash|PowerShell",
         "hooks": [
-          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny_guard.py\"", "timeout": 10 },
+          { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny_guard.py\"", "timeout": 30 },
           { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_commit.py\"", "timeout": 170 },
           { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_pr.py\"", "timeout": 15 }
         ]

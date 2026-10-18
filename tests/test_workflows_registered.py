@@ -132,15 +132,26 @@ def test_settings_deny_covers_every_verb_the_brief_forbids():
             )
     for verb in ("gh pr comment", "gh pr edit", "gh pr close", "gh issue comment", "gh issue close", "gh api"):
         assert verb not in joined, f"deny list refuses `{verb}` again; posting is the session's (W-40)"
-    # jjg (2026-10-16 DECISIONS line 78; 2026-10-17 in session): a merge moved from this
-    # unconditional list to deny_guard's conditional rule, which still refuses every merge
-    # except a cleared test/doc-only PR of ours (tests/test_cleared_merge.py). An entry
-    # here would refuse the cleared case before the hook ever ran.
-    assert "gh pr merge" not in joined, "the merge deny is the hook's conditional rule now"
-    guard = _read(CLAUDE_DIR / "hooks" / "deny_guard.py")
-    assert "cleared_merge_refusal" in guard and "_PR_MERGE_PATTERN" in guard, (
-        "deny_guard no longer carries the conditional merge rule; the merge would be unguarded"
-    )
+    # jjg (2026-10-17, DECISIONS line 80, and in session): a merge moved from this
+    # unconditional list to deny_guard's one conditional rule, enabling auto-merge on a
+    # main.yml results PR (tests/test_results_auto_merge.py). A plain merge glob here
+    # would refuse that form before the hook ran; the forms the hook never allows stay.
+    verb = "gh pr " + "merge"
+    for shell in ("Bash", "PowerShell"):
+        assert f"{shell}({verb}*)" not in deny, "a plain merge glob would refuse the one allowed form"
+        for kept in (f"{shell}({verb}*--admin*)", f"{shell}(gh alias set*)", f"{shell}(gh alias import*)"):
+            assert kept in deny, f"deny list lost `{kept}`, a form the hook never allows"
+    import sys
+
+    sys.path.insert(0, str(CLAUDE_DIR / "hooks"))
+    import deny_guard
+
+    def no_network(path):
+        raise AssertionError("a refused form must not reach the API")
+
+    # Behavioural, not a name search: a neutered rule that allowed everything fails here.
+    for line in (f"{verb} 5", f"{verb} 5 --squash", f"{verb} 5 --squash --admin", f"{verb} 5 --squash --auto"):
+        assert deny_guard.results_auto_merge_refusal(line, api=no_network) is not None, line
 
 
 def test_h1_format_check_is_read_from_the_workflow_not_copied():
