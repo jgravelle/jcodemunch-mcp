@@ -7,15 +7,23 @@ purpose:  nothing in a session does the IRREVERSIBLE: publish, tag, dispatch a
           be undone from the page (W-40, jjg 2026-09-07)
 invokes:  nothing
 produces: nothing
-refuses:  the verbs below, on Bash and PowerShell
+refuses:  the verbs below, on Bash and PowerShell; a guard that fails to load
+          or crashes refuses too
 budget:   1 s
 """
 
 from __future__ import annotations
 
 import re
+import sys
 
-from _common import block, ok, read_hook_input, tool_command
+# A guard that cannot load must refuse: Claude Code reads exit 1 as a non-blocking
+# error and runs the command (review of the results-merge rule, 2026-10-17).
+try:
+    from _common import block, ok, read_hook_input, tool_command
+except Exception as _exc:  # noqa: BLE001
+    sys.stderr.write(f"deny_guard: refused; the guard could not load ({type(_exc).__name__}: {_exc})\n")
+    sys.exit(2)
 
 DENIED = [
     (
@@ -60,9 +68,27 @@ DENIED = [
         # An API write is the session's (W-40) unless its path is one of the
         # irreversible acts the verbs above already refuse: a merge, a release,
         # a workflow dispatch, a tag ref, a deletion.
-        r"\bgh\s+api\b(?=.*(?:--method\s+(?:POST|PATCH|PUT|DELETE)|\s-X\s*(?:POST|PATCH|PUT|DELETE)))"
-        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method\s+DELETE|\s-X\s*DELETE)",
+        # A write is `--method`/`-X` (with a space, `=` or attached; the value maybe
+        # quoted) OR any field flag, because `gh api` sends POST whenever a field is
+        # given (`gh api --help`): `-f ref=main` on .../dispatches is a dispatch with
+        # no method named (review of W-57, 2026-10-18).
+        # Bounded to ONE command (`[^|;&]*`, as the push rules are), so a `-f` in a
+        # piped `grep -F` or a chained `rm -f` is not read as a field; an explicit
+        # GET is a read. Short flags may be clustered (`-iXPUT`, `-if`).
+        # A NAMED write method reads the whole line, as on main (a quoted `&` or `;`
+        # in a merge title must not end the window; review round 3, 2026-10-18).
+        r"\bgh\s+api\b(?=.*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-[A-Za-z]*X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)))"
+        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method[=\s]+['\"]?DELETE|\s-[A-Za-z]*X[=\s]*['\"]?DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
+    ),
+    (
+        # An IMPLICIT write: `gh api` sends POST whenever a field flag is given, so
+        # `-f ref=main` on .../dispatches needs no method. Read within ONE command
+        # (a piped `grep -F` or a chained `rm -f` is not a field), waived by an
+        # explicit GET, and not for graphql, whose mutations the rule below owns.
+        r"\bgh\s+api\b(?![^|;&]*\bgraphql\b)(?![^|;&]*(?:--method[=\s]+['\"]?GET\b|\s-[A-Za-z]*X[=\s]*['\"]?GET\b))"
+        r"(?=[^|;&]*\s(?:-[A-Za-z]*[fF]|--field|--raw-field|--input)(?=[\s=]|\S))[^|;&]*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/)",
+        "an implicit write through the API (a field flag on a merge, release, dispatch or tag path); the human runs it",
     ),
     (
         # W-41: the rule above is gated on --method/-X, and a GraphQL mutation
@@ -75,6 +101,18 @@ DENIED = [
         r"\bgh\s+api\b(?=.*\bgraphql\b).*\bmutation\b.*(?:\b(?:mergePullRequest|enablePullRequestAutoMerge"
         r"|deleteRef|deleteIssue|deleteDiscussion|deleteProjectV2)\b|refs/tags/)",
         "an irreversible act through a GraphQL mutation (merge, ref deletion, a deletion, or a tag ref); the human runs it",
+    ),
+    (
+        # A GraphQL query read from a file carries no mutation text for the rule
+        # above to read; the human runs those (2026-10-17).
+        r"\bgh\s+api\b(?=[^|;&]*\bgraphql\b)[^|;&]*(?:query=@|--input\b)",
+        "a GraphQL query read from a file, which no rule here can read; the human runs it",
+    ),
+    (
+        # `gh alias set m 'pr merge'` then `gh m 5` reaches a refused verb that no
+        # rule here reads (2026-10-17).
+        r"\bgh\s+alias\s+(?:set|import)\b",
+        "a gh alias, which can rename a refused verb past this guard; the human sets aliases",
     ),
     (
         r"\bgh\s+repo\s+delete\b",
@@ -114,4 +152,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 - a crashed guard must refuse: exit 1 lets the command run
+        block(f"deny_guard: refused; the guard itself failed ({type(exc).__name__}: {exc}), and a failed guard never allows")
