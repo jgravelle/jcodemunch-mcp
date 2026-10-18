@@ -68,8 +68,14 @@ DENIED = [
         # An API write is the session's (W-40) unless its path is one of the
         # irreversible acts the verbs above already refuse: a merge, a release,
         # a workflow dispatch, a tag ref, a deletion.
-        r"\bgh\s+api\b(?=.*(?:--method[=\s]+(?:POST|PATCH|PUT|DELETE)|\s-X\s*(?:POST|PATCH|PUT|DELETE)))"
-        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/|--method[=\s]+DELETE|\s-X\s*DELETE)",
+        # A write is `--method`/`-X` (with a space, `=` or attached; the value maybe
+        # quoted) OR any field flag, because `gh api` sends POST whenever a field is
+        # given (`gh api --help`): `-f ref=main` on .../dispatches is a dispatch with
+        # no method named (review of W-57, 2026-10-18).
+        r"\bgh\s+api\b(?=.*(?:--method[=\s]+['\"]?(?:POST|PATCH|PUT|DELETE)|\s-X[=\s]*['\"]?(?:POST|PATCH|PUT|DELETE)"
+        r"|\s(?:-f|-F|--field|--raw-field|--input)(?=[\s=]|\S)))"
+        r".*(?:/pulls/\d+/merge\b|/releases\b|/dispatches\b|/git/tags\b|refs/tags/"
+        r"|--method[=\s]+['\"]?DELETE|\s-X[=\s]*['\"]?DELETE)",
         "an irreversible write through the API (merge, release, dispatch, tag or delete); the human runs it",
     ),
     (
@@ -87,7 +93,7 @@ DENIED = [
     (
         # A GraphQL query read from a file carries no mutation text for the rule
         # above to read; the human runs those (2026-10-17).
-        r"\bgh\s+api\b(?=.*\bgraphql\b).*(?:\bquery=@|--input\b)",
+        r"\bgh\s+api\b(?=.*\bgraphql\b).*(?:query=@|--input\b)",
         "a GraphQL query read from a file, which no rule here can read; the human runs it",
     ),
     (

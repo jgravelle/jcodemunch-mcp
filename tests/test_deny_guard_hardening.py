@@ -39,13 +39,21 @@ def _refused(cmd: str) -> bool:
         "gh api --method PUT repos/x/y/pulls/5/merge",
         "gh api -XPUT repos/x/y/pulls/5/merge",
         "gh api --method=DELETE repos/x/y/git/refs/heads/z",
+        "gh api -X=PUT repos/x/y/pulls/5/merge",
+        "gh api -XPUT repos/x/y/pulls/5/merge",
+        "gh api --method 'PUT' repos/x/y/pulls/5/merge",
+        "gh api -X \"PUT\" repos/x/y/pulls/5/merge",
     ],
 )
 def test_every_spelling_of_an_api_merge_or_delete_is_refused(cmd):
     assert _refused(cmd), cmd
 
 
-@pytest.mark.parametrize("cmd", ["gh api graphql -F query=@m.graphql", "gh api graphql --input q.json", "gh api -H x graphql -f query=@q"])
+@pytest.mark.parametrize(
+    "cmd",
+    ["gh api graphql -F query=@m.graphql", "gh api graphql --input q.json", "gh api -H x graphql -f query=@q",
+     "gh api graphql -Fquery=@m.graphql", "gh api graphql -fquery=@m.graphql"],
+)
 def test_a_graphql_query_read_from_a_file_is_refused(cmd):
     assert _refused(cmd), cmd
 
@@ -55,8 +63,25 @@ def test_creating_a_gh_alias_is_refused(cmd):
     assert _refused(cmd), cmd
 
 
-@pytest.mark.parametrize("cmd", ["gh alias list", "gh api graphql -f query='query { viewer { login } }'", "gh api repos/x/y/pulls/5"])
-def test_reads_still_pass(cmd):
+@pytest.mark.parametrize(
+    "cmd",
+    ["gh api repos/o/r/actions/workflows/release.yml/dispatches -f ref=main",
+     "gh api repos/o/r/releases -f tag_name=v1",
+     "gh api repos/o/r/git/refs -f ref=refs/tags/v1 -f sha=abc",
+     "gh api repos/o/r/pulls/5/merge -f merge_method=squash",
+     "gh api repos/o/r/dispatches --input payload.json",
+     "gh api repos/o/r/releases -Ftag_name=v1"],
+)
+def test_an_implicit_post_through_a_field_flag_is_refused(cmd):
+    """`gh api` sends POST whenever a field is given, so no `--method` is needed for the act."""
+    assert _refused(cmd), cmd
+
+
+@pytest.mark.parametrize(
+    "cmd", ["gh alias list", "gh api graphql -f query='query { viewer { login } }'", "gh api repos/x/y/pulls/5",
+            "gh api repos/x/y/issues/5/comments -f body=thanks", "gh api -X=GET repos/x/y"],
+)
+def test_reads_and_posting_still_pass(cmd):
     """Posting and reads are the session's (W-40); the new rules refuse acts, not words."""
     assert not _refused(cmd), cmd
 
