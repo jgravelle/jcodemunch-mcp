@@ -879,22 +879,9 @@ dev-group sync. It only looked correct while `.venv` happened to carry the
 extras from an earlier sync, i.e. **the command was inheriting a state it did
 not create**. CI (`pr-gate.yml`, formerly `test.yml`) runs `uv sync --locked --group dev --extra watch` first.
 
-⚠⚠ **Caught mid-release, and the near-miss is the lesson: it returned EXIT 0
-and the totals reconciled EXACTLY** (8,740 + 18 new tests = 8,758) — the two
-things "green" normally means here. Meanwhile `passed` fell 8,721 → 8,634 and
-`skipped` rose **19 → 124**: 105 tests silently did not execute, because
-`watchfiles` (the `[watch]` extra CI installs BY NAME) was absent.
-
-⚠ **READ THE SKIP COUNT, not just the exit code and the total.** Expect the
+⚠ **READ THE SKIP COUNT, not just the exit code and the total** (the 2026-08-28 near-miss is in `ISSUE-HISTORY.md`, rotated 2026-10-19). Expect the
 documented 19–26 range; a jump means the environment, not the code. The
 before/after delta on the SAME job is the only signal.
-
-⚠ Third instance of one family, and CONTRIBUTING.md already carries the
-sentence: *CI installs with `uv sync` and never runs the command the docs give a
-human, so the thing we test is not the thing they do.* The first was
-`pip install -e ".[test]"` (an extra no repo declares); the second was
-`-n 4 --dist loadfile` under a bare `python -m pytest`, which collects nothing
-and exits 0. [[pipes-and-missing-xdist-both-report-exit-zero]]
 
 ## Maintenance Practices
 
