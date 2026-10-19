@@ -161,6 +161,10 @@ exclude = [
     # scanner reading the sdist counts against us as if we ran them
     # (tests/test_shipped_text_has_no_dynamic_code_calls.py).
     "munch-bench/results/",
+    # The community savings meter's deployed receiver (PHP). Kept beside the
+    # client that describes it so a test can hold the two together; it runs
+    # on the meter's web host, never in an installed package.
+    "server/",
 ]
 
 [tool.pytest.ini_options]
