@@ -2275,15 +2275,21 @@ class SQLiteIndexStore:
                 file_hashes, file_mtimes, package_names, file_cap_status,
             )
 
-    def update_symbol_summaries(self, owner: str, name: str, summaries: dict[str, str]) -> int:
+    def update_symbol_summaries(
+        self, owner: str, name: str, summaries: dict[str, tuple[str, str]]
+    ) -> int:
         """Write new summaries for existing symbols and touch nothing else.
 
         #1161: a summary refresh went through `incremental_save`, which
         rewrites whole symbol rows from Symbol objects, and every field the
         caller had not rebuilt (`cyclomatic`, `max_nesting`, `param_count`,
         and `call_references` in `data`) was stored as NULL. An UPDATE of the
-        one column cannot clobber the others. Returns the rows changed; an id
-        no longer in the index is skipped.
+        one column cannot clobber the others.
+
+        `summaries` maps a symbol id to `(summary, content_hash)`, the hash
+        of the body the summary was written from. A row whose hash no longer
+        matches (a re-index changed the body while the summaries were being
+        made) or whose id is gone is skipped. Returns the rows written.
         """
         db_path = self._db_path(owner, name)
         if not db_path.exists() or not summaries:
@@ -2310,14 +2316,18 @@ class SQLiteIndexStore:
                 if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
                     raise IndexIdentityConflict(f"{owner}/{name}", row[0])
                 changed = 0
-                for sid, summary in summaries.items():
+                for sid, (summary, content_hash) in summaries.items():
                     cur = conn.execute(
-                        "UPDATE symbols SET summary = ? WHERE id = ?", (summary, sid)
+                        "UPDATE symbols SET summary = ? WHERE id = ? AND content_hash IS ?",
+                        (summary, sid, content_hash),
                     )
                     changed += cur.rowcount or 0
                 conn.commit()
             finally:
                 conn.close()
+        # The in-process index cache holds the old summaries; a whole-row save
+        # replaced its entry, this write evicts it so the next load re-reads.
+        _cache_evict(owner, self._safe_repo_component(name, "name"))
         return changed
 
     def _incremental_save_locked(

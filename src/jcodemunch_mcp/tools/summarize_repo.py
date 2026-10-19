@@ -114,10 +114,12 @@ def summarize_repo(
     # call_references in `data` (#1161).
     stored = {d["id"]: d.get("summary", "") for d in index.symbols}
     new_summaries = {
-        sym.id: sym.summary for sym in symbols if sym.summary != stored.get(sym.id, "")
+        sym.id: (sym.summary, sym.content_hash)
+        for sym in symbols
+        if sym.summary != stored.get(sym.id, "")
     }
     try:
-        store.update_symbol_summaries(owner, name, new_summaries)
+        written = store.update_symbol_summaries(owner, name, new_summaries)
     except Exception as e:
         logger.warning("summarize_repo: failed to save updated summaries for %s/%s: %s", owner, name, e)
         return {"error": f"Summarization completed but save failed: {e}"}
@@ -128,7 +130,7 @@ def summarize_repo(
         owner, name, updated, skipped, duration,
     )
 
-    return {
+    result = {
         "success": True,
         "repo": f"{owner}/{name}",
         "symbol_count": len(symbols),
@@ -136,3 +138,10 @@ def summarize_repo(
         "skipped": skipped,
         "duration_seconds": duration,
     }
+    # A symbol a concurrent re-index removed or rewrote is not given a summary
+    # made from its old body; say how many, rather than count them as updated.
+    not_written = len(new_summaries) - written
+    if not_written > 0:
+        result["not_written"] = not_written
+        result["not_written_reason"] = "the symbol was re-indexed or removed during the refresh"
+    return result

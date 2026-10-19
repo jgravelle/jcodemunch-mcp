@@ -7,8 +7,10 @@ fields it did not copy were stored as NULL: `cyclomatic`, `max_nesting` and
 said "not available"), and the `data` column holding `call_references`, which
 the call graph reads. The repository did not change between the two calls.
 
-The guard runs the real indexer and the real store on the reporter's
-five-file repository, and compares every stored column before and after.
+The guard runs the real indexer and the real store on a fixture derived from
+the reporter's repository (four files; `use` gains a loop and a branch so it
+carries a measured complexity), and compares every stored column before and
+after.
 Only the summarizer is replaced, so the test needs no AI provider.
 """
 
@@ -126,3 +128,65 @@ def test_the_response_counts_are_unchanged(indexed, monkeypatch):
     monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)
     out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
     assert out["symbol_count"] == n and out["updated"] == n and out["skipped"] == 0, out
+
+
+def test_a_load_after_the_refresh_serves_the_new_summaries(indexed, monkeypatch):
+    """The user's entry point reads through the store's in-process cache, which
+    held the old summaries; a read of SQLite alone cannot see that (review).
+
+    The cache is keyed by the file's mtime, and two writes inside one
+    filesystem tick share it. The mtime is pinned here, as a coarse-tick
+    filesystem would leave it, so the test depends on the write evicting the
+    entry and not on the clock moving."""
+    import jcodemunch_mcp.storage.sqlite_store as sqlite_store
+    from jcodemunch_mcp.storage import IndexStore
+
+    repo, storage, db = indexed
+    owner, name = repo.split("/", 1)
+    pinned = sqlite_store._db_mtime_ns(db)
+    monkeypatch.setattr(sqlite_store, "_db_mtime_ns", lambda _path: pinned)
+    store = IndexStore(base_path=storage)
+    warm = store.load_index(owner, name)
+    assert warm is not None and not any(
+        s.get("summary", "").startswith("refreshed:") for s in warm.symbols
+    )
+    monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)
+    assert summarize_mod.summarize_repo(repo, force=True, storage_path=storage).get(
+        "success"
+    )
+    fresh = IndexStore(base_path=storage).load_index(owner, name)
+    assert fresh is not None
+    assert all(s["summary"] == f"refreshed: {s['name']}" for s in fresh.symbols), [
+        s["summary"] for s in fresh.symbols
+    ]
+    use = next(s for s in fresh.symbols if s["name"] == "use")
+    assert use.get("cyclomatic"), use
+
+
+def test_a_summary_is_not_written_onto_a_body_that_changed(indexed, monkeypatch):
+    """The summaries are made from a snapshot; a re-index that rewrites a body
+    in the meantime must not receive the old body's summary."""
+    repo, storage, db = indexed
+    use_id = next(i for i, r in _rows(db).items() if r["name"] == "use")
+
+    def summarize_then_reindex(symbols, use_ai=True, repo=None):
+        conn = sqlite3.connect(str(db))
+        try:
+            conn.execute(
+                "UPDATE symbols SET content_hash = 'changed' WHERE id = ?", (use_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return _fake_summarizer(symbols)
+
+    monkeypatch.setattr(summarize_mod, "summarize_symbols", summarize_then_reindex)
+    out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
+    after = _rows(db)
+    assert after[use_id]["summary"] != "refreshed: use", after[use_id]
+    assert out["not_written"] == 1, out
+    assert all(
+        r["summary"] == f"refreshed: {r['name']}"
+        for i, r in after.items()
+        if i != use_id
+    )

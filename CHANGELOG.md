@@ -17,10 +17,15 @@ until its next re-index, and nothing said so.
 
 A refresh now writes only the summaries that changed, with an `UPDATE` of
 the one column (`update_symbol_summaries` on the store), so it cannot touch
-any other field. `tests/test_summary_refresh_writes_summaries_only.py` runs
-the real indexer and store on the reporter's repository and fails if any
-stored column other than `summary` changes. Reported by @SlimLemon (#1161),
-with the reproduction and both candidate fixes.
+any other field. A summary is written only while the symbol's body is the
+one it was made from: a re-index that rewrites the body during the refresh
+keeps its own row, and the response reports `not_written`. The store's
+in-process cache is evicted so the next read serves the new summaries.
+`tests/test_summary_refresh_writes_summaries_only.py` runs the real indexer
+and store on a fixture derived from the reporter's repository. It fails if
+any stored column other than `summary` changes, if a load after the refresh
+serves the old summaries, or if a summary lands on a changed body. Reported
+by @SlimLemon (#1161), with the reproduction and both candidate fixes.
 
 ### Fixed - a task capsule's risk entry carries the PR's real risk score
 
