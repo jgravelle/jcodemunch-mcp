@@ -1,6 +1,12 @@
 {
-  "current": "1.108.379",
+  "current": "1.108.380",
   "entries": [
+    {
+      "version": "1.108.380",
+      "date": "2026-10-19",
+      "title": "compacting a session no longer waits on a large index's landmarks",
+      "summary": "Before Claude Code compacts a conversation, jCodeMunch's PreCompact hook builds a Structural Landmarks section, and Claude Code waits for it. That section loaded and ranked every index holding a file the session touched, with no size cap or time limit. It now uses the same limits as the agent briefing (indexes over 100,000 symbols or of unknown size are skipped, and no index is started after 3 seconds), and it lists any index it skipped and why."
+    },
     {
       "version": "1.108.379",
       "date": "2026-10-19",
@@ -18,12 +24,6 @@
       "date": "2026-10-18",
       "title": "a text search earns no savings credit",
       "summary": "Your receipt and live savings meter now read lower: search_text and check_references earn no savings credit in either model, because their answer is the matching lines, which Grep returns too, and no measurement supports a credit. The receipt's total is renamed Modeled gross savings. Also: index_file excludes what the full index excludes, listing indexes never writes to other files, the Windows watcher keeps running on battery, and an opted-in git blame no longer goes missing on a busy machine."
-    },
-    {
-      "version": "1.108.376",
-      "date": "2026-10-17",
-      "title": "install-pack honours every savings opt-out",
-      "summary": "After installing a starter pack, install-pack posts one event naming the pack, its version and your platform. It now skips that whenever you have opted out of savings sharing in any spelling (false, off, no, or share_savings: false in config.jsonc), not only for an environment value of exactly 0, so it can never send where it did not before. Also: a real init or install now ends with one line about the commercial licence."
     }
   ]
 }

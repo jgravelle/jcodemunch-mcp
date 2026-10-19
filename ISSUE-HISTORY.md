@@ -2741,3 +2741,13 @@ The 1.108.376 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.376 count, verbatim:
 
 - ⚠ Prior (1.108.376): 17886 passed, 25 skipped, **0 failed** (17911 total).
+
+## Current State rotation (2026-10-19, release 1.108.380)
+
+The 1.108.377 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.377):** **a text search earns no savings credit** (L-180): `search_text`/`check_references` earn zero in the receipt and the meter; the receipt total reads Modeled gross savings; also L-142, L-144, L-149, L-209. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.377 count, verbatim:
+
+- ⚠ Prior (1.108.377): 17976 passed, 25 skipped, **0 failed** (18001 total).

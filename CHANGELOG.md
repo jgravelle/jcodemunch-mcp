@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.380] - 2026-10-19 - compacting a session no longer waits on a large index's landmarks
+
 ### Fixed - compacting a session no longer waits on a large index's landmarks
 
 Before Claude Code compacts a conversation, jCodeMunch's PreCompact hook
