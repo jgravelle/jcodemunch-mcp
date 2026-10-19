@@ -2,9 +2,9 @@
 
 Two release runs in a row (v1.108.378, v1.108.380) ended `failure` with every
 publish job green, because the paged `?search=` read timed out on all six
-attempts. Measured 2026-10-19: that search took 12.4 s and 21.7 s uncached,
-while `/v0/servers/<name>/versions/<v>` answered in 0.29 to 0.89 s with the
-same nested row. So each attempt asks for the one row first.
+attempts, while `/v0/servers/<name>/versions/<v>` answers far faster with the
+same nested row (FINDINGS C-27 carries the measurement). So each attempt asks
+for the one row first.
 
 What is pinned: the version row can only end the run EARLY, on a PASS.
 Anything else (no answer, or an answer that does not pass) falls through to
@@ -126,3 +126,64 @@ def test_the_version_read_asks_for_the_encoded_row_inside_its_own_timeout(rv, mo
     assert path.endswith("/v0/servers/io.github.jgravelle%2Fjcodemunch-mcp/versions/9.9.9")
     assert timeout <= rv.VERSION_SECONDS
     assert rv.VERSION_SECONDS < rv.REQUEST_SECONDS, "the fast read must be the cheaper one"
+
+
+class _Clock:
+    """A fake clock on which every request runs to its timeout."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.timeouts = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def test_the_version_read_is_clipped_to_the_budget_left(rv, monkeypatch):
+    """Review finding: nothing tested the version read's budget bound, and a
+    mutant without `min(VERSION_SECONDS, left)` ran past the budget unseen."""
+    clock = _Clock()
+    monkeypatch.setattr(rv, "time", types.SimpleNamespace(sleep=clock.sleep, monotonic=clock.monotonic))
+    seen = []
+
+    def urlopen(url, timeout=None):
+        kind = "version" if "/versions/" in url else "search"
+        seen.append((kind, timeout))
+        clock.now += timeout  # every request runs to its timeout
+        return io.BytesIO(b'{"not": "an answer"}')  # no row: no answer, every time
+
+    monkeypatch.setattr(rv.urllib.request, "urlopen", urlopen)
+    code = rv.main(["--version", "9.9.9", "--budget", "43", "--delay", "0", "--attempts", "5"])
+    assert code == rv.UNREADABLE
+    assert clock.now - 1000.0 <= 43.0, f"ran {clock.now - 1000.0} s on a 43 s budget"
+    assert seen[:3] == [("version", 10.0), ("search", 30.0), ("version", 3.0)], seen
+
+
+def test_a_version_read_with_no_budget_left_asks_nothing(rv, monkeypatch):
+    """The `left <= 0` guard: a spent budget raises before any request."""
+    called = []
+    monkeypatch.setattr(rv.urllib.request, "urlopen", lambda *a, **k: called.append(a))
+    with pytest.raises(TimeoutError):
+        rv.fetch_version(NAME, "9.9.9", deadline=time.monotonic() - 1.0)
+    assert called == []
+
+
+def test_pass_stays_the_last_line(rv, monkeypatch, capsys):
+    """RUNBOOK 3a: the last line decides."""
+    _serve(rv, monkeypatch, _row("9.9.9"), TimeoutError("s"))
+    rv.main(["--version", "9.9.9"])
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines[-1] == "PASS"
+    assert "(read from the version row)" in lines
+
+
+def test_a_version_row_that_answers_wrong_says_so(rv, monkeypatch, capsys):
+    """A wrong row on the fast read is logged before the full read decides."""
+    _serve(rv, monkeypatch, _row("9.9.8"), {"servers": [_row("9.9.9")]})
+    assert rv.main(["--version", "9.9.9"]) == 0
+    out = capsys.readouterr().out
+    assert "attempt 1: version row: FAIL" in out
+    assert out.strip().splitlines()[-1] == "PASS"

@@ -35,9 +35,8 @@ UNREADABLE = 75
 
 MAX_PAGES = 50
 REQUEST_SECONDS = 30.0
-# The one-row read (FINDINGS C-27). Measured 2026-10-19: the paged search took
-# 12.4 s and 21.7 s uncached while `/versions/<v>` answered in 0.29 to 0.89 s,
-# and two release runs in a row timed out on the search alone.
+# The one-row read (FINDINGS C-27 carries the measurement): the paged search is
+# the slow read, and two release runs in a row timed out on it alone.
 VERSION_SECONDS = 10.0
 # The whole run, every attempt and every page. `release.yml`'s registry job is
 # cancelled at its `timeout-minutes`, and a cancelled job opens no issue at
@@ -207,14 +206,19 @@ def main(argv=None) -> int:
         # PASS: anything else (no answer, or an answer that does not pass)
         # falls through to the full read, which stays the authority for every
         # FAIL and every UNREADABLE, so neither verdict became easier to reach.
+        # Every line from this read starts "attempt N: version row:" and never
+        # decides the exit code (RUNBOOK 3a); a 404 is expected just after a
+        # publish, while the registry indexes the new version.
         try:
             ok, lines = _judge(fetch_version(a.name, a.version, deadline), a.name, a.version)
             if ok:
-                print("\n".join(lines + ["(read from the version row)"]))
+                # "PASS" stays the last line, which is what RUNBOOK 3a reads.
+                print("\n".join(lines[:-1] + ["(read from the version row)", lines[-1]]))
                 return 0
+            print(f"attempt {attempt}: version row: {lines[-1]}; reading every page", flush=True)
         except (OSError, http.client.HTTPException, ValueError) as exc:
             print(
-                f"attempt {attempt}: the version row gave no answer "
+                f"attempt {attempt}: version row: no answer "
                 f"({type(exc).__name__}: {exc}); reading every page",
                 flush=True,
             )

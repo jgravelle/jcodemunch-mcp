@@ -155,6 +155,10 @@ title says which of two things happened (LEDGER L-96).
    `PASS`: close the issue with that output. Do not re-publish.
    The last line decides: `attempt N: FAIL: ...` lines above a final `PASS`
    are a stale row that was asked again.
+   Lines that start `attempt N: version row:` come from the one-row read each
+   attempt makes first (C-27). They never decide the exit code; the paged read
+   after them does. A `404` there is expected just after a publish, while the
+   registry indexes the new version.
    `UNREADABLE` again: read the `attempt N: no answer (<type>: ...)` lines.
    - A timeout, a connection error, an HTTP 5xx or an HTTP 429: the registry
      is still not answering. Wait and run it again.
@@ -162,8 +166,10 @@ title says which of two things happened (LEDGER L-96).
      cursor or a row in another shape, a cursor that did not advance, too
      many pages), or any other HTTP 4xx (the request itself is refused):
      waiting will not fix it. The registry's shape changed or the script is wrong.
-     Read the row by hand
-     (`https://registry.modelcontextprotocol.io/v0/servers?search=io.github.jgravelle/jcodemunch-mcp&version=latest`),
+     Read the row by hand, the one-row read first because the paged search is
+     the slow one
+     (`https://registry.modelcontextprotocol.io/v0/servers/io.github.jgravelle%2Fjcodemunch-mcp/versions/X.Y.Z`,
+     then `https://registry.modelcontextprotocol.io/v0/servers?search=io.github.jgravelle/jcodemunch-mcp&version=latest`),
      close the issue on what it shows, and fix the script in a PR.
    `FAIL:` as the last lines: the registry answered; go to item 2's first case.
 2. **"registry publish failed for vX.Y.Z".** Open the run and read which step
