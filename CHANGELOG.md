@@ -27,6 +27,8 @@ any stored column other than `summary` changes, if a load after the refresh
 serves the old summaries, or if a summary lands on a changed body. Reported
 by @SlimLemon (#1161), with the reproduction and both candidate fixes.
 
+## [1.108.382] - 2026-10-19 - a task capsule's risk entry carries the PR's real risk score
+
 ### Fixed - a task capsule's risk entry carries the PR's real risk score
 
 `assemble_task_context` runs `get_pr_risk_profile` for the `review` and
