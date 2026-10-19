@@ -1,6 +1,12 @@
 {
-  "current": "1.108.381",
+  "current": "1.108.382",
   "entries": [
+    {
+      "version": "1.108.382",
+      "date": "2026-10-19",
+      "title": "a task capsule's risk entry carries the PR's real risk score",
+      "summary": "assemble_task_context copies get_pr_risk_profile's verdict into the capsule for review and audit tasks, and it read three keys the profile never published, so every capsule's risk entry said 0, \"\" and {} whatever the change. It now carries the real risk_score, risk_level and signal_breakdown; a score the profile withholds stays null with unmeasurable_axes beside it, and the list of files the import graph could not walk is capped at 20 with its total."
+    },
     {
       "version": "1.108.381",
       "date": "2026-10-19",

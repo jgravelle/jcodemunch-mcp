@@ -1464,6 +1464,12 @@ class IndexStore:
         """
         return self._sqlite.detect_changes_with_mtimes(owner, name, current_mtimes, hash_fn)
 
+    def update_symbol_summaries(
+        self, owner: str, name: str, summaries: dict[str, tuple[str, str]]
+    ) -> int:
+        """Write new summaries and nothing else (#1161); see the SQLite method."""
+        return self._sqlite.update_symbol_summaries(owner, name, summaries)
+
     def incremental_save(
         self,
         owner: str,
