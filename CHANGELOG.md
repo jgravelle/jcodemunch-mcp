@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed - a summary refresh no longer leaves old summaries in cached results
+
+The server keeps a cache of recent tool results and clears it after every
+tool that rewrites an index: `index_folder`, `index_repo`, `index_file` and
+`index_dependency`. `summarize_repo` rewrites every symbol's summary and was
+missing from that list, so a `search_symbols` or `get_symbol_source` result
+cached before a refresh kept showing the old summaries until something else
+cleared the cache. It now clears the cache too.
+`tests/test_a_summary_refresh_clears_cached_results.py` calls `summarize_repo`
+through the server and checks the cache is empty. It also reads the
+dispatcher and fails if any of the five index-writing tools stops clearing it.
+Found in the review of #1161 (LEDGER L-226).
+
 ## [1.108.383] - 2026-10-19 - refreshing summaries no longer erases complexity and the call graph
 
 ### Fixed - refreshing summaries no longer erases complexity and the call graph

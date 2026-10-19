@@ -6140,6 +6140,9 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent] | Cal
                     storage_path=storage_path,
                 )
             )
+            # Cached search and source results carry the summaries this just
+            # rewrote (L-226).
+            _result_cache_invalidate()
         elif name == "index_file":
             from .tools.index_file import index_file
             _ai = arguments.get("use_ai_summaries", _default_use_ai_summaries())
