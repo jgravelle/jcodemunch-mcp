@@ -2751,3 +2751,30 @@ The 1.108.377 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.377 count, verbatim:
 
 - ⚠ Prior (1.108.377): 17976 passed, 25 skipped, **0 failed** (18001 total).
+
+## CLAUDE.md rotation (2026-10-19, before release 1.108.381): "Reproducing CI's environment" forensics
+
+Verbatim as they stood in `CLAUDE.md`; the rule (read the skip count) and the command stay there.
+
+⚠⚠ **Caught mid-release, and the near-miss is the lesson: it returned EXIT 0
+and the totals reconciled EXACTLY** (8,740 + 18 new tests = 8,758) — the two
+things "green" normally means here. Meanwhile `passed` fell 8,721 → 8,634 and
+`skipped` rose **19 → 124**: 105 tests silently did not execute, because
+`watchfiles` (the `[watch]` extra CI installs BY NAME) was absent.
+
+⚠ Third instance of one family, and CONTRIBUTING.md already carries the
+sentence: *CI installs with `uv sync` and never runs the command the docs give a
+human, so the thing we test is not the thing they do.* The first was
+`pip install -e ".[test]"` (an extra no repo declares); the second was
+`-n 4 --dist loadfile` under a bare `python -m pytest`, which collects nothing
+and exits 0. [[pipes-and-missing-xdist-both-report-exit-zero]]
+
+## Current State rotation (2026-10-19, release 1.108.381)
+
+The 1.108.378 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.378):** **install-pack's licence lookup writes no config file** (L-215): `resolve_effective_license_key` re-reads with `load_config(create_missing=False)`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.378 count, verbatim:
+
+- ⚠ Prior (1.108.378): 17985 passed, 25 skipped, **0 failed** (18010 total).

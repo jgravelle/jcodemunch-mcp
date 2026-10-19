@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [1.108.381] - 2026-10-19 - one repository's index can no longer replace or stand in for another's
+
+### Security - one repository's index can no longer replace or stand in for another's
+
+An index is stored in a file named `<owner>-<name>`. GitHub owners and
+repository names can both contain hyphens, so two different repositories,
+such as `foo-bar/baz` and `foo/bar-baz`, mapped to the same file. Indexing
+the second silently overwrote the first. A question about the first then
+received the second repository's files and source, labelled with the first's
+name. If someone else controlled the second repository, they could replace
+code your agent trusted with their own text.
+
+Each index records which repository it belongs to, and the store now checks
+that record at the two places every reader and writer goes through to reach an
+index's file and its stored source. So it covers index and folder indexing,
+saves and deletes, reads, and the runtime-evidence and import tools. Once a
+repository is indexed, nothing writes into its index or source under another
+repository's name, and nothing serves it under the wrong name, whichever
+order the two were indexed in. The error names both repositories. If the
+record cannot be read at all, the store refuses rather than guess. Saving
+checks the record again inside the write itself, so two saves at the same
+moment cannot both claim one file. One case remains: two colliding
+repositories indexed for the first time, with runs that overlap, into an
+empty slot can each write source before either save claims the slot. The
+refused run's files can then stay in the other repository's source until that
+repository is re-indexed.
+Re-indexing the same repository behaves as before, and so does an index old
+enough to record no repository. Two repositories that collide this way cannot
+both be indexed in one storage directory. Indexing the second now fails with
+that explanation, instead of quietly replacing the first.
+`tests/test_index_identity_is_kept_per_repository.py` pins each case,
+including an end-to-end index of the colliding repository.
+Reported by @mich3333.
+
 ## [1.108.380] - 2026-10-19 - compacting a session no longer waits on a large index's landmarks
 
 ### Fixed - compacting a session no longer waits on a large index's landmarks
