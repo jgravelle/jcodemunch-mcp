@@ -12,9 +12,10 @@ was served from the cache with the summaries from before it.
 
 The store's summary write now tells the search cache to drop that
 repository's entries (`storage/write_listeners.py`; `search_symbols`
-registers itself when it is imported). The write is where the notice comes
-from, so every caller is covered, not only `summarize_repo` through the
-server. `tests/test_a_summary_refresh_clears_cached_results.py` indexes a real
+registers itself when it is imported). The notice comes from the write,
+not the dispatcher, so any caller in the same process is covered. It does
+not reach another process: a summary write from a second server or a script
+still leaves this process's cached searches stale (LEDGER L-228). `tests/test_a_summary_refresh_clears_cached_results.py` indexes a real
 repository, searches through the server, refreshes the summaries with the
 real `summarize_repo`, and searches again. It fails if the second search
 shows the old summary, and it does the same for a direct call to the store.

@@ -74,8 +74,9 @@ async def test_a_search_repeated_after_summarize_repo_serves_the_new_summary(
 
 
 def test_a_direct_store_write_reaches_the_search_cache(repo):
-    """One layer down from the dispatcher: any caller of the store's summary
-    write (the CLI, a script) leaves no stale search behind."""
+    """One layer down from the dispatcher: a caller of the store's summary
+    write in the SAME process leaves no stale search behind. The registry is
+    per process; another process's write is LEDGER L-228."""
     from jcodemunch_mcp.storage import IndexStore
     from jcodemunch_mcp.tools.search_symbols import search_symbols
 
