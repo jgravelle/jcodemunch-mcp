@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.384] - 2026-10-19 - the watcher no longer polls trees nothing indexes
+
 ### Fixed - the watcher no longer polls trees nothing indexes
 
 Under WSL the file watcher polls, and it polls every directory its census

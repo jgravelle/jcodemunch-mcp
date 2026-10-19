@@ -2798,3 +2798,13 @@ The 1.108.380 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.380 count, verbatim:
 
 - ⚠ Prior (1.108.380): 18066 passed, 25 skipped, **0 failed** (18091 total).
+
+## Current State rotation (2026-10-19, release 1.108.384)
+
+The 1.108.381 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.381):** **one repository's index can no longer replace or stand in for another's** (GHSA-xxx4-frv5-chp2, @mich3333): `SQLiteIndexStore._guard_slot`, called by `_db_path`/`_content_dir` and the facade's `_slot`, refuses a slot whose index records another repository; saves re-check under `BEGIN IMMEDIATE`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.381 count, verbatim:
+
+- ⚠ Prior (1.108.381): 18082 passed, 25 skipped, **0 failed** (18107 total).
