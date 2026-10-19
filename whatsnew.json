@@ -1,6 +1,12 @@
 {
-  "current": "1.108.378",
+  "current": "1.108.379",
   "entries": [
+    {
+      "version": "1.108.379",
+      "date": "2026-10-19",
+      "title": "a spawned agent no longer waits minutes for its jCodeMunch briefing",
+      "summary": "The SubagentStart hook briefed every index whose folder overlapped the agent's, and every index on the machine when nothing matched, loading and ranking each one before the agent could start; one report measured a 90-second median and 533 seconds at worst. It now loads at most one index (the most specific one containing the agent's folder, and only if it is small), describes everything else from counts it already has, briefs no repo when nothing matches, and stops ranking after 3 seconds. Reported by treyecollins (#1139)."
+    },
     {
       "version": "1.108.378",
       "date": "2026-10-18",
@@ -18,12 +24,6 @@
       "date": "2026-10-17",
       "title": "install-pack honours every savings opt-out",
       "summary": "After installing a starter pack, install-pack posts one event naming the pack, its version and your platform. It now skips that whenever you have opted out of savings sharing in any spelling (false, off, no, or share_savings: false in config.jsonc), not only for an environment value of exactly 0, so it can never send where it did not before. Also: a real init or install now ends with one line about the commercial licence."
-    },
-    {
-      "version": "1.108.375",
-      "date": "2026-10-17",
-      "title": "a typo can no longer switch off a protective setting",
-      "summary": "Six settings that are on by default and documented as switched off only by an explicit false (the four skip rules, the trusted-folders allowlist and PII redaction of runtime traces) were turned off by a mistyped environment value. A typo now keeps them on, with a warning naming the variable; every other boolean, the savings opt-out included, reads exactly as before."
     }
   ]
 }

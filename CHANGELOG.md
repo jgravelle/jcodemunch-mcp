@@ -19,6 +19,8 @@ dropped without a word. `tests/test_landmarks_budget.py` pins each case, runs
 the section once against a real index with no mocked store, and fails if the
 briefing and the landmarks section ever carry separate copies of the rule.
 
+## [1.108.379] - 2026-10-19 - a spawned agent no longer waits minutes for its jCodeMunch briefing
+
 ### Fixed - a spawned agent no longer waits minutes for its jCodeMunch briefing (#1139)
 
 The `SubagentStart` hook adds a repo briefing to every agent Claude Code

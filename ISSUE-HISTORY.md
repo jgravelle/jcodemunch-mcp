@@ -2731,3 +2731,13 @@ The 1.108.375 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.375 count, verbatim:
 
 - ⚠ Prior (1.108.375): 17815 passed, 25 skipped, **0 failed** (17840 total).
+
+## Current State rotation (2026-10-19, release 1.108.379)
+
+The 1.108.376 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.376):** **install-pack honours every savings opt-out** (L-212): `install_pack._install_telemetry_allowed` posts only when the old check AND `config.get("share_savings")` allow it; also a once-per-install licence line in `init`/`install`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.376 count, verbatim:
+
+- ⚠ Prior (1.108.376): 17886 passed, 25 skipped, **0 failed** (17911 total).
