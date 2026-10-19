@@ -40,6 +40,8 @@ and no directory discovery prunes is. It also covers three negation shapes
 and two `x/*` shapes, where the file stays indexed and watched. Reported by @yagiii1344 (#1163), with
 the measurements and the fix's shape.
 
+## [1.108.383] - 2026-10-19 - refreshing summaries no longer erases complexity and the call graph
+
 ### Fixed - refreshing summaries no longer erases complexity and the call graph
 
 `summarize_repo` rebuilt every symbol from the stored index through a
