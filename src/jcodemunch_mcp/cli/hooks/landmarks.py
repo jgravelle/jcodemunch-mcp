@@ -1,8 +1,14 @@
 """Structural-landmark enrichment for the session snapshot (Gap 4A)."""
 
 import logging
+import time
 
-from ._common import _iter_loaded_repos, _top_symbols_by_pagerank
+from ._common import (
+    BUDGET_SECONDS,
+    _iter_loaded_repos,
+    _too_large_note,
+    _top_symbols_by_pagerank,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +56,17 @@ def _build_landmark_section(top_n: int = 20, context: "dict | None" = None) -> s
     session_edited = set(edited_files)
     parts: list[str] = []
     seen_repos: set[str] = set()
+    # L-219: this runs inside PreCompact, which Claude Code waits for. The
+    # hook size rule keeps a large or unsized index out, and no further index
+    # is started once the budget is spent (a load cannot be interrupted).
+    started = time.monotonic()
+    skipped: list = []
+    out_of_time: list = []
 
     for repo_id, index in _iter_loaded_repos(
-        store, repos, wanted_files=edited_files + accessed_files
+        store, repos, wanted_files=edited_files + accessed_files,
+        size_capped=True, skipped=skipped,
+        stop_at=started + BUDGET_SECONDS, late=out_of_time,
     ):
         if repo_id in seen_repos or not index.imports or not index.source_files:
             continue
@@ -102,5 +116,12 @@ def _build_landmark_section(top_n: int = 20, context: "dict | None" = None) -> s
                 count += 1
                 if count >= 20:
                     break
+
+    if skipped or out_of_time:
+        parts.append("\n### Landmarks not computed")
+        for repo_id, entry in skipped:
+            parts.append(f"- {repo_id}: {_too_large_note(entry)}")
+        for repo_id in out_of_time:
+            parts.append(f"- {repo_id}: skipped, the time budget was spent")
 
     return "\n".join(parts) if parts else ""

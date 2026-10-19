@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - compacting a session no longer waits on a large index's landmarks
+
+Before Claude Code compacts a conversation, jCodeMunch's PreCompact hook
+writes a snapshot, and Claude Code waits for it. The snapshot's "Structural
+Landmarks" section loaded and PageRanked every index that held a file the
+session had touched, with no size cap and no time limit. So touching one file
+in a very large index put that whole load in front of the compaction. It was
+the same shape as the agent-startup delay fixed in 1.108.379 (#1139), on a
+second hook.
+
+Both hooks now share one rule. An index is loaded only when the store's own
+count says it holds 100,000 symbols or fewer, and once 3 seconds have passed
+no further index is started. An index left out, as too large, of unknown size
+or past the time limit, is named under "Landmarks not computed" rather than
+dropped without a word. `tests/test_landmarks_budget.py` pins each case, runs
+the section once against a real index with no mocked store, and fails if the
+briefing and the landmarks section ever carry separate copies of the rule.
+
 ### Fixed - a spawned agent no longer waits minutes for its jCodeMunch briefing (#1139)
 
 The `SubagentStart` hook adds a repo briefing to every agent Claude Code

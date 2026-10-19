@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -192,18 +193,63 @@ def _repo_contains_any(store, owner: str, name: str, files: list) -> bool:
         return True
 
 
-def _iter_loaded_repos(store, repos, wanted_files=None):
+# #1139 / L-219: the one size rule for a hook that hydrates on a synchronous
+# path (SubagentStart, PreCompact). Seeded, not calibrated: on the
+# maintainer's box (2026-10-19) a 50,320-symbol index hydrated in 0.86 s and
+# a 46,765-symbol one took 2.50 s of PageRank. An index above the cap, or of
+# unknown size, is not hydrated by a hook.
+HYDRATE_MAX_SYMBOLS = 100_000
+BUDGET_SECONDS = 3.0
+
+
+def _small_enough(symbol_count) -> bool:
+    """True only for a KNOWN count at or under the cap; unknown is not small."""
+    return (
+        isinstance(symbol_count, int)
+        and not isinstance(symbol_count, bool)
+        and 0 <= symbol_count <= HYDRATE_MAX_SYMBOLS
+    )
+
+
+def _too_large_note(entry: dict) -> str:
+    """Why an index was not hydrated: too large, or of unknown size."""
+    return (
+        "too large to load in a hook"
+        if isinstance(entry.get("symbol_count"), int)
+        else "index size unknown"
+    )
+
+
+def _iter_loaded_repos(store, repos, wanted_files=None, *, size_capped=False, skipped=None,
+                       stop_at=None, late=None):
     """Yield ``(repo_id, idx)`` for each loadable entry of ``list_repos()``.
 
     Membership and scoping guards stay with each caller — the landmark,
     taskcomplete and subagent loops genuinely differ there. ``wanted_files``
     skips hydrating repos whose index provably contains none of them.
+
+    ``size_capped=True`` applies the hook size rule (``_small_enough``): an
+    entry past the cap or of unknown size is not hydrated, and is appended to
+    ``skipped`` as ``(repo_id, entry)`` when a list is passed, so the caller
+    can say so instead of dropping it in silence. ``stop_at`` is a
+    ``time.monotonic()`` deadline: past it, no further index is loaded, and
+    each one not started is appended to ``late``.
     """
     for entry in repos:
         owner, name = _repo_owner_name(entry)
         if not owner or not name:
             continue
         if wanted_files and not _repo_contains_any(store, owner, name, wanted_files):
+            continue
+        if size_capped and not _small_enough(entry.get("symbol_count")):
+            if skipped is not None:
+                skipped.append((f"{owner}/{name}", entry))
+            continue
+        # Checked BEFORE the load: a hydration cannot be interrupted once it
+        # starts, so a deadline checked after it has already paid for it.
+        if stop_at is not None and time.monotonic() > stop_at:
+            if late is not None:
+                late.append(f"{owner}/{name}")
             continue
         try:
             idx = store.load_index(owner, name)

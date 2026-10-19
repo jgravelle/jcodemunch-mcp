@@ -5,22 +5,22 @@ import os
 import time
 
 from ._common import (
+    BUDGET_SECONDS,
+    HYDRATE_MAX_SYMBOLS,  # noqa: F401  (re-exported; #1139's tests read it here)
     _emit_additional_context,
     _iter_loaded_repos,
     _top_symbols_by_pagerank,
     _norm_path,
     _note_transcript_root,
     _read_hook_payload,
+    _small_enough,
+    _too_large_note,
 )
 
 logger = logging.getLogger(__name__)
 
-# #1139 bounds. Seeded, not calibrated: on the maintainer's box (2026-10-19) a
-# 50,320-symbol index hydrated in 0.86 s and a 46,765-symbol one took 2.50 s of
-# PageRank.
-# An index above the cap, or of unknown size, is briefed from its counts.
-HYDRATE_MAX_SYMBOLS = 100_000
-BUDGET_SECONDS = 3.0
+# #1139: the size rule and the budget are `_common`'s, shared with the
+# landmarks section (L-219); only the listing cap is the briefing's own.
 MAX_LISTED_REPOS = 10
 
 
@@ -70,11 +70,8 @@ def run_subagentstart() -> int:
     small = [e for e in hydrate if _small_enough(e.get("symbol_count"))]
     for entry in hydrate:
         if entry not in small:
-            # UNKNOWN is not "too large": say which one it is.
-            known = isinstance(entry.get("symbol_count"), int)
-            parts.extend(_stats_lines(entry, note=(
-                "stats only: too large to load at agent start" if known
-                else "stats only: index size unknown")))
+            # UNKNOWN is not "too large": `_too_large_note` says which.
+            parts.extend(_stats_lines(entry, note=f"stats only: {_too_large_note(entry)}"))
 
     for repo_id, idx in _iter_loaded_repos(store, small):
         # Stats
@@ -171,15 +168,6 @@ def _select_repos(repos: list, cwd) -> "tuple[list, list]":
     except Exception:
         logger.debug("cwd scoping failed", exc_info=True)
         return [], []
-
-
-def _small_enough(symbol_count) -> bool:
-    """True only for a KNOWN count at or under the cap; unknown is not small."""
-    return (
-        isinstance(symbol_count, int)
-        and not isinstance(symbol_count, bool)
-        and 0 <= symbol_count <= HYDRATE_MAX_SYMBOLS
-    )
 
 
 def _stats_lines(entry: dict, note: str = "") -> list:
