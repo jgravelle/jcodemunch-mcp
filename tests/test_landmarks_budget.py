@@ -79,6 +79,12 @@ def test_an_index_of_unknown_size_is_skipped_and_named(store):
     assert "too large" not in out
 
 
+@pytest.mark.parametrize("bad", [True, -1, None, "12"])
+def test_a_corrupt_count_reads_as_unknown_never_too_large(bad):
+    assert _common._too_large_note({"symbol_count": bad}) == "index size unknown"
+    assert not _common._small_enough(bad)
+
+
 def test_no_index_is_started_once_the_budget_is_spent(store, monkeypatch):
     store["repos"].extend([
         {"repo": "local/first", "symbol_count": 10},

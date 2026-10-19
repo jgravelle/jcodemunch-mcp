@@ -213,11 +213,9 @@ def _small_enough(symbol_count) -> bool:
 
 def _too_large_note(entry: dict) -> str:
     """Why an index was not hydrated: too large, or of unknown size."""
-    return (
-        "too large to load in a hook"
-        if isinstance(entry.get("symbol_count"), int)
-        else "index size unknown"
-    )
+    n = entry.get("symbol_count")
+    known = isinstance(n, int) and not isinstance(n, bool) and n >= 0
+    return "too large to load in a hook" if known else "index size unknown"
 
 
 def _iter_loaded_repos(store, repos, wanted_files=None, *, size_capped=False, skipped=None,

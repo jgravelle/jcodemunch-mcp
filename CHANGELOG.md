@@ -9,8 +9,7 @@ writes a snapshot, and Claude Code waits for it. The snapshot's "Structural
 Landmarks" section loaded and PageRanked every index that held a file the
 session had touched, with no size cap and no time limit. So touching one file
 in a very large index put that whole load in front of the compaction. It was
-the same shape as the agent-startup delay fixed in 1.108.379 (#1139), on a
-second hook.
+the same shape as the agent-startup delay fixed for #1139, on a second hook.
 
 Both hooks now share one rule. An index is loaded only when the store's own
 count says it holds 100,000 symbols or fewer, and once 3 seconds have passed
