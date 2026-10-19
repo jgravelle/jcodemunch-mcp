@@ -2768,3 +2768,13 @@ human, so the thing we test is not the thing they do.* The first was
 `pip install -e ".[test]"` (an extra no repo declares); the second was
 `-n 4 --dist loadfile` under a bare `python -m pytest`, which collects nothing
 and exits 0. [[pipes-and-missing-xdist-both-report-exit-zero]]
+
+## Current State rotation (2026-10-19, release 1.108.381)
+
+The 1.108.378 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.378):** **install-pack's licence lookup writes no config file** (L-215): `resolve_effective_license_key` re-reads with `load_config(create_missing=False)`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.378 count, verbatim:
+
+- ⚠ Prior (1.108.378): 17985 passed, 25 skipped, **0 failed** (18010 total).
