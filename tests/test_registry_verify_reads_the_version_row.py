@@ -33,21 +33,30 @@ META = "io.modelcontextprotocol.registry/official"
 
 @pytest.fixture()
 def rv(monkeypatch):
-    spec = importlib.util.spec_from_file_location("registry_verify_version_row_under_test", SCRIPT)
+    spec = importlib.util.spec_from_file_location(
+        "registry_verify_version_row_under_test", SCRIPT
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     # The module's own `time` name, not the real module's attribute (F-40).
     mod.slept = []
     monkeypatch.setattr(
-        mod, "time",
-        types.SimpleNamespace(sleep=lambda s: mod.slept.append(s), monotonic=time.monotonic),
+        mod,
+        "time",
+        types.SimpleNamespace(
+            sleep=lambda s: mod.slept.append(s), monotonic=time.monotonic
+        ),
     )
     return mod
 
 
 def _row(version: str, latest: bool = True) -> dict:
     return {
-        "server": {"name": NAME, "version": version, "packages": [{"version": version}]},
+        "server": {
+            "name": NAME,
+            "version": version,
+            "packages": [{"version": version}],
+        },
         "_meta": {META: {"isLatest": latest}},
     }
 
@@ -70,7 +79,9 @@ def _serve(rv, monkeypatch, version_answer, search_answer):
 
 
 def test_a_passing_version_row_ends_the_run_without_paging(rv, monkeypatch, capsys):
-    asked = _serve(rv, monkeypatch, _row("9.9.9"), TimeoutError("search would time out"))
+    asked = _serve(
+        rv, monkeypatch, _row("9.9.9"), TimeoutError("search would time out")
+    )
     assert rv.main(["--version", "9.9.9"]) == 0
     assert asked["search"] == [], "a PASS on the version row needs no paged read"
     assert len(asked["version"]) == 1
@@ -84,26 +95,42 @@ def test_a_slow_search_no_longer_fails_a_good_publish(rv, monkeypatch):
     assert rv.slept == []
 
 
-@pytest.mark.parametrize("answer", [
-    _row("9.9.8"),                       # the old version still served
-    _row("9.9.9", latest=False),         # not marked latest
-    {"server": {"name": NAME, "version": "9.9.9", "packages": [{"version": "9.9.8"}]},
-     "_meta": {META: {"isLatest": True}}},  # packages did not advance
-])
-def test_a_version_row_that_does_not_pass_defers_to_the_full_read(rv, monkeypatch, answer):
+@pytest.mark.parametrize(
+    "answer",
+    [
+        _row("9.9.8"),  # the old version still served
+        _row("9.9.9", latest=False),  # not marked latest
+        {
+            "server": {
+                "name": NAME,
+                "version": "9.9.9",
+                "packages": [{"version": "9.9.8"}],
+            },
+            "_meta": {META: {"isLatest": True}},
+        },  # packages did not advance
+    ],
+)
+def test_a_version_row_that_does_not_pass_defers_to_the_full_read(
+    rv, monkeypatch, answer
+):
     """A wrong row on the fast read is never the verdict: the full read decides."""
     asked = _serve(rv, monkeypatch, answer, {"servers": [_row("9.9.8")]})
     assert rv.main(["--version", "9.9.9", "--attempts", "2", "--delay", "0"]) == 1
     assert len(asked["search"]) == 2, "every attempt still made the full read"
 
 
-@pytest.mark.parametrize("answer", [
-    urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-    TimeoutError("timed out"),
-    {"servers": [_row("9.9.9")]},        # a page body, not a version row
-    {"error": "nope"},
-])
-def test_no_answer_on_the_version_row_falls_through_to_the_full_read(rv, monkeypatch, answer):
+@pytest.mark.parametrize(
+    "answer",
+    [
+        urllib.error.HTTPError("u", 404, "Not Found", {}, None),
+        TimeoutError("timed out"),
+        {"servers": [_row("9.9.9")]},  # a page body, not a version row
+        {"error": "nope"},
+    ],
+)
+def test_no_answer_on_the_version_row_falls_through_to_the_full_read(
+    rv, monkeypatch, answer
+):
     asked = _serve(rv, monkeypatch, answer, {"servers": [_row("9.9.9")]})
     assert rv.main(["--version", "9.9.9"]) == 0
     assert len(asked["search"]) == 1
@@ -113,17 +140,24 @@ def test_unreadable_still_needs_the_full_read_to_fail_too(rv, monkeypatch, capsy
     """UNREADABLE is reported only when the full read also got no answer; the
     version row cannot make it easier to reach."""
     asked = _serve(rv, monkeypatch, TimeoutError("v"), TimeoutError("s"))
-    assert rv.main(["--version", "9.9.9", "--attempts", "3", "--delay", "0"]) == rv.UNREADABLE
+    assert (
+        rv.main(["--version", "9.9.9", "--attempts", "3", "--delay", "0"])
+        == rv.UNREADABLE
+    )
     assert len(asked["search"]) == 3 and len(asked["version"]) == 3
     assert "FAIL" not in capsys.readouterr().out
 
 
-def test_the_version_read_asks_for_the_encoded_row_inside_its_own_timeout(rv, monkeypatch):
+def test_the_version_read_asks_for_the_encoded_row_inside_its_own_timeout(
+    rv, monkeypatch
+):
     asked = _serve(rv, monkeypatch, _row("9.9.9"), TimeoutError("s"))
     rv.main(["--version", "9.9.9"])
     url, timeout = asked["version"][0]
     path = urllib.parse.urlsplit(url).path
-    assert path.endswith("/v0/servers/io.github.jgravelle%2Fjcodemunch-mcp/versions/9.9.9")
+    assert path.endswith(
+        "/v0/servers/io.github.jgravelle%2Fjcodemunch-mcp/versions/9.9.9"
+    )
     assert timeout == rv.VERSION_SECONDS
     assert rv.VERSION_SECONDS + rv.REQUEST_SECONDS < rv.BUDGET_SECONDS, (
         "one attempt's row read and first page must fit the run's budget"
@@ -148,7 +182,9 @@ def test_the_version_read_is_clipped_to_the_budget_left(rv, monkeypatch):
     """Review finding: nothing tested the version read's budget bound, and a
     mutant without `min(VERSION_SECONDS, left)` ran past the budget unseen."""
     clock = _Clock()
-    monkeypatch.setattr(rv, "time", types.SimpleNamespace(sleep=clock.sleep, monotonic=clock.monotonic))
+    monkeypatch.setattr(
+        rv, "time", types.SimpleNamespace(sleep=clock.sleep, monotonic=clock.monotonic)
+    )
     seen = []
 
     def urlopen(url, timeout=None):
@@ -159,9 +195,22 @@ def test_the_version_read_is_clipped_to_the_budget_left(rv, monkeypatch):
 
     monkeypatch.setattr(rv.urllib.request, "urlopen", urlopen)
     budget = rv.VERSION_SECONDS + rv.REQUEST_SECONDS + 3.0
-    code = rv.main(["--version", "9.9.9", "--budget", str(budget), "--delay", "0", "--attempts", "5"])
+    code = rv.main(
+        [
+            "--version",
+            "9.9.9",
+            "--budget",
+            str(budget),
+            "--delay",
+            "0",
+            "--attempts",
+            "5",
+        ]
+    )
     assert code == rv.UNREADABLE
-    assert clock.now - 1000.0 <= budget, f"ran {clock.now - 1000.0} s on a {budget} s budget"
+    assert clock.now - 1000.0 <= budget, (
+        f"ran {clock.now - 1000.0} s on a {budget} s budget"
+    )
     assert seen[:3] == [
         ("version", rv.VERSION_SECONDS),
         ("search", rv.REQUEST_SECONDS),

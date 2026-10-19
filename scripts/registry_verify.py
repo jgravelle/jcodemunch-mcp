@@ -217,12 +217,19 @@ def main(argv=None) -> int:
         # decides the exit code (RUNBOOK 3a); a 404 is expected just after a
         # publish, while the registry indexes the new version.
         try:
-            ok, lines = _judge(fetch_version(a.name, a.version, deadline), a.name, a.version)
+            ok, lines = _judge(
+                fetch_version(a.name, a.version, deadline), a.name, a.version
+            )
             if ok:
                 # "PASS" stays the last line, which is what RUNBOOK 3a reads.
-                print("\n".join(lines[:-1] + ["(read from the version row)", lines[-1]]))
+                print(
+                    "\n".join(lines[:-1] + ["(read from the version row)", lines[-1]])
+                )
                 return 0
-            print(f"attempt {attempt}: version row: {lines[-1]}; reading every page", flush=True)
+            print(
+                f"attempt {attempt}: version row: {lines[-1]}; reading every page",
+                flush=True,
+            )
         except (OSError, http.client.HTTPException, ValueError) as exc:
             print(
                 f"attempt {attempt}: version row: no answer "
