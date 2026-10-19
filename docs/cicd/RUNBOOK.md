@@ -156,9 +156,11 @@ title says which of two things happened (LEDGER L-96).
    The last line decides: `attempt N: FAIL: ...` lines above a final `PASS`
    are a stale row that was asked again.
    Lines that start `attempt N: version row:` come from the one-row read each
-   attempt makes first (C-27). They never decide the exit code; the paged read
-   after them does. A `404` there is expected just after a publish, while the
-   registry indexes the new version.
+   attempt makes first (C-27). Such a line never decides the exit code; the
+   paged read after it does. A `404` there is expected just after a publish,
+   while the registry indexes the new version. When the one-row read passes,
+   no paged read runs: the output ends `(read from the version row)` and then
+   `PASS`.
    `UNREADABLE` again: read the `attempt N: no answer (<type>: ...)` lines.
    - A timeout, a connection error, an HTTP 5xx or an HTTP 429: the registry
      is still not answering. Wait and run it again.

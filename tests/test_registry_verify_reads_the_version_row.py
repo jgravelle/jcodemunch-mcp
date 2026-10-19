@@ -124,8 +124,10 @@ def test_the_version_read_asks_for_the_encoded_row_inside_its_own_timeout(rv, mo
     url, timeout = asked["version"][0]
     path = urllib.parse.urlsplit(url).path
     assert path.endswith("/v0/servers/io.github.jgravelle%2Fjcodemunch-mcp/versions/9.9.9")
-    assert timeout <= rv.VERSION_SECONDS
-    assert rv.VERSION_SECONDS < rv.REQUEST_SECONDS, "the fast read must be the cheaper one"
+    assert timeout == rv.VERSION_SECONDS
+    assert rv.VERSION_SECONDS + rv.REQUEST_SECONDS < rv.BUDGET_SECONDS, (
+        "one attempt's row read and first page must fit the run's budget"
+    )
 
 
 class _Clock:
@@ -156,10 +158,15 @@ def test_the_version_read_is_clipped_to_the_budget_left(rv, monkeypatch):
         return io.BytesIO(b'{"not": "an answer"}')  # no row: no answer, every time
 
     monkeypatch.setattr(rv.urllib.request, "urlopen", urlopen)
-    code = rv.main(["--version", "9.9.9", "--budget", "43", "--delay", "0", "--attempts", "5"])
+    budget = rv.VERSION_SECONDS + rv.REQUEST_SECONDS + 3.0
+    code = rv.main(["--version", "9.9.9", "--budget", str(budget), "--delay", "0", "--attempts", "5"])
     assert code == rv.UNREADABLE
-    assert clock.now - 1000.0 <= 43.0, f"ran {clock.now - 1000.0} s on a 43 s budget"
-    assert seen[:3] == [("version", 10.0), ("search", 30.0), ("version", 3.0)], seen
+    assert clock.now - 1000.0 <= budget, f"ran {clock.now - 1000.0} s on a {budget} s budget"
+    assert seen[:3] == [
+        ("version", rv.VERSION_SECONDS),
+        ("search", rv.REQUEST_SECONDS),
+        ("version", 3.0),
+    ], seen
 
 
 def test_a_version_read_with_no_budget_left_asks_nothing(rv, monkeypatch):

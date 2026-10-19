@@ -10,6 +10,11 @@ survives `&limit=100`. Never re-publish on a zero-row read; fix the parse.
 Exit 1 unless a row with `server.version == X` exists, is marked latest, and
 its `packages[].version` advanced too.
 
+Each attempt first reads the one row for the version
+(`/v0/servers/<name>/versions/<v>`, C-27), which answers in seconds where the
+paged search can take tens. A pass there ends the run. A wrong row, a 404 or
+no answer falls through to the paged read, which decides.
+
 The read is retried, and the exit code says which thing went wrong (LEDGER
 L-96). 1: the registry ANSWERED and the row is wrong. `UNREADABLE` (75, the
 sysexits temporary-failure code): no attempt got an answer, which says nothing
@@ -36,8 +41,9 @@ UNREADABLE = 75
 MAX_PAGES = 50
 REQUEST_SECONDS = 30.0
 # The one-row read (FINDINGS C-27 carries the measurement): the paged search is
-# the slow read, and two release runs in a row timed out on it alone.
-VERSION_SECONDS = 10.0
+# the slow read, and three release runs timed out on it alone. The row itself
+# took most of `REQUEST_SECONDS` after the 1.108.381 publish, so it gets more.
+VERSION_SECONDS = 60.0
 # The whole run, every attempt and every page. `release.yml`'s registry job is
 # cancelled at its `timeout-minutes`, and a cancelled job opens no issue at
 # all, so the script must finish, and say what it found, before that.
