@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, IO, Optional
 
 from .hook_event import default_manifest_path, read_manifest
+from .security import is_dotnet_project_dir
 from .tools.index_folder import (
     _build_skip_dirs_regex,
     _directory_prune_reason,
@@ -76,15 +77,17 @@ def _watch_directories(folder_path: str) -> dict[str, tuple[int, int]]:
     follow_symlinks enables symlinked *files*). Inode identity detects a
     directory replaced at the same path, which needs a new native watch.
 
-    The directories pruned here are exactly the ones discovery prunes, because
-    both walks ask `index_folder._directory_prune_reason`. Not stricter: a
-    directory discovery indexes must be watched, or an edit there is never
-    seen (a blanket "skip every dot-directory" rule was the first draft of
-    #629, and it would have blinded the watcher to `.github/`, `.claude/` and
-    `.claude-plugin/` on this repository, 51 indexed files). Not looser: a
-    tree nothing indexes is not polled (#1163: under WSL the census watched
-    vcpkg checkouts, caches and gitignored trees, 96,191 polled entries
-    across 23 repositories).
+    Both walks prune by `index_folder._directory_prune_reason`, so the census
+    is never STRICTER than discovery: a directory discovery indexes must be
+    watched, or an edit there is never seen (a blanket "skip every
+    dot-directory" rule was the first draft of #629, and it would have blinded
+    the watcher to `.github/`, `.claude/` and `.claude-plugin/` on this
+    repository, 51 indexed files). It reads the config's ignore patterns but
+    not the per-call or framework-profile ones `index_folder` adds, so it can
+    still watch a directory discovery skips: looser, the safe direction.
+    Before #1163 it was looser by every rule but the skip names, and under
+    WSL that meant polling vcpkg checkouts, caches and gitignored trees
+    (96,191 polled entries across 23 repositories).
     """
     root = Path(folder_path).resolve()
     root_str = str(root)
@@ -103,10 +106,12 @@ def _watch_directories(folder_path: str) -> dict[str, tuple[int, int]]:
             continue
         directories[current] = (stat_result.st_dev, stat_result.st_ino)
         _load_dir_gitignore(current, filenames, gitignore_specs)
+        dotnet_here = is_dotnet_project_dir(filenames)
         dirs[:] = [
             name for name in dirs
             if _directory_prune_reason(
-                name, current, filenames, filter_cfg, skip_dirs, gitignore_specs, root_str,
+                name, current, filenames, filter_cfg, skip_dirs, gitignore_specs,
+                root_str, dotnet_here,
             ) is None
         ]
     return directories

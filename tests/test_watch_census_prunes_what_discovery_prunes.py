@@ -112,18 +112,57 @@ def test_discovery_indexes_nothing_below_an_ignored_directory(repo):
     assert counts.get("gitignored_dir", 0) >= 3, counts
 
 
-def test_a_negation_cannot_reinclude_below_an_ignored_directory(tmp_path):
-    """Git: a file cannot be re-included once a parent directory is excluded.
-    Both walks follow it, so the census is never stricter than discovery."""
+@pytest.mark.parametrize(
+    "rules, keep",
+    [
+        # pathspec's last-match rule re-includes these; so did main's walk.
+        (["outdir/**", "!outdir/keep.py"], "outdir/keep.py"),
+        (["outdir/", "!outdir/keep.py"], "outdir/keep.py"),
+        (["*", "!*/", "!*.py", "!.gitignore"], "outdir/keep.py"),
+    ],
+)
+def test_a_negation_below_an_ignored_directory_keeps_its_file_and_its_watch(
+    tmp_path, rules, keep
+):
+    """Review of #1163: pruning on a directory match dropped files a `!`
+    pattern below it re-includes, which the per-file verdict (and so
+    `index_file` and the watcher fast path) keeps. A directory is pruned only
+    when no spec reaching it holds a negation, so these trees are walked and
+    the file stays indexed AND watched. `thirdp`-style names, never `vendor`,
+    which the skip list prunes before this rule is reached."""
     root = (tmp_path / "neg").resolve()
-    _write(root, ".gitignore", "vendor/\n!vendor/keep.py\n")
-    _write(root, "vendor/keep.py")
-    _write(root, "vendor/drop.py")
+    _write(root, ".gitignore", "".join(line + chr(10) for line in rules))
+    _write(root, "outdir/keep.py")
+    _write(root, "outdir/drop.txt", "x" + chr(10))
     _write(root, "main.py")
     files, _w, _c = discover_local_files(root)
     rels = {Path(f).resolve().relative_to(root).as_posix() for f in files}
+    assert keep in rels and "main.py" in rels, rels
+    assert (root / "outdir").resolve() in _census(root)
+    from jcodemunch_mcp.tools.index_folder import (
+        _should_index_file,
+        _walk_filter_config,
+    )
+
+    cfg = _walk_filter_config(root, per_file=True)
+    specs = []
+    from jcodemunch_mcp.tools.index_folder import _load_dir_gitignore
+
+    _load_dir_gitignore(str(root), [".gitignore"], specs)
+    ok, _reason, _rel, _warn = _should_index_file(root / keep, cfg, specs)
+    assert ok, "the per-file verdict and the walk must agree"
+
+
+def test_an_ignored_directory_with_no_negation_is_pruned(tmp_path):
+    root = (tmp_path / "plain").resolve()
+    _write(root, ".gitignore", "thirdp/" + chr(10))
+    _write(root, "thirdp/a.py")
+    _write(root, "main.py")
+    files, _w, counts = discover_local_files(root)
+    rels = {Path(f).resolve().relative_to(root).as_posix() for f in files}
     assert rels == {"main.py"}, rels
-    assert (root / "vendor").resolve() not in _census(root)
+    assert counts["gitignored_dir"] == 1, counts
+    assert (root / "thirdp").resolve() not in _census(root)
 
 
 def test_project_extra_ignore_patterns_prune_the_census(tmp_path):

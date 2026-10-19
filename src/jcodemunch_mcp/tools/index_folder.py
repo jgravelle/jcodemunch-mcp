@@ -565,6 +565,7 @@ def _directory_prune_reason(
     skip_dirs_regex: "re.Pattern",
     gitignore_specs: list,
     root_str: str,
+    dotnet_here: Optional[bool] = None,
 ) -> Optional[str]:
     """Why the walk does not descend into ``parent/name``, or None to descend.
 
@@ -587,7 +588,9 @@ def _directory_prune_reason(
     path = Path(parent) / name
     if is_linked_worktree(path):
         return "nested_worktree"
-    if cfg.skip_msbuild_output and is_dotnet_project_dir(filenames) and is_msbuild_output_directory(name, filenames):
+    if dotnet_here is None:
+        dotnet_here = is_dotnet_project_dir(filenames)
+    if cfg.skip_msbuild_output and dotnet_here and is_msbuild_output_directory(name, filenames):
         return "msbuild_output"
     if cfg.respect_cachedir_tag and is_cache_directory(path):
         return "cache_dir"
@@ -597,17 +600,41 @@ def _directory_prune_reason(
         return "nuget_packages"
     if cfg.skip_generated_migrations and is_generated_migrations_directory(name, path):
         return "generated_migrations"
-    # Git never re-includes a path below an ignored directory, so a directory a
-    # `.gitignore` names holds nothing discovery may index (#1163). The trailing
-    # "/" lets a directory-only pattern (`vcpkg/`) match.
+    # A directory a `.gitignore` names, when nothing below it can be re-included
+    # (#1163). The per-file check applies pathspec's last-match rule, so a
+    # `!` pattern can bring back a file under an ignored directory
+    # (`outdir/**` + `!outdir/keep.py`); pruning that directory would drop a
+    # file the per-file verdict keeps, and `index_file` and the watcher fast
+    # path, which judge per file, would then disagree with the walk (L-142).
+    # So a directory is pruned only when no spec that reaches it holds a
+    # negation: then every file below it is ignored too, and the directory
+    # verdict equals the per-file one. The trailing "/" lets a directory-only
+    # pattern (`vcpkg/`) match.
     dir_str = os.path.join(parent, name)
-    if gitignore_specs and _is_gitignored_fast(dir_str + "/", gitignore_specs):
+    if (
+        gitignore_specs
+        and _is_gitignored_fast(dir_str + "/", gitignore_specs)
+        and not _a_negation_reaches(dir_str, gitignore_specs)
+    ):
         return "gitignored_dir"
-    if cfg.extra_spec is not None:
+    if cfg.extra_spec is not None and not _spec_has_negation(cfg.extra_spec):
         rel = os.path.relpath(dir_str, root_str).replace("\\", "/")
         if cfg.extra_spec.match_file(rel + "/"):
             return "extra_ignore_dir"
     return None
+
+
+def _spec_has_negation(spec) -> bool:
+    return any(getattr(p, "include", True) is False for p in spec.patterns)
+
+
+def _a_negation_reaches(dir_str: str, specs: list) -> bool:
+    """Whether any spec whose directory contains ``dir_str`` holds a `!` pattern."""
+    norm = os.path.normcase(dir_str + "/")
+    for dir_prefix, spec in specs:
+        if norm.startswith(os.path.normcase(dir_prefix)) and _spec_has_negation(spec):
+            return True
+    return False
 
 
 def _load_dir_gitignore(dirpath: str, filenames, specs: list) -> None:
@@ -1558,10 +1585,13 @@ def discover_local_files(
         # directories a .gitignore or the extra ignore patterns name.
         kept = []
         rel_dir = None
+        # `filenames` is this directory's entries, already walked, so the .NET
+        # marker costs no IO, and is read once for all its children.
+        dotnet_here = is_dotnet_project_dir(filenames)
         for d in dirnames:
             why = _directory_prune_reason(
                 d, dirpath, filenames, filter_cfg, skip_dirs_regex,
-                gitignore_str_specs, root_str,
+                gitignore_str_specs, root_str, dotnet_here,
             )
             if why is None:
                 kept.append(d)
