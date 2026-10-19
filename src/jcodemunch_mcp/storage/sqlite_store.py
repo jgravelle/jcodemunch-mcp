@@ -2318,7 +2318,8 @@ class SQLiteIndexStore:
                 changed = 0
                 for sid, (summary, content_hash) in summaries.items():
                     cur = conn.execute(
-                        "UPDATE symbols SET summary = ? WHERE id = ? AND content_hash IS ?",
+                        "UPDATE symbols SET summary = ? WHERE id = ? "
+                        "AND COALESCE(content_hash, '') = COALESCE(?, '')",
                         (summary, sid, content_hash),
                     )
                     changed += cur.rowcount or 0

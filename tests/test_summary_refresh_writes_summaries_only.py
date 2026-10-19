@@ -190,3 +190,20 @@ def test_a_summary_is_not_written_onto_a_body_that_changed(indexed, monkeypatch)
         for i, r in after.items()
         if i != use_id
     )
+
+
+def test_a_row_with_no_stored_hash_still_gets_its_summary(indexed, monkeypatch):
+    """The loader reads a NULL `content_hash` as "", so the guard compares the
+    two the same way; `NULL IS ''` is false and would skip the row (review)."""
+    repo, storage, db = indexed
+    use_id = next(i for i, r in _rows(db).items() if r["name"] == "use")
+    conn = sqlite3.connect(str(db))
+    try:
+        conn.execute("UPDATE symbols SET content_hash = NULL WHERE id = ?", (use_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setattr(summarize_mod, "summarize_symbols", _fake_summarizer)
+    out = summarize_mod.summarize_repo(repo, force=True, storage_path=storage)
+    assert "not_written" not in out, out
+    assert _rows(db)[use_id]["summary"] == "refreshed: use"
