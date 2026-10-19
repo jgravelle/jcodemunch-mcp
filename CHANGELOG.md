@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Fixed - refreshing summaries no longer erases complexity and the call graph
+
+`summarize_repo` rebuilt every symbol from the stored index through a
+converter that copied some fields and not others, then saved the result as a
+whole-row rewrite. The fields it never copied were stored as NULL:
+`cyclomatic`, `max_nesting` and `param_count`, and `call_references`, which
+the call graph reads. The repository had not changed. After
+`summarize_repo(force=true)`, `get_hotspots` returned `[]`,
+`get_symbol_complexity` said the data was not available, and `get_repo_health`
+reported an average complexity of 0. `force=true` is the documented way to
+refresh AI summaries, so a repo following the instructions lost this data
+until its next re-index, and nothing said so.
+
+A refresh now writes only the summaries that changed, with an `UPDATE` of
+the one column (`update_symbol_summaries` on the store), so it cannot touch
+any other field. `tests/test_summary_refresh_writes_summaries_only.py` runs
+the real indexer and store on the reporter's repository and fails if any
+stored column other than `summary` changes. Reported by @SlimLemon (#1161),
+with the reproduction and both candidate fixes.
+
 ### Fixed - a task capsule's risk entry carries the PR's real risk score
 
 `assemble_task_context` runs `get_pr_risk_profile` for the `review` and

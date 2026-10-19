@@ -2275,6 +2275,51 @@ class SQLiteIndexStore:
                 file_hashes, file_mtimes, package_names, file_cap_status,
             )
 
+    def update_symbol_summaries(self, owner: str, name: str, summaries: dict[str, str]) -> int:
+        """Write new summaries for existing symbols and touch nothing else.
+
+        #1161: a summary refresh went through `incremental_save`, which
+        rewrites whole symbol rows from Symbol objects, and every field the
+        caller had not rebuilt (`cyclomatic`, `max_nesting`, `param_count`,
+        and `call_references` in `data`) was stored as NULL. An UPDATE of the
+        one column cannot clobber the others. Returns the rows changed; an id
+        no longer in the index is skipped.
+        """
+        db_path = self._db_path(owner, name)
+        if not db_path.exists() or not summaries:
+            return 0
+
+        from . import process_locks
+        lock_target = f"{owner}/{name}"
+        storage_root = str(self.base_path)
+        with process_locks.held(
+            "indexwrite", lock_target, storage_root, wait_seconds=60.0
+        ) as got_lock:
+            if not got_lock:
+                detail = process_locks.current_holder_diagnostic(
+                    "indexwrite", lock_target, storage_root,
+                )
+                raise RuntimeError(
+                    f"Could not acquire index-write lock for {lock_target} "
+                    f"after 60s{detail}"
+                )
+            conn = self._connect(db_path)
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+                if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
+                    raise IndexIdentityConflict(f"{owner}/{name}", row[0])
+                changed = 0
+                for sid, summary in summaries.items():
+                    cur = conn.execute(
+                        "UPDATE symbols SET summary = ? WHERE id = ?", (summary, sid)
+                    )
+                    changed += cur.rowcount or 0
+                conn.commit()
+            finally:
+                conn.close()
+        return changed
+
     def _incremental_save_locked(
         self,
         owner: str,
