@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.382] - 2026-10-19 - a task capsule's risk entry carries the PR's real risk score
+
 ### Fixed - a task capsule's risk entry carries the PR's real risk score
 
 `assemble_task_context` runs `get_pr_risk_profile` for the `review` and

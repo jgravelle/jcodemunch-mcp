@@ -2778,3 +2778,13 @@ The 1.108.378 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.378 count, verbatim:
 
 - ⚠ Prior (1.108.378): 17985 passed, 25 skipped, **0 failed** (18010 total).
+
+## Current State rotation (2026-10-19, release 1.108.382)
+
+The 1.108.379 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.379):** **a spawned agent no longer waits minutes for its jCodeMunch briefing** (#1139): `cli/hooks/briefing.py` hydrates at most the deepest indexed root containing the cwd, only under `HYDRATE_MAX_SYMBOLS`; an unmatched cwd briefs no repo; PageRank stops at `BUDGET_SECONDS`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.379 count, verbatim:
+
+- ⚠ Prior (1.108.379): 18056 passed, 25 skipped, **0 failed** (18081 total).
