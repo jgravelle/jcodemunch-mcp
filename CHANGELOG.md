@@ -28,7 +28,10 @@ match, and no `!` pattern may reach it. A directory match alone is not
 enough. `outdir/**` with `!outdir/keep.py` re-includes a file, and `x/*`
 matches `x/sub/` but not `x/sub/a.py`. Pruning either would drop a file that
 `index_file` and the watcher's fast path, which judge one file at a time,
-accept. So the set of indexed files does not change. What does change is `discovery_skip_counts`:
+accept. So the set of indexed files does not change. The one exception is an
+ignore file that lists each depth below a directory as its own pattern
+(`x/*`, `x/*/*`, `x/*/*/*`): a file deeper than the listed depths stops
+being indexed, which matches git. What does change is `discovery_skip_counts`:
 an ignored directory counts once, as `gitignored_dir` or `extra_ignore_dir`,
 where its files used to count one by one under `gitignore`. Both are corpus
 definition, not withheld files, so absence claims stay citable. `tests/test_watch_census_prunes_what_discovery_prunes.py`
