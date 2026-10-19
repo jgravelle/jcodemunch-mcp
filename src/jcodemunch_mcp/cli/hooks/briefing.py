@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 
 from ._common import (
     _emit_additional_context,
@@ -9,11 +10,17 @@ from ._common import (
     _top_symbols_by_pagerank,
     _norm_path,
     _note_transcript_root,
-    _path_overlaps,
     _read_hook_payload,
 )
 
 logger = logging.getLogger(__name__)
+
+# #1139 bounds. Seeded, not calibrated: on this box (2026-10-19) a 50,320-symbol
+# index hydrated in 1.04 s and a 46,765-symbol one took 2.68 s of PageRank.
+# An index above the cap, or of unknown size, is briefed from its counts.
+HYDRATE_MAX_SYMBOLS = 100_000
+BUDGET_SECONDS = 3.0
+MAX_LISTED_REPOS = 10
 
 
 def run_subagentstart() -> int:
@@ -41,27 +48,31 @@ def run_subagentstart() -> int:
     if not repos:
         return 0
 
-    # Scope to the repo(s) containing the subagent's cwd when it names one:
-    # hydrating + PageRanking EVERY indexed repo per spawn is minutes-scale on
-    # big multi-repo boxes, and a briefing about unrelated repos is noise.
-    # No cwd (or no overlap) keeps the brief-everything fallback.
-    cwd = data.get("cwd", "")
-    if isinstance(cwd, str) and cwd:
-        try:
-            norm_cwd = _norm_path(cwd)
-            scoped = [
-                e for e in repos
-                if (sr := (e.get("source_root") or "").strip())
-                and _path_overlaps(norm_cwd, [_norm_path(sr)])
-            ]
-            if scoped:
-                repos = scoped
-        except Exception:
-            logger.debug("cwd scoping failed", exc_info=True)
+    # #1139: this runs synchronously on the agent-startup path, so its cost
+    # must be bounded. At most ONE index is hydrated (the most specific root
+    # containing the cwd), only when list_repos() says it is small, and
+    # PageRank is skipped once the budget is spent. Everything else is
+    # briefed from the counts list_repos() already read.
+    started = time.monotonic()
+    hydrate, listed = _select_repos(repos, data.get("cwd"))
 
     parts = ["## jCodemunch Repo Briefing"]
 
-    for repo_id, idx in _iter_loaded_repos(store, repos):
+    for entry in listed[:MAX_LISTED_REPOS]:
+        parts.extend(_stats_lines(entry))
+    if len(listed) > MAX_LISTED_REPOS:
+        parts.append(
+            f"\n... and {len(listed) - MAX_LISTED_REPOS} more indexed repos "
+            "under this directory."
+        )
+
+    small = [e for e in hydrate if _small_enough(e.get("symbol_count"))]
+    for entry in hydrate:
+        if entry not in small:
+            parts.extend(_stats_lines(
+                entry, note="stats only: too large to hydrate at agent start"))
+
+    for repo_id, idx in _iter_loaded_repos(store, small):
         # Stats
         n_files = len(idx.source_files)
         n_symbols = len(idx.symbols)
@@ -75,7 +86,12 @@ def run_subagentstart() -> int:
         parts.append(f"\n### {repo_id}")
         parts.append(f"- **Files:** {n_files} | **Symbols:** {n_symbols} | **Languages:** {lang_str}")
 
-        # Top central symbols via PageRank
+        # Top central symbols via PageRank, only inside the budget. A
+        # hydration cannot be interrupted once started; PageRank can be
+        # skipped, and on a large import graph it costs more than the load.
+        if time.monotonic() - started > BUDGET_SECONDS:
+            parts.append("- **Key symbols:** skipped (briefing time budget spent)")
+            continue
         try:
             sym_pr = _top_symbols_by_pagerank(idx, n_files=30, n_syms=15)
             if sym_pr:
@@ -116,6 +132,59 @@ def run_subagentstart() -> int:
         parts.append("\nUse `plan_turn` to get recommended approach for your task.")
 
     return _emit_additional_context("SubagentStart", "\n".join(parts))
+
+
+def _select_repos(repos: list, cwd) -> "tuple[list, list]":
+    """``(hydrate, listed)`` for a SubagentStart cwd (#1139).
+
+    - cwd at or inside an indexed root: hydrate the DEEPEST such root only.
+      An ancestor index also contains the cwd and is the broad scope the
+      report measured, so it is not briefed.
+    - cwd an ancestor of indexed roots (and inside none): list those roots
+      from their counts, hydrate nothing.
+    - cwd missing, not a string, or matching nothing: nothing. A briefing of
+      every repo on the box is the fallback that cost minutes.
+    """
+    if not isinstance(cwd, str) or not cwd.strip():
+        return [], []
+    try:
+        from ...path_prefix import dir_prefix  # noqa: PLC0415  (leaf, stdlib only)
+
+        here = _norm_path(cwd)
+        containing, below = [], []
+        for e in repos:
+            sr = (e.get("source_root") or "").strip()
+            if not sr:
+                continue
+            root = _norm_path(sr)
+            if here == root or here.startswith(dir_prefix(root)):
+                containing.append((len(root), e))
+            elif root.startswith(dir_prefix(here)):
+                below.append(e)
+        if containing:
+            return [max(containing, key=lambda t: t[0])[1]], []
+        return [], sorted(below, key=lambda e: e.get("repo") or "")
+    except Exception:
+        logger.debug("cwd scoping failed", exc_info=True)
+        return [], []
+
+
+def _small_enough(symbol_count) -> bool:
+    """True only for a KNOWN count at or under the cap; unknown is not small."""
+    return (
+        isinstance(symbol_count, int)
+        and not isinstance(symbol_count, bool)
+        and 0 <= symbol_count <= HYDRATE_MAX_SYMBOLS
+    )
+
+
+def _stats_lines(entry: dict, note: str = "") -> list:
+    """A repo's briefing from list_repos() counts alone: no hydration."""
+    lines = [f"\n### {entry.get('repo') or '?'}"]
+    files, syms = entry.get("file_count"), entry.get("symbol_count")
+    stats = f"- **Files:** {files if files is not None else '?'} | **Symbols:** {syms if syms is not None else '?'}"
+    lines.append(f"{stats} ({note})" if note else stats)
+    return lines
 
 
 def _tool_surface() -> str:

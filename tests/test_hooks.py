@@ -786,12 +786,17 @@ class TestSubagentStart:
             # Real list_repos() shape: entries keyed "repo", NO owner/name keys.
             # The old mock's {"owner","name"} shape masked months of every repo
             # being skipped (the real store never produces those keys).
-            "list_repos": lambda self: [{"repo": "test/repo", "source_root": "/tmp/x"}],
+            "list_repos": lambda self: [
+                {"repo": "test/repo", "source_root": "/tmp/x", "symbol_count": 1}
+            ],
             "load_index": lambda self, owner, name: mock_index,
         })
         monkeypatch.setattr("jcodemunch_mcp.storage.IndexStore", MockStore)
 
-        rc, out, _ = _run_with_stdin(run_subagentstart, '{"hook_event_name": "SubagentStart"}')
+        # #1139: a repo is briefed only for a cwd inside its root; with no cwd
+        # this test exercised the brief-everything fallback (Practice 9).
+        rc, out, _ = _run_with_stdin(run_subagentstart, json.dumps(
+            {"hook_event_name": "SubagentStart", "cwd": "/tmp/x"}))
         assert rc == 0
         if out:
             msg = _additional_context(out, event="SubagentStart")

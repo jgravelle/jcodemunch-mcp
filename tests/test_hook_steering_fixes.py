@@ -420,9 +420,11 @@ class TestSubagentCatalogMatchesSurface:
         a = tmp_path / "a"
         a.mkdir()
         loaded: list = []
+        # Real list_repos() entries carry symbol_count; #1139 hydrates only a
+        # KNOWN-small index, so a count-less mock would hydrate nothing.
         _mock_store(monkeypatch, [
-            {"repo": "test/a", "source_root": str(a)},
-            {"repo": "test/b", "source_root": str(tmp_path / "b")},
+            {"repo": "test/a", "source_root": str(a), "symbol_count": 1},
+            {"repo": "test/b", "source_root": str(tmp_path / "b"), "symbol_count": 1},
         ], loaded=loaded)
         monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
         _, out, _ = _run(run_subagentstart, json.dumps({"cwd": str(a)}))
@@ -431,20 +433,25 @@ class TestSubagentCatalogMatchesSurface:
         assert "test/b" not in ctx
         assert loaded == ["a"]  # the unrelated repo was never hydrated
 
-    def test_no_cwd_overlap_briefs_everything(self, monkeypatch, tmp_path):
-        """Scoping is an optimisation, not a filter contract: a cwd outside
-        every indexed root keeps the brief-everything fallback."""
+    def test_no_cwd_overlap_briefs_no_repo(self, monkeypatch, tmp_path):
+        """A cwd outside every indexed root briefs NO repo (#1139). Inverted
+        under Practice 9: this test pinned the brief-everything fallback,
+        which hydrated and PageRanked every index on the agent-startup path
+        (533 s at worst in the report)."""
         a = tmp_path / "a"
         a.mkdir()
+        loaded: list = []
         _mock_store(monkeypatch, [
-            {"repo": "test/a", "source_root": str(a)},
-            {"repo": "test/b", "source_root": str(tmp_path / "b")},
-        ])
+            {"repo": "test/a", "source_root": str(a), "symbol_count": 1},
+            {"repo": "test/b", "source_root": str(tmp_path / "b"), "symbol_count": 1},
+        ], loaded=loaded)
         monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
         _, out, _ = _run(run_subagentstart, json.dumps(
             {"cwd": str(tmp_path / "elsewhere")}))
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-        assert "test/a" in ctx and "test/b" in ctx
+        assert "test/a" not in ctx and "test/b" not in ctx
+        assert loaded == []
+        assert "search_symbols" in ctx  # the catalog still briefs
 
     def test_full_surface_briefs_catalog(self, _store, monkeypatch):
         monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
