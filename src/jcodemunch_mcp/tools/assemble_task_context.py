@@ -152,6 +152,25 @@ _STAGE_BUDGET_WEIGHT = {
 }
 
 
+# The risk entry's one list of unbounded length: the blast axis's files the
+# importer graph could not walk. It is capped here, with its total, so a large
+# PR cannot spend the capsule's budget on file names (CLAUDE.md, a 1.x list
+# field ships with its cap).
+_RISK_UNRESOLVABLE_FILES_CAP = 20
+
+
+def _capped_signal_breakdown(breakdown: dict) -> dict:
+    blast = breakdown.get("blast_radius")
+    files = blast.get("unresolvable_files") if isinstance(blast, dict) else None
+    if not isinstance(files, list) or len(files) <= _RISK_UNRESOLVABLE_FILES_CAP:
+        return breakdown
+    capped_blast = dict(blast)
+    capped_blast["unresolvable_files"] = files[:_RISK_UNRESOLVABLE_FILES_CAP]
+    capped_blast["unresolvable_files_total"] = len(files)
+    capped_blast["unresolvable_files_truncated"] = True
+    return {**breakdown, "blast_radius": capped_blast}
+
+
 def assemble_task_context(
     repo: str,
     task: str,
@@ -566,7 +585,7 @@ def assemble_task_context(
                 payload = {
                     "risk_score": out.get("risk_score"),
                     "risk_level": out.get("risk_level"),
-                    "signal_breakdown": out.get("signal_breakdown") or {},
+                    "signal_breakdown": _capped_signal_breakdown(out.get("signal_breakdown") or {}),
                     "recommendations": (out.get("recommendations", []) or [])[:3],
                 }
                 for key in ("unmeasurable_axes", "risk_score_is_lower_bound"):

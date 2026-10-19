@@ -103,29 +103,98 @@ def test_every_key_the_stage_reads_is_one_the_producer_publishes(tmp_path):
     assert carried <= set(profile), carried - set(profile)
 
 
-def test_a_withheld_score_stays_withheld_and_says_why(tmp_path, monkeypatch):
-    """#879: an unmeasurable axis withholds `risk_score` as None. The entry must
-    keep the None and the disclosure, never turn it into a 0."""
-    import jcodemunch_mcp.tools.get_pr_risk_profile as producer
-
-    repo_id, storage = _repo_with_one_change(tmp_path)
-    real = producer.get_pr_risk_profile(repo=repo_id, storage_path=storage)
-    withheld = dict(
-        real, risk_score=None, risk_level=None, unmeasurable_axes=["blast_radius"]
+def _go_package_repo(tmp_path: Path, *, edit_python: bool) -> tuple[str, str]:
+    """The #879 fixture: a Go file the file-level import graph cannot walk (Go
+    imports a PACKAGE), beside a Python pair it can. Indexed at the first
+    commit; HEAD edits the Go file, and the Python file when asked."""
+    from tests.test_importer_walkers_ask_blast_verdict import (
+        BILLING_PY,
+        CONTROL_PY,
+        GO_MOD,
+        ORDER_REPO_GO,
+        PICK_SERVICE_GO,
     )
-    monkeypatch.setattr(producer, "get_pr_risk_profile", lambda **kw: withheld)
+
+    root = tmp_path / "fx"
+    for d in ("repository", "pkg", "services"):
+        (root / d).mkdir(parents=True)
+    (root / "go.mod").write_text(GO_MOD)
+    (root / "repository" / "order_repo.go").write_text(ORDER_REPO_GO)
+    (root / "pkg" / "pick_service.go").write_text(PICK_SERVICE_GO)
+    for init in ("__init__.py", "services/__init__.py", "pkg/__init__.py"):
+        (root / init).write_text("")
+    (root / "services" / "billing.py").write_text(BILLING_PY)
+    (root / "pkg" / "control.py").write_text(CONTROL_PY)
+    _git(["init", "-q"], root)
+    _git(["config", "user.email", "t@t.test"], root)
+    _git(["config", "user.name", "T"], root)
+    _git(["add", "-A"], root)
+    _git(["commit", "-q", "-m", "initial"], root)
+    storage = str(tmp_path / "store")
+    res = index_folder(
+        path=str(root),
+        identity_mode="local",
+        use_ai_summaries=False,
+        storage_path=storage,
+    )
+    assert res["success"], res
+    go = root / "repository" / "order_repo.go"
+    go.write_text(go.read_text().replace("return nil", "return nil // changed"))
+    if edit_python:
+        py = root / "services" / "billing.py"
+        py.write_text(py.read_text().replace("* 100", "* 101"))
+    _git(["commit", "-qam", "edit"], root)
+    return res["repo"], storage
+
+
+def test_a_withheld_score_stays_withheld_and_says_why(tmp_path):
+    """#879: only the Go file changed, so the blast axis is unmeasured and the
+    real profile withholds `risk_score`. The entry keeps the None and the
+    disclosure, never a 0."""
+    repo_id, storage = _go_package_repo(tmp_path, edit_python=False)
+    profile = get_pr_risk_profile(repo=repo_id, storage_path=storage)
+    assert profile["risk_score"] is None and profile["unmeasurable_axes"] == [
+        "blast_radius"
+    ]
     entry = _risk_entry(repo_id, storage)
     assert entry["risk_score"] is None
     assert entry["risk_level"] is None
-    assert entry["unmeasurable_axes"] == ["blast_radius"]
+    assert entry["unmeasurable_axes"] == profile["unmeasurable_axes"]
+    assert entry["signal_breakdown"] == profile["signal_breakdown"]
+    carried = set(entry) - {"stage", "source_tool", "tokens", "label"}
+    assert carried <= set(profile), carried - set(profile)
 
 
-def test_a_lower_bound_score_says_so(tmp_path, monkeypatch):
-    import jcodemunch_mcp.tools.get_pr_risk_profile as producer
-
-    repo_id, storage = _repo_with_one_change(tmp_path)
-    real = producer.get_pr_risk_profile(repo=repo_id, storage_path=storage)
-    bounded = dict(real, risk_score_is_lower_bound=True)
-    monkeypatch.setattr(producer, "get_pr_risk_profile", lambda **kw: bounded)
+def test_a_lower_bound_score_says_so(tmp_path):
+    """The Go file and a Python file changed: the score is measured but is a
+    lower bound, and the real profile says so beside it."""
+    repo_id, storage = _go_package_repo(tmp_path, edit_python=True)
+    profile = get_pr_risk_profile(repo=repo_id, storage_path=storage)
+    assert profile["risk_score_is_lower_bound"] is True
     entry = _risk_entry(repo_id, storage)
     assert entry["risk_score_is_lower_bound"] is True
+    assert entry["risk_score"] == profile["risk_score"]
+    carried = set(entry) - {"stage", "source_tool", "tokens", "label"}
+    assert carried <= set(profile), carried - set(profile)
+
+
+def test_a_long_unresolvable_list_is_capped_with_its_total():
+    from jcodemunch_mcp.tools import assemble_task_context as atc
+
+    cap = atc._RISK_UNRESOLVABLE_FILES_CAP
+    files = [f"pkg{i}/f.go" for i in range(cap + 5)]
+    breakdown = {
+        "blast_radius": {"score": 0.4, "unresolvable_files": files},
+        "churn": {"score": 0.1},
+    }
+    capped = atc._capped_signal_breakdown(breakdown)
+    blast = capped["blast_radius"]
+    assert blast["unresolvable_files"] == files[:cap]
+    assert blast["unresolvable_files_total"] == cap + 5
+    assert blast["unresolvable_files_truncated"] is True
+    assert capped["churn"] == breakdown["churn"]
+    assert breakdown["blast_radius"]["unresolvable_files"] == files, (
+        "the input is not edited"
+    )
+    short = {"blast_radius": {"unresolvable_files": files[:cap]}}
+    assert atc._capped_signal_breakdown(short) == short
