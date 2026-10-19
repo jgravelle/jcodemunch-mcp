@@ -155,7 +155,8 @@ _STAGE_BUDGET_WEIGHT = {
 # The risk entry's one list of unbounded length: the blast axis's files the
 # importer graph could not walk. It is capped here, with its total, so a large
 # PR cannot spend the capsule's budget on file names (CLAUDE.md, a 1.x list
-# field ships with its cap).
+# field ships with its cap). The two disclosure keys appear only on a cut list,
+# so a list without them is the producer's whole list.
 _RISK_UNRESOLVABLE_FILES_CAP = 20
 
 

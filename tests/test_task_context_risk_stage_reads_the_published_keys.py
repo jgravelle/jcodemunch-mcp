@@ -198,3 +198,26 @@ def test_a_long_unresolvable_list_is_capped_with_its_total():
     )
     short = {"blast_radius": {"unresolvable_files": files[:cap]}}
     assert atc._capped_signal_breakdown(short) == short
+
+
+def test_the_stage_applies_the_cap(tmp_path, monkeypatch):
+    """The helper alone is not the path that ships the list (review): the
+    stage must call it. The producer's KEYS are guarded by the real-producer
+    tests above; this one only lengthens the real response's list."""
+    import jcodemunch_mcp.tools.get_pr_risk_profile as producer
+    from jcodemunch_mcp.tools import assemble_task_context as atc
+
+    repo_id, storage = _go_package_repo(tmp_path, edit_python=True)
+    real = producer.get_pr_risk_profile(repo=repo_id, storage_path=storage)
+    cap = atc._RISK_UNRESOLVABLE_FILES_CAP
+    files = [f"pkg{i}/f.go" for i in range(cap + 3)]
+    blast = dict(real["signal_breakdown"]["blast_radius"], unresolvable_files=files)
+    long = dict(
+        real, signal_breakdown=dict(real["signal_breakdown"], blast_radius=blast)
+    )
+    monkeypatch.setattr(producer, "get_pr_risk_profile", lambda **kw: long)
+    entry = _risk_entry(repo_id, storage)
+    shipped = entry["signal_breakdown"]["blast_radius"]
+    assert shipped["unresolvable_files"] == files[:cap]
+    assert shipped["unresolvable_files_total"] == cap + 3
+    assert shipped["unresolvable_files_truncated"] is True
