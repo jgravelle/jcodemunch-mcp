@@ -932,31 +932,29 @@ def _identity_key(owner: str, name: str) -> tuple[str, str]:
     return part(owner), part(name)
 
 
-_UNREADABLE = object()  # the identity could not be read: neither a repo nor "none"
-
-
 def _read_identity(conn) -> Optional[str]:
     row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
     value = row[0] if row else None
     return value if isinstance(value, str) and "/" in value else None
 
 
-def _stored_identity(db_path: Path):
+def _stored_identity(db_path: Path) -> tuple[bool, Optional[str]]:
     """The ``repo`` an existing index file records.
 
-    Three answers, and the difference is load-bearing:
-      - a string: the repository this index belongs to;
-      - None: the file records no repository (an index from before the
+    Returns ``(readable, identity)``. Three answers, and the difference is
+    load-bearing:
+      - ``(True, "<owner>/<name>")``: the repository this index belongs to;
+      - ``(True, None)``: the file records no repository (an index from before the
         identity was recorded, a file with no ``meta`` table, or a corrupt
         file that a re-index must be able to repair) -- never a conflict;
-      - ``_UNREADABLE``: the file exists and could not be read at all. Callers
+      - ``(False, None)``: the file exists and could not be read at all. Callers
         FAIL CLOSED on it, because the next writer could be another
         repository's, and a cached "unknown" would leave the slot open until
         the file next changed.
     A refused read-only open is retried on a plain connection before giving up.
     """
     if not db_path.exists():
-        return None
+        return True, None
     from .generation import connect_readonly
 
     for opener in (connect_readonly, lambda p: sqlite3.connect(str(p))):
@@ -966,17 +964,17 @@ def _stored_identity(db_path: Path):
             logger.debug("identity read: could not open %s", db_path, exc_info=True)
             continue
         try:
-            return _read_identity(conn)
+            return True, _read_identity(conn)
         except sqlite3.OperationalError as exc:
             if "no such table" in str(exc).lower():
-                return None  # not an index with a meta table: nothing recorded
+                return True, None  # not an index with a meta table: nothing recorded
             logger.debug("identity read failed on %s", db_path, exc_info=True)
             continue
         except sqlite3.DatabaseError:
-            return None  # corrupt: unreadable by every reader, repairable by a re-index
+            return True, None  # corrupt: unreadable by every reader, repairable by a re-index
         finally:
             conn.close()
-    return _UNREADABLE
+    return False, None
 
 
 def _meta_names_other_repo(meta: dict, owner: str, name: str) -> bool:
@@ -1079,8 +1077,8 @@ class SQLiteIndexStore:
         if hit is not None and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
             stored = hit[2]
         else:
-            stored = _stored_identity(db_path)
-            if stored is _UNREADABLE:
+            readable, stored = _stored_identity(db_path)
+            if not readable:
                 # Never cached: a transient failure must not open the slot
                 # until the file next changes. Fail closed for every caller.
                 raise IndexIdentityConflict(
