@@ -162,13 +162,17 @@ _RISK_UNRESOLVABLE_FILES_CAP = 20
 
 def _capped_signal_breakdown(breakdown: dict) -> dict:
     blast = breakdown.get("blast_radius")
-    files = blast.get("unresolvable_files") if isinstance(blast, dict) else None
+    if not isinstance(blast, dict):
+        return breakdown
+    files = blast.get("unresolvable_files")
     if not isinstance(files, list) or len(files) <= _RISK_UNRESOLVABLE_FILES_CAP:
         return breakdown
-    capped_blast = dict(blast)
-    capped_blast["unresolvable_files"] = files[:_RISK_UNRESOLVABLE_FILES_CAP]
-    capped_blast["unresolvable_files_total"] = len(files)
-    capped_blast["unresolvable_files_truncated"] = True
+    capped_blast = {
+        **blast,
+        "unresolvable_files": files[:_RISK_UNRESOLVABLE_FILES_CAP],
+        "unresolvable_files_total": len(files),
+        "unresolvable_files_truncated": True,
+    }
     return {**breakdown, "blast_radius": capped_blast}
 
 
