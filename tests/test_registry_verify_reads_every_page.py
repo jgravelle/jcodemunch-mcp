@@ -35,6 +35,19 @@ META = "io.modelcontextprotocol.registry/official"
 _REAL_SLEEP, _REAL_MONOTONIC = time.sleep, time.monotonic
 
 
+def _is_version_read(url: str) -> bool:
+    """The one-row read (FINDINGS C-27). These tests are about the paged search,
+    so it answers 404 and is not counted: every assertion below sees exactly
+    the requests it saw before the version read existed."""
+    return "/versions/" in url
+
+
+def _version_not_found(url: str):
+    import urllib.error
+
+    return urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+
 @pytest.fixture()
 def rv(monkeypatch):
     spec = importlib.util.spec_from_file_location(
@@ -67,6 +80,8 @@ def _paged(monkeypatch, pages: dict[str | None, dict]):
     asked = []
 
     def urlopen(url, timeout=None):
+        if _is_version_read(url):
+            raise _version_not_found(url)
         q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
         cursor = (q.get("cursor") or [None])[0]
         asked.append(cursor)
@@ -124,6 +139,8 @@ def test_cursors_that_never_end_are_no_answer(rv, monkeypatch, capsys):
     asked = []
 
     def urlopen(url, timeout=None):
+        if _is_version_read(url):
+            raise _version_not_found(url)
         asked.append(url)
         # With the cap gone the script would ask for ever; fail by name instead of hanging.
         assert len(asked) <= rv.MAX_PAGES + 1, "the script asked past its page cap"
@@ -214,6 +231,8 @@ def test_the_whole_run_ends_inside_its_budget(rv, monkeypatch, capsys):
     monkeypatch.setattr(rv.time, "sleep", clock.sleep)
 
     def urlopen(url, timeout=None):
+        if _is_version_read(url):
+            raise _version_not_found(url)
         clock.timeouts.append(timeout)
         clock.now += timeout  # every request runs to its timeout
         body = {
@@ -252,6 +271,10 @@ def test_a_bug_in_the_paging_code_raises_and_is_not_retried(rv, monkeypatch):
         calls.append(name)
         return None.rows  # AttributeError inside fetch
 
+    def no_version_row(name, version, deadline=None):
+        raise OSError("no version row")  # the paged read under test still runs (C-27)
+
+    monkeypatch.setattr(rv, "fetch_version", no_version_row)
     monkeypatch.setattr(rv, "fetch", broken)
     with pytest.raises(AttributeError):
         rv.main(["--version", "9.9.9"])

@@ -33,6 +33,19 @@ META = "io.modelcontextprotocol.registry/official"
 _REAL_SLEEP, _REAL_MONOTONIC = time.sleep, time.monotonic
 
 
+def _is_version_read(url: str) -> bool:
+    """The one-row read (FINDINGS C-27). These tests are about the paged search,
+    so it answers 404 and is not counted: every assertion below sees exactly
+    the requests it saw before the version read existed."""
+    return "/versions/" in url
+
+
+def _version_not_found(url: str):
+    import urllib.error
+
+    return urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+
 @pytest.fixture()
 def rv(monkeypatch):
     spec = importlib.util.spec_from_file_location(
@@ -67,6 +80,8 @@ def _serve(rv, monkeypatch, answers):
     calls = []
 
     def urlopen(url, timeout=None):
+        if _is_version_read(url):
+            raise _version_not_found(url)
         calls.append(url)
         a = answers[min(len(calls), len(answers)) - 1]
         if isinstance(a, BaseException):
