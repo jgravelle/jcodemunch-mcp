@@ -2329,6 +2329,12 @@ class SQLiteIndexStore:
         # The in-process index cache holds the old summaries; a whole-row save
         # replaced its entry, this write evicts it so the next load re-reads.
         _cache_evict(owner, self._safe_repo_component(name, "name"))
+        # The index's identity (`indexed_at`) did not move, so a result cache
+        # keyed on it would keep serving the old summaries (L-226).
+        if changed:
+            from . import write_listeners
+
+            write_listeners.notify(owner, name)
         return changed
 
     def _incremental_save_locked(

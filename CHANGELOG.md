@@ -2,17 +2,22 @@
 
 ## [Unreleased]
 
-### Fixed - a summary refresh no longer leaves old summaries in cached results
+### Fixed - a search after a summary refresh shows the new summaries
 
-The server keeps a cache of recent tool results and clears it after every
-tool that rewrites an index: `index_folder`, `index_repo`, `index_file` and
-`index_dependency`. `summarize_repo` rewrites every symbol's summary and was
-missing from that list, so a `search_symbols` or `get_symbol_source` result
-cached before a refresh kept showing the old summaries until something else
-cleared the cache. It now clears the cache too.
-`tests/test_a_summary_refresh_clears_cached_results.py` calls `summarize_repo`
-through the server and checks the cache is empty. It also reads the
-dispatcher and fails if any of the five index-writing tools stops clearing it.
+`search_symbols` caches its results under a key that includes the index's
+`indexed_at`, so a re-index retires every cached search. A summary refresh
+(`summarize_repo`, which since #1161 writes summaries with a one-column
+`UPDATE`) leaves `indexed_at` alone, so a search repeated after the refresh
+was served from the cache with the summaries from before it.
+
+The store's summary write now tells the search cache to drop that
+repository's entries (`storage/write_listeners.py`; `search_symbols`
+registers itself when it is imported). The write is where the notice comes
+from, so every caller is covered, not only `summarize_repo` through the
+server. `tests/test_a_summary_refresh_clears_cached_results.py` indexes a real
+repository, searches through the server, refreshes the summaries with the
+real `summarize_repo`, and searches again. It fails if the second search
+shows the old summary, and it does the same for a direct call to the store.
 Found in the review of #1161 (LEDGER L-226).
 
 ## [1.108.383] - 2026-10-19 - refreshing summaries no longer erases complexity and the call graph
