@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.379] - 2026-10-19 - a spawned agent no longer waits minutes for its jCodeMunch briefing
+
 ### Fixed - a spawned agent no longer waits minutes for its jCodeMunch briefing (#1139)
 
 The `SubagentStart` hook adds a repo briefing to every agent Claude Code
