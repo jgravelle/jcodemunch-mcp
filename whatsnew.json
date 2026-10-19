@@ -1,6 +1,12 @@
 {
-  "current": "1.108.382",
+  "current": "1.108.383",
   "entries": [
+    {
+      "version": "1.108.383",
+      "date": "2026-10-19",
+      "title": "refreshing summaries no longer erases complexity and the call graph",
+      "summary": "summarize_repo(force=true), the documented way to refresh AI summaries, rewrote every symbol row and stored NULL in the fields its converter did not copy: cyclomatic, max_nesting, param_count and call_references. get_hotspots then returned [] and get_symbol_complexity said the data was unavailable. A refresh now writes only the summaries that changed, never onto a body a re-index changed meanwhile (reported as not_written). Reported by @SlimLemon (#1161)."
+    },
     {
       "version": "1.108.382",
       "date": "2026-10-19",

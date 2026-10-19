@@ -2788,3 +2788,13 @@ The 1.108.379 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.379 count, verbatim:
 
 - ⚠ Prior (1.108.379): 18056 passed, 25 skipped, **0 failed** (18081 total).
+
+## Current State rotation (2026-10-19, release 1.108.383)
+
+The 1.108.380 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.380):** **compacting a session no longer waits on a large index's landmarks** (L-219): the hook size rule and budget live in `cli/hooks/_common.py`; `_iter_loaded_repos(size_capped=, stop_at=)` applies them before each load, and the PreCompact landmarks section names every index it skipped. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.380 count, verbatim:
+
+- ⚠ Prior (1.108.380): 18066 passed, 25 skipped, **0 failed** (18091 total).
