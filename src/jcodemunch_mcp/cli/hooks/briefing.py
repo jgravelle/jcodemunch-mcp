@@ -15,8 +15,9 @@ from ._common import (
 
 logger = logging.getLogger(__name__)
 
-# #1139 bounds. Seeded, not calibrated: on this box (2026-10-19) a 50,320-symbol
-# index hydrated in 1.04 s and a 46,765-symbol one took 2.68 s of PageRank.
+# #1139 bounds. Seeded, not calibrated: on the maintainer's box (2026-10-19) a
+# 50,320-symbol index hydrated in 0.86 s and a 46,765-symbol one took 2.50 s of
+# PageRank.
 # An index above the cap, or of unknown size, is briefed from its counts.
 HYDRATE_MAX_SYMBOLS = 100_000
 BUDGET_SECONDS = 3.0
@@ -69,8 +70,11 @@ def run_subagentstart() -> int:
     small = [e for e in hydrate if _small_enough(e.get("symbol_count"))]
     for entry in hydrate:
         if entry not in small:
-            parts.extend(_stats_lines(
-                entry, note="stats only: too large to hydrate at agent start"))
+            # UNKNOWN is not "too large": say which one it is.
+            known = isinstance(entry.get("symbol_count"), int)
+            parts.extend(_stats_lines(entry, note=(
+                "stats only: too large to load at agent start" if known
+                else "stats only: index size unknown")))
 
     for repo_id, idx in _iter_loaded_repos(store, small):
         # Stats

@@ -21,10 +21,12 @@ lists them (ten at most) from those counts and loads none. A cwd that matches
 nothing, or no cwd, briefs no repo; the tool list still goes out, since it
 costs nothing. PageRank is skipped once 3 seconds have passed. Those limits
 are set from one measurement on our box, not tuned: a 50,320-symbol index
-loaded in 1.04 s there, and PageRank took 2.68 s on a 46,765-symbol one.
+loaded in 0.86 s there, and PageRank took 2.50 s on a 46,765-symbol one.
 `tests/test_subagent_briefing_scope.py` pins the reporter's four cases, the
-size limit, the unknown-size case and the time limit. Two older tests pinned
-the brief-everything fallback and now assert the opposite.
+size limit, the unknown-size case and the time limit, and runs the hook once
+against a real index with no mocked store. One older test pinned the
+brief-everything fallback; it now asserts the opposite and is recorded in
+`harness/retired.json`.
 
 If you removed the `hook-subagent-start` entry as a workaround, add it back
 after upgrading with `jcodemunch-mcp init`.

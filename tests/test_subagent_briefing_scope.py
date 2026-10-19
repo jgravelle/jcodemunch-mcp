@@ -128,8 +128,10 @@ def test_unknown_size_is_not_hydrated(tree):
     for e in tree["repos"]:
         if e["repo"] == "local/project-a":
             e.pop("symbol_count")
-    _run(json.dumps({"cwd": str(tree["a"])}))
+    ctx = _ctx(_run(json.dumps({"cwd": str(tree["a"])})))
     assert tree["loaded"] == []
+    assert "index size unknown" in ctx
+    assert "too large" not in ctx
 
 
 def test_pagerank_is_skipped_past_the_budget(tree, monkeypatch):
@@ -167,6 +169,29 @@ def test_child_listing_is_capped(tree):
     assert len(listed) == briefing.MAX_LISTED_REPOS
     assert "and 5 more" in ctx
     assert tree["loaded"] == []
+
+
+def test_a_real_index_is_hydrated_through_the_real_list_repos(tmp_path, monkeypatch):
+    """No mocked store. The hydrate gate reads ``symbol_count`` from
+    ``list_repos()``, so if the real producer stopped setting it every
+    briefing would quietly turn stats-only while the mocked tests stayed
+    green (Standing lesson 08-13). Index a real folder; the hook must load
+    it and list its symbols."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    src, store = tmp_path / "proj", tmp_path / "store"
+    src.mkdir()
+    store.mkdir()
+    (src / "app.py").write_text(
+        "def distinctive_briefing_probe():\n    return 1\n", encoding="utf-8")
+    r = index_folder(str(src), use_ai_summaries=False, storage_path=str(store))
+    assert r.get("success") is not False, r
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    monkeypatch.setenv("JCODEMUNCH_TOOL_SURFACE", "full")
+
+    ctx = _ctx(_run(json.dumps({"cwd": str(src)})))
+    assert "**Languages:** python" in ctx  # only a hydrated index knows this
+    assert "stats only" not in ctx
 
 
 def test_selection_rule_is_the_reporters_four_cases(tree):

@@ -176,6 +176,13 @@
       "replacement": "tests/test_config.py::test_env_vars_log_no_deprecation_warning",
       "commit": "L-193",
       "date": "2026-10-15"
+    },
+    {
+      "path": "tests/test_hook_steering_fixes.py::test_no_cwd_overlap_briefs_everything",
+      "lesson": "The test pinned the SubagentStart brief-everything fallback (a cwd matching no indexed root briefed every repo) as 'an optimisation, not a filter contract'. That fallback hydrated and PageRanked every index on Claude Code's synchronous agent-startup path, which #1139 (@treyecollins) measured at a 90.4 s median and a 533 s maximum over 486 runs. Practice 9: the old test was the defect's witness. Renamed and inverted in place rather than deleted.",
+      "replacement": "tests/test_hook_steering_fixes.py::test_no_cwd_overlap_briefs_no_repo",
+      "commit": "#1139",
+      "date": "2026-10-19"
     }
   ]
 }
