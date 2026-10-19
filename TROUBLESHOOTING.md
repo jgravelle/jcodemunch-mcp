@@ -294,6 +294,24 @@ Additional hardening on locked-down boxes:
 
 ---
 
+## WSL: `GitBlameProvider: git log exceeded 10s budget` on every re-index
+
+`git_blame_enabled` is off by default. With it on, indexing runs one bounded
+`git log` per index pass (the latest 20,000 commits or two years, whichever
+comes first) and stops it at 10 seconds. A repository on the Windows
+filesystem under WSL (`/mnt/c/...`) can be slow enough to reach that cap on
+every pass. The watcher re-indexes on each change, so the warning repeats and
+the blame data stays empty.
+
+- Set `"git_blame_enabled": false` in `config.jsonc`, or in the project's
+  `.jcodemunch.jsonc` for that repository alone. Blame only adds
+  `last_author` / `last_modified` to file context; search and ranking never
+  read it.
+- Or move the repository onto the Linux filesystem (`~/...`), where `git log`
+  is fast and the watcher can use inotify instead of polling.
+
+Reported in #1164 (split from #1163).
+
 ## HTTP Transport "Connection Refused"
 
 **Symptom:** `--transport sse` or `--transport streamable-http` fails with
