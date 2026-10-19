@@ -11,8 +11,9 @@ Exit 1 unless a row with `server.version == X` exists, is marked latest, and
 its `packages[].version` advanced too.
 
 Each attempt first reads the one row for the version
-(`/v0/servers/<name>/versions/<v>`, C-27), which answers in seconds where the
-paged search can take tens. A pass there ends the run. A wrong row, a 404 or
+(`/v0/servers/<name>/versions/<v>`, C-27), which answered in about half the
+time of one search page in FINDINGS C-27's measurement. A pass there ends the
+run. A wrong row, a 404 or
 no answer falls through to the paged read, which decides.
 
 The read is retried, and the exit code says which thing went wrong (LEDGER

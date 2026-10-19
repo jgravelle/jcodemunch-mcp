@@ -1,9 +1,9 @@
 """The registry verify reads the one version row first (cicd FINDINGS C-27).
 
-Two release runs in a row (v1.108.378, v1.108.380) ended `failure` with every
-publish job green, because the paged `?search=` read timed out on all six
-attempts, while `/v0/servers/<name>/versions/<v>` answers far faster with the
-same nested row (FINDINGS C-27 carries the measurement). So each attempt asks
+Three release runs (v1.108.378, v1.108.380, v1.108.381) ended `failure` with
+every publish job green, because the paged `?search=` read timed out on all six
+attempts, while `/v0/servers/<name>/versions/<v>` answered in about half the
+time with the same nested row (FINDINGS C-27 carries the measurement). So each attempt asks
 for the one row first.
 
 What is pinned: the version row can only end the run EARLY, on a PASS.
