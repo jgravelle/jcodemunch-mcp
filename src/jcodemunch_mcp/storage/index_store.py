@@ -15,7 +15,13 @@ from typing import Callable, Optional
 from .. import config as _config
 from ..parser.symbols import Symbol
 from ..path_map import parse_path_map, remap
-from .sqlite_store import SQLiteIndexStore, _VERIFIED_PATHS, _default_base_path
+from .sqlite_store import (
+    IndexIdentityConflict,
+    SQLiteIndexStore,
+    _VERIFIED_PATHS,
+    _default_base_path,
+    _meta_names_other_repo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1067,17 +1073,28 @@ class IndexStore:
         safe_name = self._safe_repo_component(name, "name")
         return f"{safe_owner}-{safe_name}"
 
+    def _slot(self, owner: str, name: str) -> str:
+        """The slot name for a repository, after the identity check.
+
+        Every facade path into a slot comes through here, and the check is the
+        SQLite store's one ``_guard_slot``: raises ``IndexIdentityConflict``
+        when the slot's index records another repository.
+        """
+        slug = self._repo_slug(owner, name)
+        self._sqlite._guard_slot(self.base_path / f"{slug}.db", owner, name)
+        return slug
+
     def _index_path(self, owner: str, name: str) -> Path:
         """Path to index JSON file."""
-        return self.base_path / f"{self._repo_slug(owner, name)}.json"
+        return self.base_path / f"{self._slot(owner, name)}.json"
 
     def _lock_path(self, owner: str, name: str) -> Path:
         """Path to per-repo advisory lock file."""
-        return self.base_path / f"{self._repo_slug(owner, name)}.json.lock"
+        return self.base_path / f"{self._slot(owner, name)}.json.lock"
 
     def _meta_path(self, owner: str, name: str) -> Path:
         """Path to lightweight metadata sidecar for list_repos."""
-        return self.base_path / f"{self._repo_slug(owner, name)}.meta.json"
+        return self.base_path / f"{self._slot(owner, name)}.meta.json"
 
     def _checksum_path(self, index_path: Path) -> Path:
         """Path to SHA-256 integrity checksum sidecar."""
@@ -1140,8 +1157,8 @@ class IndexStore:
             logger.debug("Failed to write meta sidecar", exc_info=True)
 
     def _content_dir(self, owner: str, name: str) -> Path:
-        """Path to raw content directory."""
-        return self.base_path / self._repo_slug(owner, name)
+        """Path to raw content directory (guarded: see ``_slot``)."""
+        return self.base_path / self._slot(owner, name)
 
     def _safe_content_path(self, content_dir: Path, relative_path: str) -> Optional[Path]:
         """Resolve a content path and ensure it stays within content_dir.
@@ -1287,19 +1304,25 @@ class IndexStore:
         return result
 
     def has_index(self, owner: str, name: str) -> bool:
-        """Return True if an index exists (SQLite or JSON)."""
-        return self._sqlite.has_index(owner, name) or self._index_path(owner, name).exists()
+        """Return True if an index exists (SQLite or JSON). An index that
+        belongs to another repository is not this repository's: False."""
+        try:
+            return self._sqlite.has_index(owner, name) or self._index_path(owner, name).exists()
+        except IndexIdentityConflict:
+            return False
 
     def inspect_index(self, owner: str, name: str, branch: str = "") -> IndexLoadStatus:
         """Return index presence/loadability without changing load_index's contract."""
         sqlite_status = self._sqlite.inspect_index(owner, name, branch=branch)
-        if sqlite_status.loadable:
+        if sqlite_status.loadable or sqlite_status.status == "identity_conflict":
             return sqlite_status
 
         if not branch:
             index_path = self._index_path(owner, name)
             if index_path.exists():
                 data = _load_index_json_cached(str(index_path), index_path.stat().st_mtime_ns)
+                if data and _meta_names_other_repo(data, owner, name):
+                    data = None  # a legacy JSON naming another repository is not ours
                 if data:
                     return IndexLoadStatus(
                         repo=data.get("repo", f"{owner}/{name}"),
@@ -1345,12 +1368,24 @@ class IndexStore:
 
         # Try auto-migration from JSON (no branch support for legacy JSON)
         if not branch:
-            index_path = self._index_path(owner, name)
+            try:
+                index_path = self._index_path(owner, name)
+            except IndexIdentityConflict as e:
+                logger.warning("%s", e)
+                return None
             if index_path.exists():
                 logger.info("Auto-migrating %s/%s from JSON to SQLite", owner, name)
                 result = self._sqlite.migrate_from_json(index_path, owner, name)
                 if result is not None:
                     _invalidate_index_cache()
+                    # A legacy JSON keeps its own `repo`: never serve one that
+                    # names another repository under this name.
+                    if _meta_names_other_repo({"repo": result.repo}, owner, name):
+                        logger.warning(
+                            "Legacy index in the slot for %s/%s is %s; not serving it",
+                            owner, name, result.repo,
+                        )
+                        return None
                     return result
 
         return None

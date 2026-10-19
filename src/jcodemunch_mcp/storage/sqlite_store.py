@@ -889,6 +889,104 @@ def _unlink_retry(path: Path, retries: int = 3, delay: float = 0.1) -> bool:
     return False  # unreachable, but satisfies type checkers
 
 
+class IndexIdentityConflict(ValueError):
+    """The index slot for a repository already holds a different repository.
+
+    An index's file is named ``f"{owner}-{name}"`` after sanitising, and both
+    halves may contain hyphens, so two repositories can share one slot
+    (``foo-bar/baz`` and ``foo/bar-baz``). The store refuses to write, serve
+    or delete across that boundary rather than letting one repository's index
+    be used for another's.
+    """
+
+    def __init__(self, requested: str, stored: str, *, unreadable_path: str = ""):
+        self.requested, self.stored = requested, stored
+        self.unreadable = bool(unreadable_path)
+        if unreadable_path:
+            # Fail closed, and say so plainly: there may be no second
+            # repository at all, only a file that could not be opened.
+            super().__init__(
+                f"could not read which repository the index file {unreadable_path} "
+                f"belongs to, so {requested} is not written, served or deleted there. "
+                "Close other programs holding the file, or remove it and re-index."
+            )
+            return
+        super().__init__(
+            f"the index slot for {requested} already holds {stored}; "
+            f"refusing to write, serve or delete {requested} there. "
+            "Two repositories whose owner/name pairs join to the same "
+            "'<owner>-<name>' cannot both be indexed in one storage directory."
+        )
+
+
+def _identity_key(owner: str, name: str) -> tuple[str, str]:
+    """How two spellings of one repository compare: each half sanitised the way
+    the slot name is, then casefolded (GitHub owner and repository names are
+    case-insensitive). The halves stay SEPARATE, which is what tells
+    ``foo-bar/baz`` from ``foo/bar-baz`` when their slot names are equal."""
+    import re
+
+    def part(v: str) -> str:
+        return re.sub(r"-+", "-", re.sub(r"[^A-Za-z0-9._-]", "-", v)).strip("-").casefold()
+
+    return part(owner), part(name)
+
+
+_UNREADABLE = object()  # the identity could not be read: neither a repo nor "none"
+
+
+def _read_identity(conn) -> Optional[str]:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+    value = row[0] if row else None
+    return value if isinstance(value, str) and "/" in value else None
+
+
+def _stored_identity(db_path: Path):
+    """The ``repo`` an existing index file records.
+
+    Three answers, and the difference is load-bearing:
+      - a string: the repository this index belongs to;
+      - None: the file records no repository (an index from before the
+        identity was recorded, a file with no ``meta`` table, or a corrupt
+        file that a re-index must be able to repair) -- never a conflict;
+      - ``_UNREADABLE``: the file exists and could not be read at all. Callers
+        FAIL CLOSED on it, because the next writer could be another
+        repository's, and a cached "unknown" would leave the slot open until
+        the file next changed.
+    A refused read-only open is retried on a plain connection before giving up.
+    """
+    if not db_path.exists():
+        return None
+    from .generation import connect_readonly
+
+    for opener in (connect_readonly, lambda p: sqlite3.connect(str(p))):
+        try:
+            conn = opener(db_path)
+        except (sqlite3.Error, OSError):
+            logger.debug("identity read: could not open %s", db_path, exc_info=True)
+            continue
+        try:
+            return _read_identity(conn)
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).lower():
+                return None  # not an index with a meta table: nothing recorded
+            logger.debug("identity read failed on %s", db_path, exc_info=True)
+            continue
+        except sqlite3.DatabaseError:
+            return None  # corrupt: unreadable by every reader, repairable by a re-index
+        finally:
+            conn.close()
+    return _UNREADABLE
+
+
+def _meta_names_other_repo(meta: dict, owner: str, name: str) -> bool:
+    """True when an index's own meta records a DIFFERENT repository. A missing
+    or malformed ``repo`` is UNKNOWN and returns False."""
+    stored = meta.get("repo")
+    if not (isinstance(stored, str) and "/" in stored):
+        return False
+    return _identity_key(*stored.split("/", 1)) != _identity_key(owner, name)
+
 
 def _default_base_path() -> Path:
     """Storage root when a caller names none: `CODE_INDEX_PATH`, else `~/.code-index`.
@@ -947,9 +1045,49 @@ class SQLiteIndexStore:
     # ── Connection helpers ──────────────────────────────────────────
 
     def _db_path(self, owner: str, name: str) -> Path:
-        """Path to the SQLite database file for a repo."""
+        """Path to the SQLite database file for a repo.
+
+        Raises ``IndexIdentityConflict`` when that file belongs to another
+        repository (``_guard_slot``). Every reader and writer of a slot reaches
+        it through this accessor or ``_content_dir``, which is why the identity
+        check lives HERE and not at the entry points: a guard at five methods
+        was walked round by the sixth.
+        """
         slug = self._repo_slug(owner, name)
-        return self.base_path / f"{slug}.db"
+        path = self.base_path / f"{slug}.db"
+        self._guard_slot(path, owner, name)
+        return path
+
+    # (str(db path), mtime_ns, size) -> the identity that file records, or
+    # None. Process-wide: keyed by the file's own stat, so a rewrite misses.
+    _slot_identity_cache: dict[str, tuple[int, int, Optional[str]]] = {}
+
+    def _guard_slot(self, db_path: Path, owner: str, name: str) -> None:
+        """Refuse a slot whose index records a DIFFERENT repository.
+
+        A missing file, or one recording no identity, passes: an index written
+        before the identity was recorded must keep working. A file whose
+        identity cannot be read at all is refused, and that answer is never
+        cached. One ``stat`` per call on a cache hit.
+        """
+        key = str(db_path)
+        try:
+            st = os.stat(key)
+        except OSError:
+            return  # no file: nothing to belong to anyone
+        hit = SQLiteIndexStore._slot_identity_cache.get(key)
+        if hit is not None and hit[0] == st.st_mtime_ns and hit[1] == st.st_size:
+            stored = hit[2]
+        else:
+            stored = _stored_identity(db_path)
+            if stored is _UNREADABLE:
+                # Never cached: a transient failure must not open the slot
+                # until the file next changes. Fail closed for every caller.
+                raise IndexIdentityConflict(
+                    f"{owner}/{name}", "", unreadable_path=key)
+            SQLiteIndexStore._slot_identity_cache[key] = (st.st_mtime_ns, st.st_size, stored)
+        if stored is not None and _meta_names_other_repo({"repo": stored}, owner, name):
+            raise IndexIdentityConflict(f"{owner}/{name}", stored)
 
     def _connect(self, db_path: Path) -> sqlite3.Connection:
         """Open a connection with WAL pragmas and schema ensured on first visit."""
@@ -1618,7 +1756,16 @@ class SQLiteIndexStore:
         """Inner body of save_index; runs under the indexwrite lock."""
         conn = self._connect(db_path)
         try:
-            conn.execute("BEGIN")
+            # ⚠ The indexwrite lock is keyed by owner/name, so two COLLIDING
+            # identities hold different locks and do not serialise there. The
+            # write lock SQLite takes on BEGIN IMMEDIATE is per FILE, so reading
+            # the stored identity inside this transaction is what closes the
+            # race between the slot check in `_db_path` and this write. On a
+            # conflict, close() without commit rolls the transaction back.
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+            if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
+                raise IndexIdentityConflict(f"{owner}/{name}", row[0])
             conn.execute("DELETE FROM symbols")
             conn.execute("DELETE FROM files")
             # The embedding store keeps its own rows in `meta`, and this save
@@ -1695,7 +1842,12 @@ class SQLiteIndexStore:
         _ensure_index_store_deps()
         # Sanitize name so "my project (v2)" maps to the same .db as save_index
         safe_name = self._safe_repo_component(name, "name")
-        db_path = self._db_path(owner, safe_name)
+        try:
+            db_path = self._db_path(owner, safe_name)
+        except IndexIdentityConflict as e:
+            # Never serve another repository's index under this name.
+            logger.warning("%s", e)
+            return None
         if not db_path.exists():
             return None
 
@@ -1731,6 +1883,14 @@ class SQLiteIndexStore:
                 try:
                     meta = self._read_meta(conn)
                     if not meta:
+                        return None
+                    if _meta_names_other_repo(meta, owner, name):
+                        # Never serve another repository's index under this
+                        # name. Not cached, so the refusal repeats each call.
+                        logger.warning(
+                            "Index slot for %s/%s holds %s; not serving it",
+                            owner, name, meta.get("repo"),
+                        )
                         return None
 
                     try:
@@ -1823,7 +1983,10 @@ class SQLiteIndexStore:
         if branch:
             return None
         safe_name = self._safe_repo_component(name, "name")
-        db_path = self._db_path(owner, safe_name)
+        try:
+            db_path = self._db_path(owner, safe_name)
+        except IndexIdentityConflict:
+            return None  # load_index refuses it, and says why
         if not db_path.exists():
             return None
 
@@ -1854,6 +2017,8 @@ class SQLiteIndexStore:
                 meta = self._read_meta(conn)
                 if not meta:
                     return None
+                if _meta_names_other_repo(meta, owner, name):
+                    return None  # load_index refuses it, and says why
                 try:
                     stored_version = int(meta.get("index_version", "0"))
                 except (TypeError, ValueError):
@@ -1929,8 +2094,23 @@ class SQLiteIndexStore:
         from .index_store import IndexLoadStatus
 
         safe_name = self._safe_repo_component(name, "name")
-        db_path = self._db_path(owner, safe_name)
         repo_id = f"{owner}/{safe_name}"
+        try:
+            db_path = self._db_path(owner, safe_name)
+        except IndexIdentityConflict as e:
+            # Present, but another repository's: not loadable under this name,
+            # and the four runtime tools that gate on this status stop here.
+            return IndexLoadStatus(
+                repo=repo_id,
+                owner=owner,
+                name=safe_name,
+                backend="sqlite",
+                index_present=False,
+                loadable=False,
+                status="identity_conflict",
+                load_error=str(e),
+                hint="This repository cannot be indexed beside the one already in this slot.",
+            )
         if not db_path.exists():
             return IndexLoadStatus(
                 repo=repo_id,
@@ -2036,9 +2216,13 @@ class SQLiteIndexStore:
             )
 
     def has_index(self, owner: str, name: str) -> bool:
-        """Return True if a .db file exists for this repo."""
+        """Return True if a .db file exists for this repo. Another repository's
+        index in this slot is not this repository's: False."""
         safe_name = self._safe_repo_component(name, "name")
-        return self._db_path(owner, safe_name).exists()
+        try:
+            return self._db_path(owner, safe_name).exists()
+        except IndexIdentityConflict:
+            return False
 
     def incremental_save(
         self,
@@ -2131,7 +2315,11 @@ class SQLiteIndexStore:
 
         conn = self._connect(db_path)
         try:
-            conn.execute("BEGIN")
+            # Per-file write lock, then the stored identity: see save_index.
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT value FROM meta WHERE key = 'repo'").fetchone()
+            if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
+                raise IndexIdentityConflict(f"{owner}/{name}", row[0])
 
             # A delta re-reads some files, so it cannot end a provider cut that
             # a full pass recorded (L-190). The caller's dict REPLACES the stored
@@ -2769,8 +2957,8 @@ class SQLiteIndexStore:
     def delete_index(self, owner: str, name: str) -> bool:
         """Delete a repo's .db, .db-wal, .db-shm, and content dir."""
         safe_name = self._safe_repo_component(name, "name")
+        db_path = self._db_path(owner, name)  # raises before anything is touched
         _cache_evict(owner, safe_name)
-        db_path = self._db_path(owner, name)
         deleted = False
 
         if db_path.exists():
@@ -2928,8 +3116,11 @@ class SQLiteIndexStore:
     # ── Content cache helpers (reused from IndexStore) ──────────────
 
     def _content_dir(self, owner: str, name: str) -> Path:
-        """Path to raw content directory."""
-        return self.base_path / self._repo_slug(owner, name)
+        """Path to raw content directory. Guarded like ``_db_path``: the
+        directory belongs to whichever repository the slot's index records."""
+        slug = self._repo_slug(owner, name)
+        self._guard_slot(self.base_path / f"{slug}.db", owner, name)
+        return self.base_path / slug
 
     def _safe_content_path(self, content_dir: Path, relative_path: str) -> Optional[Path]:
         """Resolve a content path and ensure it stays within content_dir."""
