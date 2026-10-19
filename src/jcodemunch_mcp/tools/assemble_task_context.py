@@ -559,12 +559,20 @@ def assemble_task_context(
             from .get_pr_risk_profile import get_pr_risk_profile  # noqa: PLC0415
             out = get_pr_risk_profile(repo=repo_id, storage_path=storage_path)
             if isinstance(out, dict) and "error" not in out:
-                _add_entry("risk", "get_pr_risk_profile", {
-                    "composite_risk": out.get("composite_risk", 0),
-                    "verdict": out.get("verdict", ""),
-                    "signals": out.get("signals", {}),
+                # The producer's own key names (L-61: `composite_risk`,
+                # `verdict` and `signals` were never published, so this entry
+                # carried 0, "" and {} for every PR). A withheld score stays
+                # None, and its disclosure travels with it (#879).
+                payload = {
+                    "risk_score": out.get("risk_score"),
+                    "risk_level": out.get("risk_level"),
+                    "signal_breakdown": out.get("signal_breakdown") or {},
                     "recommendations": (out.get("recommendations", []) or [])[:3],
-                })
+                }
+                for key in ("unmeasurable_axes", "risk_score_is_lower_bound"):
+                    if key in out:
+                        payload[key] = out[key]
+                _add_entry("risk", "get_pr_risk_profile", payload)
         except Exception as exc:  # noqa: BLE001
             logger.debug("assemble_task_context: pr_risk_profile skipped: %s", exc, exc_info=True)
 

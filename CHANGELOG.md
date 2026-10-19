@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Fixed - a task capsule's risk entry carries the PR's real risk score
+
+`assemble_task_context` runs `get_pr_risk_profile` for the `review` and
+`audit` intents and copies its verdict into the capsule. It read three keys
+the profile has never published: `composite_risk`, `verdict` and `signals`.
+The profile publishes `risk_score`, `risk_level` and `signal_breakdown`. So
+since the risk stage was added, every capsule's risk entry has said `0`, `""`
+and `{}`, whatever the change. An agent reading it saw a zero-risk PR with
+no signals.
+
+The entry now carries the profile's own `risk_score`, `risk_level` and
+`signal_breakdown`, and the old names are gone. A score the profile withholds
+because an axis could not be measured stays `null`, and `unmeasurable_axes`
+comes with it, so it can't be read as zero risk. A lower-bound score carries
+`risk_score_is_lower_bound`. `tests/test_task_context_risk_stage_reads_the_published_keys.py`
+runs the real profile on a real git change and fails if the stage reads any
+key the profile does not publish. Found on the way to #879 (LEDGER L-61).
+
 ## [1.108.381] - 2026-10-19 - one repository's index can no longer replace or stand in for another's
 
 ### Security - one repository's index can no longer replace or stand in for another's
