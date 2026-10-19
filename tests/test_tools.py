@@ -297,9 +297,11 @@ class TestNestedGitignore:
         assert any("cap/app.ex" in p for p in paths)
         assert any("core/app.ex" in p for p in paths)
 
-        # deps/ files should be excluded by nested .gitignore
+        # deps/ files should be excluded by nested .gitignore. Since #1163 the
+        # ignored DIRECTORY is pruned before the walk enters it, so each deps/
+        # counts once as `gitignored_dir` instead of its files as `gitignore`.
         assert not any("deps" in p for p in paths)
-        assert skip_counts["gitignore"] >= 2
+        assert skip_counts["gitignored_dir"] >= 2
 
     def test_root_gitignore_still_works(self, tmp_path):
         """Root .gitignore should still be respected."""

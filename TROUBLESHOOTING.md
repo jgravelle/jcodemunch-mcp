@@ -117,9 +117,13 @@ Two things do dilute, and neither is an extension problem:
    ```
 3. **Read `discovery_skip_counts` in the index response.** It reports which rule
    dropped what — `extra_ignore`, `gitignore`, `wrong_extension`, `too_large`,
-   `secret`, `binary`, `generated_migrations`. If the count you expect is zero, the rule you assumed was
-   filtering is not the one doing the work.
-4. `.gitignore` is already honoured; a tree ignored by git is not indexed.
+   `secret`, `binary`, `generated_migrations`. A directory a `.gitignore` or
+   `extra_ignore_patterns` names is pruned before the walk enters it and counts
+   once, as `gitignored_dir` or `extra_ignore_dir`, rather than per file. If the
+   count you expect is zero, the rule you assumed was filtering is not the one
+   doing the work.
+4. `.gitignore` is already honoured; a tree ignored by git is not indexed, and
+   the file watcher does not poll it either.
 
 ⚠ **`wrong_extension` answers two different questions and cannot tell them
 apart:** "that file is not source code" (a scope decision) and "this
@@ -293,6 +297,24 @@ Additional hardening on locked-down boxes:
    a security agent is doing TLS inspection.
 
 ---
+
+## WSL: `GitBlameProvider: git log exceeded 10s budget` on every re-index
+
+`git_blame_enabled` is off by default. With it on, indexing runs one bounded
+`git log` per index pass (the latest 20,000 commits or two years, whichever
+comes first) and stops it at 10 seconds. A repository on the Windows
+filesystem under WSL (`/mnt/c/...`) can be slow enough to reach that cap on
+every pass. The watcher re-indexes on each change, so the warning repeats and
+the blame data stays empty.
+
+- Set `"git_blame_enabled": false` in `config.jsonc`, or in the project's
+  `.jcodemunch.jsonc` for that repository alone. Blame only adds
+  `last_author` / `last_modified` to file context; search and ranking never
+  read it.
+- Or move the repository onto the Linux filesystem (`~/...`), where `git log`
+  is fast and the watcher can use inotify instead of polling.
+
+Reported in #1164 (split from #1163).
 
 ## HTTP Transport "Connection Refused"
 
