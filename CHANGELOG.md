@@ -22,17 +22,19 @@ the config's ignore patterns but not the per-call or framework-profile ones
 `index_folder` adds. The rule also prunes a directory that a `.gitignore` or
 `extra_ignore_patterns` names. Neither walk did that before: discovery
 entered those trees and dropped their files one at a time. A directory is
-pruned only when no `!` pattern reaches it. The per-file check lets such a
-pattern re-include a file below an ignored directory (`outdir/**` with
-`!outdir/keep.py`), and pruning would drop a file the per-file verdict keeps,
-which is what `index_file` and the watcher's fast path apply. So the set of
-indexed files does not change. What does change is `discovery_skip_counts`:
+pruned only when the per-file check would ignore everything below it, and the
+matcher itself is asked: the directory and two made-up descendants must all
+match, and no `!` pattern may reach it. A directory match alone is not
+enough. `outdir/**` with `!outdir/keep.py` re-includes a file, and `x/*`
+matches `x/sub/` but not `x/sub/a.py`. Pruning either would drop a file that
+`index_file` and the watcher's fast path, which judge one file at a time,
+accept. So the set of indexed files does not change. What does change is `discovery_skip_counts`:
 an ignored directory counts once, as `gitignored_dir` or `extra_ignore_dir`,
 where its files used to count one by one under `gitignore`. Both are corpus
 definition, not withheld files, so absence claims stay citable. `tests/test_watch_census_prunes_what_discovery_prunes.py`
 holds both directions: every directory holding an indexed file is watched,
-and no directory discovery prunes is. It also covers three negation shapes,
-where the file stays indexed and watched. Reported by @yagiii1344 (#1163), with
+and no directory discovery prunes is. It also covers three negation shapes
+and two `x/*` shapes, where the file stays indexed and watched. Reported by @yagiii1344 (#1163), with
 the measurements and the fix's shape.
 
 ### Fixed - refreshing summaries no longer erases complexity and the call graph

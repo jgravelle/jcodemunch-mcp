@@ -600,28 +600,38 @@ def _directory_prune_reason(
         return "nuget_packages"
     if cfg.skip_generated_migrations and is_generated_migrations_directory(name, path):
         return "generated_migrations"
-    # A directory a `.gitignore` names, when nothing below it can be re-included
-    # (#1163). The per-file check applies pathspec's last-match rule, so a
-    # `!` pattern can bring back a file under an ignored directory
-    # (`outdir/**` + `!outdir/keep.py`); pruning that directory would drop a
-    # file the per-file verdict keeps, and `index_file` and the watcher fast
-    # path, which judge per file, would then disagree with the walk (L-142).
-    # So a directory is pruned only when no spec that reaches it holds a
-    # negation: then every file below it is ignored too, and the directory
-    # verdict equals the per-file one. The trailing "/" lets a directory-only
-    # pattern (`vcpkg/`) match.
+    # A directory a `.gitignore` or the extra patterns name, pruned only when
+    # the per-file verdict would ignore EVERYTHING below it (#1163).
+    # `index_file` and the watcher fast path judge one file at a time; pruning
+    # a directory holding a file they accept makes the walk disagree with them
+    # (L-142: `index_file` reports success, the next walk deletes the file).
+    # A directory match alone is not enough, and two shapes broke it in review:
+    # a `!` pattern re-including a file below (`outdir/**` + `!outdir/keep.py`),
+    # and `x/*`, which matches `x/sub/` but not `x/sub/a.py`. So the matcher
+    # itself is asked about descendants at two depths (`_DESCENDANT_PROBES`),
+    # and no spec reaching the directory may hold a negation. The trailing
+    # "/" lets a directory-only pattern (`vcpkg/`) match.
     dir_str = os.path.join(parent, name)
     if (
         gitignore_specs
-        and _is_gitignored_fast(dir_str + "/", gitignore_specs)
         and not _a_negation_reaches(dir_str, gitignore_specs)
+        and all(
+            _is_gitignored_fast(dir_str + "/" + probe, gitignore_specs)
+            for probe in ("",) + _DESCENDANT_PROBES
+        )
     ):
         return "gitignored_dir"
     if cfg.extra_spec is not None and not _spec_has_negation(cfg.extra_spec):
         rel = os.path.relpath(dir_str, root_str).replace("\\", "/")
-        if cfg.extra_spec.match_file(rel + "/"):
+        if all(cfg.extra_spec.match_file(rel + "/" + probe) for probe in ("",) + _DESCENDANT_PROBES):
             return "extra_ignore_dir"
     return None
+
+
+# Names no pattern is written against: a file directly below a directory and
+# one a level deeper. A pattern that ignores the directory but not these (`x/*`)
+# leaves it walked, so the per-file verdict decides each file as before.
+_DESCENDANT_PROBES = ("jcm-probe-0", "jcm-probe-0/jcm-probe-1")
 
 
 def _spec_has_negation(spec) -> bool:

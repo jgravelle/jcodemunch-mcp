@@ -153,6 +153,37 @@ def test_a_negation_below_an_ignored_directory_keeps_its_file_and_its_watch(
     assert ok, "the per-file verdict and the walk must agree"
 
 
+@pytest.mark.parametrize("pattern", ["thirdp/*", "thirdp/*/*.log"])
+def test_a_pattern_that_matches_a_directory_but_not_its_files_prunes_nothing(
+    tmp_path, pattern
+):
+    """Review of #1163, round 2: `x/*` matches `x/sub/` and not `x/sub/a.py`,
+    with no negation anywhere. Pruning on the directory match dropped a file
+    the per-file verdict keeps; the descendant probes keep the tree walked."""
+    root = (tmp_path / "star").resolve()
+    _write(root, ".gitignore", pattern + chr(10))
+    _write(root, "thirdp/sub/a.py")
+    _write(root, "main.py")
+    files, _w, _c = discover_local_files(root)
+    rels = {Path(f).resolve().relative_to(root).as_posix() for f in files}
+    assert "thirdp/sub/a.py" in rels, rels
+    assert (root / "thirdp" / "sub").resolve() in _census(root)
+    from jcodemunch_mcp.tools.index_folder import (
+        _load_dir_gitignore,
+        _should_index_file,
+        _walk_filter_config,
+    )
+
+    specs: list = []
+    _load_dir_gitignore(str(root), [".gitignore"], specs)
+    ok, _r, _rel, _w2 = _should_index_file(
+        root / "thirdp" / "sub" / "a.py",
+        _walk_filter_config(root, per_file=True),
+        specs,
+    )
+    assert ok, "the per-file verdict and the walk must agree"
+
+
 def test_an_ignored_directory_with_no_negation_is_pruned(tmp_path):
     root = (tmp_path / "plain").resolve()
     _write(root, ".gitignore", "thirdp/" + chr(10))
