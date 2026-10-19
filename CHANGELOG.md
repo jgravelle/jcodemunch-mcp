@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed - the watcher no longer polls trees nothing indexes
+
+Under WSL the file watcher polls, and it polls every directory its census
+returns. That census pruned only the built-in skip names. Discovery, the
+walk that decides what gets indexed, prunes six more kinds of directory before
+it descends: linked worktrees, MSBuild output, `CACHEDIR.TAG` caches,
+virtualenv `site-packages`, NuGet restore trees and generated migrations. So
+the watcher stat-polled trees no index would ever read. @yagiii1344 measured
+96,191 polled entries across 23 repositories, 77% of them in four gitignored
+trees such as a vcpkg checkout, with the watcher using about 76% of a core.
+`extra_ignore_patterns` and a project `.jcodemunch.jsonc` reached discovery
+and not the census, so there was no setting that stopped it.
+
+The census and discovery now ask one directory rule
+(`index_folder._directory_prune_reason`), so the watcher can watch neither
+less than discovery indexes nor more. The rule also prunes a directory that a
+`.gitignore` or `extra_ignore_patterns` names. Neither walk did that before:
+discovery entered those trees and dropped their files one at a time. Git
+never re-includes a file below an ignored directory, and discovery already
+followed that, so the set of indexed files does not change. What does change
+is `discovery_skip_counts`: an ignored directory counts once, as
+`gitignored_dir` or `extra_ignore_dir`, where its files used to count one by
+one under `gitignore`. Both are corpus definition, not withheld files, so
+absence claims stay citable. `tests/test_watch_census_prunes_what_discovery_prunes.py`
+holds both directions: every directory holding an indexed file is watched,
+and no directory discovery prunes is. Reported by @yagiii1344 (#1163), with
+the measurements and the fix's shape.
+
 ### Fixed - a task capsule's risk entry carries the PR's real risk score
 
 `assemble_task_context` runs `get_pr_risk_profile` for the `review` and

@@ -557,6 +557,71 @@ def _walk_filter_config(
     )
 
 
+def _directory_prune_reason(
+    name: str,
+    parent: str,
+    filenames,
+    cfg: "_IndexFilters",
+    skip_dirs_regex: "re.Pattern",
+    gitignore_specs: list,
+    root_str: str,
+) -> Optional[str]:
+    """Why the walk does not descend into ``parent/name``, or None to descend.
+
+    THE ONE directory rule. Discovery prunes with it, and so does the watcher's
+    census (`watcher._watch_directories`), so the census can be neither
+    stricter than discovery (an indexed file nobody watches) nor looser (a tree
+    polled that nothing indexes; #1163, 96,191 polled entries, 77% in four
+    gitignored trees). ``filenames`` is ``parent``'s own entries, already
+    walked, which the .NET marker reads with no IO. ``gitignore_specs`` must
+    already hold ``parent``'s own `.gitignore`, so a pattern there prunes its
+    child directories.
+
+    The order is behaviour-neutral, since a directory matching any rule is
+    pruned; cheap string checks run before the rules that cost an open() or a
+    stat, and the gitignore rules run last so a directory both rules match
+    keeps its historical count.
+    """
+    if skip_dirs_regex.match(name):
+        return "skip_dir"
+    path = Path(parent) / name
+    if is_linked_worktree(path):
+        return "nested_worktree"
+    if cfg.skip_msbuild_output and is_dotnet_project_dir(filenames) and is_msbuild_output_directory(name, filenames):
+        return "msbuild_output"
+    if cfg.respect_cachedir_tag and is_cache_directory(path):
+        return "cache_dir"
+    if cfg.skip_virtualenvs and is_virtualenv_site_packages_directory(name, parent):
+        return "virtualenv"
+    if cfg.skip_nuget_packages and is_nuget_packages_directory(name, path):
+        return "nuget_packages"
+    if cfg.skip_generated_migrations and is_generated_migrations_directory(name, path):
+        return "generated_migrations"
+    # Git never re-includes a path below an ignored directory, so a directory a
+    # `.gitignore` names holds nothing discovery may index (#1163). The trailing
+    # "/" lets a directory-only pattern (`vcpkg/`) match.
+    dir_str = os.path.join(parent, name)
+    if gitignore_specs and _is_gitignored_fast(dir_str + "/", gitignore_specs):
+        return "gitignored_dir"
+    if cfg.extra_spec is not None:
+        rel = os.path.relpath(dir_str, root_str).replace("\\", "/")
+        if cfg.extra_spec.match_file(rel + "/"):
+            return "extra_ignore_dir"
+    return None
+
+
+def _load_dir_gitignore(dirpath: str, filenames, specs: list) -> None:
+    """Append ``dirpath``'s own `.gitignore` to ``specs``, as both walks do."""
+    if ".gitignore" not in filenames:
+        return
+    try:
+        content = (Path(dirpath) / ".gitignore").read_text(encoding="utf-8", errors="replace")
+        spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
+        specs.append((_dir_prefix(str(Path(dirpath).resolve())), spec))
+    except Exception:
+        logger.debug("unreadable .gitignore in %s", dirpath, exc_info=True)
+
+
 def _framework_ignore_patterns(profile) -> list[str]:
     """``profile``'s ignore patterns, which the walk merges into
     ``extra_ignore_patterns``; empty for no profile. The walk detects the
@@ -1424,12 +1489,8 @@ def discover_local_files(
     _repo_key = str(root)
     max_size = get_max_file_size(max_size, repo=_repo_key)
     max_files = get_max_folder_files(max_files, repo=_repo_key)
-    _flags = _config_skip_flags(_repo_key)
-    respect_cachedir_tag = _flags["respect_cachedir_tag"]
-    skip_msbuild_output = _flags["skip_msbuild_output"]
-    skip_nuget_packages = _flags["skip_nuget_packages"]
-    skip_virtualenvs = _flags["skip_virtualenvs"]
-    skip_generated_migrations = _flags["skip_generated_migrations"]
+    # The skip switches ride on `filter_cfg` below (`_config_skip_flags`), and
+    # the directory rule reads them there (`_directory_prune_reason`).
     files = []
     warnings = []
     oversize: list[str] = []
@@ -1441,6 +1502,8 @@ def discover_local_files(
         "nuget_packages": 0,
         "virtualenv": 0,
         "generated_migrations": 0,
+        "gitignored_dir": 0,
+        "extra_ignore_dir": 0,
         "skip_file": 0,
         "symlink": 0,
         "symlink_escape": 0,
@@ -1485,98 +1548,29 @@ def discover_local_files(
 
     for dirpath, dirnames, filenames in os.walk(str(root), followlinks=False, onerror=_count_walk_error):
         dpath = Path(dirpath)
-        # Prune directories that should always be skipped before descending.
-        # Nested linked worktrees (`.git` FILE → `.git/worktrees/<name>`,
-        # e.g. Claude Code's `<repo>/.claude/worktrees/`) are separate
-        # working trees whose near-duplicate checkouts would pollute this
-        # index and burn the max_folder_files cap (#372).
-        pruned = []
-        worktrees = []
-        caches = []
-        msbuild = []
-        nuget = []
-        venvs = []
-        migrations = []
+        # This directory's own .gitignore first: it applies to the files below
+        # AND prunes the child directories it names (#1163).
+        _load_dir_gitignore(dirpath, filenames, gitignore_str_specs)
+        # Prune before descending, by the one directory rule the watcher's
+        # census also asks (`_directory_prune_reason`). Nested linked worktrees
+        # (#372), MSBuild output, CACHEDIR-tagged caches, virtualenv
+        # site-packages (L-206), NuGet restore trees, generated migrations, and
+        # directories a .gitignore or the extra ignore patterns name.
         kept = []
-        # `filenames` is this directory's entries, already walked, so the .NET
-        # project-file marker `is_msbuild_output_directory` needs costs no IO.
-        dotnet_here = skip_msbuild_output and is_dotnet_project_dir(filenames)
+        rel_dir = None
         for d in dirnames:
-            if skip_dirs_regex.match(d):
-                pruned.append(d)
-            elif is_linked_worktree(dpath / d):
-                worktrees.append(d)
-            # MSBuild output beside a .NET project file. Pure string work against
-            # an already-computed marker, so it precedes the CACHEDIR.TAG open();
-            # ordering stays behaviour-neutral because a directory matching either
-            # rule is pruned either way.
-            elif dotnet_here and is_msbuild_output_directory(d, filenames):
-                msbuild.append(d)
-            # A directory that declares ITSELF a cache, per the Cache Directory
-            # Tagging Specification. Checked last because it costs an open() and
-            # the two rules above are string/stat work; ordering is behaviour-
-            # neutral since a directory matching an earlier rule is pruned
-            # either way.
-            elif respect_cachedir_tag and is_cache_directory(dpath / d):
-                caches.append(d)
-            # A Python virtualenv's installed packages: `site-packages` at the
-            # path a venv tool writes it, under a root whose `pyvenv.cfg` proves
-            # it (L-206). Everything else in the venv, including source a user
-            # keeps in its root, `bin/` or `lib/`, stays. Name-gated: other
-            # directories cost one string compare.
-            elif skip_virtualenvs and is_virtualenv_site_packages_directory(d, dpath):
-                venvs.append(d)
-            # A NuGet restore tree. Checked LAST because it is the only rule here
-            # that can cost more than one syscall — up to one stat per child dir —
-            # and that cost is gated behind a `packages` name compare, so every
-            # other directory pays a single string comparison. Ordering stays
-            # behaviour-neutral: a directory matching an earlier rule is pruned
-            # either way.
-            elif skip_nuget_packages and is_nuget_packages_directory(d, dpath / d):
-                nuget.append(d)
-            # Generated migrations: name-gated, so every other directory pays one
-            # string compare; a `migrations` directory costs one listing.
-            elif skip_generated_migrations and is_generated_migrations_directory(d, dpath / d):
-                migrations.append(d)
-            else:
+            why = _directory_prune_reason(
+                d, dirpath, filenames, filter_cfg, skip_dirs_regex,
+                gitignore_str_specs, root_str,
+            )
+            if why is None:
                 kept.append(d)
-        if pruned or worktrees or caches or msbuild or nuget or venvs or migrations:
-            rel_dir = os.path.relpath(dirpath, root_str)
-            for d in pruned:
-                skip_counts["skip_dir"] += 1
-                logger.debug("SKIP skip_dir: %s", os.path.join(rel_dir, d))
-            for d in worktrees:
-                skip_counts["nested_worktree"] += 1
-                logger.debug(
-                    "SKIP nested_worktree: %s", os.path.join(rel_dir, d)
-                )
-            for d in caches:
-                skip_counts["cache_dir"] += 1
-                logger.debug("SKIP cache_dir: %s", os.path.join(rel_dir, d))
-            for d in msbuild:
-                skip_counts["msbuild_output"] += 1
-                logger.debug("SKIP msbuild_output: %s", os.path.join(rel_dir, d))
-            for d in nuget:
-                skip_counts["nuget_packages"] += 1
-                logger.debug("SKIP nuget_packages: %s", os.path.join(rel_dir, d))
-            for d in venvs:
-                skip_counts["virtualenv"] += 1
-                logger.debug("SKIP virtualenv: %s", os.path.join(rel_dir, d))
-            for d in migrations:
-                skip_counts["generated_migrations"] += 1
-                logger.debug("SKIP generated_migrations: %s", os.path.join(rel_dir, d))
+                continue
+            skip_counts[why] = skip_counts.get(why, 0) + 1
+            if rel_dir is None:
+                rel_dir = os.path.relpath(dirpath, root_str)
+            logger.debug("SKIP %s: %s", why, os.path.join(rel_dir, d))
         dirnames[:] = kept
-
-        # Load .gitignore for this directory BEFORE filtering its files so
-        # that patterns defined here apply to siblings in the same directory.
-        if ".gitignore" in filenames:
-            gitignore_path = dpath / ".gitignore"
-            try:
-                content = gitignore_path.read_text(encoding="utf-8", errors="replace")
-                spec = pathspec.PathSpec.from_lines("gitignore", content.splitlines())
-                gitignore_str_specs.append((_dir_prefix(str(dpath.resolve())), spec))
-            except Exception:
-                pass
 
         for filename in filenames:
             file_path = dpath / filename
