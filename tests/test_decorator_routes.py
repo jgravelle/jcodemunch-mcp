@@ -58,6 +58,36 @@ def create_user():
         assert "POST /api/users" in ctx.properties["routes"]
 
 
+    def test_flask_route_reads_methods(self, tmp_path: Path):
+        """#1177 (@skibadubskiybadubs): `methods=` names the verbs; GET only when it is absent."""
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "tokens.py").write_text(
+            "from flask import Blueprint\n"
+            "bp = Blueprint('t', __name__)\n\n"
+            "@bp.route('/tokens', methods=['POST'])\n"
+            "def make():\n    pass\n\n"
+            "@bp.route('/tokens', methods=['DELETE'])\n"
+            "def revoke():\n    pass\n\n"
+            "@bp.route(\n    '/items',\n    methods=(\"GET\", 'put'),\n    strict_slashes=False,\n)\n"
+            "def items():\n    pass\n\n"
+            "@bp.route('/ping')\n"
+            "def ping():\n    pass\n\n"
+            "VERBS = ['PATCH']\n"
+            "@bp.route('/dyn', methods=VERBS)\n"
+            "def dyn():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        routes = provider.get_file_context("tokens.py").properties["routes"]
+        assert "POST /tokens" in routes and "DELETE /tokens" in routes
+        assert "GET /tokens" not in routes
+        assert "GET /items" in routes and "PUT /items" in routes
+        assert "GET /ping" in routes
+        # A non-literal `methods=` names verbs nobody can read here: never claim GET.
+        assert "ANY /dyn" in routes and "GET /dyn" not in routes
+
+
 class TestDecoratorRoutesFastAPI:
     """Tests for FastAPI detection and route extraction."""
 

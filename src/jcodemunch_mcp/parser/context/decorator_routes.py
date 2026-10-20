@@ -45,6 +45,44 @@ _FLASK_ROUTE = re.compile(
     re.IGNORECASE,
 )
 
+_METHODS_KW = re.compile(r"\bmethods\s*=\s*")
+_QUOTED_WORD = re.compile(r"[\"'](\w+)[\"']")
+
+
+def _call_args(content: str, start: int) -> str:
+    """The rest of a decorator call's arguments from `start` (just past its
+    first argument) to the parenthesis that closes the call."""
+    depth = 1
+    for i in range(start, len(content)):
+        c = content[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                return content[start:i]
+    return content[start:]
+
+
+def _flask_route_methods(content: str, start: int) -> list[str]:
+    """Verbs an `@x.route(path, ...)` call serves (#1177, @skibadubskiybadubs).
+
+    Flask serves GET only when `methods=` is absent. A literal list or tuple
+    names the verbs; any other value (a variable, a call) names verbs this
+    reader cannot see, so the route is `ANY` rather than a guessed GET.
+    """
+    args = _call_args(content, start)
+    kw = _METHODS_KW.search(args)
+    if kw is None:
+        return ["GET"]
+    rest = args[kw.end():].lstrip()
+    if not rest or rest[0] not in "[(":
+        return ["ANY"]
+    body = _call_args(rest, 1)
+    verbs = [v.upper() for v in _QUOTED_WORD.findall(body)]
+    return list(dict.fromkeys(verbs)) or ["ANY"]
+
+
 # FastAPI: matches @app.get(...), @router.post(...), etc.
 _FASTAPI_ROUTE = re.compile(
     r"@(?:app|router)\s*\.\s*"
@@ -303,10 +341,13 @@ class DecoratorRoutesProvider(ContextProvider):
                 parts = re.split(r"\s*\.\s*", decorator)
                 method_part = parts[-1].split("(")[0].lower()
                 verb = method_map.get(method_part, method_part.upper())
-                # @app.route defaults to GET
-                if verb == "ROUTE":
-                    verb = "GET"
                 path = m.group("path") or "/"
+                if verb == "ROUTE":
+                    # #1177: `methods=` names the verbs; Flask's GET default
+                    # applies only when it is absent.
+                    for v in _flask_route_methods(content, m.end()):
+                        routes.append({"verb": v, "path": path})
+                    continue
                 routes.append({"verb": verb, "path": path})
 
         return routes
