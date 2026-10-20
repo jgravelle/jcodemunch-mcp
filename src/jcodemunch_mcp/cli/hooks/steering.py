@@ -138,6 +138,39 @@ _SEARCH_ROUTES["Bash"] = (
 )
 
 
+_ROUTE_NAME_RE = re.compile(r"\b([a-z][a-z0-9_]+)\b")
+
+
+def _routes_for(tool_name: str) -> str:
+    """`_SEARCH_ROUTES[tool_name]`, worded for the surface this install serves.
+
+    ⚠⚠ Under `tool_surface="counter"` (init's default) the client's tool list
+    holds only the front door, so a route named as a bare tool is a call the
+    agent cannot make; every action is reachable only through `order`
+    (Benchmarking, M4 design on 1.108.386). The `CLAUDE.md` policy already
+    speaks in `order` calls; this is the second copy of the same guidance, so
+    it renders the same way. The surface comes from env + config
+    (`cli.policy._effective_tool_surface`), never from building the tool list:
+    a hook runs once per tool call.
+    """
+    routes = _SEARCH_ROUTES[tool_name]
+    try:
+        from ..policy import _effective_tool_surface
+
+        surface = _effective_tool_surface()
+    except Exception:
+        logger.debug("could not read the tool surface; naming routes directly", exc_info=True)
+        surface = "full"
+    if surface != "counter":
+        return routes
+    out = []
+    for line in routes.split("\n"):
+        names, sep, why = line.partition(":")
+        names = _ROUTE_NAME_RE.sub(lambda m: f'order {{ "action": "{m.group(1)}" }}', names.strip(" -"))
+        out.append(f"  - {names} {sep}{why}".rstrip())
+    return "\n".join(out)
+
+
 def _emit_search_steering(tool_name: str, what: str, *, deny: bool) -> int:
     """Emit the nudge or deny for an already-gated search interception.
 
@@ -146,7 +179,7 @@ def _emit_search_steering(tool_name: str, what: str, *, deny: bool) -> int:
     roots for its token scan and a gate here would either re-check what the
     caller proved or force a second store load.
     """
-    routes = _SEARCH_ROUTES[tool_name]
+    routes = _routes_for(tool_name)
     if deny:
         return _emit_pretooluse_deny(
             f"jCodemunch strict mode: {what} targets an indexed repo. Use the jcm "
