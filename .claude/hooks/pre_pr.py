@@ -17,11 +17,16 @@ from __future__ import annotations
 import json
 import re
 
+from pathlib import Path
+
 from _common import (
     PENDING_MARK,
     EVIDENCE,
     STATE,
+    _rebind_repo,
+    any_dir_change,
     block,
+    command_dir,
     git,
     ok,
     read_hook_input,
@@ -31,13 +36,39 @@ from _common import (
     tree_id,
 )
 
-PR_RE = re.compile(r"\bgh\s+pr\s+create\b")
+# `gh -R o/r`, `gh -Ro/r`, `gh --repo=o/r`, `gh.exe` and the `pr new` alias all
+# open a PR, in any case (Windows resolves `GH` to gh); the old pattern let them
+# through with no check at all (W-58).
+PR_RE = re.compile(r"(?i)\bgh(?:\.exe)?\s+(?:(?:-R\s*|--repo(?:\s+|=))\S+\s+)*pr\s+(?:create|new)\b")
 
 
 def main() -> None:
-    cmd = strip_heredocs(tool_command(read_hook_input()))
+    payload = read_hook_input()
+    raw = tool_command(payload)
+    cmd = strip_heredocs(raw)
     if not PR_RE.search(cmd):
         ok()
+    # A quoted `<<X` can make strip_heredocs swallow a real `cd`; judge the RAW
+    # command's segments (a body inside "$(cat <<'EOF' ...)" stays one quoted word).
+    if cmd != raw and any_dir_change(raw):
+        block(
+            "pre_pr: cannot tell which tree the PR is opened from (a heredoc and a directory change in one "
+            "command). Write the body to a file in a separate tool call, then pass it with --body-file."
+        )
+    # jjg (2026-10-19): the stamp is the one of the tree `gh pr create` RUNS in.
+    # The Bash tool resets its cwd each call, so a worktree PR is
+    # `cd <worktree> && gh pr create`; read that tree, never the session's.
+    where, why = command_dir(cmd, PR_RE, str(payload.get("cwd") or Path.cwd()))
+    if why:
+        block(
+            f"pre_pr: cannot tell which tree `gh pr create` runs in ({why}). "
+            "Open it as `cd <checkout> && gh pr create ...`."
+        )
+    if where is not None and (not where.is_dir() or not _rebind_repo(str(where))):
+        block(
+            f"pre_pr: `gh pr create` runs in {where}, which is not a checkout "
+            "carrying .claude/hooks, so there is no full-tier stamp to read for it."
+        )
     # Resolved after read_hook_input, which may rebind STATE to a worktree (W-30).
     STAMP = STATE / "full-tier.json"  # noqa: N806
     CHECKLIST = EVIDENCE / "checklist.md"  # noqa: N806

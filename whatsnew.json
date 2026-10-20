@@ -1,6 +1,12 @@
 {
-  "current": "1.108.384",
+  "current": "1.108.385",
   "entries": [
+    {
+      "version": "1.108.385",
+      "date": "2026-10-19",
+      "title": "a summary written by another process reaches this one's searches",
+      "summary": "A summary written by another process (a second server, a script) never reached this process's search cache, whose key held indexed_at, which a summary write leaves alone; a journal restored after an offline refresh served old summaries too. update_symbol_summaries now advances a summaries_generation counter in the same transaction and the cache key carries it. Also: an index read back in the process that saved it keeps ecosystem_context (L-224), and the README and registry description name the benchmark behind the 96.6% figure."
+    },
     {
       "version": "1.108.384",
       "date": "2026-10-19",
