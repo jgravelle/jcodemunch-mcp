@@ -190,7 +190,12 @@ def split_segments(cmd: str) -> list[str]:
 _CWD_WORDS = frozenset(
     {"cd", "chdir", "pushd", "popd", "set-location", "push-location", "pop-location", "sl"}
 )
-_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+#: `NAME=value`, and PowerShell's `$env:NAME=value` (this box's prescribed
+#: `$env:GITHUB_TOKEN=""` prefix must not read as an expansion, review round 5).
+_ASSIGNMENT_RE = re.compile(r"^(?:\$env:)?[A-Za-z_][A-Za-z0-9_]*=")
+_GIT_LOCATION_RE = re.compile(r"(?i)^(?:\$env:)?GIT_(?:DIR|WORK_TREE)=")
+#: `f()`, `f(){`, `f()` followed by a body word: a function defined on the line.
+_FUNCTION_DEF_RE = re.compile(r"^[\w.:-]+\(\)\{?$|^\(\)\{?$")
 _GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(/|$)")
 
 
@@ -273,6 +278,19 @@ def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | N
         i += 1
     if i >= len(words) or words[i].lower() not in ("gh", "gh.exe"):
         return None, "gh runs inside another program, or the text only names it"
+    # `--head`/`-H` and git's own location variables open the PR from a branch
+    # or repository other than the tree judged here (review round 5).
+    if any(w == "-H" or w.startswith(("-H", "--head")) for w in words[i + 1 :]):
+        return None, "`--head`/`-H` names a branch other than this tree's"
+    every = [w for s in segs[: first + 1] for w in (_words(s) or [])]
+    if any(_GIT_LOCATION_RE.match(w) for w in every):
+        return None, "`GIT_DIR`/`GIT_WORK_TREE` point gh at another repository"
+    # A function defined on the line can change directory through a variable
+    # no word-level check sees (`f(){ $X A; }; X=cd; f`), even one named gh.
+    if any(_FUNCTION_DEF_RE.match(w) for w in every) or any(
+        (_words(s) or [""])[0].lower() == "function" for s in segs[: first + 1]
+    ):
+        return None, "it defines a function on the same line"
     if not any(_changes_dir(s) for s in segs):
         return None, None
     if "\n" in cmd or "\r" in cmd:

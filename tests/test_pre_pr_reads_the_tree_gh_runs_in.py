@@ -202,10 +202,19 @@ def _refusals(live: Path, wt: Path) -> list[str]:
         f'cd>/dev/null "{w}" && {CREATE}',
         f'cd</dev/null "{w}" && {CREATE}',
         f"cd..; {CREATE}",
+        # Review round 5: a function defined on the line, a branch or repository named elsewhere.
+        f'f(){{ $X "{w}"; }}; X=cd; f; {CREATE}',
+        f'X=cd; f(){{ $X "{w}"; }}; f && {CREATE}',
+        f'gh(){{ $X "{w}"; command gh "$@"; }}; X=cd; {CREATE}',
+        f'function f {{ cd "{w}" }}; f; {CREATE}',
+        f"{CREATE} --head feat/untested",
+        f"{CREATE} -H feat/untested",
+        f'GIT_DIR="{w}/.git" {CREATE}',
+        f'export GIT_WORK_TREE="{w}"; {CREATE}',
     ]
 
 
-@pytest.mark.parametrize("index", range(30))
+@pytest.mark.parametrize("index", range(38))
 def test_a_directory_change_it_cannot_follow_refuses(trees, index):
     """Fail closed: both trees carry a valid stamp, so a fallback to EITHER would pass."""
     live, wt = trees
@@ -220,7 +229,7 @@ def test_a_directory_change_it_cannot_follow_refuses(trees, index):
 
 
 def test_the_refusal_list_is_the_one_parametrized(trees):
-    assert len(_refusals(*trees)) == 30
+    assert len(_refusals(*trees)) == 38
 
 
 @pytest.mark.parametrize("spelling", ["-P", "-L", "--"])
@@ -332,6 +341,20 @@ def test_a_heredoc_body_that_says_ci_cd_is_not_a_directory_change(trees):
         + " --body \"$(cat <<'EOF'\nAdds CI/CD notes; cd is not run here\nEOF\n)\""
     )
     r = _pre_pr(command, live)
+    assert r.returncode == 0, r.stderr
+
+
+def test_the_powershell_token_prefix_is_an_assignment_not_an_expansion(trees):
+    """`$env:GITHUB_TOKEN=""` is this box's prescribed PowerShell prefix (CLAUDE.md shell notes)."""
+    live, wt = trees
+    _stamp(live)
+    r = _pre_pr('$env:GITHUB_TOKEN=""; gh pr ' + "create --title x", live)
+    assert r.returncode == 0, r.stderr
+    _unstamp(live)
+    _stamp(wt)
+    r = _pre_pr(
+        f'cd "{wt.as_posix()}"; $env:GITHUB_TOKEN=""; gh pr ' + "create --title x", live
+    )
     assert r.returncode == 0, r.stderr
 
 
