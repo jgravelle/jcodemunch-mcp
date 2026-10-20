@@ -32,7 +32,7 @@ def _text(res) -> str:
     return item.text
 
 
-def _refreshed(symbols, use_ai=True, repo=None):
+def _refreshed(symbols, use_ai=True, repo=None, source_for=None):
     for sym in symbols:
         sym.summary = f"Refreshed summary for {sym.name}."
     return symbols

@@ -519,6 +519,7 @@ DEFAULTS = {
     "runtime_ingest_max_body_bytes": 5_242_880,  # 5 MB
     "summarizer_concurrency": 4,
     "summarizer_max_failures": 3,
+    "summarizer_body_chars": 0,
     "allow_remote_summarizer": False,
     "allow_paid_summaries": False,
     "openai_extra_body": {},
@@ -625,6 +626,7 @@ CONFIG_TYPES = {
     "runtime_ingest_max_body_bytes": int,
     "summarizer_concurrency": int,
     "summarizer_max_failures": int,
+    "summarizer_body_chars": int,
     "allow_remote_summarizer": bool,
     "allow_paid_summaries": bool,
     "openai_extra_body": dict,
@@ -2774,6 +2776,16 @@ def generate_template() -> str:
   //   Consecutive batch failures before the AI summarizer gives up and
   //   falls back to signature summaries for remaining symbols.
   //   Set 0 to disable the circuit breaker (never stop retrying).
+  // "summarizer_body_chars": 0,
+  //   0 (default) sends the AI summarizer each symbol's signature only. Above
+  //   0, each symbol's prompt also carries its decorators and its own source
+  //   (from the index's copy of the file, redacted), cut to this many
+  //   characters, so the model describes what the code does rather than what
+  //   its name suggests. This sends SOURCE to the provider: a remote provider
+  //   gets it only when allow_remote_summarizer is true. Existing summaries
+  //   refresh with summarize_repo(force=true). Size it to the model's context
+  //   window: about (context - output tokens) / OPENAI_BATCH_SIZE tokens per
+  //   symbol.
   // "openai_extra_body": {{}},
   //   Extra JSON merged into every OpenAI-compatible /chat/completions (and
   //   /responses) summarizer request. Use it to pass provider-specific knobs

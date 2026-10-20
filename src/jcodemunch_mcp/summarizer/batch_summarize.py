@@ -6,11 +6,12 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from .. import config as _config
 from ..parser.symbols import Symbol
+from ..redact import redact_text
 from .xml_doc import unwrap_xml_doc_summary
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,9 @@ class BaseSummarizer:
     max_tokens_per_batch: int = 500
     client: object = None
     repo: Optional[str] = None
+    # rel path -> the text the index holds for that file (the pipeline's
+    # `file_contents`, or the index's content cache). None: no source to send.
+    source_for: Optional[Callable[[str], Optional[str]]] = None
     _consecutive_failures: int = field(default=0, init=False, repr=False)
     _circuit_broken: bool = field(default=False, init=False, repr=False)
     _ai_summary_count: int = field(default=0, init=False, repr=False)
@@ -188,6 +192,7 @@ class BaseSummarizer:
     _failure_lock: threading.Lock = field(
         default_factory=threading.Lock, init=False, repr=False
     )
+    _body_block_said: bool = field(default=False, init=False, repr=False)
 
     def _apply_summaries(self, batch: list[Symbol], summaries: list[str]) -> None:
         """Assign parsed summaries to symbols; signature-fallback the blanks.
@@ -356,9 +361,22 @@ class BaseSummarizer:
                 lines.append(ctx)
             lines.append("")
 
+        # summarizer_body_chars > 0 (opt-in, default 0): also send each symbol's
+        # decorators and its own source, cut to that many characters. At 0, when the
+        # provider is remote and allow_remote_summarizer is off, or when the index
+        # has no text for the symbol, its prompt is the signature-only one.
+        body_chars = self._body_chars()
+        source_bytes: dict[str, bytes] = {}
         lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
+            body = self._symbol_body(sym, body_chars, source_bytes) if body_chars > 0 else ""
+            if not body:
+                continue  # signature only
+            if sym.decorators:
+                lines.append("   decorators: " + redact_text(" ".join(sym.decorators)))
+            lines.append("   body:")
+            lines.extend("   | " + line for line in body.splitlines())
 
         lines.extend(
             [
@@ -371,6 +389,50 @@ class BaseSummarizer:
         )
 
         return "\n".join(lines)
+
+    def _is_remote(self) -> bool:
+        """Whether this summarizer sends to a non-local endpoint. Subclasses with a
+        local option override it; the default is remote."""
+        return True
+
+    def _body_chars(self) -> int:
+        """summarizer_body_chars, or 0 when it would send source to a remote
+        provider without allow_remote_summarizer (said once in the log)."""
+        chars = int(_config.get("summarizer_body_chars", 0, repo=self.repo) or 0)
+        if chars <= 0:
+            return 0
+        if self._is_remote() and not _config.get("allow_remote_summarizer", False, repo=self.repo):
+            if not self._body_block_said:
+                self._body_block_said = True
+                logger.warning(
+                    "summarizer_body_chars is set but the %s endpoint is remote; "
+                    "sending signatures only. Set allow_remote_summarizer "
+                    "(JCODEMUNCH_ALLOW_REMOTE_SUMMARIZER=1) to send symbol source.",
+                    type(self).__name__,
+                )
+            return 0
+        return chars
+
+    def _symbol_body(self, sym: Symbol, limit: int, source_bytes: dict[str, bytes]) -> str:
+        """The symbol's own source from the index's text, first `limit` characters.
+
+        byte_offset/byte_length are positions in the UTF-8 encoding of the text the
+        index holds, so the span is cut from that text, never from the file on disk.
+        The whole span is redacted before it is cut, so a credential the cap would
+        split is still caught. Returns "" when the index has no text for the file.
+        """
+        if self.source_for is None:
+            return ""
+        raw = source_bytes.get(sym.file)
+        if raw is None:
+            try:
+                text = self.source_for(sym.file)
+            except Exception:  # an unreadable cache entry must not fail the batch
+                logger.debug("summarizer_body_chars: no indexed text for %s", sym.file, exc_info=True)
+                text = None
+            raw = source_bytes[sym.file] = text.encode("utf-8") if text else b""
+        span = raw[sym.byte_offset : sym.byte_offset + sym.byte_length]
+        return redact_text(span.decode("utf-8", "replace"))[:limit]
 
     def _parse_response(self, text: str, expected_count: int) -> list[str]:
         """Parse numbered summaries from response."""
@@ -405,8 +467,12 @@ class BatchSummarizer(BaseSummarizer):
         self.client = None
         self._init_client()
 
+    def _is_remote(self) -> bool:
+        return not _is_localhost_url(self.base_url or "")
+
     def _init_client(self):
         """Initialize Anthropic client if API key is available."""
+        self.base_url = None  # None: the SDK's default endpoint (remote)
         try:
             from anthropic import Anthropic
 
@@ -419,7 +485,7 @@ class BatchSummarizer(BaseSummarizer):
                 if base_url:
                     allow_remote = _config.get("allow_remote_summarizer", False, repo=self.repo)
                     if _is_localhost_url(base_url) or allow_remote:
-                        kwargs["base_url"] = base_url
+                        kwargs["base_url"] = self.base_url = base_url
                     else:
                         logger.warning(
                             "ANTHROPIC_BASE_URL points to non-localhost URL (%s). "
@@ -474,7 +540,7 @@ class GeminiBatchSummarizer(BaseSummarizer):
         self._init_client()
 
     def _init_client(self):
-        """Initialize Gemini client if API key is available."""
+        """Initialize Gemini client if API key is available (always a remote endpoint)."""
         try:
             import google.generativeai as genai
 
@@ -556,6 +622,9 @@ class OpenAIBatchSummarizer(BaseSummarizer):
             )
             self.extra_body = _resolve_extra_body(self.repo)
             self._init_client()
+
+    def _is_remote(self) -> bool:
+        return not _is_localhost_url(self.api_base or "")
 
     @property
     def wire_api(self) -> str:
@@ -928,6 +997,7 @@ def summarize_symbols(
     symbols: list[Symbol],
     use_ai: bool = True,
     repo: Optional[str] = None,
+    source_for: Optional[Callable[[str], Optional[str]]] = None,
 ) -> list[Symbol]:
     """Full three-tier summarization.
 
@@ -949,6 +1019,9 @@ def summarize_symbols(
     `summarizer_model` / `use_ai_summaries` set in `.jcodemunch.jsonc` are
     honored at runtime (#304). Defaults to None for callers that don't have
     a repo context, preserving the global-only behavior.
+
+    `source_for` maps a rel path to the text the index holds for that file; it is
+    what `summarizer_body_chars` sends. Without it no symbol body is sent.
     """
     # Tier 1: Extract from docstrings (gated by summarize_from_docstrings, P1.5)
     if _docstring_summaries_enabled(repo=repo):
@@ -960,6 +1033,7 @@ def summarize_symbols(
     if use_ai:
         summarizer = _create_summarizer(repo=repo)
         if summarizer:
+            summarizer.source_for = source_for
             symbols = summarizer.summarize_batch(symbols)
 
     # Tier 3: Signature fallback for any still missing

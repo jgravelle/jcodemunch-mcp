@@ -1420,6 +1420,10 @@ class IndexStore:
         """Read a cached file's full content."""
         return self._sqlite.get_file_content(owner, name, file_path, _index)
 
+    def read_cached_source(self, owner: str, name: str, file_path: str) -> Optional[str]:
+        """A file's text from the content cache (path-contained); None if absent."""
+        return self._sqlite.read_cached_source(owner, name, file_path)
+
     def detect_changes(
         self,
         owner: str,

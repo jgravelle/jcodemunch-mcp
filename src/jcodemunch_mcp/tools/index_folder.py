@@ -3278,15 +3278,19 @@ def index_folder(
                         len(_folder_existing_summaries) if _folder_existing_summaries else 0,
                     )
 
+            # summarizer_body_chars sends the text just written to the content cache.
+            def _cached_source(rel: str) -> Optional[str]:
+                return store.read_cached_source(owner, repo_name, rel)
+
             if _folder_existing_summaries and _folder_unchanged_files:
                 from ._indexing_pipeline import _split_for_summarization
                 _needs_summary, _already_summarized = _split_for_summarization(
                     all_symbols, _folder_existing_summaries, _folder_unchanged_files
                 )
-                _summarized = summarize_symbols(_needs_summary, use_ai=use_ai_summaries, repo=str(folder_path)) if _needs_summary else []
+                _summarized = summarize_symbols(_needs_summary, use_ai=use_ai_summaries, repo=str(folder_path), source_for=_cached_source) if _needs_summary else []
                 all_symbols = _summarized + _already_summarized
             else:
-                all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries, repo=str(folder_path))
+                all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries, repo=str(folder_path), source_for=_cached_source)
 
         # Generate file-level summaries (single-pass grouping) using shared helpers
         file_symbols_map = defaultdict(list)
