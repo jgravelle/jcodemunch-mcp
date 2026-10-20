@@ -60,6 +60,12 @@ def _config(**values):
     return patch("jcodemunch_mcp.summarizer.batch_summarize._config.get", side_effect=fake_get)
 
 
+def _local_env():
+    """A local OpenAI-compatible base with a stub client: no real HTTP client (on Windows
+    `os.environ` cleared of SYSTEMROOT makes httpx's SSL context fail)."""
+    return patch.dict("os.environ", LOCAL, clear=True), patch.object(OpenAIBatchSummarizer, "_init_client")
+
+
 def _prompt(symbols, body_chars=None, files=None, **config):
     """The prompt `_build_prompt` produces with summarizer_body_chars set.
 
@@ -68,7 +74,8 @@ def _prompt(symbols, body_chars=None, files=None, **config):
     """
     if body_chars is not None:
         config["summarizer_body_chars"] = body_chars
-    with patch.dict("os.environ", LOCAL, clear=True), _config(**config):
+    env, client = _local_env()
+    with env, client, _config(**config):
         summarizer = OpenAIBatchSummarizer(repo=REPO)
         summarizer.source_for = files.get if files is not None else None
         return summarizer._build_prompt(symbols)
@@ -194,7 +201,8 @@ def test_default_is_zero_and_a_project_config_turns_it_on_for_that_repo_only(tmp
     syms = [_symbol("app.py", "plain")]
     cfg.load_project_config(str(on))
     try:
-        with patch.dict("os.environ", LOCAL, clear=True):
+        env, client = _local_env()
+        with env, client:
             assert cfg.DEFAULTS["summarizer_body_chars"] == 0
             for repo, expected in ((on, True), (off, False)):
                 summarizer = OpenAIBatchSummarizer(repo=str(repo))
@@ -383,7 +391,8 @@ def test_a_source_reader_that_raises_leaves_the_symbol_signature_only_and_is_log
         raise OSError("cache unreadable")
 
     syms = [_symbol("app.py", "plain")]
-    with patch.dict("os.environ", LOCAL, clear=True), _config(summarizer_body_chars=1500), caplog.at_level(
+    env, client = _local_env()
+    with env, client, _config(summarizer_body_chars=1500), caplog.at_level(
         "DEBUG", logger="jcodemunch_mcp.summarizer.batch_summarize"
     ):
         summarizer = OpenAIBatchSummarizer(repo=REPO)
