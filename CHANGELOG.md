@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed - the search hook's advice names tools the agent can call
+
+On the `counter` tool surface, which `init` installs by default, the client's
+tool list holds only the front door (`order`, `menu`, `route`) and every other
+action is reached as `order { "action": ... }`. The PreToolUse nudge on a Grep,
+Glob or search command, and the strict-mode deny, still told the agent to
+"exhaust" `search_text`, `search_symbols`, `check_references`,
+`find_references` and `find_importers` by name, i.e. calls it could not make.
+The `CLAUDE.md` policy `init` writes already spoke in `order` calls; the hook
+was a second copy of the same guidance that never asked which surface it was
+on. The routes now render as `order { "action": "search_text" }` and so on
+under `counter`, and are named directly on `full`. The hook reads the surface
+from the environment and config, never by building the tool list, because it
+runs on every tool call. The other hook texts were checked: the session
+briefing already had a `counter` branch, and the remaining tool names in hook
+modules are docstrings. Found by Benchmarking while designing the M4
+default-install measurement on 1.108.386, which measures the release as
+shipped. `tests/test_steering_names_only_published_tools.py` asserts the
+property for every hook and for both the nudge and the deny: each catalog tool
+the text names as a direct call is one the surface publishes.
+
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
