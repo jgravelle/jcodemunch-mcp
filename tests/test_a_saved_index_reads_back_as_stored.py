@@ -49,6 +49,10 @@ def test_the_cached_copy_has_the_same_keys_as_a_disk_read(tmp_path):
     store = _save(tmp_path)
     cached = store.load_index("local", "repo").symbols[0]
     sqlite_store._cache_clear()
-    from_disk = IndexStore(base_path=str(tmp_path / "store")).load_index("local", "repo").symbols[0]
+    from_disk = (
+        IndexStore(base_path=str(tmp_path / "store"))
+        .load_index("local", "repo")
+        .symbols[0]
+    )
     assert set(cached) == set(from_disk)
     assert {k: cached[k] for k in from_disk} == from_disk

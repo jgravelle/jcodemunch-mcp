@@ -10,14 +10,16 @@ hand-written symbol dict, which left out `ecosystem_context`, while every row
 read back from disk carries the field. So `load_index` in the same process
 returned symbols with no `ecosystem_context` key (the git blame or dbt text was
 gone) until a later write moved the .db mtime the cache compares. After a full
-`index_folder` that write is normally the coverage stamp, which is why this
-showed up only as a rare `KeyError: 'ecosystem_context'` in two blame tests
-under load. With the coverage write removed, every in-process read after
-`index_folder` lost the field on `main`.
+`index_folder` that write is normally the coverage stamp. With
+`set_coverage` stubbed out, a read after `index_folder` on `main` returned the
+symbol without the key, and this fix returns the blame text. That is the most
+likely cause of the rare `KeyError: 'ecosystem_context'` two blame tests hit
+under load; the coverage write failing to move the mtime under load was not
+itself observed.
 
 `save_index` now serialises with `_symbol_to_dict`, the helper whose shape
-matches a row read from disk, and the JSON store's serialiser carries the field
-too. `tests/test_a_saved_index_reads_back_as_stored.py` requires the cached
+matches a row read from disk. `IndexStore._symbol_to_dict` gains the field too,
+for consistency only: nothing reads it there. `tests/test_a_saved_index_reads_back_as_stored.py` requires the cached
 copy to have the same keys and values as a disk read of the same index.
 
 ## [1.108.384] - 2026-10-19 - the watcher no longer polls trees nothing indexes
