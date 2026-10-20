@@ -5,7 +5,7 @@
       "version": "1.108.386",
       "date": "2026-10-20",
       "title": "the AI summary prompt can carry each symbol's own source, opt-in",
-      "summary": "summarizer_body_chars (default 0, off) lets the AI summary prompt carry up to that many characters of each symbol's indexed source plus its decorators, so a summary can say what a function does rather than what its signature suggests. The body goes to a non-local provider only when allow_remote_summarizer is true; it is redacted before it is cut. Contributed by @skibadubskiybadubs (#1175, #1179). Also: a Flask route declared with methods= reports the verbs it serves instead of GET (#1177), and the prompt's Context: lines keep one order on every run (#1178)."
+      "summary": "summarizer_body_chars (default 0, off) lets the AI summary prompt carry up to that many characters of each symbol's indexed source plus its decorators, so a summary can say what a function does rather than what its signature suggests. The body goes to a non-local provider only when allow_remote_summarizer is true; it is redacted before it is cut. Contributed by @skibadubskiybadubs (#1175, #1179). Also: a Flask route declared with methods= reports the verbs it serves instead of GET (#1177), the prompt's Context: lines keep one order on every run (#1178), and a deferred AI summary writes the summary column and nothing else, so complexity and call references survive it (L-227)."
     },
     {
       "version": "1.108.385",
