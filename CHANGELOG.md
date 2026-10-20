@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
+
+The AI summary prompt sent each symbol's signature only, so for undocumented
+code the model could only guess from names: `def zq(xs, k): return [x for x in
+xs if x % k == 0]` came back as "Selects the k-th smallest element". The new
+`summarizer_body_chars` key (default `0`, which leaves today's prompt byte for
+byte as it was) adds each symbol's decorators and its own source, cut to that
+many characters. It can be set per repository in `.jcodemunch.jsonc`. Existing
+summaries are refreshed with `summarize_repo(force=true)`.
+
+@skibadubskiybadubs proposed it and measured it with `qwen3.8-27b` (LM Studio,
+`reasoning_effort` none, N = 7500, one run per variant, every summary judged by
+hand against the source). On a 199-symbol Python app, correct summaries went from
+153 to 193 (wrong 13 to 0); on a 206-symbol C# app, from 171 to 201 (wrong 7 to
+0). No summary that was correct without the body got worse. On C# it cost about
+2.5x the time and 9.6x the prompt tokens.
+
+This sends source code to the provider, so it is gated:
+
+- A remote provider (the default Anthropic endpoint, Gemini, a remote
+  OpenAI-compatible base) gets bodies only when `allow_remote_summarizer` is
+  also true; otherwise the prompt stays signature-only and the log says why.
+  A local endpoint needs no second opt-in.
+- The body is the text the index holds (the pipeline's `file_contents`, or the
+  index's content cache), never the file on disk, so a cp1252 or Latin-1 file,
+  or one edited since indexing, sends the lines that were indexed, and a
+  deferred summary (repo id `owner/name`) reads nothing from the working
+  directory. A symbol the index holds no text for (`summarize_repo` on an
+  index written in metadata-only cache mode) stays signature-only.
+- Each body and its decorators pass through `redact.redact_text` before they
+  enter the prompt, before the cap cuts them, so a credential the cap would
+  split is still caught.
+
+`tests/test_summarizer_body_chars.py` covers each of these: a gate test per
+provider, a cp1252 fixture, the deferred repo id, and a planted key-shaped
+literal. `SECURITY.md` discloses it under "Background behavior".
+
 ## [1.108.385] - 2026-10-19 - a summary written by another process reaches this one's searches
 
 ### Fixed - a summary written by another process reaches this one's searches

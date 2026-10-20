@@ -3183,6 +3183,15 @@ class SQLiteIndexStore:
 
         return self._read_cached_text(content_path)
 
+    def read_cached_source(self, owner: str, name: str, file_path: str) -> Optional[str]:
+        """A file's text from the content cache, without requiring a saved index row
+        (a full index writes the cache before it saves). None when the path leaves the
+        cache or nothing is cached."""
+        content_path = self._safe_content_path(self._content_dir(owner, name), file_path)
+        if not content_path or not content_path.exists():
+            return None
+        return self._read_cached_text(content_path)
+
     # ── Content cache helpers (reused from IndexStore) ──────────────
 
     def _content_dir(self, owner: str, name: str) -> Path:

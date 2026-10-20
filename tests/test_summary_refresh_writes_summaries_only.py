@@ -69,7 +69,7 @@ def _rows(db: Path) -> dict[str, dict]:
         conn.close()
 
 
-def _fake_summarizer(symbols, use_ai=True, repo=None):
+def _fake_summarizer(symbols, use_ai=True, repo=None, source_for=None):
     for sym in symbols:
         sym.summary = f"refreshed: {sym.name}"
     return symbols
@@ -169,7 +169,7 @@ def test_a_summary_is_not_written_onto_a_body_that_changed(indexed, monkeypatch)
     repo, storage, db = indexed
     use_id = next(i for i, r in _rows(db).items() if r["name"] == "use")
 
-    def summarize_then_reindex(symbols, use_ai=True, repo=None):
+    def summarize_then_reindex(symbols, use_ai=True, repo=None, source_for=None):
         conn = sqlite3.connect(str(db))
         try:
             conn.execute(

@@ -2778,12 +2778,14 @@ def generate_template() -> str:
   //   Set 0 to disable the circuit breaker (never stop retrying).
   // "summarizer_body_chars": 0,
   //   0 (default) sends the AI summarizer each symbol's signature only. Above
-  //   0, each symbol's prompt also carries its decorators and its own source,
-  //   cut to this many characters, so the model describes what the code does
-  //   rather than what its name suggests. This sends SOURCE to the provider.
-  //   Needs the source on disk (a local-folder index); otherwise that symbol
-  //   stays signature-only. Size it to the model's context window: about
-  //   (context - output tokens) / OPENAI_BATCH_SIZE tokens per symbol.
+  //   0, each symbol's prompt also carries its decorators and its own source
+  //   (from the index's copy of the file, redacted), cut to this many
+  //   characters, so the model describes what the code does rather than what
+  //   its name suggests. This sends SOURCE to the provider: a remote provider
+  //   gets it only when allow_remote_summarizer is true. Existing summaries
+  //   refresh with summarize_repo(force=true). Size it to the model's context
+  //   window: about (context - output tokens) / OPENAI_BATCH_SIZE tokens per
+  //   symbol.
   // "openai_extra_body": {{}},
   //   Extra JSON merged into every OpenAI-compatible /chat/completions (and
   //   /responses) summarizer request. Use it to pass provider-specific knobs
