@@ -39,6 +39,46 @@ This sends source code to the provider, so it is gated:
 provider, a cp1252 fixture, the deferred repo id, and a planted key-shaped
 literal. `SECURITY.md` discloses it under "Background behavior".
 
+### Fixed - a Flask route declared with `methods=` reports the verbs it serves (#1177)
+
+The decorator-routes provider turned every `@x.route(...)` into `GET` and
+never read `methods=`, so `@bp.route('/tokens', methods=['POST'])` and its
+`DELETE` twin were both "GET /tokens". The wrong verb went into the file's
+summary and into the AI summary prompt's `Context:`, where the model then
+described POST and DELETE handlers as GET requests.
+
+The provider now reads each `route` decorator with Python's own parser
+(`ast`), so the `methods=` keyword is the call's real argument and never text
+inside a string or a comment. It emits one route per listed verb, and GET is
+the default only when `methods=` is absent, as in Flask. A list, tuple or set of
+string literals names the verbs. Any other value names verbs this reader cannot
+see, so the route is `ANY` rather than a guessed GET: a variable, a call,
+`['GET'] + EXTRA`, an empty list. A file that does not parse as Python has no
+readable `methods=`, so its `route` decorators are `ANY` where they were `GET`.
+
+`PARSER_GENERATION` is 26. Like every bump, it makes an existing index
+re-parse all of its files, in every language, on the next index run; that is
+what stops unchanged Flask files keeping the old verb. A stored AI summary that
+already says "GET" is kept by that re-parse, as paid summaries always are;
+`summarize_repo(force=true)` rewrites it. Reported by @skibadubskiybadubs.
+`tests/test_decorator_routes.py` covers a quoted `)` or `]`, a `# )` comment,
+a `methods=` inside a string, `['GET'] + EXTRA`, a set and an empty list, and
+an unclosed call, which used to borrow the next decorator's verbs. A BOM,
+an invalid escape under any warning filter, and a parser crash in one file
+(a `RecursionError` from a generated expression) are read or contained
+per file.
+
+### Fixed - the summary prompt's `Context:` lines keep one order on every run (#1178)
+
+`_build_prompt` collected the ecosystem-context lines into a `set()` and
+iterated over it, so their order followed Python's string hash seed. Two
+identical runs sent different prompts, and a different prompt gives a different
+summary even at temperature 0, so a re-index with no code change could rewrite
+summaries and a summary could not be reproduced. The lines are now kept in
+first-seen order with the same deduplication. Reported by @skibadubskiybadubs,
+with the fix. `tests/test_summary_prompt_context_order.py` builds the prompt
+under six hash seeds and requires one result.
+
 ### Fixed - a deferred AI summary writes the summary and nothing else (L-227)
 
 After a watched edit, `index_folder` saves the re-parsed symbols at once and a

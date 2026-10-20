@@ -350,11 +350,12 @@ class BaseSummarizer:
             "",
         ]
 
-        # Inject ecosystem context if any symbol has it
-        context_lines = set()
-        for sym in symbols:
-            if sym.ecosystem_context:
-                context_lines.add(sym.ecosystem_context)
+        # Inject ecosystem context if any symbol has it, in first-seen order.
+        # A set() iterated in hash-seed order, so identical runs sent different
+        # prompts and re-indexing rewrote summaries (#1178, @skibadubskiybadubs).
+        context_lines = list(
+            dict.fromkeys(s.ecosystem_context for s in symbols if s.ecosystem_context)
+        )
         if context_lines:
             lines.append("Context:")
             for ctx in context_lines:

@@ -58,6 +58,81 @@ def create_user():
         assert "POST /api/users" in ctx.properties["routes"]
 
 
+    def test_flask_route_reads_methods(self, tmp_path: Path):
+        """#1177 (@skibadubskiybadubs): `methods=` names the verbs; GET only when it is absent."""
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "tokens.py").write_text(
+            "from flask import Blueprint\n"
+            "bp = Blueprint('t', __name__)\n\n"
+            "@bp.route('/tokens', methods=['POST'])\n"
+            "def make():\n    pass\n\n"
+            "@bp.route('/tokens', methods=['DELETE'])\n"
+            "def revoke():\n    pass\n\n"
+            "@bp.route(\n    '/items',\n    methods=(\"GET\", 'put'),\n    strict_slashes=False,\n)\n"
+            "def items():\n    pass\n\n"
+            "@bp.route('/ping')\n"
+            "def ping():\n    pass\n\n"
+            "VERBS = ['PATCH']\n"
+            "@bp.route('/dyn', methods=VERBS)\n"
+            "def dyn():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        routes = provider.get_file_context("tokens.py").properties["routes"]
+        assert "POST /tokens" in routes and "DELETE /tokens" in routes
+        assert "GET /tokens" not in routes
+        assert "GET /items" in routes and "PUT /items" in routes
+        assert "GET /ping" in routes
+        # A non-literal `methods=` names verbs nobody can read here: never claim GET.
+        assert "ANY /dyn" in routes and "GET /dyn" not in routes
+
+    @pytest.mark.parametrize(
+        "decorator,want,never",
+        [
+            # Review of #1177: a bracket counter read strings and comments as code.
+            ("@bp.route('/a', endpoint='weird)name', methods=['POST'])", ["POST /a"], ["GET /a"]),
+            ("@bp.route('/a', endpoint='x]', methods=['POST'])", ["POST /a"], ["GET /a"]),
+            ("@bp.route(\n    '/a',  # )\n    methods=['PUT'],\n)", ["PUT /a"], ["GET /a"]),
+            ("@bp.route('/a', defaults={'x': 'methods=[1]'})", ["GET /a"], ["ANY /a"]),
+            ("@bp.route('/a', defaults={'x': 'methods=[\"POST\"]'})", ["GET /a"], ["POST /a"]),
+            ("@bp.route('/a', methods=['GET'] + EXTRA)", ["ANY /a"], ["GET /a"]),
+            ("@bp.route('/a', methods={'POST'})", ["POST /a"], ["ANY /a"]),
+            ("@bp.route('/a', methods=[])", ["ANY /a"], ["GET /a"]),
+        ],
+    )
+    def test_flask_methods_are_read_as_python_not_as_text(self, tmp_path: Path, decorator, want, never):
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "v.py").write_text(
+            "from flask import Blueprint\nbp = Blueprint('t', __name__)\nEXTRA = []\n\n"
+            + decorator
+            + "\ndef view():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        routes = provider.get_file_context("v.py").properties["routes"].split("; ")
+        for r in want:
+            assert r in routes, (decorator, routes)
+        for r in never:
+            assert r not in routes, (decorator, routes)
+
+    def test_an_unclosed_route_call_borrows_no_verbs(self, tmp_path: Path):
+        """An unclosed call made the text scanner take the NEXT decorator's verbs,
+        scanning to the end of the file once per call. A file that does not parse
+        has no readable `methods=`: every `route` is ANY."""
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        broken = "".join(f"@app.route('/x{i}'\ndef v{i}():\n    pass\n" for i in range(3000))
+        (tmp_path / "b.py").write_text(
+            "from flask import Flask\napp = Flask(__name__)\n" + broken + "@app.route('/ok', methods=['POST'])\ndef ok():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        routes = provider.get_file_context("b.py").properties["routes"].split("; ")
+        assert "POST /x0" not in routes and "ANY /x0" in routes
+
+
 class TestDecoratorRoutesFastAPI:
     """Tests for FastAPI detection and route extraction."""
 
@@ -315,3 +390,51 @@ class TestDecoratorRoutesDetection:
         (tmp_path / "requirements.txt").write_text("requests\nurllib3\n")
         provider = DecoratorRoutesProvider()
         assert provider.detect(tmp_path) is False
+
+
+class TestFlaskMethodsReaderRobustness:
+    """Review round 2 of #1177: what one file can do to the reader."""
+
+    def _routes(self, tmp_path: Path, name: str, data: bytes) -> list[str]:
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / name).write_bytes(data)
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        ctx = provider.get_file_context(name)
+        return ctx.properties["routes"].split("; ") if ctx else []
+
+    def test_a_bom_file_is_read(self, tmp_path: Path):
+        src = "from flask import Flask\napp = Flask(__name__)\n@app.route('/a', methods=['POST'])\ndef a():\n    pass\n"
+        assert self._routes(tmp_path, "bom.py", b"\xef\xbb\xbf" + src.encode()) == ["POST /a"]
+
+    def test_the_verb_does_not_depend_on_the_warning_filter(self, tmp_path: Path):
+        import warnings
+
+        src = (
+            "from flask import Flask\napp = Flask(__name__)\nX = '\\d'\n"
+            "@app.route('/a', methods=['POST'])\ndef a():\n    pass\n"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert self._routes(tmp_path, "esc.py", src.encode()) == ["POST /a"]
+
+    def test_a_parser_crash_in_one_file_spares_the_others(self, tmp_path: Path, monkeypatch):
+        import ast
+
+        real = ast.parse
+
+        def parse(source, *a, **k):
+            if "BOOM" in source:
+                raise RecursionError("maximum recursion depth exceeded during ast construction")
+            return real(source, *a, **k)
+
+        monkeypatch.setattr(ast, "parse", parse)
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "gen.py").write_text("BOOM = 1\nfrom flask import Flask\napp = Flask(__name__)\n@app.route('/g')\ndef g():\n    pass\n")
+        (tmp_path / "ok.py").write_text("from flask import Flask\napp = Flask(__name__)\n@app.route('/o', methods=['PUT'])\ndef o():\n    pass\n")
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        assert provider.get_file_context("ok.py").properties["routes"] == "PUT /o"
+        assert provider.get_file_context("gen.py").properties["routes"] == "ANY /g"
