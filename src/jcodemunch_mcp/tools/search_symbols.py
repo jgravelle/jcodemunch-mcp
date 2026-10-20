@@ -198,6 +198,13 @@ def result_cache_invalidate_repo(repo_key: str) -> int:
     return evicted
 
 
+# The cache key holds `indexed_at`, which a summary-only write leaves alone, so
+# the store tells this cache directly (L-226; `storage/write_listeners.py`).
+from ..storage import write_listeners as _write_listeners  # noqa: E402
+
+_write_listeners.register(lambda owner, name: result_cache_invalidate_repo(f"{owner}/{name}"))
+
+
 # ---------------------------------------------------------------------------
 # Abbreviation map: bidirectional code abbreviation <-> full form.
 # Built once at import time.

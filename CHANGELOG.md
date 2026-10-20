@@ -42,6 +42,25 @@ and no directory discovery prunes is. It also covers three negation shapes
 and two `x/*` shapes, where the file stays indexed and watched. Reported by @yagiii1344 (#1163), with
 the measurements and the fix's shape.
 
+### Fixed - a search after a summary refresh shows the new summaries
+
+`search_symbols` caches its results under a key that includes the index's
+`indexed_at`, so a re-index retires every cached search. A summary refresh
+(`summarize_repo`, which since #1161 writes summaries with a one-column
+`UPDATE`) leaves `indexed_at` alone, so a search repeated after the refresh
+was served from the cache with the summaries from before it.
+
+The store's summary write now tells the search cache to drop that
+repository's entries (`storage/write_listeners.py`; `search_symbols`
+registers itself when it is imported). The notice comes from the write,
+not the dispatcher, so any caller in the same process is covered. It does
+not reach another process: a summary write from a second server or a script
+still leaves this process's cached searches stale (LEDGER L-228). `tests/test_a_summary_refresh_clears_cached_results.py` indexes a real
+repository, searches through the server, refreshes the summaries with the
+real `summarize_repo`, and searches again. It fails if the second search
+shows the old summary, and it does the same for a direct call to the store.
+Found in the review of #1161 (LEDGER L-226).
+
 ## [1.108.383] - 2026-10-19 - refreshing summaries no longer erases complexity and the call graph
 
 ### Fixed - refreshing summaries no longer erases complexity and the call graph
