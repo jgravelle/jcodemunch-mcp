@@ -4,9 +4,11 @@
 direct-tool policy with this reader. It returned the raw env value, so a
 whitespace-only `JCODEMUNCH_TOOL_SURFACE` read as "" (neither surface) while
 the server and the hooks, which go through `counter.resolve_tool_surface`,
-treated it as unset and served the configured `counter`. A typo such as
-"Counter " likewise disagreed. Found in review of the counter-surface steering
-fix (2026-10-20), as the same non-validating reader one layer over.
+treated it as unset and served the configured `counter`. An unrecognized value
+(from env or config) passed through as itself, where the server serves "full".
+Mixed case and padding were already normalised and are pinned here as a
+control, not as a former failure. Found in review of the counter-surface
+steering fix (2026-10-20), as the same non-validating reader one layer over.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ def _with_config(monkeypatch, value):
         ("   ", "counter"),     # blank env is unset: config decides
         ("", "counter"),
         (None, "counter"),
-        ("Counter ", "full"),   # env wins, normalised
+        ("Counter ", "full"),   # env wins; already normalised before the fix (control)
         ("nonsense", "counter"),  # unknown serves full
         (None, "nonsense"),
         (None, None),
