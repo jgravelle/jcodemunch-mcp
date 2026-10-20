@@ -2808,3 +2808,13 @@ The 1.108.381 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.381 count, verbatim:
 
 - ⚠ Prior (1.108.381): 18082 passed, 25 skipped, **0 failed** (18107 total).
+
+## Current State rotation (2026-10-19, release 1.108.385)
+
+The 1.108.382 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.382):** **a task capsule's risk entry carries the PR's real risk score** (L-61): `assemble_task_context._stage_risk` reads `get_pr_risk_profile`'s `risk_score`/`risk_level`/`signal_breakdown`, keeps a withheld score `None` with `unmeasurable_axes`, and caps `unresolvable_files` at 20 with its total. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.382 count, verbatim:
+
+- ⚠ Prior (1.108.382): 18112 passed, 25 skipped, **0 failed** (18137 total).

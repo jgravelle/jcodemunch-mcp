@@ -160,10 +160,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.385](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.385)** (2026-10-19) — a summary written by another process reaches this one's searches
 - **[v1.108.384](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.384)** (2026-10-19) — the watcher no longer polls trees nothing indexes
 - **[v1.108.383](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.383)** (2026-10-19) — refreshing summaries no longer erases complexity and the call graph
 - **[v1.108.382](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.382)** (2026-10-19) — a task capsule's risk entry carries the PR's real risk score
-- **[v1.108.381](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.381)** (2026-10-19) — one repository's index can no longer replace or stand in for another's
 <!-- WHATSNEW:END -->
 
 ---
