@@ -375,3 +375,20 @@ def test_the_content_cache_read_stays_inside_the_cache(tmp_path):
     assert store.read_cached_source("o", "n", "app.py") == SOURCE
     assert store.read_cached_source("o", "n", "../../secret.txt") is None
     assert store.read_cached_source("o", "n", str(tmp_path / "secret.txt")) is None
+
+
+def test_a_source_reader_that_raises_leaves_the_symbol_signature_only_and_is_logged(caplog):
+    # A broken content cache must not look like the option being off.
+    def broken(rel):
+        raise OSError("cache unreadable")
+
+    syms = [_symbol("app.py", "plain")]
+    with patch.dict("os.environ", LOCAL, clear=True), _config(summarizer_body_chars=1500), caplog.at_level(
+        "DEBUG", logger="jcodemunch_mcp.summarizer.batch_summarize"
+    ):
+        summarizer = OpenAIBatchSummarizer(repo=REPO)
+        summarizer.source_for = broken
+        prompt = summarizer._build_prompt(syms)
+    assert "body:" not in prompt
+    (record,) = [r for r in caplog.records if "app.py" in r.getMessage()]
+    assert record.exc_info and "cache unreadable" in str(record.exc_info[1])

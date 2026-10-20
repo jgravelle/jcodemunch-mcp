@@ -428,6 +428,7 @@ class BaseSummarizer:
             try:
                 text = self.source_for(sym.file)
             except Exception:  # an unreadable cache entry must not fail the batch
+                logger.debug("summarizer_body_chars: no indexed text for %s", sym.file, exc_info=True)
                 text = None
             raw = source_bytes[sym.file] = text.encode("utf-8") if text else b""
         span = raw[sym.byte_offset : sym.byte_offset + sym.byte_length]
