@@ -2354,7 +2354,8 @@ class SQLiteIndexStore:
             # whole-row save it replaced had avoided (review of L-227; the #370
             # cold-hydration cost). Still under `indexwrite`, so no symbol
             # writer in any process can move the .db between the write and the
-            # re-key; the three meta writers named above can (L-230).
+            # re-key. The three meta writers named above can, so the patch
+            # reads their keys back from the .db (L-230).
             self._patch_cached_summaries(
                 owner, name, db_path, written, generation if changed else None, pre_mtime_ns
             )
@@ -2399,7 +2400,36 @@ class SQLiteIndexStore:
             if entry is None or entry.mtime_ns != pre_mtime_ns:
                 _cache_evict(owner, safe_name)
                 return
+            # Three meta writers do not take `indexwrite` (L-230), so one in
+            # another process can commit after `pre_mtime_ns` and its change
+            # would be re-keyed under the old value: `coverage` gates absence
+            # claims (#566). Read their keys from the .db as it stands now and
+            # carry them, the way `incremental_save`'s own patch refreshes
+            # `coverage`; if the .db moves during the read, evict instead.
+            mtime_ns = _db_mtime_ns(db_path)
+            from .generation import connect_readonly
+
+            ro = connect_readonly(db_path)
+            try:
+                meta = {
+                    k: v
+                    for k, v in ro.execute(
+                        "SELECT key, value FROM meta WHERE key IN "
+                        "('coverage', 'parser_generation', 'source_root', 'git_root')"
+                    ).fetchall()
+                }
+            finally:
+                ro.close()
+            if _db_mtime_ns(db_path) != mtime_ns:
+                _cache_evict(owner, safe_name)
+                return
             old = entry.code_index
+            # `heal_pack_index_paths` clears the two roots; the cached values
+            # are remapped, so only the clearing can be compared.
+            for key in ("source_root", "git_root"):
+                if not (meta.get(key) or "") and (getattr(old, key, "") or ""):
+                    _cache_evict(owner, safe_name)
+                    return
             bm25 = {"_tokens", "_tf", "_dl"}
             symbols = [
                 {**{k: v for k, v in s.items() if k not in bm25}, "summary": written[s["id"]]}
@@ -2410,7 +2440,10 @@ class SQLiteIndexStore:
             patched = dataclasses.replace(old, symbols=symbols)
             if generation is not None:
                 patched.summaries_generation = str(generation)
-            mtime_ns = _db_mtime_ns(db_path)
+            if "coverage" in meta:
+                patched.coverage = json.loads(meta["coverage"] or "{}") or {}
+            if meta.get("parser_generation"):
+                patched.parser_generation = int(meta["parser_generation"])
             _stamp_load_provenance(patched, db_path, mtime_ns)
             _cache_evict(owner, safe_name)
             _cache_put(owner, safe_name, mtime_ns, patched)

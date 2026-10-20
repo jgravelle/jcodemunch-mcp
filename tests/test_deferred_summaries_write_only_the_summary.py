@@ -188,7 +188,20 @@ def test_the_deferred_save_keeps_complexity_and_calls(tmp_path: Path, monkeypatc
     owner, name = first["repo"].split("/", 1)
 
     mod.write_text(SOURCE.replace("return 0", "return -1"), encoding="utf-8")
-    monkeypatch.setattr(_indexing_pipeline, "deferred_summarize", _rebuilt)
+    seen = {}
+
+    def summarize(*args, **kwargs):
+        # The first save is done when the thread starts: record its identity,
+        # and wait past the clock's resolution so a re-stamp would differ.
+        import time
+
+        seen["indexed_at"] = (
+            IndexStore(base_path=str(store_dir)).load_index(owner, name).indexed_at
+        )
+        time.sleep(1.1)
+        return _rebuilt(*args, **kwargs)
+
+    monkeypatch.setattr(_indexing_pipeline, "deferred_summarize", summarize)
     res = index_folder(
         str(repo),
         use_ai_summaries=True,
@@ -207,3 +220,103 @@ def test_the_deferred_save_keeps_complexity_and_calls(tmp_path: Path, monkeypatc
     assert alpha["cyclomatic"] >= 3, alpha
     assert alpha["param_count"] == 1, alpha
     assert "beta" in (alpha.get("call_references") or []), alpha
+    # The summary write is not a re-index: a file edited between the two saves
+    # must not read as covered by the second one.
+    assert seen["indexed_at"] and index.indexed_at == seen["indexed_at"]
+
+
+def _indexed(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "mod.py").write_text(SOURCE, encoding="utf-8")
+    store_dir = tmp_path / "store"
+    res = index_folder(
+        str(repo),
+        use_ai_summaries=False,
+        storage_path=str(store_dir),
+        identity_mode="local",
+    )
+    owner, name = res["repo"].split("/", 1)
+    return store_dir, owner, name
+
+
+def _foreign_meta_write_inside(monkeypatch, sql: str, params: tuple):
+    """Pin the L-230 interleaving: a writer that skips `indexwrite` commits
+    after `update_symbol_summaries` sampled the .db and before it connects.
+    The write goes through its own sqlite3 connection, as another process's
+    would, so this process's cache never hears of it."""
+    import sqlite3
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    real = sqlite_store.SQLiteIndexStore._connect
+    fired = []
+
+    def connect(self, db_path, *args, **kwargs):
+        if not fired:
+            fired.append(True)
+            raw = sqlite3.connect(str(db_path))
+            raw.execute(sql, params)
+            raw.commit()
+            raw.close()
+        return real(self, db_path, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "_connect", connect)
+    return fired
+
+
+def test_a_coverage_written_by_a_lock_free_writer_is_not_re_keyed_stale(
+    tmp_path: Path, monkeypatch
+):
+    """Review of L-227, round 5: `set_coverage` does not take `indexwrite`, so a
+    coverage committed between the pre-write sample and the patch was re-keyed
+    under the cached (old) value, and `coverage` gates absence claims (#566)."""
+    import json
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    store_dir, owner, name = _indexed(tmp_path)
+    store = IndexStore(base_path=str(store_dir))
+    warm = store.load_index(owner, name)
+    alpha = next(s for s in warm.symbols if s["name"] == "alpha")
+    foreign = {"complete": False, "written_by": "another process"}
+    fired = _foreign_meta_write_inside(
+        monkeypatch,
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('coverage', ?)",
+        (json.dumps(foreign),),
+    )
+    assert store.update_symbol_summaries(
+        owner, name, {alpha["id"]: ("Written here.", alpha["content_hash"])}
+    ) == 1
+    assert fired, "the foreign write never ran, so nothing was tested"
+    monkeypatch.undo()
+    served = store.load_index(owner, name)
+    sqlite_store._cache_clear()
+    disk = IndexStore(base_path=str(store_dir)).load_index(owner, name)
+    assert disk.coverage == foreign
+    assert served.coverage == disk.coverage
+    assert {s["name"]: s["summary"] for s in served.symbols}["alpha"] == "Written here."
+
+
+def test_a_root_cleared_by_a_lock_free_writer_evicts_the_cache(tmp_path: Path, monkeypatch):
+    """`heal_pack_index_paths` clears `source_root` without `indexwrite`; the
+    cached root is remapped and cannot be compared, so a cleared one evicts."""
+    from jcodemunch_mcp.storage import sqlite_store
+
+    store_dir, owner, name = _indexed(tmp_path)
+    store = IndexStore(base_path=str(store_dir))
+    warm = store.load_index(owner, name)
+    assert warm.source_root
+    alpha = next(s for s in warm.symbols if s["name"] == "alpha")
+    fired = _foreign_meta_write_inside(
+        monkeypatch, "UPDATE meta SET value = '' WHERE key IN ('source_root', 'git_root')", ()
+    )
+    store.update_symbol_summaries(
+        owner, name, {alpha["id"]: ("Written here.", alpha["content_hash"])}
+    )
+    assert fired
+    monkeypatch.undo()
+    served = store.load_index(owner, name)
+    sqlite_store._cache_clear()
+    disk = IndexStore(base_path=str(store_dir)).load_index(owner, name)
+    assert served.source_root == disk.source_root

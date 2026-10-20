@@ -24,11 +24,17 @@ BM25 bags) and keeps it cached at the database's new mtime. It does that only
 while holding the index-write lock, and only when the cached index was loaded
 from the database exactly as it stood before this write; if another process
 wrote in between, re-keying the old entry would hide that write, so it is
-evicted instead. A branch entry, a cold cache or any failure also evicts.
+evicted instead. Three meta writers skip that lock (L-230), so the patch also
+reads their keys back from the database: it carries the current `coverage`,
+which gates absence claims, and `parser_generation`, and it evicts when a root
+was cleared or the database moves during that read. A branch entry, a cold
+cache or any failure also evicts.
 `tests/test_deferred_summaries_write_only_the_summary.py` drives the
 watched-edit path with a summarizer that returns rebuilt symbols, requires
 the load after a summary write to come from the warm cache, and requires
-it to match a cold read when another process wrote in between.
+it to match a cold read when another process wrote in between, including a
+`coverage` written without the lock, and requires the deferred write to leave
+`indexed_at` where the first save put it.
 
 ## [1.108.385] - 2026-10-19 - a summary written by another process reaches this one's searches
 
