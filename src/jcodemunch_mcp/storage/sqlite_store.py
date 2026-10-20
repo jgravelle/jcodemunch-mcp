@@ -1661,20 +1661,10 @@ class SQLiteIndexStore:
         if file_hashes is None:
             file_hashes = {fp: _file_hash(content) for fp, content in raw_files.items()}
 
-        # Serialize symbols
-        serialized_symbols = [
-            {"id": s.id, "file": s.file, "name": s.name, "qualified_name": s.qualified_name,
-             "kind": s.kind, "language": s.language, "signature": s.signature,
-             "docstring": s.docstring, "summary": s.summary, "decorators": s.decorators,
-             "keywords": s.keywords, "parent": s.parent, "line": s.line,
-             "end_line": s.end_line, "byte_offset": s.byte_offset,
-             "byte_length": s.byte_length, "content_hash": s.content_hash,
-             "cyclomatic": getattr(s, "cyclomatic", 0) or 0,
-             "max_nesting": getattr(s, "max_nesting", 0) or 0,
-             "param_count": getattr(s, "param_count", 0) or 0,
-             "call_references": getattr(s, "call_references", []) or []}
-            for s in symbols
-        ]
+        # Serialize symbols with the helper whose shape matches a row read
+        # back from disk: this list becomes the index the cache pre-warms
+        # below, and a hand-written copy left out `ecosystem_context` (L-224).
+        serialized_symbols = [self._symbol_to_dict(s) for s in symbols]
 
         # Compute languages from file_languages if not provided
         file_languages = file_languages or {}

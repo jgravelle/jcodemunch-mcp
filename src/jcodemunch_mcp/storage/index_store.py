@@ -1785,6 +1785,7 @@ class IndexStore:
             "byte_offset": symbol.byte_offset,
             "byte_length": symbol.byte_length,
             "content_hash": symbol.content_hash,
+            "ecosystem_context": getattr(symbol, "ecosystem_context", "") or "",
             "cyclomatic": getattr(symbol, "cyclomatic", 0) or 0,
             "max_nesting": getattr(symbol, "max_nesting", 0) or 0,
             "param_count": getattr(symbol, "param_count", 0) or 0,
