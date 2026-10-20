@@ -190,9 +190,6 @@ def split_segments(cmd: str) -> list[str]:
 _CWD_WORDS = frozenset(
     {"cd", "chdir", "pushd", "popd", "set-location", "push-location", "pop-location", "sl"}
 )
-#: The same words as plain text, for a command whose heredoc was stripped:
-#: a quoted `<<X` can make `strip_heredocs` swallow a real `cd` (W-58).
-CWD_TEXT_RE = re.compile(r"(?i)(?<![\w-])(cd|chdir|pushd|popd|set-location|push-location|pop-location|sl)(?![\w-])")
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(/|$)")
 
@@ -220,17 +217,24 @@ def _changes_dir(seg: str) -> bool:
     words = _words(seg)
     if words is None:
         return True
+    # ANY word, not only the command word: `if cd A; then`, `time cd A`,
+    # `! cd A` and PowerShell `& { cd A }` all change directory (review round 3).
+    # A quoted title is one word after quote removal, so it never equals `cd`.
+    if any(w.lstrip("({&!").lower() in _CWD_WORDS for w in words):
+        return True
     i = 0
-    while i < len(words) and (words[i] in ("(", "{") or _ASSIGNMENT_RE.match(words[i])):
-        i += 1
-    while i < len(words) and words[i] in ("builtin", "command", "exec"):
+    while i < len(words) and (words[i].lstrip("({&!") == "" or _ASSIGNMENT_RE.match(words[i])):
         i += 1
     if i >= len(words):
         return False
-    word = words[i].lstrip("({")
-    if "$" in word or "`" in word:
-        return True
-    return word.lower() in _CWD_WORDS
+    word = words[i].lstrip("({&!")
+    # Words that run text this function cannot read: unknown, so a change.
+    return "$" in word or "`" in word or word in ("eval", "source", ".")
+
+
+def any_dir_change(cmd: str) -> bool:
+    """Does any segment of `cmd` change directory, or might it (see `_changes_dir`)?"""
+    return any(_changes_dir(s) for s in split_segments(cmd))
 
 
 def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | None, str | None]:
@@ -274,7 +278,7 @@ def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | N
             continue
         words = _words(seg)
         if not words or words[0] != "cd":
-            return None, f"`{seg[:60]}` changes directory in a way it cannot follow"
+            return None, f"`{seg[:60]}` may change directory (a keyword, an expansion or a command it cannot read)"
         args = [w for w in words[1:] if w not in ("-P", "-L", "--")]
         if len(args) != 1 or args[0] == "-":
             return None, f"`{seg[:60]}` names no single directory"

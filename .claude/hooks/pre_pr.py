@@ -20,11 +20,11 @@ import re
 from pathlib import Path
 
 from _common import (
-    CWD_TEXT_RE,
     PENDING_MARK,
     EVIDENCE,
     STATE,
     _rebind_repo,
+    any_dir_change,
     block,
     command_dir,
     git,
@@ -37,8 +37,9 @@ from _common import (
 )
 
 # `gh -R o/r`, `gh -Ro/r`, `gh --repo=o/r`, `gh.exe` and the `pr new` alias all
-# open a PR; the old pattern let them through with no check at all (W-58).
-PR_RE = re.compile(r"\bgh(?:\.exe)?\s+(?:(?:-R\s*|--repo(?:\s+|=))\S+\s+)*pr\s+(?:create|new)\b")
+# open a PR, in any case (Windows resolves `GH` to gh); the old pattern let them
+# through with no check at all (W-58).
+PR_RE = re.compile(r"(?i)\bgh(?:\.exe)?\s+(?:(?:-R\s*|--repo(?:\s+|=))\S+\s+)*pr\s+(?:create|new)\b")
 
 
 def main() -> None:
@@ -47,7 +48,9 @@ def main() -> None:
     cmd = strip_heredocs(raw)
     if not PR_RE.search(cmd):
         ok()
-    if cmd != raw and CWD_TEXT_RE.search(raw):
+    # A quoted `<<X` can make strip_heredocs swallow a real `cd`; judge the RAW
+    # command's segments (a body inside "$(cat <<'EOF' ...)" stays one quoted word).
+    if cmd != raw and any_dir_change(raw):
         block(
             "pre_pr: cannot tell which tree the PR is opened from (a heredoc and a directory change in one "
             "command). Write the body to a file and pass it with --body-file."

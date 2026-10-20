@@ -183,10 +183,19 @@ def _refusals(live: Path, wt: Path) -> list[str]:
         f'cd "$(echo {w})" && {CREATE}',
         f"cd - && {CREATE}",
         f"cd && {CREATE}",
+        # Review round 3: a keyword before the cd hid it from a first-word check.
+        f'if cd "{w}"; then {CREATE}; fi',
+        f'time cd "{w}"; {CREATE}',
+        f'! cd "{w}"; {CREATE}',
+        f'eval cd "{w}" && {CREATE}',
+        f'eval "cd {w}" && {CREATE}',
+        f'source "{w}/x.sh" && {CREATE}',
+        f'& {{ cd "{w}" }}; {CREATE}',
+        f'if ($true) {{ cd "{w}" }}; {CREATE}',
     ]
 
 
-@pytest.mark.parametrize("index", range(13))
+@pytest.mark.parametrize("index", range(21))
 def test_a_directory_change_it_cannot_follow_refuses(trees, index):
     """Fail closed: both trees carry a valid stamp, so a fallback to EITHER would pass."""
     live, wt = trees
@@ -201,7 +210,7 @@ def test_a_directory_change_it_cannot_follow_refuses(trees, index):
 
 
 def test_the_refusal_list_is_the_one_parametrized(trees):
-    assert len(_refusals(*trees)) == 13
+    assert len(_refusals(*trees)) == 21
 
 
 @pytest.mark.parametrize("spelling", ["-P", "-L", "--"])
@@ -293,6 +302,27 @@ def test_every_spelling_that_opens_a_pr_is_gated(trees, spelling):
     _unstamp(live)
     r = _pre_pr(spelling + " --title x", live)
     assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("binary", ["GH", "Gh"])
+def test_the_binary_name_is_matched_in_any_case(trees, binary):
+    """Windows resolves `GH` to gh.exe, so a case-sensitive pattern skipped the gate."""
+    live, _ = trees
+    _unstamp(live)
+    r = _pre_pr(binary + " pr " + "create --title x", live)
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
+def test_a_heredoc_body_that_says_ci_cd_is_not_a_directory_change(trees):
+    """The default PR form: the body is one quoted word, so `CI/CD` in it changes nothing."""
+    live, _ = trees
+    _stamp(live)
+    command = (
+        CREATE
+        + " --body \"$(cat <<'EOF'\nAdds CI/CD notes; cd is not run here\nEOF\n)\""
+    )
+    r = _pre_pr(command, live)
+    assert r.returncode == 0, r.stderr
 
 
 def test_without_a_cd_the_session_tree_is_still_the_one_read(trees):
