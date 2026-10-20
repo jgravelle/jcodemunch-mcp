@@ -77,7 +77,7 @@ def paths_for(question: str) -> tuple[str, ...]:
 TIER_PATHS = paths_for("stamp")
 
 
-def _rebind_repo(cwd: str | None) -> None:
+def _rebind_repo(cwd: str | None) -> bool:
     """Point REPO/STATE/EVIDENCE at the checkout the SESSION is in.
 
     Claude Code runs a project hook with `$CLAUDE_PROJECT_DIR` fixed, so a
@@ -86,10 +86,13 @@ def _rebind_repo(cwd: str | None) -> None:
     and NONE of the automatic ones: the /fix-issue probe's reintroducing
     commit passed pre_commit silently (FINDINGS W-30). The payload's `cwd`
     names the real tree; if it is a checkout of this repo, use it.
+
+    Returns True when REPO now names that checkout (already did, or was
+    rebound), False when `cwd` is not a checkout carrying `.claude/hooks`.
     """
     global REPO, STATE, EVIDENCE
     if not cwd:
-        return
+        return False
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -99,12 +102,14 @@ def _rebind_repo(cwd: str | None) -> None:
             timeout=10,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
-        return
+        return False
     if not top:
-        return
+        return False
     top_path = Path(top).resolve()
-    if top_path == REPO or not (top_path / ".claude" / "hooks").exists():
-        return
+    if top_path == REPO:
+        return True
+    if not (top_path / ".claude" / "hooks").exists():
+        return False
     REPO = top_path
     STATE = REPO / ".claude" / "state"
     EVIDENCE = STATE / "evidence"
@@ -113,6 +118,7 @@ def _rebind_repo(cwd: str | None) -> None:
     for name, value in (("REPO", REPO), ("STATE", STATE), ("EVIDENCE", EVIDENCE)):
         if main is not None and hasattr(main, name):
             setattr(main, name, value)
+    return True
 
 
 def read_hook_input() -> dict:
@@ -178,6 +184,32 @@ def split_segments(cmd: str) -> list[str]:
         i += 1
     out.append("".join(buf))
     return [s.strip() for s in out if s.strip()]
+
+
+def cd_before(cmd: str, pattern: re.Pattern[str]) -> str | None:
+    """The directory the LAST `cd` before the first segment matching `pattern` enters, or None.
+
+    The Bash tool resets its cwd to the session folder on every call, so a
+    command that works in a worktree says so with `cd <dir> && ...`; the
+    payload's `cwd` still names the session folder (jjg, 2026-10-19: pre_pr
+    reads the tree `gh pr create` runs in). A `cd` with no argument, or one
+    shlex cannot split, is returned as "" so the caller refuses rather than
+    guesses.
+    """
+    import shlex
+
+    target: str | None = None
+    for seg in split_segments(cmd):
+        if pattern.search(seg):
+            return target
+        if re.match(r"cd(\s|$)", seg):
+            try:
+                words = shlex.split(seg, posix=True)
+            except ValueError:
+                target = ""
+                continue
+            target = os.path.expanduser(words[1]) if len(words) == 2 else ""
+    return None
 
 
 def tool_path(payload: dict) -> Path | None:

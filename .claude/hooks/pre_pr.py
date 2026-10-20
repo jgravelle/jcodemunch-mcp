@@ -17,11 +17,15 @@ from __future__ import annotations
 import json
 import re
 
+from pathlib import Path
+
 from _common import (
     PENDING_MARK,
     EVIDENCE,
     STATE,
+    _rebind_repo,
     block,
+    cd_before,
     git,
     ok,
     read_hook_input,
@@ -35,9 +39,21 @@ PR_RE = re.compile(r"\bgh\s+pr\s+create\b")
 
 
 def main() -> None:
-    cmd = strip_heredocs(tool_command(read_hook_input()))
+    payload = read_hook_input()
+    cmd = strip_heredocs(tool_command(payload))
     if not PR_RE.search(cmd):
         ok()
+    # jjg (2026-10-19): the stamp is the one of the tree `gh pr create` RUNS in.
+    # The Bash tool resets its cwd each call, so a worktree PR is
+    # `cd <worktree> && gh pr create`; read that tree, never the session's.
+    target = cd_before(cmd, PR_RE)
+    if target is not None:
+        where = Path(target) if target and Path(target).is_absolute() else Path(payload.get("cwd") or ".") / target
+        if not target or not where.is_dir() or not _rebind_repo(str(where)):
+            block(
+                f"pre_pr: `gh pr create` runs in {target or '(an unreadable cd)'}, which is not a checkout "
+                "carrying .claude/hooks, so there is no full-tier stamp to read for it."
+            )
     # Resolved after read_hook_input, which may rebind STATE to a worktree (W-30).
     STAMP = STATE / "full-tier.json"  # noqa: N806
     CHECKLIST = EVIDENCE / "checklist.md"  # noqa: N806
