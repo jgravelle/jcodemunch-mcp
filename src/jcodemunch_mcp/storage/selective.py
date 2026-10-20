@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 #: ``files`` table, both of which this path reads in full. A field belongs on
 #: this list only if a partial symbol set cannot change its value.
 EXACT_FIELDS: tuple[str, ...] = (
-    "repo", "owner", "name", "indexed_at", "index_version",
+    "repo", "owner", "name", "indexed_at", "summaries_generation", "index_version",
     "languages", "git_head", "source_root", "git_root", "source_roots",
     "display_name", "branch",
     "source_files", "file_hashes", "file_summaries", "file_languages",
