@@ -192,10 +192,20 @@ def _refusals(live: Path, wt: Path) -> list[str]:
         f'source "{w}/x.sh" && {CREATE}',
         f'& {{ cd "{w}" }}; {CREATE}',
         f'if ($true) {{ cd "{w}" }}; {CREATE}',
+        # Review round 4: gh run by another program, a glued redirect, cd..
+        f"bash -c 'cd \"{w}\" && {CREATE}'",
+        f"sh -c 'cd \"{w}\"; {CREATE}'",
+        f"pwsh -c 'cd \"{w}\"; {CREATE}'",
+        f'cmd /c "cd /d {w} && {CREATE}"',
+        f'env -C "{w}" {CREATE}',
+        f'env --chdir="{w}" {CREATE}',
+        f'cd>/dev/null "{w}" && {CREATE}',
+        f'cd</dev/null "{w}" && {CREATE}',
+        f"cd..; {CREATE}",
     ]
 
 
-@pytest.mark.parametrize("index", range(21))
+@pytest.mark.parametrize("index", range(30))
 def test_a_directory_change_it_cannot_follow_refuses(trees, index):
     """Fail closed: both trees carry a valid stamp, so a fallback to EITHER would pass."""
     live, wt = trees
@@ -210,7 +220,7 @@ def test_a_directory_change_it_cannot_follow_refuses(trees, index):
 
 
 def test_the_refusal_list_is_the_one_parametrized(trees):
-    assert len(_refusals(*trees)) == 21
+    assert len(_refusals(*trees)) == 30
 
 
 @pytest.mark.parametrize("spelling", ["-P", "-L", "--"])

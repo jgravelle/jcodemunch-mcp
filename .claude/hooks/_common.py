@@ -220,8 +220,12 @@ def _changes_dir(seg: str) -> bool:
     # ANY word, not only the command word: `if cd A; then`, `time cd A`,
     # `! cd A` and PowerShell `& { cd A }` all change directory (review round 3).
     # A quoted title is one word after quote removal, so it never equals `cd`.
-    if any(w.lstrip("({&!").lower() in _CWD_WORDS for w in words):
-        return True
+    for w in words:
+        # A redirect glued to the word (`cd>/dev/null A`) still runs `cd`, and
+        # PowerShell's `cd..` / `cd\` are functions that change location (round 4).
+        base = re.sub(r"[<>].*$", "", w.lstrip("({&!")).lower()
+        if base in _CWD_WORDS or re.match(r"cd[./\\]", base):
+            return True
     i = 0
     while i < len(words) and (words[i].lstrip("({&!") == "" or _ASSIGNMENT_RE.match(words[i])):
         i += 1
@@ -259,6 +263,16 @@ def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | N
     first = next((i for i, s in enumerate(segs) if pattern.search(s)), None)
     if first is None:
         return None, None
+    # ALLOWLIST, not a denylist (review round 4): the segment that matches must
+    # run `gh` itself. `bash -c`, `sh -c`, `pwsh -c`, `cmd /c`, `env -C` and an
+    # `echo` that merely names the command all run it elsewhere, or not at all,
+    # and four rounds of naming spellings each found one the list missed.
+    words = _words(segs[first]) or []
+    i = 0
+    while i < len(words) and _ASSIGNMENT_RE.match(words[i]):
+        i += 1
+    if i >= len(words) or words[i].lower() not in ("gh", "gh.exe"):
+        return None, "gh runs inside another program, or the text only names it"
     if not any(_changes_dir(s) for s in segs):
         return None, None
     if "\n" in cmd or "\r" in cmd:

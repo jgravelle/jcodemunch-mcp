@@ -53,7 +53,7 @@ def main() -> None:
     if cmd != raw and any_dir_change(raw):
         block(
             "pre_pr: cannot tell which tree the PR is opened from (a heredoc and a directory change in one "
-            "command). Write the body to a file and pass it with --body-file."
+            "command). Write the body to a file in a separate tool call, then pass it with --body-file."
         )
     # jjg (2026-10-19): the stamp is the one of the tree `gh pr create` RUNS in.
     # The Bash tool resets its cwd each call, so a worktree PR is
