@@ -2818,3 +2818,13 @@ The 1.108.382 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.382 count, verbatim:
 
 - ⚠ Prior (1.108.382): 18112 passed, 25 skipped, **0 failed** (18137 total).
+
+## Current State rotation (2026-10-20, release 1.108.386)
+
+The 1.108.383 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.383):** **refreshing summaries no longer erases complexity and the call graph** (#1161, @SlimLemon): `SQLiteIndexStore.update_symbol_summaries` is a one-column UPDATE, guarded by `content_hash`, that evicts the index cache; `summarize_repo` writes only changed summaries and reports `not_written`. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.383 count, verbatim:
+
+- ⚠ Prior (1.108.383): 18119 passed, 25 skipped, **0 failed** (18144 total).

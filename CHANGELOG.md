@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
+
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
 
 The AI summary prompt sent each symbol's signature only, so for undocumented
