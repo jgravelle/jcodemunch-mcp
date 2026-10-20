@@ -120,6 +120,16 @@ def test_a_licensed_listing_has_no_sales_line(mock_httpx, capsys, monkeypatch):
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_listing_with_a_key_on_the_command_line_has_no_sales_line(mock_httpx, capsys, monkeypatch):
+    """`install-pack --list --license KEY`: the key arrives as an argument, not config."""
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
+    mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
+    assert run_install_pack(None, list_packs=True, license_key="jcm-test-key-not-real") == 0
+    out = capsys.readouterr().out
+    assert "fastapi" in out and "Get a license" not in out, out
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_listed_download_url_ignores_the_servers_own_field(mock_httpx, capsys):
     """The printed URL is the one install-pack will fetch, not the catalog's.
 

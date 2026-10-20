@@ -85,16 +85,30 @@ def test_a_blank_key_is_no_licence(quiet_init, capsys, monkeypatch):
 
 def test_the_licence_check_makes_no_network_call(quiet_init, capsys, monkeypatch):
     """The gate reads the configured key only. Validating it would send it to
-    validate.php from every `init`, a network call `init` has never made."""
+    validate.php from every `init`, a network call `init` has never made.
+
+    ⚠ Calls are RECORDED, never refused with a raise: `_check_server` wraps its
+    request in `except Exception: return None`, so a raise from a patched
+    socket would be swallowed and a validating gate would stay green (review of
+    this test, the 08-13 #439/#453 shape)."""
     import socket
 
-    def refuse(*a, **k):
-        raise AssertionError("init opened a network connection")
+    import httpx
 
-    monkeypatch.setattr(socket.socket, "connect", refuse)
+    from jcodemunch_mcp.org import license as lic
+
+    calls = []
+    real_check = lic._check_server
+    monkeypatch.setattr(lic, "_check_server", lambda *a, **k: calls.append("_check_server") or real_check(*a, **k))
+    for verb in ("get", "post", "request"):
+        real = getattr(httpx, verb)
+        monkeypatch.setattr(httpx, verb, lambda *a, _v=verb, _r=real, **k: calls.append("httpx." + _v) or _r(*a, **k))
+    real_connect = socket.socket.connect
+    monkeypatch.setattr(socket.socket, "connect", lambda self, *a, **k: calls.append("connect") or real_connect(self, *a, **k))
     monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "jcm-test-key-not-real")
     out = _run(capsys, dry_run=False)
     assert not any(m in out for m in _MARKERS), out
+    assert calls == [], calls
 
 
 @pytest.mark.parametrize("mode", [{"dry_run": True}, {"demo": True}])
