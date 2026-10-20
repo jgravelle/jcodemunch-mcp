@@ -2,25 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed - an index read back in the process that saved it keeps its ecosystem context (L-224)
-
-`save_index` puts the index it has just written into the in-process cache, so
-the next `load_index` skips the disk. It built that cached copy from its own
-hand-written symbol dict, which left out `ecosystem_context`, while every row
-read back from disk carries the field. So `load_index` in the same process
-returned symbols with no `ecosystem_context` key (the git blame or dbt text was
-gone) until a later write moved the .db mtime the cache compares. After a full
-`index_folder` that write is normally the coverage stamp. With
-`set_coverage` stubbed out, a read after `index_folder` on `main` returned the
-symbol without the key, and this fix returns the blame text. That is the most
-likely cause of the rare `KeyError: 'ecosystem_context'` two blame tests hit
-under load; the coverage write failing to move the mtime under load was not
-itself observed.
-
-`save_index` now serialises with `_symbol_to_dict`, the helper whose shape
-matches a row read from disk. `IndexStore._symbol_to_dict` gains the field too,
-for consistency only: nothing reads it there. `tests/test_a_saved_index_reads_back_as_stored.py` requires the cached
-copy to have the same keys and values as a disk read of the same index.
+## [1.108.385] - 2026-10-19 - a summary written by another process reaches this one's searches
 
 ### Fixed - a summary written by another process reaches this one's searches
 
@@ -45,6 +27,37 @@ search serves it. It saves a journal, writes a summary, restores the journal,
 and checks the new summary is served. It also checks the generation moves
 only when a row changes, and that a selective view reads it without loading
 the whole index. LEDGER L-228 and L-229.
+
+### Fixed - an index read back in the process that saved it keeps its ecosystem context (L-224)
+
+`save_index` puts the index it has just written into the in-process cache, so
+the next `load_index` skips the disk. It built that cached copy from its own
+hand-written symbol dict, which left out `ecosystem_context`, while every row
+read back from disk carries the field. So `load_index` in the same process
+returned symbols with no `ecosystem_context` key (the git blame or dbt text was
+gone) until a later write moved the .db mtime the cache compares. After a full
+`index_folder` that write is normally the coverage stamp. With
+`set_coverage` stubbed out, a read after `index_folder` on `main` returned the
+symbol without the key, and this fix returns the blame text. That is the most
+likely cause of the rare `KeyError: 'ecosystem_context'` two blame tests hit
+under load; the coverage write failing to move the mtime under load was not
+itself observed.
+
+`save_index` now serialises with `_symbol_to_dict`, the helper whose shape
+matches a row read from disk. `IndexStore._symbol_to_dict` gains the field too,
+for consistency only: nothing reads it there. `tests/test_a_saved_index_reads_back_as_stored.py` requires the cached
+copy to have the same keys and values as a disk read of the same index.
+
+### Changed - the README and the registry description name the benchmark behind the token figure
+
+README line 3 called jCodeMunch "the most token-efficient MCP server", which
+the repo's own competitive tier does not support. It now gives the pinned
+benchmark's figure with its baseline and unit: one lookup costs 96.6% fewer
+tokens than a grep-and-read agent (29.2x; 86.9% to 98.8% across the 15
+lookups), with a footnote naming the corpus, the tokenizer, the version and
+`benchmarks/REPRODUCING.md`. The MCP registry description read "86-99% token
+savings" with no baseline; it now reads "Retrieves code by symbol via
+tree-sitter. 96.6% fewer tokens per lookup than grep-and-read." (#1172)
 
 ## [1.108.384] - 2026-10-19 - the watcher no longer polls trees nothing indexes
 
