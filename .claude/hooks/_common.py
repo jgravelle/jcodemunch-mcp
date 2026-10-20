@@ -77,7 +77,7 @@ def paths_for(question: str) -> tuple[str, ...]:
 TIER_PATHS = paths_for("stamp")
 
 
-def _rebind_repo(cwd: str | None) -> None:
+def _rebind_repo(cwd: str | None) -> bool:
     """Point REPO/STATE/EVIDENCE at the checkout the SESSION is in.
 
     Claude Code runs a project hook with `$CLAUDE_PROJECT_DIR` fixed, so a
@@ -86,10 +86,13 @@ def _rebind_repo(cwd: str | None) -> None:
     and NONE of the automatic ones: the /fix-issue probe's reintroducing
     commit passed pre_commit silently (FINDINGS W-30). The payload's `cwd`
     names the real tree; if it is a checkout of this repo, use it.
+
+    Returns True when REPO now names that checkout (already did, or was
+    rebound), False when `cwd` is not a checkout carrying `.claude/hooks`.
     """
     global REPO, STATE, EVIDENCE
     if not cwd:
-        return
+        return False
     try:
         top = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -99,12 +102,14 @@ def _rebind_repo(cwd: str | None) -> None:
             timeout=10,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
-        return
+        return False
     if not top:
-        return
+        return False
     top_path = Path(top).resolve()
-    if top_path == REPO or not (top_path / ".claude" / "hooks").exists():
-        return
+    if top_path == REPO:
+        return True
+    if not (top_path / ".claude" / "hooks").exists():
+        return False
     REPO = top_path
     STATE = REPO / ".claude" / "state"
     EVIDENCE = STATE / "evidence"
@@ -113,6 +118,7 @@ def _rebind_repo(cwd: str | None) -> None:
     for name, value in (("REPO", REPO), ("STATE", STATE), ("EVIDENCE", EVIDENCE)):
         if main is not None and hasattr(main, name):
             setattr(main, name, value)
+    return True
 
 
 def read_hook_input() -> dict:
@@ -178,6 +184,142 @@ def split_segments(cmd: str) -> list[str]:
         i += 1
     out.append("".join(buf))
     return [s.strip() for s in out if s.strip()]
+
+
+#: Command words that change a shell's or PowerShell's working directory.
+_CWD_WORDS = frozenset(
+    {"cd", "chdir", "pushd", "popd", "set-location", "push-location", "pop-location", "sl"}
+)
+#: `NAME=value`, and PowerShell's `$env:NAME=value` (this box's prescribed
+#: `$env:GITHUB_TOKEN=""` prefix must not read as an expansion, review round 5).
+_ASSIGNMENT_RE = re.compile(r"^(?:\$env:)?[A-Za-z_][A-Za-z0-9_]*=")
+_GIT_LOCATION_RE = re.compile(r"(?i)^(?:\$env:)?GIT_(?:DIR|WORK_TREE)=")
+#: `f()`, `f(){`, `f()` followed by a body word: a function defined on the line.
+_FUNCTION_DEF_RE = re.compile(r"^[\w.:-]+\(\)\{?$|^\(\)\{?$")
+_GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(/|$)")
+
+
+def _words(seg: str) -> list[str] | None:
+    """A segment's words as the shell splits them, or None when they cannot be split."""
+    import shlex
+
+    try:
+        return shlex.split(seg, posix=True)
+    except ValueError:
+        return None
+
+
+def _changes_dir(seg: str) -> bool:
+    """Does this segment's COMMAND WORD change directory, or might it?
+
+    Judged on the command word after shell quote removal, so `\\cd`, `c''d`
+    and `c\\d` all read as `cd`, while a quoted title that mentions cd does
+    not. Past leading assignments and a `(`/`{`, and through `builtin`,
+    `command` and `exec`. A word the shell would expand (`$`, a backtick) or
+    a segment that cannot be split is UNKNOWN, which reads as True: the
+    caller refuses rather than guesses.
+    """
+    words = _words(seg)
+    if words is None:
+        return True
+    # ANY word, not only the command word: `if cd A; then`, `time cd A`,
+    # `! cd A` and PowerShell `& { cd A }` all change directory (review round 3).
+    # A quoted title is one word after quote removal, so it never equals `cd`.
+    for w in words:
+        # A redirect glued to the word (`cd>/dev/null A`) still runs `cd`, and
+        # PowerShell's `cd..` / `cd\` are functions that change location (round 4).
+        base = re.sub(r"[<>].*$", "", w.lstrip("({&!")).lower()
+        if base in _CWD_WORDS or re.match(r"cd[./\\]", base):
+            return True
+    i = 0
+    while i < len(words) and (words[i].lstrip("({&!") == "" or _ASSIGNMENT_RE.match(words[i])):
+        i += 1
+    if i >= len(words):
+        return False
+    word = words[i].lstrip("({&!")
+    # Words that run text this function cannot read: unknown, so a change.
+    return "$" in word or "`" in word or word in ("eval", "source", ".")
+
+
+def any_dir_change(cmd: str) -> bool:
+    """Does any segment of `cmd` change directory, or might it (see `_changes_dir`)?"""
+    return any(_changes_dir(s) for s in split_segments(cmd))
+
+
+def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | None, str | None]:
+    """Where the first segment matching `pattern` runs: `(dir, None)`, `(None, None)` or `(None, reason)`.
+
+    The Bash tool resets its cwd to the session folder on every call, so a
+    command that works in a worktree says so with `cd <dir> && ...` while the
+    payload's `cwd` still names the session folder (jjg, 2026-10-19: pre_pr
+    reads the tree `gh pr create` runs in). `(None, None)` means nothing
+    changes directory, so `base` is where it runs. `(None, reason)` means a
+    directory change this function cannot follow: a gate refuses on it,
+    because a guess would fall back to a tree the command does not run in.
+
+    Followed: a chain of plain `cd DIR` segments joined by `&&` or `;`, each
+    relative one resolved against the previous, with `-P`/`-L`/`--` and the
+    Git Bash `/c/...` drive spelling. Refused: a newline, `||`, a subshell or
+    group, command substitution, `pushd`/`popd`/`chdir`/`Set-Location`/`sl`,
+    a prefixed or `builtin` cd, `cd -` or a bare `cd`, and any directory
+    change between two segments that match `pattern`.
+    """
+    segs = split_segments(cmd)
+    first = next((i for i, s in enumerate(segs) if pattern.search(s)), None)
+    if first is None:
+        return None, None
+    # ALLOWLIST, not a denylist (review round 4): the segment that matches must
+    # run `gh` itself. `bash -c`, `sh -c`, `pwsh -c`, `cmd /c`, `env -C` and an
+    # `echo` that merely names the command all run it elsewhere, or not at all,
+    # and four rounds of naming spellings each found one the list missed.
+    words = _words(segs[first]) or []
+    i = 0
+    while i < len(words) and _ASSIGNMENT_RE.match(words[i]):
+        i += 1
+    if i >= len(words) or words[i].lower() not in ("gh", "gh.exe"):
+        return None, "gh runs inside another program, or the text only names it"
+    # `--head`/`-H` and git's own location variables open the PR from a branch
+    # or repository other than the tree judged here (review round 5).
+    if any(w == "-H" or w.startswith(("-H", "--head")) for w in words[i + 1 :]):
+        return None, "`--head`/`-H` names a branch other than this tree's"
+    every = [w for s in segs[: first + 1] for w in (_words(s) or [])]
+    if any(_GIT_LOCATION_RE.match(w) for w in every):
+        return None, "`GIT_DIR`/`GIT_WORK_TREE` point gh at another repository"
+    # A function defined on the line can change directory through a variable
+    # no word-level check sees (`f(){ $X A; }; X=cd; f`), even one named gh.
+    if any(_FUNCTION_DEF_RE.match(w) for w in every) or any(
+        (_words(s) or [""])[0].lower() == "function" for s in segs[: first + 1]
+    ):
+        return None, "it defines a function on the same line"
+    if not any(_changes_dir(s) for s in segs):
+        return None, None
+    if "\n" in cmd or "\r" in cmd:
+        return None, "the command spans lines and changes directory; pass the PR body with --body-file"
+    head = cmd[: cmd.find(segs[first])] if segs[first] in cmd else cmd
+    for token, why in (("||", "`||`"), ("(", "a subshell"), ("{", "a group"), ("`", "a substitution"), ("$(", "a substitution")):
+        if token in head or segs[first].startswith(token):
+            return None, f"it changes directory inside {why}"
+    if _changes_dir(segs[first]):
+        return None, "the segment that runs it changes directory itself"
+    later = segs[first + 1 :]
+    if any(_changes_dir(s) for s in later) and any(pattern.search(s) for s in later):
+        return None, "it changes directory between two matching commands"
+    where: Path | None = None
+    for seg in segs[:first]:
+        if not _changes_dir(seg):
+            continue
+        words = _words(seg)
+        if not words or words[0] != "cd":
+            return None, f"`{seg[:60]}` may change directory (a keyword, an expansion or a command it cannot read)"
+        args = [w for w in words[1:] if w not in ("-P", "-L", "--")]
+        if len(args) != 1 or args[0] == "-":
+            return None, f"`{seg[:60]}` names no single directory"
+        arg = os.path.expanduser(args[0])
+        if os.name == "nt":
+            arg = _GIT_BASH_DRIVE_RE.sub(lambda m: m.group(1).upper() + ":/", arg)
+        p = Path(arg)
+        where = p if p.is_absolute() else (where or Path(base)) / p
+    return where, None
 
 
 def tool_path(payload: dict) -> Path | None:
