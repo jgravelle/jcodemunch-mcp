@@ -1,6 +1,8 @@
 # jCodeMunch MCP
 
-**The most token-efficient MCP server for precise source code retrieval via tree-sitter AST parsing.** Cut AI token costs 86-99% on code exploration (96% average, benchmarked at 29.2x fewer tokens than a grep-and-read agent) and stop burning your context window reading entire files.
+**An MCP server that retrieves source code by symbol, not by file, using tree-sitter AST parsing.** On our pinned benchmark, one lookup costs 96.6% fewer tokens than a grep-and-read agent (29.2x fewer; 86.9% to 98.8% across the 15 lookups), so your agent stops spending its context window on whole files.
+
+<sub>Benchmark: 5 queries on each of express, fastapi and gin at pinned commits, tokens counted with tiktoken `cl100k_base`, jcodemunch-mcp 1.108.364. A lookup is one `search_symbols` plus `get_symbol_source` on its top 3 hits, against grep-and-read (rank files by match count, read the top 3 whole). Per lookup, not per session. Reproduce with [`benchmarks/REPRODUCING.md`](benchmarks/REPRODUCING.md).</sub>
 
 > **Real results, live from production**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
