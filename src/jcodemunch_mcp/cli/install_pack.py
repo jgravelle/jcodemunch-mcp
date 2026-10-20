@@ -307,7 +307,10 @@ def _list_packs() -> int:
         print()
 
     print(f"  {_DIM}Free packs require no license. Licensed packs require a jCodeMunch license.{_RESET}")
-    print(f"  {_DIM}Get a license: https://jcodemunch.com/#pricing{_RESET}")
+    from ..org.license import licence_key_configured
+
+    if not licence_key_configured():  # paid clients are never marketed to (jjg, 2026-10-20)
+        print(f"  {_DIM}Get a license: https://jcodemunch.com/#pricing{_RESET}")
     print()
     return 0
 

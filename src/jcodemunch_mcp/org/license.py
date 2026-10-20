@@ -98,6 +98,19 @@ def _license_key() -> str:
         return ""
 
 
+def licence_key_configured() -> bool:
+    """True when this install has a licence key (env or config), read locally.
+
+    THE gate for every sales line we print (`init`'s licence line,
+    `install-pack`'s "Get a license"): jjg (DECISIONS 2026-10-20) promises paid
+    clients they are never marketed to. ⚠ The key is only READ, never
+    validated: validating would send it to validate.php from every `init`, a
+    network call `init` has never made. A key that later proves invalid still
+    suppresses the line, which errs toward not selling.
+    """
+    return bool(_license_key())
+
+
 # --------------------------------------------------------------------------- #
 # Server check
 # --------------------------------------------------------------------------- #

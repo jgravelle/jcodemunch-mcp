@@ -1307,6 +1307,15 @@ _LICENCE_LINES = (
     "Using jCodeMunch at work? A commercial licence is $79, one time: https://jcodemunch.com/descriptions.php",
     "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
 )
+
+
+def _licence_key_configured() -> bool:
+    """A licensed install never sees the licence line (`org.license.licence_key_configured`)."""
+    from ..org.license import licence_key_configured
+
+    return licence_key_configured()
+
+
 #: Set by `upgrade` on the `init --hooks` it runs: the line is shown once per
 #: install, never on every upgrade (Chief of Staff, 2026-10-17). An env var, not
 #: a flag, so an older executable that `upgrade` may find on PATH ignores it.
@@ -1658,7 +1667,7 @@ def run_init(
         print("Dry run complete -- no changes were made.")
     else:
         print("Done. Restart your MCP client(s) to connect.")
-        if os.environ.get(UPGRADE_REFRESH_ENV) != "1":
+        if os.environ.get(UPGRADE_REFRESH_ENV) != "1" and not _licence_key_configured():
             print()
             for line in _LICENCE_LINES:
                 print(line)
