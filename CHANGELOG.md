@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed - a summary written by another process reaches this one's searches
+
+The previous fix (L-226) told `search_symbols` to drop a repository's cached
+searches after a summary write, but only within the process that wrote. A
+summary written by another process, a second server or a script, never
+reached it. The cache key holds `indexed_at`, which a summary write leaves
+alone, so this process kept serving the summaries from before the write. The
+same was true of a search cache restored from the session journal after a
+refresh made while the server was down.
+
+`update_symbol_summaries` now also advances a `summaries_generation` meta row
+in the same transaction, and the search cache key carries it. Every process
+reads it from the database when it loads the index, so the key changes
+everywhere. A restored journal entry keeps its full key, so it no longer
+matches after an offline refresh. The value is the last element of the key,
+so the journal's positional reads of repo, `indexed_at` and query are
+unchanged. A branch view carries its base's generation, as it carries the
+base's summaries. `tests/test_a_summary_write_reaches_every_process.py`
+writes the summary from a child process and checks that the parent's next
+search serves it. It saves a journal, writes a summary, restores the journal,
+and checks the new summary is served. It also checks the generation moves
+only when a row changes, and that a selective view reads it without loading
+the whole index. LEDGER L-228 and L-229.
+
 ## [1.108.384] - 2026-10-19 - the watcher no longer polls trees nothing indexes
 
 ### Fixed - the watcher no longer polls trees nothing indexes

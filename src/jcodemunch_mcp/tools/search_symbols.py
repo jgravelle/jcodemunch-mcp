@@ -743,6 +743,13 @@ def search_symbols(
             semantic_weight,
             token_budget,
             fusion,
+            # LAST, so the journal's positional reads (repo, indexed_at, query
+            # at 0-2) are unchanged: the summary generation, which a summary
+            # write advances while leaving indexed_at alone. It is read from
+            # the .db, so another process's write reaches this key too, and a
+            # journal entry restored after an offline refresh never matches
+            # (L-228, L-229).
+            getattr(index, "summaries_generation", ""),
         )
         _cached = _result_cache_get(_cache_key)
         if _cached is not None:
