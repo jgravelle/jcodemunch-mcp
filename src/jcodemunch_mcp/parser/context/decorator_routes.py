@@ -45,42 +45,42 @@ _FLASK_ROUTE = re.compile(
     re.IGNORECASE,
 )
 
-_METHODS_KW = re.compile(r"\bmethods\s*=\s*")
-_QUOTED_WORD = re.compile(r"[\"'](\w+)[\"']")
+def _flask_route_methods_by_line(content: str) -> dict[int, list[str]] | None:
+    """Verbs each `@x.route(...)` decorator serves, keyed by its `@` line (#1177).
 
-
-def _call_args(content: str, start: int) -> str:
-    """The rest of a decorator call's arguments from `start` (just past its
-    first argument) to the parenthesis that closes the call."""
-    depth = 1
-    for i in range(start, len(content)):
-        c = content[i]
-        if c in "([{":
-            depth += 1
-        elif c in ")]}":
-            depth -= 1
-            if depth == 0:
-                return content[start:i]
-    return content[start:]
-
-
-def _flask_route_methods(content: str, start: int) -> list[str]:
-    """Verbs an `@x.route(path, ...)` call serves (#1177, @skibadubskiybadubs).
-
-    Flask serves GET only when `methods=` is absent. A literal list or tuple
-    names the verbs; any other value (a variable, a call) names verbs this
-    reader cannot see, so the route is `ANY` rather than a guessed GET.
+    Read with Python's own parser, never by scanning text: a bracket counter
+    took a `)` inside a string or a comment for the end of the call, and read a
+    `methods=` inside a string as the argument (review of #1177). Flask serves
+    GET only when `methods=` is absent. A list, tuple or set of string literals
+    names the verbs; any other value (a variable, a call, `['GET'] + EXTRA`)
+    names verbs this reader cannot see, so the route is `ANY` rather than a
+    guessed GET. None when the file does not parse: the caller cannot read any
+    `methods=` and says so.
     """
-    args = _call_args(content, start)
-    kw = _METHODS_KW.search(args)
-    if kw is None:
-        return ["GET"]
-    rest = args[kw.end():].lstrip()
-    if not rest or rest[0] not in "[(":
-        return ["ANY"]
-    body = _call_args(rest, 1)
-    verbs = [v.upper() for v in _QUOTED_WORD.findall(body)]
-    return list(dict.fromkeys(verbs)) or ["ANY"]
+    import ast
+
+    try:
+        tree = ast.parse(content)
+    except (SyntaxError, ValueError):
+        return None
+    out: dict[int, list[str]] = {}
+    for node in ast.walk(tree):
+        for dec in getattr(node, "decorator_list", ()):
+            if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.func.attr == "route"):
+                continue
+            kw = next((k for k in dec.keywords if k.arg == "methods"), None)
+            if kw is None:
+                verbs = ["GET"]
+            elif isinstance(kw.value, (ast.List, ast.Tuple, ast.Set)) and kw.value.elts and all(
+                isinstance(e, ast.Constant) and isinstance(e.value, str) for e in kw.value.elts
+            ):
+                verbs = list(dict.fromkeys(str(e.value).upper() for e in kw.value.elts))  # type: ignore[union-attr]
+            else:
+                verbs = ["ANY"]
+            # `dec.lineno` is the line of the expression after `@`, which is the
+            # line the caller's regex match starts on.
+            out[dec.lineno] = verbs
+    return out
 
 
 # FastAPI: matches @app.get(...), @router.post(...), etc.
@@ -334,6 +334,8 @@ class DecoratorRoutesProvider(ContextProvider):
 
         else:
             # Flask/FastAPI
+            route_methods: dict[int, list[str]] | None = None
+            parsed = False
             for m in config.route_pattern.finditer(content):
                 # Extract HTTP method from decorator name
                 decorator = m.group(0)
@@ -344,8 +346,13 @@ class DecoratorRoutesProvider(ContextProvider):
                 path = m.group("path") or "/"
                 if verb == "ROUTE":
                     # #1177: `methods=` names the verbs; Flask's GET default
-                    # applies only when it is absent.
-                    for v in _flask_route_methods(content, m.end()):
+                    # applies only when it is absent. Parsed once per file.
+                    if not parsed:
+                        route_methods = _flask_route_methods_by_line(content)
+                        parsed = True
+                    line = content.count("\n", 0, m.start()) + 1
+                    verbs = (route_methods or {}).get(line) or ["ANY"]
+                    for v in verbs:
                         routes.append({"verb": v, "path": path})
                     continue
                 routes.append({"verb": verb, "path": path})

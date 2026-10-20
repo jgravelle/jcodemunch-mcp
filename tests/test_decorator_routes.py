@@ -87,6 +87,55 @@ def create_user():
         # A non-literal `methods=` names verbs nobody can read here: never claim GET.
         assert "ANY /dyn" in routes and "GET /dyn" not in routes
 
+    @pytest.mark.parametrize(
+        "decorator,want,never",
+        [
+            # Review of #1177: a bracket counter read strings and comments as code.
+            ("@bp.route('/a', endpoint='weird)name', methods=['POST'])", ["POST /a"], ["GET /a"]),
+            ("@bp.route('/a', endpoint='x]', methods=['POST'])", ["POST /a"], ["GET /a"]),
+            ("@bp.route(\n    '/a',  # )\n    methods=['PUT'],\n)", ["PUT /a"], ["GET /a"]),
+            ("@bp.route('/a', defaults={'x': 'methods=[1]'})", ["GET /a"], ["ANY /a"]),
+            ("@bp.route('/a', defaults={'x': 'methods=[\"POST\"]'})", ["GET /a"], ["POST /a"]),
+            ("@bp.route('/a', methods=['GET'] + EXTRA)", ["ANY /a"], ["GET /a"]),
+            ("@bp.route('/a', methods={'POST'})", ["POST /a"], ["ANY /a"]),
+            ("@bp.route('/a', methods=[])", ["ANY /a"], ["GET /a"]),
+        ],
+    )
+    def test_flask_methods_are_read_as_python_not_as_text(self, tmp_path: Path, decorator, want, never):
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "v.py").write_text(
+            "from flask import Blueprint\nbp = Blueprint('t', __name__)\nEXTRA = []\n\n"
+            + decorator
+            + "\ndef view():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        routes = provider.get_file_context("v.py").properties["routes"].split("; ")
+        for r in want:
+            assert r in routes, (decorator, routes)
+        for r in never:
+            assert r not in routes, (decorator, routes)
+
+    def test_an_unclosed_route_call_borrows_no_verbs_and_stays_fast(self, tmp_path: Path):
+        """An unclosed call made the text scanner take the NEXT decorator's verbs,
+        and 3,000 of them cost ~29 s against a 30 s provider budget. A file that
+        does not parse has no readable `methods=`: every `route` is ANY."""
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        broken = "".join(f"@app.route('/x{i}'\ndef v{i}():\n    pass\n" for i in range(3000))
+        (tmp_path / "b.py").write_text(
+            "from flask import Flask\napp = Flask(__name__)\n" + broken + "@app.route('/ok', methods=['POST'])\ndef ok():\n    pass\n"
+        )
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        import time
+
+        t = time.perf_counter()
+        provider.load(tmp_path)
+        assert time.perf_counter() - t < 10
+        routes = provider.get_file_context("b.py").properties["routes"].split("; ")
+        assert "POST /x0" not in routes and "ANY /x0" in routes
+
 
 class TestDecoratorRoutesFastAPI:
     """Tests for FastAPI detection and route extraction."""

@@ -8,12 +8,25 @@ The decorator-routes provider turned every `@x.route(...)` into `GET` and
 never read `methods=`, so `@bp.route('/tokens', methods=['POST'])` and its
 `DELETE` twin were both "GET /tokens". The wrong verb went into the file's
 summary and into the AI summary prompt's `Context:`, where the model then
-described POST and DELETE handlers as GET requests. It now reads `methods=`
-from the decorator call's own arguments and emits one route per listed verb;
-GET is the default only when `methods=` is absent, as in Flask. A `methods=`
-that is not a literal list (a variable, a call) names verbs this reader cannot
-see, so the route is `ANY` rather than a guessed GET. Reported by
-@skibadubskiybadubs. `tests/test_decorator_routes.py`.
+described POST and DELETE handlers as GET requests.
+
+The provider now reads each `route` decorator with Python's own parser
+(`ast`), so the `methods=` keyword is the call's real argument and never text
+inside a string or a comment. It emits one route per listed verb, and GET is
+the default only when `methods=` is absent, as in Flask. A list, tuple or set of
+string literals names the verbs. Any other value names verbs this reader cannot
+see, so the route is `ANY` rather than a guessed GET: a variable, a call,
+`['GET'] + EXTRA`, an empty list. A file that does not parse as Python has no
+readable `methods=`, so its `route` decorators are `ANY` where they were `GET`.
+
+`PARSER_GENERATION` is 26, so an existing index re-parses its Flask files
+instead of keeping the old verb on unchanged ones. A stored AI summary that
+already says "GET" is kept by that re-parse, as paid summaries always are;
+`summarize_repo(force=true)` rewrites it. Reported by @skibadubskiybadubs.
+`tests/test_decorator_routes.py` covers a quoted `)` or `]`, a `# )` comment,
+a `methods=` inside a string, `['GET'] + EXTRA`, a set and an empty list, and
+an unclosed call. An unclosed call used to borrow the next decorator's verbs,
+and 3,000 of them took 29 s in the review's probe.
 
 ### Fixed - the summary prompt's `Context:` lines keep one order on every run (#1178)
 

@@ -678,7 +678,15 @@ INDEX_VERSION = 17
 #   use, a Haskell import list, a Dart `show`, a destructuring `require` and a
 #   Kotlin `as` import. `files.imports` changes on UNCHANGED content, so a
 #   re-parse is the only way an existing index gains the names.
-PARSER_GENERATION = 25
+#
+# 26 (#1177): a Flask `@x.route(..., methods=[...])` reports the verbs it
+#   names, not always `GET`. The decorator-routes context (`ecosystem_context`
+#   and the file summary's route line) changes on UNCHANGED content, and
+#   enrichment runs only on re-parsed files, the generation-24 shape. ⚠ The
+#   bump does not rewrite a stored AI summary that already says GET: a
+#   re-parse keeps paid AI summaries (see 21), so those need
+#   `summarize_repo(force=true)`.
+PARSER_GENERATION = 26
 
 
 @dataclass(frozen=True)
