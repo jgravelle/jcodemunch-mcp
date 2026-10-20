@@ -19,14 +19,17 @@ see, so the route is `ANY` rather than a guessed GET: a variable, a call,
 `['GET'] + EXTRA`, an empty list. A file that does not parse as Python has no
 readable `methods=`, so its `route` decorators are `ANY` where they were `GET`.
 
-`PARSER_GENERATION` is 26, so an existing index re-parses its Flask files
-instead of keeping the old verb on unchanged ones. A stored AI summary that
+`PARSER_GENERATION` is 26. Like every bump, it makes an existing index
+re-parse all of its files, in every language, on the next index run; that is
+what stops unchanged Flask files keeping the old verb. A stored AI summary that
 already says "GET" is kept by that re-parse, as paid summaries always are;
 `summarize_repo(force=true)` rewrites it. Reported by @skibadubskiybadubs.
 `tests/test_decorator_routes.py` covers a quoted `)` or `]`, a `# )` comment,
 a `methods=` inside a string, `['GET'] + EXTRA`, a set and an empty list, and
-an unclosed call. An unclosed call used to borrow the next decorator's verbs,
-and 3,000 of them took 29 s in the review's probe.
+an unclosed call, which used to borrow the next decorator's verbs. A BOM,
+an invalid escape under any warning filter, and a parser crash in one file
+(a `RecursionError` from a generated expression) are read or contained
+per file.
 
 ### Fixed - the summary prompt's `Context:` lines keep one order on every run (#1178)
 

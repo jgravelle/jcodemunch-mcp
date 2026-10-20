@@ -6,6 +6,7 @@ routes are explicitly marked with decorator syntax.
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 from dataclasses import dataclass, field
@@ -58,10 +59,21 @@ def _flask_route_methods_by_line(content: str) -> dict[int, list[str]] | None:
     `methods=` and says so.
     """
     import ast
+    import warnings
 
+    # A BOM is not Python; `read_text("utf-8")` keeps it (review round 2).
+    source = content[1:] if content.startswith("﻿") else content
     try:
-        tree = ast.parse(content)
-    except (SyntaxError, ValueError):
+        # SyntaxWarnings about the USER's code (an invalid escape) are not ours to
+        # print, and under `-W error` they would turn the verb into ANY: the
+        # result must not depend on the host's warning filter.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tree = ast.parse(source)
+    except Exception:  # noqa: BLE001
+        # SyntaxError, and RecursionError/MemoryError from a generated file:
+        # one unreadable file must not take the provider down for every file.
+        logger.debug("decorator routes: could not parse a Flask file for methods=", exc_info=True)
         return None
     out: dict[int, list[str]] = {}
     for node in ast.walk(tree):
@@ -336,6 +348,7 @@ class DecoratorRoutesProvider(ContextProvider):
             # Flask/FastAPI
             route_methods: dict[int, list[str]] | None = None
             parsed = False
+            newlines: list[int] = []
             for m in config.route_pattern.finditer(content):
                 # Extract HTTP method from decorator name
                 decorator = m.group(0)
@@ -349,8 +362,9 @@ class DecoratorRoutesProvider(ContextProvider):
                     # applies only when it is absent. Parsed once per file.
                     if not parsed:
                         route_methods = _flask_route_methods_by_line(content)
+                        newlines = [i for i, c in enumerate(content) if c == "\n"]
                         parsed = True
-                    line = content.count("\n", 0, m.start()) + 1
+                    line = bisect.bisect_left(newlines, m.start()) + 1
                     verbs = (route_methods or {}).get(line) or ["ANY"]
                     for v in verbs:
                         routes.append({"verb": v, "path": path})

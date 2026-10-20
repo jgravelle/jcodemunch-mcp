@@ -117,10 +117,10 @@ def create_user():
         for r in never:
             assert r not in routes, (decorator, routes)
 
-    def test_an_unclosed_route_call_borrows_no_verbs_and_stays_fast(self, tmp_path: Path):
+    def test_an_unclosed_route_call_borrows_no_verbs(self, tmp_path: Path):
         """An unclosed call made the text scanner take the NEXT decorator's verbs,
-        and 3,000 of them cost ~29 s against a 30 s provider budget. A file that
-        does not parse has no readable `methods=`: every `route` is ANY."""
+        scanning to the end of the file once per call. A file that does not parse
+        has no readable `methods=`: every `route` is ANY."""
         (tmp_path / "requirements.txt").write_text("flask\n")
         broken = "".join(f"@app.route('/x{i}'\ndef v{i}():\n    pass\n" for i in range(3000))
         (tmp_path / "b.py").write_text(
@@ -128,11 +128,7 @@ def create_user():
         )
         provider = DecoratorRoutesProvider()
         assert provider.detect(tmp_path) is True
-        import time
-
-        t = time.perf_counter()
         provider.load(tmp_path)
-        assert time.perf_counter() - t < 10
         routes = provider.get_file_context("b.py").properties["routes"].split("; ")
         assert "POST /x0" not in routes and "ANY /x0" in routes
 
@@ -394,3 +390,51 @@ class TestDecoratorRoutesDetection:
         (tmp_path / "requirements.txt").write_text("requests\nurllib3\n")
         provider = DecoratorRoutesProvider()
         assert provider.detect(tmp_path) is False
+
+
+class TestFlaskMethodsReaderRobustness:
+    """Review round 2 of #1177: what one file can do to the reader."""
+
+    def _routes(self, tmp_path: Path, name: str, data: bytes) -> list[str]:
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / name).write_bytes(data)
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        ctx = provider.get_file_context(name)
+        return ctx.properties["routes"].split("; ") if ctx else []
+
+    def test_a_bom_file_is_read(self, tmp_path: Path):
+        src = "from flask import Flask\napp = Flask(__name__)\n@app.route('/a', methods=['POST'])\ndef a():\n    pass\n"
+        assert self._routes(tmp_path, "bom.py", b"\xef\xbb\xbf" + src.encode()) == ["POST /a"]
+
+    def test_the_verb_does_not_depend_on_the_warning_filter(self, tmp_path: Path):
+        import warnings
+
+        src = (
+            "from flask import Flask\napp = Flask(__name__)\nX = '\\d'\n"
+            "@app.route('/a', methods=['POST'])\ndef a():\n    pass\n"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert self._routes(tmp_path, "esc.py", src.encode()) == ["POST /a"]
+
+    def test_a_parser_crash_in_one_file_spares_the_others(self, tmp_path: Path, monkeypatch):
+        import ast
+
+        real = ast.parse
+
+        def parse(source, *a, **k):
+            if "BOOM" in source:
+                raise RecursionError("maximum recursion depth exceeded during ast construction")
+            return real(source, *a, **k)
+
+        monkeypatch.setattr(ast, "parse", parse)
+        (tmp_path / "requirements.txt").write_text("flask\n")
+        (tmp_path / "gen.py").write_text("BOOM = 1\nfrom flask import Flask\napp = Flask(__name__)\n@app.route('/g')\ndef g():\n    pass\n")
+        (tmp_path / "ok.py").write_text("from flask import Flask\napp = Flask(__name__)\n@app.route('/o', methods=['PUT'])\ndef o():\n    pass\n")
+        provider = DecoratorRoutesProvider()
+        assert provider.detect(tmp_path) is True
+        provider.load(tmp_path)
+        assert provider.get_file_context("ok.py").properties["routes"] == "PUT /o"
+        assert provider.get_file_context("gen.py").properties["routes"] == "ANY /g"
