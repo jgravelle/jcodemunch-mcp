@@ -134,3 +134,52 @@ def test_a_selective_view_reads_the_generation_without_hydrating(repo):
     assert view is not None
     assert view.summaries_generation == sq.load_index(owner, name).summaries_generation
     assert view.promoted is False
+
+
+def test_a_journal_entry_restored_after_an_offline_refresh_is_not_served(
+    repo, tmp_path
+):
+    """L-229: the session journal saves the search cache and a restart
+    restores it, checking only `indexed_at`. A refresh made while the server
+    was down left `indexed_at` alone, so the restored entry used to match."""
+    from collections import OrderedDict
+
+    from jcodemunch_mcp.tools import search_symbols as ss
+    from jcodemunch_mcp.tools.session_journal import SessionJournal
+    from jcodemunch_mcp.tools.session_state import SessionState
+
+    repo_id, _store = repo
+    ss.search_symbols(repo_id, "alpha_widget", detail_level="full")
+    with ss._result_cache_lock:
+        saved_cache = OrderedDict(ss._result_cache)
+    assert saved_cache, "the first search must leave an entry to save"
+    state = SessionState(base_path=str(tmp_path / "journal"))
+    state.save(SessionJournal(), saved_cache, max_queries=50)
+    loaded = state.load(max_age_minutes=60)
+    assert loaded and loaded.get("search_cache"), loaded
+
+    # The "offline" refresh: a summary write with this process's cache empty,
+    # as after a restart.
+    with ss._result_cache_lock:
+        ss._result_cache.clear()
+    owner, name, sym = _symbol(repo_id)
+    assert (
+        IndexStore().update_symbol_summaries(
+            owner,
+            name,
+            {
+                sym["id"]: (
+                    "Refreshed while the server was down.",
+                    sym.get("content_hash"),
+                )
+            },
+        )
+        == 1
+    )
+
+    current = {repo_id: IndexStore().load_index(owner, name).indexed_at}
+    with ss._result_cache_lock:
+        restored = state.restore_search_cache(ss._result_cache, loaded, current)
+    assert restored >= 1, "the entry's indexed_at still matches, so it is restored"
+    after = ss.search_symbols(repo_id, "alpha_widget", detail_level="full")
+    assert "Refreshed while the server was down." in json.dumps(after), after

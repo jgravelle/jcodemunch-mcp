@@ -18,11 +18,13 @@ reads it from the database when it loads the index, so the key changes
 everywhere. A restored journal entry keeps its full key, so it no longer
 matches after an offline refresh. The value is the last element of the key,
 so the journal's positional reads of repo, `indexed_at` and query are
-unchanged. `tests/test_a_summary_write_reaches_every_process.py` writes the
-summary from a child process and checks that the parent's next search serves
-it. It also checks the generation moves only when a row changes, and that a
-selective view reads it without loading the whole index. LEDGER L-228 and
-L-229.
+unchanged. A branch view carries its base's generation, as it carries the
+base's summaries. `tests/test_a_summary_write_reaches_every_process.py`
+writes the summary from a child process and checks that the parent's next
+search serves it. It saves a journal, writes a summary, restores the journal,
+and checks the new summary is served. It also checks the generation moves
+only when a row changes, and that a selective view reads it without loading
+the whole index. LEDGER L-228 and L-229.
 
 ### Fixed - the watcher no longer polls trees nothing indexes
 

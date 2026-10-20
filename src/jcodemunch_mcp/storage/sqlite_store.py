@@ -1572,6 +1572,10 @@ class SQLiteIndexStore:
             owner=base_index.owner,
             name=base_index.name,
             indexed_at=delta.get("indexed_at", base_index.indexed_at),
+            # The branch carries the base's summaries, so it carries the base's
+            # summary generation too (L-228 review: "" here would make two
+            # different generations compare equal).
+            summaries_generation=getattr(base_index, "summaries_generation", ""),
             source_files=composed_source_files,
             languages=lang_counts,
             symbols=composed_symbols,
@@ -2320,11 +2324,11 @@ class SQLiteIndexStore:
                 # every process's next load carries a new value and a cache
                 # key holding it misses (L-228). A counter, not a timestamp:
                 # two writes in one clock tick must still differ.
-                row = conn.execute(
+                gen_row = conn.execute(
                     "SELECT value FROM meta WHERE key = 'summaries_generation'"
                 ).fetchone()
                 try:
-                    generation = int(row[0]) + 1 if row is not None else 1
+                    generation = int(gen_row[0]) + 1 if gen_row is not None else 1
                 except (TypeError, ValueError):
                     generation = 1
                 for sid, (summary, content_hash) in summaries.items():
