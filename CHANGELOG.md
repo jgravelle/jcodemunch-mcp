@@ -13,8 +13,18 @@ complexity and call references; one that returned rebuilt symbols would have
 written zeros and empty call lists over real values. The thread now writes
 through `update_symbol_summaries`, the one-column UPDATE guarded by
 `content_hash`, so a body that changed while the summaries were being made
-keeps its row. `tests/test_deferred_summaries_write_only_the_summary.py`
-drives the watched-edit path with a summarizer that returns rebuilt symbols.
+keeps its row. The deferred write no longer moves `indexed_at`, so a file
+edited between the two saves no longer reads as covered by the second one.
+
+`update_symbol_summaries` used to evict the in-process index on every call,
+and the deferred thread now calls it after every watched edit, so the next
+query would have paid a full reload. It now patches the warm index with the
+rows it wrote (a new index object, the written symbols copied without their
+BM25 bags) and keeps it cached at the database's new mtime; a branch entry, a
+cold cache or any failure still evicts.
+`tests/test_deferred_summaries_write_only_the_summary.py` drives the
+watched-edit path with a summarizer that returns rebuilt symbols, and requires
+the load after a summary write to come from the warm cache.
 
 ### Fixed - an index read back in the process that saved it keeps its ecosystem context (L-224)
 

@@ -130,6 +130,11 @@ def test_a_selective_view_reads_the_generation_without_hydrating(repo):
     sq.update_symbol_summaries(
         owner, name, {sym["id"]: ("gen", sym.get("content_hash"))}
     )
+    # The write keeps a warm index warm (L-227), and `open_selective` hands a
+    # warm index back as it is; the selective path is the COLD one, so start cold.
+    from jcodemunch_mcp.storage import sqlite_store
+
+    sqlite_store._cache_clear()
     view = sq.open_selective(owner, name, symbol_ids=[sym["id"]])
     assert view is not None
     assert view.summaries_generation == sq.load_index(owner, name).summaries_generation

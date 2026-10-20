@@ -2310,6 +2310,7 @@ class SQLiteIndexStore:
                 if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
                     raise IndexIdentityConflict(f"{owner}/{name}", row[0])
                 changed = 0
+                written: dict[str, str] = {}
                 # Advance the summary generation in the same transaction, so
                 # every process's next load carries a new value and a cache
                 # key holding it misses (L-228). A counter, not a timestamp:
@@ -2327,7 +2328,9 @@ class SQLiteIndexStore:
                         "AND COALESCE(content_hash, '') = COALESCE(?, '')",
                         (summary, sid, content_hash),
                     )
-                    changed += cur.rowcount or 0
+                    if cur.rowcount:
+                        changed += cur.rowcount
+                        written[sid] = summary
                 if changed:
                     conn.execute(
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
@@ -2336,9 +2339,12 @@ class SQLiteIndexStore:
                 conn.commit()
             finally:
                 conn.close()
-        # The in-process index cache holds the old summaries; a whole-row save
-        # replaced its entry, this write evicts it so the next load re-reads.
-        _cache_evict(owner, self._safe_repo_component(name, "name"))
+        # The in-process index cache holds the old summaries. Patch the warm
+        # entry with the rows written instead of evicting it: the deferred
+        # summary thread calls this after every watched edit, and an eviction
+        # handed the next query a full reload that the whole-row save it
+        # replaced had avoided (review of L-227; the #370 cold-hydration cost).
+        self._patch_cached_summaries(owner, name, db_path, written, generation if changed else None)
         # The index's identity (`indexed_at`) did not move, so a result cache
         # keyed on it would keep serving the old summaries (L-226).
         if changed:
@@ -2346,6 +2352,53 @@ class SQLiteIndexStore:
 
             write_listeners.notify(owner, name)
         return changed
+
+    def _patch_cached_summaries(
+        self,
+        owner: str,
+        name: str,
+        db_path: Path,
+        written: dict[str, str],
+        generation: Optional[int],
+    ) -> None:
+        """Re-put the warm base index with `written` summaries; evict when it cannot.
+
+        Nothing written and nothing cached: the entry stays as it is, because
+        the .db did not change. Otherwise a NEW CodeIndex replaces the cached
+        one (readers holding the old object keep a consistent snapshot), the
+        written symbols are copied with their summary and without their BM25
+        bags, and the entry is keyed at the .db's new mtime. Branch entries and
+        any failure evict, which is never wrong, only slower.
+        """
+        import dataclasses
+
+        safe_name = self._safe_repo_component(name, "name")
+        if not written:
+            return
+        try:
+            with _cache_lock:
+                entry = _index_cache.get((owner, safe_name, ""))
+            if entry is None:
+                _cache_evict(owner, safe_name)
+                return
+            old = entry.code_index
+            bm25 = {"_tokens", "_tf", "_dl"}
+            symbols = [
+                {**{k: v for k, v in s.items() if k not in bm25}, "summary": written[s["id"]]}
+                if s.get("id") in written
+                else s
+                for s in old.symbols
+            ]
+            patched = dataclasses.replace(old, symbols=symbols)
+            if generation is not None:
+                patched.summaries_generation = str(generation)
+            mtime_ns = _db_mtime_ns(db_path)
+            _stamp_load_provenance(patched, db_path, mtime_ns)
+            _cache_evict(owner, safe_name)
+            _cache_put(owner, safe_name, mtime_ns, patched)
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not patch the cached index after a summary write", exc_info=True)
+            _cache_evict(owner, safe_name)
 
     def _incremental_save_locked(
         self,

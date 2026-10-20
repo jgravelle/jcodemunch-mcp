@@ -47,6 +47,62 @@ def _rebuilt(symbols, file_contents, use_ai_summaries=True, repo=None):
     ]
 
 
+def test_a_summary_write_keeps_the_index_warm(tmp_path: Path, monkeypatch):
+    """Review of L-227: the deferred thread calls `update_symbol_summaries` after
+    every watched edit, and that write evicted the warm index, so the next query
+    paid a full reload the whole-row save had avoided. The cache is patched now.
+    """
+    from jcodemunch_mcp.storage import sqlite_store
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "mod.py").write_text(SOURCE, encoding="utf-8")
+    store_dir = tmp_path / "store"
+    res = index_folder(
+        str(repo),
+        use_ai_summaries=False,
+        storage_path=str(store_dir),
+        identity_mode="local",
+    )
+    owner, name = res["repo"].split("/", 1)
+    store = IndexStore(base_path=str(store_dir))
+    warm = store.load_index(owner, name)
+    alpha = next(s for s in warm.symbols if s["name"] == "alpha")
+    gen_before = warm.summaries_generation
+
+    assert (
+        store.update_symbol_summaries(
+            owner, name, {alpha["id"]: ("Patched in place.", alpha["content_hash"])}
+        )
+        == 1
+    )
+
+    def cold(*a, **k):
+        raise AssertionError("the summary write sent the next load to the database")
+
+    monkeypatch.setattr(sqlite_store.SQLiteIndexStore, "_build_index_from_rows", cold)
+    after = store.load_index(owner, name)
+    got = next(s for s in after.symbols if s["name"] == "alpha")
+    assert got["summary"] == "Patched in place."
+    assert got["cyclomatic"] == alpha["cyclomatic"]
+    assert after.summaries_generation != gen_before
+    # The read view a fresh process gets agrees with the patched entry.
+    monkeypatch.undo()
+    sqlite_store._cache_clear()
+    disk = next(
+        s
+        for s in IndexStore(base_path=str(store_dir)).load_index(owner, name).symbols
+        if s["name"] == "alpha"
+    )
+    assert disk["summary"] == got["summary"]
+    assert (
+        IndexStore(base_path=str(store_dir))
+        .load_index(owner, name)
+        .summaries_generation
+        == after.summaries_generation
+    )
+
+
 def test_the_deferred_save_keeps_complexity_and_calls(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
