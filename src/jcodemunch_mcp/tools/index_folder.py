@@ -1988,17 +1988,17 @@ def index_folder(
                     )
                     return
 
-                # Update only the symbol summaries (empty change lists → INSERT OR REPLACE updates existing rows)
+                # Write the summaries and nothing else (L-227). A whole-row
+                # `incremental_save(new_symbols=...)` wrote back every field of
+                # the objects it was handed, so a summarizer returning rebuilt
+                # symbols stored zeros over complexity and call references, the
+                # #1161 shape. The UPDATE is guarded by `content_hash`, so a body
+                # changed meanwhile keeps its row.
                 try:
-                    store.incremental_save(
-                        owner=owner, name=repo_name,
-                        changed_files=[], new_files=[], deleted_files=[],
-                        new_symbols=summarized,
-                        raw_files={},
-                    )
+                    written = store.update_summaries_from_symbols(owner, repo_name, summarized)
                     logger.info(
-                        "Deferred AI summarization gen=%d saved %d symbols for %s",
-                        gen, len(summarized), repo_full,
+                        "Deferred AI summarization gen=%d saved %d of %d summaries for %s",
+                        gen, written, len(summarized), repo_full,
                     )
                 except Exception as e:
                     logger.warning("Deferred summarization failed for %s: %s", repo_full, e)

@@ -81,6 +81,40 @@ first-seen order with the same deduplication. Reported by @skibadubskiybadubs,
 with the fix. `tests/test_summary_prompt_context_order.py` builds the prompt
 under six hash seeds and requires one result.
 
+### Fixed - a deferred AI summary writes the summary and nothing else (L-227)
+
+After a watched edit, `index_folder` saves the re-parsed symbols at once and a
+background thread fills in their AI summaries later. That thread saved with a
+whole-row `incremental_save(new_symbols=...)`, the write #1161 removed from
+`summarize_repo`, so every field of the symbols the summarizer returned was
+stored. Today's summarizer returns the parser's own objects, which carry
+complexity and call references; one that returned rebuilt symbols would have
+written zeros and empty call lists over real values. The thread now writes
+through `update_symbol_summaries`, the one-column UPDATE guarded by
+`content_hash`, so a body that changed while the summaries were being made
+keeps its row. The deferred write no longer moves `indexed_at`, so a file
+edited between the two saves no longer reads as covered by the second one.
+
+`update_symbol_summaries` used to evict the in-process index on every call,
+and the deferred thread now calls it after every watched edit, so the next
+query would have paid a full reload. It now patches the warm index with the
+rows it wrote (a new index object, the written symbols copied without their
+BM25 bags) and keeps it cached at the database's new mtime. It does that only
+while holding the index-write lock, and only when the cached index was loaded
+from the database exactly as it stood before this write; if another process
+wrote in between, re-keying the old entry would hide that write, so it is
+evicted instead. Three meta writers skip that lock (L-230), so the patch also
+reads their keys back from the database: it carries the current `coverage`,
+which gates absence claims, and `parser_generation`, and it evicts when a root
+was cleared or the database moves during that read. A branch entry, a cold
+cache or any failure also evicts.
+`tests/test_deferred_summaries_write_only_the_summary.py` drives the
+watched-edit path with a summarizer that returns rebuilt symbols, requires
+the load after a summary write to come from the warm cache, and requires
+it to match a cold read when another process wrote in between, including a
+`coverage` written without the lock, and requires the deferred write to leave
+`indexed_at` where the first save put it.
+
 ## [1.108.385] - 2026-10-19 - a summary written by another process reaches this one's searches
 
 ### Fixed - a summary written by another process reaches this one's searches

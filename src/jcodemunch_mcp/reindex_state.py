@@ -93,7 +93,7 @@ def get_deferred_save_lock(repo: str) -> threading.Lock:
     """Return the per-repo deferred-save lock, creating it if needed.
 
     Callers:
-    - _run_deferred_summarize: acquires lock around check-2 + incremental_save
+    - _run_deferred_summarize: acquires lock around check-2 + update_symbol_summaries
     - mark_reindex_start: acquires lock while bumping deferred_generation
 
     Lock order: deferred_save_lock → _states_lock (never reversed).

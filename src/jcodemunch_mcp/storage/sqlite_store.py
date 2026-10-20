@@ -2303,6 +2303,14 @@ class SQLiteIndexStore:
                     f"Could not acquire index-write lock for {lock_target} "
                     f"after 60s{detail}"
                 )
+            # The .db as it stood before this write, sampled under `indexwrite`
+            # (the symbol writers take it; `set_coverage`,
+            # `stamp_parser_generation` and `heal_pack_index_paths` do not,
+            # LEDGER L-230) and BEFORE connecting, because
+            # opening a connection creates the -wal sidecar and moves the very
+            # mtime compared: the cache may be patched only if it was loaded at
+            # exactly this state (review of L-227, round 2).
+            pre_mtime_ns = _db_mtime_ns(db_path)
             conn = self._connect(db_path)
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -2310,6 +2318,7 @@ class SQLiteIndexStore:
                 if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
                     raise IndexIdentityConflict(f"{owner}/{name}", row[0])
                 changed = 0
+                written: dict[str, str] = {}
                 # Advance the summary generation in the same transaction, so
                 # every process's next load carries a new value and a cache
                 # key holding it misses (L-228). A counter, not a timestamp:
@@ -2327,7 +2336,9 @@ class SQLiteIndexStore:
                         "AND COALESCE(content_hash, '') = COALESCE(?, '')",
                         (summary, sid, content_hash),
                     )
-                    changed += cur.rowcount or 0
+                    if cur.rowcount:
+                        changed += cur.rowcount
+                        written[sid] = summary
                 if changed:
                     conn.execute(
                         "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
@@ -2336,9 +2347,18 @@ class SQLiteIndexStore:
                 conn.commit()
             finally:
                 conn.close()
-        # The in-process index cache holds the old summaries; a whole-row save
-        # replaced its entry, this write evicts it so the next load re-reads.
-        _cache_evict(owner, self._safe_repo_component(name, "name"))
+            # The in-process index cache holds the old summaries. Patch the
+            # warm entry with the rows written instead of evicting it: the
+            # deferred summary thread calls this after every watched edit, and
+            # an eviction handed the next query a full reload that the
+            # whole-row save it replaced had avoided (review of L-227; the #370
+            # cold-hydration cost). Still under `indexwrite`, so no symbol
+            # writer in any process can move the .db between the write and the
+            # re-key. The three meta writers named above can, so the patch
+            # reads their keys back from the .db (L-230).
+            self._patch_cached_summaries(
+                owner, name, db_path, written, generation if changed else None, pre_mtime_ns
+            )
         # The index's identity (`indexed_at`) did not move, so a result cache
         # keyed on it would keep serving the old summaries (L-226).
         if changed:
@@ -2346,6 +2366,90 @@ class SQLiteIndexStore:
 
             write_listeners.notify(owner, name)
         return changed
+
+    def _patch_cached_summaries(
+        self,
+        owner: str,
+        name: str,
+        db_path: Path,
+        written: dict[str, str],
+        generation: Optional[int],
+        pre_mtime_ns: int,
+    ) -> None:
+        """Re-put the warm base index with `written` summaries; evict when it cannot.
+
+        Called under `indexwrite`. Nothing written: the entry stays, because
+        the .db did not change. The cached entry is patched only if it was
+        loaded at `pre_mtime_ns`, the .db's state just before this write;
+        otherwise another writer moved the .db since this process loaded it,
+        and re-keying the old entry at the new mtime would hide that write, so
+        it is evicted (the gate `incremental_save` applies to its own patch).
+        A patch builds a NEW CodeIndex (readers holding the old object keep a
+        consistent snapshot) with the written symbols copied with their summary
+        and without their BM25 bags, keyed at the .db's new mtime. Branch
+        entries and any failure evict, which is never wrong, only slower.
+        """
+        import dataclasses
+
+        safe_name = self._safe_repo_component(name, "name")
+        if not written:
+            return
+        try:
+            with _cache_lock:
+                entry = _index_cache.get((owner, safe_name, ""))
+            if entry is None or entry.mtime_ns != pre_mtime_ns:
+                _cache_evict(owner, safe_name)
+                return
+            # Three meta writers do not take `indexwrite` (L-230), so one in
+            # another process can commit after `pre_mtime_ns` and its change
+            # would be re-keyed under the old value: `coverage` gates absence
+            # claims (#566). Read their keys from the .db as it stands now and
+            # carry them, the way `incremental_save`'s own patch refreshes
+            # `coverage`; if the .db moves during the read, evict instead.
+            mtime_ns = _db_mtime_ns(db_path)
+            from .generation import connect_readonly
+
+            ro = connect_readonly(db_path)
+            try:
+                meta = {
+                    k: v
+                    for k, v in ro.execute(
+                        "SELECT key, value FROM meta WHERE key IN "
+                        "('coverage', 'parser_generation', 'source_root', 'git_root')"
+                    ).fetchall()
+                }
+            finally:
+                ro.close()
+            if _db_mtime_ns(db_path) != mtime_ns:
+                _cache_evict(owner, safe_name)
+                return
+            old = entry.code_index
+            # `heal_pack_index_paths` clears the two roots; the cached values
+            # are remapped, so only the clearing can be compared.
+            for key in ("source_root", "git_root"):
+                if not (meta.get(key) or "") and (getattr(old, key, "") or ""):
+                    _cache_evict(owner, safe_name)
+                    return
+            bm25 = {"_tokens", "_tf", "_dl"}
+            symbols = [
+                {**{k: v for k, v in s.items() if k not in bm25}, "summary": written[s["id"]]}
+                if s.get("id") in written
+                else s
+                for s in old.symbols
+            ]
+            patched = dataclasses.replace(old, symbols=symbols)
+            if generation is not None:
+                patched.summaries_generation = str(generation)
+            if "coverage" in meta:
+                patched.coverage = json.loads(meta["coverage"] or "{}") or {}
+            if meta.get("parser_generation"):
+                patched.parser_generation = int(meta["parser_generation"])
+            _stamp_load_provenance(patched, db_path, mtime_ns)
+            _cache_evict(owner, safe_name)
+            _cache_put(owner, safe_name, mtime_ns, patched)
+        except Exception:  # noqa: BLE001
+            logger.debug("Could not patch the cached index after a summary write", exc_info=True)
+            _cache_evict(owner, safe_name)
 
     def _incremental_save_locked(
         self,

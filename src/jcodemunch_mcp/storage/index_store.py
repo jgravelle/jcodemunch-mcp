@@ -1483,6 +1483,13 @@ class IndexStore:
         """Write new summaries and nothing else (#1161); see the SQLite method."""
         return self._sqlite.update_symbol_summaries(owner, name, summaries)
 
+    def update_summaries_from_symbols(self, owner: str, name: str, symbols: list) -> int:
+        """`update_symbol_summaries` for Symbol objects (L-227): each non-empty
+        summary, guarded by the content hash it was written from."""
+        return self._sqlite.update_symbol_summaries(
+            owner, name, {s.id: (s.summary, s.content_hash) for s in symbols if s.summary}
+        )
+
     def incremental_save(
         self,
         owner: str,
