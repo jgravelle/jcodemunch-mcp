@@ -186,30 +186,71 @@ def split_segments(cmd: str) -> list[str]:
     return [s.strip() for s in out if s.strip()]
 
 
-def cd_before(cmd: str, pattern: re.Pattern[str]) -> str | None:
-    """The directory the LAST `cd` before the first segment matching `pattern` enters, or None.
+#: Any word that can change a shell's or PowerShell's working directory. Its
+#: presence anywhere this module cannot model is a refusal, never a guess.
+_CWD_WORD_RE = re.compile(
+    r"(?i)(?<![\w./\\-])(cd|chdir|pushd|popd|set-location|push-location|pop-location|sl)(?![\w./\\-])"
+)
+_PLAIN_CD_RE = re.compile(r"cd(\s|$)")
+_GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(/|$)")
+
+
+def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | None, str | None]:
+    """Where the first segment matching `pattern` runs: `(dir, None)`, `(None, None)` or `(None, reason)`.
 
     The Bash tool resets its cwd to the session folder on every call, so a
-    command that works in a worktree says so with `cd <dir> && ...`; the
+    command that works in a worktree says so with `cd <dir> && ...` while the
     payload's `cwd` still names the session folder (jjg, 2026-10-19: pre_pr
-    reads the tree `gh pr create` runs in). A `cd` with no argument, or one
-    shlex cannot split, is returned as "" so the caller refuses rather than
-    guesses.
+    reads the tree `gh pr create` runs in). `(None, None)` means nothing
+    changes directory, so `base` is where it runs. `(None, reason)` means a
+    directory change this function cannot follow: a gate refuses on it,
+    because a guess would fall back to a tree the command does not run in.
+
+    Followed: a chain of plain `cd DIR` segments joined by `&&` or `;`, each
+    relative one resolved against the previous, with `-P`/`-L`/`--` and the
+    Git Bash `/c/...` drive spelling. Refused: a newline, `||`, a subshell or
+    group, command substitution, `pushd`/`popd`/`chdir`/`Set-Location`/`sl`,
+    a prefixed or `builtin` cd, `cd -` or a bare `cd`, and any directory
+    change between two segments that match `pattern`.
     """
     import shlex
 
-    target: str | None = None
-    for seg in split_segments(cmd):
-        if pattern.search(seg):
-            return target
-        if re.match(r"cd(\s|$)", seg):
-            try:
-                words = shlex.split(seg, posix=True)
-            except ValueError:
-                target = ""
-                continue
-            target = os.path.expanduser(words[1]) if len(words) == 2 else ""
-    return None
+    segs = split_segments(cmd)
+    first = next((i for i, s in enumerate(segs) if pattern.search(s)), None)
+    if first is None:
+        return None, None
+    if not any(_CWD_WORD_RE.search(s) for s in segs):
+        return None, None
+    if "\n" in cmd or "\r" in cmd:
+        return None, "the command spans lines and changes directory"
+    head = cmd[: cmd.find(segs[first])] if segs[first] in cmd else cmd
+    for token, why in (("||", "`||`"), ("(", "a subshell"), ("{", "a group"), ("`", "a substitution"), ("$(", "a substitution")):
+        if token in head or segs[first].startswith(token):
+            return None, f"it changes directory inside {why}"
+    if _CWD_WORD_RE.search(segs[first]):
+        return None, "the segment that runs it changes directory itself"
+    later = segs[first + 1 :]
+    if any(_CWD_WORD_RE.search(s) for s in later) and any(pattern.search(s) for s in later):
+        return None, "it changes directory between two matching commands"
+    where: Path | None = None
+    for seg in segs[:first]:
+        if not _CWD_WORD_RE.search(seg):
+            continue
+        if not _PLAIN_CD_RE.match(seg):
+            return None, f"`{seg[:60]}` changes directory in a way it cannot follow"
+        try:
+            words = shlex.split(seg, posix=True)
+        except ValueError:
+            return None, f"`{seg[:60]}` cannot be split"
+        args = [w for w in words[1:] if w not in ("-P", "-L", "--")]
+        if len(args) != 1 or args[0] == "-":
+            return None, f"`{seg[:60]}` names no single directory"
+        arg = os.path.expanduser(args[0])
+        if os.name == "nt":
+            arg = _GIT_BASH_DRIVE_RE.sub(lambda m: m.group(1).upper() + ":/", arg)
+        p = Path(arg)
+        where = p if p.is_absolute() else (where or Path(base)) / p
+    return where, None
 
 
 def tool_path(payload: dict) -> Path | None:

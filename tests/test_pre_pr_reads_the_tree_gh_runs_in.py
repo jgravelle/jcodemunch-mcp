@@ -19,6 +19,7 @@ the session's tree. A `cd` target that is not a checkout carrying
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -154,6 +155,90 @@ def test_the_last_cd_before_the_create_is_the_one_that_counts(trees):
     _stamp(live)
     _unstamp(wt)
     r = _pre_pr(f'cd "{live.as_posix()}" && cd "{wt.as_posix()}" && {CREATE}', live)
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
+def test_a_chained_relative_cd_resolves_against_the_previous_cd(trees):
+    """`cd <wt> && cd src` runs in <wt>/src, whose toplevel is <wt>, never <session>/src."""
+    live, wt = trees
+    _stamp(live)
+    _unstamp(wt)
+    r = _pre_pr(f'cd "{wt.as_posix()}" && cd src && {CREATE}', live)
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
+def _refusals(live: Path, wt: Path) -> list[str]:
+    w, ll = wt.as_posix(), live.as_posix()
+    return [
+        f'cd "{w}"\n{CREATE}',
+        f'(cd "{w}" && {CREATE})',
+        f'{{ cd "{w}" && {CREATE}; }}',
+        f'pushd "{w}" && {CREATE}',
+        f'Set-Location "{w}"; {CREATE}',
+        f'sl "{w}"; {CREATE}',
+        f'cd "{ll}" || cd "{w}" && {CREATE}',
+        f'X=1 cd "{w}" && {CREATE}',
+        f'builtin cd "{w}" && {CREATE}',
+        f'cd "{w}" && echo "{CREATE}" && cd "{ll}" && {CREATE}',
+        f'cd "$(echo {w})" && {CREATE}',
+        f"cd - && {CREATE}",
+        f"cd && {CREATE}",
+    ]
+
+
+@pytest.mark.parametrize("index", range(13))
+def test_a_directory_change_it_cannot_follow_refuses(trees, index):
+    """Fail closed: both trees carry a valid stamp, so a fallback to EITHER would pass."""
+    live, wt = trees
+    _stamp(live)
+    _stamp(wt)
+    command = _refusals(live, wt)[index]
+    r = _pre_pr(command, live)
+    assert r.returncode == 2 and "cannot tell which tree" in r.stderr, (
+        command,
+        r.stderr,
+    )
+
+
+def test_the_refusal_list_is_the_one_parametrized(trees):
+    assert len(_refusals(*trees)) == 13
+
+
+@pytest.mark.parametrize("spelling", ["-P", "-L", "--"])
+def test_cd_options_that_still_name_one_directory_are_followed(trees, spelling):
+    live, wt = trees
+    _unstamp(live)
+    _stamp(wt)
+    r = _pre_pr(f'cd {spelling} "{wt.as_posix()}" && {CREATE}', live)
+    assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.skipif(
+    os.name != "nt", reason="the /c/... drive spelling is Git Bash on Windows"
+)
+def test_the_git_bash_drive_spelling_is_followed(trees):
+    live, wt = trees
+    _unstamp(live)
+    _stamp(wt)
+    posix = wt.as_posix()
+    drive = "/" + posix[0].lower() + posix[2:]
+    r = _pre_pr(f'cd "{drive}" && {CREATE}', live)
+    assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "-R jgravelle/jcodemunch-mcp",
+        "--repo jgravelle/jcodemunch-mcp",
+        "--repo=jgravelle/jcodemunch-mcp",
+    ],
+)
+def test_a_repo_flag_before_the_subcommand_is_still_gated(trees, flag):
+    """`gh -R o/r pr create` used to miss the pattern entirely and pass with no check (W-58)."""
+    live, _ = trees
+    _unstamp(live)
+    r = _pre_pr("gh " + flag + " pr " + "create --title x", live)
     assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
 
 

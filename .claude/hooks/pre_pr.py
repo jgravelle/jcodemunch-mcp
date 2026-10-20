@@ -25,7 +25,7 @@ from _common import (
     STATE,
     _rebind_repo,
     block,
-    cd_before,
+    command_dir,
     git,
     ok,
     read_hook_input,
@@ -35,7 +35,9 @@ from _common import (
     tree_id,
 )
 
-PR_RE = re.compile(r"\bgh\s+pr\s+create\b")
+# `gh -R o/r pr create` and `gh --repo=o/r pr create` put the flag before the
+# subcommand; the old pattern let them through with no check at all (W-58).
+PR_RE = re.compile(r"\bgh\s+(?:(?:-R|--repo)(?:\s+|=)\S+\s+)*pr\s+create\b")
 
 
 def main() -> None:
@@ -46,14 +48,17 @@ def main() -> None:
     # jjg (2026-10-19): the stamp is the one of the tree `gh pr create` RUNS in.
     # The Bash tool resets its cwd each call, so a worktree PR is
     # `cd <worktree> && gh pr create`; read that tree, never the session's.
-    target = cd_before(cmd, PR_RE)
-    if target is not None:
-        where = Path(target) if target and Path(target).is_absolute() else Path(payload.get("cwd") or ".") / target
-        if not target or not where.is_dir() or not _rebind_repo(str(where)):
-            block(
-                f"pre_pr: `gh pr create` runs in {target or '(an unreadable cd)'}, which is not a checkout "
-                "carrying .claude/hooks, so there is no full-tier stamp to read for it."
-            )
+    where, why = command_dir(cmd, PR_RE, str(payload.get("cwd") or Path.cwd()))
+    if why:
+        block(
+            f"pre_pr: cannot tell which tree `gh pr create` runs in ({why}). "
+            "Open it as `cd <checkout> && gh pr create ...`."
+        )
+    if where is not None and (not where.is_dir() or not _rebind_repo(str(where))):
+        block(
+            f"pre_pr: `gh pr create` runs in {where}, which is not a checkout "
+            "carrying .claude/hooks, so there is no full-tier stamp to read for it."
+        )
     # Resolved after read_hook_input, which may rebind STATE to a worktree (W-30).
     STAMP = STATE / "full-tier.json"  # noqa: N806
     CHECKLIST = EVIDENCE / "checklist.md"  # noqa: N806
