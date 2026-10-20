@@ -205,7 +205,7 @@ def deferred_summarize(
     for s in symbols:
         symbols_map[s.file].append(s)
     # Call AI summarizer
-    summarized = summarize_symbols(symbols, use_ai=True, repo=repo)
+    summarized = summarize_symbols(symbols, use_ai=True, repo=repo, source_for=file_contents.get)
     logger.debug("Deferred summarization complete for %d symbols", len(summarized))
     return summarized
 
@@ -270,7 +270,7 @@ def parse_and_prepare_incremental(
         enrich_symbols(new_symbols, providers)
 
     # 3. Summarize (repo passed for project-aware config reads, #304)
-    new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries, repo=repo)
+    new_symbols = summarize_symbols(new_symbols, use_ai=use_ai_summaries, repo=repo, source_for=file_contents.get)
 
     # 4. Build symbols-by-file map, file summaries, file languages
     symbols_map: dict[str, list] = defaultdict(list)
@@ -450,10 +450,10 @@ def parse_and_prepare_full(
                 "Summary preservation: %d symbols reuse existing, %d need AI summarization",
                 len(already_summarized), len(needs_summary),
             )
-            summarized = summarize_symbols(needs_summary, use_ai=use_ai_summaries, repo=repo) if needs_summary else []
+            summarized = summarize_symbols(needs_summary, use_ai=use_ai_summaries, repo=repo, source_for=file_contents.get) if needs_summary else []
             all_symbols = summarized + already_summarized
         else:
-            all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries, repo=repo)
+            all_symbols = summarize_symbols(all_symbols, use_ai=use_ai_summaries, repo=repo, source_for=file_contents.get)
 
     # 4. Rebuild symbols_by_file after summarization (summaries may update fields)
     file_symbols_map: dict[str, list] = defaultdict(list)

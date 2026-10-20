@@ -103,7 +103,11 @@ def summarize_repo(
     # Pass source_root as `repo` so project-aware config reads honor
     # `.jcodemunch.jsonc` overrides for summarizer_model / provider (#304).
     _index_source_root = getattr(index, "source_root", "") or None
-    symbols = summarize_symbols(symbols, use_ai=True, repo=_index_source_root)
+    symbols = summarize_symbols(
+        symbols, use_ai=True, repo=_index_source_root,
+        # summarizer_body_chars sends the index's own text, not the file on disk.
+        source_for=lambda rel: store.read_cached_source(owner, name, rel),
+    )
 
     updated = sum(1 for sym in symbols if sym.summary != before.get(sym.id, ""))
     skipped = len(symbols) - updated
