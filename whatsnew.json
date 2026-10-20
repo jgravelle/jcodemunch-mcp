@@ -1,6 +1,12 @@
 {
-  "current": "1.108.383",
+  "current": "1.108.384",
   "entries": [
+    {
+      "version": "1.108.384",
+      "date": "2026-10-19",
+      "title": "the watcher no longer polls trees nothing indexes",
+      "summary": "Under WSL the file watcher polls every directory its census returns, and the census pruned only the built-in skip names, so it polled gitignored trees, caches and virtualenvs nothing indexes (96,191 entries across 23 repos in the report). The census and discovery now share one directory rule, which also prunes a gitignored or extra-ignored directory when everything below it would be ignored. discovery_skip_counts gains gitignored_dir and extra_ignore_dir. Reported by @yagiii1344 (#1163). Also: a search repeated after summarize_repo now serves the new summaries; the summary write evicts that repository from the search cache in the same process (L-226)."
+    },
     {
       "version": "1.108.383",
       "date": "2026-10-19",
