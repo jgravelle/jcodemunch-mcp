@@ -2304,7 +2304,9 @@ class SQLiteIndexStore:
                     f"after 60s{detail}"
                 )
             # The .db as it stood before this write, sampled under `indexwrite`
-            # (every index writer takes it) and BEFORE connecting, because
+            # (the symbol writers take it; `set_coverage`,
+            # `stamp_parser_generation` and `heal_pack_index_paths` do not,
+            # LEDGER L-230) and BEFORE connecting, because
             # opening a connection creates the -wal sidecar and moves the very
             # mtime compared: the cache may be patched only if it was loaded at
             # exactly this state (review of L-227, round 2).
@@ -2350,8 +2352,9 @@ class SQLiteIndexStore:
             # deferred summary thread calls this after every watched edit, and
             # an eviction handed the next query a full reload that the
             # whole-row save it replaced had avoided (review of L-227; the #370
-            # cold-hydration cost). Still under `indexwrite`, so no other writer
-            # in any process can move the .db between the write and the re-key.
+            # cold-hydration cost). Still under `indexwrite`, so no symbol
+            # writer in any process can move the .db between the write and the
+            # re-key; the three meta writers named above can (L-230).
             self._patch_cached_summaries(
                 owner, name, db_path, written, generation if changed else None, pre_mtime_ns
             )
