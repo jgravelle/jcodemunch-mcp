@@ -2316,6 +2316,17 @@ class SQLiteIndexStore:
                 if row is not None and _meta_names_other_repo({"repo": row[0]}, owner, name):
                     raise IndexIdentityConflict(f"{owner}/{name}", row[0])
                 changed = 0
+                # Advance the summary generation in the same transaction, so
+                # every process's next load carries a new value and a cache
+                # key holding it misses (L-228). A counter, not a timestamp:
+                # two writes in one clock tick must still differ.
+                row = conn.execute(
+                    "SELECT value FROM meta WHERE key = 'summaries_generation'"
+                ).fetchone()
+                try:
+                    generation = int(row[0]) + 1 if row is not None else 1
+                except (TypeError, ValueError):
+                    generation = 1
                 for sid, (summary, content_hash) in summaries.items():
                     cur = conn.execute(
                         "UPDATE symbols SET summary = ? WHERE id = ? "
@@ -2323,6 +2334,11 @@ class SQLiteIndexStore:
                         (summary, sid, content_hash),
                     )
                     changed += cur.rowcount or 0
+                if changed:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('summaries_generation', ?)",
+                        (str(generation),),
+                    )
                 conn.commit()
             finally:
                 conn.close()
@@ -3493,6 +3509,7 @@ class SQLiteIndexStore:
             owner=old.owner,
             name=old.name,
             indexed_at=meta.get("indexed_at", old.indexed_at),
+            summaries_generation=meta.get("summaries_generation", getattr(old, "summaries_generation", "")),
             source_files=patched_source_files,
             languages=computed_langs,
             symbols=patched_symbols,
@@ -3594,6 +3611,7 @@ class SQLiteIndexStore:
             owner=meta.get("owner", owner),
             name=meta.get("name", name),
             indexed_at=meta.get("indexed_at", ""),
+            summaries_generation=meta.get("summaries_generation", ""),
             source_files=source_files,
             languages=languages,
             symbols=symbols,
