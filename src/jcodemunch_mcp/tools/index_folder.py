@@ -1995,11 +1995,7 @@ def index_folder(
                 # #1161 shape. The UPDATE is guarded by `content_hash`, so a body
                 # changed meanwhile keeps its row.
                 try:
-                    written = store.update_symbol_summaries(
-                        owner,
-                        repo_name,
-                        {s.id: (s.summary, s.content_hash) for s in summarized if s.summary},
-                    )
+                    written = store.update_summaries_from_symbols(owner, repo_name, summarized)
                     logger.info(
                         "Deferred AI summarization gen=%d saved %d of %d summaries for %s",
                         gen, written, len(summarized), repo_full,
