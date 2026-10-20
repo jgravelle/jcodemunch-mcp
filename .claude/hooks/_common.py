@@ -186,13 +186,51 @@ def split_segments(cmd: str) -> list[str]:
     return [s.strip() for s in out if s.strip()]
 
 
-#: Any word that can change a shell's or PowerShell's working directory. Its
-#: presence anywhere this module cannot model is a refusal, never a guess.
-_CWD_WORD_RE = re.compile(
-    r"(?i)(?<![\w./\\-])(cd|chdir|pushd|popd|set-location|push-location|pop-location|sl)(?![\w./\\-])"
+#: Command words that change a shell's or PowerShell's working directory.
+_CWD_WORDS = frozenset(
+    {"cd", "chdir", "pushd", "popd", "set-location", "push-location", "pop-location", "sl"}
 )
-_PLAIN_CD_RE = re.compile(r"cd(\s|$)")
+#: The same words as plain text, for a command whose heredoc was stripped:
+#: a quoted `<<X` can make `strip_heredocs` swallow a real `cd` (W-58).
+CWD_TEXT_RE = re.compile(r"(?i)(?<![\w-])(cd|chdir|pushd|popd|set-location|push-location|pop-location|sl)(?![\w-])")
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _GIT_BASH_DRIVE_RE = re.compile(r"^/([A-Za-z])(/|$)")
+
+
+def _words(seg: str) -> list[str] | None:
+    """A segment's words as the shell splits them, or None when they cannot be split."""
+    import shlex
+
+    try:
+        return shlex.split(seg, posix=True)
+    except ValueError:
+        return None
+
+
+def _changes_dir(seg: str) -> bool:
+    """Does this segment's COMMAND WORD change directory, or might it?
+
+    Judged on the command word after shell quote removal, so `\\cd`, `c''d`
+    and `c\\d` all read as `cd`, while a quoted title that mentions cd does
+    not. Past leading assignments and a `(`/`{`, and through `builtin`,
+    `command` and `exec`. A word the shell would expand (`$`, a backtick) or
+    a segment that cannot be split is UNKNOWN, which reads as True: the
+    caller refuses rather than guesses.
+    """
+    words = _words(seg)
+    if words is None:
+        return True
+    i = 0
+    while i < len(words) and (words[i] in ("(", "{") or _ASSIGNMENT_RE.match(words[i])):
+        i += 1
+    while i < len(words) and words[i] in ("builtin", "command", "exec"):
+        i += 1
+    if i >= len(words):
+        return False
+    word = words[i].lstrip("({")
+    if "$" in word or "`" in word:
+        return True
+    return word.lower() in _CWD_WORDS
 
 
 def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | None, str | None]:
@@ -213,35 +251,30 @@ def command_dir(cmd: str, pattern: re.Pattern[str], base: str) -> tuple[Path | N
     a prefixed or `builtin` cd, `cd -` or a bare `cd`, and any directory
     change between two segments that match `pattern`.
     """
-    import shlex
-
     segs = split_segments(cmd)
     first = next((i for i, s in enumerate(segs) if pattern.search(s)), None)
     if first is None:
         return None, None
-    if not any(_CWD_WORD_RE.search(s) for s in segs):
+    if not any(_changes_dir(s) for s in segs):
         return None, None
     if "\n" in cmd or "\r" in cmd:
-        return None, "the command spans lines and changes directory"
+        return None, "the command spans lines and changes directory; pass the PR body with --body-file"
     head = cmd[: cmd.find(segs[first])] if segs[first] in cmd else cmd
     for token, why in (("||", "`||`"), ("(", "a subshell"), ("{", "a group"), ("`", "a substitution"), ("$(", "a substitution")):
         if token in head or segs[first].startswith(token):
             return None, f"it changes directory inside {why}"
-    if _CWD_WORD_RE.search(segs[first]):
+    if _changes_dir(segs[first]):
         return None, "the segment that runs it changes directory itself"
     later = segs[first + 1 :]
-    if any(_CWD_WORD_RE.search(s) for s in later) and any(pattern.search(s) for s in later):
+    if any(_changes_dir(s) for s in later) and any(pattern.search(s) for s in later):
         return None, "it changes directory between two matching commands"
     where: Path | None = None
     for seg in segs[:first]:
-        if not _CWD_WORD_RE.search(seg):
+        if not _changes_dir(seg):
             continue
-        if not _PLAIN_CD_RE.match(seg):
+        words = _words(seg)
+        if not words or words[0] != "cd":
             return None, f"`{seg[:60]}` changes directory in a way it cannot follow"
-        try:
-            words = shlex.split(seg, posix=True)
-        except ValueError:
-            return None, f"`{seg[:60]}` cannot be split"
         args = [w for w in words[1:] if w not in ("-P", "-L", "--")]
         if len(args) != 1 or args[0] == "-":
             return None, f"`{seg[:60]}` names no single directory"

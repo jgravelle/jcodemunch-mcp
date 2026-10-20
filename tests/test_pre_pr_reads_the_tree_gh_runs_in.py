@@ -242,6 +242,59 @@ def test_a_repo_flag_before_the_subcommand_is_still_gated(trees, flag):
     assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
 
 
+@pytest.mark.parametrize("spelling", ["\\cd", "c''d", 'c""d', "c\\d"])
+def test_a_quoted_or_escaped_cd_is_followed_never_skipped(trees, spelling):
+    """The shell runs each of these as `cd`; so must the hook (review round 2)."""
+    live, wt = trees
+    _stamp(live)
+    _unstamp(wt)
+    r = _pre_pr(f'{spelling} "{wt.as_posix()}" && {CREATE}', live)
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
+def test_an_expanded_command_word_refuses(trees):
+    live, wt = trees
+    _stamp(live)
+    _stamp(wt)
+    r = _pre_pr(f'C=c; ${{C}}d "{wt.as_posix()}" && {CREATE}', live)
+    assert r.returncode == 2 and "cannot tell which tree" in r.stderr, r.stderr
+
+
+def test_a_fake_heredoc_cannot_hide_a_cd(trees):
+    """A quoted `<<X` makes `strip_heredocs` swallow the real `cd` behind it."""
+    live, wt = trees
+    _stamp(live)
+    _stamp(wt)
+    command = f"echo '<<X' && cd \"{wt.as_posix()}\"\n\nX\n{CREATE}"
+    r = _pre_pr(command, live)
+    assert r.returncode == 2 and "cannot tell which tree" in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize(
+    "title", ["fix: cd into the worktree", "the sl alias", "pushd and popd"]
+)
+def test_a_title_that_mentions_cd_is_not_a_directory_change(trees, title):
+    live, _ = trees
+    _stamp(live)
+    r = _pre_pr(f'{CREATE} --title "{title}"', live)
+    assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "gh -Rjgravelle/jcodemunch-mcp pr " + "create",
+        "gh pr " + "new",
+        "gh.exe pr " + "create",
+    ],
+)
+def test_every_spelling_that_opens_a_pr_is_gated(trees, spelling):
+    live, _ = trees
+    _unstamp(live)
+    r = _pre_pr(spelling + " --title x", live)
+    assert r.returncode == 2 and "no full-tier stamp" in r.stderr, r.stderr
+
+
 def test_without_a_cd_the_session_tree_is_still_the_one_read(trees):
     live, wt = trees
     _stamp(live)

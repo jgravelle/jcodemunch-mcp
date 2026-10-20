@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 
 from _common import (
+    CWD_TEXT_RE,
     PENDING_MARK,
     EVIDENCE,
     STATE,
@@ -35,16 +36,22 @@ from _common import (
     tree_id,
 )
 
-# `gh -R o/r pr create` and `gh --repo=o/r pr create` put the flag before the
-# subcommand; the old pattern let them through with no check at all (W-58).
-PR_RE = re.compile(r"\bgh\s+(?:(?:-R|--repo)(?:\s+|=)\S+\s+)*pr\s+create\b")
+# `gh -R o/r`, `gh -Ro/r`, `gh --repo=o/r`, `gh.exe` and the `pr new` alias all
+# open a PR; the old pattern let them through with no check at all (W-58).
+PR_RE = re.compile(r"\bgh(?:\.exe)?\s+(?:(?:-R\s*|--repo(?:\s+|=))\S+\s+)*pr\s+(?:create|new)\b")
 
 
 def main() -> None:
     payload = read_hook_input()
-    cmd = strip_heredocs(tool_command(payload))
+    raw = tool_command(payload)
+    cmd = strip_heredocs(raw)
     if not PR_RE.search(cmd):
         ok()
+    if cmd != raw and CWD_TEXT_RE.search(raw):
+        block(
+            "pre_pr: cannot tell which tree the PR is opened from (a heredoc and a directory change in one "
+            "command). Write the body to a file and pass it with --body-file."
+        )
     # jjg (2026-10-19): the stamp is the one of the tree `gh pr create` RUNS in.
     # The Bash tool resets its cwd each call, so a worktree PR is
     # `cd <worktree> && gh pr create`; read that tree, never the session's.
