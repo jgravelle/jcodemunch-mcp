@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - a deferred AI summary writes the summary and nothing else (L-227)
+
+After a watched edit, `index_folder` saves the re-parsed symbols at once and a
+background thread fills in their AI summaries later. That thread saved with a
+whole-row `incremental_save(new_symbols=...)`, the write #1161 removed from
+`summarize_repo`, so every field of the symbols the summarizer returned was
+stored. Today's summarizer returns the parser's own objects, which carry
+complexity and call references; one that returned rebuilt symbols would have
+written zeros and empty call lists over real values. The thread now writes
+through `update_symbol_summaries`, the one-column UPDATE guarded by
+`content_hash`, so a body that changed while the summaries were being made
+keeps its row. `tests/test_deferred_summaries_write_only_the_summary.py`
+drives the watched-edit path with a summarizer that returns rebuilt symbols.
+
 ### Fixed - an index read back in the process that saved it keeps its ecosystem context (L-224)
 
 `save_index` puts the index it has just written into the in-process cache, so
