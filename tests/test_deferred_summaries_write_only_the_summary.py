@@ -103,6 +103,75 @@ def test_a_summary_write_keeps_the_index_warm(tmp_path: Path, monkeypatch):
     )
 
 
+def test_a_summary_write_never_re_keys_a_stale_cache(tmp_path: Path):
+    """Review of L-227, round 2: patching the warm entry must not hide a write
+    another process made after this process loaded it. Warm load, a child
+    process writes beta's summary, this process writes alpha's, and the next
+    load must equal a cold read of the database."""
+    import os
+    import subprocess
+    import sys
+
+    from jcodemunch_mcp.storage import sqlite_store
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "mod.py").write_text(SOURCE, encoding="utf-8")
+    store_dir = tmp_path / "store"
+    res = index_folder(
+        str(repo),
+        use_ai_summaries=False,
+        storage_path=str(store_dir),
+        identity_mode="local",
+    )
+    owner, name = res["repo"].split("/", 1)
+    store = IndexStore(base_path=str(store_dir))
+    warm = store.load_index(owner, name)
+    alpha = next(s for s in warm.symbols if s["name"] == "alpha")
+    beta = next(s for s in warm.symbols if s["name"] == "beta")
+
+    child = (
+        "import sys\n"
+        "from jcodemunch_mcp.storage import IndexStore\n"
+        "print(IndexStore(base_path=sys.argv[1]).update_symbol_summaries("
+        "sys.argv[2], sys.argv[3], {sys.argv[4]: ('Written by another process.', sys.argv[5])}))\n"
+    )
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            child,
+            str(store_dir),
+            owner,
+            name,
+            beta["id"],
+            beta["content_hash"],
+        ],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=src),
+        check=True,
+    )
+    assert out.stdout.strip() == "1", out.stderr
+
+    assert (
+        store.update_symbol_summaries(
+            owner, name, {alpha["id"]: ("Written here.", alpha["content_hash"])}
+        )
+        == 1
+    )
+    served = {s["name"]: s["summary"] for s in store.load_index(owner, name).symbols}
+    sqlite_store._cache_clear()
+    disk = {
+        s["name"]: s["summary"]
+        for s in IndexStore(base_path=str(store_dir)).load_index(owner, name).symbols
+    }
+    assert served == disk
+    assert served["beta"] == "Written by another process."
+    assert served["alpha"] == "Written here."
+
+
 def test_the_deferred_save_keeps_complexity_and_calls(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()

@@ -2303,6 +2303,12 @@ class SQLiteIndexStore:
                     f"Could not acquire index-write lock for {lock_target} "
                     f"after 60s{detail}"
                 )
+            # The .db as it stood before this write, sampled under `indexwrite`
+            # (every index writer takes it) and BEFORE connecting, because
+            # opening a connection creates the -wal sidecar and moves the very
+            # mtime compared: the cache may be patched only if it was loaded at
+            # exactly this state (review of L-227, round 2).
+            pre_mtime_ns = _db_mtime_ns(db_path)
             conn = self._connect(db_path)
             try:
                 conn.execute("BEGIN IMMEDIATE")
@@ -2339,12 +2345,16 @@ class SQLiteIndexStore:
                 conn.commit()
             finally:
                 conn.close()
-        # The in-process index cache holds the old summaries. Patch the warm
-        # entry with the rows written instead of evicting it: the deferred
-        # summary thread calls this after every watched edit, and an eviction
-        # handed the next query a full reload that the whole-row save it
-        # replaced had avoided (review of L-227; the #370 cold-hydration cost).
-        self._patch_cached_summaries(owner, name, db_path, written, generation if changed else None)
+            # The in-process index cache holds the old summaries. Patch the
+            # warm entry with the rows written instead of evicting it: the
+            # deferred summary thread calls this after every watched edit, and
+            # an eviction handed the next query a full reload that the
+            # whole-row save it replaced had avoided (review of L-227; the #370
+            # cold-hydration cost). Still under `indexwrite`, so no other writer
+            # in any process can move the .db between the write and the re-key.
+            self._patch_cached_summaries(
+                owner, name, db_path, written, generation if changed else None, pre_mtime_ns
+            )
         # The index's identity (`indexed_at`) did not move, so a result cache
         # keyed on it would keep serving the old summaries (L-226).
         if changed:
@@ -2360,15 +2370,20 @@ class SQLiteIndexStore:
         db_path: Path,
         written: dict[str, str],
         generation: Optional[int],
+        pre_mtime_ns: int,
     ) -> None:
         """Re-put the warm base index with `written` summaries; evict when it cannot.
 
-        Nothing written and nothing cached: the entry stays as it is, because
-        the .db did not change. Otherwise a NEW CodeIndex replaces the cached
-        one (readers holding the old object keep a consistent snapshot), the
-        written symbols are copied with their summary and without their BM25
-        bags, and the entry is keyed at the .db's new mtime. Branch entries and
-        any failure evict, which is never wrong, only slower.
+        Called under `indexwrite`. Nothing written: the entry stays, because
+        the .db did not change. The cached entry is patched only if it was
+        loaded at `pre_mtime_ns`, the .db's state just before this write;
+        otherwise another writer moved the .db since this process loaded it,
+        and re-keying the old entry at the new mtime would hide that write, so
+        it is evicted (the gate `incremental_save` applies to its own patch).
+        A patch builds a NEW CodeIndex (readers holding the old object keep a
+        consistent snapshot) with the written symbols copied with their summary
+        and without their BM25 bags, keyed at the .db's new mtime. Branch
+        entries and any failure evict, which is never wrong, only slower.
         """
         import dataclasses
 
@@ -2378,7 +2393,7 @@ class SQLiteIndexStore:
         try:
             with _cache_lock:
                 entry = _index_cache.get((owner, safe_name, ""))
-            if entry is None:
+            if entry is None or entry.mtime_ns != pre_mtime_ns:
                 _cache_evict(owner, safe_name)
                 return
             old = entry.code_index

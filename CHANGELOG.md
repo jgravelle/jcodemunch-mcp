@@ -20,11 +20,15 @@ edited between the two saves no longer reads as covered by the second one.
 and the deferred thread now calls it after every watched edit, so the next
 query would have paid a full reload. It now patches the warm index with the
 rows it wrote (a new index object, the written symbols copied without their
-BM25 bags) and keeps it cached at the database's new mtime; a branch entry, a
-cold cache or any failure still evicts.
+BM25 bags) and keeps it cached at the database's new mtime. It does that only
+while holding the index-write lock, and only when the cached index was loaded
+from the database exactly as it stood before this write; if another process
+wrote in between, re-keying the old entry would hide that write, so it is
+evicted instead. A branch entry, a cold cache or any failure also evicts.
 `tests/test_deferred_summaries_write_only_the_summary.py` drives the
-watched-edit path with a summarizer that returns rebuilt symbols, and requires
-the load after a summary write to come from the warm cache.
+watched-edit path with a summarizer that returns rebuilt symbols, requires
+the load after a summary write to come from the warm cache, and requires
+it to match a cold read when another process wrote in between.
 
 ### Fixed - an index read back in the process that saved it keeps its ecosystem context (L-224)
 
