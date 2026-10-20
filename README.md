@@ -6,11 +6,11 @@
 
 > **Real results, live from production**
 > **838B+ tokens saved** · **136,000+ reporting installs** · **$4.2M+ in AI spend avoided** · **100,000+ kg CO₂ prevented**
-> Counter figures as of 2026-08-17, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/)**.
+> Counter figures as of 2026-08-17, valued at the $5/MTok Claude Opus **input** rate. All four only grow, so read them as floors. Live at **[jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_counter)**.
 
 Works with **Claude Code**, **Cursor**, **VS Code**, **Codex CLI**, **Windsurf**, **Continue**, and [any MCP-compatible client](CLIENTS.md).
 
-[**Install now**](#install) · [**Quickstart**](QUICKSTART.md) · [**See the evidence**](#evidence) · [**Pricing**](https://jcodemunch.com/?utm_source=github&utm_medium=readme&utm_campaign=jcm_readme_top#pricing)
+[**Install now**](#install) · [**Quickstart**](QUICKSTART.md) · [**See the evidence**](#evidence) · [**Pricing**](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_top#pricing)
 
 [![PyPI version](https://img.shields.io/pypi/v/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/jcodemunch-mcp)](https://pypi.org/project/jcodemunch-mcp/)
@@ -75,7 +75,7 @@ Full methodology, pinned commits, harness, and known caveats: [benchmarks/METHOD
 - **Julian Horsey** (Geeky Gadgets): *"3,850 tokens reduced to just 700 — a 5.5× improvement"* · [JCodeMunch AI Token Saver](https://www.geeky-gadgets.com/jcodemunch-mcp-token-savings/)
 - **Eric Grill**: *"context is the scarce resource. Cut it by 90% and the whole stack gets cheaper and more reliable"* · [jCodemunch: Context Engine for AI Agents](https://www.ericgrill.com/blog/jcodemunch-mcp-context-engine-for-ai-agents)
 
-[Full recognition page →](https://jcodemunch.com/recognition.php)
+[Full recognition page →](https://jcodemunch.com/recognition.php?utm_medium=readme&utm_campaign=jcm_readme_recognition)
 
 ---
 
@@ -306,11 +306,11 @@ Both keys change what the parser emits for *unchanged* files, so a change to eit
 
 jCodeMunch-MCP is released under the **jCodeMunch-MCP Dual-Use License** ([full terms](LICENSE)). **Free for non-commercial use. Commercial use requires a paid license**, one-time, sold by jMunch LLC via Stripe:
 
-**jCodeMunch-only:** [Builder, $79](https://jcodemunch.com/descriptions.php#builder) (1 developer) · [Studio, $349](https://jcodemunch.com/descriptions.php#studio) (up to 5) · [Platform, $1,999](https://jcodemunch.com/descriptions.php#platform) (org-wide internal deployment)
+**jCodeMunch-only:** [Builder, $79](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) (1 developer) · [Studio, $349](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) (up to 5) · [Platform, $1,999](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform) (org-wide internal deployment)
 
-**Full jMunch suite (code + docs + data):** [Trio Builder, $99](https://jcodemunch.com/descriptions.php#builder) · [Trio Studio, $449](https://jcodemunch.com/descriptions.php#studio) · [Trio Platform, $2,499](https://jcodemunch.com/descriptions.php#platform)
+**Full jMunch suite (code + docs + data):** [Trio Builder, $99](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#builder) · [Trio Studio, $449](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#studio) · [Trio Platform, $2,499](https://jcodemunch.com/descriptions.php?utm_medium=readme&utm_campaign=jcm_readme_tiers#platform)
 
-Not sure it's worth it? Run your own numbers through the [ROI calculator](https://jcodemunch.com/roi.php?utm_source=github&utm_medium=readme&utm_campaign=jcm_readme_bottom), or forward [the finance-team version](https://jcodemunch.com/for-finance.php?utm_source=github&utm_medium=readme&utm_campaign=jcm_readme_bottom) to whoever signs off. The guarantee stands: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
+Not sure it's worth it? Run your own numbers through the [ROI calculator](https://jcodemunch.com/roi.php?utm_medium=readme&utm_campaign=jcm_readme_bottom), or forward [the finance-team version](https://jcodemunch.com/for-finance.php?utm_medium=readme&utm_campaign=jcm_readme_bottom) to whoever signs off. The guarantee stands: if jCodeMunch doesn't pay for itself, you don't pay for jCodeMunch.
 
 Conditions on all uses: retain the copyright notice, clearly mark modifications and keep the original author's name intact (he's kinda full of himself), and include a prominent modification notice in source redistributions. The Software may not be renamed, rebranded, or published to any public package registry, and is provided "AS IS" without warranty. [LICENSE](LICENSE) controls.
 
@@ -328,8 +328,8 @@ jCodeMunch retrieves at the **symbol level** with byte-level precision (function
 Yes. Commercial use needs a license; see [above](#licensing-and-commercial-use).
 
 **Where's the deep-dive on X?**
-Capabilities: [CAPABILITIES.md](CAPABILITIES.md). Config: [CONFIGURATION.md](CONFIGURATION.md). Clients: [CLIENTS.md](CLIENTS.md). Internals: [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md). Or the firehose: [jcodemunch.com](https://jcodemunch.com/).
+Capabilities: [CAPABILITIES.md](CAPABILITIES.md). Config: [CONFIGURATION.md](CONFIGURATION.md). Clients: [CLIENTS.md](CLIENTS.md). Internals: [UNDER_THE_HOOD.md](UNDER_THE_HOOD.md). Or the firehose: [jcodemunch.com](https://jcodemunch.com/?utm_medium=readme&utm_campaign=jcm_readme_docs).
 
 ---
 
-Extras: [OSS code-health observatory](https://jgravelle.github.io/jcodemunch-observatory/) (weekly six-axis snapshots of Express, FastAPI, Gin, Django, and friends) · [Token Cost Radar](https://jcodemunch.com/radar/) (daily AI token cost intelligence) · [jMunch Console](https://github.com/jgravelle/jmunch-console) (free MIT GUI for one-click upgrades)
+Extras: [OSS code-health observatory](https://jgravelle.github.io/jcodemunch-observatory/) (weekly six-axis snapshots of Express, FastAPI, Gin, Django, and friends) · [Token Cost Radar](https://jcodemunch.com/radar/?utm_medium=readme&utm_campaign=jcm_readme_extras) (daily AI token cost intelligence) · [jMunch Console](https://github.com/jgravelle/jmunch-console) (free MIT GUI for one-click upgrades)
