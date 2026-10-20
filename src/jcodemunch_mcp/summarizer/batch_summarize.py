@@ -356,9 +356,20 @@ class BaseSummarizer:
                 lines.append(ctx)
             lines.append("")
 
+        # summarizer_body_chars > 0 (opt-in, default 0): also send each symbol's
+        # decorators and its own source, cut to that many characters. At 0, or when
+        # the source can't be read, the symbol's prompt is the signature-only one.
+        body_chars = int(_config.get("summarizer_body_chars", 0, repo=self.repo) or 0)
         lines.append("Input:")
         for i, sym in enumerate(symbols, 1):
             lines.append(f"{i}. {sym.kind}: {sym.signature}")
+            body = self._symbol_body(sym, body_chars) if body_chars > 0 else ""
+            if not body:
+                continue  # signature only: opt-in off, or no readable source
+            if sym.decorators:
+                lines.append("   decorators: " + " ".join(sym.decorators))
+            lines.append("   body:")
+            lines.extend("   | " + line for line in body.splitlines())
 
         lines.extend(
             [
@@ -371,6 +382,23 @@ class BaseSummarizer:
         )
 
         return "\n".join(lines)
+
+    def _symbol_body(self, sym: Symbol, limit: int) -> str:
+        """The symbol's own source (its stored byte span), first `limit` characters.
+
+        Returns "" when the file can't be read (no local source root, e.g. a repo
+        indexed from GitHub), so that symbol's prompt stays signature-only.
+        """
+        if not self.repo:
+            return ""
+        try:
+            with open(os.path.join(self.repo, sym.file), "rb") as f:
+                f.seek(sym.byte_offset)
+                # A character is at most 4 bytes, so this holds at least `limit` of them.
+                raw = f.read(min(sym.byte_length, limit * 4))
+        except OSError:
+            return ""
+        return raw.decode("utf-8", "replace")[:limit]
 
     def _parse_response(self, text: str, expected_count: int) -> list[str]:
         """Parse numbered summaries from response."""
