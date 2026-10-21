@@ -357,8 +357,53 @@ def _tool_search_query(surface: str, prefix: str = _MCP_TOOL_PREFIX) -> str:
     return "select:" + ",".join(prefix + n for n in names)
 
 
-def _mcp_instructions(surface: "Optional[str]" = None, prefix: str = _MCP_TOOL_PREFIX) -> str:
-    """The `instructions` string for the initialize response, surface-aware."""
+def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
+    """File count of the index covering the working directory, or None.
+
+    Used for the stdio transport only, where the working directory is the
+    user's project. None means "could not establish": not indexed, no usable
+    count, an error, or a lookup slower than `timeout` (resolve_repo has a
+    documented hang, #303, and startup must not wait on it). The lookup runs on
+    a daemon thread so a stuck one cannot hold the process open.
+    """
+    import threading
+
+    box: dict = {}
+
+    def _look() -> None:
+        try:
+            from .tools.resolve_repo import resolve_repo
+
+            box["r"] = resolve_repo(str(Path.cwd().resolve()))
+        except Exception:
+            logger.debug("startup index lookup failed", exc_info=True)
+
+    t = threading.Thread(target=_look, name="jcm-startup-index-lookup", daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        logger.debug("startup index lookup exceeded %.1fs; not claiming an index", timeout)
+        return None
+    r = box.get("r")
+    if not isinstance(r, dict) or r.get("indexed") is not True:
+        return None
+    n = r.get("file_count")
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        return None
+    return n
+
+
+def _mcp_instructions(
+    surface: "Optional[str]" = None,
+    prefix: str = _MCP_TOOL_PREFIX,
+    indexed_files: "Optional[int]" = None,
+) -> str:
+    """The `instructions` string for the initialize response, surface-aware.
+
+    `indexed_files` is the working directory's index size when the caller has
+    established it (`_indexed_here`); the opening then says the repo IS indexed
+    and how big it is. None keeps the "can be indexed" wording.
+    """
     surface = surface or _effective_surface()
     rows = _INSTRUCTION_TOOLS_COUNTER if surface == "counter" else _INSTRUCTION_TOOLS_FULL
     # (2026-10-14, owner's ruling) The opening said "Prefer it/them over
@@ -366,16 +411,15 @@ def _mcp_instructions(surface: "Optional[str]" = None, prefix: str = _MCP_TOOL_P
     # (1.108.357) had stopped saying either: on a small repository that steering
     # costs turns, and agents quoted this string as their reason. It now says
     # what the policy says, so the two cannot point opposite ways.
-    if surface == "counter":
-        opening = (
-            "This repo can be indexed by jcodemunch. Its whole tool catalog sits "
-            "behind a 3-verb front door."
-        )
+    if indexed_files is not None:
+        unit = "file" if indexed_files == 1 else "files"
+        subject = f"This repo is indexed by jcodemunch ({indexed_files:,} {unit})"
     else:
-        opening = (
-            "This repo can be indexed by jcodemunch: every symbol, its file:line "
-            "span and who references what."
-        )
+        subject = "This repo can be indexed by jcodemunch"
+    if surface == "counter":
+        opening = f"{subject}. Its whole tool catalog sits behind a 3-verb front door."
+    else:
+        opening = f"{subject}: every symbol, its file:line span and who references what."
     routes = (
         "Use it for who uses a symbol, what a change breaks, call graphs, a large "
         "repo or an open question. On a small repository, a known name or a file "
@@ -393,8 +437,10 @@ def _mcp_instructions(surface: "Optional[str]" = None, prefix: str = _MCP_TOOL_P
     return "\n".join(lines)
 
 
-def _initialization_options():
+def _initialization_options(indexed_files: "Optional[int]" = None):
     """`create_initialization_options()` carrying our `instructions` string.
+
+    `indexed_files` is passed by the stdio transport only (see `_indexed_here`).
 
     ⚠ Built per run() rather than passed to `Server(...)` at import: the surface
     is resolved from env + config, and neither is settled when this module is
@@ -406,7 +452,7 @@ def _initialization_options():
         # nowhere to say it.
         logger.debug("InitializationOptions has no `instructions` field; skipping")
         return opts
-    return opts.model_copy(update={"instructions": _mcp_instructions()})
+    return opts.model_copy(update={"instructions": _mcp_instructions(indexed_files=indexed_files)})
 
 
 def _counter_front_door_tools() -> list:
@@ -8010,7 +8056,7 @@ async def run_stdio_server():
             await server.run(
                 read_stream,
                 write_stream,
-                _initialization_options(),
+                _initialization_options(indexed_files=_indexed_here()),
             )
     finally:
         if not _watchdog_task.done():
