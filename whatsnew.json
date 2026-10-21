@@ -5,7 +5,7 @@
       "version": "1.108.390",
       "date": "2026-10-21",
       "title": "the local embedding model is pinned and checked before it is used",
-      "summary": "The optional local embedding model is now downloaded from one fixed upstream revision and each file is checked against a pinned SHA-256 before it is used. A download goes to a temporary file and replaces the real one only after it matches, so an interrupted download no longer leaves a truncated model that later runs would load, and download-model re-checks a copy already on disk. The stated download size is corrected to about 90 MB."
+      "summary": "The optional local embedding model is now downloaded from one fixed upstream revision and each file is checked against a pinned SHA-256 before it is used. A download goes to a temporary file and replaces the real one only after it matches, so an interrupted download no longer leaves a truncated model that later runs would load, and download-model re-checks a copy already on disk. The stated download size is corrected to about 90 MB. Pillow is no longer installed on Python 3.10, where no patched release exists; the groq-explain and all extras install Pillow 13 or newer on Python 3.11 and later."
     },
     {
       "version": "1.108.389",

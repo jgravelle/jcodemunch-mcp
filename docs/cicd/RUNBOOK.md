@@ -367,8 +367,10 @@ draft becomes ready only when the PR gate, the `selfcheck` check and the
 reviewer verdict are all green; otherwise it carries `agent:incomplete`.
 Merging is yours.
 
-**Read the digest.** One issue per ISO week, `inbound digest <week>`,
-labelled `inbound:digest`, Mondays 06:45 UTC. Every number in it is
+**Read the digest.** (2026-10-21) The weekly digest is produced outside this
+repository and is no longer posted as an issue; the workflow runs only when
+dispatched by hand, and then opens one issue per ISO week, `inbound digest <week>`,
+labelled `inbound:digest`. Every number in it is
 computed by `.github/inbound/digest.py` from the ledger branch; the model
 wrote at most the opening paragraph. `needs-human` items older than 7 days
 are listed there; each is a decision only you can make.
