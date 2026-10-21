@@ -42,8 +42,21 @@ def test_a_query_of_only_function_words_keeps_them():
     assert scoring.query_terms("do it") == scoring._tokenize("do it")
 
 
-def test_identifier_parts_survive():
-    assert scoring.query_terms("is_valid") == [t for t in scoring._tokenize("is_valid") if t != "is"]
+@pytest.mark.parametrize("name", ["is_valid", "ndcg_at_k", "getTheUser", "os.path", "do"])
+def test_an_identifier_keeps_every_part(name):
+    """A one-word query is a name; the "at" in ndcg_at_k is content, not filler."""
+    assert scoring.query_terms(name) == scoring._tokenize(name)
+
+
+def test_identifier_parts_survive_inside_a_question():
+    terms = scoring.query_terms("how does ndcg_at_k work")
+    assert "how" not in terms and "does" not in terms
+    assert "at" in terms and "ndcg" in terms
+
+
+def test_a_camel_case_word_is_not_a_plain_word():
+    terms = scoring.query_terms("where is getTheUser called")
+    assert "the" in terms and "is" not in terms and "where" not in terms
 
 
 def test_the_empty_query_contract_holds():
@@ -57,7 +70,7 @@ def test_the_empty_query_contract_holds():
 
 @pytest.mark.parametrize("path", ["tests/test_deps.py", "pkg/tests/helpers.py", "test_api.py"])
 def test_a_test_symbol_is_demoted_for_a_non_test_query(path):
-    assert scoring.test_file_factor({"file": path}, ["dependency"]) == scoring.TEST_FILE_FACTOR < 1.0
+    assert scoring.test_file_factor({"file": path}, ["dependency"]) == scoring.TEST_SYMBOL_WEIGHT < 1.0
 
 
 @pytest.mark.parametrize("path", ["pkg/dependencies/utils.py", "src/app.py"])

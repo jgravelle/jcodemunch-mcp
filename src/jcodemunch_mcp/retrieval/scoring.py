@@ -175,18 +175,38 @@ QUERY_STOPWORDS = frozenset({
 })
 
 
+# A plain word: letters only, all lower case or capitalised, with trailing
+# punctuation allowed. Anything else (`ndcg_at_k`, `getUser`, `os.path`,
+# `v2`) is an identifier, and every part of an identifier is content.
+_PLAIN_WORD_RE = re.compile(r"[A-Za-z][a-z]*[?.,!;:]*")
+
+
 def query_terms(query: str) -> list[str]:
     """Tokens a lexical scorer should match for ``query``.
 
-    `_tokenize` minus `QUERY_STOPWORDS`, falling back to the full token list
-    when filtering would leave nothing, and to the lowered query when there
-    are no tokens at all (the old ``_tokenize(q) or [q.lower()]`` contract).
-    Empty strings are never returned: "" matches every filename.
+    Function words ("how", "does", "the", ...) are dropped only from a
+    multi-word query, and only where they stand as plain words. A one-word
+    query is taken as a name, and a part of an identifier is never dropped:
+    the "at" in ``ndcg_at_k`` and the "is" in ``is_valid`` are content.
+    Falls back to the full token list when filtering would leave nothing, and
+    to the lowered query when there are no tokens at all (the old
+    ``_tokenize(q) or [q.lower()]`` contract). Empty strings are never
+    returned: "" matches every filename.
     """
     toks = [t for t in _tokenize(query) if t]
-    kept = [t for t in toks if t not in QUERY_STOPWORDS]
-    if kept:
-        return kept
+    words = (query or "").split()
+    if len(words) > 1:
+        kept: list[str] = []
+        seen: set[str] = set()
+        for w in words:
+            plain = _PLAIN_WORD_RE.fullmatch(w) is not None
+            for t in _tokenize(w):
+                if not t or t in seen or (plain and t in QUERY_STOPWORDS):
+                    continue
+                seen.add(t)
+                kept.append(t)
+        if kept:
+            return kept
     if toks:
         return toks
     low = (query or "").lower()
@@ -206,7 +226,7 @@ _TEST_INTENT = frozenset({
 # tests first. Measured on the pinned fastapi case
 # (tests/test_conceptual_query_ranking.py); a test still ranks when nothing
 # in the source matches.
-TEST_FILE_FACTOR = 0.25
+TEST_SYMBOL_WEIGHT = 0.25
 
 
 def has_test_intent(terms: list[str]) -> bool:
@@ -214,18 +234,20 @@ def has_test_intent(terms: list[str]) -> bool:
 
 
 def test_file_factor(sym: dict, terms: list[str]) -> float:
-    """1.0, or `TEST_FILE_FACTOR` for a symbol in a test file when the query
+    """1.0, or `TEST_SYMBOL_WEIGHT` for a symbol in a test file when the query
     is not about tests. The file check is `_test_paths.is_test_file`, the one
     test-file rule, cached on the symbol dict."""
     if has_test_intent(terms):
         return 1.0
     flag = sym.get("_is_test")
     if flag is None:
-        from ..tools._test_paths import is_test_file  # noqa: PLC0415  (leaf, stdlib only)
+        # The shared rule itself, imported here because importing ``tools``
+        # at module level would cycle back into this module.
+        from ..tools._test_paths import is_test_file as _shared_test_rule  # noqa: PLC0415
 
-        flag = bool(is_test_file(sym.get("file") or ""))
+        flag = bool(_shared_test_rule(sym.get("file") or ""))
         sym["_is_test"] = flag
-    return TEST_FILE_FACTOR if flag else 1.0
+    return TEST_SYMBOL_WEIGHT if flag else 1.0
 
 
 def _sym_tokens(sym: dict) -> list[str]:
