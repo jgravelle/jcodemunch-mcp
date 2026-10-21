@@ -1,8 +1,9 @@
 """Bundled ONNX local encoder — zero-config symbol embeddings.
 
-Ships a small, permissively-licensed ONNX model (all-MiniLM-L6-v2, Apache 2.0,
-~23 MB, 384-dim) that runs in-process via ``onnxruntime``.  No API key, no
-internet after first download, no configuration required.
+Uses a permissively-licensed ONNX model (all-MiniLM-L6-v2, Apache 2.0, about
+90 MB, 384-dim) that runs in-process via ``onnxruntime``.  No API key, no
+internet after first download, no configuration required.  The download is
+pinned to one upstream revision and each file is checked against its SHA-256.
 
 Install::
 
@@ -33,6 +34,17 @@ MODEL_DIM = 384
 MAX_SEQ_LENGTH = 256
 
 _HF_BASE_URL = "https://huggingface.co"
+
+# The fetch is pinned to one upstream revision and every file is checked
+# against its SHA-256, so a changed upstream file can't be downloaded and used
+# silently. Both were confirmed against the copy installs already cache:
+# model.onnx matches the revision's published LFS checksum (90,405,214 bytes),
+# and vocab.txt matches its git blob. To move to a newer revision, update both.
+MODEL_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+MODEL_SHA256 = {
+    ONNX_FILENAME: "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452",
+    VOCAB_FILENAME: "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+}
 
 
 def _default_models_dir() -> Path:
@@ -70,9 +82,34 @@ def is_onnxruntime_available() -> bool:
 # ── Download ───────────────────────────────────────────────────────────────
 
 
+def _files_to_fetch() -> list[tuple[str, str]]:
+    """(url, filename) for each model file, at the pinned revision."""
+    base = f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/{MODEL_REVISION}"
+    return [
+        (f"{base}/onnx/{ONNX_FILENAME}", ONNX_FILENAME),
+        (f"{base}/{VOCAB_FILENAME}", VOCAB_FILENAME),
+    ]
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) -> Path:
     """Download the ONNX model + vocab from HuggingFace to *target_dir*.
 
+    Fetches `MODEL_REVISION` and checks each file against `MODEL_SHA256`. A
+    file already on disk is kept only if it matches; otherwise it is fetched
+    again. A fetch goes to ``<name>.part`` and replaces the real file only
+    after it matches, so an interrupted download never leaves a file that a
+    later run would use. A fetched file that does not match is deleted and
+    the download fails.
     Returns the directory containing the downloaded files.
     """
     import urllib.request
@@ -80,29 +117,44 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
     dest = target_dir or _default_models_dir()
     dest.mkdir(parents=True, exist_ok=True)
 
-    files_to_fetch = [
-        (f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/main/onnx/{ONNX_FILENAME}", ONNX_FILENAME),
-        (f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/main/{VOCAB_FILENAME}", VOCAB_FILENAME),
-    ]
-
-    for url, filename in files_to_fetch:
+    for url, filename in _files_to_fetch():
         out_path = dest / filename
+        expected = MODEL_SHA256[filename]
         if out_path.exists():
-            if not quiet:
-                logger.info("download_model: %s already exists, skipping", out_path)
-            continue
+            if _sha256(out_path) == expected:
+                if not quiet:
+                    logger.info("download_model: %s already present and verified", out_path)
+                continue
+            logger.warning(
+                "download_model: %s does not match the pinned checksum; removing it and fetching it again",
+                out_path,
+            )
+            # Removed first, so a failed re-fetch leaves no model rather than a bad one.
+            out_path.unlink()
         if not quiet:
             logger.info("download_model: downloading %s ...", filename)
             print(f"  Downloading {filename} from {MODEL_REPO} ...", file=sys.stderr)  # noqa: T201
+        part_path = dest / (filename + ".part")
         try:
-            urllib.request.urlretrieve(url, str(out_path))
-        except Exception as exc:
-            # Clean up partial download
-            if out_path.exists():
-                out_path.unlink()
+            urllib.request.urlretrieve(url, str(part_path))
+        except BaseException as exc:
+            # Never leave a partial file behind, including on Ctrl-C.
+            if part_path.exists():
+                part_path.unlink()
+            if not isinstance(exc, Exception):
+                raise
             raise RuntimeError(
                 f"Failed to download {filename} from {url}: {exc}"
             ) from exc
+        actual = _sha256(part_path)
+        if actual != expected:
+            part_path.unlink()
+            raise RuntimeError(
+                f"Downloaded {filename} failed its checksum (expected sha256 {expected}, "
+                f"got {actual}); the file was removed. Upstream may have changed; "
+                f"nothing was installed."
+            )
+        os.replace(part_path, out_path)
         if not quiet:
             size_mb = out_path.stat().st_size / (1024 * 1024)
             print(f"  Saved {filename} ({size_mb:.1f} MB)", file=sys.stderr)  # noqa: T201
