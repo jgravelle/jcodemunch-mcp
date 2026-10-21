@@ -126,9 +126,11 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
                     logger.info("download_model: %s already present and verified", out_path)
                 continue
             logger.warning(
-                "download_model: %s does not match the pinned checksum; fetching it again",
+                "download_model: %s does not match the pinned checksum; removing it and fetching it again",
                 out_path,
             )
+            # Removed first, so a failed re-fetch leaves no model rather than a bad one.
+            out_path.unlink()
         if not quiet:
             logger.info("download_model: downloading %s ...", filename)
             print(f"  Downloading {filename} from {MODEL_REPO} ...", file=sys.stderr)  # noqa: T201

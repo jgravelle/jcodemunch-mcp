@@ -78,6 +78,18 @@ def test_a_file_already_on_disk_that_does_not_match_is_fetched_again(tmp_path):
     assert (tmp_path / le.ONNX_FILENAME).read_bytes() == b"onnx-bytes"
 
 
+def test_a_bad_file_on_disk_is_gone_even_when_the_re_fetch_fails(tmp_path):
+    """A mismatching file must not survive a failed re-fetch, or a search would load it."""
+    sums = {le.ONNX_FILENAME: hashlib.sha256(b"good").hexdigest(), le.VOCAB_FILENAME: "0" * 64}
+    (tmp_path / le.ONNX_FILENAME).write_bytes(b"bad")
+
+    with patch.dict(le.MODEL_SHA256, sums), \
+            patch("urllib.request.urlretrieve", side_effect=ConnectionError("down")):
+        with pytest.raises(RuntimeError, match="Failed to download"):
+            le.download_model(tmp_path, quiet=True)
+    assert not (tmp_path / le.ONNX_FILENAME).exists()
+
+
 def test_an_interrupted_download_leaves_no_file_behind(tmp_path):
     """Ctrl-C mid-download must not leave a file a later run would pick up."""
 
