@@ -2,25 +2,152 @@
 
 ## [Unreleased]
 
-### Fixed - the `.windsurfrules` backup is named `.windsurfrules.bak` (L-203)
+### Fixed - the `.windsurfrules` backup is named `.windsurfrules.bak`
 
 `init` and `uninstall` back up a rules file before they change it, and named
 the backup by swapping the file's suffix: `path.with_suffix(".windsurfrules.bak")`.
 `.windsurfrules` is a dotfile with no suffix, so `with_suffix` appended instead
 of replacing, and the backup came out as `.windsurfrules.windsurfrules.bak`.
 Nothing was lost, but a user looking for `.windsurfrules.bak` did not find it.
-The other ten backup sites guessed the suffix the same way and were right
+Every other backup site guessed the suffix the same way and was right
 only because each guess matched its file. Every CLI backup now goes through
 `cli/backup.backup_path`, which appends `.bak` to the whole name, so the other
 sites write the same names as before. `tests/test_backup_is_named_after_the_file.py`
 checks both Windsurf paths and the helper, and fails on any `with_suffix` call
 that builds a `.bak` name under `cli/`.
 
+## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
+
+### Changed - the startup note says the repo is indexed, and how big it is
+
+The server's MCP instructions, which are often the only jcodemunch text an
+agent reads, opened with "This repo can be indexed by jcodemunch" even when it
+already was, which reads as setup still to do. On the stdio transport, where
+the server runs in the user's project, startup now asks whether that directory
+is indexed. If it is, the note opens "This repo is indexed by jcodemunch
+(N files)", so the agent knows the index is ready and can judge the
+repository's size for itself. The guidance for small repositories is
+unchanged. The note counts an index only when it was built from this
+directory or one containing it, so a second checkout of an indexed project
+isn't told it's indexed. The lookup is the one `resolve_repo` runs, with no
+network call, and startup waits at most 1.5 seconds for it. If it can't
+establish an index (not indexed, a different working tree, an error, or the
+time limit), the note keeps the old wording, as do the SSE and
+streamable-http transports, where the server's directory is not the
+caller's. SECURITY.md lists what that lookup can touch on disk.
+
+### Changed - the core tools load up front in clients that defer MCP tools
+
+Claude Code defers every MCP tool by default. The model sees each tool's name
+and the server's instructions, and gets a tool's schema only after it calls
+ToolSearch. An agent that already has Grep loaded rarely makes that call, so on
+a default setup jcodemunch's tools could sit unused for a whole session.
+
+The tool list now marks the tools the server's instructions tell the agent to
+start with as `_meta["anthropic/alwaysLoad"]: true`, the per-tool switch Claude
+Code documents for server authors. Those are `route`, `menu` and `order` on the
+default `counter` surface, and `resolve_repo`, `get_ranked_context`,
+`search_symbols`, `get_file_outline`, `get_symbol_source` and
+`find_references` on `full`. The marked set is read from the same list the
+instructions use, so the two can't disagree. A tool removed by `disabled_tools`
+or the active profile is never re-added. Clients that don't know the key
+ignore it. To keep jcodemunch fully deferred, set `"alwaysLoad": false` on its
+entry in `.mcp.json`.
+
+The PreToolUse hook's advice on the `counter` surface now also says how to
+load `order` when it isn't loaded yet (`ToolSearch "select:mcp__jcodemunch__order"`),
+for a user who turned the up-front load off or a client that ignores it.
+
+The cost is prompt size. On a deferring client the marked tools' descriptions
+and schemas are now part of every request: 2,480 bytes on `counter`, and
+13,168 bytes on `full`. After the first request they are read from the prompt
+cache. On upgrade the first request of a session writes that cache once. The
+published tool definitions themselves are unchanged, byte for byte.
+
+### Fixed - `init` reads the tool surface the way the server serves it
+
+`init` and the policy writer pick the counter policy or the direct-tool policy
+by asking `cli.policy._effective_tool_surface` which surface the install
+serves. That reader returned the raw environment value. A blank
+`JCODEMUNCH_TOOL_SURFACE` therefore read as an empty string, neither surface,
+while the server treated it as unset and served the configured `counter`; and
+an unknown value passed through as itself while the server served `full`. In
+those cases `init` could write a policy for a surface the client never
+receives. The reader now goes through `counter.resolve_tool_surface`, the one
+authority the server already used, and a config read that fails serves `full`
+and is logged. Found in review of the counter-surface steering fix, as the same
+unvalidated reader one layer over. `tests/test_policy_surface_reader_validates.py`
+compares the reader with the authority over blank, missing, mixed-case and
+unknown values.
+
+### Fixed - the steering hook's advice names tools the agent can call
+
+On the `counter` tool surface, which `init` installs by default, the client's
+tool list holds only the front door (`order`, `menu`, `route`) and every other
+action is reached as `order { "action": ... }`. The PreToolUse hook still told
+the agent to use tools by bare name, i.e. calls it could not make: on a Grep,
+Glob or search command it named `search_text`, `search_symbols`,
+`check_references`, `find_references`, `find_importers`, `get_file_tree` and
+`get_repo_outline`, and on a large Read it named `get_file_outline` and
+`get_symbol_source`, in both the advisory nudge and the strict-mode deny. The
+`CLAUDE.md` policy `init` writes already spoke in `order` calls; the hook was a
+second copy of the same guidance that never asked which surface it was on.
+Under `counter` every route now reads `order { "action": "...", "args": { ... } }`,
+the policy's own spelling, with a pointer to `menu` for argument templates; on
+`full` the names are unchanged. The hook reads the surface through
+`_common.tool_surface`, which applies `counter.resolve_tool_surface`, the
+authority the server uses (a blank env value is unset, an unknown one serves
+`full`); the session briefing read it the same way and now shares that one
+reader. It never builds the tool list or imports the server, because it runs on
+every tool call.
+`tests/test_steering_names_only_published_tools.py` drives every emitting path
+through `run_pretooluse` (Grep, Glob, Bash and Read, advisory and strict) and
+requires every catalog tool named as a direct call to be one the surface
+publishes; with only the Read change reverted it fails. A fresh interpreter
+checks that the hook path imports no server module.
+
+## [1.108.388] - 2026-10-21 - the license names jMunch, LLC, and the product says "license"
+
+### Changed - "license", spelled the American way, and a way forward for a rejected key
+
+The product said "licence" in places its buyers read: `init`'s closing line ("A
+commercial licence is $79") and `install-pack`'s "Upstream licence:" lines,
+plus docs, comments and test text. They now say "license", which
+is also how the LICENSE file and every other line already spelled it.
+Identifiers are left as they are (`_LICENCE_LINES`, `licence_key_configured`, the
+`test_init_licence_line.py` file and its test names), because renaming them is
+a code change, not a spelling one; so are quotations of other people's words,
+released CHANGELOG blocks and history, test fixtures, and the dependency
+indexer's pattern that must still find a file named LICENCE.
+
+`jcodemunch-mcp license` with a key the license server rejects used to stop at
+"key not recognized by the license server", which left a paying customer with a
+typo, or a lapsed key, nowhere to go. It now adds "Check the key for a typo. If
+it should be valid, write to j@gravelle.us and we'll sort it out.", the address
+the site already lists. It is a support pointer, not a sales line, and it shows
+for a rejected key only.
+
+### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
+
+`LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
+Gravelle, and its header moves to version 1.2, effective 2026-10-21.
+The terms are unchanged: what anyone may do with the software, and
+under which conditions, is word for word what version 1.1 said. That is why
+this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
+tracks the major version and stays as it is, so nobody who allowlists the
+license by that identifier has to approve it again. The condition that the
+original author's name (J. Gravelle) remain intact stays, because authorship
+does not move when a copyright is assigned. The digest pin in
+`tests/test_license_identifier_agreement.py` moves to the new text, as that
+test requires for any edit.
+
+## [1.108.387] - 2026-10-21 - a licensed install is not shown a sales line
+
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
-licence is $79", and `install-pack`'s catalog listing ended with "Get a
-license", whether or not the install already had a licence key. A paying
+license is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a license key. A paying
 customer was being sold the thing they had bought, and jMunch promises paid
 clients they are never marketed to (jjg, 2026-10-20). Both lines now print
 only when no key is configured (for `install-pack --list`, a key passed with
@@ -34,6 +161,11 @@ that records every network call and requires none (recorded, not refused:
 the validator's own `except Exception` would swallow a raise);
 `tests/test_install_pack.py` covers the listing with no key, a configured
 key and a `--license` key.
+
+The `license` command follows the same rule. Its pricing link prints only when
+no key is set at all, in the text and in `license --json` (whose `get_license`
+is null for any key holder), and a valid Builder key reads "Team features
+(org-rollup): not included in your license" instead of an upgrade pitch.
 
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 

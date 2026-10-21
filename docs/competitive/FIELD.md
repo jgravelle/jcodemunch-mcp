@@ -68,7 +68,7 @@ an issue or a competitor README supplied except the ones listed.
 | S5 | web: "jcodemunch" reddit / hacker news | search | nothing indexed under either site |
 | S6 | `https://sverklo.com/blog/practical-guide-mcp-code-intelligence/` | third-party comparison (a competitor's blog) | 12 servers by license/hosting/languages/tools/substrate; jcm row "10+ languages, ~6 tools, dual licence $79-$1,999"; "jcodemunch-mcp wins P1 at 0.65 F1 vs sverklo's 0.45"; "Their tree-sitter symbol indexing is sharper than ours." |
 | S7 | `https://github.com/jgravelle/jcodemunch-mcp/wiki/...versus-THE-WORLD!` | own wiki (edited 2026-06-19) | 8 alternatives; prose verdicts; stale versions (v1.81.2, v1.108.48) |
-| S8 | `https://virtuslab.com/blog/ai/code-munch-mcp-your-agent-starts-navigating` | third-party review, 2026-03-11 | strengths: stable symbol ids, security, summariser fallback; "~80% fewer tokens, 5x", headline 99% "optimistic"; weaknesses: no type resolution or cross-file refs, staleness ("stale within hours of a busy sprint"), "seven languages", "500-file cap", licence and opt-out telemetry; alternatives named: Aider RepoMap, Greptile/GrepAI, Sourcegraph SCIP, IDE-native |
+| S8 | `https://virtuslab.com/blog/ai/code-munch-mcp-your-agent-starts-navigating` | third-party review, 2026-03-11 | strengths: stable symbol ids, security, summariser fallback; "~80% fewer tokens, 5x", headline 99% "optimistic"; weaknesses: no type resolution or cross-file refs, staleness ("stale within hours of a busy sprint"), "seven languages", "500-file cap", license and opt-out telemetry; alternatives named: Aider RepoMap, Greptile/GrepAI, Sourcegraph SCIP, IDE-native |
 | S9 | `https://glama.ai/mcp/servers/jgravelle/jcodemunch-mcp/related-servers` | directory | long tail of tree-sitter MCPs: astllm-mcp, cerberus-mcp, code-cache-mcp, CodeSift (150 tools), codeweaver-mcp, cctx-mcp |
 | S10 | `https://github.com/sverklo/sverklo-bench` | third-party benchmark repo, MIT code / CC-BY-4.0 tasks | 150 hand-verified tasks (P1 definition lookup, P2 reference finding, P4 file dependencies, P5 dead code) over express 4.21.1, lodash 4.17.21, requests 2.32.3 (+ sverklo HEAD, flask 3.0.3); F1 with line tolerances; token cost = input tokens to the agent incl. tool results; jcm driven "MCP stdio via uvx", no version stated; results May 2026 (§3.1) |
 | S11 | `https://github.com/sverklo/sverklo/blob/main/BENCHMARKS.md` | competitor's own numbers | sverklo-only latency/size figures on five repos; no jcm row |
@@ -87,7 +87,7 @@ competitor's, and is weighted accordingly.
 
 ### 3.0 Reading the table
 
-Columns: distribution and licence as the registry reports them; current
+Columns: distribution and license as the registry reports them; current
 release with its date and the last release before it (cadence); activity =
 last push; *claims* = what the project says about itself on a STANDARD.md
 axis, verbatim or near it, unverified; *sandbox* = whether the tool can be
@@ -137,17 +137,17 @@ been re-run on a current release.
 ### 3.2 Candidates by category
 
 Stars and dates are from `gh api` on 2026-09-05. "NOASSERTION" is GitHub's
-value for a licence file it could not classify; the text is read in §5.
+value for a license file it could not classify; the text is read in §5.
 
 #### A. Other code-retrieval MCP servers (same lane)
 
-| Tool | What it is | Distribution, licence | Release, cadence | Activity | Claims on STANDARD axes | Sandbox |
+| Tool | What it is | Distribution, license | Release, cadence | Activity | Claims on STANDARD axes | Sandbox |
 |---|---|---|---|---|---|---|
 | **Serena** (oraios/serena) | LSP-backed semantic code toolkit exposed over MCP; find symbol / references / edits through a language server per language | PyPI `serena-agent` 1.7.0, MIT, Python >=3.11 <3.15; 28.9k stars | v1.7.0 2026-08-09, v1.6.1 2026-07-21 (≈monthly) | pushed 2026-09-05 | breadth: "40+ languages via LSP"; correctness: type-aware references/definitions; edits (out of our niche). No token or latency figure on its README as read | YES with toolchains: each language needs its server (pyright, typescript-language-server, gopls) installed before the network is cut; spawns child processes per session (the ROADMAP's "LSP-backed leader") |
 | **codebase-memory-mcp** (DeusData) | Persistent knowledge graph over tree-sitter symbols; single static binary; git-aware | PyPI `codebase-memory-mcp` 0.10.8, MIT, Python >=3.8; also a static binary; 42.3k stars | v0.10.8 2026-08-19, 0.10.7 2026-08-18 (near-daily) | pushed 2026-09-05 | claims: "155 languages", "sub-ms queries", "99% fewer tokens", 0.299 MRR (versus page); paper arXiv 2603.27277 claims 83% answer quality vs 92% file-exploration at 10x fewer tokens | YES: pip or binary, local SQLite; the "closest peer" per #290's reply and sverklo's table |
 | **code-review-graph** (tirth8205) | Local-first code intelligence graph, SQLite + FTS5 + RRF, optional embeddings; 28 tools | PyPI `code-review-graph` 2.3.8, MIT, Python >=3.10; 31.2k stars | v2.3.8 2026-08-21, v2.3.7 2026-07-18 (monthly) | pushed 2026-08-27 | claims: "~65x median token reduction (36x-376x)"; dev.to article "49x"; 23 languages | YES: pure pip as far as the README shows; UNKNOWN whether the optional embedding path downloads a model (would be disabled) |
 | **CodeGraph** (colbymchenry/codegraph) | Pre-indexed code knowledge graph for Claude Code, C implementation, framework-aware route nodes | GitHub releases, MIT; 69.7k stars | v1.6.0 2026-08-26, v1.5.0 2026-07-21 (monthly) | pushed 2026-08-31 | claims: "158 tree-sitter grammars", "92-94% Explore-agent tool-call reduction", "100% local" | PROBABLY: native binary; UNKNOWN install path (versus page says Cypher queries; sverklo lists "CodeGraphContext" on Neo4j as a *different* project) |
-| **GitNexus** (abhigyanpatwari) | Client-side knowledge graph, KuzuDB, browser UI, CLI | npm `gitnexus` 1.6.11, **PolyForm-Noncommercial-1.0.0**; 47.0k stars | v1.6.12-rc.2 2026-09-05 (release candidates weekly) | pushed 2026-09-05 | claims: 14 languages, Leiden community detection, execution-flow analysis | technically YES (npm, local); **licence question in §5** |
+| **GitNexus** (abhigyanpatwari) | Client-side knowledge graph, KuzuDB, browser UI, CLI | npm `gitnexus` 1.6.11, **PolyForm-Noncommercial-1.0.0**; 47.0k stars | v1.6.12-rc.2 2026-09-05 (release candidates weekly) | pushed 2026-09-05 | claims: 14 languages, Leiden community detection, execution-flow analysis | technically YES (npm, local); **license question in §5** |
 | **sverklo** (sverklo/sverklo) | Symbol graph + BM25 + embeddings + PageRank (RRF), git-pinned memory; 37 tools | GitHub releases (`.vsix` asset), MIT; 78 stars | v0.29.5 2026-08-12 | pushed 2026-08-12 | claims: "43x fewer tokens than naive grep"; F1 0.58 on its own bench | UNKNOWN: release asset is a VS Code extension; the MCP server's install path (npm?) not confirmed |
 | **SocratiCode** | "Enterprise-grade (40m+ LOC)" plugin/skill/extension, KuzuDB | GitHub, **AGPL-3.0**; 3.3k stars | v1.12.0 2026-08-14 | pushed 2026-09-05 | claims: cross-file resolution, 3 languages | UNKNOWN; AGPL |
 | **SigMap** (manojmallick) | Pre-ranks files by TF-IDF, writes signatures to a static `.context` file; MCP server | npm `sigmap` 8.29.0, MIT; 626 stars | v8.29.0 2026-09-01 (weekly) | pushed 2026-09-02 | claims: "96.8% token reduction across 21 repos", Zenodo-archived suite | YES (npm, zero deps) |
@@ -168,7 +168,7 @@ the set.
 
 #### C. grep and ripgrep style tools exposed to agents
 
-| Tool | What it is | Distribution, licence | Release | Activity | Claims | Sandbox |
+| Tool | What it is | Distribution, license | Release | Activity | Claims | Sandbox |
 |---|---|---|---|---|---|---|
 | **ripgrep** | the grep-top-3 baseline's engine | Unlicense; 68k stars | pushed 2026-08-04 | — | none | YES (already in the harness) |
 | **cymbal** (1broseidon) | language-agnostic code navigation CLI, tree-sitter to SQLite FTS5; Go, single binary; skips generated files | GitHub release tarballs per OS with checksums, MIT; 317 stars | v0.14.0 2026-06-20, v0.13.5 2026-05-19 | pushed 2026-09-03 | claims: "~10-40 ms query latency", 20 languages | YES (binary, offline) |
@@ -176,7 +176,7 @@ the set.
 
 #### D. Embedding and vector retrieval layers
 
-| Tool | What it is | Distribution, licence | Release | Activity | Claims | Sandbox |
+| Tool | What it is | Distribution, license | Release | Activity | Claims | Sandbox |
 |---|---|---|---|---|---|---|
 | **LangChain + FAISS + MiniLM** (our `run_rag_baseline.py`) | the in-tree RAG comparator | pip; already run here | — | — | measured (§1) | YES (already runs offline after the model is cached) |
 | **Claude Context** (zilliztech) | BM25 + dense vectors over Milvus | npm, MIT; 12.5k stars | — | pushed 2026-07-14 | broad languages | NO: external Milvus service |
@@ -186,7 +186,7 @@ the set.
 
 #### E. Repository-map generators
 
-| Tool | What it is | Distribution, licence | Release | Activity | Claims | Sandbox |
+| Tool | What it is | Distribution, license | Release | Activity | Claims | Sandbox |
 |---|---|---|---|---|---|---|
 | **Aider RepoMap** (Aider-AI/aider) | tree-sitter tags + PageRank, token-budgeted map; the paper-cited "graph-based" approach S8 says beats jcm on cross-file awareness | PyPI `aider-chat` 0.86.2, Apache-2.0, **Python >=3.10 <3.13**; 48.8k stars | — | **pushed 2026-05-22** (quiet 3.5 months) | claims (S2): "4.3-6.5% context utilization" in an empirical study | YES: `aider --show-repo-map` runs offline; the map is a ranked text, not a retrieval call, so only the token axis applies |
 | **Repomix** (yamadashy) | packs a repo into one file; `--compress` strips bodies via tree-sitter | npm `repomix` 1.18.0, MIT; 28.2k stars | v1.18.0 2026-08-08, v1.17.0 2026-07-21 (monthly) | pushed 2026-09-05 | claims: "50-80% fewer tokens where compression applies" | YES (npm) |
@@ -214,18 +214,18 @@ code retrieval.
 
 | Venue | Framing | Trade-offs stated | Axes the framing weighs |
 |---|---|---|---|
-| sverklo blog (S6, a competitor) | 12-server table; jcm = "tree-sitter symbol index, ~6 tools, 10+ languages, dual licence" | "their tree-sitter symbol indexing is sharper than ours"; jcm wins P1 | correctness per task type; licence; tool count; hosting |
+| sverklo blog (S6, a competitor) | 12-server table; jcm = "tree-sitter symbol index, ~6 tools, 10+ languages, dual licence" | "their tree-sitter symbol indexing is sharper than ours"; jcm wins P1 | correctness per task type; license; tool count; hosting |
 | sverklo-bench (S10) | 5 baselines incl. two greps | jcm best at definitions, zero at references, below smart-grep on deps | correctness (F1) per task category; tokens to the agent |
-| VirtusLab (S8, 2026-03) | a fair long review, now stale on facts | staleness of the index; no cross-file refs; "seven languages"; "500-file cap"; licence and telemetry | freshness (criterion 3), correctness (1), breadth (10), install/licence friction (6) |
+| VirtusLab (S8, 2026-03) | a fair long review, now stale on facts | staleness of the index; no cross-file refs; "seven languages"; "500-file cap"; license and telemetry | freshness (criterion 3), correctness (1), breadth (10), install/license friction (6) |
 | glama / conare / agentindex directories (S2, S9) | "alternatives" lists by keyword | "Context7 is the top-rated alternative" (a docs-retrieval tool, i.e. the directory's category is too coarse) | none measured |
 | #142 (a user) | native tools vs jcm, hard enforcement | jcm costs more on grep-shaped tasks; schema overhead dominates | tokens (2), tool-surface (4) |
 | #290 (a user) | "compare against these eight" | — | tokens (every one of the eight leads with a percentage) |
-| versus.php, wiki (ours) | prose verdicts | licence (GitNexus NC), setup burden (Serena), write tools, hosted backends | tokens, breadth, licence, install |
+| versus.php, wiki (ours) | prose verdicts | license (GitNexus NC), setup burden (Serena), write tools, hosted backends | tokens, breadth, license, install |
 
 What the market weighs, in the order the evidence supports: (1) a token
 percentage, quoted by every product and comparable across none of them;
 (2) correctness split by task type, where the one third-party benchmark puts
-us first on definitions and last on references; (3) licence and install
+us first on definitions and last on references; (3) license and install
 burden (PolyForm NC, LSP toolchains, Neo4j/Milvus/Docker); (4) freshness,
 raised by the one long-form review; (5) language count, marketed by the
 graph products. Latency appears as a marketed number (cymbal) and nowhere
@@ -282,7 +282,7 @@ A candidate enters the set when all hold: it answers at least the definition
 and reference tasks (so the null alternative and it share a task set,
 principle 1 and the task-fairness rule); it installs from a public registry or
 a checksummed release asset, pinned; it runs with no network after install,
-no account, no key, and no daemon that outlives the run; its licence permits
+no account, no key, and no daemon that outlives the run; its license permits
 running it for internal evaluation; and it is either what third parties
 compare us against or what users asked us to compare against (#290). Ties are
 broken toward the tool whose configuration is documented well enough to write
@@ -318,7 +318,7 @@ estimated.
 
 | Tool | Reason |
 |---|---|
-| GitNexus | PolyForm-Noncommercial-1.0.0. Running it to benchmark a commercially licensed product is plausibly "commercial use" and the licence's noncommercial grant is what the versus page criticises it for. **Human decision**: include only if the maintainer reads the licence and accepts, or obtains permission; recorded in FINDINGS at Phase 3. Third parties rank it below both greps on their bench, which lowers the cost of waiting. |
+| GitNexus | PolyForm-Noncommercial-1.0.0. Running it to benchmark a commercially licensed product is plausibly "commercial use" and the license's noncommercial grant is what the versus page criticises it for. **Human decision**: include only if the maintainer reads the license and accepts, or obtains permission; recorded in FINDINGS at Phase 3. Third parties rank it below both greps on their bench, which lowers the cost of waiting. |
 | Repomix | a pack, not a retrieval loop: it cannot answer a per-task query, so no task set is shared with the null alternative. Its `--compress` output is a whole-repo cost; reportable as a capability difference (one-shot context) if the set review wants it. |
 | sverklo (the tool) | 78 stars; install path unconfirmed (release asset is a `.vsix`). **Its benchmark tasks are adopted** in Phase 2 regardless (CC-BY-4.0), which is the part that matters. Re-evaluate at the set review. |
 | SigMap, Octocode, Code-Index-MCP, SocratiCode, GrapeRoot, trace-mcp, the S9 long tail | adoption below the set's floor, or (SocratiCode) AGPL plus a plugin shape, or (trace-mcp, Axon) no resolvable repository. The weekly feed watches the excluded list for a release; the quarterly review re-reads stars and pushes. |
@@ -334,7 +334,7 @@ estimated.
   set member schedules a re-run; a release from the excluded list is logged
   only.
 - **Quarterly** (first review 2026-12-05): re-read §3.2's registries for
-  stars, last push and licence; re-fetch S6, S9 and any new third-party
+  stars, last push and license; re-fetch S6, S9 and any new third-party
   comparison that names jCodeMunch; a tool added to the set or removed from it
   is one PR touching this file and FINDINGS.md, reviewed like any other.
 - **On trigger**: a third-party benchmark naming jCodeMunch beside a tool not

@@ -99,9 +99,9 @@ def _license_key() -> str:
 
 
 def licence_key_configured() -> bool:
-    """True when this install has a licence key (env or config), read locally.
+    """True when this install has a license key (env or config), read locally.
 
-    THE gate for every sales line we print (`init`'s licence line,
+    THE gate for every sales line we print (`init`'s license line,
     `install-pack`'s "Get a license"): jjg (DECISIONS 2026-10-20) promises paid
     clients they are never marketed to. ⚠ The key is only READ, never
     validated: validating would send it to validate.php from every `init`, a
@@ -227,6 +227,13 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
         lines.append("License: key present, not yet verified (license server unreachable)")
     elif status == "rejected":
         lines.append("License: key not recognized by the license server")
+        # A support pointer, not a sales one: a rejected key may be a paying
+        # customer's typo or a lapsed key (Chief of Staff's wording, 2026-10-20;
+        # the address the site already lists).
+        lines.append(
+            "  Check the key for a typo. If it should be valid, write to "
+            "j@gravelle.us and we'll sort it out."
+        )
     else:  # absent
         lines.append("License: no license key set")
 

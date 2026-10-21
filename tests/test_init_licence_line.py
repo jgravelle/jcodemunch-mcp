@@ -1,6 +1,6 @@
-"""One licence line in the human-read output of `init` and `install` (jjg, DECISIONS 2026-10-17).
+"""One license line in the human-read output of `init` and `install` (jjg, DECISIONS 2026-10-17).
 
-jjg approved Marketing's licence line "only as a line in the install/init
+jjg approved Marketing's license line "only as a line in the install/init
 output a person reads, not in the agent's answers". `install <agent>` is
 sugar for `run_init`, so the print at the end of `run_init`'s real-run branch
 covers both. ⚠⚠ The load-bearing half is the absence: the text must never
@@ -49,7 +49,7 @@ def test_a_real_run_ends_with_the_licence_line_after_done(quiet_init, capsys):
     lines = [ln for ln in out.splitlines() if ln.strip()]
     done = next(i for i, ln in enumerate(lines) if ln.startswith("Done."))
     tail = "\n".join(lines[done + 1:])
-    assert "Using jCodeMunch at work? A commercial licence is $79, one time:" in tail
+    assert "Using jCodeMunch at work? A commercial license is $79, one time:" in tail
     assert "https://jcodemunch.com/descriptions.php" in tail
     assert "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)" in tail
     assert out.count("descriptions.php") == 1

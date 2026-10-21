@@ -168,7 +168,7 @@ def test_list_packs_names_the_upstream_licence(mock_httpx, capsys):
     ])
     assert _list_packs() == 0
     out = capsys.readouterr().out
-    assert "Upstream licence: BSD-3-Clause, MIT" in out, "deduped and sorted"
+    assert "Upstream license: BSD-3-Clause, MIT" in out, "deduped and sorted"
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
@@ -179,7 +179,7 @@ def test_list_packs_silent_when_catalog_has_no_licences(mock_httpx, capsys):
         {"id": "nodejs", "name": "Node", "symbols": 100, "free": True},
     ])
     assert _list_packs() == 0
-    assert "Upstream licence" not in capsys.readouterr().out
+    assert "Upstream license" not in capsys.readouterr().out
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
@@ -229,7 +229,7 @@ def _mock_error_response(error_msg: str, extra: dict | None = None):
 def test_install_extracts_and_reports_the_upstream_licences(
     mock_httpx, tmp_path, monkeypatch, capsys
 ):
-    """The licence text must land on disk and be pointed at, not merely bundled.
+    """The license text must land on disk and be pointed at, not merely bundled.
 
     A pack redistributes third-party source; the terms travel with it, and the
     user should not have to go looking to find out what they are.
@@ -253,7 +253,7 @@ def test_install_extracts_and_reports_the_upstream_licences(
     assert _install_pack("nodejs", base_path=tmp_path) == 0
 
     landed = tmp_path / "licenses" / "nodejs-node" / "LICENSE"
-    assert landed.exists(), "licence text must be extracted, not just carried"
+    assert landed.exists(), "license text must be extracted, not just carried"
     assert landed.read_bytes().startswith(b"Node.js is licensed")
 
     out = capsys.readouterr().out

@@ -13,7 +13,7 @@ one nobody had thought to write a fixture for -- guarded DDL (`add_index.sql`,
 ⚠ The fixtures are VENDORED, under `fixtures/sql_corpora/`, and these tests
 never touch the network. A test that reaches out fails for reasons unrelated to
 the change under review and cannot run in an air-gapped checkout at all. See
-`fixtures/sql_corpora/SOURCES.md` for upstream projects and licences;
+`fixtures/sql_corpora/SOURCES.md` for upstream projects and licenses;
 `fixtures/public_sql_corpora.json` records, per file, the upstream repository,
 ref, path and the sha256 of the artifact each was taken from.
 
@@ -113,7 +113,7 @@ def test_manifest_expectations_are_not_empty():
 
 def test_provenance_is_recorded_for_every_vendored_file():
     """Vendored third-party code without provenance is unattributable, and the
-    licences here (MIT / BSD-2-Clause) require the attribution to be kept."""
+    licenses here (MIT / BSD-2-Clause) require the attribution to be kept."""
     sources = (CORPORA / "SOURCES.md").read_text(encoding="utf-8")
     for source in _manifest()["sources"]:
         assert source["repo"] in sources, f"{source['repo']} missing from SOURCES.md"

@@ -134,12 +134,26 @@ This server runs the **front door** surface: three tools reach every jCodeMunch 
 
 
 def _effective_tool_surface() -> str:
-    """The tool surface this install will actually serve ("full" or "counter")."""
+    """The tool surface this install will actually serve ("full" or "counter").
+
+    ⚠ Resolved by `counter.resolve_tool_surface`, the authority the server and
+    the hooks use: a blank env value is unset and an unrecognized one serves
+    "full". This reader used to return the raw env value, so a whitespace-only
+    `JCODEMUNCH_TOOL_SURFACE` read as "" here while the server served the
+    configured `counter`, and `init` wrote the direct-tool policy for a
+    front-door install. The env decides before config is imported at all.
+    """
+    from ..counter import resolve_tool_surface
+
+    env = os.environ.get("JCODEMUNCH_TOOL_SURFACE")
+    if (env or "").strip():
+        return resolve_tool_surface(env, None)[0]
     try:
         from ..config import get as cfg_get
-        env = os.environ.get("JCODEMUNCH_TOOL_SURFACE")
-        return (env or cfg_get("tool_surface", "full") or "full").strip().lower()
+
+        return resolve_tool_surface(None, cfg_get("tool_surface", "full"))[0]
     except Exception:
+        logger.debug("tool_surface resolution failed; serving full", exc_info=True)
         return "full"
 
 
