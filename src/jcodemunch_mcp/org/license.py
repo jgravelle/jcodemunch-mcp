@@ -207,8 +207,9 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     the network. The contract that matters for a paying customer:
 
     * A valid key reads as **licensed**, never "unlicensed" — even on a Builder
-      tier that doesn't include org-rollup (org-rollup is framed as an optional
-      team add-on, not a deficiency, with no trial countdown).
+      tier that doesn't include org-rollup, which is stated as a plain fact
+      with no trial countdown and no upgrade link.
+    * Only an install with no key at all is shown where to get a license.
     * A key that merely couldn't be verified (server unreachable) reads as
       "present, not yet verified", never "not recognized".
     * Core indexing/search are stated as free so nobody thinks the product is
@@ -236,19 +237,21 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     if mode == "licensed":
         lines.append("  org-rollup: included in your tier")
     elif key_valid:
-        # Valid but non-team tier (e.g. Builder): licensed; org-rollup is an
-        # optional upgrade, not a deficiency — no evaluation countdown shown.
-        lines.append("  org-rollup: optional team add-on — requires Studio or Platform")
+        # Valid but non-team tier (e.g. Builder): licensed. A neutral fact, no
+        # upgrade pitch and no countdown: paid clients are never marketed to
+        # (jjg, DECISIONS 2026-10-20; the Chief of Staff's wording).
+        lines.append("  Team features (org-rollup): not included in your license")
     elif mode == "grace":
         lines.append(f"  org-rollup: {gate.get('grace_days_left')} day(s) evaluation left (team feature)")
     else:  # blocked, no valid key
         lines.append("  org-rollup: evaluation ended (team feature)")
 
-    if gate.get("get_license"):
-        if key_valid:
-            lines.append(f"  Upgrade for org-rollup: {gate['get_license']}")
-        else:
-            lines.append(f"  Get a license: {gate['get_license']}")
+    # The pricing link is shown only when no key is set at all. A key that is
+    # valid, unverified (server unreachable) or rejected may belong to a paying
+    # customer, so it gets no sales link: the same "any key, no sales line" rule
+    # as `licence_key_configured`, erring toward not selling.
+    if gate.get("get_license") and status == "absent":
+        lines.append(f"  Get a license: {gate['get_license']}")
 
     lines.append("  Core indexing and search are free and need no license.")
     if status == "unverified_offline":

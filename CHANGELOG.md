@@ -23,6 +23,15 @@ key and a `--license` key.
 
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 
+The `license` status command followed the same rule. A valid Builder key, whose tier
+does not include the team rollup, was told "org-rollup: optional team add-on,
+requires Studio or Platform" with an "Upgrade for org-rollup" link. It now reads
+"Team features (org-rollup): not included in your license", with no link. The
+pricing link is shown only to an install with no key at all: a key that is
+unverified (the license server was unreachable) or rejected may still belong to a
+paying customer, so it gets none either. `tests/test_v1_108_122.py` pins all four
+key states.
+
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
 
 The AI summary prompt sent each symbol's signature only, so for undocumented
