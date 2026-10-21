@@ -318,6 +318,9 @@ Push-to-talk via Enter key. Caps answers to ~100 words for natural spoken delive
 
 Generate a narrated explainer video for any codebase in a single command.
 
+Needs Python 3.11 or newer: the extra installs Pillow only there, because no
+Pillow release for Python 3.10 has the current security fixes.
+
 ```bash
 pip install "jcodemunch-mcp[groq-explain]"
 

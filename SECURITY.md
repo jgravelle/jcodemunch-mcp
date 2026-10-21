@@ -481,7 +481,7 @@ deployments. For the base package alone, none of these surfaces are introduced.
 | `[openai]` | `openai` SDK | outbound HTTPS to `api.openai.com` (or `OPENAI_API_BASE`) when AI summaries are enabled |
 | `[groq]` | `openai` SDK | outbound HTTPS to Groq endpoints; used by the `gcm` CLI and speedreview Action |
 | `[groq-voice]` | `sounddevice`, `numpy` | **microphone access** — `sounddevice.InputStream` opens the system audio device when the voice path is invoked |
-| `[groq-explain]` | `Pillow` | image decode / re-encode of attached screenshots |
+| `[groq-explain]` | `Pillow` (Python 3.11+ only; not installed on 3.10, where no patched Pillow exists) | image decode / re-encode of attached screenshots |
 | `[all]` | union of all the above | union of all surfaces above, including microphone (`[groq-voice]`) and image libraries (`[groq-explain]`) |
 
 For managed-endpoint deployments where microphone access on developer machines
