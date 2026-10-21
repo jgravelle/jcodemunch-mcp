@@ -17,6 +17,8 @@ timestamped backups from the whole name and is unchanged.) `tests/test_backup_is
 checks both Windsurf paths and the helper, and fails on any `with_suffix` call
 that builds a `.bak` name under `cli/`.
 
+## [1.108.390] - 2026-10-21 - the local embedding model is pinned and checked before it is used
+
 ### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
 
 `download-model`, and the first semantic encode with the `[local-embed]` extra,
