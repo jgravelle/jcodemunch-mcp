@@ -64,7 +64,7 @@ leads with, verbatim from the page (none verified here):
 | mcp-server-filesystem | 13 filesystem ops, no AST | tokens, symbol awareness |
 | RepoMapper | 34+ languages, PageRank token-budgeted map | tokens, breadth |
 | Pharaoh | TS + Python only, $27/mo Pro, Neo4j | breadth, cost, install |
-| GitNexus | 14 languages, 45.8k stars (2026-08-26), PolyForm NC | breadth, licence |
+| GitNexus | 14 languages, 45.8k stars (2026-08-26), PolyForm NC | breadth, license |
 | Serena | 40+ languages via LSP, Python 3.13, edit tools | breadth, install, edits |
 | Graft (NanoNets) | 22 languages, 6 tools, 33/50 SWE-bench Verified | correctness, surface size |
 | GrapeRoot / Dual-Graph | 30-45% cost reduction, 37.7% fewer turns | tokens |

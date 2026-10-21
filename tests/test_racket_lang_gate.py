@@ -388,11 +388,11 @@ def test_lang_after_a_block_comment_is_still_seen_by_the_gate():
     """`#lang` may follow comment forms, and `#| |#` is one. openssl/mzssl.rkt
     opens with a 900-byte block comment; its lang was invisible, so the file
     read as `#lang`-less. Harmless there (the default reader either way);
-    NOT harmless for a document lang behind a licence block, which would
+    NOT harmless for a document lang behind a license block, which would
     have been read as S-expressions -- the fabrication the gate exists for."""
     from jcodemunch_mcp.parser.extractor import _racket_lang_of
     assert _racket_lang_of(b"#| license |#\n\n#lang scribble/manual\n") == ("scribble/manual", None)
     assert _racket_lang_of(b";; c\n#| a |# #| b |#\n#lang at-exp racket\n") == ("at-exp", "racket")
-    # Non-vacuity: a block comment that never closes is not a licence header.
+    # Non-vacuity: a block comment that never closes is not a license header.
     assert _racket_lang_of(b"#| open\n#lang racket\n") == (None, None)
     assert _racket_tier(b"#| license |#\n#lang scribble/manual\n(define (x) 1)\n", None)[0] == "text"

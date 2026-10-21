@@ -124,7 +124,7 @@ def test_index_past_the_size_cap_is_briefed_from_stats(tree):
 
 def test_unknown_size_is_not_hydrated(tree):
     """No symbol_count is UNKNOWN, never small: an unknown size is not a
-    licence to put a hydration of unknown cost on the startup path."""
+    license to put a hydration of unknown cost on the startup path."""
     for e in tree["repos"]:
         if e["repo"] == "local/project-a":
             e.pop("symbol_count")

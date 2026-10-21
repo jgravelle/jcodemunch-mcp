@@ -21,15 +21,85 @@ the policy's own spelling, with a pointer to `menu` for argument templates; on
 authority the server uses (a blank env value is unset, an unknown one serves
 `full`); the session briefing read it the same way and now shares that one
 reader. It never builds the tool list or imports the server, because it runs on
-every tool call. Found by Benchmarking while designing the M4 default-install
-measurement on 1.108.386, which measures the release as shipped.
+every tool call.
 `tests/test_steering_names_only_published_tools.py` drives every emitting path
 through `run_pretooluse` (Grep, Glob, Bash and Read, advisory and strict) and
 requires every catalog tool named as a direct call to be one the surface
 publishes; with only the Read change reverted it fails. A fresh interpreter
 checks that the hook path imports no server module.
 
+## [1.108.388] - 2026-10-21 - the license names jMunch, LLC, and the product says "license"
+
+### Changed - "license", spelled the American way, and a way forward for a rejected key
+
+The product said "licence" in places its buyers read: `init`'s closing line ("A
+commercial licence is $79") and `install-pack`'s "Upstream licence:" lines,
+plus docs, comments and test text. They now say "license", which
+is also how the LICENSE file and every other line already spelled it.
+Identifiers are left as they are (`_LICENCE_LINES`, `licence_key_configured`, the
+`test_init_licence_line.py` file and its test names), because renaming them is
+a code change, not a spelling one; so are quotations of other people's words,
+released CHANGELOG blocks and history, test fixtures, and the dependency
+indexer's pattern that must still find a file named LICENCE.
+
+`jcodemunch-mcp license` with a key the license server rejects used to stop at
+"key not recognized by the license server", which left a paying customer with a
+typo, or a lapsed key, nowhere to go. It now adds "Check the key for a typo. If
+it should be valid, write to j@gravelle.us and we'll sort it out.", the address
+the site already lists. It is a support pointer, not a sales line, and it shows
+for a rejected key only.
+
+### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
+
+`LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
+Gravelle, and its header moves to version 1.2, effective 2026-10-21.
+The terms are unchanged: what anyone may do with the software, and
+under which conditions, is word for word what version 1.1 said. That is why
+this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
+tracks the major version and stays as it is, so nobody who allowlists the
+license by that identifier has to approve it again. The condition that the
+original author's name (J. Gravelle) remain intact stays, because authorship
+does not move when a copyright is assigned. The digest pin in
+`tests/test_license_identifier_agreement.py` moves to the new text, as that
+test requires for any edit.
+
+## [1.108.387] - 2026-10-21 - a licensed install is not shown a sales line
+
+### Fixed - a licensed install is not shown a sales line
+
+`init` ended every real run with "Using jCodeMunch at work? A commercial
+license is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a license key. A paying
+customer was being sold the thing they had bought, and jMunch promises paid
+clients they are never marketed to (jjg, 2026-10-20). Both lines now print
+only when no key is configured (for `install-pack --list`, a key passed with
+`--license` counts too). `org.license.licence_key_configured` is the one gate: it reads the key from `JCODEMUNCH_LICENSE_KEY` or the `license_key`
+config value and never validates it, because validating would send the key
+to `validate.php` from every `init`, a network call `init` has never made. A
+key that later proves invalid still suppresses the lines, which errs toward
+not selling. `tests/test_init_licence_line.py` covers a key from the
+environment, a key from the config, a blank key (still unlicensed) and a run
+that records every network call and requires none (recorded, not refused:
+the validator's own `except Exception` would swallow a raise);
+`tests/test_install_pack.py` covers the listing with no key, a configured
+key and a `--license` key.
+
+The `license` command follows the same rule. Its pricing link prints only when
+no key is set at all, in the text and in `license --json` (whose `get_license`
+is null for any key holder), and a valid Builder key reads "Team features
+(org-rollup): not included in your license" instead of an upgrade pitch.
+
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
+
+The `license` status command followed the same rule. A valid Builder key, whose tier
+does not include the team rollup, was told "org-rollup: optional team add-on,
+requires Studio or Platform" with an "Upgrade for org-rollup" link. It now reads
+"Team features (org-rollup): not included in your license", with no link. The
+pricing link is shown only to an install with no key at all: a key that is
+unverified (the license server was unreachable) or rejected may still belong to a
+paying customer, so it gets none either; `license --json` follows the same rule,
+returning `get_license: null` for any key holder. `tests/test_v1_108_122.py` pins
+all four key states in both renderings.
 
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
 

@@ -145,7 +145,7 @@ def _route_violations(text: str) -> list[str]:
         if not pcts:
             continue
         if ROUTE_ID in s:
-            # Round 2: naming the id is not a licence for any number beside it.
+            # Round 2: naming the id is not a license for any number beside it.
             if all(p in allowed for p in pcts):
                 continue
             bad.append(s)

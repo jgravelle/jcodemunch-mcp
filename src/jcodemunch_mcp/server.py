@@ -10759,7 +10759,8 @@ def main(argv: Optional[list[str]] = None):
             os.environ["JCODEMUNCH_LICENSE_KEY"] = key  # validate this key for this run
         gate = check_gate()
         if getattr(args, "json", False):
-            print(json.dumps(gate, indent=2))
+            from .org.license import license_status_json
+            print(json.dumps(license_status_json(gate), indent=2))
         else:
             from .org.license import format_license_status
             for line in format_license_status(gate, key_provided=bool(key)):
