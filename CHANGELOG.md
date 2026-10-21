@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
+
+### Changed - the startup note says the repo is indexed, and how big it is
+
+The server's MCP instructions, which are often the only jcodemunch text an
+agent reads, opened with "This repo can be indexed by jcodemunch" even when it
+already was, which reads as setup still to do. On the stdio transport, where
+the server runs in the user's project, startup now asks whether that directory
+is indexed. If it is, the note opens "This repo is indexed by jcodemunch
+(N files)", so the agent knows the index is ready and can judge the
+repository's size for itself. The guidance for small repositories is
+unchanged. The note counts an index only when it was built from this
+directory or one containing it, so a second checkout of an indexed project
+isn't told it's indexed. The lookup is the one `resolve_repo` runs, with no
+network call, and startup waits at most 1.5 seconds for it. If it can't
+establish an index (not indexed, a different working tree, an error, or the
+time limit), the note keeps the old wording, as do the SSE and
+streamable-http transports, where the server's directory is not the
+caller's. SECURITY.md lists what that lookup can touch on disk.
+
+### Changed - the core tools load up front in clients that defer MCP tools
+
+Claude Code defers every MCP tool by default. The model sees each tool's name
+and the server's instructions, and gets a tool's schema only after it calls
+ToolSearch. An agent that already has Grep loaded rarely makes that call, so on
+a default setup jcodemunch's tools could sit unused for a whole session.
+
+The tool list now marks the tools the server's instructions tell the agent to
+start with as `_meta["anthropic/alwaysLoad"]: true`, the per-tool switch Claude
+Code documents for server authors. Those are `route`, `menu` and `order` on the
+default `counter` surface, and `resolve_repo`, `get_ranked_context`,
+`search_symbols`, `get_file_outline`, `get_symbol_source` and
+`find_references` on `full`. The marked set is read from the same list the
+instructions use, so the two can't disagree. A tool removed by `disabled_tools`
+or the active profile is never re-added. Clients that don't know the key
+ignore it. To keep jcodemunch fully deferred, set `"alwaysLoad": false` on its
+entry in `.mcp.json`.
+
+The PreToolUse hook's advice on the `counter` surface now also says how to
+load `order` when it isn't loaded yet (`ToolSearch "select:mcp__jcodemunch__order"`),
+for a user who turned the up-front load off or a client that ignores it.
+
+The cost is prompt size. On a deferring client the marked tools' descriptions
+and schemas are now part of every request: 2,480 bytes on `counter`, and
+13,168 bytes on `full`. After the first request they are read from the prompt
+cache. On upgrade the first request of a session writes that cache once. The
+published tool definitions themselves are unchanged, byte for byte.
+
 ### Fixed - `init` reads the tool surface the way the server serves it
 
 `init` and the policy writer pick the counter policy or the direct-tool policy

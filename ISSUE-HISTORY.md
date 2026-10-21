@@ -2848,3 +2848,13 @@ The 1.108.385 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.385 count, verbatim:
 
 - ⚠ Prior (1.108.385): 18145 passed, 25 skipped, **0 failed** (18170 total).
+
+## Current State rotation (2026-10-21, release 1.108.389)
+
+The 1.108.386 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.386):** **the AI summary prompt can carry each symbol's own source, opt-in** (#1175, #1179, @skibadubskiybadubs): `summarizer_body_chars` (default 0) adds up to that many characters of the symbol's INDEXED text plus its decorators to the prompt; a non-local provider gets them only with `allow_remote_summarizer`; redaction runs before the cut. Also #1177 (Flask `methods=` read by `decorator-routes`) #1178 (`Context:` lines in first-seen order), and L-227 (#1182: the deferred summary writes one column). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.386 count, verbatim:
+
+- ⚠ Prior (1.108.386): 18265 passed, 25 skipped, **0 failed** (18290 total).
