@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
+
+`LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
+Gravelle, and its header moves to version 1.2, effective 2026-10-20 (J,
+2026-10-20). The terms are unchanged: what anyone may do with the software, and
+under which conditions, is word for word what version 1.1 said. That is why
+this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
+tracks the major version and stays as it is, so nobody who allowlists the
+license by that identifier has to approve it again. The condition that the
+original author's name (J. Gravelle) remain intact stays, because authorship
+does not move when a copyright is assigned. The digest pin in
+`tests/test_license_identifier_agreement.py` moves to the new text, as that
+test requires for any edit.
+
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
