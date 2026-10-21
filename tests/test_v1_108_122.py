@@ -168,6 +168,26 @@ def test_license_json_keeps_the_link_for_a_keyless_install():
     assert lic.license_status_json(gate)["get_license"] == "https://x/#pricing"
 
 
+_SUPPORT = "Check the key for a typo. If it should be valid, write to j@gravelle.us and we'll sort it out."
+
+
+def test_a_rejected_key_is_given_a_support_pointer_not_a_sales_one():
+    """A rejected key may be a paying customer's typo or a lapsed key: it gets a
+    way forward that sells nothing (Chief of Staff, 2026-10-20)."""
+    out = _text({"mode": "grace", "key_status": "rejected", "tier": None, "key_masked": "BAD…9999",
+                 "get_license": "https://x/#pricing", "grace_days_left": 14, "key_valid": False})
+    assert _SUPPORT in out
+    assert "https://x/#pricing" not in out
+
+
+@pytest.mark.parametrize("status", ["valid", "unverified_offline", "absent"])
+def test_only_a_rejected_key_sees_the_support_pointer(status):
+    out = _text({"mode": "grace", "key_status": status, "tier": "builder" if status == "valid" else None,
+                 "key_masked": "", "get_license": "https://x/#pricing", "grace_days_left": 14,
+                 "key_valid": status == "valid"})
+    assert "j@gravelle.us" not in out
+
+
 def test_a_keyless_install_is_shown_where_to_get_a_license():
     out = _text({"mode": "grace", "key_status": "absent", "tier": None, "key_masked": "",
                  "get_license": "https://x/#pricing", "grace_days_left": 14, "key_valid": False})

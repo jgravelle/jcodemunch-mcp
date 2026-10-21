@@ -9,7 +9,7 @@ invokes:  nothing but the filesystem: the pinned checkouts in corpora.py's
           cache, read with `git ls-files` for the file set; no network, no
           competitor, no jcodemunch
 produces: tasks/lodash.json, tasks/requests.json, tasks/express.json, each
-          task carrying `source` = the sverklo-bench commit, its licence and
+          task carrying `source` = the sverklo-bench commit, its license and
           the rule that produced the expected set
 refuses:  a hand-given P1 line that does not carry the symbol's definition
           at our SHA (the line moved: the task would grade every tool

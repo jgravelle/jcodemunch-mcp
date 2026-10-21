@@ -8,7 +8,7 @@ rewrites the `expected` block of `tests/fixtures/public_sql_corpora.json`.
 vendored now, because a test that reaches out fails for reasons unrelated to
 the change under review and cannot run in an air-gapped checkout at all.
 Provenance -- upstream repo, ref, path and the sha256 of the artifact each file
-came from -- stays in the manifest, and the licences are in
+came from -- stays in the manifest, and the licenses are in
 `tests/fixtures/sql_corpora/SOURCES.md`.
 
     python benchmarks/remeasure_sql_corpora.py           # show what moved

@@ -2,11 +2,30 @@
 
 ## [Unreleased]
 
+### Changed - "license", spelled the American way, and a way forward for a rejected key
+
+The product said "licence" in places its buyers read: `init`'s closing line ("A
+commercial licence is $79") and `install-pack`'s "Upstream licence:" lines,
+plus docs, comments and test text. They now say "license" (J, 2026-10-20), which
+is also how the LICENSE file and every other line already spelled it.
+Identifiers are left as they are (`_LICENCE_LINES`, `licence_key_configured`, the
+`test_init_licence_line.py` file and its test names), because renaming them is
+a code change, not a spelling one; so are quotations of other people's words,
+released CHANGELOG blocks and history, test fixtures, and the dependency
+indexer's pattern that must still find a file named LICENCE.
+
+`jcodemunch-mcp license` with a key the license server rejects used to stop at
+"key not recognized by the license server", which left a paying customer with a
+typo, or a lapsed key, nowhere to go. It now adds "Check the key for a typo. If
+it should be valid, write to j@gravelle.us and we'll sort it out.", the address
+the site already lists. It is a support pointer, not a sales line, and it shows
+for a rejected key only.
+
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
-licence is $79", and `install-pack`'s catalog listing ended with "Get a
-license", whether or not the install already had a licence key. A paying
+license is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a license key. A paying
 customer was being sold the thing they had bought, and jMunch promises paid
 clients they are never marketed to (jjg, 2026-10-20). Both lines now print
 only when no key is configured (for `install-pack --list`, a key passed with

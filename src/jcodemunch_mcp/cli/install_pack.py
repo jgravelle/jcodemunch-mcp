@@ -304,7 +304,7 @@ def _list_packs(licensed: bool = False) -> int:
         licenses = pack.get("licenses") or []
         spdx = sorted({l.get("spdx", "") for l in licenses if l.get("spdx")})
         if spdx:
-            print(f"           {_DIM}Upstream licence: {', '.join(spdx)}{_RESET}")
+            print(f"           {_DIM}Upstream license: {', '.join(spdx)}{_RESET}")
         print(f"           jcodemunch-mcp install-pack {pack_id}")
         if download_url:
             print(f"           {_DIM}{download_url}{_RESET}")
@@ -515,11 +515,11 @@ def _install_pack(
                 print(f"    - {repo_name}")
         print()
 
-    # The pack carries each upstream's licence verbatim. Say where it landed and
+    # The pack carries each upstream's license verbatim. Say where it landed and
     # under what terms, so the answer does not depend on the user going looking.
     licenses = (manifest_data or {}).get("licenses") or []
     if licenses:
-        print("  Upstream licences (shipped with the pack):")
+        print("  Upstream licenses (shipped with the pack):")
         for entry in licenses:
             spdx = entry.get("spdx") or "see file"
             print(f"    - {entry.get('repo', '?')}: {spdx}")

@@ -1298,19 +1298,19 @@ def _prompt_scope(message: str) -> Optional[str]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-#: jjg (DECISIONS 2026-10-17): the licence line belongs "in the install/init
+#: jjg (DECISIONS 2026-10-17): the license line belongs "in the install/init
 #: output a person reads, not in the agent's answers". ⚠⚠ Printed only at the
 #: end of a real run, never in a tool response, a relayed notice or the policy
 #: text; `tests/test_init_licence_line.py` fails if any other `src/` module
 #: carries it. Wording is Marketing's (2026-10-17); $79 is Builder, README's price.
 _LICENCE_LINES = (
-    "Using jCodeMunch at work? A commercial licence is $79, one time: https://jcodemunch.com/descriptions.php",
+    "Using jCodeMunch at work? A commercial license is $79, one time: https://jcodemunch.com/descriptions.php",
     "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)",
 )
 
 
 def _licence_key_configured() -> bool:
-    """A licensed install never sees the licence line (`org.license.licence_key_configured`)."""
+    """A licensed install never sees the license line (`org.license.licence_key_configured`)."""
     from ..org.license import licence_key_configured
 
     return licence_key_configured()
