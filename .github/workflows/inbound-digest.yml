@@ -14,9 +14,9 @@
 #           label or comment on anything else
 name: inbound digest
 
+# No schedule: the weekly digest is produced outside this repository and is
+# not posted as a public issue. The workflow stays runnable by hand.
 on:
-  schedule:
-    - cron: "45 6 * * 1"
   workflow_dispatch:
     inputs:
       week_of:
