@@ -1047,7 +1047,7 @@ before/after delta on the SAME job is the only signal.
    goes on the END.
    ⚠ **Measure a wait, never estimate it.** I reported this as "two suite runs,
    that's the whole 40 minutes"; 2x13 is 26, and jjg did the arithmetic.
-11. **A release does not end at the registry — reinstall and RESTART locally**
+11. **A release does not end at the registry — UPGRADE then RESTART locally**
    (2026-08-29). We develop jcodemunch using jcodemunch, and this box ran
    **1.108.293 against a 1.108.307 tree: fourteen releases, six days.** The
    checklist's eight steps are complete with respect to USERS and silent with
@@ -1059,5 +1059,6 @@ before/after delta on the SAME job is the only signal.
    path routed AROUND the product** — every fix that week was checked with
    `PYTHONPATH=src` rather than through the server, and nobody decided that.
    ⚠ `install-status` reports `source_drift` now (tri-state; UNKNOWN never
-   `False`), and all five packages are EDITABLE, so only the restart can drift.
+   `False`). ⚠⚠ **A restart serves what the launcher has installed**: on 10-21
+   system Python held .380 after .387 shipped. Upgrade it first.
    `scripts/repair-munch-installs.ps1` repairs it; `-Apply` stops every j*munch server first.
