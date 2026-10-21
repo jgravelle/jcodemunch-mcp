@@ -154,7 +154,7 @@ Chrome/JS dependencies) do not apply to SWE-bench **Verified**, which is
 Python-only across twelve repos. One published comparison found 11 of 11
 instances identical between native arm64 and emulated x86_64, with a single
 sphinx discrepancy traced to a package version rather than the harness. **That
-is n=11 and it is not a licence to grade on arm** — it is the reason arm is a
+is n=11 and it is not a license to grade on arm** — it is the reason arm is a
 fallback rather than a refusal.
 
 ⚠⚠ **The 200-to-300 instance run cannot happen on any machine we own.** Whatever

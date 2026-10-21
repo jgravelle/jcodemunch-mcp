@@ -105,7 +105,9 @@ def test_render_valid_builder_reads_as_licensed_not_unlicensed():
     assert "unlicensed" not in out.lower()
     assert "trial" not in out.lower()
     assert "evaluation" not in out.lower()          # no scary countdown
-    assert "optional team add-on" in out
+    # A neutral fact, no pitch (jjg, 2026-10-20: paid clients are never marketed to).
+    assert "Team features (org-rollup): not included in your license" in out
+    assert "https://" not in out and "Upgrade" not in out and "Studio" not in out
     assert "free and need no license" in out
 
 
@@ -138,6 +140,58 @@ def test_render_no_key_and_rejected_are_honest():
                       "key_masked": "BAD…9999", "get_license": "https://x/#pricing",
                       "grace_days_left": 14, "key_valid": False})
     assert "not recognized by the license server" in rejected
+
+
+@pytest.mark.parametrize("status", ["valid", "unverified_offline", "rejected"])
+def test_any_key_holder_is_shown_no_pricing_link(status):
+    """jjg, DECISIONS 2026-10-20: paid clients are never marketed to. Any key may
+    be a paying customer's, so only a keyless install sees where to buy."""
+    out = _text({"mode": "grace", "key_status": status, "tier": "builder" if status == "valid" else None,
+                 "key_masked": "JCM…CCCC", "get_license": "https://x/#pricing",
+                 "grace_days_left": 14, "key_valid": status == "valid"})
+    assert "https://x/#pricing" not in out and "Get a license" not in out, out
+
+
+@pytest.mark.parametrize("status", ["valid", "unverified_offline", "rejected"])
+def test_license_json_gives_a_key_holder_no_pricing_link(status):
+    """`license --json` is the same command: the text and JSON renderings agree."""
+    gate = {"mode": "grace", "key_status": status, "get_license": "https://x/#pricing",
+            "reason": "r", "tier": None, "grace_days_left": 14}
+    out = lic.license_status_json(gate)
+    assert out["get_license"] is None
+    assert {k: v for k, v in out.items() if k != "get_license"} == {k: v for k, v in gate.items() if k != "get_license"}
+    assert gate["get_license"] == "https://x/#pricing"  # the gate itself is not mutated
+
+
+def test_license_json_keeps_the_link_for_a_keyless_install():
+    gate = {"mode": "grace", "key_status": "absent", "get_license": "https://x/#pricing"}
+    assert lic.license_status_json(gate)["get_license"] == "https://x/#pricing"
+
+
+_SUPPORT = "Check the key for a typo. If it should be valid, write to j@gravelle.us and we'll sort it out."
+
+
+def test_a_rejected_key_is_given_a_support_pointer_not_a_sales_one():
+    """A rejected key may be a paying customer's typo or a lapsed key: it gets a
+    way forward that sells nothing (Chief of Staff, 2026-10-20)."""
+    out = _text({"mode": "grace", "key_status": "rejected", "tier": None, "key_masked": "BAD…9999",
+                 "get_license": "https://x/#pricing", "grace_days_left": 14, "key_valid": False})
+    assert _SUPPORT in out
+    assert "https://x/#pricing" not in out
+
+
+@pytest.mark.parametrize("status", ["valid", "unverified_offline", "absent"])
+def test_only_a_rejected_key_sees_the_support_pointer(status):
+    out = _text({"mode": "grace", "key_status": status, "tier": "builder" if status == "valid" else None,
+                 "key_masked": "", "get_license": "https://x/#pricing", "grace_days_left": 14,
+                 "key_valid": status == "valid"})
+    assert "j@gravelle.us" not in out
+
+
+def test_a_keyless_install_is_shown_where_to_get_a_license():
+    out = _text({"mode": "grace", "key_status": "absent", "tier": None, "key_masked": "",
+                 "get_license": "https://x/#pricing", "grace_days_left": 14, "key_valid": False})
+    assert "Get a license: https://x/#pricing" in out
 
 
 # --------------------------------------------------------------------------- #

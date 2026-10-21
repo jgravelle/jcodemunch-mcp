@@ -98,6 +98,19 @@ def _license_key() -> str:
         return ""
 
 
+def licence_key_configured() -> bool:
+    """True when this install has a license key (env or config), read locally.
+
+    THE gate for every sales line we print (`init`'s license line,
+    `install-pack`'s "Get a license"): jjg (DECISIONS 2026-10-20) promises paid
+    clients they are never marketed to. ⚠ The key is only READ, never
+    validated: validating would send it to validate.php from every `init`, a
+    network call `init` has never made. A key that later proves invalid still
+    suppresses the line, which errs toward not selling.
+    """
+    return bool(_license_key())
+
+
 # --------------------------------------------------------------------------- #
 # Server check
 # --------------------------------------------------------------------------- #
@@ -194,8 +207,9 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     the network. The contract that matters for a paying customer:
 
     * A valid key reads as **licensed**, never "unlicensed" — even on a Builder
-      tier that doesn't include org-rollup (org-rollup is framed as an optional
-      team add-on, not a deficiency, with no trial countdown).
+      tier that doesn't include org-rollup, which is stated as a plain fact
+      with no trial countdown and no upgrade link.
+    * Only an install with no key at all is shown where to get a license.
     * A key that merely couldn't be verified (server unreachable) reads as
       "present, not yet verified", never "not recognized".
     * Core indexing/search are stated as free so nobody thinks the product is
@@ -213,6 +227,13 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
         lines.append("License: key present, not yet verified (license server unreachable)")
     elif status == "rejected":
         lines.append("License: key not recognized by the license server")
+        # A support pointer, not a sales one: a rejected key may be a paying
+        # customer's typo or a lapsed key (Chief of Staff's wording, 2026-10-20;
+        # the address the site already lists).
+        lines.append(
+            "  Check the key for a typo. If it should be valid, write to "
+            "j@gravelle.us and we'll sort it out."
+        )
     else:  # absent
         lines.append("License: no license key set")
 
@@ -223,19 +244,21 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     if mode == "licensed":
         lines.append("  org-rollup: included in your tier")
     elif key_valid:
-        # Valid but non-team tier (e.g. Builder): licensed; org-rollup is an
-        # optional upgrade, not a deficiency — no evaluation countdown shown.
-        lines.append("  org-rollup: optional team add-on — requires Studio or Platform")
+        # Valid but non-team tier (e.g. Builder): licensed. A neutral fact, no
+        # upgrade pitch and no countdown: paid clients are never marketed to
+        # (jjg, DECISIONS 2026-10-20; the Chief of Staff's wording).
+        lines.append("  Team features (org-rollup): not included in your license")
     elif mode == "grace":
         lines.append(f"  org-rollup: {gate.get('grace_days_left')} day(s) evaluation left (team feature)")
     else:  # blocked, no valid key
         lines.append("  org-rollup: evaluation ended (team feature)")
 
-    if gate.get("get_license"):
-        if key_valid:
-            lines.append(f"  Upgrade for org-rollup: {gate['get_license']}")
-        else:
-            lines.append(f"  Get a license: {gate['get_license']}")
+    # The pricing link is shown only when no key is set at all. A key that is
+    # valid, unverified (server unreachable) or rejected may belong to a paying
+    # customer, so it gets no sales link: the same "any key, no sales line" rule
+    # as `licence_key_configured`, erring toward not selling.
+    if gate.get("get_license") and status == "absent":
+        lines.append(f"  Get a license: {gate['get_license']}")
 
     lines.append("  Core indexing and search are free and need no license.")
     if status == "unverified_offline":
@@ -243,6 +266,20 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     if key_provided:
         lines.append("  (set JCODEMUNCH_LICENSE_KEY or config `license_key` to persist this key)")
     return lines
+
+
+def license_status_json(gate: dict) -> dict:
+    """The ``license --json`` payload: ``check_gate()`` under the same rule as
+    `format_license_status`, so the two renderings of one command agree.
+
+    ``get_license`` (the pricing URL) is kept only when no key is set; a key
+    holder may be a paying customer, and paid clients are never marketed to
+    (jjg, DECISIONS 2026-10-20). Every other field is passed through unchanged.
+    """
+    out = dict(gate)
+    if (gate.get("key_status") or "absent") != "absent":
+        out["get_license"] = None
+    return out
 
 
 def _key_status(key: str, res: dict) -> str:

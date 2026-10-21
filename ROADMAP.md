@@ -138,7 +138,7 @@ the operative detail:
 - `all` is satisfied only when every mandatory child is measured and satisfied.
 - `all` may be conclusively unsatisfied on a single measured failure, but the
   children that failed or were unsupported still have to be disclosed. A
-  conclusive verdict is not a licence to drop the rest of the report.
+  conclusive verdict is not a license to drop the rest of the report.
 - `any` may be conclusively satisfied on one measured child, and failures among
   the other attempted children still remain visible.
 - When failed, unsupported, or absent children prevent a conclusive result, the

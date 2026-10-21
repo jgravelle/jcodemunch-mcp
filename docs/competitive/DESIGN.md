@@ -168,7 +168,7 @@ default (D3), with the `counter` figure reported beside it as a variant.
 | 4 tool-surface | COMPARABLE for MCP servers (`tools/list` token weight, cl100k, the zhang-liz shape); NOT COMPARABLE for CLI tools (reported as `interface: cli`, 0 schema cost, which is a real advantage and is said so) | our counter/core ceilings stay ours |
 | 5 latency | **COMPARABLE** | per-call cold and warm p50/p95 over the task set, same container, same limits |
 | 6 install friction | PARTIALLY. Image build seconds and image size MEASURED per pin in the result header (`image_build_seconds`, `image_size_bytes`, from the D2 build and its `docker image inspect`, 2026-09-09; a header fact, once per adapter per process, not a per-corpus axis). The prerequisite count MEASURED per pin since 2026-09-09 (`prerequisites`, `prerequisite_count`: every package the sandbox Dockerfile's `apt-get install` lines name, CF-61) | the count of system packages the Dockerfile had to install beyond its base image (a proxy, labelled as one: the Dockerfiles are ours, it includes what the sandbox needs to fetch a release and build tools purged after use, excludes the package's own pip or npm tree, and reads None for a spelling the parser does not read); the handshake and config-parity halves are ours |
-| 7, 8, 9 | NOT COMPARABLE | properties of a codebase and its release process; the loop reports the pin and licence and nothing else |
+| 7, 8, 9 | NOT COMPARABLE | properties of a codebase and its release process; the loop reports the pin and license and nothing else |
 | 10 breadth | REPORTED, not scored | the tool's claimed language count (`claims`, FIELD.md) beside the count of corpus files it actually indexed (`measured`); the second number is the honest one |
 
 **Axis the field weighs that STANDARD lacks (proposed, not added):**
@@ -443,7 +443,7 @@ the end of the job. Cost: zero model spend by construction (D1).
   and the website; `tests/test_competitive_workflows.py` asserts no
   competitive job has a write step touching any of them (the inbound
   workflow tests are the template).
-- Licences: a tool enters the set only under a licence that permits
+- Licenses: a tool enters the set only under a license that permits
   running it for evaluation (FIELD §5.1); GitNexus stays out until a human
   records the decision in FINDINGS.
 

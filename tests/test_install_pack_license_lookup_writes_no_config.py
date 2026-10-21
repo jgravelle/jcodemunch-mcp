@@ -1,4 +1,4 @@
-"""install-pack's licence lookup writes no config file (ledger L-215).
+"""install-pack's license lookup writes no config file (ledger L-215).
 
 `resolve_effective_license_key` called `load_config()` with the default
 `create_missing=True`, and `run_install_pack` calls it before every install
