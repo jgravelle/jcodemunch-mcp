@@ -18,6 +18,7 @@ import os
 import re
 
 from ._common import (
+    tool_surface,
     _CODE_EXTENSIONS,
     _emit_additional_context,
     _norm_path,
@@ -138,6 +139,45 @@ _SEARCH_ROUTES["Bash"] = (
 )
 
 
+_ROUTE_NAME_RE = re.compile(r"\b([a-z][a-z0-9_]+)\b")
+
+
+def _routes_for(tool_name: str) -> str:
+    """`_SEARCH_ROUTES[tool_name]`, worded for the surface this install serves.
+
+    ⚠⚠ Under `tool_surface="counter"` (init's default) the client's tool list
+    holds only the front door, so a route named as a bare tool is a call the
+    agent cannot make; every action is reachable only through `order`
+    (Benchmarking, M4 design on 1.108.386). The `CLAUDE.md` policy already
+    speaks in `order` calls; this is the second copy of the same guidance, so
+    it renders the same way. The surface comes from `_common.tool_surface`
+    (env + config through `counter.resolve_tool_surface`, the one authority the
+    server also uses), never from building the tool list: a hook runs once per
+    tool call.
+    """
+    routes = _SEARCH_ROUTES[tool_name]
+    if tool_surface() != "counter":
+        return routes
+    out = []
+    for line in routes.split("\n"):
+        names, sep, why = line.partition(":")
+        names = _ROUTE_NAME_RE.sub(lambda m: _as_order(m.group(1)), names.strip(" -"))
+        out.append(f"  - {names} {sep}{why}".rstrip())
+    return "\n".join(out) + "\n  (`menu` gives each action's argument template.)"
+
+
+def _as_order(action: str) -> str:
+    """An action as the counter surface calls it, spelled like cli/policy.py."""
+    return f'order {{ "action": "{action}", "args": {{ ... }} }}'
+
+
+def _read_routes() -> str:
+    """The Read hook's two routes, worded for the served surface (see `_routes_for`)."""
+    if tool_surface() == "counter":
+        return f"{_as_order('get_file_outline')} + {_as_order('get_symbol_source')}"
+    return "get_file_outline + get_symbol_source"
+
+
 def _emit_search_steering(tool_name: str, what: str, *, deny: bool) -> int:
     """Emit the nudge or deny for an already-gated search interception.
 
@@ -146,7 +186,7 @@ def _emit_search_steering(tool_name: str, what: str, *, deny: bool) -> int:
     roots for its token scan and a gate here would either re-check what the
     caller proved or force a second store load.
     """
-    routes = _SEARCH_ROUTES[tool_name]
+    routes = _routes_for(tool_name)
     if deny:
         return _emit_pretooluse_deny(
             f"jCodemunch strict mode: {what} targets an indexed repo. Use the jcm "
@@ -374,7 +414,7 @@ def run_pretooluse() -> int:
         # already passed above, so the pre-Edit escape hatch is always open.
         return _emit_pretooluse_deny(
             f"jCodemunch strict mode: this {size:,}-byte code file is in an "
-            "indexed repo. Use get_file_outline + get_symbol_source instead "
+            f"indexed repo. Use {_read_routes()} instead "
             "of a full Read. For an exact-line pre-Edit read, pass "
             "offset/limit and it will pass. (JCODEMUNCH_ENFORCE=advisory "
             "for warn-only, =off to disable.)"
@@ -385,6 +425,6 @@ def run_pretooluse() -> int:
     return _emit_additional_context(
         "PreToolUse",
         f"jCodemunch hint: this is a {size:,}-byte code file. "
-        "Prefer get_file_outline + get_symbol_source for exploration. "
+        f"Prefer {_read_routes()} for exploration. "
         "Use Read only when you need exact line numbers for Edit.",
     )

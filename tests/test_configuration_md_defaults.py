@@ -26,7 +26,7 @@ _DOC = Path(__file__).resolve().parents[1] / "CONFIGURATION.md"
 _HEADER = "| Key | Type | Default | Description |"
 
 # Keys whose real default is too large to inline in a table cell. An entry here
-# is NOT a licence to write prose — each one carries a check below that proves
+# is NOT a license to write prose — each one carries a check below that proves
 # the documented cell tells the truth, and `test_non_literal_defaults_are_big`
 # proves the escape hatch cannot be used to hide a small wrong value.
 _NON_LITERAL_DEFAULTS = frozenset({"tool_tier_bundles"})

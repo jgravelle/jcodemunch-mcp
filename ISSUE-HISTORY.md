@@ -2828,3 +2828,23 @@ The 1.108.383 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.383 count, verbatim:
 
 - ⚠ Prior (1.108.383): 18119 passed, 25 skipped, **0 failed** (18144 total).
+
+## Current State rotation (2026-10-21, release 1.108.387)
+
+The 1.108.384 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.384):** **the watcher no longer polls trees nothing indexes** (#1163, @yagiii1344): `index_folder._directory_prune_reason` is the one directory rule for discovery and `watcher._watch_directories`; a gitignored or extra-ignored directory is pruned only when the matcher ignores two probe descendants and no `!` reaches it. Also L-226: `update_symbol_summaries` notifies `storage/write_listeners.py`, and `search_symbols` evicts the repo (in-process; cross-process is L-228). Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.384 count, verbatim:
+
+- ⚠ Prior (1.108.384): 18139 passed, 25 skipped, **0 failed** (18164 total).
+
+## Current State rotation (2026-10-21, release 1.108.388)
+
+The 1.108.385 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.385):** **a summary written by another process reaches this one's searches** (L-228, L-229): `update_symbol_summaries` advances a `summaries_generation` meta counter in its transaction, `CodeIndex.summaries_generation` carries it (in `selective.EXACT_FIELDS`), and it is the last element of `search_symbols`' cache key. Also L-224: `save_index` pre-warms the cache with `_symbol_to_dict`, so a same-process read keeps `ecosystem_context`; and #1172's README line 3 and registry description. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.385 count, verbatim:
+
+- ⚠ Prior (1.108.385): 18145 passed, 25 skipped, **0 failed** (18170 total).

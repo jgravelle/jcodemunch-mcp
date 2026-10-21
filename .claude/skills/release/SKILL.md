@@ -183,7 +183,7 @@ GITHUB_TOKEN="" gh release create vX.Y.Z dist/*X.Y.Z* --repo jgravelle/<repo> --
 #    reach the same wrong answer as the paging trap below, and it SURVIVES
 #    &limit=100. Measured 2026-08-27 on a confirmed-good 1.108.301 publish.
 #    Do NOT re-publish on a zero-row read; fix the parse first.
-#      curl -s 'https://registry.modelcontextprotocol.io/v0/servers?search=<pkg>&limit=100' -o reg.json
+#      curl -s 'https://registry.modelcontextprotocol.io/v0/servers?search=<pkg>&version=latest&limit=100' -o reg.json
 #      python -c "import json;d=json.load(open('reg.json'));r=[x for x in d['servers'] if x['server']['name']=='io.github.jgravelle/<pkg>'];print(len(r),'rows');print([ (x['server']['version'], x['_meta']['io.modelcontextprotocol.registry/official'].get('publishedAt')) for x in r if x['_meta']['io.modelcontextprotocol.registry/official'].get('isLatest')])"
 #    and confirm the new version carries isLatest: true AND that
 #    server.packages[].version advanced too - an entry can move one, not both.
@@ -193,6 +193,13 @@ GITHUB_TOKEN="" gh release create vX.Y.Z dist/*X.Y.Z* --repo jgravelle/<repo> --
 #    with the limit it returns 29 and isLatest is 1.108.285. **A truncated answer
 #    read as a complete one** - so a missing version here is NOT evidence the
 #    publish failed, and re-publishing on that reading is the wrong move.
+#    ⚠⚠ AND `&limit=100` IS NO LONGER ENOUGH ON ITS OWN (2026-10-20, 1.108.386):
+#    jcodemunch-mcp has passed 100 registry versions, so the page came back
+#    with EXACTLY 100 rows and the new latest row absent, the 08-18 trap one
+#    size up. `&version=latest` returns the one latest row whatever the count.
+#    `scripts/registry_verify.py` (what release.yml runs) follows `nextCursor`
+#    across pages and was never affected. A row count equal to the limit means
+#    the page is full, never that the set is complete.
 # 8. ⚠⚠ READ THE CI RUN for the pushed SHA. Pushing is not checking.
 GITHUB_TOKEN="" gh run list --repo jgravelle/<repo> --limit 3 \
   --json headSha,conclusion,displayTitle
@@ -252,7 +259,7 @@ zero rows on a good publish — a false negative independent of the paging trap,
 and one that survives `&limit=100`.
 
 ```bash
-curl -s 'https://registry.modelcontextprotocol.io/v0/servers?search=<pkg>&limit=100' -o reg.json
+curl -s 'https://registry.modelcontextprotocol.io/v0/servers?search=<pkg>&version=latest&limit=100' -o reg.json
 python - reg.json <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1], encoding="utf-8"))["servers"]

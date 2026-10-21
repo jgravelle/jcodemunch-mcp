@@ -95,6 +95,40 @@ def test_list_packs_shows_entries(mock_httpx, capsys):
     assert "FREE" in out
 
 
+_PACKS = [
+    {"id": "fastapi", "name": "FastAPI Starter", "symbols": 5000, "free": True},
+    {"id": "express", "name": "Express Starter", "symbols": 3000, "free": False},
+]
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_an_unlicensed_listing_says_where_to_get_a_licence(mock_httpx, capsys, monkeypatch):
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
+    mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
+    assert _list_packs() == 0
+    assert "Get a license: https://jcodemunch.com/#pricing" in capsys.readouterr().out
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_licensed_listing_has_no_sales_line(mock_httpx, capsys, monkeypatch):
+    """jjg's promise: paid clients are never marketed to (DECISIONS 2026-10-20)."""
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "jcm-test-key-not-real")
+    mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
+    assert _list_packs() == 0
+    out = capsys.readouterr().out
+    assert "fastapi" in out and "Get a license" not in out, out
+
+
+@patch("jcodemunch_mcp.cli.install_pack.httpx")
+def test_a_listing_with_a_key_on_the_command_line_has_no_sales_line(mock_httpx, capsys, monkeypatch):
+    """`install-pack --list --license KEY`: the key arrives as an argument, not config."""
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
+    mock_httpx.get.return_value = _mock_catalog_response(_PACKS)
+    assert run_install_pack(None, list_packs=True, license_key="jcm-test-key-not-real") == 0
+    out = capsys.readouterr().out
+    assert "fastapi" in out and "Get a license" not in out, out
+
+
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
 def test_listed_download_url_ignores_the_servers_own_field(mock_httpx, capsys):
     """The printed URL is the one install-pack will fetch, not the catalog's.
@@ -134,7 +168,7 @@ def test_list_packs_names_the_upstream_licence(mock_httpx, capsys):
     ])
     assert _list_packs() == 0
     out = capsys.readouterr().out
-    assert "Upstream licence: BSD-3-Clause, MIT" in out, "deduped and sorted"
+    assert "Upstream license: BSD-3-Clause, MIT" in out, "deduped and sorted"
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
@@ -145,7 +179,7 @@ def test_list_packs_silent_when_catalog_has_no_licences(mock_httpx, capsys):
         {"id": "nodejs", "name": "Node", "symbols": 100, "free": True},
     ])
     assert _list_packs() == 0
-    assert "Upstream licence" not in capsys.readouterr().out
+    assert "Upstream license" not in capsys.readouterr().out
 
 
 @patch("jcodemunch_mcp.cli.install_pack.httpx")
@@ -195,7 +229,7 @@ def _mock_error_response(error_msg: str, extra: dict | None = None):
 def test_install_extracts_and_reports_the_upstream_licences(
     mock_httpx, tmp_path, monkeypatch, capsys
 ):
-    """The licence text must land on disk and be pointed at, not merely bundled.
+    """The license text must land on disk and be pointed at, not merely bundled.
 
     A pack redistributes third-party source; the terms travel with it, and the
     user should not have to go looking to find out what they are.
@@ -219,7 +253,7 @@ def test_install_extracts_and_reports_the_upstream_licences(
     assert _install_pack("nodejs", base_path=tmp_path) == 0
 
     landed = tmp_path / "licenses" / "nodejs-node" / "LICENSE"
-    assert landed.exists(), "licence text must be extracted, not just carried"
+    assert landed.exists(), "license text must be extracted, not just carried"
     assert landed.read_bytes().startswith(b"Node.js is licensed")
 
     out = capsys.readouterr().out
