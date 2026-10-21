@@ -130,9 +130,11 @@ GITHUB_TOKEN="" gh release create vX.Y.Z dist/*X.Y.Z* --repo jgravelle/<repo> --
 #    ⚠⚠ The registry JWT lives FIVE MINUTES. login and publish MUST be one
 #    command, run from the repo root (publish reads server.json from the CWD).
 #    The device flow blocks on a browser, so the usual route is the token login,
-#    run by the agent as a tool call: `mcp-publisher login github --token
-#    "$(gh auth token)"` then `mcp-publisher publish`, in one command from the
-#    repo root. The method must be `github`; `github-oidc` has no `--token` flag.
+#    run by the agent as a tool call, in one command from the repo root:
+#        GITHUB_TOKEN="" mcp-publisher login github --token "$(GITHUB_TOKEN="" gh auth token)" && mcp-publisher publish
+#    The method must be `github`, and `login` alone is not a valid invocation.
+#    `github-oidc` has no `--token` flag: it prints the `login` usage block and
+#    EXITS 0, so the failure reads as success.
 #    A connection timeout is not an expired token: check the registry host is
 #    reachable before logging in again. The binary's location and the form to
 #    hand a human (cmd.exe, literal paths) are in the maintainers' private notes.

@@ -700,8 +700,8 @@ Current State, not only here. [[declining-to-cut-is-not-holding-a-fix]]
 **3. A contributor's PR is never the only path.** Timebox it and keep our own
 path warm (#388 taught this the expensive way).
 
-**3a. NO TIMEBOX WE OFFER RUNS LONGER THAN 24 HOURS** (2026-08-14; made absolute
-2026-08-20). It
+**3a. NO TIMEBOX WE OFFER RUNS LONGER THAN 24 HOURS** (2026-08-14, widened the
+same day; made absolute 2026-08-20). It
 covers every shape: signing the CLA, opening a PR already written, taking an
 issue to implement.
 ⚠⚠ **The window is only fair BECAUSE the default action preserves credit.** At
@@ -711,8 +711,8 @@ whether they are credited and never whether the fix ships. **Quote the default i
 the same comment as the deadline** — a clock with an unstated consequence reads
 as a threat.
 ⚠⚠ **The failure mode is a fix held behind a form.** #443 went eight days, a
-reviewed, green security fix waiting on a CLA signature while our own merges
-conflicted its branch. **A window longer than 24
+reviewed, green security fix waiting on a 30-second CLA form while seven of our
+own merges conflicted its branch. **A window longer than 24
 hours purchases exactly one thing: the chance the contributor's commit is theirs
 — and it pays for that chance in the user's exposure to an unfixed defect.**
 ⚠ An extension the contributor ASKS FOR is different from a default we hand out;
@@ -847,7 +847,8 @@ re-publish on a zero-row read; fix the parse.** Confirm
 2026-08-27 measurements are in `ISSUE-HISTORY.md`).
 
 ⚠ The local publish setup (which shell, which paths) is in the maintainers'
-private notes; `release.yml` publishes to the registry itself.
+private notes; `release.yml` publishes to the registry itself. A line that
+must run through `!` is a tool call to make, not a paste to hand over.
 
 ⚠ The release skill (`.claude/skills/release/SKILL.md`) is TRACKED in this
 repo since 2026-09-04 (DESIGN D1/D2); its publish half is superseded by
