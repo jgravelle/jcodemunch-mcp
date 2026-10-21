@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed - the core tools load up front in clients that defer MCP tools
+
+Claude Code defers every MCP tool by default. The model sees each tool's name
+and the server's instructions, and gets a tool's schema only after it calls
+ToolSearch. An agent that already has Grep loaded rarely makes that call, so on
+a default setup jcodemunch's tools could sit unused for a whole session.
+
+The tool list now marks the tools the server's instructions tell the agent to
+start with as `_meta["anthropic/alwaysLoad"]: true`, the per-tool switch Claude
+Code documents for server authors. Those are `route`, `menu` and `order` on the
+default `counter` surface, and `resolve_repo`, `get_ranked_context`,
+`search_symbols`, `get_file_outline`, `get_symbol_source` and
+`find_references` on `full`. The marked set is read from the same list the
+instructions use, so the two can't disagree. A tool removed by `disabled_tools`
+or the active profile is never re-added. Clients that don't know the key
+ignore it. To keep jcodemunch fully deferred, set `"alwaysLoad": false` on its
+entry in `.mcp.json`.
+
+The cost is prompt size. On a deferring client the marked tools' descriptions
+and schemas are now part of every request: 2,480 bytes on `counter`, and
+13,168 bytes on `full`. After the first request they are read from the prompt
+cache. On upgrade the first request of a session writes that cache once. The
+published tool definitions themselves are unchanged, byte for byte.
+
 ### Changed - "license", spelled the American way, and a way forward for a rejected key
 
 The product said "licence" in places its buyers read: `init`'s closing line ("A
