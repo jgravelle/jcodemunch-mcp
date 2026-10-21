@@ -94,7 +94,12 @@ def test_no_cli_module_builds_a_backup_with_with_suffix():
         for p in sorted(CLI_DIR.rglob("*.py"))
         for line in _with_suffix_backups(p.read_text(encoding="utf-8"))
     ]
-    assert offenders == [], offenders
+    assert offenders == [], (
+        f"{offenders}: under cli/, with_suffix may take only a plain string literal "
+        "with no '.bak' in it. A backup is named with cli/backup.backup_path, which "
+        "appends .bak to the whole name; a suffix held in a name or built at run "
+        "time is refused because this scan cannot see what it holds."
+    )
 
 
 @pytest.mark.parametrize(
