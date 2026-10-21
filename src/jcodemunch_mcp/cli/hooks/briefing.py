@@ -10,6 +10,7 @@ from ._common import (
     _emit_additional_context,
     _iter_loaded_repos,
     _top_symbols_by_pagerank,
+    _crosses_a_checkout,
     _norm_path,
     _note_transcript_root,
     _read_hook_payload,
@@ -140,7 +141,10 @@ def _select_repos(repos: list, cwd) -> "tuple[list, list]":
 
     - cwd at or inside an indexed root: hydrate the DEEPEST such root only.
       An ancestor index also contains the cwd and is the broad scope the
-      report measured, so it is not briefed.
+      report measured, so it is not briefed. A root does not contain a cwd
+      that sits in a linked worktree or independent repo nested inside it
+      (#1202): that is another branch, and resolve_repo answers it
+      ``indexed: false``.
     - cwd an ancestor of indexed roots (and inside none): list those roots
       from their counts, hydrate nothing.
     - cwd missing, not a string, or matching nothing: nothing. A briefing of
@@ -158,7 +162,7 @@ def _select_repos(repos: list, cwd) -> "tuple[list, list]":
             if not sr:
                 continue
             root = _norm_path(sr)
-            if here == root or here.startswith(dir_prefix(root)):
+            if here == root or (here.startswith(dir_prefix(root)) and not _crosses_a_checkout(here, root)):
                 containing.append((len(root), e))
             elif root.startswith(dir_prefix(here)):
                 below.append(e)

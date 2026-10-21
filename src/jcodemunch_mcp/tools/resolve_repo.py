@@ -7,97 +7,15 @@ import time
 from pathlib import Path
 from typing import Optional
 
+# The checkout-boundary rule lives in a stdlib leaf so the session hooks can
+# share it without importing this module (#1202). The old names stay for
+# index_file and the tests that call them.
+from ..checkout_boundary import dotgit_kind as _dotgit_kind  # noqa: F401  (re-exported)
+from ..checkout_boundary import separate_checkout_between as _independent_repo_between
 from ..storage import IndexStore
 from ..storage.git_root import resolve_index_identity
 
 logger = logging.getLogger(__name__)
-
-
-def _dotgit_kind(directory: Path) -> Optional[str]:
-    """Classify a ``.git`` entry: "repo", "submodule", "worktree", or None.
-
-    A ``.git`` DIRECTORY is an independent repository. A ``.git`` FILE carries a
-    ``gitdir:`` pointer, and where it points is the whole distinction #372 drew:
-    ``.git/worktrees/<name>`` is a linked worktree, ``.git/modules/<path>`` is a
-    submodule. Anything else pointing outside both is a ``--separate-git-dir``
-    clone, which is independent.
-    """
-    dotgit = directory / ".git"
-    try:
-        if dotgit.is_dir():
-            return "repo"
-        if not dotgit.is_file():
-            return None
-        text = dotgit.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
-    if not text.startswith("gitdir:"):
-        return None
-    target = Path(text[len("gitdir:"):].strip())
-    if not target.is_absolute():
-        target = directory / target
-    parent_name = target.parent.name
-    if parent_name == "worktrees":
-        return "worktree"
-    # A submodule name can span directories below .git/modules.
-    if parent_name == "modules" or any(
-        ancestor.name == "modules" and ancestor.parent.name == ".git"
-        for ancestor in target.parents
-    ):
-        return "submodule"
-    return "repo"
-
-
-def _independent_repo_between(
-    p_resolved: Path, source_root: Path, *, worktrees: bool = False,
-) -> Optional[Path]:
-    """Root of an independent git repository between a path and a source root.
-
-    With ``worktrees=True`` a linked worktree also counts. Returns the deepest
-    such root, or None when the path really does belong to ``source_root``.
-
-    ⚠⚠ Containment is a statement about the FILESYSTEM; the caller wants one
-    about the REPOSITORY. A nested independent clone inside an indexed parent
-    satisfies the first and fails the second, and before #493's sibling #492 the
-    resolver returned the parent as ``indexed: true`` for it, binding the caller
-    to a corpus from a different checkout with a different history.
-
-    ⚠ Submodules deliberately do NOT count. Their content IS indexed into the
-    parent, which is the boundary #372 drew when it excluded linked worktrees
-    without changing submodule behaviour.
-
-    ⚠⚠ ``resolve_repo`` counts linked worktrees (#1202). A worktree shares the repository but
-    not the branch, and #372 keeps a nested one out of the parent's corpus. This
-    used to leave them to fast path 2, which answers ``indexed: false`` with
-    ``canonical_candidates``, but fast path 1 runs FIRST: a worktree nested
-    under ``source_root`` (``.claude/worktrees/<name>``) matched by containment
-    and came back as the parent's index, so every read came from another
-    branch. Only a sibling worktree ever reached fast path 2. Stopping here
-    sends the nested one there too, so both layouts get #303's answer.
-    ``index_file`` leaves the flag off: it refuses a nested-worktree file with
-    its own, accurate ``nested_worktree`` reason, and a worktree boundary here
-    would replace that with "a different repository", which is false.
-
-    ⚠ Stats only, no subprocess — fast path 1 exists to avoid the
-    ``resolve_index_identity`` walk that can hang (#303), so a correctness guard
-    on it must not reintroduce a process spawn.
-    """
-    try:
-        candidates = [p_resolved, *p_resolved.parents]
-    except (OSError, ValueError):
-        return None
-    for directory in candidates:
-        if directory == source_root:
-            return None  # reached the indexed root without crossing a boundary
-        try:
-            if not directory.is_relative_to(source_root):
-                return None
-        except (OSError, ValueError, AttributeError):
-            return None
-        kind = _dotgit_kind(directory)
-        if kind == "repo" or (worktrees and kind == "worktree"):
-            return directory
-    return None
 
 
 def _compute_repo_id(folder_path: Path, store: Optional[IndexStore] = None) -> str:

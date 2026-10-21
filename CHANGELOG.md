@@ -18,8 +18,11 @@ A linked worktree now ends the containment match, so a nested worktree gets the
 same answer as a sibling one. Once the worktree is indexed on its own, it
 resolves to that index. The startup note that says "this repo is indexed" reads
 the same answer, so a session started in a nested worktree is no longer told
-the checkout's index is its own. `index_file` keeps its existing refusal for a
-file in a nested worktree. Reported by @zaphod72.
+the checkout's index is its own. The session hooks used the same folder
+containment and now stop at the same boundary: a subagent started in a nested
+worktree is no longer briefed with the checkout's symbols, and Read/Grep steering
+no longer points it at the checkout's index. `index_file` keeps its existing
+refusal for a file in a nested worktree. Reported by @zaphod72.
 
 ## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
 

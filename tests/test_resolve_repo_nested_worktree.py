@@ -71,6 +71,53 @@ def test_a_file_inside_a_nested_worktree_is_not_resolved_to_the_parent(main_repo
     _assert_worktree_answer(resolve_repo(str(wt / "a.py"), storage_path=store), repo_id)
 
 
+def test_a_subdirectory_inside_a_nested_worktree_is_not_the_parent(main_repo):
+    """The issue says "a path inside" the worktree, not only its root."""
+    repo, store, repo_id = main_repo
+    wt = _add_worktree(repo, repo / ".claude" / "worktrees" / "probe")
+    sub = wt / "pkg"
+    sub.mkdir()
+    (sub / "m.py").write_text("x = 1\n")
+    for p in (sub, sub / "m.py"):
+        res = resolve_repo(str(p), storage_path=store)
+        assert res["indexed"] is False and res.get("repo") != repo_id, (p, res)
+        assert res.get("source_root") is None, (p, res)
+
+
+def _norm(p):
+    from jcodemunch_mcp.cli.hooks._common import _norm_path
+
+    return _norm_path(str(p))
+
+
+def test_steering_does_not_treat_a_nested_worktree_as_the_indexed_repo(main_repo):
+    """The Read/Grep steering uses this test; it said "indexed" for the worktree."""
+    from jcodemunch_mcp.cli.hooks._common import _path_overlaps
+
+    repo, _, _ = main_repo
+    wt = _add_worktree(repo, repo / ".claude" / "worktrees" / "probe")
+    roots = [_norm(repo)]
+    assert _path_overlaps(_norm(wt / "a.py"), roots) is False
+    assert _path_overlaps(_norm(wt), roots) is False
+    # Non-vacuity: the checkout's own files, a plain subdirectory, and a parent
+    # folder that contains the indexed repo all still count.
+    plain = repo / "lib"
+    plain.mkdir()
+    assert _path_overlaps(_norm(repo / "a.py"), roots) is True
+    assert _path_overlaps(_norm(plain), roots) is True
+    assert _path_overlaps(_norm(repo.parent), roots) is True
+
+
+def test_the_subagent_briefing_does_not_brief_the_parent_in_a_nested_worktree(main_repo):
+    from jcodemunch_mcp.cli.hooks.briefing import _select_repos
+
+    repo, _, repo_id = main_repo
+    wt = _add_worktree(repo, repo / ".claude" / "worktrees" / "probe")
+    repos = [{"repo": repo_id, "source_root": str(repo)}]
+    assert _select_repos(repos, str(wt)) == ([], [])
+    assert _select_repos(repos, str(repo))[0] == repos  # non-vacuity
+
+
 def test_a_sibling_worktree_gets_the_same_answer(main_repo, tmp_path):
     """The control: the layout that was already right, and must stay right."""
     repo, store, repo_id = main_repo
