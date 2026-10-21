@@ -24,7 +24,7 @@ for a rejected key only.
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
-license is $79", and `install-pack`'s catalog listing ended with "Get a
+licence is $79", and `install-pack`'s catalog listing ended with "Get a
 license", whether or not the install already had a license key. A paying
 customer was being sold the thing they had bought, and jMunch promises paid
 clients they are never marketed to (jjg, 2026-10-20). Both lines now print
