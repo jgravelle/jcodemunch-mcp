@@ -7,10 +7,12 @@ and fails the second (#492, #1202).
 
 ⚠⚠ A LEAF, stdlib only, stats and small reads, never a subprocess. The session
 hooks start on every tool call, and importing ``tools.resolve_repo`` for these
-two functions cost a hook about 0.8 s against its own 0.23 s; ``resolve_repo``'s
-fast path 1 exists to avoid a process spawn that can hang (#303). Moved here
-from ``tools/resolve_repo.py`` so ``resolve_repo``, ``index_file`` and the
-hooks share one rule instead of three.
+two functions would add that module's whole import chain to every hook (run
+``python -X importtime -c "import jcodemunch_mcp.tools.resolve_repo"`` to see
+its cost on your box); ``resolve_repo``'s fast path 1 exists to avoid a process
+spawn that can hang (#303). Moved here from ``tools/resolve_repo.py`` so
+``resolve_repo``, ``index_file`` and the session hooks share one rule.
+``tests/test_resolve_repo_nested_worktree.py`` pins the stdlib-only imports.
 """
 
 from __future__ import annotations

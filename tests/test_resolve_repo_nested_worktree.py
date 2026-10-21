@@ -166,3 +166,63 @@ def test_a_nested_worktree_resolves_to_itself_once_indexed(main_repo):
     assert own.get("success"), own
     res = resolve_repo(str(wt), storage_path=store)
     assert res["indexed"] is True and res["repo"] == own["repo"], res
+
+
+
+def _non_stdlib_imports(source: str) -> set:
+    """Imports in ``source`` that are not the standard library (relative ones included)."""
+    import ast
+    import sys
+
+    stdlib = set(sys.stdlib_module_names) | {"__future__"}
+    bad = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            bad.update(a.name for a in node.names if a.name.split(".")[0] not in stdlib)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level or (node.module or "").split(".")[0] not in stdlib:
+                bad.add("." * node.level + (node.module or ""))
+    return bad
+
+
+def test_the_boundary_module_is_a_stdlib_leaf():
+    """The session hooks import it on every tool call: it may import only the
+    standard library, and it must not spawn a process (#303)."""
+    from pathlib import Path as _P
+
+    import jcodemunch_mcp.checkout_boundary as cb
+
+    src = _P(cb.__file__).read_text(encoding="utf-8")
+    assert _non_stdlib_imports(src) == set()
+    assert _process_spawns(src) == set()
+
+
+def _process_spawns(source: str) -> set:
+    """Process-spawning imports and calls, read from the syntax tree.
+
+    Not a text search: the module's docstring says "never a subprocess", and
+    a text scan fails on the explanation instead of the defect.
+    """
+    import ast
+
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found.update(a.name for a in node.names if a.name.split(".")[0] == "subprocess")
+        elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "subprocess":
+            found.add(node.module)
+        elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+              and node.value.id == "os" and (node.attr in ("system", "popen") or node.attr.startswith("spawn"))):
+            found.add(f"os.{node.attr}")
+    return found
+
+
+@pytest.mark.parametrize("line", ["from ..storage import IndexStore", "import jcodemunch_mcp.config", "import numpy"])
+def test_the_leaf_scan_sees_a_non_stdlib_import(line):
+    """Non-vacuity: the scan flags exactly what the leaf rule forbids."""
+    assert _non_stdlib_imports(line) != set()
+
+
+@pytest.mark.parametrize("line", ["import subprocess", "from subprocess import run", "os.system('git status')", "os.popen('x')"])
+def test_the_spawn_scan_sees_a_process_spawn(line):
+    assert _process_spawns(line) != set()
