@@ -1,6 +1,12 @@
 {
-  "current": "1.108.388",
+  "current": "1.108.389",
   "entries": [
+    {
+      "version": "1.108.389",
+      "date": "2026-10-21",
+      "title": "the core tools load up front where clients defer MCP tools",
+      "summary": "In clients that defer MCP tools, Claude Code among them by default, jcodemunch's core tools now load up front (route, menu and order on the default surface; the six core tools on the full surface), so the agent can use them from the first turn without a tool-search step. On stdio, the server's startup note says \"This repo is indexed by jcodemunch (N files)\" when the working directory was indexed. The steering hook names only tools the active surface publishes and says how to load order when it isn't loaded, and init reads the tool surface the way the server serves it."
+    },
     {
       "version": "1.108.388",
       "date": "2026-10-21",

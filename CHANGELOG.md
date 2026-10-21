@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
+
 ### Changed - the startup note says the repo is indexed, and how big it is
 
 The server's MCP instructions, which are often the only jcodemunch text an
