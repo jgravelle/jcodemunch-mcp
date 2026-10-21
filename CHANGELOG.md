@@ -11,11 +11,14 @@ the server runs in the user's project, startup now asks whether that directory
 is indexed. If it is, the note opens "This repo is indexed by jcodemunch
 (N files)", so the agent knows the index is ready and can judge the
 repository's size for itself. The guidance for small repositories is
-unchanged. The lookup reads the local index metadata only: no network, no
-writes, and it gives up after 1.5 seconds. If it can't establish an index (not
-indexed, an error, or the time limit), the note keeps the old wording, as do
-the SSE and streamable-http transports, where the server's directory is not
-the caller's.
+unchanged. The note counts an index only when it was built from this
+directory or one containing it, so a second checkout of an indexed project
+isn't told it's indexed. The lookup is the one `resolve_repo` runs, with no
+network call, and startup waits at most 1.5 seconds for it. If it can't
+establish an index (not indexed, a different working tree, an error, or the
+time limit), the note keeps the old wording, as do the SSE and
+streamable-http transports, where the server's directory is not the
+caller's. SECURITY.md lists what that lookup can touch on disk.
 
 ### Changed - the core tools load up front in clients that defer MCP tools
 

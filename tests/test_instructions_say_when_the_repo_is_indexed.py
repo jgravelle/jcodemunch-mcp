@@ -18,6 +18,8 @@ directory is not the caller's.
 from __future__ import annotations
 
 import ast
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -68,7 +70,7 @@ def test_indexed_here_returns_the_file_count(monkeypatch):
 
     def fake(path, storage_path=None):
         seen["path"] = path
-        return {"indexed": True, "file_count": 2950}
+        return {"indexed": True, "file_count": 2950, "source_root": str(Path.cwd())}
 
     monkeypatch.setattr("jcodemunch_mcp.tools.resolve_repo.resolve_repo", fake)
     assert server._indexed_here() == 2950
@@ -88,6 +90,86 @@ def test_indexed_here_returns_the_file_count(monkeypatch):
 def test_indexed_here_is_none_when_it_cannot_tell(monkeypatch, result):
     monkeypatch.setattr("jcodemunch_mcp.tools.resolve_repo.resolve_repo", _fake_resolve(result))
     assert server._indexed_here() is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},  # no source_root: unknown, not a match
+        {"source_root": "Z:/somewhere/else/entirely"},
+        {"working_tree_mismatch": True},
+    ],
+)
+def test_indexed_here_is_none_for_an_index_of_another_tree(monkeypatch, extra):
+    result = {"indexed": True, "file_count": 10, **extra}
+    if "source_root" not in extra and "working_tree_mismatch" in extra:
+        result["source_root"] = str(Path.cwd())
+    monkeypatch.setattr("jcodemunch_mcp.tools.resolve_repo.resolve_repo", _fake_resolve(result))
+    assert server._indexed_here() is None
+
+
+# --- Unmocked: a real index under a private CODE_INDEX_PATH ------------------
+
+
+def _project(root: Path, files: int = 3) -> Path:
+    root.mkdir(parents=True)
+    for i in range(files):
+        (root / f"mod{i}.py").write_text(f"def f{i}():\n    return {i}\n", encoding="utf-8")
+    return root
+
+
+def test_a_real_index_of_this_directory_is_found(tmp_path, monkeypatch):
+    from jcodemunch_mcp.tools.index_folder import index_folder
+
+    store = tmp_path / "store"
+    project = _project(tmp_path / "proj")
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    out = index_folder(str(project), use_ai_summaries=False, storage_path=str(store), identity_mode="local")
+    assert out.get("success"), out
+    monkeypatch.chdir(project)
+    assert server._indexed_here(timeout=10) == out["file_count"] == 3
+    monkeypatch.chdir(project / ".")
+    sub = project / "pkg"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+    assert server._indexed_here(timeout=10) == 3  # a directory inside the indexed tree
+
+
+def test_an_unindexed_directory_is_not_claimed(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    other = _project(tmp_path / "other")
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    monkeypatch.chdir(other)
+    assert server._indexed_here(timeout=10) is None
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_second_checkout_of_an_indexed_project_is_not_claimed(tmp_path, monkeypatch):
+    """resolve_repo answers indexed: true here (same project identity, other
+    working tree); the startup note must not."""
+    from jcodemunch_mcp.tools.index_folder import index_folder
+    from jcodemunch_mcp.tools.resolve_repo import resolve_repo
+
+    def git(*args, cwd):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, stdin=subprocess.DEVNULL)
+
+    store = tmp_path / "store"
+    a = _project(tmp_path / "a")
+    git("init", "-q", cwd=a)
+    git("remote", "add", "origin", "https://github.com/example/same-project.git", cwd=a)
+    b = tmp_path / "b"
+    shutil.copytree(a, b)
+    monkeypatch.setenv("CODE_INDEX_PATH", str(store))
+    out = index_folder(str(a), use_ai_summaries=False, storage_path=str(store))
+    assert out.get("success"), out
+
+    r = resolve_repo(str(b.resolve()))
+    if not (r.get("indexed") and r.get("working_tree_mismatch")):
+        pytest.fail(f"fixture no longer produces the sibling-checkout shape: {r}")
+    monkeypatch.chdir(b)
+    assert server._indexed_here(timeout=10) is None
+    monkeypatch.chdir(a)
+    assert server._indexed_here(timeout=10) == 3
 
 
 def test_indexed_here_is_none_on_an_error(monkeypatch):

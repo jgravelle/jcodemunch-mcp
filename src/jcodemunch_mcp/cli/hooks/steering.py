@@ -186,10 +186,15 @@ def _as_order(action: str) -> str:
     return f'order {{ "action": "{action}", "args": {{ ... }} }}'
 
 
+def _read_load_hint() -> str:
+    """The load step after a Read-hook sentence, on the counter surface only."""
+    return f" {_LOAD_ORDER_HINT}" if tool_surface() == "counter" else ""
+
+
 def _read_routes() -> str:
     """The Read hook's two routes, worded for the served surface (see `_routes_for`)."""
     if tool_surface() == "counter":
-        return f"{_as_order('get_file_outline')} + {_as_order('get_symbol_source')} {_LOAD_ORDER_HINT}"
+        return f"{_as_order('get_file_outline')} + {_as_order('get_symbol_source')}"
     return "get_file_outline + get_symbol_source"
 
 
@@ -430,7 +435,7 @@ def run_pretooluse() -> int:
         return _emit_pretooluse_deny(
             f"jCodemunch strict mode: this {size:,}-byte code file is in an "
             f"indexed repo. Use {_read_routes()} instead "
-            "of a full Read. For an exact-line pre-Edit read, pass "
+            f"of a full Read.{_read_load_hint()} For an exact-line pre-Edit read, pass "
             "offset/limit and it will pass. (JCODEMUNCH_ENFORCE=advisory "
             "for warn-only, =off to disable.)"
         )
@@ -440,6 +445,6 @@ def run_pretooluse() -> int:
     return _emit_additional_context(
         "PreToolUse",
         f"jCodemunch hint: this is a {size:,}-byte code file. "
-        f"Prefer {_read_routes()} for exploration. "
+        f"Prefer {_read_routes()} for exploration.{_read_load_hint()} "
         "Use Read only when you need exact line numbers for Edit.",
     )

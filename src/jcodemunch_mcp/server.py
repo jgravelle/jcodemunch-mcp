@@ -362,19 +362,28 @@ def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
 
     Used for the stdio transport only, where the working directory is the
     user's project. None means "could not establish": not indexed, no usable
-    count, an error, or a lookup slower than `timeout` (resolve_repo has a
-    documented hang, #303, and startup must not wait on it). The lookup runs on
-    a daemon thread so a stuck one cannot hold the process open.
+    count, an index built from a different working tree, an error, or a lookup
+    slower than `timeout` (resolve_repo has a documented hang, #303, and
+    startup must not wait on it). The lookup runs on a daemon thread so a stuck
+    one cannot hold the process open.
+
+    ⚠ The index must have been built FROM this directory or one containing it:
+    resolve_repo can answer `indexed: true` for a separate checkout of the same
+    project (it flags that `working_tree_mismatch`), and claiming "this repo is
+    indexed" there would point the agent at the other tree. So the answer
+    counts only when its `source_root` contains the working directory; a
+    missing `source_root` is unknown, not a match.
     """
     import threading
 
     box: dict = {}
+    cwd = Path.cwd().resolve()
 
     def _look() -> None:
         try:
             from .tools.resolve_repo import resolve_repo
 
-            box["r"] = resolve_repo(str(Path.cwd().resolve()))
+            box["r"] = resolve_repo(str(cwd))
         except Exception:
             logger.debug("startup index lookup failed", exc_info=True)
 
@@ -385,7 +394,16 @@ def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
         logger.debug("startup index lookup exceeded %.1fs; not claiming an index", timeout)
         return None
     r = box.get("r")
-    if not isinstance(r, dict) or r.get("indexed") is not True:
+    if not isinstance(r, dict) or r.get("indexed") is not True or r.get("working_tree_mismatch"):
+        return None
+    root = r.get("source_root")
+    if not root:
+        return None
+    try:
+        root_path = Path(root).expanduser().resolve()
+        if cwd != root_path and not cwd.is_relative_to(root_path):
+            return None
+    except (OSError, ValueError):
         return None
     n = r.get("file_count")
     if isinstance(n, bool) or not isinstance(n, int) or n < 0:
