@@ -48,11 +48,13 @@ def _dotgit_kind(directory: Path) -> Optional[str]:
     return "repo"
 
 
-def _independent_repo_between(p_resolved: Path, source_root: Path) -> Optional[Path]:
+def _independent_repo_between(
+    p_resolved: Path, source_root: Path, *, worktrees: bool = False,
+) -> Optional[Path]:
     """Root of an independent git repository between a path and a source root.
 
-    Returns the deepest such root, or None when the path really does belong to
-    ``source_root``'s repository.
+    With ``worktrees=True`` a linked worktree also counts. Returns the deepest
+    such root, or None when the path really does belong to ``source_root``.
 
     ⚠⚠ Containment is a statement about the FILESYSTEM; the caller wants one
     about the REPOSITORY. A nested independent clone inside an indexed parent
@@ -62,9 +64,19 @@ def _independent_repo_between(p_resolved: Path, source_root: Path) -> Optional[P
 
     ⚠ Submodules deliberately do NOT count. Their content IS indexed into the
     parent, which is the boundary #372 drew when it excluded linked worktrees
-    without changing submodule behaviour. Linked worktrees are left alone here
-    too: fast path 2 already answers for them via ``canonical_candidates``, and
-    diverting them into this branch would change #303's answer.
+    without changing submodule behaviour.
+
+    ⚠⚠ ``resolve_repo`` counts linked worktrees (#1202). A worktree shares the repository but
+    not the branch, and #372 keeps a nested one out of the parent's corpus. This
+    used to leave them to fast path 2, which answers ``indexed: false`` with
+    ``canonical_candidates``, but fast path 1 runs FIRST: a worktree nested
+    under ``source_root`` (``.claude/worktrees/<name>``) matched by containment
+    and came back as the parent's index, so every read came from another
+    branch. Only a sibling worktree ever reached fast path 2. Stopping here
+    sends the nested one there too, so both layouts get #303's answer.
+    ``index_file`` leaves the flag off: it refuses a nested-worktree file with
+    its own, accurate ``nested_worktree`` reason, and a worktree boundary here
+    would replace that with "a different repository", which is false.
 
     ⚠ Stats only, no subprocess — fast path 1 exists to avoid the
     ``resolve_index_identity`` walk that can hang (#303), so a correctness guard
@@ -82,7 +94,8 @@ def _independent_repo_between(p_resolved: Path, source_root: Path) -> Optional[P
                 return None
         except (OSError, ValueError, AttributeError):
             return None
-        if _dotgit_kind(directory) == "repo":
+        kind = _dotgit_kind(directory)
+        if kind == "repo" or (worktrees and kind == "worktree"):
             return directory
     return None
 
@@ -347,7 +360,7 @@ def _resolve_repo_impl(path: str, storage_path: Optional[str] = None) -> dict:
             # #492: containment is a filesystem fact, not a repository one. An
             # independent clone nested inside an indexed parent is contained by
             # it and belongs to neither its corpus nor its history.
-            boundary = _independent_repo_between(p_resolved, sr_path)
+            boundary = _independent_repo_between(p_resolved, sr_path, worktrees=True)
             if boundary is not None:
                 logger.debug(
                     "resolve_repo: %s is inside independent repo %s, not %s",
