@@ -10,9 +10,10 @@ the backup by swapping the file's suffix: `path.with_suffix(".windsurfrules.bak"
 of replacing, and the backup came out as `.windsurfrules.windsurfrules.bak`.
 Nothing was lost, but a user looking for `.windsurfrules.bak` did not find it.
 Every other backup site guessed the suffix the same way and was right
-only because each guess matched its file. Every CLI backup now goes through
-`cli/backup.backup_path`, which appends `.bak` to the whole name, so the other
-sites write the same names as before. `tests/test_backup_is_named_after_the_file.py`
+only because each guess matched its file. Every one of those backups now goes
+through `cli/backup.backup_path`, which appends `.bak` to the whole name, so the
+other sites write the same names as before. (`policy-refresh` already named its
+timestamped backups from the whole name and is unchanged.) `tests/test_backup_is_named_after_the_file.py`
 checks both Windsurf paths and the helper, and fails on any `with_suffix` call
 that builds a `.bak` name under `cli/`.
 

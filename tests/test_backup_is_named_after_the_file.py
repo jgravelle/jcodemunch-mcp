@@ -59,23 +59,30 @@ def test_backup_path_appends_bak_to_the_whole_name(tmp_path, name):
 
 
 def _with_suffix_backups(source: str) -> list[int]:
-    """Lines that CALL ``.with_suffix(...)`` with an argument mentioning ``.bak``.
+    """Lines that CALL ``.with_suffix(...)`` with anything but a plain literal free of ``.bak``.
 
-    Read from the syntax tree, not the text: the helper's docstring quotes the
-    old spelling, and a text scan fails on the explanation instead of the defect.
+    A literal that mentions ``.bak`` is the old spelling. An argument that is
+    not a literal at all (a name, an expression) is flagged too, because the
+    scan cannot see what it holds: ``BAK = ".md.bak"; p.with_suffix(BAK)`` is
+    the same defect one assignment away. Read from the syntax tree, not the
+    text: the helper's docstring quotes the old spelling, and a text scan fails
+    on the explanation instead of the defect.
     """
     hits = []
     for node in ast.walk(ast.parse(source)):
-        if (
+        if not (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "with_suffix"
-            and any(
-                isinstance(c, ast.Constant) and isinstance(c.value, str) and ".bak" in c.value
-                for a in node.args
-                for c in ast.walk(a)
-            )
         ):
+            continue
+        plain = (
+            len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and ".bak" not in node.args[0].value
+        )
+        if not plain:
             hits.append(node.lineno)
     return hits
 
@@ -96,8 +103,16 @@ def test_no_cli_module_builds_a_backup_with_with_suffix():
         'p.with_suffix(".windsurfrules.bak")',
         'p.with_suffix(p.suffix + ".bak")',
         'shutil.copy2(p, p.with_suffix(".md.bak"))',
+        'p.with_suffix(BAK)',
+        'p.with_suffix(f"{ext}.bak")',
     ],
 )
 def test_the_guard_sees_each_old_spelling(line):
-    """Non-vacuity: every spelling this fix removed is caught by the scan."""
+    """Non-vacuity: every spelling this fix removed is caught by the scan,
+    and so is a suffix held in a name or built at run time."""
     assert _with_suffix_backups(line) == [1]
+
+
+def test_the_guard_allows_a_plain_non_backup_suffix():
+    """`policy_refresh` writes a temp file with `.with_suffix(".json.tmp")`; that is not a backup."""
+    assert _with_suffix_backups('marker.with_suffix(".json.tmp")') == []
