@@ -1,6 +1,12 @@
 {
-  "current": "1.108.387",
+  "current": "1.108.388",
   "entries": [
+    {
+      "version": "1.108.388",
+      "date": "2026-10-21",
+      "title": "the license names jMunch, LLC, and the product says \"license\"",
+      "summary": "LICENSE moves to version 1.2, effective 2026-10-21: the copyright holder is now jMunch, LLC. The terms are word for word those of 1.1, and the SPDX identifier is unchanged, so nobody who allowlists it has to approve it again. The product now spells the word \"license\" everywhere a buyer reads it, and `jcodemunch-mcp license` with a rejected key points to j@gravelle.us for help instead of stopping at the error."
+    },
     {
       "version": "1.108.387",
       "date": "2026-10-21",

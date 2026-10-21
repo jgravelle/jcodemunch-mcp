@@ -285,3 +285,36 @@ def _top_symbols_by_pagerank(idx, *, n_files: int, n_syms: int):
     ]
     symbol_pr.sort(key=lambda x: x[1], reverse=True)
     return symbol_pr[:n_syms]
+
+
+def tool_surface() -> str:
+    """Effective ``tool_surface`` as the MCP server would resolve it (env wins,
+    then config). Best-effort: any failure reads as ``full``.
+
+    Duplicates the resolution order of ``server._effective_surface()`` on
+    purpose: importing the server module here would put its full import cost
+    in front of every subagent spawn, and this hook only needs the one key.
+
+    Reads via ``config.get`` — NOT ``load_config()``, which returns None (its
+    job is populating the module global) and, worse, defaults to
+    ``create_missing=True``: a config READ from a hook process must never
+    WRITE a config file into the user's storage dir (Maintenance Practice 8).
+    ``config.get``'s lazy load passes ``create_missing=False`` for exactly
+    that reason, and its env-var fallback layer already honors
+    ``JCODEMUNCH_TOOL_SURFACE``.
+    """
+    # counter.resolve_tool_surface is the one authority for precedence and
+    # validation (env wins; unrecognized serves "full"). The env pre-check
+    # also skips the config import entirely when the env var decides —
+    # config.get's own env layer is only a FALLBACK, so it cannot be used
+    # for the precedence half.
+    env = os.environ.get("JCODEMUNCH_TOOL_SURFACE")
+    try:
+        from ...counter import resolve_tool_surface
+        if (env or "").strip():
+            return resolve_tool_surface(env, None)[0]
+        from ...config import get as _config_get
+        return resolve_tool_surface(None, _config_get("tool_surface"))[0]
+    except Exception:
+        logger.debug("tool_surface resolution failed", exc_info=True)
+        return "full"
