@@ -45,6 +45,22 @@ and schemas are now part of every request: 2,480 bytes on `counter`, and
 cache. On upgrade the first request of a session writes that cache once. The
 published tool definitions themselves are unchanged, byte for byte.
 
+### Fixed - `init` reads the tool surface the way the server serves it
+
+`init` and the policy writer pick the counter policy or the direct-tool policy
+by asking `cli.policy._effective_tool_surface` which surface the install
+serves. That reader returned the raw environment value. A blank
+`JCODEMUNCH_TOOL_SURFACE` therefore read as an empty string, neither surface,
+while the server treated it as unset and served the configured `counter`; and
+an unknown value passed through as itself while the server served `full`. In
+those cases `init` could write a policy for a surface the client never
+receives. The reader now goes through `counter.resolve_tool_surface`, the one
+authority the server already used, and a config read that fails serves `full`
+and is logged. Found in review of the counter-surface steering fix, as the same
+unvalidated reader one layer over. `tests/test_policy_surface_reader_validates.py`
+compares the reader with the authority over blank, missing, mixed-case and
+unknown values.
+
 ### Fixed - the steering hook's advice names tools the agent can call
 
 On the `counter` tool surface, which `init` installs by default, the client's
