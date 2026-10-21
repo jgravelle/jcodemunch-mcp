@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
+
+`download-model`, and the first semantic encode with the `[local-embed]` extra,
+fetched `all-MiniLM-L6-v2` from Hugging Face's `main` branch and used whatever
+came back. A changed upstream file would have been downloaded and used without
+any check. The fetch now names one fixed revision
+(`1110a243fdf4706b3f48f1d95db1a4f5529b4d41`) and verifies each file against its
+SHA-256. A file that doesn't match is deleted and the download fails with a
+message saying so. The revision and checksums were confirmed against copies
+installs already have, so an existing cached model stays valid.
+
+The size stated to users was wrong. SECURITY.md and the encoder's docstring said
+the model was about 23 MB, and CONFIGURATION.md said about 25 MB for the
+sentence-transformers route. `model.onnx` is 90,405,214 bytes, and the
+sentence-transformers weights are about 91 MB. All three now say about 90 MB.
+
 ## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
 
 ### Changed - the startup note says the repo is indexed, and how big it is
