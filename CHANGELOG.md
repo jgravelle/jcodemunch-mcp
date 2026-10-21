@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed - the `.windsurfrules` backup is named `.windsurfrules.bak` (L-203)
+
+`init` and `uninstall` back up a rules file before they change it, and named
+the backup by swapping the file's suffix: `path.with_suffix(".windsurfrules.bak")`.
+`.windsurfrules` is a dotfile with no suffix, so `with_suffix` appended instead
+of replacing, and the backup came out as `.windsurfrules.windsurfrules.bak`.
+Nothing was lost, but a user looking for `.windsurfrules.bak` did not find it.
+The other ten backup sites guessed the suffix the same way and were right
+only because each guess matched its file. Every CLI backup now goes through
+`cli/backup.backup_path`, which appends `.bak` to the whole name, so the other
+sites write the same names as before. `tests/test_backup_is_named_after_the_file.py`
+checks both Windsurf paths and the helper, and fails on any `with_suffix` call
+that builds a `.bak` name under `cli/`.
+
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
