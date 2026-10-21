@@ -2,8 +2,8 @@
 
 ## Current State
 - **Version:** 1.108.389 — **the core tools load up front where clients defer MCP tools** (#1197): `_apply_always_load` marks `_instruction_tool_names(surface)` with `_meta["anthropic/alwaysLoad"]` (one list for both); stdio startup `_indexed_here` (resolve_repo, 1.5 s, source_root must contain cwd) makes the note say "is indexed (N files)"; the counter hook names `order` and its load step (#1188); `cli.policy` resolves the surface like the server (#1189). Full text: `CHANGELOG.md`.
-- **Prior (1.108.388):** **the license names jMunch, LLC, and the product says "license"** (J, 2026-10-20): LICENSE 1.2, effective 2026-10-21, copyright jMunch, LLC, terms and SPDX identifier unchanged (#1191, digest pin moved); "licence" respelled outside identifiers, quotations and released history, and a rejected key gets a support pointer (#1192). Full text: `CHANGELOG.md`.
-- **Prior (1.108.387):** **a licensed install is not shown a sales line** (jjg, 2026-10-20: paid clients are never marketed to): `org.license.licence_key_configured` (reads `JCODEMUNCH_LICENSE_KEY` or `license_key`, never validates, so `init` makes no network call) gates `init`'s $79 line and `install-pack`'s "Get a license"; `license` and `license --json` show the pricing link only when no key is set (`license_status_json`). Also certifi and Pillow lock updates. Full text: `CHANGELOG.md`.
+- **Prior (1.108.388):** **the license names jMunch, LLC, and the product says "license"**: LICENSE 1.2, effective 2026-10-21, copyright jMunch, LLC, terms and SPDX identifier unchanged (#1191, digest pin moved); "licence" respelled outside identifiers, quotations and released history, and a rejected key gets a support pointer (#1192). Full text: `CHANGELOG.md`.
+- **Prior (1.108.387):** **a licensed install is not shown a sales line** (2026-10-20: paid clients are never marketed to): `org.license.licence_key_configured` (reads `JCODEMUNCH_LICENSE_KEY` or `license_key`, never validates, so `init` makes no network call) gates `init`'s $79 line and `install-pack`'s "Get a license"; `license` and `license --json` show the pricing link only when no key is set (`license_status_json`). Also certifi and Pillow lock updates. Full text: `CHANGELOG.md`.
 - **Older releases (1.108.386 and earlier):** see `CHANGELOG.md` (1.108.303-.310, 1.108.314-.315, 1.108.316 through 1.108.386 in `ISSUE-HISTORY.md`). The 1.108.182 entry ("a stall has a name and a ceiling", #375) and the 1.108.177-.181 #377 hardening arc are there in full.
 - **Tests:** 18330 passed, 24 skipped, **0 failed** (18354 total, +45 over the .388 line's 18309) (1.108.389, the full tier, `python .claude/hooks/run_full.py --workers 4`, on the settled tree after the bump and the rotation) **+ `uv run ruff check src/` clean**. ⚠ Prior (1.108.388): 18284 passed, 25 skipped, **0 failed** (18309 total). ⚠ Prior (1.108.387): 18280 passed, 25 skipped, **0 failed** (18305 total). ⚠ `ruff check tests/` reports 292 PRE-EXISTING errors and is NOT this project's gate; `src/` is. ⚠⚠ **THE ROTATION IS TWO EDITS, NOT ONE** — moving a release out of Current State also moves the "Older releases (X and earlier)" boundary, and `test_claude_md_rotation.py` fails naming both numbers; it caught .311's settled run at `1 failed`. ⚠⚠ **READ THE SKIP COUNT, NOT JUST THE EXIT CODE AND THE TOTAL** — a .305 reproduce came back exit 0 with the total reconciling exactly while 105 tests silently did not execute. Forensics and the correct command: **Reproducing CI's environment**. ⚠⚠ **Compare TOTALS, never passed counts, and NEVER a skip count ACROSS machines** — CI ubuntu skips 26 and windows 19 where this box skips 13, all pre-existing; **the before/after delta on the SAME job is the only signal**. ⚠⚠ **A BACKGROUND-TASK BANNER SAYING "exit code 0" IS NOT A GREEN SUITE** — one run reported exit 0 having never started pytest (`--timeout` plugin absent), and .306 had a banner say exit 0 over a log whose own `EXIT=` line said 1. **Redirect the exit code INTO the log (`{ pytest; echo "EXIT=$?"; } > log`) and grep that line**; a bare `&` does not survive the shell either. ⚠⚠ **A CONTRIBUTOR PR IS TRIAL-MERGED ONTO `main` AND RUN LOCALLY BEFORE THE MERGE** — branch-green is not merged-green and the merge base moves every release. ⚠⚠ **A reproduce that ERRORS in `tests/test_sdist_exclusions.py` is NOT environmental noise** — that file is the sdist CREDENTIAL-LEAK guard (v0.2.6), and it errors at setup when the scratch venv must fetch the build backend with DNS blocked. Re-run it explicitly; never wave it through. ⚠ Two full runs contend on the same `~/.code-index` process-lock scopes, the documented cause of .261's 47m outlier, so the 3.13 reproduce runs AFTER the local suite, never beside it.
 - **Python:** >=3.10
@@ -148,7 +148,7 @@ src/jcodemunch_mcp/
   groq/
   parser/
     complexity.py      # cyclomatic / max_nesting / param_count from body TEXT, no AST. ⚠⚠ **`max_nesting` is `max(bracket_channel, indent_channel)` and BOTH are required.** Brackets alone cannot see Python control flow — `if`/`for`/`while` open a block with a colon and contribute NO bracket depth, so the field reported the deepest EXPRESSION under the same name (`index_folder`: brackets 3, AST truth 6, an underreport by HALF that supported the OPPOSITE conclusion about the symbol). Indentation alone cannot see MINIFIED code, which has none. Max can only RAISE a depth, so brace languages are unmeasured-by-neither and unchanged. ⚠ `max_nesting` is REPORTED (get_symbol_complexity / get_hotspots / get_extraction_candidates / get_pr_risk_profile) and SCORED NOWHERE — `hotspot_score` and `_complexity_assessment` use cyclomatic alone, so correcting it moves no grade. ⚠⚠ A literal BACKSPACE (0x08) once replaced `` in the opener regex and **compiled, ran and passed ruff**; `tests/test_nesting_depth_channels.py` pins the boundary behaviourally and scans for stray control characters
-    imports.py         # Regex import extraction (19 languages); extract_imports(), resolve_specifier(), build_psr4_map(). ⚠⚠ **`_JS_SPECIFIER_REWRITES` exists because a TS specifier names the EMITTED file, not the source**: `.mts` is imported as `./foo.mjs` and `.cts` as `./foo.cjs`, extensions that are NEVER on disk. Adding an extension to `LANGUAGE_EXTENSIONS` without its rewrite entry makes the file visible and its importers invisible -- which reads downstream as a file nobody imports, i.e. #550 in a new costume. The `.js -> .ts/.tsx` rule predates the table and is unchanged; `test_ts_module_extensions.py` asserts that byte-for-byte ⚠⚠ **`_tsconfig_skip_dirs()` DERIVES from `security._SKIP_DIRECTORY_NAMES` (#557)** -- it was the FOURTH copy of a skip list in this tree and the only one deriving from nothing, so `_walk_tsconfigs` descended into Rust's `target/` on every watcher event (**13.58s of a 13.75s reindex, 0.27s once excluded**). **Add a spelling to the AUTHORITY, never here.** ⚠ **UNION with `_TSCONFIG_EXTRA_SKIP_DIRS`, never replacement**: `out` is deliberately absent from the authority (the "DOTTED ONLY" rule -- it names a real source dir for the INDEXING walk) but has been skipped for tsconfig discovery for this function's whole life, and **removing a skip is the one direction this may not go**. ⚠ Imported lazily: `security` imports `config`, and resolving that at module scope would put a parser module in the chain for no benefit. ⚠⚠ **(#876) A Python dynamic import is an edge** (literal, one-step literal parameter, literal table) or a `<dynamic-import>` marker edge with `dynamic_unresolved` and a `dynamic_scope` (`package` / `prefix:<m>` / `opaque`); only a scope that reaches the file refuses, an opaque one is DISCLOSED (jjg, 2026-09-29); the marker resolves to nothing; `tools/_dynamic_boundary.py` is THE reach rule, and `blast_verdict`, `find_dead_code`, `get_dead_code_v2`, `check_delete_safe`, the deletion investigator, `find_importers` and `check_edit_safe` all read it (L-70, L-73, L-75); a reached file is UNDECIDED, never an entry point, and its loaders are never counted as importers. A change here changes `files.imports` on unchanged content: bump `PARSER_GENERATION`.
+    imports.py         # Regex import extraction (19 languages); extract_imports(), resolve_specifier(), build_psr4_map(). ⚠⚠ **`_JS_SPECIFIER_REWRITES` exists because a TS specifier names the EMITTED file, not the source**: `.mts` is imported as `./foo.mjs` and `.cts` as `./foo.cjs`, extensions that are NEVER on disk. Adding an extension to `LANGUAGE_EXTENSIONS` without its rewrite entry makes the file visible and its importers invisible -- which reads downstream as a file nobody imports, i.e. #550 in a new costume. The `.js -> .ts/.tsx` rule predates the table and is unchanged; `test_ts_module_extensions.py` asserts that byte-for-byte ⚠⚠ **`_tsconfig_skip_dirs()` DERIVES from `security._SKIP_DIRECTORY_NAMES` (#557)** -- it was the FOURTH copy of a skip list in this tree and the only one deriving from nothing, so `_walk_tsconfigs` descended into Rust's `target/` on every watcher event (**13.58s of a 13.75s reindex, 0.27s once excluded**). **Add a spelling to the AUTHORITY, never here.** ⚠ **UNION with `_TSCONFIG_EXTRA_SKIP_DIRS`, never replacement**: `out` is deliberately absent from the authority (the "DOTTED ONLY" rule -- it names a real source dir for the INDEXING walk) but has been skipped for tsconfig discovery for this function's whole life, and **removing a skip is the one direction this may not go**. ⚠ Imported lazily: `security` imports `config`, and resolving that at module scope would put a parser module in the chain for no benefit. ⚠⚠ **(#876) A Python dynamic import is an edge** (literal, one-step literal parameter, literal table) or a `<dynamic-import>` marker edge with `dynamic_unresolved` and a `dynamic_scope` (`package` / `prefix:<m>` / `opaque`); only a scope that reaches the file refuses, an opaque one is DISCLOSED (2026-09-29); the marker resolves to nothing; `tools/_dynamic_boundary.py` is THE reach rule, and `blast_verdict`, `find_dead_code`, `get_dead_code_v2`, `check_delete_safe`, the deletion investigator, `find_importers` and `check_edit_safe` all read it (L-70, L-73, L-75); a reached file is UNDECIDED, never an entry point, and its loaders are never counted as importers. A change here changes `files.imports` on unchanged content: bump `PARSER_GENERATION`.
   encoding/
     schemas/             # Per-tool custom encoders (tier-1, phase 2+); auto-discovered registry. ⚠⚠ **A schema that disagrees with its producer about the table KEY is INVISIBLE to the fail-closed guard**: `schema_driven` raises when a table has rows but no declared column populated (#354), and a wrong key yields NO rows, so `out_rows` is empty and the check never runs. (#553: `search_ast` declared `results` where the tool returns `matches`, serving an empty table for every language and preset.) ⚠ `tests/test_search_ast_encoder_contract.py` is the CI ratchet: every declared table key must name something its tool emits. ⚠⚠ **(#555) `sd.encode` also fails closed at RUNTIME on a list-of-dicts under a key no `TableSpec` declares.** It runs POST-transform BY CONSTRUCTION — `search_text._flatten` has already removed the public `results` — so pre-flattening schemas need NO exemption; **scanning the RAW response instead flags `search_text` on every call**, and an allowlist entry for it would be the wrong fix to the right symptom. `allow_undeclared=(...)` is explicit and per-key; raises rather than warns (dispatcher falls back to JSON, data survives). ⚠ **Columns are the second half and the near-miss**: a heterogeneous row set (search_ast carries 16 keys across 10 detectors, 5 of them pattern-specific) loses its payload silently if only the common columns are declared, because `file`/`line` populate and `any_value` goes true. Pattern-specific keys ride as one JSON cell, the `search_text` `before`/`after` shape. A table-key or column change is a WIRE change: bump `ENCODING_ID` and add the old one to `LEGACY_ENCODING_IDS`
   investigator/
@@ -655,7 +655,7 @@ consolidating five jdoc issues into one gate cut the open count from 5 to 1 and
 manufactured a single artifact with the power to block a release.
 **Tracker-tidiness and granularity pull in opposite directions; do not optimize
 the count.** ⚠ This splits a REPORTER's issue. A defect a session finds on the
-way is a row in `docs/workflows/LEDGER.md`, not a new issue (jjg, 2026-09-25).
+way is a row in `docs/workflows/LEDGER.md`, not a new issue (2026-09-25).
 
 **2. A release is NEVER blocked on an open issue**, including a verification we
 asked for. Done + tested + green ships on schedule, carrying a plain-language
@@ -665,12 +665,12 @@ by X, or Y ships with disclosure Z"); a date with no stated consequence is a wis
 ⚠ **The point is that a reviewer's thoroughness must never become a veto.** If
 being careful can stall a release, careful review becomes expensive to accept.
 
-**2e. NEVER BATCH OUR RELEASE BEHIND SOMEONE ELSE'S CLOCK** (jjg, 2026-08-18,
+**2e. NEVER BATCH OUR RELEASE BEHIND SOMEONE ELSE'S CLOCK** (2026-08-18,
 after it happened). ⚠⚠ **Policy 2 does not get broken by someone overruling it —
 it gets broken by an apparently sensible batching argument that never mentions
-it.** I once recommended holding five merged, green, user-facing fixes for two
-days so a release could absorb a contributor's CLA-blocked PR and save three
-conflict resolutions. jjg accepted it. That coupled our schedule to a
+it.** Holding five merged, green, user-facing fixes for two days, so a release
+could absorb a contributor's CLA-blocked PR and save three conflict
+resolutions, coupled our schedule to a
 contributor's signature, which is exactly what policy 2 exists to prevent — and
 it was wrong on the merits, because batching reduces the NUMBER of resolutions,
 not whether they happen, and each is minutes.
@@ -685,7 +685,7 @@ a default that ships the work regardless. If a window appears to block a release
 the batching decision is what is blocking it. [[never-batch-a-release-behind-someone-elses-clock]]
 
 **2f. THE ONE CASE WHERE NOT CUTTING A RELEASE IS LEGAL — and it is narrow**
-(jjg, 2026-08-20). ⚠⚠ **THE DISCRIMINATOR IS WHETHER A USER IS WAITING FOR
+(2026-08-20). ⚠⚠ **THE DISCRIMINATOR IS WHETHER A USER IS WAITING FOR
 ANYTHING IN THE BLOCK.** A block that is entirely metadata for one named
 recipient is the only shape this covers, because shipping it gets no user
 anything. ⚠ The asymmetry that decides it: **released metadata is PERMANENT per
@@ -700,8 +700,8 @@ Current State, not only here. [[declining-to-cut-is-not-holding-a-fix]]
 **3. A contributor's PR is never the only path.** Timebox it and keep our own
 path warm (#388 taught this the expensive way).
 
-**3a. NO TIMEBOX WE OFFER RUNS LONGER THAN 24 HOURS** (jjg, 2026-08-14, widened
-same day; **made ABSOLUTE 2026-08-20 — "Not again. 24 hour. Tops. Ever."**). It
+**3a. NO TIMEBOX WE OFFER RUNS LONGER THAN 24 HOURS** (2026-08-14, widened the
+same day; made absolute 2026-08-20). It
 covers every shape: signing the CLA, opening a PR already written, taking an
 issue to implement.
 ⚠⚠ **The window is only fair BECAUSE the default action preserves credit.** At
@@ -710,9 +710,9 @@ notes and the close comment. So the 24 hours decide whose COMMIT it is, never
 whether they are credited and never whether the fix ships. **Quote the default in
 the same comment as the deadline** — a clock with an unstated consequence reads
 as a threat.
-⚠⚠ **The failure mode has a name: a CLA hostage negotiation.** #443 went eight
-days — a real security fix, reviewed and green, held behind a 30-second form,
-while seven of our own merges conflicted its branch. **A window longer than 24
+⚠⚠ **The failure mode is a fix held behind a form.** #443 went eight days, a
+reviewed, green security fix waiting on a 30-second CLA form while seven of our
+own merges conflicted its branch. **A window longer than 24
 hours purchases exactly one thing: the chance the contributor's commit is theirs
 — and it pays for that chance in the user's exposure to an unfixed defect.**
 ⚠ An extension the contributor ASKS FOR is different from a default we hand out;
@@ -723,7 +723,7 @@ two. The grandfathering clause is spent and must not be revived.
 [[re-read-the-thread-for-the-operative-timebox]] [[timebox-comments-state-deadline-and-default-only]]
 
 **3b. A MERGEABLE contributor PR merges BEFORE any changelog-touching work of
-our own** (jjg, 2026-08-14), including a release commit.
+our own** (2026-08-14), including a release commit.
 
 ```bash
 GITHUB_TOKEN="" gh pr list --state open --json number,author,mergeable,mergeStateStatus \
@@ -745,8 +745,8 @@ time-to-close is 0 days; that is TRUE and it is NOT a response. The cost of a
 blocked issue is CONCENTRATED, not distributed. Design the fix at the OUTLIER.
 [[feedback_dont_answer_pain_with_aggregates]] [[push-to-the-fork-remote-by-name]]
 
-**3c. PROFILE THE AUTHOR BEFORE REVIEWING A VENDOR-SHAPED PR** (jjg,
-2026-08-17). Any PR adding a named third-party provider, gateway, SDK or endpoint
+**3c. PROFILE THE AUTHOR BEFORE REVIEWING A VENDOR-SHAPED PR**
+(2026-08-17). Any PR adding a named third-party provider, gateway, SDK or endpoint
 gets three queries FIRST, before a line of the diff is read:
 
 ```bash
@@ -755,13 +755,13 @@ GITHUB_TOKEN="" gh api "search/issues?q=is:pr+author:<login>&per_page=1" --jq .t
 GITHUB_TOKEN="" gh api "search/issues?q=is:pr+author:<login>+<vendor>+in:title&per_page=1" --jq .total_count
 ```
 
-⚠⚠ **The discriminator is the RATIO, not the volume.** #485's author had 3,089
-PRs, 2,242 with "minimax" in the title (73%), ~19/day. Found in under a minute;
-the PR had been reviewed in depth twice before anyone looked.
+⚠⚠ **The discriminator is the RATIO, not the volume:** the share of the
+author's PRs that name the same vendor. It takes a minute, and it belongs
+before the in-depth review, not after.
 ⚠ Also check whether we have a DEMAND signal, the actual #380 bar:
 `gh api "search/issues?q=repo:jgravelle/jcodemunch-mcp+<vendor>"`.
-⚠⚠ **Quality is NOT the discriminator and must not be used as one.** #485's diff
-was better than most human PRs. **Good work aimed at something nobody asked for
+⚠⚠ **Quality is NOT the discriminator and must not be used as one.** A
+well-made diff can still be aimed at something nobody asked for. **Good work aimed at something nobody asked for
 is still something nobody asked for.** Close on demand, credit the finding, and
 say plainly that quality was not the reason.
 ⚠ Do not assert employment you cannot prove — state the numbers and ask.
@@ -769,7 +769,7 @@ say plainly that quality was not the reason.
 change, but never silently.** [[profile-the-author-before-reviewing-a-vendor-pr]]
 
 **3d. `license/cla` IS A REQUIRED STATUS CHECK ON THE DEFAULT BRANCH OF ALL
-THREE REPOS** (jjg, 2026-08-17 for jcm; suite-wide 2026-08-21). ⚠⚠ **A setting
+THREE REPOS** (2026-08-17 for jcm; suite-wide 2026-08-21). ⚠⚠ **A setting
 fixed in one repo of a suite is fixed in one repo** — for four days jdoc required
 nothing and jdata had no protection at all.
 
@@ -781,7 +781,7 @@ done
 ```
 
 ⚠ `enforce_admins: false` and `strict: false` are both deliberate: the admin
-override lets jjg land a merge pushed to a contributor's fork, and `strict` would
+override lets the maintainer land a merge pushed to a contributor's fork, and `strict` would
 force a rebase after every release.
 ⚠⚠ **NOTHING IS ERASED — `license/cla` is a legacy commit STATUS, not a check
 run.** Every other check is a check-run that GitHub re-runs per head; a legacy
@@ -846,15 +846,9 @@ re-publish on a zero-row read; fix the parse.** Confirm
 `scripts/registry_verify.py` is the parse (`release.yml` runs it; the
 2026-08-27 measurements are in `ISSUE-HISTORY.md`).
 
-⚠⚠ **THE PUBLISH LINE IS HANDED OVER IN cmd.exe FORM. ONE FORM, NO MENU.**
-jjg is NEVER at a Bash prompt (stated flatly 2026-09-02). Literal paths only:
-no `~`, no `%USERPROFILE%`, no `$env:USERPROFILE`. The `!` prefix runs Git
-Bash and that is not the rule: **a mechanism is not a habit.** A line that
+⚠ The local publish setup (which shell, which paths) is in the maintainers'
+private notes; `release.yml` publishes to the registry itself. A line that
 must run through `!` is a tool call to make, not a paste to hand over.
-
-```
-cd /d C:\MCPs\jcodemunch-mcp && "C:\Users\j\mcp-publisher.exe" login github && "C:\Users\j\mcp-publisher.exe" publish
-```
 
 ⚠ The release skill (`.claude/skills/release/SKILL.md`) is TRACKED in this
 repo since 2026-09-04 (DESIGN D1/D2); its publish half is superseded by
@@ -1027,7 +1021,7 @@ before/after delta on the SAME job is the only signal.
    it will dispatch" is the property. ⚠ A red suite invites fixing the tests; run
    the non-vacuity pass on the OLD test too — if it passes only against the
    pre-fix tree, it was the defect's witness, not its guard.
-10. **Run the touched test files BEFORE the full suite** (jjg, 2026-08-28). The
+10. **Run the touched test files BEFORE the full suite** (2026-08-28). The
    suite is a RELEASE gate, not an edit loop. Measured on #558: full suite 12:55
    (6 failures) -> fix -> 10:47 -> CI 9:21 = **33 minutes of blocking wait**,
    where `pytest` on the three affected files reproduces all six failures in
@@ -1045,9 +1039,9 @@ before/after delta on the SAME job is the only signal.
    entries that were correct when written. **These numbers are an index, not a
    ranking, and nothing fails a build when one drifts** — so a new practice
    goes on the END.
-   ⚠ **Measure a wait, never estimate it.** I reported this as "two suite runs,
-   that's the whole 40 minutes"; 2x13 is 26, and jjg did the arithmetic.
-11. **A release does not end at the registry — reinstall and RESTART locally**
+   ⚠ **Measure a wait, never estimate it.** "Two suite runs, that's the whole
+   40 minutes" was wrong: 2x13 is 26.
+11. **A release does not end at the registry — upgrade, then RESTART, locally**
    (2026-08-29). We develop jcodemunch using jcodemunch, and this box ran
    **1.108.293 against a 1.108.307 tree: fourteen releases, six days.** The
    checklist's eight steps are complete with respect to USERS and silent with
@@ -1059,5 +1053,6 @@ before/after delta on the SAME job is the only signal.
    path routed AROUND the product** — every fix that week was checked with
    `PYTHONPATH=src` rather than through the server, and nobody decided that.
    ⚠ `install-status` reports `source_drift` now (tri-state; UNKNOWN never
-   `False`), and all five packages are EDITABLE, so only the restart can drift.
+   `False`). ⚠⚠ **A restart serves what the launching interpreter has
+   installed: upgrade it first, then restart.** Not every install is editable.
    `scripts/repair-munch-installs.ps1` repairs it; `-Apply` stops every j*munch server first.

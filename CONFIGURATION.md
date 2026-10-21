@@ -252,7 +252,7 @@ Semantic/embedding search is opt-in and requires no config file changes — it i
 
 **Provider priority** (first match wins):
 
-1. Local `sentence-transformers` — set `JCODEMUNCH_EMBED_MODEL=all-MiniLM-L6-v2`. Install: `pip install "jcodemunch-mcp[semantic]"`. Free, ~25MB, CPU-only.
+1. Local `sentence-transformers` — set `JCODEMUNCH_EMBED_MODEL=all-MiniLM-L6-v2`. Install: `pip install "jcodemunch-mcp[semantic]"`. Free, CPU-only; sentence-transformers downloads the model weights on first use.
 2. OpenAI — set `OPENAI_API_KEY` **and** `OPENAI_EMBED_MODEL` (e.g. `text-embedding-3-small`). Per-token cost.
 3. Gemini — set `GOOGLE_API_KEY` **and** `GOOGLE_EMBED_MODEL` (e.g. `models/text-embedding-004`). Per-token cost.
 
