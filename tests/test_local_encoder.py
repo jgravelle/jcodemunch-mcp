@@ -229,10 +229,18 @@ class TestModelManagement:
         """download_model should fetch ONNX + vocab to target directory."""
         from jcodemunch_mcp.embeddings.local_encoder import download_model
 
+        import hashlib
+
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
         def fake_urlretrieve(url, path):
             Path(path).write_bytes(b"fake-model-data")
 
-        with patch("urllib.request.urlretrieve", side_effect=fake_urlretrieve):
+        # The download verifies each file's SHA-256 (tests/test_embedding_model_pin.py);
+        # the fake bytes are declared as the expected content here.
+        fake_sum = hashlib.sha256(b"fake-model-data").hexdigest()
+        with patch.dict(le.MODEL_SHA256, {k: fake_sum for k in le.MODEL_SHA256}), \
+                patch("urllib.request.urlretrieve", side_effect=fake_urlretrieve):
             result_dir = download_model(tmp_path, quiet=True)
 
         assert result_dir == tmp_path
@@ -265,7 +273,15 @@ class TestModelManagement:
                 Path(path).write_bytes(b"partial")
                 raise ConnectionError("network down")
 
-        with patch("urllib.request.urlretrieve", side_effect=fail_on_second):
+        import hashlib
+
+        from jcodemunch_mcp.embeddings import local_encoder as le
+
+        # The first file's bytes are declared valid, so the failure under test
+        # is the network one on the second file, not a checksum mismatch.
+        ok_sum = {le.ONNX_FILENAME: hashlib.sha256(b"ok").hexdigest()}
+        with patch.dict(le.MODEL_SHA256, ok_sum), \
+                patch("urllib.request.urlretrieve", side_effect=fail_on_second):
             with pytest.raises(RuntimeError, match="Failed to download"):
                 download_model(tmp_path, quiet=True)
 

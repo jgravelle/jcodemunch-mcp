@@ -1,8 +1,9 @@
 """Bundled ONNX local encoder — zero-config symbol embeddings.
 
-Ships a small, permissively-licensed ONNX model (all-MiniLM-L6-v2, Apache 2.0,
-~23 MB, 384-dim) that runs in-process via ``onnxruntime``.  No API key, no
-internet after first download, no configuration required.
+Uses a permissively-licensed ONNX model (all-MiniLM-L6-v2, Apache 2.0, about
+90 MB, 384-dim) that runs in-process via ``onnxruntime``.  No API key, no
+internet after first download, no configuration required.  The download is
+pinned to one upstream revision and each file is checked against its SHA-256.
 
 Install::
 
@@ -33,6 +34,17 @@ MODEL_DIM = 384
 MAX_SEQ_LENGTH = 256
 
 _HF_BASE_URL = "https://huggingface.co"
+
+# The fetch is pinned to one upstream revision and every file is checked
+# against its SHA-256, so a changed upstream file can't be downloaded and used
+# silently. Both were confirmed against the copy installs already cache:
+# model.onnx matches the revision's published LFS checksum (90,405,214 bytes),
+# and vocab.txt matches its git blob. To move to a newer revision, update both.
+MODEL_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+MODEL_SHA256 = {
+    ONNX_FILENAME: "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452",
+    VOCAB_FILENAME: "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+}
 
 
 def _default_models_dir() -> Path:
@@ -70,9 +82,30 @@ def is_onnxruntime_available() -> bool:
 # ── Download ───────────────────────────────────────────────────────────────
 
 
+def _files_to_fetch() -> list[tuple[str, str]]:
+    """(url, filename) for each model file, at the pinned revision."""
+    base = f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/{MODEL_REVISION}"
+    return [
+        (f"{base}/onnx/{ONNX_FILENAME}", ONNX_FILENAME),
+        (f"{base}/{VOCAB_FILENAME}", VOCAB_FILENAME),
+    ]
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) -> Path:
     """Download the ONNX model + vocab from HuggingFace to *target_dir*.
 
+    Fetches `MODEL_REVISION` and checks each file against `MODEL_SHA256`; a
+    file that does not match is deleted and the download fails.
     Returns the directory containing the downloaded files.
     """
     import urllib.request
@@ -80,12 +113,7 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
     dest = target_dir or _default_models_dir()
     dest.mkdir(parents=True, exist_ok=True)
 
-    files_to_fetch = [
-        (f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/main/onnx/{ONNX_FILENAME}", ONNX_FILENAME),
-        (f"{_HF_BASE_URL}/{MODEL_REPO}/resolve/main/{VOCAB_FILENAME}", VOCAB_FILENAME),
-    ]
-
-    for url, filename in files_to_fetch:
+    for url, filename in _files_to_fetch():
         out_path = dest / filename
         if out_path.exists():
             if not quiet:
@@ -103,6 +131,15 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
             raise RuntimeError(
                 f"Failed to download {filename} from {url}: {exc}"
             ) from exc
+        expected = MODEL_SHA256.get(filename)
+        actual = _sha256(out_path)
+        if expected and actual != expected:
+            out_path.unlink()
+            raise RuntimeError(
+                f"Downloaded {filename} failed its checksum (expected sha256 {expected}, "
+                f"got {actual}); the file was removed. Upstream may have changed; "
+                f"nothing was installed."
+            )
         if not quiet:
             size_mb = out_path.stat().st_size / (1024 * 1024)
             print(f"  Saved {filename} ({size_mb:.1f} MB)", file=sys.stderr)  # noqa: T201
