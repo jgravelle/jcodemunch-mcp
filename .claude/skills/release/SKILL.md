@@ -19,7 +19,7 @@ description: "Publishing a jMunch release (jcodemunch-mcp, jdocmunch-mcp, jdatam
 command below is run BY THE AGENT through the Bash tool (Git Bash), so bash
 syntax is correct for them: `PYTHONPATH=src python ...`, `GITHUB_TOKEN="" gh ...`,
 `BR=$(...)`. **Inline env-var prefixes and `$(...)` do NOT exist in cmd.exe or
-PowerShell**, which is what jjg is at when he types.
+PowerShell**, which is what a maintainer types into.
 
 **Step 7 is the ONE command a HUMAN types interactively**, and on 2026-08-13 it
 failed mid-release because it had silently inherited bash path syntax from its
@@ -129,53 +129,15 @@ GITHUB_TOKEN="" gh release create vX.Y.Z dist/*X.Y.Z* --repo jgravelle/<repo> --
 # 7. MCP registry (NOT optional - this is what mcp.so/MCPFind/mcprepository/PulseMCP display)
 #    ⚠⚠ The registry JWT lives FIVE MINUTES. login and publish MUST be one
 #    command, run from the repo root (publish reads server.json from the CWD).
-#    The device flow blocks on a browser and its prompt does not surface from an
-#    agent shell, so jjg runs this in-session with the `!` prefix.
-#    ⚠⚠ **DEFAULT ROUTE: THE TOKEN LOGIN, RUN BY THE AGENT AS A TOOL CALL. jjg
-#    TYPES NOTHING** (ported from jdocmunch-mcp's delta table, 2026-09-19).
-#    Passing the existing gh token skips the device flow entirely, so nothing
-#    blocks on a browser and the agent shell can run it:
-#        cd /c/MCPs/<repo> && GITHUB_TOKEN="" /c/Users/j/mcp-publisher.exe login github --token "$(GITHUB_TOKEN="" gh auth token)" && /c/Users/j/mcp-publisher.exe publish
-#    Measured in jdoc: published first try from the agent shell for 1.141.0
-#    (2026-09-17), the same day a handed-over device flow died with
-#    `incorrect_device_code`. 1.142.0 (2026-09-19) handed the device flow over
-#    anyway because this block named no other route; it worked, and cost jjg a
-#    browser round trip for nothing.
-#    ⚠ The method must be `github`. `github-oidc` has NO `--token` flag -- it
-#    prints the `login` usage block and EXITS 0, so it reads as a usage error.
-#    ⚠ A TIMEOUT IS NOT AN EXPIRED TOKEN. If `login` or `publish` dies on
-#    `dial tcp ... failed to respond`, check the registry host is reachable
-#    before re-authenticating; re-logging in burns the five minutes on the
-#    wrong problem.
-#    **EVERYTHING BELOW ABOUT WHAT jjg TYPES IS THE FALLBACK**, for when the
-#    token route fails for a reason that is not a timeout.
-#    ⚠⚠ THE DEV PLATFORM IS WINDOWS. `~` IS NOT A PATH HERE. cmd.exe treats it as
-#    a literal directory name and fails with "The system cannot find the path
-#    specified" -- 2026-08-13, mid-release, because this line used to read
-#    `~\mcp-publisher.exe`. The binary lives at C:\Users\j\mcp-publisher.exe.
-#    ⚠⚠ GIVE THE LITERAL PATH. NO `~`, NO `%USERPROFILE%`, NO `$env:USERPROFILE`.
-#    jjg has asked for full paths TWICE -- 2026-08-13 (`~`) and 2026-08-31
-#    (`$env:USERPROFILE`), each time mid-release, each time after the
-#    expanding form failed at his prompt. An env var buys portability this
-#    line does not need: there is ONE dev box and the binary is at
-#    C:\Users\j\mcp-publisher.exe. Pick the line matching the prompt you are
-#    actually at:
-#    ⚠⚠ **GIVE THE cmd.exe FORM. ONE FORM. NO MENU.** jjg is NEVER at a Bash
-#    prompt -- stated flatly 2026-09-02 (*"We've danced this dance a thousand
-#    times"*) after this block's `/c/...` "default route" was handed over and
-#    died on "The system cannot find the path specified".
-#    ⚠⚠ **THE `!` PREFIX RUNS GIT BASH, AND THAT IS NOT THE RULE.** The
-#    2026-09-01 revision reasoned from the mechanism -- `!` is bash, so write
-#    bash -- and inverted the practice, because the premise it needed was which
-#    prompt jjg ACTUALLY USES, and nobody had asked. **A mechanism is not a
-#    habit.** If a line must genuinely run through `!`, that is a tool call to
-#    make, not a paste to hand over.
-#    ⚠ Offering three labelled forms is not thoroughness; it is the indecision
-#    that picked the wrong one. Delete the alternatives.
-#      THE LINE (cmd.exe; `/d` because he will be in another repo's directory):
-#        cd /d C:\MCPs\<repo> && "C:\Users\j\mcp-publisher.exe" login github && "C:\Users\j\mcp-publisher.exe" publish
-#    ⚠ `login` alone is NOT a valid invocation -- the auth method is a required
-#    argument, so it must be `login github`.
+#    The device flow blocks on a browser, so the usual route is the token login,
+#    run by the agent as a tool call, in one command from the repo root:
+#        GITHUB_TOKEN="" mcp-publisher login github --token "$(GITHUB_TOKEN="" gh auth token)" && mcp-publisher publish
+#    The method must be `github`, and `login` alone is not a valid invocation.
+#    `github-oidc` has no `--token` flag: it prints the `login` usage block and
+#    EXITS 0, so the failure reads as success.
+#    A connection timeout is not an expired token: check the registry host is
+#    reachable before logging in again. The binary's location and the form to
+#    hand a human (cmd.exe, literal paths) are in the maintainers' private notes.
 #    ⚠ Then VERIFY against the live API - the CLI checkmark is not proof.
 #    ⚠⚠ EACH ROW IS {server:{...}, _meta:{...}} - name and version live UNDER
 #    `server`, NOT at top level (schema 2025-12-11). A flat read of `.name`
@@ -375,7 +337,7 @@ GITHUB_TOKEN="" gh pr create --base main --head contrib/<n>-merged   # CI gates 
 unavailable.** A contributor whose branch is bypassed with no explanation
 reasonably reads it as their work being taken over.
 ⚠⚠ **A MERGEABLE CONTRIBUTOR PR MERGES FIRST. CHECK BEFORE EVERY MERGE OF OURS
-THAT TOUCHES `CHANGELOG.md`** (jjg, 2026-08-14), including a release commit:
+THAT TOUCHES `CHANGELOG.md`** (2026-08-14), including a release commit:
 
 ```bash
 GITHUB_TOKEN="" gh pr list --state open --json number,author,mergeable,mergeStateStatus \
