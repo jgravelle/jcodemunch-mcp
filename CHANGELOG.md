@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.390] - 2026-10-21 - the local embedding model is pinned and checked before it is used
+
 ### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
 
 `download-model`, and the first semantic encode with the `[local-embed]` extra,
