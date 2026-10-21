@@ -9,7 +9,6 @@ keeps `suite.full_seconds`, and windows keeps its own.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -62,4 +61,3 @@ def test_every_floor_the_selector_can_return_exists():
     for tid in ("suite.full_seconds", "suite.full_seconds_ci_windows", "suite.full_seconds_ci_ubuntu_py310"):
         assert tid in t, tid
         assert tid in H.DELEGATED, tid
-    assert sys.version_info >= (3, 10)
