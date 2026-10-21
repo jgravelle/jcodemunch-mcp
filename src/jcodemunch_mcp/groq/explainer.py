@@ -8,7 +8,8 @@ Pipeline:
   5. Composite slides + audio into MP4 via FFmpeg
 
 MVP: static slides (no animation). Requires FFmpeg on PATH.
-Requires: pip install "jcodemunch-mcp[groq-explain]"
+Requires: Python 3.11 or newer, and pip install "jcodemunch-mcp[groq-explain]"
+(the extra installs Pillow only on Python 3.11+).
 """
 
 import json
