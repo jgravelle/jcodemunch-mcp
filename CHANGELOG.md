@@ -8,7 +8,7 @@
 
 The product said "licence" in places its buyers read: `init`'s closing line ("A
 commercial licence is $79") and `install-pack`'s "Upstream licence:" lines,
-plus docs, comments and test text. They now say "license" (J, 2026-10-20), which
+plus docs, comments and test text. They now say "license", which
 is also how the LICENSE file and every other line already spelled it.
 Identifiers are left as they are (`_LICENCE_LINES`, `licence_key_configured`, the
 `test_init_licence_line.py` file and its test names), because renaming them is
@@ -26,8 +26,8 @@ for a rejected key only.
 ### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
 
 `LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
-Gravelle, and its header moves to version 1.2, effective 2026-10-21 (J,
-2026-10-20). The terms are unchanged: what anyone may do with the software, and
+Gravelle, and its header moves to version 1.2, effective 2026-10-21.
+The terms are unchanged: what anyone may do with the software, and
 under which conditions, is word for word what version 1.1 said. That is why
 this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
 tracks the major version and stays as it is, so nobody who allowlists the
