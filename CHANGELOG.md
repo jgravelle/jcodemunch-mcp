@@ -2,11 +2,13 @@
 
 ## [Unreleased]
 
+## [1.108.387] - 2026-10-21 - a licensed install is not shown a sales line
+
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
-licence is $79", and `install-pack`'s catalog listing ended with "Get a
-license", whether or not the install already had a licence key. A paying
+license is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a license key. A paying
 customer was being sold the thing they had bought, and jMunch promises paid
 clients they are never marketed to (jjg, 2026-10-20). Both lines now print
 only when no key is configured (for `install-pack --list`, a key passed with
@@ -20,6 +22,11 @@ that records every network call and requires none (recorded, not refused:
 the validator's own `except Exception` would swallow a raise);
 `tests/test_install_pack.py` covers the listing with no key, a configured
 key and a `--license` key.
+
+The `license` command follows the same rule. Its pricing link prints only when
+no key is set at all, in the text and in `license --json` (whose `get_license`
+is null for any key holder), and a valid Builder key reads "Team features
+(org-rollup): not included in your license" instead of an upgrade pitch.
 
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 

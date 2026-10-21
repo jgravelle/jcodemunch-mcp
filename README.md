@@ -160,10 +160,10 @@ That's the highlight reel. The complete tour of 90+ tools, the MUNCH compact wir
 <!-- WHATSNEW:START -->
 #### What's new
 
+- **[v1.108.387](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.387)** (2026-10-21) — a licensed install is not shown a sales line
 - **[v1.108.386](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.386)** (2026-10-20) — the AI summary prompt can carry each symbol's own source, opt-in
 - **[v1.108.385](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.385)** (2026-10-19) — a summary written by another process reaches this one's searches
 - **[v1.108.384](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.384)** (2026-10-19) — the watcher no longer polls trees nothing indexes
-- **[v1.108.383](https://github.com/jgravelle/jcodemunch-mcp/releases/tag/v1.108.383)** (2026-10-19) — refreshing summaries no longer erases complexity and the call graph
 <!-- WHATSNEW:END -->
 
 ---
