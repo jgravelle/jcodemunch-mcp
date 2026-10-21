@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Changed - the startup note says the repo is indexed, and how big it is
+
+The server's MCP instructions, which are often the only jcodemunch text an
+agent reads, opened with "This repo can be indexed by jcodemunch" even when it
+already was, which reads as setup still to do. On the stdio transport, where
+the server runs in the user's project, startup now asks whether that directory
+is indexed. If it is, the note opens "This repo is indexed by jcodemunch
+(N files)", so the agent knows the index is ready and can judge the
+repository's size for itself. The guidance for small repositories is
+unchanged. The lookup reads the local index metadata only: no network, no
+writes, and it gives up after 1.5 seconds. If it can't establish an index (not
+indexed, an error, or the time limit), the note keeps the old wording, as do
+the SSE and streamable-http transports, where the server's directory is not
+the caller's.
+
 ### Changed - the core tools load up front in clients that defer MCP tools
 
 Claude Code defers every MCP tool by default. The model sees each tool's name
