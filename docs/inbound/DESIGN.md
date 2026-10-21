@@ -314,7 +314,11 @@ a comment.
 5. Any `inbound:queued` older than 2 hours (the triage runner failed or
    the budget declined it) is named in the digest.
 
-**Digest**, `.github/workflows/inbound-digest.yml`, Mondays 06:45 UTC after
+**Digest**, `.github/workflows/inbound-digest.yml`. (2026-10-21) It no longer runs on a
+schedule and no longer posts a weekly public issue: the weekly digest is produced
+outside this repository by running `.github/inbound/digest.py` against the ledger
+branch, and the workflow stays runnable by hand (`workflow_dispatch`). As built
+before that date: Mondays 06:45 UTC after
 the sweep; `GITHUB_TOKEN` read-only, the issue written by the App (as built; the first draft said `issues: write`); `claude-sonnet-5`,
 `--max-turns 8`, only to render prose from the ledger rows the job hands
 it; the numbers in the digest are computed by `.github/inbound/digest.py`
