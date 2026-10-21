@@ -5,7 +5,8 @@
 has no suffix, so ``with_suffix`` appended instead of replacing and the backup
 was ``.windsurfrules.windsurfrules.bak``. Every other backup site guessed the
 file's suffix the same way and was right only because the guess matched. The
-rule now lives in one helper, `cli.init._backup_path`, and the scan below
+rule now lives in one helper, `cli.backup.backup_path` (re-exported as
+`cli.init._backup_path`), and the scan below
 fails if a ``with_suffix`` backup comes back anywhere under ``cli/``.
 """
 
