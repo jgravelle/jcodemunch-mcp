@@ -2,11 +2,27 @@
 
 ## [Unreleased]
 
+### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
+
+`LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
+Gravelle, and its header moves to version 1.2, effective 2026-10-21 (J,
+2026-10-20). The terms are unchanged: what anyone may do with the software, and
+under which conditions, is word for word what version 1.1 said. That is why
+this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
+tracks the major version and stays as it is, so nobody who allowlists the
+license by that identifier has to approve it again. The condition that the
+original author's name (J. Gravelle) remain intact stays, because authorship
+does not move when a copyright is assigned. The digest pin in
+`tests/test_license_identifier_agreement.py` moves to the new text, as that
+test requires for any edit.
+
+## [1.108.387] - 2026-10-21 - a licensed install is not shown a sales line
+
 ### Fixed - a licensed install is not shown a sales line
 
 `init` ended every real run with "Using jCodeMunch at work? A commercial
-licence is $79", and `install-pack`'s catalog listing ended with "Get a
-license", whether or not the install already had a licence key. A paying
+license is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a license key. A paying
 customer was being sold the thing they had bought, and jMunch promises paid
 clients they are never marketed to (jjg, 2026-10-20). Both lines now print
 only when no key is configured (for `install-pack --list`, a key passed with
@@ -21,19 +37,10 @@ the validator's own `except Exception` would swallow a raise);
 `tests/test_install_pack.py` covers the listing with no key, a configured
 key and a `--license` key.
 
-### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
-
-`LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
-Gravelle, and its header moves to version 1.2, effective 2026-10-21 (J,
-2026-10-20). The terms are unchanged: what anyone may do with the software, and
-under which conditions, is word for word what version 1.1 said. That is why
-this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
-tracks the major version and stays as it is, so nobody who allowlists the
-license by that identifier has to approve it again. The condition that the
-original author's name (J. Gravelle) remain intact stays, because authorship
-does not move when a copyright is assigned. The digest pin in
-`tests/test_license_identifier_agreement.py` moves to the new text, as that
-test requires for any edit.
+The `license` command follows the same rule. Its pricing link prints only when
+no key is set at all, in the text and in `license --json` (whose `get_license`
+is null for any key holder), and a valid Builder key reads "Team features
+(org-rollup): not included in your license" instead of an upgrade pitch.
 
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
 

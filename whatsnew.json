@@ -1,6 +1,12 @@
 {
-  "current": "1.108.386",
+  "current": "1.108.387",
   "entries": [
+    {
+      "version": "1.108.387",
+      "date": "2026-10-21",
+      "title": "a licensed install is not shown a sales line",
+      "summary": "init no longer ends with the $79 commercial-license line, and install-pack's listing no longer ends with \"Get a license\", when a license key is configured; jMunch promises paid clients they are never marketed to. The license command shows a pricing link (in text and in --json) only to an install with no key, and a valid Builder key reads \"Team features (org-rollup): not included in your license\". The gate reads the key and never validates it, so init still makes no network call. Also: certifi and Pillow lock updates for published advisories."
+    },
     {
       "version": "1.108.386",
       "date": "2026-10-20",
