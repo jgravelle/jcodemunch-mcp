@@ -24,7 +24,7 @@ key and a `--license` key.
 ### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
 
 `LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
-Gravelle, and its header moves to version 1.2, effective 2026-10-20 (J,
+Gravelle, and its header moves to version 1.2, effective 2026-10-21 (J,
 2026-10-20). The terms are unchanged: what anyone may do with the software, and
 under which conditions, is word for word what version 1.1 said. That is why
 this is a minor version: the SPDX identifier `LicenseRef-jCodeMunch-Dual-Use-1`
