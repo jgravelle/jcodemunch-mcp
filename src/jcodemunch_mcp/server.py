@@ -1673,6 +1673,33 @@ def _apply_readonly_annotations(tools: list[Tool]) -> list[Tool]:
     return annotated
 
 
+# Claude Code's documented per-tool switch: a tool whose `_meta` carries this
+# key loads up front instead of waiting behind tool search (the user can still
+# override per server with `"alwaysLoad": false`). Other clients ignore it.
+_ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad"
+
+
+def _apply_always_load(tools: list[Tool], surface: str) -> list[Tool]:
+    """Mark the tools the `instructions` name for `surface` as always-loaded.
+
+    A deferring client sends the model only tool names and our `instructions`,
+    so an agent that already has Grep rarely pays the ToolSearch call a
+    deferred tool needs. The set marked is `_instruction_tool_names(surface)`,
+    the same list the instructions tell the agent to start with, so the text
+    and the loaded tools cannot disagree. Marks only tools already published:
+    it never re-adds one a filter or `disabled_tools` removed. Returns copies.
+    """
+    wanted = set(_instruction_tool_names(surface))
+    out: list[Tool] = []
+    for tool in tools:
+        if tool.name in wanted:
+            meta = dict(tool.meta or {})
+            meta[_ALWAYS_LOAD_META_KEY] = True
+            tool = tool.model_copy(update={"meta": meta})
+        out.append(tool)
+    return out
+
+
 def _build_tools_list(
     profile_override: "str | None" = None,
     surface_override: "str | None" = None,
@@ -4915,7 +4942,7 @@ def _build_tools_list(
         keep = _COUNTER_FRONT_DOOR | _ALWAYS_PRESENT_TOOLS
         tools = [t for t in all_tools if t.name in keep]
         _apply_description_overrides(tools)
-        return _apply_readonly_annotations(tools)
+        return _apply_always_load(_apply_readonly_annotations(tools), surface)
     # Non-counter surfaces keep existing behavior byte-for-byte: the front-door
     # tools stay hidden (still callable via call_tool), so 'full' and the
     # existing tiers are unchanged on upgrade.
@@ -4976,7 +5003,7 @@ def _build_tools_list(
     # Merge descriptions from config (runs after disabled_tools filter)
     _apply_description_overrides(tools)
 
-    return _apply_readonly_annotations(tools)
+    return _apply_always_load(_apply_readonly_annotations(tools), surface)
 
 
 def _apply_description_overrides(tools: list) -> None:
