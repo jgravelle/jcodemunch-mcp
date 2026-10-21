@@ -142,13 +142,24 @@ _SEARCH_ROUTES["Bash"] = (
 _ROUTE_NAME_RE = re.compile(r"\b([a-z][a-z0-9_]+)\b")
 
 
+# `order` as a client names it, for the load step below. The hook must not
+# import the server (it runs on every tool call), so this repeats
+# `server._MCP_TOOL_PREFIX`; tests/test_steering_says_how_to_load_order.py pins
+# the two together.
+_ORDER_TOOL = "mcp__jcodemunch__order"
+# A client that defers MCP tools may not have `order` loaded: the server marks
+# it to load up front, but a user can override that and other clients ignore
+# it. Advice that points at `order` therefore says how to load it.
+_LOAD_ORDER_HINT = f'(If `order` isn\'t loaded yet: ToolSearch "select:{_ORDER_TOOL}".)'
+
+
 def _routes_for(tool_name: str) -> str:
     """`_SEARCH_ROUTES[tool_name]`, worded for the surface this install serves.
 
     ⚠⚠ Under `tool_surface="counter"` (init's default) the client's tool list
     holds only the front door, so a route named as a bare tool is a call the
-    agent cannot make; every action is reachable only through `order`
-    (Benchmarking, M4 design on 1.108.386). The `CLAUDE.md` policy already
+    agent cannot make; every action is reachable only through `order`. The
+    `CLAUDE.md` policy already
     speaks in `order` calls; this is the second copy of the same guidance, so
     it renders the same way. The surface comes from `_common.tool_surface`
     (env + config through `counter.resolve_tool_surface`, the one authority the
@@ -163,7 +174,11 @@ def _routes_for(tool_name: str) -> str:
         names, sep, why = line.partition(":")
         names = _ROUTE_NAME_RE.sub(lambda m: _as_order(m.group(1)), names.strip(" -"))
         out.append(f"  - {names} {sep}{why}".rstrip())
-    return "\n".join(out) + "\n  (`menu` gives each action's argument template.)"
+    return (
+        "\n".join(out)
+        + "\n  (`menu` gives each action's argument template.)"
+        + "\n  " + _LOAD_ORDER_HINT
+    )
 
 
 def _as_order(action: str) -> str:
@@ -174,7 +189,7 @@ def _as_order(action: str) -> str:
 def _read_routes() -> str:
     """The Read hook's two routes, worded for the served surface (see `_routes_for`)."""
     if tool_surface() == "counter":
-        return f"{_as_order('get_file_outline')} + {_as_order('get_symbol_source')}"
+        return f"{_as_order('get_file_outline')} + {_as_order('get_symbol_source')} {_LOAD_ORDER_HINT}"
     return "get_file_outline + get_symbol_source"
 
 

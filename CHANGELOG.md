@@ -35,6 +35,10 @@ or the active profile is never re-added. Clients that don't know the key
 ignore it. To keep jcodemunch fully deferred, set `"alwaysLoad": false` on its
 entry in `.mcp.json`.
 
+The PreToolUse hook's advice on the `counter` surface now also says how to
+load `order` when it isn't loaded yet (`ToolSearch "select:mcp__jcodemunch__order"`),
+for a user who turned the up-front load off or a client that ignores it.
+
 The cost is prompt size. On a deferring client the marked tools' descriptions
 and schemas are now part of every request: 2,480 bytes on `counter`, and
 13,168 bytes on `full`. After the first request they are read from the prompt
