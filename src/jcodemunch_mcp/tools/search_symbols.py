@@ -36,6 +36,8 @@ from ..retrieval.scoring import (  # noqa: F401,E402
     _stem,
     _sym_tokens,
     _tokenize,
+    query_terms as _query_terms,
+    test_file_factor,
 )
 from ._utils import (
     resolve_repo,
@@ -387,7 +389,7 @@ def _bm25_score(sym: dict, query_terms: list[str], idf: dict[str, float], avgdl:
     if centrality and score > 0:
         score += centrality.get(sym.get("file", ""), 0.0)
 
-    return score
+    return score * test_file_factor(sym, query_terms)
 
 
 def _bm25_breakdown(sym: dict, query_terms: list[str], idf: dict[str, float], avgdl: float, raw_query: str = "") -> dict:
@@ -850,7 +852,7 @@ def search_symbols(
             }
 
     # BM25 corpus stats — cached on CodeIndex, computed once per index load
-    query_terms = _tokenize(query) or [query.lower()]
+    query_terms = _query_terms(query)
     # Guard: empty string in query_terms causes "" to match every filename
     query_terms = [t for t in query_terms if t]
     # Single-flight: concurrent cold searches must not each build the

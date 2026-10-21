@@ -5,8 +5,8 @@ import time
 from typing import Optional
 
 from ._utils import load_repo_index_or_error
+from ..retrieval.scoring import query_terms as _query_terms
 from .search_symbols import (
-    _tokenize,
     _bm25_score,
     ensure_bm25_cache,
 )
@@ -63,7 +63,7 @@ def plan_turn(
     inverted = cache["inverted"]
 
     # Tokenize query
-    query_terms = _tokenize(query) or [query.lower()]
+    query_terms = _query_terms(query)
     # Guard: empty string in query_terms causes "" to match every filename
     query_terms = [t for t in query_terms if t]
 

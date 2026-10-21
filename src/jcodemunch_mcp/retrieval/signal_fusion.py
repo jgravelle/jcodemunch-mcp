@@ -362,7 +362,9 @@ def _bm25_score_no_identity(
     if centrality and score > 0:
         score += centrality.get(sym.get("file", ""), 0.0)
 
-    return score
+    from .scoring import test_file_factor  # noqa: PLC0415
+
+    return score * test_file_factor(sym, query_terms)
 
 
 # ---------------------------------------------------------------------------

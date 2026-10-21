@@ -156,6 +156,78 @@ def _tokenize(text: str) -> list[str]:
     return result
 
 
+# --- Query words and test demotion (shared by every lexical scorer) -------- #
+# A natural-language question carries words that name no code: "How does
+# dependency injection work?" scored "how" and "does" as content, so every
+# test named ``test_*_does_not_*`` outranked the functions that implement the
+# concept. These words are dropped from the QUERY only (the index keeps them),
+# and only when something else is left: a query that is nothing but such words
+# keeps them all, so an identifier like ``is`` or ``do`` still resolves.
+QUERY_STOPWORDS = frozenset({
+    "a", "an", "the", "of", "to", "in", "on", "at", "by", "for", "from", "with",
+    "and", "or", "as", "into", "about", "over",
+    "how", "what", "where", "why", "when", "which", "who", "whom", "whose",
+    "is", "are", "was", "were", "be", "been", "being", "am",
+    "do", "does", "did", "doing", "done",
+    "can", "could", "should", "would", "will", "shall", "may", "might", "must",
+    "it", "its", "this", "that", "these", "those", "there", "here",
+    "i", "we", "you", "me", "my", "our", "your",
+})
+
+
+def query_terms(query: str) -> list[str]:
+    """Tokens a lexical scorer should match for ``query``.
+
+    `_tokenize` minus `QUERY_STOPWORDS`, falling back to the full token list
+    when filtering would leave nothing, and to the lowered query when there
+    are no tokens at all (the old ``_tokenize(q) or [q.lower()]`` contract).
+    Empty strings are never returned: "" matches every filename.
+    """
+    toks = [t for t in _tokenize(query) if t]
+    kept = [t for t in toks if t not in QUERY_STOPWORDS]
+    if kept:
+        return kept
+    if toks:
+        return toks
+    low = (query or "").lower()
+    return [low] if low else []
+
+
+# Words that make a query ABOUT tests; with one present, test code is what
+# the caller wants and is not demoted.
+_TEST_INTENT = frozenset({
+    "test", "tests", "testing", "spec", "specs", "fixture", "fixtures",
+    "mock", "mocks", "pytest", "unittest", "conftest",
+})
+
+# Multiplier on a test-file symbol's lexical score for a query that is not
+# about tests. Test suites outnumber the code they exercise and repeat its
+# vocabulary in their names, so without this a conceptual question returns
+# tests first. Measured on the pinned fastapi case
+# (tests/test_conceptual_query_ranking.py); a test still ranks when nothing
+# in the source matches.
+TEST_FILE_FACTOR = 0.25
+
+
+def has_test_intent(terms: list[str]) -> bool:
+    return any(t in _TEST_INTENT for t in terms)
+
+
+def test_file_factor(sym: dict, terms: list[str]) -> float:
+    """1.0, or `TEST_FILE_FACTOR` for a symbol in a test file when the query
+    is not about tests. The file check is `_test_paths.is_test_file`, the one
+    test-file rule, cached on the symbol dict."""
+    if has_test_intent(terms):
+        return 1.0
+    flag = sym.get("_is_test")
+    if flag is None:
+        from ..tools._test_paths import is_test_file  # noqa: PLC0415  (leaf, stdlib only)
+
+        flag = bool(is_test_file(sym.get("file") or ""))
+        sym["_is_test"] = flag
+    return TEST_FILE_FACTOR if flag else 1.0
+
+
 def _sym_tokens(sym: dict) -> list[str]:
     """Weighted token bag for a symbol (repetition = field weight).
     Cached on the symbol dict to avoid re-tokenizing across calls.
