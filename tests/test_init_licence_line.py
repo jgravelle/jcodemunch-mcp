@@ -33,6 +33,9 @@ def quiet_init(monkeypatch):
     client.config_path = None
     monkeypatch.setattr(init_module, "_detect_clients", lambda: [client])
     monkeypatch.setattr(init_module, "configure_client", MagicMock(return_value="  (spy)"))
+    # An unlicensed install unless a test says otherwise: a key on the box
+    # running the suite must not decide what the default case prints.
+    monkeypatch.delenv("JCODEMUNCH_LICENSE_KEY", raising=False)
 
 
 def _run(capsys, **kw) -> str:
@@ -50,6 +53,62 @@ def test_a_real_run_ends_with_the_licence_line_after_done(quiet_init, capsys):
     assert "https://jcodemunch.com/descriptions.php" in tail
     assert "(30-day money-back guarantee; terms: https://jcodemunch.com/guarantee.php)" in tail
     assert out.count("descriptions.php") == 1
+
+
+def test_a_licensed_install_by_env_prints_no_licence_line(quiet_init, capsys, monkeypatch):
+    """jjg's promise: paid clients are never marketed to (DECISIONS 2026-10-20).
+    The $79 line is a sales line, so a configured key suppresses it."""
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "jcm-test-key-not-real")
+    out = _run(capsys, dry_run=False)
+    assert "Done." in out
+    assert not any(m in out for m in _MARKERS), out
+
+
+def test_a_licensed_install_by_config_prints_no_licence_line(quiet_init, capsys, monkeypatch):
+    from jcodemunch_mcp import config
+
+    real_get = config.get
+    monkeypatch.setattr(
+        config, "get", lambda key, *a, **k: "jcm-test-key-not-real" if key == "license_key" else real_get(key, *a, **k)
+    )
+    out = _run(capsys, dry_run=False)
+    assert "Done." in out
+    assert not any(m in out for m in _MARKERS), out
+
+
+def test_a_blank_key_is_no_licence(quiet_init, capsys, monkeypatch):
+    """Whitespace is not a key: the line still prints."""
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "   ")
+    out = _run(capsys, dry_run=False)
+    assert out.count("descriptions.php") == 1
+
+
+def test_the_licence_check_makes_no_network_call(quiet_init, capsys, monkeypatch):
+    """The gate reads the configured key only. Validating it would send it to
+    validate.php from every `init`, a network call `init` has never made.
+
+    ⚠ Calls are RECORDED, never refused with a raise: `_check_server` wraps its
+    request in `except Exception: return None`, so a raise from a patched
+    socket would be swallowed and a validating gate would stay green (review of
+    this test, the 08-13 #439/#453 shape)."""
+    import socket
+
+    import httpx
+
+    from jcodemunch_mcp.org import license as lic
+
+    calls = []
+    real_check = lic._check_server
+    monkeypatch.setattr(lic, "_check_server", lambda *a, **k: calls.append("_check_server") or real_check(*a, **k))
+    for verb in ("get", "post", "request"):
+        real = getattr(httpx, verb)
+        monkeypatch.setattr(httpx, verb, lambda *a, _v=verb, _r=real, **k: calls.append("httpx." + _v) or _r(*a, **k))
+    real_connect = socket.socket.connect
+    monkeypatch.setattr(socket.socket, "connect", lambda self, *a, **k: calls.append("connect") or real_connect(self, *a, **k))
+    monkeypatch.setenv("JCODEMUNCH_LICENSE_KEY", "jcm-test-key-not-real")
+    out = _run(capsys, dry_run=False)
+    assert not any(m in out for m in _MARKERS), out
+    assert calls == [], calls
 
 
 @pytest.mark.parametrize("mode", [{"dry_run": True}, {"demo": True}])

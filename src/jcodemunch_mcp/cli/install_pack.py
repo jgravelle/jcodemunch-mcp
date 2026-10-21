@@ -216,8 +216,12 @@ def _mask_license(key: str) -> str:
     return key[:4] + "****" + key[-4:]
 
 
-def _list_packs() -> int:
-    """Fetch and display the starter pack catalog."""
+def _list_packs(licensed: bool = False) -> int:
+    """Fetch and display the starter pack catalog.
+
+    `licensed`: a key passed on the command line (`--license`); a configured
+    key is found by `licence_key_configured`. Either one drops the sales line.
+    """
     # ⚠ No raise_for_status. It used to sit here, inside a `except httpx.HTTPError`
     # — and HTTPStatusError is a SUBCLASS of HTTPError, so every non-2xx response
     # was reported as "check your network connection" for a server that was up and
@@ -307,7 +311,10 @@ def _list_packs() -> int:
         print()
 
     print(f"  {_DIM}Free packs require no license. Licensed packs require a jCodeMunch license.{_RESET}")
-    print(f"  {_DIM}Get a license: https://jcodemunch.com/#pricing{_RESET}")
+    from ..org.license import licence_key_configured
+
+    if not (licensed or licence_key_configured()):  # paid clients are never marketed to (jjg, 2026-10-20)
+        print(f"  {_DIM}Get a license: https://jcodemunch.com/#pricing{_RESET}")
     print()
     return 0
 
@@ -546,6 +553,6 @@ def run_install_pack(
 ) -> int:
     """Entry point for the install-pack subcommand."""
     if list_packs or not pack_id:
-        return _list_packs()
+        return _list_packs(licensed=bool((license_key or "").strip()))
     effective_key = resolve_effective_license_key(license_key)
     return _install_pack(pack_id, license_key=effective_key, force=force)

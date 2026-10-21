@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed - a licensed install is not shown a sales line
+
+`init` ended every real run with "Using jCodeMunch at work? A commercial
+licence is $79", and `install-pack`'s catalog listing ended with "Get a
+license", whether or not the install already had a licence key. A paying
+customer was being sold the thing they had bought, and jMunch promises paid
+clients they are never marketed to (jjg, 2026-10-20). Both lines now print
+only when no key is configured (for `install-pack --list`, a key passed with
+`--license` counts too). `org.license.licence_key_configured` is the one gate: it reads the key from `JCODEMUNCH_LICENSE_KEY` or the `license_key`
+config value and never validates it, because validating would send the key
+to `validate.php` from every `init`, a network call `init` has never made. A
+key that later proves invalid still suppresses the lines, which errs toward
+not selling. `tests/test_init_licence_line.py` covers a key from the
+environment, a key from the config, a blank key (still unlicensed) and a run
+that records every network call and requires none (recorded, not refused:
+the validator's own `except Exception` would swallow a raise);
+`tests/test_install_pack.py` covers the listing with no key, a configured
+key and a `--license` key.
+
 ### Changed - the license's copyright holder is jMunch, LLC (license version 1.2)
 
 `LICENSE` now reads "Copyright (c) 2024-2026 jMunch, LLC" in place of J.
@@ -17,6 +36,16 @@ does not move when a copyright is assigned. The digest pin in
 test requires for any edit.
 
 ## [1.108.386] - 2026-10-20 - the AI summary prompt can carry each symbol's own source, opt-in
+
+The `license` status command followed the same rule. A valid Builder key, whose tier
+does not include the team rollup, was told "org-rollup: optional team add-on,
+requires Studio or Platform" with an "Upgrade for org-rollup" link. It now reads
+"Team features (org-rollup): not included in your license", with no link. The
+pricing link is shown only to an install with no key at all: a key that is
+unverified (the license server was unreachable) or rejected may still belong to a
+paying customer, so it gets none either; `license --json` follows the same rule,
+returning `get_license: null` for any key holder. `tests/test_v1_108_122.py` pins
+all four key states in both renderings.
 
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
 
