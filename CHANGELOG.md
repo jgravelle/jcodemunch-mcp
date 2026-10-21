@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.108.388] - 2026-10-21 - the license names jMunch, LLC, and the product says "license"
+
 ### Changed - "license", spelled the American way, and a way forward for a rejected key
 
 The product said "licence" in places its buyers read: `init`'s closing line ("A
