@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Fixed - a question about how code works ranks the code above its tests
+
+Lexical search scored every word of a question, so "How does dependency
+injection work?" matched "how" and "does" as content. On a project whose test
+names read like sentences (fastapi's `test_route_does_not_match_websocket`,
+`test_endpoint_works`), the tests won: on the pinned fastapi checkout that
+question returned 10 test functions in `search_symbols`' top 10 and 9 in
+`get_ranked_context`'s. Two rules now apply to every lexical scorer, from
+`retrieval/scoring.py`:
+
+- Function words ("how", "does", "the", ...) are dropped from a multi-word
+  query where they stand as plain words. A one-word query is taken as a name,
+  and a part of an identifier is never dropped: the "at" in `ndcg_at_k` and
+  the "is" in `is_valid` stay.
+- A symbol in a test file (the shared test-file rule) is down-weighted by
+  `TEST_SYMBOL_WEIGHT` (0.25) when the query is not about tests. A query that
+  mentions tests, fixtures or mocks is not affected.
+
+On seven fastapi questions about dependency injection, tests in the top 10
+fell to 0 on every one, in both tools. `Depends` moved from 19 to 3, 15 to 2,
+55 to 20 and 48 to 9. One question regressed: "where are Depends dependencies
+resolved for a request" moved `Depends` from 3 to 8 (while
+`solve_dependencies` rose from 59 to 31). The goal of returning all four core
+functions (`Depends`, `solve_dependencies`, `get_dependant`, `analyze_param`)
+in the top 10 is not met: `get_dependant` and `analyze_param` still do not
+appear in `search_symbols`' top 100 for any of the seven. The replay benchmark is unchanged.
+
 ## [1.108.389] - 2026-10-21 - the core tools load up front where clients defer MCP tools
 
 ### Changed - the startup note says the repo is indexed, and how big it is
