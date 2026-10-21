@@ -2858,3 +2858,13 @@ The 1.108.386 entry, verbatim as it stood in `CLAUDE.md`:
 The `Tests:` line's 1.108.386 count, verbatim:
 
 - ⚠ Prior (1.108.386): 18265 passed, 25 skipped, **0 failed** (18290 total).
+
+## Current State rotation (2026-10-21, release 1.108.390)
+
+The 1.108.387 entry, verbatim as it stood in `CLAUDE.md`:
+
+- **Prior (1.108.387):** **a licensed install is not shown a sales line** (2026-10-20: paid clients are never marketed to): `org.license.licence_key_configured` (reads `JCODEMUNCH_LICENSE_KEY` or `license_key`, never validates, so `init` makes no network call) gates `init`'s $79 line and `install-pack`'s "Get a license"; `license` and `license --json` show the pricing link only when no key is set (`license_status_json`). Also certifi and Pillow lock updates. Full text: `CHANGELOG.md`.
+
+The `Tests:` line's 1.108.387 count, verbatim:
+
+- ⚠ Prior (1.108.387): 18280 passed, 25 skipped, **0 failed** (18305 total).
