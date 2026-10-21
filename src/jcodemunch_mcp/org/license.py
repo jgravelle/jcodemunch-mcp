@@ -261,6 +261,20 @@ def format_license_status(gate: dict, *, key_provided: bool = False) -> list[str
     return lines
 
 
+def license_status_json(gate: dict) -> dict:
+    """The ``license --json`` payload: ``check_gate()`` under the same rule as
+    `format_license_status`, so the two renderings of one command agree.
+
+    ``get_license`` (the pricing URL) is kept only when no key is set; a key
+    holder may be a paying customer, and paid clients are never marketed to
+    (jjg, DECISIONS 2026-10-20). Every other field is passed through unchanged.
+    """
+    out = dict(gate)
+    if (gate.get("key_status") or "absent") != "absent":
+        out["get_license"] = None
+    return out
+
+
 def _key_status(key: str, res: dict) -> str:
     """Classify a key for honest presentation: "valid" | "absent" |
     "unverified_offline" | "rejected".

@@ -29,8 +29,9 @@ requires Studio or Platform" with an "Upgrade for org-rollup" link. It now reads
 "Team features (org-rollup): not included in your license", with no link. The
 pricing link is shown only to an install with no key at all: a key that is
 unverified (the license server was unreachable) or rejected may still belong to a
-paying customer, so it gets none either. `tests/test_v1_108_122.py` pins all four
-key states.
+paying customer, so it gets none either; `license --json` follows the same rule,
+returning `get_license: null` for any key holder. `tests/test_v1_108_122.py` pins
+all four key states in both renderings.
 
 ### Added - `summarizer_body_chars`: the AI summary prompt can carry each symbol's source (#1175)
 
