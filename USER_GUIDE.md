@@ -203,7 +203,9 @@ With optional GitHub auth and AI summaries:
 
 * `MINIMAX_API_KEY`
   Enables AI-generated summaries via MiniMax using the default model
-  `minimax-m2.7`.
+  `MiniMax-M3.1-Flash`. Set `summarizer_model` in `config.jsonc` or
+  `JCODEMUNCH_SUMMARIZER_MODEL` to `MiniMax-M3` for the alternative model.
+  Explicit custom or legacy model IDs remain supported.
 
 * `ZHIPUAI_API_KEY`
   Enables AI-generated summaries via GLM-5 using the default endpoint

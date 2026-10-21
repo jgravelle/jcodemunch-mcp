@@ -11,7 +11,10 @@ from jcodemunch_mcp.summarizer import (
     GeminiBatchSummarizer,
     OpenAIBatchSummarizer,
 )
-from jcodemunch_mcp.summarizer.batch_summarize import _create_summarizer, get_model_name
+from jcodemunch_mcp.summarizer.batch_summarize import (
+    _create_summarizer,
+    get_model_name,
+)
 
 
 def test_extract_summary_from_docstring_simple():
@@ -1706,7 +1709,8 @@ class TestProjectAwareSummarizer:
         )
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
-        import sys, types as _types
+        import sys
+        import types as _types
         stub = _types.ModuleType("anthropic")
         stub.Anthropic = lambda **kwargs: object()
         monkeypatch.setitem(sys.modules, "anthropic", stub)
@@ -1731,3 +1735,26 @@ class TestProjectAwareSummarizer:
         # → should return None (auto-detect finds nothing).
         from jcodemunch_mcp.summarizer.batch_summarize import _create_summarizer
         assert _create_summarizer() is None
+
+
+def test_minimax_default_and_custom_models_reach_http_payload(monkeypatch):
+    """MiniMax picker defaults to Flash while preserving explicit model IDs."""
+    from jcodemunch_mcp.summarizer import batch_summarize as module
+
+    fake = MagicMock(client=object())
+    with patch.dict(
+        "os.environ",
+        {
+            "JCODEMUNCH_SUMMARIZER_PROVIDER": "minimax",
+            "MINIMAX_API_KEY": "test-key",
+        },
+        clear=True,
+    ), patch.object(module, "_make_openai_compat", return_value=fake) as factory:
+        assert _create_summarizer() is fake
+    assert factory.call_args.kwargs["model"] == "MiniMax-M3.1-Flash"
+
+    summarizer = OpenAIBatchSummarizer(model="minimax-m2.7", api_base="http://127.0.0.1:1")
+    path, payload = summarizer._request_spec("summarize this symbol")
+    assert path == "/chat/completions"
+    assert payload["model"] == "minimax-m2.7"
+    assert payload["messages"][0]["content"] == "summarize this symbol"

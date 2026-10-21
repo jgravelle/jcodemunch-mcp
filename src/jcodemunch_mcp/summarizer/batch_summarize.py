@@ -874,7 +874,7 @@ def _create_summarizer(repo: Optional[str] = None) -> Optional[BaseSummarizer]:
             s = _make_openai_compat(
                 api_key=os.environ.get("MINIMAX_API_KEY"),
                 base_url="https://api.minimax.io/v1",
-                model=model_override or "minimax-m2.7",
+                model=model_override or "MiniMax-M3.1-Flash",
                 repo=repo,
             )
         except ValueError:
@@ -1010,7 +1010,7 @@ def summarize_symbols(
       1. ANTHROPIC_API_KEY set or provider=anthropic → Claude Haiku
       2. GOOGLE_API_KEY set or provider=gemini       → Gemini Flash
       3. OPENAI provider/base                         → OpenAI-compatible endpoint
-      4. MINIMAX_API_KEY set or provider=minimax     → MiniMax M2.7
+      4. MINIMAX_API_KEY set or provider=minimax     → MiniMax-M3.1-Flash
       5. ZHIPUAI_API_KEY set or provider=glm         → GLM-5
       6. OPENROUTER_API_KEY set or provider=openrouter → OpenRouter
       - None set               → skip to Tier 3

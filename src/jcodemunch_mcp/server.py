@@ -9008,7 +9008,7 @@ def _run_config(check: bool = False, init: bool = False, upgrade: bool = False) 
         suffix = _provider_pinned_by("minimax") if provider == "minimax" else "MINIMAX_API_KEY set"
         print(f"  Active provider:  {green('MiniMax')}  ({suffix})")
         row("  OPENAI_API_BASE", "https://api.minimax.io/v1", "default")
-        row("  OPENAI_MODEL", _sm_effective or "minimax-m2.7", _detect_source("summarizer_model", "") if _sm_effective else "default")
+        row("  OPENAI_MODEL", _sm_effective or "MiniMax-M3.1-Flash", _detect_source("summarizer_model", "") if _sm_effective else "default")
     elif provider_name == "glm":
         suffix = _provider_pinned_by("glm") if provider == "glm" else "ZHIPUAI_API_KEY set"
         print(f"  Active provider:  {green('GLM-5')}  ({suffix})")

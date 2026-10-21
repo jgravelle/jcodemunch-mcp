@@ -2846,7 +2846,8 @@ def generate_template() -> str:
   // Model name to use for the selected summarizer provider.
   // Leave empty ("") to use the provider's default model.
   // Examples: "claude-haiku-4-5-20251001" (anthropic), "gemini-2.5-flash-lite" (gemini),
-  //           "gpt-4o-mini" (openai), "minimax-m2.7" (minimax), "glm-5" (glm),
+  //           "gpt-4o-mini" (openai), "MiniMax-M3.1-Flash" (minimax), "glm-5" (glm),
+  //           "MiniMax-M3" (minimax alternative),
   //           "meta-llama/llama-3.3-70b-instruct:free" (openrouter)
   // "summarizer_model": "",
   // "embed_model": "",
