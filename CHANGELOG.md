@@ -34,6 +34,8 @@ functions (`Depends`, `solve_dependencies`, `get_dependant`, `analyze_param`)
 in the top 10 is not met: `get_dependant` and `analyze_param` still do not
 appear in `search_symbols`' top 100 for any of the seven. The replay benchmark is unchanged.
 
+## [1.108.390] - 2026-10-21 - the local embedding model is pinned and checked before it is used
+
 ### Fixed - the local embedding model is pinned and checked, and its size is stated correctly
 
 `download-model`, and the first semantic encode with the `[local-embed]` extra,
