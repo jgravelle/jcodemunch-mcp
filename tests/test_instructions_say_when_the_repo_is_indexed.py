@@ -128,7 +128,6 @@ def test_a_real_index_of_this_directory_is_found(tmp_path, monkeypatch):
     assert out.get("success"), out
     monkeypatch.chdir(project)
     assert server._indexed_here(timeout=10) == out["file_count"] == 3
-    monkeypatch.chdir(project / ".")
     sub = project / "pkg"
     sub.mkdir()
     monkeypatch.chdir(sub)
@@ -170,6 +169,15 @@ def test_a_second_checkout_of_an_indexed_project_is_not_claimed(tmp_path, monkey
     assert server._indexed_here(timeout=10) is None
     monkeypatch.chdir(a)
     assert server._indexed_here(timeout=10) == 3
+
+
+def test_indexed_here_is_none_without_a_working_directory(monkeypatch):
+    """A deleted working directory makes Path.cwd() raise; startup must not."""
+    def gone():
+        raise FileNotFoundError("cwd removed")
+
+    monkeypatch.setattr(server.Path, "cwd", staticmethod(gone))
+    assert server._indexed_here() is None
 
 
 def test_indexed_here_is_none_on_an_error(monkeypatch):

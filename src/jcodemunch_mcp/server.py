@@ -377,7 +377,11 @@ def _indexed_here(timeout: float = 1.5) -> "Optional[int]":
     import threading
 
     box: dict = {}
-    cwd = Path.cwd().resolve()
+    try:
+        cwd = Path.cwd().resolve()
+    except OSError:  # e.g. the working directory was deleted
+        logger.debug("startup index lookup: no usable working directory", exc_info=True)
+        return None
 
     def _look() -> None:
         try:
