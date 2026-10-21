@@ -161,9 +161,10 @@ def _tokenize(text: str) -> list[str]:
 # A natural-language question carries words that name no code: "How does
 # dependency injection work?" scored "how" and "does" as content, so every
 # test named ``test_*_does_not_*`` outranked the functions that implement the
-# concept. These words are dropped from the QUERY only (the index keeps them),
-# and only when something else is left: a query that is nothing but such words
-# keeps them all, so an identifier like ``is`` or ``do`` still resolves.
+# concept. In a multi-word query these words count at FUNCTION_WORD_WEIGHT
+# (see `function_word_terms` and `query_idf`); nothing is removed from the
+# query or the index. A one-word query, an identifier's parts, and a query
+# made only of such words keep full weight, so ``is`` or ``do`` still resolve.
 QUERY_STOPWORDS = frozenset({
     "a", "an", "the", "of", "to", "in", "on", "at", "by", "for", "from", "with",
     "and", "or", "as", "into", "about", "over",
@@ -289,10 +290,10 @@ def test_file_factor(sym: dict, terms: list[str]) -> float:
 def identity_query(query: str) -> str:
     """The query as the identity (exact-name) channel reads it: EVERY token.
 
-    `query_terms` drops function words for the lexical score, but a name typed
-    as words ("is valid", "value of") must still meet `is_valid` and
-    `value_of` in full, so identity never sees the filtered list. Same value
-    the scorers used before `query_terms` existed. Cached: it runs once per
+    Function words are down-weighted only in the lexical score (`query_idf`);
+    the identity channel matches names, so "is valid" and "value of" are
+    compared with `is_valid` and `value_of` in full. Same value the scorers
+    used before `query_terms` existed. Cached: it runs once per
     scored symbol.
     """
     return " ".join(_tokenize(query) or [(query or "").lower()])

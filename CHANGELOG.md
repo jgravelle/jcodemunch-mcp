@@ -23,7 +23,10 @@ question returned 10 test functions in `search_symbols`' top 10 and 9 in
   A query that mentions tests, fixtures or mocks is not affected. Only the
   ranking uses the reduced score: the low-confidence warning, the confidence
   value and `plan_turn`'s grade read the unreduced one, so a match that exists
-  only in tests is not reported as possibly absent.
+  only in tests is not reported as possibly absent. The reduction applies to
+  the whole score, exact-name match included: looking up a test helper by its
+  exact name still finds it first, but a looser query ranks matching source
+  code above it.
 
 On seven fastapi questions about dependency injection, tests in the top 10
 fell to 0 on every one, in both tools. `Depends` moved from 19 to 3, 15 to 3,
