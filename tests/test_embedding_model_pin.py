@@ -51,15 +51,57 @@ def test_a_file_that_matches_is_kept(tmp_path):
     sums = {k: hashlib.sha256(v).hexdigest() for k, v in data.items()}
 
     def fake(url, path):
-        Path(path).write_bytes(data[Path(path).name])
+        Path(path).write_bytes(data[Path(path).name.removesuffix(".part")])
 
     with patch.dict(le.MODEL_SHA256, sums), patch("urllib.request.urlretrieve", side_effect=fake):
         assert le.download_model(tmp_path, quiet=True) == tmp_path
     assert (tmp_path / le.ONNX_FILENAME).read_bytes() == b"onnx-bytes"
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_a_file_already_on_disk_that_does_not_match_is_fetched_again(tmp_path):
+    """A truncated download, or a copy fetched before the pin, is not trusted."""
+    data = {le.ONNX_FILENAME: b"onnx-bytes", le.VOCAB_FILENAME: b"vocab-bytes"}
+    sums = {k: hashlib.sha256(v).hexdigest() for k, v in data.items()}
+    (tmp_path / le.ONNX_FILENAME).write_bytes(b"onnx-by")  # truncated
+    (tmp_path / le.VOCAB_FILENAME).write_bytes(b"vocab-bytes")  # good
+    fetched = []
+
+    def fake(url, path):
+        name = Path(path).name.removesuffix(".part")
+        fetched.append(name)
+        Path(path).write_bytes(data[name])
+
+    with patch.dict(le.MODEL_SHA256, sums), patch("urllib.request.urlretrieve", side_effect=fake):
+        le.download_model(tmp_path, quiet=True)
+    assert fetched == [le.ONNX_FILENAME]
+    assert (tmp_path / le.ONNX_FILENAME).read_bytes() == b"onnx-bytes"
+
+
+def test_an_interrupted_download_leaves_no_file_behind(tmp_path):
+    """Ctrl-C mid-download must not leave a file a later run would pick up."""
+
+    def fake(url, path):
+        Path(path).write_bytes(b"half")
+        raise KeyboardInterrupt
+
+    with patch("urllib.request.urlretrieve", side_effect=fake):
+        with pytest.raises(KeyboardInterrupt):
+            le.download_model(tmp_path, quiet=True)
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_fetched_file_with_no_checksum_is_refused(tmp_path):
+    """Fails closed: a file added to the fetch list without a digest cannot download."""
+    with patch.object(le, "MODEL_SHA256", {}), patch("urllib.request.urlretrieve") as fetch:
+        with pytest.raises(KeyError):
+            le.download_model(tmp_path, quiet=True)
+    fetch.assert_not_called()
 
 
 def test_no_published_text_states_the_old_size():
-    for rel in ("SECURITY.md", "src/jcodemunch_mcp/embeddings/local_encoder.py"):
+    for rel in ("SECURITY.md", "CONFIGURATION.md", "src/jcodemunch_mcp/embeddings/local_encoder.py"):
         text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "~23 MB" not in text, rel
+        for old in ("~23 MB", "~23MB", "23MB", "~25MB", "~25 MB"):
+            assert old not in text, (rel, old)
     assert "90 MB" in (ROOT / "SECURITY.md").read_text(encoding="utf-8")

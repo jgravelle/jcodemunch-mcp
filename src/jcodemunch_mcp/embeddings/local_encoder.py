@@ -104,8 +104,12 @@ def _sha256(path: Path) -> str:
 def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) -> Path:
     """Download the ONNX model + vocab from HuggingFace to *target_dir*.
 
-    Fetches `MODEL_REVISION` and checks each file against `MODEL_SHA256`; a
-    file that does not match is deleted and the download fails.
+    Fetches `MODEL_REVISION` and checks each file against `MODEL_SHA256`. A
+    file already on disk is kept only if it matches; otherwise it is fetched
+    again. A fetch goes to ``<name>.part`` and replaces the real file only
+    after it matches, so an interrupted download never leaves a file that a
+    later run would use. A fetched file that does not match is deleted and
+    the download fails.
     Returns the directory containing the downloaded files.
     """
     import urllib.request
@@ -115,31 +119,40 @@ def download_model(target_dir: Optional[Path] = None, *, quiet: bool = False) ->
 
     for url, filename in _files_to_fetch():
         out_path = dest / filename
+        expected = MODEL_SHA256[filename]
         if out_path.exists():
-            if not quiet:
-                logger.info("download_model: %s already exists, skipping", out_path)
-            continue
+            if _sha256(out_path) == expected:
+                if not quiet:
+                    logger.info("download_model: %s already present and verified", out_path)
+                continue
+            logger.warning(
+                "download_model: %s does not match the pinned checksum; fetching it again",
+                out_path,
+            )
         if not quiet:
             logger.info("download_model: downloading %s ...", filename)
             print(f"  Downloading {filename} from {MODEL_REPO} ...", file=sys.stderr)  # noqa: T201
+        part_path = dest / (filename + ".part")
         try:
-            urllib.request.urlretrieve(url, str(out_path))
-        except Exception as exc:
-            # Clean up partial download
-            if out_path.exists():
-                out_path.unlink()
+            urllib.request.urlretrieve(url, str(part_path))
+        except BaseException as exc:
+            # Never leave a partial file behind, including on Ctrl-C.
+            if part_path.exists():
+                part_path.unlink()
+            if not isinstance(exc, Exception):
+                raise
             raise RuntimeError(
                 f"Failed to download {filename} from {url}: {exc}"
             ) from exc
-        expected = MODEL_SHA256.get(filename)
-        actual = _sha256(out_path)
-        if expected and actual != expected:
-            out_path.unlink()
+        actual = _sha256(part_path)
+        if actual != expected:
+            part_path.unlink()
             raise RuntimeError(
                 f"Downloaded {filename} failed its checksum (expected sha256 {expected}, "
                 f"got {actual}); the file was removed. Upstream may have changed; "
                 f"nothing was installed."
             )
+        os.replace(part_path, out_path)
         if not quiet:
             size_mb = out_path.stat().st_size / (1024 * 1024)
             print(f"  Saved {filename} ({size_mb:.1f} MB)", file=sys.stderr)  # noqa: T201

@@ -248,13 +248,23 @@ class TestModelManagement:
         assert (tmp_path / "vocab.txt").exists()
 
     def test_download_model_skips_existing(self, tmp_path):
-        """Should not re-download files that already exist."""
-        (tmp_path / "model.onnx").write_bytes(b"existing")
-        (tmp_path / "vocab.txt").write_text("existing", encoding="utf-8")
+        """Should not re-download files that already exist AND match their checksum.
 
+        A file on disk that does not match is fetched again
+        (tests/test_embedding_model_pin.py); this test used to expect any
+        existing file to be trusted unchecked.
+        """
+        import hashlib
+
+        from jcodemunch_mcp.embeddings import local_encoder as le
         from jcodemunch_mcp.embeddings.local_encoder import download_model
 
-        with patch("urllib.request.urlretrieve") as mock_fetch:
+        (tmp_path / "model.onnx").write_bytes(b"existing")
+        (tmp_path / "vocab.txt").write_bytes(b"existing")
+        same = hashlib.sha256(b"existing").hexdigest()
+
+        with patch.dict(le.MODEL_SHA256, {k: same for k in le.MODEL_SHA256}), \
+                patch("urllib.request.urlretrieve") as mock_fetch:
             download_model(tmp_path, quiet=True)
             mock_fetch.assert_not_called()
 
@@ -287,6 +297,7 @@ class TestModelManagement:
 
         # The second file (vocab.txt) should be cleaned up
         assert not (tmp_path / "vocab.txt").exists()
+        assert not list(tmp_path.glob("*.part"))
 
 
 # ── encode_batch tests (mocked ONNX session) ──────────────────────────────
